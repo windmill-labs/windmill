@@ -169,14 +169,17 @@ overwrite the other's turn, so a run is refused while another one is working on 
   claim covers the run memory id only: a step's own `memory_id` is evaluated on the worker, after
   the push, and stays unguarded.
 - **A parked run hands it over.** A holder whose agent parked (answered while its background jobs
-  run, or waiting on an approval or a question) is not refused against: the new run takes the
-  conversation (`hand_over_parked_turn`). Under the parked agent's queue row lock, its `suspend` is
+  run, or waiting on an approval or a question) as the run's last top-level step, where the run
+  is at, is not refused against: the new run takes the conversation (`hand_over_parked_turn`).
+  After that step the run ends, so nothing of it can write the memory or the chat beside the new
+  turn; a step after the agent, or one in a parallel branch, would, so such a run is refused as a
+  working one, its 409 saying why, and `take_over` stays the way through. Under the parked agent's queue row lock, its `suspend` is
   zeroed and its checkpoint marked `handed_over`, which keeps the monitor's wake and an answer from
   resuming it too. Its background jobs move onto the claim row (`handed_jobs`, by flow step id) and
   the new run's agent of that step adopts them when it starts. The parked agent wakes, refuses an
   open approval or skips a question without a chat row, and ends with the answer it had, writing
   no memory: it saved its memory when it parked, with the open request's calls already reading as
-  dropped. The flow chat's own running-turn check lets a parked turn through the same way.
+  left unanswered. The flow chat's own running-turn check lets a parked turn through the same way.
 - **Take over.** `take_over=true` on a run cancels the run holding the id, then waits up to 40s
   for it to leave the queue before pushing (`take_over_memory_turn`). Only who started that run, or
   an admin, can do it, and a restricted token only with an unconfined `jobs:cancel` scope, since a

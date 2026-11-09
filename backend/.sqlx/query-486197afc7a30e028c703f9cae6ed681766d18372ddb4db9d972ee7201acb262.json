@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM ai_agent_checkpoint c\n             JOIN v2_job_queue q ON q.id = c.job_id JOIN v2_job j ON j.id = c.job_id\n             JOIN v2_job_status s ON s.id = $1\n             WHERE j.parent_job = $1\n               AND (s.flow_status->>'step')::int = jsonb_array_length(s.flow_status->'modules') - 1\n               AND s.flow_status->'modules'->-1->>'job' = c.job_id::text\n               AND q.suspend > 0 AND q.suspend_until IS NOT NULL) AS \"parked!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "parked!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "486197afc7a30e028c703f9cae6ed681766d18372ddb4db9d972ee7201acb262"
+}

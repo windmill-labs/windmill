@@ -212,9 +212,10 @@ pub(crate) struct AgentCheckpoint {
     pub handed_over: bool,
 }
 
-const DROPPED_APPROVAL: &str =
-    "Not run: the user sent a new message instead of answering this approval request.";
-const DROPPED_QUESTION: &str = "The user sent a new message instead of answering.";
+// Saved to memory at park, where the turn may yet be taken over, cancelled or answered: true of
+// the first two, and replaced by the answer in the third.
+const DROPPED_APPROVAL: &str = "Not run: the approval request was left unanswered.";
+const DROPPED_QUESTION: &str = "The question was left unanswered.";
 
 /// The answer to a request dropped because a new turn took the conversation over.
 pub(crate) fn dropped_answer(pending: &PendingPause, actions: &[AgentAction]) -> Answer {

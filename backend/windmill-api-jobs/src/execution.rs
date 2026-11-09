@@ -888,15 +888,19 @@ pub async fn set_flow_memory_id(
     job_id: Uuid,
     memory_id: Uuid,
 ) -> error::Result<()> {
-    if let Some(running) = claim_memory_turn(tx, w_id, memory_id, job_id).await? {
+    if let Some(refused) = claim_memory_turn(tx, w_id, memory_id, job_id).await? {
+        let error = if refused.parked {
+            "another run with this memory_id is waiting, but has steps after its AI agent, so it \
+             cannot hand its conversation over. Wait for it, or pass `take_over=true` to stop it \
+             and run this one instead."
+        } else {
+            "another run with this memory_id is still running. Wait for it, or pass \
+             `take_over=true` to stop it and run this one instead."
+        };
         return Err(Error::Generic(
             StatusCode::CONFLICT,
-            serde_json::json!({
-                "error": "another run with this memory_id is still running. Wait for it, \
-                          or pass `take_over=true` to stop it and run this one instead.",
-                "running_turn": { "job_id": running },
-            })
-            .to_string(),
+            serde_json::json!({ "error": error, "running_turn": { "job_id": refused.holder } })
+                .to_string(),
         ));
     }
     sqlx::query!(
@@ -915,8 +919,15 @@ pub async fn set_flow_memory_id(
     Ok(())
 }
 
-/// Make `job_id` the holder of the memory id, or return the queued job that holds it and is not
-/// parked.
+/// A claim refused: the queued run that holds the memory id, and whether its agent is parked
+/// where the run cannot hand its conversation over.
+struct RefusedClaim {
+    holder: Uuid,
+    parked: bool,
+}
+
+/// Make `job_id` the holder of the memory id, or return the queued run that holds it and cannot
+/// hand it over.
 ///
 /// Lock, then look, in separate statements: under read committed, a statement that waited on a
 /// row lock still evaluates its subqueries with the snapshot it started with, so a single upsert
@@ -926,7 +937,7 @@ async fn claim_memory_turn(
     w_id: &str,
     memory_id: Uuid,
     job_id: Uuid,
-) -> error::Result<Option<Uuid>> {
+) -> error::Result<Option<RefusedClaim>> {
     // A claim the monitor deletes while this waits on it is gone, not held: insert again.
     for _ in 0..3 {
         let inserted = sqlx::query_scalar!(
@@ -961,7 +972,18 @@ async fn claim_memory_turn(
         let handed_jobs = if queued {
             match hand_over_parked_turn(tx, holder).await? {
                 Some(jobs) => Some(jobs),
-                None => return Ok(Some(holder)),
+                None => {
+                    let parked = sqlx::query_scalar!(
+                        r#"SELECT EXISTS (SELECT 1 FROM ai_agent_checkpoint c
+                             JOIN v2_job_queue q ON q.id = c.job_id JOIN v2_job j ON j.id = c.job_id
+                             WHERE (j.parent_job = $1 OR j.root_job = $1)
+                               AND q.suspend > 0 AND q.suspend_until IS NOT NULL) AS "parked!""#,
+                        holder
+                    )
+                    .fetch_one(&mut **tx)
+                    .await?;
+                    return Ok(Some(RefusedClaim { holder, parked }));
+                }
             }
         } else {
             None
@@ -984,9 +1006,13 @@ async fn claim_memory_turn(
 }
 
 /// A run whose agent parked has given its answer or waits on a person, so a new turn continues
-/// the conversation rather than being refused. Its parked agents are woken to end with what they
-/// have, any open approval or question dropped, and their background jobs are returned by flow
-/// step id for the new run's agents to adopt. `None` when the holder has no parked agent.
+/// the conversation rather than being refused. The parked agent is woken to end with what it has,
+/// any open approval or question dropped, and its background jobs are returned by flow step id
+/// for the new run's agent to adopt. `None` when there is no such agent.
+///
+/// Only an agent that is the run's last top-level step, where the run is at: after it the run
+/// ends, so nothing of it can write the memory or the chat beside the new turn. A step after it,
+/// or one in a parallel branch, would. `refuse_running_turn` holds the same condition.
 ///
 /// Zeroing `suspend` under the row lock is what keeps the monitor's wake and an answer from
 /// resuming the old turn as well: both only act on a row still parked.
@@ -996,8 +1022,10 @@ async fn hand_over_parked_turn(
 ) -> error::Result<Option<serde_json::Value>> {
     let parked = sqlx::query!(
         r#"UPDATE v2_job_queue q SET suspend = 0
-         FROM ai_agent_checkpoint c, v2_job j
-         WHERE c.job_id = q.id AND j.id = q.id AND (j.parent_job = $1 OR j.root_job = $1)
+         FROM ai_agent_checkpoint c, v2_job j, v2_job_status s
+         WHERE c.job_id = q.id AND j.id = q.id AND j.parent_job = $1 AND s.id = $1
+           AND (s.flow_status->>'step')::int = jsonb_array_length(s.flow_status->'modules') - 1
+           AND s.flow_status->'modules'->-1->>'job' = q.id::text
            AND q.suspend > 0 AND q.suspend_until IS NOT NULL
          RETURNING q.id, j.flow_step_id, c.checkpoint->'background' AS "background""#,
         holder
@@ -1123,25 +1151,6 @@ pub async fn take_over_memory_turn(
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
-}
-
-/// Apply flow-specific query parameters after job creation
-pub async fn process_flow_run_query_params(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    job_id: Uuid,
-    w_id: &str,
-    flow_path: &str,
-    run_query: &RunJobQuery,
-) -> error::Result<()> {
-    if run_query.take_over.unwrap_or(false) {
-        return Err(Error::BadRequest(
-            "take_over is not supported for app runs".to_string(),
-        ));
-    }
-    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
-        set_flow_memory_id(tx, w_id, job_id, memory_id).await?;
-    }
-    Ok(())
 }
 
 pub async fn handle_chat_conversation_messages(

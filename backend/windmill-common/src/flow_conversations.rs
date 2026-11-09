@@ -139,11 +139,15 @@ async fn refuse_running_turn(
     else {
         return Ok(());
     };
-    // A turn whose agent parked hands over to this one when the run claims the memory id.
+    // A turn whose agent parked as its run's last step hands over to this one when the run
+    // claims the memory id (`hand_over_parked_turn`, which holds the same condition).
     let parked = sqlx::query_scalar!(
         r#"SELECT EXISTS (SELECT 1 FROM ai_agent_checkpoint c
              JOIN v2_job_queue q ON q.id = c.job_id JOIN v2_job j ON j.id = c.job_id
-             WHERE (j.parent_job = $1 OR j.root_job = $1)
+             JOIN v2_job_status s ON s.id = $1
+             WHERE j.parent_job = $1
+               AND (s.flow_status->>'step')::int = jsonb_array_length(s.flow_status->'modules') - 1
+               AND s.flow_status->'modules'->-1->>'job' = c.job_id::text
                AND q.suspend > 0 AND q.suspend_until IS NOT NULL) AS "parked!""#,
         turn.job_id
     )
