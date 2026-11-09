@@ -4,14 +4,15 @@
 	/** Marks a selection, so the per-workspace URLs add no API endpoint tools to it. */
 	export const RUNNABLES_AS_TOOLS = 'mcp:runnables_as_tools'
 
-	/** Added by the server to an `mcp:all` sign-in so the tools server's URLs serve it the AI
-	 *  session's tools. Grants nothing, so it is never shown. */
+	/** Carried by every build-and-run `mcp:all` token Windmill makes, so the tools server's URLs
+	 *  serve it the AI session's tools; a plain `mcp:all` is an older token and keeps the endpoint
+	 *  tools. Grants nothing, so it is never shown. */
 	export const MCP_SESSION = 'mcp:session'
 
 	const ACCESS_SCOPES: Record<Exclude<McpAccess, 'selected'>, string[]> = {
 		read: ['mcp:all', 'mcp:read_only'],
 		read_run: ['mcp:all', 'mcp:read_run'],
-		full: ['mcp:all']
+		full: ['mcp:all', MCP_SESSION]
 	}
 
 	/** The access a token's MCP scopes give: `mcp:all` and how it is narrowed, or else a
