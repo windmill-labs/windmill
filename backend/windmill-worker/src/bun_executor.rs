@@ -85,6 +85,23 @@ pub const BUN_LOCKB_SPLIT_WINDOWS: &str = "\r\n//bun.lockb\r\n";
 
 pub const EMPTY_FILE: &str = "<empty>";
 
+/// A thrown error's own properties (`extra`) can be cyclic, e.g. AWS SDK v3's `$response`:
+/// a plain `JSON.stringify` then throws and the real error is lost. The fallback replaces
+/// only the fields that cannot be encoded, so the rest (`Code`, `$metadata`, ...) survive.
+const STRINGIFY_ERROR_JS: &str = r#"(() => {
+        try {
+            return JSON.stringify(err);
+        } catch {}
+        for (const k of Object.keys(err.extra ?? {})) {
+            try {
+                JSON.stringify(err.extra[k]);
+            } catch {
+                err.extra[k] = '[unserializable]';
+            }
+        }
+        return JSON.stringify(err);
+    })()"#;
+
 /// Bun args for dedicated worker (without the script path)
 pub const BUN_DEDICATED_WORKER_ARGS: &[&str] = &["run", "-i", "--prefer-offline"];
 
@@ -2870,7 +2887,7 @@ try {{
     if (Object.keys(extra).length > 0) {{
         err["extra"] = extra;
     }}
-    await fs.writeFile("result.json", JSON.stringify(err));
+    await fs.writeFile("result.json", {STRINGIFY_ERROR_JS});
     process.exit(1);
 }}
     "#,
@@ -2944,7 +2961,7 @@ try {{
     if (Object.keys(extra).length > 0) {{
         err["extra"] = extra;
     }}
-    await fs.writeFile("result.json", JSON.stringify(err));
+    await fs.writeFile("result.json", {STRINGIFY_ERROR_JS});
     process.exit(1);
 }}
     "#,
@@ -3500,6 +3517,7 @@ pub async fn handle_wac_v2_output(
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
     use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, RawCode};
+    use windmill_common::runnable_ref::RunnableRef;
     use windmill_common::runnable_settings::{
         ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
     };
@@ -3775,9 +3793,10 @@ pub async fn handle_wac_v2_output(
                         (ChildRunnable::Module(module), None)
                     }
                     "script" => {
+                        let script = RunnableRef::from_path(&step.script, false)?;
                         // Resolve script path to job payload (handles hash, lang, etc.)
                         let (payload, _, _, _, _, on_behalf_of) = script_path_to_payload(
-                            &step.script,
+                            &script,
                             None, // no authed db for background workers
                             db.clone(),
                             &job.workspace_id,
@@ -3787,16 +3806,17 @@ pub async fn handle_wac_v2_output(
                         (ChildRunnable::Deployed(payload), on_behalf_of)
                     }
                     "flow" => {
+                        let flow = RunnableRef::from_path(&step.script, true)?;
                         let flow_info = get_latest_flow_version_info_for_path(
                             None,
                             db,
                             &job.workspace_id,
-                            &step.script,
+                            flow.path(),
                             true,
                         )
                         .await?;
                         let payload = JobPayload::Flow {
-                            path: step.script.clone(),
+                            path: flow.path().to_string(),
                             dedicated_worker: flow_info.dedicated_worker,
                             apply_preprocessor: false,
                             version: flow_info.version,
@@ -4044,8 +4064,11 @@ pub async fn handle_wac_v2_output(
                         step.tag.clone().or_else(|| Some(job.tag.clone())),
                         step.timeout.or(job.timeout),
                         None, // flow_step_id
-                        step.priority
-                            .or(if own_runnable { None } else { job.priority }),
+                        step.priority.or(if own_runnable {
+                            None
+                        } else {
+                            windmill_common::queue::passed_on_priority(job.priority)
+                        }),
                         None,  // authed
                         false, // running
                         job.permissioned_as_end_user_email.clone(),

@@ -27,6 +27,7 @@ use windmill_common::{
     error::{Error, Result},
     global_settings::HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS,
     jobs::JobTriggerKind,
+    runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
     utils::{not_found_if_none, StripPath},
 };
@@ -739,12 +740,10 @@ async fn route_job(
         }
     }
 
+    let runnable = RunnableRef::from_path(&trigger.script_path, trigger.is_flow)
+        .map_err(|e| e.into_response())?;
     let runnable_format = get_runnable_format(
-        if trigger.is_flow {
-            RunnableId::from_flow_path(&trigger.script_path)
-        } else {
-            RunnableId::from_script_path(&trigger.script_path)
-        },
+        RunnableId::from_ref(&runnable),
         &trigger.workspace_id,
         &db,
         &TriggerKind::Http,
@@ -771,8 +770,7 @@ async fn route_job(
             Some(user_db),
             authed,
             &trigger.workspace_id,
-            &trigger.script_path,
-            trigger.is_flow,
+            &runnable,
             args,
             trigger.retry.as_ref(),
             trigger.error_handler_path.as_deref(),
@@ -805,8 +803,7 @@ async fn route_job(
                 Some(user_db.clone()),
                 authed.clone(),
                 &trigger.workspace_id,
-                &trigger.script_path,
-                trigger.is_flow,
+                &runnable,
                 args,
                 trigger.retry.as_ref(),
                 trigger.error_handler_path.as_deref(),
@@ -868,8 +865,7 @@ async fn route_job(
             Some(user_db),
             authed,
             &trigger.workspace_id,
-            &trigger.script_path,
-            trigger.is_flow,
+            &runnable,
             args,
             trigger.retry.as_ref(),
             trigger.error_handler_path.as_deref(),
@@ -886,8 +882,7 @@ async fn route_job(
             Some(user_db),
             authed,
             &trigger.workspace_id,
-            &trigger.script_path,
-            trigger.is_flow,
+            &runnable,
             args,
             trigger.retry.as_ref(),
             trigger.error_handler_path.as_deref(),

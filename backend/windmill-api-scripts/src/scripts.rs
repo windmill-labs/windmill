@@ -2874,6 +2874,20 @@ async fn create_script_internal<'c>(
             }
         }
     }
+    if codebase.is_some() {
+        // Cleanup only: rows left from a plain version of this path. A dedicated-worker lock
+        // job or a map rebuild can write them back; `trigger_dependents` is what keeps a lib's
+        // lock change from relocking a codebase script.
+        sqlx::query!(
+            "DELETE FROM dependency_map WHERE workspace_id = $1 AND importer_kind = 'script'
+             AND (importer_path = $2 OR importer_path = $3)",
+            &w_id,
+            &ns.path,
+            p_path_opt.as_deref().unwrap_or(&ns.path),
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     for spec in &pipeline_triggers {
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
             continue;

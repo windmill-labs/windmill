@@ -1450,9 +1450,8 @@
 				? () => [
 						{
 							label: 'Fork',
-							onClick: () => {
-								window.open(`/apps/add?template=${encodeURIComponent($appPath)}`)
-							}
+							href: `/apps/add?template=${encodeURIComponent($appPath)}`,
+							hrefTarget: '_blank'
 						},
 						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)
 							? [

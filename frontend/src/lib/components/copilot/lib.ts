@@ -872,7 +872,19 @@ const PROMPTS_CONFIGS = {
  * forwardable native web-search tool.
  */
 export function providerSupportsWebSearch(provider: AIProvider | undefined): boolean {
-	return provider === 'openai' || provider === 'anthropic'
+	return provider === 'openai' || provider === 'anthropic' || provider === 'deepseek'
+}
+
+/**
+ * Whether the chat sends this model the provider's own web search. DeepSeek serves it on
+ * its Responses API for deepseek-v4-pro only, and every other DeepSeek model accepts the
+ * tool and ignores it, so those keep the workspace's search tools instead.
+ */
+export function modelSupportsWebSearch(provider: AIProvider | undefined, model: string): boolean {
+	if (provider === 'deepseek') {
+		return /(?:^|\/)deepseek-v4-pro/.test(model.toLowerCase())
+	}
+	return providerSupportsWebSearch(provider)
 }
 
 export function getProviderAndCompletionConfig<K extends boolean>({

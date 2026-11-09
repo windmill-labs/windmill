@@ -80,6 +80,7 @@ fn trigger(url: String, trigger_mode: bool) -> ListeningTrigger<WebsocketConfig>
             url,
             filters: vec![],
             filter_logic: "and".to_string(),
+            run_on_filter_error: false,
             initial_messages: None,
             url_runnable_args: None,
             can_return_message: false,

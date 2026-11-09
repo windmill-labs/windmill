@@ -71,6 +71,13 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 	let flowBuilder: FlowBuilder | undefined = $state(undefined)
+
+	// Follow the drawer's own selection, which the user may have moved since it opened.
+	let editHref = $derived.by(() => {
+		const stepId = flowBuilder?.getSelectedId() ?? selectedStepId
+		const selected = stepId ? `?selected=${encodeURIComponent(stepId)}` : ''
+		return `/flows/edit/${flowPath}${selected}`
+	})
 </script>
 
 <Drawer bind:this={flowEditorDrawer} size="100%">
@@ -122,13 +129,10 @@
 		{#snippet actions()}
 			<Button
 				variant="default"
-				on:click={() => {
-					// Follow the drawer's own selection, which the user may have moved since it opened.
-					const stepId = flowBuilder?.getSelectedId() ?? selectedStepId
-					const selected = stepId ? `?selected=${encodeURIComponent(stepId)}` : ''
-					window.open(`/flows/edit/${flowPath}${selected}`, '_blank', 'noopener,noreferrer')
-					flowEditorDrawer?.closeDrawer()
-				}}
+				href={editHref}
+				target="_blank"
+				rel="noopener noreferrer"
+				onClick={() => flowEditorDrawer?.closeDrawer()}
 				startIcon={{ icon: ExternalLink }}
 			>
 				Edit in new tab & close drawer

@@ -93,7 +93,55 @@ pub struct DebouncingSettings {
     pub debounce_args_to_accumulate: Option<Vec<String>>,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Hash, PartialEq, sqlx::FromRow, sqlx::Decode)]
+/// What a run does when its concurrency key is already at its limit when a worker picks it up.
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OnConcurrencyLimit {
+    /// Re-queued to a later slot.
+    #[default]
+    Queue,
+    /// Ends immediately as failed.
+    Fail,
+}
+
+impl OnConcurrencyLimit {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Queue => "queue",
+            Self::Fail => "fail",
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for OnConcurrencyLimit {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <&str as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <&str as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for OnConcurrencyLimit {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        match <&str as sqlx::Decode<sqlx::Postgres>>::decode(value)? {
+            "queue" => Ok(Self::Queue),
+            "fail" => Ok(Self::Fail),
+            other => Err(format!("unknown on_concurrency_limit: {other}").into()),
+        }
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for OnConcurrencyLimit {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode_by_ref(&self.as_str(), buf)
+    }
+}
+
+#[derive(Debug, Default, Clone, Serialize, PartialEq, sqlx::FromRow, sqlx::Decode)]
 pub struct ConcurrencySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
@@ -101,6 +149,22 @@ pub struct ConcurrencySettings {
     pub concurrent_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_concurrency_limit: Option<OnConcurrencyLimit>,
+}
+
+// The hash is the row's key in the deduplicated `concurrency_settings` table: an unset
+// `on_concurrency_limit` must hash exactly as the struct did before the field existed, or every
+// existing setting would be stored again under a new hash.
+impl std::hash::Hash for ConcurrencySettings {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.concurrency_key.hash(state);
+        self.concurrent_limit.hash(state);
+        self.concurrency_time_window_s.hash(state);
+        if let Some(on_limit) = self.on_concurrency_limit {
+            on_limit.hash(state);
+        }
+    }
 }
 
 /// Shared normalization for the positive-only `Option<i32>` runnable settings
@@ -118,10 +182,16 @@ pub fn none_if_non_positive(v: Option<i32>) -> Option<i32> {
 fn normalize_concurrency(
     concurrent_limit: &mut Option<i32>,
     concurrency_time_window_s: &mut Option<i32>,
+    on_concurrency_limit: &mut Option<OnConcurrencyLimit>,
 ) {
     if none_if_non_positive(*concurrent_limit).is_none() {
         *concurrent_limit = None;
         *concurrency_time_window_s = None;
+    }
+    // `queue` is the default; storing it as unset keeps such settings deduplicated with the
+    // rows written before the option existed.
+    if *on_concurrency_limit == Some(OnConcurrencyLimit::Queue) {
+        *on_concurrency_limit = None;
     }
 }
 
@@ -130,6 +200,7 @@ impl ConcurrencySettings {
         normalize_concurrency(
             &mut self.concurrent_limit,
             &mut self.concurrency_time_window_s,
+            &mut self.on_concurrency_limit,
         );
         self
     }
@@ -151,13 +222,22 @@ impl<'de> Deserialize<'de> for ConcurrencySettings {
             concurrent_limit: Option<i32>,
             #[serde(default)]
             concurrency_time_window_s: Option<i32>,
+            #[serde(default)]
+            on_concurrency_limit: Option<OnConcurrencyLimit>,
         }
-        let Raw { concurrency_key, concurrent_limit, concurrency_time_window_s } =
-            Raw::deserialize(deserializer)?;
-        Ok(
-            ConcurrencySettings { concurrency_key, concurrent_limit, concurrency_time_window_s }
-                .normalized(),
-        )
+        let Raw {
+            concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            on_concurrency_limit,
+        } = Raw::deserialize(deserializer)?;
+        Ok(ConcurrencySettings {
+            concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            on_concurrency_limit,
+        }
+        .normalized())
     }
 }
 
@@ -169,6 +249,8 @@ pub struct ConcurrencySettingsWithCustom {
     pub concurrent_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_concurrency_limit: Option<OnConcurrencyLimit>,
 }
 
 impl ConcurrencySettingsWithCustom {
@@ -176,6 +258,7 @@ impl ConcurrencySettingsWithCustom {
         normalize_concurrency(
             &mut self.concurrent_limit,
             &mut self.concurrency_time_window_s,
+            &mut self.on_concurrency_limit,
         );
         self
     }
@@ -194,13 +277,20 @@ impl<'de> Deserialize<'de> for ConcurrencySettingsWithCustom {
             concurrent_limit: Option<i32>,
             #[serde(default)]
             concurrency_time_window_s: Option<i32>,
+            #[serde(default)]
+            on_concurrency_limit: Option<OnConcurrencyLimit>,
         }
-        let Raw { custom_concurrency_key, concurrent_limit, concurrency_time_window_s } =
-            Raw::deserialize(deserializer)?;
+        let Raw {
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            on_concurrency_limit,
+        } = Raw::deserialize(deserializer)?;
         Ok(ConcurrencySettingsWithCustom {
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            on_concurrency_limit,
         }
         .normalized())
     }
@@ -240,6 +330,7 @@ impl ConcurrencySettings {
             concurrency_key: self.concurrency_key.or(concurrency_key),
             concurrent_limit: self.concurrent_limit.or(concurrent_limit),
             concurrency_time_window_s: self.concurrency_time_window_s.or(concurrency_time_window_s),
+            on_concurrency_limit: self.on_concurrency_limit,
         }
         .normalized()
     }
@@ -247,12 +338,18 @@ impl ConcurrencySettings {
 
 impl From<ConcurrencySettings> for ConcurrencySettingsWithCustom {
     fn from(
-        ConcurrencySettings { concurrency_key, concurrent_limit, concurrency_time_window_s }: ConcurrencySettings,
+        ConcurrencySettings {
+            concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            on_concurrency_limit,
+        }: ConcurrencySettings,
     ) -> Self {
         ConcurrencySettingsWithCustom {
             custom_concurrency_key: concurrency_key,
             concurrency_time_window_s,
             concurrent_limit,
+            on_concurrency_limit,
         }
     }
 }
@@ -263,12 +360,14 @@ impl From<ConcurrencySettingsWithCustom> for ConcurrencySettings {
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            on_concurrency_limit,
         }: ConcurrencySettingsWithCustom,
     ) -> Self {
         ConcurrencySettings {
             concurrency_key: custom_concurrency_key,
             concurrency_time_window_s,
             concurrent_limit,
+            on_concurrency_limit,
         }
     }
 }
@@ -388,6 +487,30 @@ mod tests {
         let merged = ConcurrencySettings::default().maybe_fallback(None, Some(0), Some(30));
         assert_eq!(merged.concurrent_limit, None);
         assert_eq!(merged.concurrency_time_window_s, None);
+    }
+
+    // The hash keys the deduplicated `concurrency_settings` rows: a setting without
+    // `on_concurrency_limit` (or with the default `queue`) must keep the hash it had before the
+    // field existed, which derived `Hash` computed as the tuple of the other fields.
+    #[test]
+    fn default_on_concurrency_limit_keeps_settings_hash() {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        fn h(v: &impl Hash) -> u64 {
+            let mut s = DefaultHasher::new();
+            v.hash(&mut s);
+            s.finish()
+        }
+        let legacy = (Some("k".to_string()), Some(2), Some(5));
+        let queue: ConcurrencySettings = serde_json::from_value(serde_json::json!({
+            "concurrency_key": "k", "concurrent_limit": 2, "concurrency_time_window_s": 5,
+            "on_concurrency_limit": "queue",
+        }))
+        .unwrap();
+        assert_eq!(queue.on_concurrency_limit, None);
+        assert_eq!(h(&queue), h(&legacy));
+        let fail =
+            ConcurrencySettings { on_concurrency_limit: Some(OnConcurrencyLimit::Fail), ..queue };
+        assert_ne!(h(&fail), h(&legacy));
     }
 
     // `NewScript`/`FlowModule` embed the settings via `#[serde(flatten)]`, which drives the

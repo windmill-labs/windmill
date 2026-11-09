@@ -594,4 +594,53 @@ def main():
         );
         Ok(())
     }
+
+    /// A codebase script's bundle carries its imports and only the CLI can rebuild it, so a
+    /// lib's lock change must not relock it: the relocked version would have no bundle.
+    #[sqlx::test(fixtures("base"))]
+    async fn codebase_importer_is_not_relocked(db: Pool<Postgres>) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO script (workspace_id, created_by, content, schema, summary, description,
+                path, hash, language, lock, codebase)
+             VALUES ('test-workspace', 'test-user', 'export async function main() {}', '{}', '',
+                '', 'f/app/hello', 1234, 'bun', '', 'deadbeef.esm')",
+        )
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind,
+                imported_path, importer_node_id)
+             VALUES ('test-workspace', 'f/app/hello', 'script', 'f/shared/lib', '')",
+        )
+        .execute(&db)
+        .await?;
+
+        windmill_dep_map::trigger_dependents::trigger_dependents_to_recompute_dependencies(
+            "test-workspace",
+            vec![
+                windmill_dep_map::scoped_dependency_map::DependencyDependent {
+                    importer_path: "f/app/hello".to_string(),
+                    importer_kind: "script".to_string(),
+                    importer_node_ids: None,
+                },
+            ],
+            None,
+            None,
+            "test@windmill.dev",
+            "test-user",
+            "u/test-user",
+            &db,
+            vec![],
+        )
+        .await?;
+
+        let queued: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM v2_job WHERE workspace_id = 'test-workspace'
+             AND runnable_path = 'f/app/hello' AND kind = 'dependencies'",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(queued, 0, "a codebase script must not be relocked");
+        Ok(())
+    }
 }
