@@ -1020,6 +1020,36 @@ describe('createChat with server history', () => {
       chat.destroy()
     })
 
+    test('Stop while the server answers cancels the new run instead of following it', async () => {
+      let answer = (_r: Response) => {}
+      const { fetch, calls } = fetchMock(
+        ...running(() => {
+          throw new Error('unused')
+        }).slice(1),
+        (c) => {
+          if (c.method !== 'POST' || c.url.pathname !== `/api/w/ws/jobs/run/f/${FLOW}`) return undefined
+          return calls.filter((x) => x.url.pathname === c.url.pathname).length === 1
+            ? text('job-1')
+            : // Answered only after Stop, the way a request already on the wire is.
+              (new Promise<Response>((resolve) => (answer = resolve)) as unknown as Response)
+        },
+        (c) => (c.url.pathname.includes('/jobs_u/queue/cancel/') ? text('cancelled') : undefined)
+      )
+      const chat = createChat(options({}, fetch))
+      void chat.sendMessage('first')
+      await until(() => chat.getState().messages.some((m) => m.content === 'parked answer'), 'the first answer')
+      const sent = chat.sendMessage('more', { overRunningTurn: true }).catch((e) => e)
+      await until(() => chat.getState().messages.some((m) => m.content === 'more'), 'the message sent')
+      await chat.stop()
+      answer(text('job-2'))
+      expect(await sent).toBeInstanceOf(Error)
+      const state = chat.getState()
+      expect(state.status).toBe('idle')
+      expect(state.messages.map((m) => m.content)).toEqual(['first', 'parked answer'])
+      expect(calls.some((c) => c.url.pathname.endsWith('/jobs_u/queue/cancel/job-2'))).toBe(true)
+      chat.destroy()
+    })
+
     test('follows the new turn when the server takes the message', async () => {
       const { fetch } = fetchMock(...running(() => text('job-2')), (c) =>
         c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-2'

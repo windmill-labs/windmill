@@ -62,6 +62,8 @@ interface Turn {
   /** Id of the streaming assistant message; cleared when a tool call ends the round. */
   assistantId?: string
   streamedText: boolean
+  /** Sent over a running turn and stopped before the server answered: its run is cancelled. */
+  stopped?: boolean
 }
 
 export function createChat<W extends RawAppWmill>(options: TypedChatOptions<W>): Chat {
@@ -75,6 +77,8 @@ class ChatImpl implements Chat {
   readonly #listeners = new Set<(state: ChatState) => void>()
   #state: ChatState
   #turn: Turn | undefined
+  /** A message sent over the running turn, until the server takes or refuses it. */
+  #sentOver: Turn | undefined
   #page = 1
   /** The kind the caller last listed, so the refresh after a new turn lists the same rows. */
   #conversationKind: ConversationKind | undefined
@@ -206,9 +210,16 @@ class ChatImpl implements Chat {
       })
       this.#rememberConversation()
       const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
+      if (running) this.#sentOver = turn
       turn.jobId = this.#config.run
         ? await this.#config.run(args, context)
         : await this.#api.runFlow(this.#config.flowPath, args, context)
+      // Stopped or left while the server answered: a `run` that ignores the signal still
+      // returns its job, which a stop cancels and a switch leaves running unfollowed.
+      if (running && turn.controller.signal.aborted) {
+        if (turn.stopped && !this.#config.follow) await this.#api.cancelJob(turn.jobId).catch(() => {})
+        throw abortError()
+      }
     } catch (e) {
       try {
         // Nothing of this message reached the server, whether the conversation was already
@@ -227,6 +238,8 @@ class ChatImpl implements Chat {
       } finally {
         if (this.#turn === turn) this.#turn = undefined
       }
+    } finally {
+      if (this.#sentOver === turn) this.#sentOver = undefined
     }
     if (running) {
       // A conversation left meanwhile has the run go on unfollowed, like a turn it was showing.
@@ -236,7 +249,13 @@ class ChatImpl implements Chat {
       this.#turn = turn
       this.#epoch++
       this.#set({
-        messages: this.#state.messages.map((m) => (m.pending && m.id !== turn.userMessageId ? { ...m, pending: false } : m)),
+        // A call still running in the background keeps its card open: the new turn streams its
+        // result to it.
+        messages: this.#state.messages.map((m) =>
+          m.pending && m.id !== turn.userMessageId && !(m.role === 'tool' && m.tool?.status === 'running')
+            ? { ...m, pending: false }
+            : m
+        ),
         status: 'submitted',
         error: undefined
       })
@@ -357,6 +376,11 @@ class ChatImpl implements Chat {
   }
 
   stop = async (): Promise<void> => {
+    const sentOver = this.#sentOver
+    if (sentOver) {
+      sentOver.stopped = true
+      sentOver.controller.abort()
+    }
     const turn = this.#turn
     if (!turn) return
     this.#detachTurn()
@@ -1130,6 +1154,7 @@ class ChatImpl implements Chat {
    */
   #leaveConversation(): void {
     this.#epoch++
+    this.#sentOver?.controller.abort()
     if (this.#turn) {
       this.#detachTurn()
       this.#set({ messages: finalized(this.#state.messages), status: 'idle' })
