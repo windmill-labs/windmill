@@ -450,7 +450,6 @@ pub async fn apply_instance_role(
 
     // Update super_admin flag on non-session tokens. A promotion leaves MCP tokens alone: they
     // carry superadmin access only when minted with it (`create_token_internal`).
-    windmill_common::auth::lock_mcp_oauth_grants(&mut **tx, email, true).await?;
     sqlx::query!(
         "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
                  AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",

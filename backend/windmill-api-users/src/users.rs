@@ -1550,7 +1550,6 @@ async fn update_user(
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
-    lock_mcp_oauth_grants(&mut *tx, &email_to_update, true).await?;
 
     let mut new_super_admin: Option<bool> = None;
     if let Some(sa) = eu.is_super_admin {
@@ -4000,7 +3999,7 @@ async fn list_tokens(
 
 /// Ends a user's MCP OAuth connections (only those bound to `workspace_id` when given),
 /// including idle ones whose access token is already gone and codes not yet exchanged.
-/// Call it before writing any of the user's tokens (see `lock_mcp_oauth_grants`).
+/// Lock the user's `password` row before writing their tokens (see `lock_mcp_oauth_grants`).
 pub async fn revoke_mcp_oauth_grants(
     conn: &mut sqlx::PgConnection,
     email: &str,

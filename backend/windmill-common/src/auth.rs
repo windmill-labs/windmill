@@ -84,18 +84,18 @@ pub const CLI_LOGIN_TOKEN_LABEL_PREFIX: &str = "cli-login:";
 pub const REMOTE_DEPLOY_TOKEN_LABEL_PREFIX: &str = "remote-deploy:";
 
 /// Shared while issuing an MCP OAuth grant, exclusive while revoking: no grant outlives a revoke.
-/// A refresh holds it shared while it waits on its access-token row, so a transaction that
-/// writes a user's token rows and may revoke their grants later must take it exclusive before
-/// its first token write, or the two deadlock.
+/// The lock is the user's `password` row because every path that changes a user locks that row
+/// before their tokens, the order a refresh takes them in (this row, then its access-token row,
+/// then its grant). A separate lock taken anywhere in that sequence would deadlock with some path.
 pub async fn lock_mcp_oauth_grants(
     conn: &mut sqlx::PgConnection,
     email: &str,
     exclusive: bool,
 ) -> std::result::Result<(), sqlx::Error> {
     let q = if exclusive {
-        "SELECT pg_advisory_xact_lock(hashtext('mcp_oauth_grant:' || $1))"
+        "SELECT 1 FROM password WHERE email = $1 FOR UPDATE"
     } else {
-        "SELECT pg_advisory_xact_lock_shared(hashtext('mcp_oauth_grant:' || $1))"
+        "SELECT 1 FROM password WHERE email = $1 FOR SHARE"
     };
     sqlx::query(q).bind(email).execute(conn).await?;
     Ok(())

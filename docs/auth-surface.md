@@ -19,11 +19,11 @@ Symbols, not line numbers, are cited: they drift less.
   `revoke_mcp_oauth_grants` (`windmill-api-users`), which also deletes grants without a live
   token and codes not yet exchanged — a password change or reset, disabling or deleting the
   account, offboarding, SCIM deactivation and removal, and (for the grants bound to that
-  workspace) removal from a workspace. It takes the per-user grant lock
-  (`lock_mcp_oauth_grants`), which a transaction must hold before its first write to the user's
-  token rows when it may revoke later (`update_user` and `apply_instance_role` take it before
-  updating `super_admin`): a refresh takes that lock, then the token row, then its own row, the
-  order the trigger also follows. `leave_workspace` and `leave_instance`
+  workspace) removal from a workspace. The grant lock (`lock_mcp_oauth_grants`) is the user's
+  `password` row, shared while issuing a grant and exclusive while revoking, because every path
+  that changes a user locks that row before their tokens: a refresh takes it, then its
+  access-token row, then its grant, the order the trigger also follows. A new path that writes a
+  user's tokens and may revoke must lock that row first too. `leave_workspace` and `leave_instance`
   delete no tokens and revoke nothing.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
