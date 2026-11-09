@@ -1449,6 +1449,22 @@ async fn update_flow(
             ))
         })?;
 
+        // Flow nodes cascade on the old path's deletion below; runs in flight and the
+        // versions just moved still reference them.
+        sqlx::query!(
+            "UPDATE flow_node SET path = $1 WHERE path = $2 AND workspace_id = $3",
+            nf.path,
+            flow_path,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            error::Error::internal_err(format!(
+                "Error updating flow due to updating flow nodes path: {e:#}"
+            ))
+        })?;
+
         sqlx::query!(
             "DELETE FROM flow WHERE path = $1 AND workspace_id = $2",
             flow_path,
