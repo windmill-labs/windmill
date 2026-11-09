@@ -1057,7 +1057,11 @@ pub async fn handle_flow_dependency_job(
     // a newer flow definition with a stale one.
     let version = if triggered_by_relative_import && !skip_flow_update {
         let latest_version = sqlx::query_scalar!(
-            "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+            "SELECT v.id FROM flow_version v
+                JOIN flow f ON f.path = v.path AND f.workspace_id = v.workspace_id
+                WHERE v.path = $1 AND v.workspace_id = $2
+                AND (v.id = ANY(f.versions) OR v.id > (SELECT max(x) FROM unnest(f.versions) x))
+                ORDER BY v.created_at DESC LIMIT 1",
             job_path,
             job.workspace_id
         )
@@ -1274,7 +1278,11 @@ pub async fn handle_flow_dependency_job(
             // concurrent dep jobs for the same flow path can race. Skip the
             // write if a newer flow_version landed while we were in phase 2.
             let current_latest = sqlx::query_scalar!(
-                "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                "SELECT v.id FROM flow_version v
+                JOIN flow f ON f.path = v.path AND f.workspace_id = v.workspace_id
+                WHERE v.path = $1 AND v.workspace_id = $2
+                AND (v.id = ANY(f.versions) OR v.id > (SELECT max(x) FROM unnest(f.versions) x))
+                ORDER BY v.created_at DESC LIMIT 1",
                 job_path,
                 job.workspace_id
             )

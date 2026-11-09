@@ -120,9 +120,11 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             },
 
             "flow" => match sqlx::query_scalar!(
-                "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2
-                AND EXISTS (SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)
-                ORDER BY created_at DESC LIMIT 1",
+                "SELECT v.id FROM flow_version v
+                JOIN flow f ON f.path = v.path AND f.workspace_id = v.workspace_id
+                WHERE v.path = $1 AND v.workspace_id = $2
+                AND (v.id = ANY(f.versions) OR v.id > (SELECT max(x) FROM unnest(f.versions) x))
+                ORDER BY v.created_at DESC LIMIT 1",
                 importer_path,
                 w_id
             )
