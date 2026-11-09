@@ -30,6 +30,13 @@ export function pendingAgentApproval(job: { flow_status?: FlowStatus } | undefin
 	return action && { agentJobId: mod.job, action }
 }
 
+/** The job of a flow's current step while it runs, which for an agent step is the agent's own:
+ *  parked on its background jobs, it keeps the step in progress with `suspend` set. */
+export function runningAgentJobId(job: { flow_status?: FlowStatus } | undefined) {
+	const mod = job?.flow_status?.modules?.[job?.flow_status?.step]
+	return mod?.type === 'InProgress' ? mod.job : undefined
+}
+
 /** Suspended, as the run's badge and icon say: an approval step, or an agent waiting on a person. */
 export function isSuspended(job: { suspend?: number; flow_status?: FlowStatus }) {
 	return !!job.suspend || !!pendingAgentApproval(job)

@@ -70,6 +70,9 @@ export interface DraftSender<A> {
 	/** The chat refused a send outright (an upload that failed, Stop during it); the draft
 	 * is handed back after this. */
 	sendFailed(error: unknown, draft: Draft<A>): void
+	/** The running turn is parked, so a message goes out now and takes the conversation over
+	 * rather than waiting for it. */
+	turnParked?(): boolean
 }
 
 /**
@@ -137,7 +140,9 @@ export class ConversationTurns<A> {
 		// An AI agent step refuses a run with no `user_message`.
 		if (!text) return false
 		const message = { text, attachments: draft.attachments }
-		if (isBusy(this.chat.getState().status)) {
+		const busy = isBusy(this.chat.getState().status)
+		const overParkedTurn = busy && !!this.#sender().turnParked?.()
+		if (busy && !overParkedTurn) {
 			this.queue(message, replayInputs)
 			return true
 		}
@@ -151,7 +156,7 @@ export class ConversationTurns<A> {
 		// A run that fails is reported through the chat's `onError` and as a failed message;
 		// the promise only rejects when the chat refuses the turn outright.
 		const turn = this.chat
-			.sendMessage(text, options)
+			.sendMessage(text, overParkedTurn ? { ...options, overParkedTurn } : options)
 			.catch((e) => {
 				if (this.#disposed) return
 				// Stop pressed while the run was asked for: the message goes back, whatever the

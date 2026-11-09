@@ -131,7 +131,12 @@ class ChatImpl implements Chat {
       return
     }
     if (this.#turn) {
-      throw new Error('windmill-chat: a message is already being answered; call stop() first')
+      if (!options.overParkedTurn) {
+        throw new Error('windmill-chat: a message is already being answered; call stop() first')
+      }
+      // Its run goes on until the server hands the conversation to this message.
+      this.#detachTurn()
+      this.#set({ messages: finalized(this.#state.messages) })
     }
     const attachments = options.attachments ?? []
     const attachmentsInput = options.attachmentsInput

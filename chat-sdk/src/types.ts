@@ -196,6 +196,13 @@ export interface SendMessageOptions {
   attachments?: AttachmentUpload[]
   /** Required with `attachments`, which also need message text. With `multiple: false`, more than one attachment is refused before anything uploads. */
   attachmentsInput?: AttachmentsInput
+  /**
+   * The turn this chat follows is parked: its AI agent answered and waits on background jobs,
+   * or waits on an approval or a question. The chat stops following it and sends, and the
+   * server ends that turn, dropping its open request, and carries its background jobs over to
+   * this one. A turn that resumed meanwhile refuses it with a `TurnRunningError`.
+   */
+  overParkedTurn?: boolean
 }
 
 export interface Chat {

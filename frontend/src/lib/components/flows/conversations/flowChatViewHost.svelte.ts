@@ -66,6 +66,9 @@ export type FlowChatViewHostOptions = {
 	inputsShownInComposer?: () => string[]
 	/** The approval or question the running turn's agent step waits on. */
 	agentRequest?: () => PendingAgentRequest | undefined
+	/** The running turn's agent step is parked, on its background jobs or on a person: a
+	 * message sent now takes the conversation over instead of waiting for the turn. */
+	turnParked?: () => boolean
 	/** Injectables for tests: the clock and scheduler behind the typewriter pacing. */
 	revealOptions?: Pick<TypewriterRevealOptions, 'instant' | 'now' | 'schedule' | 'cancel'>
 }
@@ -573,8 +576,12 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	get operatingWorkspace(): string | undefined {
 		return this.#options.workspace?.()
 	}
+	/** Off while the turn is parked, so the composer sends rather than queues. */
 	get loading(): boolean {
-		return isBusy(this.#state.status)
+		return isBusy(this.#state.status) && !this.turnParked()
+	}
+	turnParked(): boolean {
+		return !!this.#options.turnParked?.()
 	}
 	// No transcript restore to wait for: a flow chat renders from its rows.
 	sendPending = false
