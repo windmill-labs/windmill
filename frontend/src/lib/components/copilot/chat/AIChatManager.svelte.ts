@@ -98,7 +98,17 @@ import { fromStore, get } from 'svelte/store'
 import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
 import { roleCapabilities, workspaceStore, type DBSchemas } from '$lib/stores'
-import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
+import {
+	copilotInfo,
+	copilotSessionModel,
+	getWorkspaceCopilotInfo,
+	loadWorkspaceCopilotInfo,
+	resolveModelFor,
+	tryResolveModelFor,
+	type AiTarget,
+	type CopilotInfo
+} from '$lib/aiStore'
+import type { ReasoningProviderModel } from '../reasoningRegistry'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
@@ -707,8 +717,11 @@ export class AIChatManager implements ChatViewHost {
 		if (this.reasoningSummaryUnavailableFor.length === 0) {
 			return undefined
 		}
-		const provider = getCurrentModel().provider
-		if (!this.reasoningSummaryUnavailableFor.includes(this.reasoningSummaryKey(provider))) {
+		const provider = this.currentModel?.provider
+		if (
+			!provider ||
+			!this.reasoningSummaryUnavailableFor.includes(this.reasoningSummaryKey(provider))
+		) {
 			return undefined
 		}
 		return `Thinking (hidden, ${providerDisplayName(provider)} org not verified)`
@@ -860,16 +873,12 @@ export class AIChatManager implements ChatViewHost {
 	#copilotInfo = fromStore(copilotInfo)
 	#sessionModel = fromStore(copilotSessionModel)
 	/** Capabilities the provider runs on its own servers, attached by the adapter at send
-	 * time. Never part of `tools`: the request path would try to dispatch them. The two
-	 * `void` reads only subscribe: the model helpers read through `get()`, which tracks
-	 * nothing, so a change of model or of the workspace's AI config would otherwise not
-	 * re-derive. A workspace switch re-derives through the AI config it loads. */
+	 * time. Never part of `tools`: the request path would try to dispatch them. */
 	get providerTools(): ProviderToolSummary[] {
-		void this.#copilotInfo.current
-		void this.#sessionModel.current
-		const model = tryGetCurrentModel()
-		if (!model || (model.provider === 'openai' && this.skipResponsesApi)) return []
-		const enabled = isWebSearchEnabledForProvider(model.provider)
+		const model = this.currentModel
+		const info = this.aiInfo
+		if (!model || !info || (model.provider === 'openai' && this.skipResponsesApi)) return []
+		const enabled = isWebSearchEnabledForProvider(model.provider, info)
 		return sendsWebSearch(this.operatingWorkspace ?? '', model, enabled)
 			? [
 					{
@@ -1059,6 +1068,37 @@ export class AIChatManager implements ChatViewHost {
 	// Session-resolved when a resolver is set, else the globally-active workspace.
 	get operatingWorkspace(): string | undefined {
 		return this.workspaceResolver?.() ?? get(workspaceStore)
+	}
+
+	/** The AI config this chat sends with. A session's is its own workspace's, never the tab's,
+	 * which belongs to whatever workspace is on screen; other chats use the tab's. Undefined while
+	 * a session's is still loading, and reading it starts the load. */
+	get aiInfo(): CopilotInfo | undefined {
+		if (!this.isSessionChat) return this.#copilotInfo.current
+		const workspace = this.operatingWorkspace
+		return workspace ? getWorkspaceCopilotInfo(workspace) : undefined
+	}
+
+	/** The session's workspace and loaded config, for code that cannot wait for the load. */
+	get loadedSessionAiTarget(): AiTarget | undefined {
+		const info = this.isSessionChat ? this.aiInfo : undefined
+		const workspace = this.operatingWorkspace
+		return info && workspace ? { workspace, info } : undefined
+	}
+
+	get currentModel(): ReasoningProviderModel | undefined {
+		// Subscribes only: the model helpers read through `get()`, which tracks nothing.
+		void this.#sessionModel.current
+		const info = this.aiInfo
+		return info && tryResolveModelFor(info)
+	}
+
+	/** Resolved at each request, after any fork commit. Undefined for other chats, whose requests
+	 * use the tab's. */
+	sessionAiTarget = async (): Promise<AiTarget | undefined> => {
+		if (!this.isSessionChat) return undefined
+		const workspace = this.operatingWorkspace ?? ''
+		return { workspace, info: await loadWorkspaceCopilotInfo(workspace) }
 	}
 
 	// Fired whenever the active chat id changes away from the one the consumer
@@ -1792,6 +1832,7 @@ export class AIChatManager implements ChatViewHost {
 	): Promise<'ok' | 'empty' | 'aborted' | 'error'> => {
 		this.compacting = true
 		try {
+			const target = await this.sessionAiTarget()
 			// Cap the summarizer's output at the budget already reserved for the
 			// summary: without a cap the model's default max_tokens applies.
 			const raw = await getStreamedCompletionText(
@@ -1802,7 +1843,7 @@ export class AIChatManager implements ChatViewHost {
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,
-				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS }
+				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS, ...target }
 			)
 			const formatted = formatCompactSummary(raw)
 			if (!formatted) {
@@ -1991,12 +2032,9 @@ export class AIChatManager implements ChatViewHost {
 		model: ChatLoopConfig['modelProvider'] | undefined,
 		inFlightTokens = 0
 	): Promise<boolean> => {
+		const info = (await this.sessionAiTarget())?.info ?? get(copilotInfo)
 		const contextWindow = model
-			? getEffectiveModelContextWindow(
-					model.provider,
-					model.model,
-					get(copilotInfo).contextWindowPerModel
-				)
+			? getEffectiveModelContextWindow(model.provider, model.model, info.contextWindowPerModel)
 			: undefined
 		if (contextWindow === undefined || projectedTokens < contextWindow * COMPACTION_TRIGGER_RATIO) {
 			return false
@@ -2893,6 +2931,7 @@ export class AIChatManager implements ChatViewHost {
 				? {
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
+						sessionAi: () => ({ model: this.currentModel, info: this.aiInfo }),
 						artifacts: this.artifacts,
 						access: this.#toolAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
@@ -2923,7 +2962,10 @@ export class AIChatManager implements ChatViewHost {
 					ensurePipeline: this.#ensurePipeline
 				}
 			: baseHelpers
-		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
+		this.systemMessage = assembleGlobalSystemMessage(
+			getCustomPromptParts(AIMode.GLOBAL, this.aiInfo?.customPrompts ?? {}),
+			opts
+		)
 		this.syncArtifactsSession()
 	}
 
@@ -3103,7 +3145,7 @@ export class AIChatManager implements ChatViewHost {
 			return
 		}
 		this.systemMessage = assembleGlobalSystemMessage(
-			getCustomPromptParts(AIMode.GLOBAL),
+			getCustomPromptParts(AIMode.GLOBAL, this.aiInfo?.customPrompts ?? {}),
 			this.globalAssemblyOpts()
 		)
 	}
@@ -3435,7 +3477,8 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	private notifyReasoningSummaryUnavailable = () => {
-		const provider = getCurrentModel().provider
+		const provider = this.currentModel?.provider
+		if (!provider) return
 		const key = this.reasoningSummaryKey(provider)
 		if (!this.reasoningSummaryUnavailableFor.includes(key)) {
 			this.reasoningSummaryUnavailableFor = [...this.reasoningSummaryUnavailableFor, key]
@@ -3482,6 +3525,8 @@ export class AIChatManager implements ChatViewHost {
 			// while a response streams would bill it to the workspace the user landed
 			// on rather than the one whose credentials and proxy served it.
 			const usageWorkspace = this.operatingWorkspace
+			const target = await this.sessionAiTarget()
+			const info = target?.info
 			const result = await runChatLoop({
 				messages,
 				addedMessages,
@@ -3502,7 +3547,7 @@ export class AIChatManager implements ChatViewHost {
 				get tools() {
 					return withWebSearchFallback(
 						self.tools,
-						!!get(copilotInfo).webSearchBackend,
+						!!(info ?? get(copilotInfo)).webSearchBackend,
 						self.providerTools.length > 0
 					)
 				},
@@ -3512,10 +3557,10 @@ export class AIChatManager implements ChatViewHost {
 				abortController,
 				callbacks,
 				get modelProvider() {
-					return getCurrentModel()
+					return info ? resolveModelFor(info) : getCurrentModel()
 				},
 				get webSearch() {
-					return isWebSearchEnabledForProvider(getCurrentModel().provider)
+					return isWebSearchEnabledForProvider(this.modelProvider.provider, info)
 				},
 				// Build the proxy clients against the operating workspace, not the global
 				// singleton: a session deliberately leaves workspaceStore untouched, so the
@@ -3523,13 +3568,14 @@ export class AIChatManager implements ChatViewHost {
 				// request through the navigation workspace's /ai/proxy instead of the
 				// session's — sending it to the wrong workspace's AI credentials.
 				get clients() {
-					const ws = self.operatingWorkspace ?? ''
+					const ws = target?.workspace ?? self.operatingWorkspace ?? ''
 					return {
 						openai: workspaceAIClients.createOpenaiClient(ws),
 						anthropic: workspaceAIClients.createAnthropicClient(ws)
 					}
 				},
-				workspace: this.operatingWorkspace ?? '',
+				workspace: target?.workspace ?? this.operatingWorkspace ?? '',
+				info,
 				skipResponsesApi: this.skipResponsesApi,
 				onSkipResponsesApi: () => {
 					this.skipResponsesApi = true
@@ -3973,7 +4019,7 @@ export class AIChatManager implements ChatViewHost {
 		// only edit/retry of a pre-id transcript can arrive without one, and the
 		// hash is deterministic, so hydration reproduces the original id.
 		const files = withAttachedTextFileIds(options.files ?? [])
-		const sendModel = tryGetCurrentModel()
+		const sendModel = this.currentModel
 		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
 		if (requestedImages.length > 0 && modelIsBlind) {
 			// An image-only message has nothing left once the images are dropped —
@@ -4111,8 +4157,13 @@ export class AIChatManager implements ChatViewHost {
 				this.refreshSessionAccess(this.operatingWorkspace ?? ''),
 				resolveResourceTypeSync(this.operatingWorkspace ?? '', this.messages).then((sync) => {
 					this.resourceTypeSync = sync
-				})
+				}),
+				// Its workspace prompt goes into the system prompt rebuilt below.
+				this.sessionAiTarget().catch(() => {})
 			])
+			if (this.isSessionChat) {
+				this.rebuildGlobalSystemMessage()
+			}
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
 		// request went out. Mirror the main "cancelled before usable output" recovery:
@@ -4268,7 +4319,7 @@ export class AIChatManager implements ChatViewHost {
 			// loading + abortController were set optimistically before beforeSend, above.
 			this.#automaticScroll = true
 
-			const model = tryGetCurrentModel()
+			const model = this.currentModel
 			if (model) {
 				const chatId = this.historyManager.getCurrentChatId()
 				logFeatureUsage('ai_chat', 'message', {
@@ -4792,15 +4843,11 @@ export class AIChatManager implements ChatViewHost {
 				if (
 					requestCarriedImages &&
 					messagesHaveImageParts(this.messages) &&
-					isImageRejection(err, [
-						sendModel?.model,
-						tryGetCurrentModel()?.model,
-						failingModel?.model
-					])
+					isImageRejection(err, [sendModel?.model, this.currentModel?.model, failingModel?.model])
 				) {
 					this.messages = stripImagePartsFromMessages(this.messages)
 					sendUserToast(
-						`${tryGetCurrentModel()?.model ?? 'The model'} could not read the attached image(s), so they were removed from the conversation. Your message was kept.`,
+						`${this.currentModel?.model ?? 'The model'} could not read the attached image(s), so they were removed from the conversation. Your message was kept.`,
 						true
 					)
 				}
