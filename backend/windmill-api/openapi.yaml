@@ -13234,6 +13234,76 @@ paths:
                     description: owner prefix (f/<folder> or u/<user>) to count
                     additionalProperties:
                       type: integer
+  /w/{workspace}/runnables/existing:
+    get:
+      summary: which of the given paths hold a live runnable the caller can read, per kind
+      description: >-
+        Live means what a page at that path would open: a non-archived script
+        version (libraries included) or flow, an app (raw or not), an ai_agent
+        resource. Drafts never count. At most 100 paths in all; not paginated, so
+        an absent path is gone or unreadable.
+      operationId: existingRunnables
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: script
+          in: query
+          description: script paths to check, repeated
+          schema:
+            type: array
+            items:
+              type: string
+        - name: flow
+          in: query
+          description: flow paths to check, repeated
+          schema:
+            type: array
+            items:
+              type: string
+        - name: app
+          in: query
+          description: app paths to check (raw apps included), repeated
+          schema:
+            type: array
+            items:
+              type: string
+        - name: agent
+          in: query
+          description: agent paths to check, repeated
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        "200":
+          description: the asked paths that hold a live, readable runnable
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - script
+                  - flow
+                  - app
+                  - agent
+                properties:
+                  script:
+                    type: array
+                    items:
+                      type: string
+                  flow:
+                    type: array
+                    items:
+                      type: string
+                  app:
+                    type: array
+                    items:
+                      type: string
+                  agent:
+                    type: array
+                    items:
+                      type: string
   /w/{workspace}/flows/list:
     get:
       summary: list all flows
