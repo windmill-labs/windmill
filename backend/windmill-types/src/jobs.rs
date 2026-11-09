@@ -309,6 +309,10 @@ pub struct QueuedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub trigger_kind: Option<TriggerKindLabel>,
+    // `v2_job.trigger`: the path of the trigger, schedule or app that started the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_path: Option<String>,
 }
 
 impl QueuedJob {
@@ -386,6 +390,7 @@ impl Default for QueuedJob {
             labels: None,
             is_retry: None,
             trigger_kind: None,
+            trigger_path: None,
         }
     }
 }
@@ -480,6 +485,10 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub trigger_kind: Option<TriggerKindLabel>,
+    // `v2_job.trigger`: the path of the trigger, schedule or app that started the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_path: Option<String>,
 }
 
 impl CompletedJob {

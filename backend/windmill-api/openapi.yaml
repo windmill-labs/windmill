@@ -32229,6 +32229,9 @@ components:
           type: boolean
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
+        trigger_path:
+          type: string
+          description: Path of the trigger, schedule or app that started the job, if any
         worker:
           type: string
       required:
@@ -32375,6 +32378,9 @@ components:
             resolution outside enterprise
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
+        trigger_path:
+          type: string
+          description: Path of the trigger, schedule or app that started the job, if any
         worker:
           type: string
       required:
