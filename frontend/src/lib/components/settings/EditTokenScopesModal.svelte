@@ -60,7 +60,7 @@
 	const scopesToSave = $derived(
 		isMcp
 			? mcpTouched
-				? [...mcpScopes, ...(initialScopes ?? []).filter(keptAside)]
+				? [...new Set([...mcpScopes, ...(initialScopes ?? []).filter(keptAside)])]
 				: (initialScopes ?? [])
 			: pickedScopes
 	)
