@@ -32,6 +32,8 @@
 		schema: Schema | any
 		hiddenArgs?: string[]
 		schemaFieldTooltip?: Record<string, string>
+		/** Per-field warning, shown on hover of a warning icon next to the field name. */
+		schemaFieldWarnings?: Record<string, string>
 		args?: Record<string, any>
 		disabledArgs?: string[]
 		disabled?: boolean
@@ -84,6 +86,7 @@
 		schema = $bindable(),
 		hiddenArgs = [],
 		schemaFieldTooltip = {},
+		schemaFieldWarnings = {},
 		args = $bindable(undefined),
 		disabledArgs = [],
 		disabled = false,
@@ -437,7 +440,8 @@
 								password={linkedSecrets.includes(argName)}
 								extra={prop}
 								{showSchemaExplorer}
-								simpleTooltip={schemaFieldTooltip[argName]}
+								simpleTooltip={schemaFieldWarnings[argName] ?? schemaFieldTooltip[argName]}
+								simpleTooltipWarning={argName in schemaFieldWarnings}
 								{onlyMaskPassword}
 								nullable={prop?.nullable}
 								title={prop?.title}

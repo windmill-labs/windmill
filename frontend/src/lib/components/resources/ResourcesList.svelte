@@ -151,8 +151,8 @@
 		isFileset: false
 	})
 	let editResourceTypeOriginalKeys: string[] = $state([])
-	let removedResourceTypeKeys = $derived(
-		editResourceTypeOriginalKeys.filter((k) => !(k in (editResourceType.schema?.properties ?? {})))
+	let editResourceTypeRemovesKeys = $derived(
+		editResourceTypeOriginalKeys.some((k) => !(k in (editResourceType.schema?.properties ?? {})))
 	)
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 
@@ -970,18 +970,13 @@
 					</Alert>
 				{:else}
 					<div class="mb-1 font-semibold text-emphasis text-xs">Schema</div>
-					{#if removedResourceTypeKeys.length > 0}
+					{#if editResourceTypeRemovesKeys}
 						<Alert
 							type="warning"
 							size="xs"
 							class="mb-2"
-							title="Removed properties stay in existing resources"
-						>
-							Resources of this type keep their value for {removedResourceTypeKeys
-								.map((k) => `'${k}'`)
-								.join(', ')} and still pass it to scripts. Opening such a resource lists the property
-							as not in the schema, with an option to remove it.
-						</Alert>
+							title="Existing resources keep removed properties and still pass them to scripts"
+						/>
 					{/if}
 					<div class="flex flex-col gap-2">
 						<!-- Dynamic, like the one below: the schema editor reaches monaco. -->

@@ -6,7 +6,7 @@
 	import { setEditorUnparseable } from './pendingEditorFlush'
 	import { emptyString, isOwner, urlize } from '$lib/utils'
 	import { Alert, Button, Skeleton } from './common'
-	import { AlertTriangle, Trash2 } from 'lucide-svelte'
+	import { Trash2 } from 'lucide-svelte'
 	import Path from './Path.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import { type UserExt } from '$lib/stores'
@@ -151,18 +151,19 @@
 					...resourceSchema,
 					properties: {
 						...resourceSchema.properties,
-						...Object.fromEntries(
-							orphanKeys.map((k) => [
-								k,
-								{
-									description:
-										'Not in the resource type schema, but still passed to scripts using this resource. Remove it if it is no longer used.'
-								}
-							])
-						)
+						...Object.fromEntries(orphanKeys.map((k) => [k, {}]))
 					}
 				}
 			: resourceSchema
+	)
+
+	let orphanWarnings = $derived(
+		Object.fromEntries(
+			orphanKeys.map((k) => [
+				k,
+				'Not in the resource type schema, but still passed to scripts using this resource. Remove it if it is no longer used.'
+			])
+		)
 	)
 
 	function removeOrphanKey(key: string) {
@@ -407,23 +408,19 @@
 					schema={formSchema}
 					bind:args
 					bind:isValid
+					schemaFieldWarnings={orphanWarnings}
 					{workspace}
 				>
 					{#snippet actions({ item })}
-						{#if orphanKeys.includes(item.value)}
-							<span title="Not in the resource type schema" class="flex">
-								<AlertTriangle size={16} class="text-yellow-500" />
-							</span>
-							{#if can_write}
-								<Button
-									variant="subtle"
-									unifiedSize="sm"
-									iconOnly
-									startIcon={{ icon: Trash2 }}
-									title="Remove from this resource"
-									onclick={() => removeOrphanKey(item.value)}
-								/>
-							{/if}
+						{#if can_write && orphanKeys.includes(item.value)}
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								iconOnly
+								startIcon={{ icon: Trash2 }}
+								title="Remove from this resource"
+								onclick={() => removeOrphanKey(item.value)}
+							/>
 						{/if}
 					{/snippet}
 				</SchemaForm>
