@@ -14,10 +14,15 @@ Symbols, not line numbers, are cited: they drift less.
 - **Deleting a live MCP OAuth access token revokes its refresh grant**, by whatever path: the same
   trigger marks the `mcp_oauth_refresh_token` row issued with it (`access_token_hash`) revoked, so
   only that client's connection ends. A token past its expiration keeps its grant, since the
-  expiry sweep deletes it and its client must still refresh; so a client idle past its access
-  token's 7 days has no row left to delete, and only `revoke_mcp_oauth_grants` (a password
-  change) ends it. The refresh grant locks the token row before its own row, the order the
-  trigger takes them in.
+  expiry sweep deletes it and its client must still refresh. A client idle past its access
+  token's 7 days therefore has no row left to delete: what ends a user's access calls
+  `revoke_mcp_oauth_grants` (`windmill-api-users`), which also deletes grants without a live
+  token and codes not yet exchanged — a password change or reset, disabling or deleting the
+  account, offboarding, SCIM deactivation and removal, and (for the grants bound to that
+  workspace) removal from a workspace. It takes the per-user grant lock, so it must run before
+  the caller deletes any of the user's tokens: a refresh takes that lock, then the token row,
+  then its own row, the order the trigger also follows. `leave_workspace` and `leave_instance`
+  delete no tokens and revoke nothing.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.

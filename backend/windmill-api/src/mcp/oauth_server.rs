@@ -428,7 +428,7 @@ pub async fn oauth_token(
     };
     let mut tx = db.begin().await.map_err(db_error)?;
     if let Some(email) = &owner {
-        crate::users::lock_mcp_oauth_grants(&mut tx, email, false)
+        windmill_api_users::users::lock_mcp_oauth_grants(&mut tx, email, false)
             .await
             .map_err(db_error)?;
     }

@@ -1696,6 +1696,7 @@ async fn update_user(
         .execute(&mut *tx)
         .await?;
         if d {
+            revoke_mcp_oauth_grants(&mut *tx, &email_to_update, None).await?;
             // Delete all tokens for immediate session revocation
             sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_update)
                 .execute(&mut *tx)
@@ -1727,6 +1728,7 @@ async fn delete_user(
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
+    revoke_mcp_oauth_grants(&mut *tx, &email_to_delete, None).await?;
     sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;
@@ -2564,6 +2566,7 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    revoke_mcp_oauth_grants(&mut **tx, email_to_delete, Some(w_id)).await?;
     // Same reasoning as the `extra_perms` sweep below: a freed username must not stay named
     // anywhere that grants access, tenant lists included.
     windmill_common::workspaces::remove_datatable_tenant_in_workspace(
@@ -3990,6 +3993,49 @@ async fn list_tokens(
         .await?
     };
     Ok(Json(rows))
+}
+
+/// Shared while issuing an MCP OAuth grant, exclusive while revoking: no grant outlives a revoke.
+pub async fn lock_mcp_oauth_grants(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    exclusive: bool,
+) -> std::result::Result<(), sqlx::Error> {
+    let q = if exclusive {
+        "SELECT pg_advisory_xact_lock(hashtext('mcp_oauth_grant:' || $1))"
+    } else {
+        "SELECT pg_advisory_xact_lock_shared(hashtext('mcp_oauth_grant:' || $1))"
+    };
+    sqlx::query(q).bind(email).execute(conn).await?;
+    Ok(())
+}
+
+/// Ends a user's MCP OAuth connections (only those bound to `workspace_id` when given),
+/// including idle ones whose access token is already gone and codes not yet exchanged.
+/// Call it before deleting any of the user's tokens: a refresh takes the grant lock and then
+/// the token row, so taking them the other way round deadlocks.
+pub async fn revoke_mcp_oauth_grants(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    workspace_id: Option<&str>,
+) -> Result<()> {
+    lock_mcp_oauth_grants(&mut *conn, email, true).await?;
+    sqlx::query!(
+        "WITH revoked AS (
+             DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%'
+                 AND ($2::varchar IS NULL OR workspace_id = $2)
+         ), refresh AS (
+             DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
+                 AND ($2::varchar IS NULL OR workspace_id = $2)
+         )
+         DELETE FROM mcp_oauth_server_code WHERE user_email = $1
+             AND ($2::varchar IS NULL OR workspace_id = $2)",
+        email,
+        workspace_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 async fn delete_token(
