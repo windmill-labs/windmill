@@ -13,7 +13,6 @@ use std::{collections::HashMap, sync::Arc, vec};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use chrono::{DateTime, Utc};
-use futures::future::TryFutureExt;
 use itertools::Itertools;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
@@ -9026,11 +9025,14 @@ async fn restarted_flows_resolution(
         })?;
         fetch_restart_flow_version(db, workspace_id, flow_path, flow_version.unwrap()).await?
     } else {
-        cache::job::fetch_flow(db, &row.job_kind, row.script_hash)
-            .or_else(|_| {
-                cache::job::fetch_preview_flow(db.into(), &completed_flow_id, row.raw_flow)
-            })
-            .await?
+        cache::job::fetch_flow_or_preview(
+            db,
+            &row.job_kind,
+            row.script_hash,
+            &completed_flow_id,
+            row.raw_flow,
+        )
+        .await?
     };
 
     let flow_value = flow_data.value();
