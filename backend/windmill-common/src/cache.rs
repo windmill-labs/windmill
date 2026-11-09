@@ -851,6 +851,7 @@ pub mod job {
     /// The flow a flow job runs: its stored version, else the inline `raw_flow` of a preview.
     /// A job with neither fails with the stored lookup's error (e.g. a version deleted along
     /// with its flow), which says what is missing where the preview's error would not.
+    /// Performs no permission check: the caller must have scoped `job` to its workspace.
     #[track_caller]
     pub fn fetch_flow_or_preview<'a>(
         db: &'a DB,
@@ -868,7 +869,8 @@ pub mod job {
             let conn = Connection::from(db);
             match fetch_preview(&conn, job, None, None, raw_flow).await {
                 Ok(RawData::Flow(data)) => Ok(data),
-                _ => Err(err),
+                Ok(RawData::Script(_)) => Err(err),
+                Err(preview_err) => Err(preview_err),
             }
         }
     }
