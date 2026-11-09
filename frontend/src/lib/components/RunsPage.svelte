@@ -131,10 +131,10 @@
 
 	let exporting = $state(false)
 	async function onExport(format: RunsExportFormat) {
-		const toExport = [...(jobs ?? []), ...(graph !== 'RunChart' ? (externalJobs ?? []) : [])]
 		exporting = true
 		try {
-			await exportRuns(toExport, format)
+			// Obscured runs of other workspaces carry placeholder fields, not their real outcome.
+			await exportRuns(jobs ?? [], format)
 		} catch (e) {
 			sendUserToast(`Could not export runs: ${e}`, true)
 		} finally {

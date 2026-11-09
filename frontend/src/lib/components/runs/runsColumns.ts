@@ -87,7 +87,21 @@ export function normalizeRunsColumns(columns: unknown): RunsColumnId[] {
 	return [...new Set([...RUNS_COLUMNS.filter((c) => c.required).map((c) => c.id), ...known])]
 }
 
-export function runsGridTemplateColumns(columns: RunsColumnId[], selectionMode: boolean): string {
+function gridTracks(columns: RunsColumnId[], selectionMode: boolean): string[] {
 	const widths = RUNS_COLUMNS.filter((c) => columns.includes(c.id)).map((c) => c.width)
-	return [...(selectionMode ? ['50px'] : []), '60px', ...widths, 'minmax(40px, 0.3fr)'].join(' ')
+	return [...(selectionMode ? ['50px'] : []), '60px', ...widths, 'minmax(40px, 0.3fr)']
+}
+
+export function runsGridTemplateColumns(columns: RunsColumnId[], selectionMode: boolean): string {
+	return gridTracks(columns, selectionMode).join(' ')
+}
+
+// The rows are virtualized and clip what overflows them, so the table itself must be wide
+// enough for every track's minimum and let its container scroll horizontally instead.
+export function runsTableMinWidth(columns: RunsColumnId[], selectionMode: boolean): number {
+	const tracksMin = gridTracks(columns, selectionMode).reduce(
+		(sum, track) => sum + Number(/(\d+)px/.exec(track)?.[1] ?? 0),
+		0
+	)
+	return Math.max(650, tracksMin + 16)
 }

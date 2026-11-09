@@ -13,7 +13,12 @@
 		Wrench
 	} from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
-	import { RUNS_COLUMNS, runsGridTemplateColumns, type RunsColumnId } from './runsColumns'
+	import {
+		RUNS_COLUMNS,
+		runsGridTemplateColumns,
+		runsTableMinWidth,
+		type RunsColumnId
+	} from './runsColumns'
 	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import RightClickPopover from '../RightClickPopover.svelte'
@@ -263,6 +268,7 @@
 		columns.filter((c) => (c !== 'labels' || containsLabel) && (c !== 'tag' || showTag))
 	)
 	let gridTemplateColumns = $derived(runsGridTemplateColumns(shownColumns, !!manualSelectionMode))
+	let minWidth = $derived(runsTableMinWidth(shownColumns, !!manualSelectionMode))
 	let selectedIdsPossibleActions = $derived.by(() => {
 		const cancellableJobIds: string[] = []
 		const rerunnableJobIds: string[] = []
@@ -388,7 +394,8 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="divide-y h-full flex flex-col min-w-[650px]"
+	class="divide-y h-full flex flex-col"
+	style="min-width: {minWidth}px"
 	id="runs-table-wrapper"
 	onclick={() => (hasClickFocus = true)}
 	use:clickOutside={{ onClickOutside: () => (hasClickFocus = false) }}
