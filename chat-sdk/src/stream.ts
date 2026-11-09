@@ -12,8 +12,11 @@ export type AgentStreamEvent =
       result: string
       success: boolean
     }
+  /** The agent answered and waits on tools still running in the background. */
+  | { type: 'background_wait' }
 
 const KNOWN_TYPES = new Set([
+  'background_wait',
   'token_delta',
   'reasoning_token_delta',
   'tool_call',
