@@ -28,6 +28,7 @@ import { OutputTokenLimitError } from './outputTokenLimit'
 import { buildAssistantToolCallMessage } from './openaiReasoning'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
+import type { CopilotInfo } from '$lib/aiStore'
 import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 interface ParsedCompletionResult {
@@ -308,6 +309,7 @@ export async function getOpenAIResponsesCompletion(
 		reasoningEffort?: string
 		reasoningSummary?: boolean
 		promptCacheKey?: string
+		info?: CopilotInfo
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -315,7 +317,8 @@ export async function getOpenAIResponsesCompletion(
 		stream: true,
 		tools,
 		forceModelProvider: options?.forceModelProvider,
-		reasoningEffort: options?.reasoningEffort
+		reasoningEffort: options?.reasoningEffort,
+		info: options?.info
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages, provider === 'deepseek')
 	const responsesConfig = applyReasoningToConfig(
@@ -379,6 +382,7 @@ export async function* getOpenAIResponsesCompletionStream(
 		openaiClient?: OpenAI
 		reasoningEffort?: string
 		maxTokensCap?: number
+		info?: CopilotInfo
 	}
 ): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -387,7 +391,8 @@ export async function* getOpenAIResponsesCompletionStream(
 		tools,
 		forceModelProvider: options?.forceModelProvider,
 		maxTokensCap: options?.maxTokensCap,
-		reasoningEffort: options?.reasoningEffort
+		reasoningEffort: options?.reasoningEffort,
+		info: options?.info
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	// No prompt cache key here: a rejected key has to be retried without it, and this is
@@ -717,13 +722,15 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 		resourceValue?: Record<string, any>
 		forceModelProvider?: AIProviderModel
 		maxTokensCap?: number
+		info?: CopilotInfo
 	}
 ): Promise<string> {
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
 		forceModelProvider: options?.forceModelProvider,
-		maxTokensCap: options?.maxTokensCap
+		maxTokensCap: options?.maxTokensCap,
+		info: options?.info
 	})
 
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
