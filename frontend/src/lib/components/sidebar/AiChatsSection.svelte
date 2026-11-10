@@ -23,7 +23,7 @@
 		'boolean'
 	)
 
-	let showOlder = $state(false)
+	const showOlder = useLocalStorageValue('windmill_ai_chats_show_older', false, 'boolean')
 
 	// Tagged with its workspace: responses are not ordered, and a late one from the workspace
 	// just left must not show here.
@@ -57,7 +57,7 @@
 	const openId = $derived(page.url.searchParams.get('conversation'))
 	// The open chat always lists, however old.
 	const rows = $derived(
-		showOlder || !current
+		showOlder.val || !current
 			? allRows
 			: allRows.filter((c, i) => i < current.recent || c.id === openId)
 	)
@@ -114,8 +114,8 @@
 				{#if olderCount > 0}
 					<SidebarShowOlder
 						count={olderCount}
-						expanded={showOlder}
-						onToggle={() => (showOlder = !showOlder)}
+						expanded={showOlder.val}
+						onToggle={() => (showOlder.val = !showOlder.val)}
 						{rail}
 					/>
 				{/if}

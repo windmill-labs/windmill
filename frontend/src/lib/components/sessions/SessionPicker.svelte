@@ -202,7 +202,7 @@
 
 	// With no activity cutoff picked, sessions inactive for over a week fold under a "Show older"
 	// row, except the one on screen. A picked cutoff is the reader's own choice and folds nothing.
-	let showOlder = $state(false)
+	const showOlder = useLocalStorageValue('windmill_sessions_show_older', false, 'boolean')
 	const olderIds = $derived.by(() => {
 		if (lastActivityDays.val > 0) return new Set<string>()
 		const cutoff = clock - SIDEBAR_RECENT_MS
@@ -216,7 +216,7 @@
 	// The rows listed. Grouping for display happens in `sessionGroups`; this flat view drives
 	// the runtime effect, the unread total, and keyboard navigation.
 	const visibleSessions = $derived(
-		showOlder ? filteredSessions : filteredSessions.filter((s) => !olderIds.has(s.id))
+		showOlder.val ? filteredSessions : filteredSessions.filter((s) => !olderIds.has(s.id))
 	)
 
 	// Sessions grouped by workspace family for display, each group by its last turn
@@ -1157,8 +1157,8 @@
 		{#if olderIds.size > 0}
 			<SidebarShowOlder
 				count={olderIds.size}
-				expanded={showOlder}
-				onToggle={() => (showOlder = !showOlder)}
+				expanded={showOlder.val}
+				onToggle={() => (showOlder.val = !showOlder.val)}
 				{rail}
 			/>
 		{/if}
