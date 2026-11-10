@@ -12,7 +12,9 @@ use windmill_common::{
     error::Result,
     flows::{FlowModuleValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    jobs::{get_has_preprocessor_from_content_and_lang, script_path_to_payload, JobPayload},
+    jobs::{
+        get_has_preprocessor_from_content_and_lang, script_path_to_payload, JobPayload, RunOrigin,
+    },
     runnable_ref::RunnableRef,
     scripts::{get_full_hub_script_by_id, ScriptHash, ScriptLang},
     triggers::{
@@ -904,6 +906,7 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
         let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
         script_path_to_payload(
             script,
+            RunOrigin::NamedBy(authed.to_authed_ref()),
             Some(db_authed),
             db.clone(),
             &workspace_id,

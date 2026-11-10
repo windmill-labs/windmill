@@ -44,7 +44,7 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, TriggerKindLabel,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, RunOrigin, TriggerKindLabel,
     ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_ref::RunnableRef;
@@ -7005,6 +7005,7 @@ pub async fn script_to_payload(
             let (jp, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
                 script_path_to_payload(
                     &script,
+                    RunOrigin::SavedItem,
                     None,
                     db.clone(),
                     &flow_job.workspace_id,

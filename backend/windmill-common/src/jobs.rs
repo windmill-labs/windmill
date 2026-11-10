@@ -148,8 +148,19 @@ pub fn resolve_delete_after_secs(
     }
 }
 
+/// Who chose the path a job is resolved from. A path a person named is held to that person's
+/// rights; one stored in something a builder saved (a flow step, a handler) is not re-checked here.
+/// Deliberately has no default: every caller must say which it is.
+pub enum RunOrigin<'a> {
+    /// The person who chose the path, whose rights it is held to; usually, not always, the
+    /// identity the job runs as (a preview on behalf of another user, a run-as script).
+    NamedBy(AuthedRef<'a>),
+    SavedItem,
+}
+
 pub async fn script_path_to_payload<'e>(
     script: &RunnableRef,
+    _origin: RunOrigin<'_>,
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: DB,
     w_id: &str,
@@ -247,11 +258,12 @@ pub async fn script_path_to_payload<'e>(
 
 pub async fn runnable_ref_to_payload(
     runnable: &RunnableRef,
+    origin: RunOrigin<'_>,
     db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
     let (payload, tag, _, _, _, on_behalf_of) = if !runnable.is_flow() {
-        script_path_to_payload(runnable, None, db.clone(), w_id, Some(true)).await?
+        script_path_to_payload(runnable, origin, None, db.clone(), w_id, Some(true)).await?
     } else {
         let path = runnable.path().to_string();
         if let Some(hub_id) = runnable.hub_id() {

@@ -118,6 +118,7 @@ use windmill_common::{
     },
     jobs::{
         script_path_to_payload, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob, RawCode,
+        RunOrigin,
     },
     oauth2::HmacSha256,
     query_builders,
@@ -7940,6 +7941,7 @@ pub async fn run_workflow_as_code(
                 let script = RunnableRef::from_path(job.script_path(), false)?;
                 script_path_to_payload(
                     &script,
+                    RunOrigin::SavedItem,
                     Some(userdb_authed),
                     db.clone(),
                     &w_id,
@@ -8273,6 +8275,7 @@ pub async fn run_wait_result_job_by_path_get(
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_authed) =
         script_path_to_payload(
             &script,
+            RunOrigin::NamedBy(authed.to_authed_ref()),
             Some(user_db_with_authed),
             db.clone(),
             &w_id,
@@ -8425,6 +8428,7 @@ pub async fn run_wait_result_script_by_path_internal(
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
         script_path_to_payload(
             script,
+            RunOrigin::NamedBy(authed.to_authed_ref()),
             Some(db_authed),
             db.clone(),
             &w_id,
