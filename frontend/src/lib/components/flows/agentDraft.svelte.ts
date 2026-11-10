@@ -218,6 +218,9 @@ export interface AgentDraftOptions {
 	/** Only the deployed agent, as a page that runs it shows it: no draft is loaded, restored or
 	 *  written, and a write from another tab does not land here. */
 	deployedOnly?: () => boolean
+	/** Subject autosaves to the auto-save toggle. Only for an editor that asks before an unsaved
+	 *  edit is left behind; anywhere else every edit has to save. Read once. */
+	autosaveToggle?: boolean
 }
 
 export interface AgentDraftHandle {
@@ -276,7 +279,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 
 	const sync = useTriggerDraftSync({
 		itemKind: 'agent',
-		canBeDisabled: true,
+		canBeDisabled: opts.autosaveToggle,
 		// An empty path holds no draft handle, which is what keeps a deployed-only view off the draft.
 		path: () => (opts.deployedOnly?.() ? '' : (opts.path() ?? '')),
 		workspace: () => opts.workspace(),

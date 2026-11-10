@@ -229,7 +229,8 @@ can open one. The agent editor carries the same draft controls as the script and
 autosave indicator (save state, *Reset to deployed*, others' drafts, the auto-save toggle), a *Diff*
 button, Ctrl/Cmd+S, and the draft prompts (`DraftEditorModals`: a refused save, others' drafts, a
 draft older than the last deploy). With auto-save off, closing the dialog or leaving the page asks
-before dropping edits that were never saved.
+before dropping edits that were never saved. A session's tab has nothing that could ask, so there
+the agent saves every edit whatever the toggle says, and its indicator leaves the toggle out.
 
 Deploying a draft keeps the identity the agent runs as. A draft never carries one, so a deploy of it
 sends `preserve_on_behalf_of` with no `on_behalf_of`, which keeps the deployed agent's identity for

@@ -726,6 +726,7 @@
 						loadedFromDraft={draft.loadedFromDraft}
 						othersDraftsCount={layout === 'pane' ? 0 : draft.otherDraftsUsers.length}
 						onOpenOthersDrafts={() => (othersModalOpen = true)}
+						alwaysSaves={layout === 'pane'}
 						compact={layout !== 'page'}
 					/>
 					<!-- A disabled button fires no pointer events, so the title sits on a wrapper. -->
@@ -826,6 +827,7 @@
 			onSelectTool={(id) => showTool(id)}
 			{onSaved}
 			isNew={target?.isNew}
+			autosaveToggle={layout !== 'pane'}
 			configFooter={offerFlow ? flowFooter : undefined}
 		/>
 	{/snippet}

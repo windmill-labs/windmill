@@ -88,6 +88,9 @@
 				}
 			]
 		>
+		/** Edits wait for Ctrl/Cmd+S while auto-save is off. Only for a host that asks before an
+		 *  unsaved edit is left behind. Fixed for the mount's lifetime. */
+		autosaveToggle?: boolean
 		/** A hint pinned under the configuration, outside its scroll. */
 		configFooter?: import('svelte').Snippet
 		/** Pinned at the foot of the chat's conversations sidebar. */
@@ -107,6 +110,7 @@
 		openConversation = undefined,
 		onRunStarted = undefined,
 		viewForm = undefined,
+		autosaveToggle = false,
 		configFooter = undefined,
 		chatSidebarFooter = undefined
 	}: Props = $props()
@@ -121,7 +125,8 @@
 		path: () => path,
 		workspace: () => workspace,
 		isNew: () => isNew,
-		deployedOnly: () => view
+		deployedOnly: () => view,
+		autosaveToggle: untrack(() => autosaveToggle)
 	})
 
 	/** Read access only. Everything that could write is blocked, down to the draft itself: an
