@@ -146,23 +146,10 @@ impl AnthropicThinking {
     }
 }
 
-/// Carries the reasoning effort token alongside adaptive thinking, and the
-/// schema the final answer must follow.
-#[derive(Serialize, Debug, Default)]
-pub struct AnthropicOutputConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub format: Option<AnthropicOutputFormat>,
-}
-
-/// Structured outputs: constrains the final text answer to a JSON schema. Replaces
-/// forcing a tool call, which `tool_choice` `any`/`tool` no longer allows on the
-/// newest models and never allowed alongside thinking.
+/// Carries the reasoning effort token alongside adaptive thinking.
 #[derive(Serialize, Debug)]
-pub struct AnthropicOutputFormat {
-    pub r#type: &'static str,
-    pub schema: OpenAPISchema,
+pub struct AnthropicOutputConfig {
+    pub effort: String,
 }
 
 /// Resolve the thinking config, effort and sampling params for a reasoning
@@ -189,7 +176,7 @@ fn anthropic_thinking_config(
         }
         Some(effort) => (
             Some(AnthropicThinking::adaptive()),
-            Some(AnthropicOutputConfig { effort: Some(effort.to_string()), format: None }),
+            Some(AnthropicOutputConfig { effort: effort.to_string() }),
             None,
         ),
         None => (None, None, temperature),
@@ -668,18 +655,8 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        let (thinking, mut output_config, temperature) =
+        let (thinking, output_config, temperature) =
             anthropic_thinking_config(args.model, args.reasoning_effort, args.temperature);
-
-        if let Some(schema) = args
-            .output_schema
-            .filter(|schema| schema.properties.as_ref().is_some_and(|p| !p.is_empty()))
-        {
-            let mut schema = schema.clone();
-            schema.make_strict();
-            output_config.get_or_insert_with(Default::default).format =
-                Some(AnthropicOutputFormat { r#type: "json_schema", schema });
-        }
 
         // Build request based on platform
         if self.is_vertex() {
@@ -1303,10 +1280,7 @@ mod tests {
             tools: None,
             temperature: None,
             thinking: Some(AnthropicThinking::adaptive()),
-            output_config: Some(AnthropicOutputConfig {
-                effort: Some("high".to_string()),
-                format: None,
-            }),
+            output_config: Some(AnthropicOutputConfig { effort: "high".to_string() }),
             max_tokens: Some(64000),
             stream: true,
         };
@@ -1333,10 +1307,7 @@ mod tests {
         let (thinking, output_config, temperature) =
             anthropic_thinking_config("claude-sonnet-4-6", Some("xhigh"), Some(0.5));
         assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("adaptive"));
-        assert_eq!(
-            output_config.and_then(|c| c.effort),
-            Some("xhigh".to_string())
-        );
+        assert_eq!(output_config.map(|c| c.effort), Some("xhigh".to_string()));
         // Adaptive thinking rejects sampling params on every model.
         assert!(temperature.is_none());
 

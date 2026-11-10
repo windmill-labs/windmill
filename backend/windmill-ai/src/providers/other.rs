@@ -13,14 +13,6 @@ use serde::Serialize;
 use serde_json;
 use windmill_common::{client::AuthedClient, error::Error};
 
-#[derive(Serialize, Debug, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum ToolChoice {
-    #[allow(dead_code)]
-    Auto,
-    Required,
-}
-
 /// Stream options for OpenAI API to include usage in streaming responses
 #[derive(Serialize)]
 pub struct StreamOptions {
@@ -45,8 +37,6 @@ pub struct OpenAICompletionRequest<'a> {
     pub max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoice>,
     pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<StreamOptions>,
@@ -113,8 +103,10 @@ impl OtherQueryBuilder {
             .unwrap_or(false);
 
         let should_use_structured_output_tool =
-            should_use_structured_output_tool(&self.provider_kind);
+            should_use_structured_output_tool(&self.provider_kind, args.model);
 
+        // Only use response_format for providers that support it (not Claude/Anthropic)
+        // Claude models use a tool for structured output instead
         let response_format = if has_output_properties
             && args.output_schema.is_some()
             && !should_use_structured_output_tool
@@ -129,12 +121,6 @@ impl OtherQueryBuilder {
                     strict: Some(true),
                 },
             })
-        } else {
-            None
-        };
-
-        let tool_choice = if should_use_structured_output_tool && has_output_properties {
-            Some(ToolChoice::Required)
         } else {
             None
         };
@@ -161,7 +147,6 @@ impl OtherQueryBuilder {
             thinking: thinking.clone(),
             max_completion_tokens: args.max_tokens,
             response_format: response_format.clone(),
-            tool_choice: tool_choice.clone(),
             stream: true,
             stream_options: Some(StreamOptions { include_usage: true }),
         };
@@ -176,7 +161,6 @@ impl OtherQueryBuilder {
             thinking,
             max_completion_tokens: args.max_tokens,
             response_format,
-            tool_choice,
             stream: true,
             stream_options: None,
         };

@@ -1698,7 +1698,7 @@ pub async fn run_agent(
         .unwrap_or(false);
 
     let should_use_structured_output_tool =
-        should_use_structured_output_tool(&args.provider.kind);
+        should_use_structured_output_tool(&args.provider.kind, &args.provider.model);
     let mut used_structured_output_tool = false;
     let mut structured_output_tool_name: Option<String> = None;
 
@@ -1706,6 +1706,7 @@ pub async fn run_agent(
     if has_output_properties && is_text_output {
         let schema = args.output_schema.as_ref().unwrap();
         if should_use_structured_output_tool {
+            // Anthropic uses a tool for structured output
             let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
             structured_output_tool_name = Some(unique_tool_name.clone());
 
@@ -1714,7 +1715,7 @@ pub async fn run_agent(
                 function: ToolDefFunction {
                     name: unique_tool_name,
                     description: Some(
-                        "This tool MUST be used last to return a structured JSON object as the final output."
+                        "Return the final answer. Always finish by calling this tool exactly once with the answer as its input, instead of replying in plain text."
                             .to_string(),
                     ),
                     parameters: to_raw_value(&schema),
@@ -1726,7 +1727,7 @@ pub async fn run_agent(
                 tool_defs = Some(vec![output_tool]);
             }
         }
-        // Every other provider constrains the output natively in its query builder
+        // For non-Anthropic providers, response_format is handled by the query builder
     }
 
     let user_wants_streaming = streaming_requested(args.streaming);

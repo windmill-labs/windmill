@@ -111,11 +111,9 @@ pub async fn pinned_ai_client_for(
     Ok(Cow::Owned(client))
 }
 
-/// Bedrock's Converse API takes no output schema, so structured output there goes through a
-/// tool the model is asked to call last. Every other provider, Anthropic included
-/// (`output_config.format`), constrains the final answer to the schema natively.
-pub fn should_use_structured_output_tool(provider: &AIProvider) -> bool {
-    provider == &AIProvider::AWSBedrock
+/// AWS Bedrock do not handle structured output query param, so we use a tool for structured output. Same for every Claude models.
+pub fn should_use_structured_output_tool(provider: &AIProvider, model: &str) -> bool {
+    model.contains("claude") || provider == &AIProvider::AWSBedrock
 }
 
 /// Collect the system prompt for providers that take it in a dedicated top-level field
