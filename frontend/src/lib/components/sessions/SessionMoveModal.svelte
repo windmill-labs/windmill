@@ -41,7 +41,7 @@
 </script>
 
 {#snippet dontMove()}
-	<Button disabled={loading} variant="default" unifiedSize="sm" on:click={onSwitchOnly}>
+	<Button disabled={loading} variant="default" unifiedSize="sm" onClick={onSwitchOnly}>
 		Don't move
 	</Button>
 {/snippet}
