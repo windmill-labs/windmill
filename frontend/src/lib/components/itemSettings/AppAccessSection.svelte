@@ -11,7 +11,7 @@
 	import { Loader2, Pen, Plus, Trash } from 'lucide-svelte'
 	import { AppService, SettingService, WorkspaceService } from '$lib/gen'
 	import type { GuestUsage } from '$lib/gen'
-	import { enterpriseLicense, isPremiumStore, userStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
@@ -76,8 +76,10 @@
 	)
 
 	// The server refuses every deploy that leaves an app public on a free cloud workspace, so an
-	// already-public app can only be switched away from it.
-	let publicNeedsPlan = $derived(isCloudHosted() && $isPremiumStore === false)
+	// already-public app can only be switched away from it. Read for `workspace`, which a session
+	// editor can set to another workspace than the one navigated to.
+	let premium = $state<boolean | undefined>(undefined)
+	let publicNeedsPlan = $derived(isCloudHosted() && premium === false)
 
 	let guestUsage = $state<GuestUsage | undefined>(undefined)
 	// The backend decides; the hostname stands in until it answers, the shared cloud being the
@@ -88,6 +90,11 @@
 	let secretUrl: string | undefined = $state(undefined)
 
 	function load() {
+		if (isCloudHosted()) {
+			WorkspaceService.getIsPremium({ workspace })
+				.then((p) => (premium = p))
+				.catch(() => (premium = undefined))
+		}
 		WorkspaceService.getGuestUsage({ workspace })
 			.then((u) => (guestUsage = u))
 			.catch(() => (guestUsage = undefined))
