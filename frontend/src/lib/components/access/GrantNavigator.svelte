@@ -16,6 +16,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import {
 		GranularAclService,
+		type AccessReason,
 		type BrowseAccessFoldersResponse,
 		type BrowseAccessItemsResponse,
 		type PrincipalAccess
@@ -203,6 +204,12 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 			...access.folders.map((f) => [`folder:${f.name}`, f.write] as const)
 		])
 	)
+	/** How the principal reaches each item it reaches, by `kind:path`. */
+	const reasons = $derived(
+		new Map<string, AccessReason[]>(
+			access.items.map((i) => [`${i.kind}:${i.path}`, i.reasons] as const)
+		)
+	)
 
 	async function grant(leaf: DrillLeaf<Leaf>) {
 		const row = leaf.data
@@ -227,7 +234,13 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 		if (row.blocked) return row.blocked
 		if (row.grant != undefined)
 			return `Already granted ${row.grant ? 'write' : 'read'}: change it from the table`
-		return undefined
+		const write = reaches.get(leaf.key)
+		if (write === undefined) return undefined
+		const already = `Already ${write ? 'writes' : 'reads'} it`
+		const folder = reasons.get(leaf.key)?.find((r) => r.type === 'folder')?.folder
+		return folder
+			? `${already} through f/${folder}: picking it adds a direct grant, which stays even if f/${folder} is no longer shared`
+			: `${already}: picking it adds a direct grant, which stays even if that access is removed`
 	}
 
 	/** The kind detectNeeds reads it as: a full-code app is read like any app. */
