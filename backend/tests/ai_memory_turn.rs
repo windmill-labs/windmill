@@ -142,10 +142,23 @@ async fn hold_with_parked_agent(
     )
     .execute(&mut *tx)
     .await?;
+    // A nested agent's own background job, under the handed one.
     sqlx::query!(
-        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for) VALUES ($1, $2, now())",
+        "INSERT INTO v2_job (id, workspace_id, kind, parent_job, root_job)
+         VALUES ($1, $2, 'script', $3, $4)",
+        NESTED_JOB,
+        WS,
         BACKGROUND_JOB,
-        WS
+        holder
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for)
+         VALUES ($1, $2, now()), ($3, $2, now())",
+        BACKGROUND_JOB,
+        WS,
+        NESTED_JOB
     )
     .execute(&mut *tx)
     .await?;
@@ -154,6 +167,7 @@ async fn hold_with_parked_agent(
 }
 
 const BACKGROUND_JOB: Uuid = Uuid::from_u128(0xb6);
+const NESTED_JOB: Uuid = Uuid::from_u128(0xb7);
 
 #[sqlx::test(fixtures("base"))]
 async fn test_a_parked_last_step_hands_its_memory_id_over(
@@ -198,12 +212,12 @@ async fn test_a_parked_last_step_hands_its_memory_id_over(
     tx.commit().await?;
     assert!(claimed);
     let cancelled = sqlx::query_scalar!(
-        "SELECT canceled_by FROM v2_job_queue WHERE id = $1",
-        BACKGROUND_JOB
+        "SELECT canceled_by FROM v2_job_queue WHERE id = ANY($1)",
+        &[BACKGROUND_JOB, NESTED_JOB]
     )
-    .fetch_one(&db)
+    .fetch_all(&db)
     .await?;
-    assert_eq!(cancelled.as_deref(), Some("monitor"));
+    assert_eq!(cancelled, vec![Some("monitor".to_string()); 2]);
     Ok(())
 }
 

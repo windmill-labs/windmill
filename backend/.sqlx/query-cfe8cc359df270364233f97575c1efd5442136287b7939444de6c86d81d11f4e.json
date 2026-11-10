@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for)\n         VALUES ($1, $2, now()), ($3, $2, now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cfe8cc359df270364233f97575c1efd5442136287b7939444de6c86d81d11f4e"
+}

@@ -952,15 +952,15 @@ async fn claim_memory_turn(
         if inserted.is_some() {
             return Ok(None);
         }
-        let holder = sqlx::query_scalar!(
-            "SELECT job_id FROM ai_memory_turn WHERE workspace_id = $1 AND memory_id = $2
-             FOR UPDATE",
+        let claim = sqlx::query!(
+            "SELECT job_id, handed_jobs FROM ai_memory_turn
+             WHERE workspace_id = $1 AND memory_id = $2 FOR UPDATE",
             w_id,
             memory_id
         )
         .fetch_optional(&mut **tx)
         .await?;
-        let Some(holder) = holder else {
+        let Some((holder, unadopted)) = claim.map(|c| (c.job_id, c.handed_jobs)) else {
             continue;
         };
         let queued = sqlx::query_scalar!(
@@ -986,20 +986,14 @@ async fn claim_memory_turn(
                 }
             }
         } else {
-            // Jobs handed to the ended run and never adopted: as the monitor does for a claim it
-            // deletes, cancelled rather than dropped with the row.
-            sqlx::query!(
-                "UPDATE v2_job_queue q
-                 SET canceled_by = 'monitor', scheduled_for = now(), suspend = 0,
-                     canceled_reason = 'the turn its AI agent was handed to ended before taking it'
-                 FROM ai_memory_turn t, jsonb_each(t.handed_jobs) s, jsonb_array_elements(s.value) b
-                 WHERE t.workspace_id = $1 AND t.memory_id = $2
-                   AND q.id = (b->>'job_id')::uuid AND q.canceled_by IS NULL",
-                w_id,
-                memory_id
-            )
-            .execute(&mut **tx)
-            .await?;
+            // Jobs handed to the ended run and never adopted: cancelled, as the monitor does
+            // for a claim it deletes, rather than dropped with the row.
+            if let Some(unadopted) = &unadopted {
+                windmill_common::flow_conversations::cancel_unadopted_handed_jobs(
+                    &mut **tx, unadopted,
+                )
+                .await?;
+            }
             None
         };
         sqlx::query!(

@@ -1457,8 +1457,13 @@ async fn persist_memory_on_stop(
     effective_flow_step_id: Option<&str>,
     output_type: &OutputType,
     persist_capacity: Option<usize>,
+    handed_over: bool,
     messages: &AgentHistory,
 ) -> Error {
+    // A turn taken over leaves the memory to the run that took it.
+    if handed_over {
+        return Error::ExecutionErr("Job cancelled".to_string());
+    }
     persist_memory_uncompacted(
         db,
         conn,
@@ -2175,6 +2180,7 @@ pub async fn run_agent(
                 effective_flow_step_id,
                 output_type,
                 persist_capacity,
+                handed_over,
                 &messages,
             )
             .await);
@@ -2675,6 +2681,7 @@ pub async fn run_agent(
                             effective_flow_step_id,
                             output_type,
                             persist_capacity,
+                            handed_over,
                             &messages,
                         )
                         .await);
@@ -3028,6 +3035,7 @@ pub async fn run_agent(
                         effective_flow_step_id,
                         output_type,
                         persist_capacity,
+                        handed_over,
                         &messages,
                     )
                     .await);
