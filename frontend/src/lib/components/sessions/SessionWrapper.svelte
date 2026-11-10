@@ -63,6 +63,8 @@
 		type SessionPreviewTab
 	} from './sessionState.svelte'
 	import { leaveForHome } from './sessionSwitch.svelte'
+	import { workspaceRootId } from './sessionScope.svelte'
+	import { fixupUrlAfterWorkspaceSwitch } from '$lib/components/sidebar/workspaceSwitchUrl'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
@@ -377,6 +379,8 @@
 		items: (DraftItemRef & { label: string })[]
 		conflicts: DraftItemRef[]
 		error?: string
+		// Asked because the user is switching the app to the target: it switches either way.
+		switching?: { landOnHome: boolean }
 	}
 	let movePickerOpen = $state(false)
 	let moveRequest = $state<MoveRequest | undefined>(undefined)
@@ -433,18 +437,45 @@
 			.join('\n')
 	}
 
-	async function startMove(target: MoveTarget) {
+	// A running turn cannot be moved, so the pick stays a plain switch.
+	function offerMoveOnSwitch(id: string, landOnHome: boolean): boolean {
+		const from = actingWorkspaceId
+		if (!session?.workspace_id || !from || id === from || !canMoveToFork || moving) return false
+		if (id === $workspaceStore) return false
+		if (workspaceRootId(id, $userWorkspaces) !== workspaceRootId(from, $userWorkspaces)) {
+			return false
+		}
+		void startMove({ kind: 'existing', id }, { landOnHome })
+		return true
+	}
+
+	function switchAppTo(id: string, landOnHome: boolean) {
+		syncWorkspaceTo(id)
+		void fixupUrlAfterWorkspaceSwitch(id, { landOnHome })
+	}
+
+	function switchWithoutMoving() {
+		const req = moveRequest
+		moveRequest = undefined
+		if (req?.switching && req.target.kind === 'existing') {
+			switchAppTo(req.target.id, req.switching.landOnHome)
+		}
+	}
+
+	async function startMove(target: MoveTarget, switching?: { landOnHome: boolean }) {
 		const parent = actingWorkspaceId
 		if (!session || !parent || !canMoveToFork || moving) return
 		if (target.kind === 'existing' && target.id === parent) return
 		const listed = await listMoveItems(parent, target)
 		if (typeof listed === 'string') {
 			sendUserToast(listed, true)
+			if (switching && target.kind === 'existing') switchAppTo(target.id, switching.landOnHome)
 			return
 		}
 		moveRemoveFromParent = false
 		moveRequest = {
-			open: listed.items.length > 0,
+			open: !!switching || listed.items.length > 0,
+			switching,
 			parent,
 			parentName: $userWorkspaces.find((w) => w.id === parent)?.name ?? parent,
 			target,
@@ -454,7 +485,7 @@
 					: ($userWorkspaces.find((w) => w.id === target.id)?.name ?? target.id),
 			...listed
 		}
-		if (listed.items.length === 0) await confirmMove()
+		if (!moveRequest?.open) await confirmMove()
 	}
 
 	async function confirmMove() {
@@ -543,6 +574,7 @@
 				}
 				return
 			}
+			runtime?.resetPipelineEditors()
 			moveRequest = undefined
 			await runtime?.manager
 				.queueModelNote(
@@ -556,6 +588,7 @@
 				.catch((e) => console.error('Failed to persist the move note', e))
 			runtime?.manager.rebuildGlobalSystemMessage()
 			sendUserToast(`Session moved to ${req.targetName}`)
+			if (req.switching) switchAppTo(res.forkId, req.switching.landOnHome)
 		} finally {
 			moving = false
 			if (runtime) {
@@ -737,6 +770,7 @@
 				noNavPicker: true
 			}}
 			{actingWorkspaceId}
+			onPickWorkspace={offerMoveOnSwitch}
 		/>
 	{/if}
 
@@ -845,6 +879,7 @@
 			error={moveRequest.error}
 			loading={moving}
 			bind:removeFromParent={moveRemoveFromParent}
+			onSwitchOnly={moveRequest.switching ? switchWithoutMoving : undefined}
 			onConfirmed={() => void confirmMove()}
 			onCanceled={() => (moveRequest = undefined)}
 		/>

@@ -82,16 +82,16 @@
 		<div class="flex justify-end gap-2">
 			<Button
 				variant="default"
-				size="sm"
+				unifiedSize="sm"
 				disabled={busy}
 				on:click={() => UserDraftDbSyncer.clearConflict(query)}
 			>
 				Dismiss
 			</Button>
-			<Button variant="default" size="sm" disabled={busy} on:click={overwriteServer}>
+			<Button variant="default" unifiedSize="sm" disabled={busy} on:click={overwriteServer}>
 				Overwrite the remote
 			</Button>
-			<Button variant="accent" size="sm" loading={busy} on:click={loadFromServer}>
+			<Button variant="accent" unifiedSize="sm" loading={busy} on:click={loadFromServer}>
 				Load from server
 			</Button>
 		</div>
