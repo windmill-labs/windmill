@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { roleCapabilities, workspaceStore } from '$lib/stores'
 	import { goto } from '$app/navigation'
+	import { isNewTabClick } from '$lib/navigation'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FolderPicker from '$lib/components/FolderPicker.svelte'
 	import { AssetService, type ListPipelineFoldersResponse } from '$lib/gen'
@@ -41,10 +42,14 @@
 		(pipelines.current ?? []).filter((p) => p.folder !== currentFolder)
 	)
 
+	function pipelineHref(folder: string): string {
+		const modeQuery = mode !== 'view' ? `?mode=${mode}` : ''
+		return `/pipeline/${encodeURIComponent(folder)}${modeQuery}`
+	}
+
 	async function openExistingPipeline(folder: string) {
 		onOpen?.()
-		const modeQuery = mode !== 'view' ? `?mode=${mode}` : ''
-		await goto(`/pipeline/${encodeURIComponent(folder)}${modeQuery}`)
+		await goto(pipelineHref(folder))
 	}
 
 	async function openPicked() {
@@ -74,17 +79,21 @@
 			{:else}
 				<div class="flex flex-col border rounded-md overflow-hidden max-h-64 overflow-y-auto">
 					{#each visiblePipelines as p (p.folder)}
-						<button
-							type="button"
-							class="flex items-center justify-between px-3 py-2 border-b last:border-b-0 bg-surface hover:bg-surface-hover transition-colors text-left"
-							onclick={() => openExistingPipeline(p.folder)}
+						<a
+							href={pipelineHref(p.folder)}
+							class="flex items-center justify-between px-3 py-2 border-b last:border-b-0 bg-surface hover:bg-surface-hover transition-colors text-left text-[color:inherit]"
+							onclick={(e) => {
+								if (isNewTabClick(e)) return
+								e.preventDefault()
+								openExistingPipeline(p.folder)
+							}}
 						>
 							<span class="font-mono text-sm">f/{p.folder}</span>
 							<span class="text-2xs text-tertiary">
 								{p.script_count}
 								{p.script_count === 1 ? 'script' : 'scripts'}
 							</span>
-						</button>
+						</a>
 					{/each}
 				</div>
 			{/if}

@@ -5,9 +5,10 @@ use windmill_common::{
     agent_workers::{PingJobStatus, PingJobStatusResponse},
     cache,
     external_ip::UNKNOWN_IP,
+    worker_job_stats::job_stats_snapshot,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
-        insert_ping_query, set_worker_draining_query, update_job_ping_query,
+        insert_ping_query, set_worker_draining_query, ReclaimedPing, update_job_ping_query,
         update_worker_ping_from_job_query, update_worker_ping_main_loop_query, Connection, Ping,
         PingType, NATIVE_MODE_RESOLVED, WORKER_CONFIG, WORKER_GROUP,
     },
@@ -127,6 +128,7 @@ async fn update_worker_ping_full_inner(
     ip: Option<&str>,
     last_job: Option<(Uuid, &str)>,
 ) -> anyhow::Result<()> {
+    let job_stats = job_stats_snapshot(worker_name);
     match conn {
         Connection::Sql(db) => {
             update_worker_ping_main_loop_query(
@@ -144,6 +146,7 @@ async fn update_worker_ping_full_inner(
                 native_mode,
                 ip,
                 last_job,
+                job_stats.as_ref(),
                 db,
             )
             .await?;
@@ -175,6 +178,7 @@ async fn update_worker_ping_full_inner(
                         native_mode: Some(native_mode),
                         draining: None,
                         ping_type: PingType::MainLoop,
+                        job_stats,
                     },
                 )
                 .await?;
@@ -183,15 +187,15 @@ async fn update_worker_ping_full_inner(
     Ok(())
 }
 
-/// Registers the worker in `worker_ping` and returns the number of jobs already attributed
-/// to that worker name, which is 0 unless this process reclaims the row of an earlier one.
+/// Registers the worker in `worker_ping` and returns the job counters already attributed to
+/// that worker name, which are empty unless this process reclaims the row of an earlier one.
 pub async fn insert_ping(
     worker_instance: &str,
     worker_name: &str,
     ip: Option<&str>,
     reset_draining: bool,
     db: &Connection,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<ReclaimedPing> {
     let (tags, dw, dws, native_mode) = {
         let wc = (**WORKER_CONFIG.load()).clone();
         (
@@ -270,14 +274,15 @@ pub async fn insert_ping(
                         native_mode: Some(native_mode),
                         draining: reset_draining.then_some(false),
                         ping_type: PingType::Initial,
+                        job_stats: None,
                     },
                 )
                 .await?;
         }
     }
     // The agent ping endpoint answers with nothing, so an agent worker always starts its
-    // counter from zero.
-    Ok(0)
+    // counters from zero.
+    Ok(ReclaimedPing::default())
 }
 
 pub async fn update_worker_ping_from_job(
@@ -329,6 +334,7 @@ pub async fn update_worker_ping_from_job(
                         last_job_workspace_id: Some(w_id.to_string()),
                         draining: None,
                         ping_type: PingType::Job,
+                        job_stats: None,
                         worker_instance: None,
                         ip: None,
                         tags: None,
@@ -371,6 +377,7 @@ pub async fn mark_worker_draining(conn: &Connection, worker_name: &str) -> anyho
                         last_job_workspace_id: None,
                         draining: None,
                         ping_type: PingType::Draining,
+                        job_stats: None,
                         worker_instance: None,
                         ip: None,
                         tags: None,

@@ -1,19 +1,17 @@
 <!--
 @component
-The starred items as a sidebar section, turned on from "Customize sidebar" in the settings menu.
-Hidden in the collapsed rail, like the AI chats.
+The starred items as a sidebar section, turned on from Customize in the sidebar menu.
 -->
 <script lang="ts">
-	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
-	import { Bot, CodeXml, LayoutDashboard, Table2, Trash2 } from 'lucide-svelte'
+	import { Bot, CodeXml, LayoutDashboard, Star, Table2, Trash2 } from 'lucide-svelte'
 	import { page } from '$app/state'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { parseDbInputFromAssetSyntax } from '$lib/utils'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import SidebarSectionHeader from './SidebarSectionHeader.svelte'
+	import SidebarSection from './SidebarSection.svelte'
 	import { favoriteManager } from './FavoriteMenu.svelte'
 	import { sidebarClasses } from './MenuButton.svelte'
 	import { sidebarPrefs } from './sidebarPrefs.svelte'
@@ -29,15 +27,17 @@ Hidden in the collapsed rail, like the AI chats.
 	const loaded = $derived(favoriteManager.loadedFor === $workspaceStore)
 </script>
 
-{#if sidebarPrefs.favorites.val && !isCollapsed && loaded}
-	<div class="flex flex-col gap-1">
-		<SidebarSectionHeader
-			title="Favorites"
-			collapsed={sectionCollapsed.val}
-			onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-		/>
-		{#if !sectionCollapsed.val}
-			<div transition:slide={{ duration: 180 }} class="flex flex-col gap-0.5">
+{#if sidebarPrefs.favorites.val && loaded}
+	<SidebarSection
+		title="Favorites"
+		icon={Star}
+		folded={sectionCollapsed.val}
+		onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
+		{isCollapsed}
+	>
+		{#snippet children(inPopover)}
+			{@const rail = isCollapsed && !inPopover}
+			<div class="flex flex-col gap-0.5">
 				{#each favoriteManager.current as favorite (`${favorite.kind}:${favorite.path}`)}
 					{@const selected = favorite.href !== '#' && page.url.pathname === favorite.href}
 					<div class="relative group/fav">
@@ -52,7 +52,8 @@ Hidden in the collapsed rail, like the AI chats.
 								if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
 							}}
 							class={twMerge(
-								'flex flex-row items-center gap-2 px-2 py-1 pr-7 rounded text-xs font-normal min-w-0',
+								'flex flex-row items-center gap-2 px-2 h-6 rounded text-xs font-normal min-w-0',
+								rail ? '' : 'pr-7',
 								selected
 									? twMerge(sidebarClasses.selectedBg, sidebarClasses.selectedText)
 									: 'text-secondary hover:bg-surface-hover'
@@ -70,10 +71,13 @@ Hidden in the collapsed rail, like the AI chats.
 							{:else}
 								<Table2 size={14} class="shrink-0 text-primary" />
 							{/if}
-							<span class="truncate">{favorite.label}</span>
+							<span class={rail ? 'sr-only' : 'truncate'}>{favorite.label}</span>
 						</a>
 						<div
-							class="absolute right-0.5 top-0 h-full flex items-center opacity-0 group-hover/fav:opacity-100 has-[[aria-expanded=true]]:opacity-100 transition-opacity"
+							class={twMerge(
+								'absolute right-0.5 top-0 h-full flex items-center opacity-0 group-hover/fav:opacity-100 has-[[aria-expanded=true]]:opacity-100 transition-opacity',
+								rail ? 'hidden' : ''
+							)}
 						>
 							<DropdownV2
 								items={[
@@ -89,9 +93,17 @@ Hidden in the collapsed rail, like the AI chats.
 						</div>
 					</div>
 				{:else}
-					<p class="px-2 py-1 text-2xs text-hint">Star an item to list it here.</p>
+					<!-- Kept, unread, in the rail: the rows under it stay where the open sidebar has them. -->
+					<p
+						class={twMerge(
+							'px-2 h-6 flex items-center text-2xs text-hint',
+							rail ? 'invisible' : ''
+						)}
+					>
+						Star an item to list it here.
+					</p>
 				{/each}
 			</div>
-		{/if}
-	</div>
+		{/snippet}
+	</SidebarSection>
 {/if}

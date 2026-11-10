@@ -121,20 +121,16 @@ async fn sync_service_triggers<T: External>(
     let mut all_synced_triggers = Vec::new();
     let mut all_errors = Vec::new();
 
-    // Use the integration service for lookup (e.g., GoogleDrive/GoogleCalendar -> Google)
-    let integration_service = T::SERVICE_NAME.integration_service();
-
-    // Only sync workspaces that have the corresponding integration configured
+    // Triggers can act through connected resources in a workspace with no OAuth app of its own.
     let workspaces_with_integration = match sqlx::query_scalar!(
         r#"
-        SELECT wi.workspace_id
-        FROM workspace_integrations wi
-        JOIN workspace w ON w.id = wi.workspace_id
-        WHERE wi.service_name = $1
-          AND wi.oauth_data IS NOT NULL
+        SELECT DISTINCT nt.workspace_id
+        FROM native_trigger nt
+        JOIN workspace w ON w.id = nt.workspace_id
+        WHERE nt.service_name = $1
           AND w.deleted = false
         "#,
-        integration_service as ServiceName
+        T::SERVICE_NAME as ServiceName
     )
     .fetch_all(db)
     .await

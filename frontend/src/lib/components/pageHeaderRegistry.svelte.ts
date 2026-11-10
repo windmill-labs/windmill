@@ -35,6 +35,14 @@ export type PageHeaderSection = {
 	/** No chevron after the name: the page's siblings are not the workspace's pages and items,
 	 *  which is all that picker offers. A session is one. */
 	noNavPicker?: boolean
+	/** Artifacts the section is one of — a shared artifact's page. The nav picker lists them in
+	 *  its Artifacts branch, opens on that branch with `currentId` highlighted, and navigates to
+	 *  `href(id)` when one is picked. */
+	navArtifacts?: {
+		items: { id: string; name: string }[]
+		currentId?: string
+		href: (id: string) => string
+	}
 }
 
 export type PageHeaderContent = {

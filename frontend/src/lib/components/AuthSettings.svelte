@@ -4,6 +4,7 @@
 
 	import OAuthSetting from '$lib/components/OAuthSetting.svelte'
 	import OktaSetting from './OktaSetting.svelte'
+	import PkceToggle from './PkceToggle.svelte'
 	import Auth0Setting from './Auth0Setting.svelte'
 	import KeycloakSetting from './KeycloakSetting.svelte'
 	import CustomSso from './CustomSso.svelte'
@@ -251,7 +252,7 @@
 		if (trimmedName && oauths) {
 			// Create a new object to ensure the new item is added at the end
 			const newOauths = { ...oauths }
-			newOauths[trimmedName] = { id: '', secret: '', login_config: {} }
+			newOauths[trimmedName] = { id: '', secret: '', pkce: true, login_config: {} }
 			oauths = newOauths
 			ssoPopoverOpen = false
 			ssoClientName = ''
@@ -361,7 +362,7 @@
 		{#if tab === 'sso'}
 			<SettingsPageHeader
 				title="Single Sign-On"
-				description="Configure SSO providers to let users authenticate using their existing identity provider credentials. To test SSO, save the settings and try to login in an incognito window."
+				description="Configure SSO providers to let users authenticate using their existing identity provider credentials. To test SSO, save the settings and try logging in from an incognito window."
 				link="https://www.windmill.dev/docs/misc/setup_oauth#sso"
 			/>
 			{#if !$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
@@ -437,6 +438,7 @@
 									</label>
 									{#if !windmillBuiltins.includes(k) && k != 'slack'}
 										<CustomSso bind:login_config={oauths[k]['login_config']} />
+										<PkceToggle bind:pkce={oauths[k]['pkce']} />
 									{/if}
 								</div>
 							</div>
@@ -632,7 +634,7 @@
 										<Toggle
 											options={{
 												right:
-													'Allow workspace admins to setup Google native triggers using these credentials'
+													'Allow workspace admins to set up Google integration triggers using these credentials'
 											}}
 											checked={oauths[k]?.share_with_workspaces ?? false}
 											on:change={(e) => {
@@ -643,23 +645,10 @@
 										/>
 										{#if oauths[k]?.share_with_workspaces}
 											<p class="text-xs text-tertiary mt-1">
-												Workspace admins will be able to connect Google native triggers without
+												Workspace admins will be able to connect Google integration triggers without
 												configuring their own OAuth client. The credentials are not exposed to them.
+												Connections use the redirect URI above.
 											</p>
-											<p class="text-xs text-tertiary mt-2">
-												Add the following redirect URI to
-												<a
-													href="https://console.cloud.google.com/apis/credentials"
-													target="_blank"
-													class="underline">Google Cloud Console</a
-												>:
-											</p>
-											<div class="mt-1">
-												<ClipboardPanel
-													content="{baseUrl}/workspace_settings?tab=native_triggers&service=google"
-													size="sm"
-												/>
-											</div>
 										{/if}
 									</div>
 								{/if}

@@ -108,6 +108,8 @@
 	const awaitingSetup = $derived(
 		newRawApp &&
 			!setupSettled &&
+			// Held until the first send, it was set up before this view remounted.
+			!runtime.holdsDraft(workspaceId, 'raw_app', path) &&
 			isActiveSession &&
 			active &&
 			cell.slot.loadedPath === path &&
@@ -131,8 +133,18 @@
 			data: result.data,
 			policy: result.policy
 		}
+		if (mode === 'ai') {
+			// The session's first send saves it; until then it lives in this tab only.
+			runtime.holdDraftUntilSend(workspaceId, 'raw_app', path)
+			cell.store.val = setUp
+			// Written now rather than on the autosave debounce: the reload below reads it back.
+			UserDraft.save('raw_app', path, runtimeRawAppToDraft(setUp), { workspace: workspaceId })
+			// Remounts the editor so the preview builds the picked template.
+			await runtime.loadRawApp(workspaceId, path, true)
+			return
+		}
 		cell.store.val = setUp
-		// Saved now rather than on the autosave debounce: both ways out read it back by path.
+		// Saved now rather than on the autosave debounce: the editor page reads it back by path.
 		const key = { workspace: workspaceId, itemKind: 'raw_app' as const, path }
 		UserDraft.save('raw_app', path, runtimeRawAppToDraft(setUp), { workspace: workspaceId })
 		await tick()
@@ -143,15 +155,10 @@
 			sendUserToast(`Could not save the app: ${saved.failureMessage ?? 'unknown error'}`, true)
 			return
 		}
-		if (mode === 'code') {
-			// The session was opened for this app alone; with nothing said in it, it goes.
-			const unused = runtime.manager.displayMessages.length === 0
-			await goto(withWorkspaceParam(`/apps_raw/edit/${path}`, workspaceId))
-			if (unused) removeSession(runtime.sessionId)
-			return
-		}
-		// Remounts the editor so the preview builds the picked template.
-		await runtime.loadRawApp(workspaceId, path, true)
+		// The session was opened for this app alone; with nothing said in it, it goes.
+		const unused = runtime.manager.displayMessages.length === 0
+		await goto(withWorkspaceParam(`/apps_raw/edit/${path}`, workspaceId))
+		if (unused) removeSession(runtime.sessionId)
 	}
 
 	// Path typed in the editor header, surfaced when it differs from the stored

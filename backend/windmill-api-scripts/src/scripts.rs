@@ -2874,6 +2874,20 @@ async fn create_script_internal<'c>(
             }
         }
     }
+    if codebase.is_some() {
+        // Cleanup only: rows left from a plain version of this path. A dedicated-worker lock
+        // job or a map rebuild can write them back; `trigger_dependents` is what keeps a lib's
+        // lock change from relocking a codebase script.
+        sqlx::query!(
+            "DELETE FROM dependency_map WHERE workspace_id = $1 AND importer_kind = 'script'
+             AND (importer_path = $2 OR importer_path = $3)",
+            &w_id,
+            &ns.path,
+            p_path_opt.as_deref().unwrap_or(&ns.path),
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     for spec in &pipeline_triggers {
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
             continue;
@@ -3029,6 +3043,32 @@ async fn create_script_internal<'c>(
         );
     } else {
         tracing::info!("creating script {hash:?} at path {script_path} on workspace {w_id}",);
+    }
+    if ns.dedicated_worker == Some(true) && resolved_job_token_scopes.is_none() {
+        // Its dependency job is tagged for a dedicated worker. One taking it through a
+        // `dedicated_workers` pattern only listens to the scripts it found at its last config
+        // load: re-saving the group's config reloads it, unless the live version it replaces
+        // was served already (a version adopted from a deleted path was not).
+        sqlx::query(
+            "UPDATE config SET config = config
+             WHERE name LIKE 'worker\\_\\_%'
+               AND jsonb_typeof(config->'dedicated_workers') = 'array'
+               AND EXISTS (
+                   SELECT 1 FROM jsonb_array_elements_text(config->'dedicated_workers') e
+                   WHERE right(e, 2) = '/*' AND starts_with($1 || ':' || $2, left(e, -1)))
+               AND NOT EXISTS (
+                   SELECT 1 FROM script WHERE workspace_id = $1 AND hash = $3 AND path = $2
+                       AND dedicated_worker = true AND job_token_scopes IS NULL)",
+        )
+        .bind(&w_id)
+        .bind(&ns.path)
+        .bind(
+            p_hashes
+                .filter(|_| !parent_adopted_from_retired_path)
+                .and_then(|h| h.first().copied()),
+        )
+        .execute(&mut *tx)
+        .await?;
     }
     if needs_lock_gen {
         let tag = windmill_common::scripts::dependency_job_tag(ns.tag, &lang);

@@ -23,7 +23,7 @@
 		license = undefined,
 		inWorkspace = false,
 		hideRefreshBar = false,
-		syncHashToUrl = true
+		ownsPageUrl = true
 	}: {
 		notExists: boolean
 		noPermission: boolean
@@ -48,8 +48,8 @@
 		 */
 		inWorkspace?: boolean
 		hideRefreshBar?: boolean
-		/** Whether a raw app's route lives in the page URL's hash; see `RawAppPreview`. */
-		syncHashToUrl?: boolean
+		/** Whether a raw app owns the page's address and title; see `RawAppPreview`. */
+		ownsPageUrl?: boolean
 	} = $props()
 
 	// Use workspace from props or from app.workspace_id (for custom path responses)
@@ -114,7 +114,7 @@
 					secret={app.bundle_secret}
 					path={app.path}
 					runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
-					{syncHashToUrl}
+					{ownsPageUrl}
 				/>
 			</div>
 		{:else if app.raw_app && !effectiveWorkspace}
