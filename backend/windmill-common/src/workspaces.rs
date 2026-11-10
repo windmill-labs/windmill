@@ -1271,9 +1271,9 @@ pub async fn operator_builder_rights<A: Authable + ?Sized>(
 }
 
 /// Whether the caller may save a draft of `kind`: one they could deploy. A resource or variable
-/// always, since their routes do not gate roles; a flow or full-code app at the `Compose` level or
-/// above, a low-code app at `Full`, a schedule or trigger under the matching manage right, a
-/// script or data pipeline with `code`.
+/// always, since their routes do not gate roles; a flow, an agent or a full-code app at the
+/// `Compose` level or above, a low-code app at `Full`, a schedule or trigger under the matching
+/// manage right, a script or data pipeline with `code`.
 pub async fn operator_can_draft<A: Authable + ?Sized>(
     db: &DB,
     workspace_id: &str,
@@ -1291,7 +1291,7 @@ pub async fn operator_can_draft<A: Authable + ?Sized>(
     // Exhaustive on purpose: a new kind must pick the capability it needs, or every non-admin
     // (unrestricted developers included) is refused its drafts.
     Ok(match kind {
-        UserDraftItemKind::Flow => caps.flows != AuthorLevel::None,
+        UserDraftItemKind::Flow | UserDraftItemKind::Agent => caps.flows != AuthorLevel::None,
         UserDraftItemKind::RawApp => caps.apps != AuthorLevel::None,
         UserDraftItemKind::Script | UserDraftItemKind::DataPipeline => caps.code,
         UserDraftItemKind::App => caps.apps == AuthorLevel::Full,

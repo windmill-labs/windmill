@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use serde_json::{json, Map, Value};
+use windmill_common::user_drafts::UserDraftItemKind;
 
 use super::chat::Effect;
 use super::{
@@ -155,13 +156,39 @@ pub(super) fn draft_kind(item_type: &str, trigger_kind: Option<&str>) -> Option<
     }
 }
 
+/// The draft kinds an item's draft can be stored under, in the order a read tries them. An
+/// agent is a resource whose drafts are `agent` drafts; a path holds one resource, so at most
+/// one of the two has a draft there.
+pub(super) fn draft_kinds(item_type: &str, trigger_kind: Option<&str>) -> Vec<String> {
+    if item_type == "resource" {
+        return vec!["agent".to_string(), "resource".to_string()];
+    }
+    draft_kind(item_type, trigger_kind).into_iter().collect()
+}
+
+/// The kind a draft write of `value` is stored under: a resource's follows the type it names.
+fn write_kind(item_type: &str, trigger_kind: Option<&str>, value: &Value) -> Option<String> {
+    if item_type == "resource" {
+        let named = value
+            .get("resource_type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        return Some(
+            UserDraftItemKind::for_resource_type(named)
+                .as_str()
+                .to_string(),
+        );
+    }
+    draft_kind(item_type, trigger_kind)
+}
+
 /// The item type (and trigger kind) a draft kind surfaces as. None for the kinds no
 /// tool addresses: low-code apps, webhook and poll triggers, pipelines.
 fn item_type_of_kind(kind: &str) -> Option<(&'static str, Option<&str>)> {
     Some(match kind {
         "script" => ("script", None),
         "flow" => ("flow", None),
-        "resource" => ("resource", None),
+        "resource" | "agent" => ("resource", None),
         "variable" => ("variable", None),
         "raw_app" => ("app", None),
         "trigger_schedule" => ("schedule", None),
@@ -292,6 +319,8 @@ pub(super) async fn deployed_execution_mode(
 }
 
 pub(super) struct Draft {
+    /// The draft kind it is stored under.
+    pub kind: String,
     pub value: Value,
     pub created_at: Option<String>,
 }
@@ -305,7 +334,11 @@ pub(super) async fn get_draft(
 ) -> Result<Option<Draft>, String> {
     let path = ctx.storage_path(kind, path);
     if let Some(value) = ctx.chat.and_then(|chat| chat.cell(kind, path)) {
-        return Ok(Some(Draft { value: value.clone(), created_at: None }));
+        return Ok(Some(Draft {
+            kind: kind.to_string(),
+            value: value.clone(),
+            created_at: None,
+        }));
     }
     let row = ctx
         .get(&ctx.ws(&format!("drafts/get_own/{kind}/{}", path_enc(path))))
@@ -317,7 +350,22 @@ pub(super) async fn get_draft(
         .get("created_at")
         .and_then(Value::as_str)
         .map(String::from);
-    Ok(Some(Draft { value, created_at }))
+    Ok(Some(Draft { kind: kind.to_string(), value, created_at }))
+}
+
+/// The caller's own draft of an item, under whichever of its kinds holds one.
+pub(super) async fn get_item_draft(
+    ctx: &Ctx<'_>,
+    item_type: &str,
+    trigger_kind: Option<&str>,
+    path: &str,
+) -> Result<Option<Draft>, String> {
+    for kind in draft_kinds(item_type, trigger_kind) {
+        if let Some(draft) = get_draft(ctx, &kind, path).await? {
+            return Ok(Some(draft));
+        }
+    }
+    Ok(None)
 }
 
 /// Save the caller's draft, or delete it with `None`. False on a conflict with a newer
@@ -550,11 +598,13 @@ pub(super) fn draft_item(kind: &str, path: &str, draft: &Value) -> Option<Value>
             value.insert("path".into(), json!(path));
             put(&mut value, "value", field("args"));
             put(&mut value, "description", field("description"));
+            // The agent editor's draft of a deployed agent names no type: its kind does.
+            let unnamed = if kind == "agent" { "ai_agent" } else { "" };
             value.insert(
                 "resource_type".into(),
                 non_null(draft.get("resource_type"))
                     .cloned()
-                    .unwrap_or_else(|| json!("")),
+                    .unwrap_or_else(|| json!(unnamed)),
             );
             put(&mut value, "labels", field("labels"));
             put(&mut value, "ws_specific", field("wsSpecific"));
@@ -600,13 +650,10 @@ pub(super) async fn get_draft_item(
     path: &str,
     trigger_kind: Option<&str>,
 ) -> Result<Option<(Value, Draft)>, String> {
-    let Some(kind) = draft_kind(item_type, trigger_kind) else {
+    let Some(draft) = get_item_draft(ctx, item_type, trigger_kind, path).await? else {
         return Ok(None);
     };
-    let Some(draft) = get_draft(ctx, &kind, path).await? else {
-        return Ok(None);
-    };
-    Ok(shown_draft_item(ctx, &kind, path, &draft.value).map(|item| (item, draft)))
+    Ok(shown_draft_item(ctx, &draft.kind, path, &draft.value).map(|item| (item, draft)))
 }
 
 /// `draft_item` under the path the user sees: an open editor's own name for its draft,
@@ -1086,11 +1133,7 @@ pub(super) async fn write_base(
 ) -> Result<WriteBase, String> {
     // A failed draft read must not fall through to the deployed item: the write would
     // then be built on it and replace the draft's own changes.
-    let draft = match draft_kind(item_type, trigger_kind) {
-        Some(kind) => get_draft(ctx, &kind, path).await?,
-        None => None,
-    };
-    if let Some(draft) = draft {
+    if let Some(draft) = get_item_draft(ctx, item_type, trigger_kind, path).await? {
         return Ok(WriteBase {
             base: Some(draft.value),
             from_draft: true,
@@ -1119,7 +1162,7 @@ pub(super) async fn persist_draft(
     last_sync: Option<&str>,
     force: bool,
 ) -> Result<Persist, String> {
-    let kind = draft_kind(item_type, trigger_kind)
+    let kind = write_kind(item_type, trigger_kind, value)
         .ok_or_else(|| format!("Unsupported draft type \"{item_type}\"."))?;
     let item = shown_draft_item(ctx, &kind, path, value)
         .ok_or_else(|| format!("Could not synthesize {item_type} draft \"{path}\"."))?;
@@ -1440,15 +1483,17 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let prefixes: Vec<Option<String>> = if scope_roots.is_empty() {
         vec![prefix.filter(|p| !p.is_empty()).map(str::to_string)]
     } else {
-        scope_roots.iter().map(|root| Some(format!("{root}/"))).collect()
+        scope_roots
+            .iter()
+            .map(|root| Some(format!("{root}/")))
+            .collect()
     };
     let per_page = limit.min(MAX_LIST_LIMIT);
     let page_number = page.unwrap_or(1).max(1);
     // Several folders read as one listing, folder after folder, so `limit` stays one cap per
     // type (per trigger kind for triggers): page N is rows (N-1)*limit..N*limit of each
     // concatenation, which takes every folder's first N*limit rows.
-    let window = (prefixes.len() > 1)
-        .then(|| (page_number - 1) * per_page..page_number * per_page);
+    let window = (prefixes.len() > 1).then(|| (page_number - 1) * per_page..page_number * per_page);
 
     let mut query = format!("per_page={per_page}");
     if let Some(page) = page {
@@ -1936,9 +1981,10 @@ async fn discard_local_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         return Err("trigger_kind is required when discarding a trigger draft.".to_string());
     }
     let not_found = || format!("No draft found for {item_type} \"{path}\".");
-    let kind = draft_kind(item_type, trigger_kind).ok_or_else(not_found)?;
-    let draft = get_draft(ctx, &kind, path).await?.ok_or_else(not_found)?;
-    delete_draft(ctx, &kind, path, draft.created_at.as_deref(), false).await?;
+    let draft = get_item_draft(ctx, item_type, trigger_kind, path)
+        .await?
+        .ok_or_else(not_found)?;
+    delete_draft(ctx, &draft.kind, path, draft.created_at.as_deref(), false).await?;
     ctx.status_after_save(
         format!("Discarded {item_type} \"{path}\" draft"),
         Some("Draft discarded"),

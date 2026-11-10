@@ -351,9 +351,9 @@ fn branch_sqls() -> Branches {
                       value->'memory' as agent_memory \
                FROM resource WHERE resource_type = 'ai_agent') o \
          LEFT JOIN favorite ON favorite.favorite_kind = 'agent' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = $2 \
-         LEFT JOIN draft ON draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'resource' AND draft.email = $3 \
+         LEFT JOIN draft ON draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'agent' AND draft.email = $3 \
          LEFT JOIN ws_specific ON ws_specific.path = o.path AND ws_specific.workspace_id = o.workspace_id AND ws_specific.item_kind = 'resource'",
-        draft_users = draft_users("d.typ = 'resource'")
+        draft_users = draft_users("d.typ = 'agent'")
     );
 
     Branches { script, flow, app, agent }
@@ -364,11 +364,7 @@ fn draft_kind_source(kind: &str) -> (&'static str, &'static str) {
     match kind {
         "script" => ("d.typ = 'script'", "script"),
         "flow" => ("d.typ = 'flow'", "flow"),
-        // Typed by the draft itself, as the resource listing filters its draft-only rows.
-        "agent" => (
-            "d.typ = 'resource' AND d.value->>'resource_type' = 'ai_agent'",
-            "resource",
-        ),
+        "agent" => ("d.typ = 'agent'", "resource"),
         _ => ("d.typ IN ('app', 'raw_app')", "app"),
     }
 }

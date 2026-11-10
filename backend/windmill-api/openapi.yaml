@@ -29966,6 +29966,7 @@ components:
         - trigger_google
         - trigger_github
         - data_pipeline
+        - agent
     # Do not change next line. It is used by python-client for pre-processing
     # -- INLINE START --
     OpenFlow:

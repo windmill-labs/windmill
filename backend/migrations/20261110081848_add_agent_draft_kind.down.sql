@@ -1,0 +1,2 @@
+-- Postgres cannot drop a single enum value; leaving 'agent' in DRAFT_KIND is
+-- harmless on rollback once the next migration's down has retagged its rows.

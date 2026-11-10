@@ -311,3 +311,94 @@ async fn test_cross_user_draft_privacy(db: Pool<Postgres>) -> anyhow::Result<()>
 
     Ok(())
 }
+
+/// An `ai_agent` resource's drafts are `agent` drafts: every reader asks for that kind, so a
+/// `resource` draft of an agent would be one nothing shows or deploys.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_agent_draft_kind_follows_resource_type(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let c = client_for("SECRET_TOKEN");
+    let path = "u/test-user/agent";
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+         VALUES ($1, $2, '{}', 'ai_agent', 'test-user')",
+    )
+    .bind(WS)
+    .bind(path)
+    .execute(&db)
+    .await?;
+    let draft = json!({ "value": { "path": path, "description": "d", "args": {} } });
+
+    let r = c
+        .post(save_url(port, "resource", path))
+        .json(&draft)
+        .send()
+        .await?;
+    assert_eq!(r.status(), 400, "a resource draft of an agent");
+    let r = c
+        .post(save_url(port, "agent", path))
+        .json(&draft)
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "an agent draft");
+
+    let read: serde_json::Value = c
+        .get(format!(
+            "http://localhost:{port}/api/w/{WS}/resources/get/{path}?get_draft=true"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        read["draft"]["description"], "d",
+        "the read carries the agent draft"
+    );
+
+    let r = c
+        .delete(format!(
+            "http://localhost:{port}/api/w/{WS}/resources/delete/{path}"
+        ))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "delete");
+    assert_eq!(
+        draft_count(&db, path, "agent", "test@windmill.dev").await,
+        0,
+        "deleting the agent clears its drafts"
+    );
+
+    // Retyping a resource into an agent carries its drafts over to the agent kind.
+    let retyped = "u/test-user/retyped";
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+         VALUES ($1, $2, '{}', 'object', 'test-user')",
+    )
+    .bind(WS)
+    .bind(retyped)
+    .execute(&db)
+    .await?;
+    let r = c
+        .post(save_url(port, "resource", retyped))
+        .json(&json!({ "value": { "path": retyped, "description": "", "args": {} } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "a resource draft of a plain resource");
+    let r = c
+        .post(format!(
+            "http://localhost:{port}/api/w/{WS}/resources/update/{retyped}"
+        ))
+        .json(&json!({ "resource_type": "ai_agent" }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "retype");
+    assert_eq!(
+        draft_count(&db, retyped, "agent", "test@windmill.dev").await,
+        1,
+        "the retyped resource's draft is an agent draft"
+    );
+
+    Ok(())
+}

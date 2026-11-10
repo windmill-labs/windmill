@@ -387,7 +387,7 @@ async fn check_builder_agents(
     );
     // A draft of a deployed agent may leave its type to the deployed row.
     let resp = c
-        .post(format!("{api}/drafts/update/resource/u/operator/a1"))
+        .post(format!("{api}/drafts/update/agent/u/operator/a1"))
         .json(&json!({"value": {"args": inline, "description": ""}, "force": true}))
         .send()
         .await?;
@@ -398,9 +398,11 @@ async fn check_builder_agents(
     );
     // Deploying a draft over an agent keeps the row's type, whatever type the draft names.
     let resp = c
-        .post(format!("{api}/drafts/update/resource/u/operator/a1"))
-        .json(&json!({"value": {"args": inline, "description": "", "resource_type": "object"},
-            "force": true}))
+        .post(format!("{api}/drafts/update/agent/u/operator/a1"))
+        .json(
+            &json!({"value": {"args": inline, "description": "", "resource_type": "object"},
+            "force": true}),
+        )
         .send()
         .await?;
     assert_eq!(

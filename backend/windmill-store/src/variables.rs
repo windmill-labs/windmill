@@ -1016,7 +1016,9 @@ async fn delete_variable(
     // Resource included because variables cascade-delete the linked resource at the same path.
     delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, path).await?;
     if deleted_linked_resource.is_some() {
-        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+        for kind in UserDraftItemKind::RESOURCE_KINDS {
+            delete_all_drafts_for_path(&db, &w_id, kind, path).await?;
+        }
     }
 
     // If variable was a secret, also delete from Vault backend (if configured)
@@ -1191,7 +1193,9 @@ async fn delete_variables_bulk(
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, path).await?;
     }
     for path in &deleted_resource_paths {
-        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+        for kind in UserDraftItemKind::RESOURCE_KINDS {
+            delete_all_drafts_for_path(&db, &w_id, kind, path).await?;
+        }
     }
 
     // Delete secrets from Vault backend (if configured)
@@ -1568,14 +1572,9 @@ async fn update_variable(
             &authed.email,
         )
         .await?;
-        delete_own_draft_for_path(
-            &db,
-            &w_id,
-            UserDraftItemKind::Resource,
-            old_path,
-            &authed.email,
-        )
-        .await?;
+        for kind in UserDraftItemKind::RESOURCE_KINDS {
+            delete_own_draft_for_path(&db, &w_id, kind, old_path, &authed.email).await?;
+        }
     }
 
     handle_deployment_metadata(

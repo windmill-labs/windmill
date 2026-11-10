@@ -381,9 +381,10 @@ async fn list_resources(
             "CASE WHEN resource.resource_type = 'ai_agent' THEN resource.value->'memory' END as agent_memory",
         ])
         // Scalar EXISTS flags the authed user's per-user draft without fanning rows out.
+        // Either resource kind: a draft's kind always matches its row's type.
         .field(
             &"EXISTS(SELECT 1 FROM draft WHERE draft.workspace_id = resource.workspace_id \
-              AND draft.path = resource.path AND draft.typ = 'resource' \
+              AND draft.path = resource.path AND draft.typ IN ('resource', 'agent') \
               AND draft.email = ?) as is_draft"
                 .bind(&authed.email),
         )
@@ -494,7 +495,6 @@ async fn list_resources(
         && lq.broad_filter.is_none()
         && lq.label.is_none()
         && !lq.starred_only.unwrap_or(false)
-        && operator_can_draft(&db, &w_id, &authed, UserDraftItemKind::Resource).await?
     {
         let rt_filter: Option<Vec<&str>> = lq
             .resource_type
@@ -504,11 +504,16 @@ async fn list_resources(
             .resource_type_exclude
             .as_deref()
             .map(|s| s.split(',').map(str::trim).collect());
-        let draft_only_rows =
-            fetch_draft_only_list_rows(&db, &w_id, &authed.email, UserDraftItemKind::Resource)
-                .await?;
+        let mut draft_only_rows = Vec::new();
+        for kind in UserDraftItemKind::RESOURCE_KINDS {
+            if operator_can_draft(&db, &w_id, &authed, kind).await? {
+                let rows = fetch_draft_only_list_rows(&db, &w_id, &authed.email, kind).await?;
+                draft_only_rows.extend(rows.into_iter().map(|row| (kind, row)));
+            }
+        }
+        draft_only_rows.sort_by(|(_, a), (_, b)| a.path.cmp(&b.path));
 
-        for row in draft_only_rows {
+        for (kind, row) in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
             // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
@@ -529,11 +534,12 @@ async fn list_resources(
                 .and_then(|x| x.as_str())
                 .map(|s| s.to_string());
             let value = v.get("args").cloned();
-            let resource_type = v
-                .get("resource_type")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string();
+            let resource_type = match v.get("resource_type").and_then(|x| x.as_str()) {
+                Some(rt) => rt,
+                None if kind == UserDraftItemKind::Agent => "ai_agent",
+                None => "",
+            }
+            .to_string();
             // Mirror the deployed query's resource_type narrowing for the
             // synthesized rows (see the gate comment above).
             if let Some(ref rts) = rt_filter {
@@ -630,11 +636,12 @@ async fn get_resource(
     tx.commit().await?;
     if resource_o.is_none() && q.get_draft {
         // No deployed row + `get_draft`: synthesize the response from the draft
-        // alone (`no_deployed = true`); see scripts.rs.
-        if let Some(overlay) =
-            fetch_draft_only(&db, &w_id, &authed.email, UserDraftItemKind::Resource, path).await?
-        {
-            return Ok(Json(overlay));
+        // alone (`no_deployed = true`); see scripts.rs. With no row to type it, the
+        // draft is either kind.
+        for kind in UserDraftItemKind::RESOURCE_KINDS {
+            if let Some(overlay) = fetch_draft_only(&db, &w_id, &authed.email, kind, path).await? {
+                return Ok(Json(overlay));
+            }
         }
     }
     if resource_o.is_none() {
@@ -645,7 +652,7 @@ async fn get_resource(
         &db,
         &w_id,
         &authed.email,
-        UserDraftItemKind::Resource,
+        UserDraftItemKind::for_resource_type(&resource.resource_type),
         path,
         q.get_draft,
         resource,
@@ -1495,10 +1502,10 @@ async fn delete_resource(
     // gating this discard on them would strand the row in a protected workspace.
     // Ahead of the transaction too — the not-found branch other kinds hang this
     // off is the `not_found_if_none` below, past the linked-variable cascade.
-    if delete_draft_only_for_path(&db, &w_id, UserDraftItemKind::Resource, path, &authed.email)
-        .await?
-    {
-        return Ok(format!("draft-only resource {} deleted", path));
+    for kind in UserDraftItemKind::RESOURCE_KINDS {
+        if delete_draft_only_for_path(&db, &w_id, kind, path, &authed.email).await? {
+            return Ok(format!("draft-only resource {} deleted", path));
+        }
     }
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -1627,7 +1634,9 @@ async fn delete_resource(
 
     // Resource gone for everyone: wipe ALL users' drafts at this path (and any linked
     // variables cascaded into) so teammates' drafts don't orphan. Idempotent on no-draft.
-    delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+    for kind in UserDraftItemKind::RESOURCE_KINDS {
+        delete_all_drafts_for_path(&db, &w_id, kind, path).await?;
+    }
     for var_path in &deleted_linked_variables {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
     }
@@ -2095,7 +2104,9 @@ async fn delete_resources_bulk(
 
     // Wipe ALL users' drafts at these paths (and linked variables); see delete_resource.
     for path in &deleted_paths {
-        delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
+        for kind in UserDraftItemKind::RESOURCE_KINDS {
+            delete_all_drafts_for_path(&db, &w_id, kind, path).await?;
+        }
     }
     for var_path in &deleted_linked_variables {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
@@ -2294,10 +2305,8 @@ async fn update_resource(
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let resource_type = ns
-        .resource_type
-        .clone()
-        .or_else(|| current.as_ref().map(|c| c.resource_type.clone()));
+    let current_type = current.as_ref().map(|c| c.resource_type.clone());
+    let resource_type = ns.resource_type.clone().or_else(|| current_type.clone());
     // Retyping a resource into an agent makes its value an agent's, identity included, so it is
     // resolved as a written one is.
     let retyped = ns.resource_type.as_deref() == Some("ai_agent")
@@ -2402,6 +2411,32 @@ async fn update_resource(
     .await?;
     tx.commit().await?;
 
+    // Retyping into or out of an agent changes the kind of the drafts at this path: one left
+    // under its old kind would be refused on its next save and shown by nothing. A row already
+    // holding the new kind for the same owner keeps it.
+    if let (Some(old_type), Some(new_type)) = (current_type.as_deref(), ns.resource_type.as_deref())
+    {
+        let from = UserDraftItemKind::for_resource_type(old_type);
+        let to = UserDraftItemKind::for_resource_type(new_type);
+        if from != to {
+            sqlx::query!(
+                "UPDATE draft d SET typ = $4
+                 WHERE d.workspace_id = $1 AND d.path = $2 AND d.typ = $3
+                   AND NOT EXISTS (
+                       SELECT 1 FROM draft o
+                       WHERE o.workspace_id = d.workspace_id AND o.path = d.path
+                         AND o.typ = $4 AND o.email IS NOT DISTINCT FROM d.email
+                   )",
+                &w_id,
+                path,
+                from as UserDraftItemKind,
+                to as UserDraftItemKind,
+            )
+            .execute(&db)
+            .await?;
+        }
+    }
+
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
 
@@ -2409,14 +2444,9 @@ async fn update_resource(
     // own (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). The linked
     // variable renames alongside the resource, so its old-path draft orphans too.
     if let Some(old_path) = old_path_if_renamed {
-        delete_own_draft_for_path(
-            &db,
-            &w_id,
-            UserDraftItemKind::Resource,
-            old_path,
-            &authed.email,
-        )
-        .await?;
+        for kind in UserDraftItemKind::RESOURCE_KINDS {
+            delete_own_draft_for_path(&db, &w_id, kind, old_path, &authed.email).await?;
+        }
         delete_own_draft_for_path(
             &db,
             &w_id,

@@ -59,6 +59,10 @@ pub enum UserDraftItemKind {
     /// keyed at the pipeline's folder path. Not a runnable: it has no deployed
     /// backing table and is private to its owner.
     DataPipeline,
+    /// An `ai_agent` resource. Deployed into the `resource` table like `Resource`,
+    /// so the resource routes pick between the two by the row's type
+    /// (`for_resource_type`), and a path-only cascade covers both (`RESOURCE_KINDS`).
+    Agent,
 }
 
 impl UserDraftItemKind {
@@ -92,12 +96,27 @@ impl UserDraftItemKind {
             UserDraftItemKind::TriggerGoogle => "trigger_google",
             UserDraftItemKind::TriggerGithub => "trigger_github",
             UserDraftItemKind::DataPipeline => "data_pipeline",
+            UserDraftItemKind::Agent => "agent",
         }
     }
 
+    /// The kind of a draft of a resource of this type.
+    pub fn for_resource_type(resource_type: &str) -> UserDraftItemKind {
+        if resource_type == "ai_agent" {
+            UserDraftItemKind::Agent
+        } else {
+            UserDraftItemKind::Resource
+        }
+    }
+
+    /// The kinds whose drafts sit on a `resource` row. A cascade keyed on the path alone
+    /// (deleting a resource) clears both: a path holds one resource, so only one has rows.
+    pub const RESOURCE_KINDS: [UserDraftItemKind; 2] =
+        [UserDraftItemKind::Resource, UserDraftItemKind::Agent];
+
     /// Every variant, for code that must enumerate kinds (e.g. generating
     /// the `draft_only` existence SQL).
-    pub const ALL: [UserDraftItemKind; 26] = [
+    pub const ALL: [UserDraftItemKind; 27] = [
         UserDraftItemKind::Script,
         UserDraftItemKind::Flow,
         UserDraftItemKind::App,
@@ -124,6 +143,7 @@ impl UserDraftItemKind {
         UserDraftItemKind::TriggerGoogle,
         UserDraftItemKind::TriggerGithub,
         UserDraftItemKind::DataPipeline,
+        UserDraftItemKind::Agent,
     ];
 
     /// The deployed table backing this kind, keyed by `(workspace_id, path)`.
@@ -139,7 +159,7 @@ impl UserDraftItemKind {
             Script => Some("script"),
             Flow => Some("flow"),
             App | RawApp => Some("app"),
-            Resource => Some("resource"),
+            Resource | Agent => Some("resource"),
             Variable => Some("variable"),
             TriggerSchedule => Some("schedule"),
             TriggerHttp => Some("http_trigger"),
@@ -172,7 +192,7 @@ impl UserDraftItemKind {
             | TriggerWebsocket | TriggerPostgres | TriggerKafka | TriggerNats | TriggerMqtt
             | TriggerAmqp | TriggerSqs | TriggerGcp | TriggerAzure | TriggerPoll | TriggerCli
             | TriggerNextcloud | TriggerGoogle | TriggerGithub => Some(ManageKind::Triggers),
-            Script | Flow | App | RawApp | Resource | Variable | DataPipeline => None,
+            Script | Flow | App | RawApp | Resource | Variable | DataPipeline | Agent => None,
         }
     }
 
@@ -183,7 +203,9 @@ impl UserDraftItemKind {
     ///
     /// `None` for every kind with no editor to stage a rename in — a resource,
     /// a variable, a trigger. Their drafts carry no such key, so `Some` is also
-    /// the test for whether a kind can be moved at all.
+    /// the test for whether a kind can be moved at all. An agent's draft does
+    /// stage one in `path`, but only the agent editor deploys it, so an agent
+    /// is not movable either.
     pub fn typed_path_field(&self) -> Option<&'static str> {
         use UserDraftItemKind::*;
         match self {
@@ -207,13 +229,13 @@ impl UserDraftItemKind {
     /// Whether OTHER users' drafts at a path are visible to a viewer (the
     /// "others are editing" list, owner circles, and the `get_draft_for_user`
     /// View JSON / Fork endpoint). Enabled only for the full-page editor items
-    /// which have the cross-user draft UI. Drawer items keep drafts private to
-    /// their owner: they have no such UI, and exposing a secret variable draft
-    /// would hand out the `$encrypted:` ciphertext, which a viewer could
-    /// launder into plaintext via a deploy.
+    /// which have the cross-user draft UI, agents included. Drawer items keep
+    /// drafts private to their owner: they have no such UI, and exposing a
+    /// secret variable draft would hand out the `$encrypted:` ciphertext, which
+    /// a viewer could launder into plaintext via a deploy.
     pub fn shares_drafts_across_users(&self) -> bool {
         use UserDraftItemKind::*;
-        matches!(self, Script | Flow | App | RawApp)
+        matches!(self, Script | Flow | App | RawApp | Agent)
     }
 }
 
