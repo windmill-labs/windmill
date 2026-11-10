@@ -7,6 +7,9 @@
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import { untrack } from 'svelte'
 	import { slideDynamic } from '$lib/transitions'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { nextMock } from '../flowMock'
 
 	interface Props {
 		flowModule: FlowModule
@@ -45,10 +48,11 @@
 	})
 
 	function updateMockValue({ detail }: any) {
-		const newMock = {
+		const newMock = nextMock(flowModule.mock, {
+			...flowModule.mock,
 			enabled: true,
 			return_value: detail
-		}
+		})
 
 		// Update the last value to prevent circular updates
 		lastMockValue = JSON.stringify(newMock)
@@ -63,15 +67,13 @@
 		checked={isMockEnabled}
 		on:change={() => {
 			if (isMockEnabled) {
-				flowModule.mock = {
-					enabled: false,
-					return_value: flowModule.mock?.return_value
-				}
+				flowModule.mock = { ...flowModule.mock, enabled: false }
 			} else {
-				flowModule.mock = {
+				flowModule.mock = nextMock(flowModule.mock, {
+					...flowModule.mock,
 					enabled: true,
 					return_value: flowModule.mock?.return_value ?? { example: 'value' }
-				}
+				})
 				code = JSON.stringify(flowModule.mock?.return_value, null, 2)
 			}
 		}}
@@ -82,7 +84,29 @@
 		}}
 	/>
 	{#if isMockEnabled}
-		<div class="pl-9" transition:slideDynamic>
+		<div class="pl-9 flex flex-col gap-2" transition:slideDynamic>
+			<Label label="Applies to">
+				<ToggleButtonGroup
+					selected={flowModule.mock?.preview_only ? 'preview' : 'every'}
+					onSelected={(v) => {
+						flowModule.mock = {
+							...flowModule.mock,
+							enabled: true,
+							preview_only: v === 'preview'
+						}
+					}}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="preview" label="Test runs" {item} />
+						<ToggleButton value="every" label="Every run" {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+				<span class="text-2xs font-normal text-secondary">
+					{flowModule.mock?.preview_only
+						? 'Only runs started from the editor, and the subflows they call, use the pin.'
+						: 'Deployed runs also return the pinned value.'}
+				</span>
+			</Label>
 			<Label label="Pinned value">
 				{#key renderCount}
 					<JsonEditor {code} on:changeValue={updateMockValue} />

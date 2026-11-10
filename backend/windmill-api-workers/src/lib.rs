@@ -93,6 +93,28 @@ struct WorkerPing {
     #[serde(skip_serializing_if = "Option::is_none")]
     native_mode: Option<bool>,
     draining: bool,
+    #[serde(
+        rename = "job_stats",
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_job_stats_summary",
+        skip_deserializing
+    )]
+    job_stats: Option<serde_json::Value>,
+}
+
+/// Served as counts relative to now, so a worker that stopped pinging stops reporting
+/// failures that have left the 24h window.
+fn serialize_job_stats_summary<S: serde::Serializer>(
+    v: &Option<serde_json::Value>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    v.as_ref()
+        .and_then(|v| {
+            serde_json::from_value::<windmill_common::worker_job_stats::WorkerJobStats>(v.clone())
+                .ok()
+        })
+        .map(|stats| stats.summary(windmill_common::worker_job_stats::current_hour()))
+        .serialize(s)
 }
 
 // #[derive(Serialize, Deserialize)]
@@ -125,7 +147,7 @@ async fn list_worker_pings(
         WorkerPing,
         "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed,
         CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as last_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as last_job_workspace_id,
-        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, job_isolation, native_mode, draining
+        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, job_isolation, native_mode, draining, job_stats
         FROM worker_ping
         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
         ORDER BY ping_at desc LIMIT $2 OFFSET $3",

@@ -4,6 +4,15 @@ import { serializeParam } from '$lib/utils/serializeParam'
 export { goto }
 
 /**
+ * Whether the browser handles a click on an `<a href>` itself, opening it elsewhere (new tab,
+ * new window, download): a modified or non-primary click. A link whose `onclick` also opens
+ * something in place (a drawer) must skip that work then.
+ */
+export function isNewTabClick(e: MouseEvent): boolean {
+	return e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0
+}
+
+/**
  * Build an in-app deep-link to `pathname` with query-param filters, encoded exactly
  * as the pages write them (via `serializeParam`) so `useUrlSyncedFilterInstance`
  * round-trips them back into filter state. Nullish/empty values are dropped; when

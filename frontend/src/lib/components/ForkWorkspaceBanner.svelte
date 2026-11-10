@@ -12,7 +12,6 @@
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
 	import { Button } from './common'
-	import { goto } from '$app/navigation'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import {
 		homeActionsGathered,
@@ -149,36 +148,24 @@
 		}
 	}
 
-	// Opens the direction the button offers, so the label and the list agree: a fork
-	// with nothing to deploy lands on the update side, not on an empty deploy list.
 	/** The compare page opened on one direction, for a badge that counts exactly that. The button
 	 *  beside them still chooses on the reader's behalf; a badge means the one thing it names. */
-	function openCompareDir(dir: 'deploy_to' | 'update') {
-		if (!parentWorkspaceId || !$workspaceStore) return
-		goto(
+	function compareDirHref(dir: 'deploy_to' | 'update'): string | undefined {
+		if (!parentWorkspaceId || !$workspaceStore) return undefined
+		return (
 			'/forks/compare?workspace_id=' +
-				encodeURIComponent($workspaceStore) +
-				(dir === 'update' ? '&dir=update' : ''),
-			{ replaceState: true }
+			encodeURIComponent($workspaceStore) +
+			(dir === 'update' ? '&dir=update' : '')
 		)
 	}
+	const deployToHref = $derived(compareDirHref('deploy_to'))
+	const updateHref = $derived(compareDirHref('update'))
 
-	function openComparisonDrawer() {
-		if (parentWorkspaceId && $workspaceStore) {
-			const dir = hasAnswer && changesAhead === 0 ? '&dir=update' : ''
-			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + dir, {
-				replaceState: true
-			})
-		}
-	}
-
-	function openDraftCompare() {
-		if ($workspaceStore) {
-			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + '&mode=draft', {
-				replaceState: true
-			})
-		}
-	}
+	const draftCompareHref = $derived(
+		$workspaceStore
+			? '/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + '&mode=draft'
+			: undefined
+	)
 
 	// Counted with the compare page's own predicate so the banner never advertises a
 	// direction whose list is empty: the `ahead`/`behind` sums in the summary include
@@ -189,6 +176,11 @@
 	}
 	const changesAhead = $derived(countDir(comparison, true))
 	const changesBehind = $derived(countDir(comparison, false))
+	// Opens the direction the button offers, so the label and the list agree: a fork
+	// with nothing to deploy lands on the update side, not on an empty deploy list.
+	const comparisonHref = $derived(
+		compareDirHref(hasAnswer && changesAhead === 0 ? 'update' : 'deploy_to')
+	)
 
 	// Folded into Home's ⋮ menu, the badges and the button are one row that says what they counted.
 	const menuId = homeHeaderMenu.register(0, () => {
@@ -197,7 +189,7 @@
 			return [
 				{
 					displayName: `Review & deploy ${draftCount} draft${draftCount !== 1 ? 's' : ''}`,
-					action: openDraftCompare
+					href: draftCompareHref
 				}
 			]
 		}
@@ -214,7 +206,7 @@
 				displayName:
 					!hasAnswer || changesAhead > 0 ? 'Review changes' : `Review & Update ${currentNoun}`,
 				description: hasAnswer && counts.length > 0 ? counts.join(' · ') : undefined,
-				action: openComparisonDrawer
+				href: comparisonHref
 			}
 		]
 	})
@@ -278,7 +270,7 @@
 						color="green"
 						small
 						clickable
-						onclick={() => openCompareDir('deploy_to')}
+						href={deployToHref}
 						title="{changesAhead} ahead of {parentWorkspaceId} — review what this {currentNoun} has to give"
 					>
 						<ArrowUp class="w-3 h-3 inline" />
@@ -290,7 +282,7 @@
 						color="blue"
 						small
 						clickable
-						onclick={() => openCompareDir('update')}
+						href={updateHref}
 						title="{changesBehind} behind {parentWorkspaceId} — review what this {currentNoun} has yet to take"
 					>
 						<ArrowDown class="w-3 h-3 inline" />
@@ -304,7 +296,7 @@
 						color="orange"
 						small
 						clickable
-						onclick={() => openCompareDir('deploy_to')}
+						href={deployToHref}
 						title="{conflicts} conflicting item{conflicts !== 1 ? 's' : ''} — review them"
 					>
 						<AlertTriangle class="w-3 h-3 inline" />
@@ -322,7 +314,7 @@
 						color="blue"
 						small
 						clickable
-						onclick={openDraftCompare}
+						href={draftCompareHref}
 						title="{draftCount} draft{draftCount !== 1
 							? 's'
 							: ''} in this {currentNoun}, not deployed anywhere yet — review and deploy"
@@ -338,7 +330,7 @@
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
-			onclick={openDraftCompare}
+			href={draftCompareHref}
 			title={`Review and deploy this workspace's drafts`}
 		>
 			Review & deploy drafts
@@ -347,7 +339,7 @@
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
-			onclick={openComparisonDrawer}
+			href={comparisonHref}
 			title={hasAnswer
 				? `${forkAheadBehindMessage(changesAhead, changesBehind)} ${parentWorkspaceId} over ${total} items`
 				: `Review this ${currentNoun} against ${parentWorkspaceId}`}

@@ -7,13 +7,18 @@
 	import { sendUserToast } from '$lib/toast'
 	import { page } from '$app/state'
 	import { urlParamsToObject } from '$lib/utils'
+	import NativeOAuthCallback from '$lib/components/triggers/native/NativeOAuthCallback.svelte'
+	import { decodeNativeOAuthState } from '$lib/components/triggers/native/utils'
 
 	let client_name = page.params.client_name
 	let error = page.url.searchParams.get('error')
 	let code = page.url.searchParams.get('code') ?? undefined
 	let state = page.url.searchParams.get('state') ?? undefined
+	// Integration trigger connections made with an instance client land on its one callback too.
+	const nativeTrigger = !!state && !!decodeNativeOAuthState(state)
 
 	onMount(async () => {
+		if (nativeTrigger) return
 		if (error) {
 			sendUserToast(`Error trying to add ${client_name} connection: ${error}`, true)
 			const message = {
@@ -80,9 +85,13 @@
 	})
 </script>
 
-<CenteredPage>
-	<PageHeader title="Connection to {client_name} in progress" />
-	<div class="mx-auto w-0">
-		<Loader2 class="animate-spin" />
-	</div>
-</CenteredPage>
+{#if nativeTrigger}
+	<NativeOAuthCallback />
+{:else}
+	<CenteredPage>
+		<PageHeader title="Connection to {client_name} in progress" />
+		<div class="mx-auto w-0">
+			<Loader2 class="animate-spin" />
+		</div>
+	</CenteredPage>
+{/if}

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 AS locked FROM token WHERE token_hash =\n             (SELECT access_token_hash FROM mcp_oauth_refresh_token WHERE refresh_token = $1)\n         FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "locked",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "844c90d8519b26e8517231d7be34c5b2daf31f242df5820478c7f80440f682bf"
+}

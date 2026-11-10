@@ -27,7 +27,7 @@ use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
-use windmill_common::scripts::get_full_hub_script_by_path;
+use windmill_common::scripts::get_full_hub_script_by_id;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::WarnAfterExt;
@@ -37,6 +37,7 @@ use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
+    tz::Tz,
     utils::{now_from_db, report_critical_error, ScheduleType, StripPath},
 };
 
@@ -144,8 +145,7 @@ pub async fn push_scheduled_job<'c>(
     let sched =
         ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref(), false)?;
 
-    let tz = chrono_tz::Tz::from_str(&schedule.timezone)
-        .map_err(|e| error::Error::BadRequest(e.to_string()))?;
+    let tz = Tz::from_str(&schedule.timezone).map_err(error::Error::BadRequest)?;
 
     let now = now_from_db(&mut *tx).await?;
 
@@ -405,7 +405,7 @@ pub async fn push_scheduled_job<'c>(
             None,
             on_behalf_of,
         )
-    } else if target.path().starts_with("hub/") {
+    } else if let Some(hub_id) = target.hub_id() {
         let tag = schedule.tag.clone().filter(|t| !t.is_empty());
         let payload = match &schedule.retry {
             // The language is what lets `push` materialize this as a native retry
@@ -415,13 +415,9 @@ pub async fn push_scheduled_job<'c>(
                 hash: None,
                 flow_version: None,
                 language: Some(
-                    get_full_hub_script_by_path(
-                        StripPath(target.path().to_string()),
-                        &HTTP_CLIENT,
-                        Some(db),
-                    )
-                    .await?
-                    .language,
+                    get_full_hub_script_by_id(hub_id, &HTTP_CLIENT, Some(db))
+                        .await?
+                        .language,
                 ),
                 retry: Some(serde_json::from_value::<Retry>(retry.clone()).map_err(|e| {
                     error::Error::internal_err(format!(
@@ -702,7 +698,7 @@ const MAX_COUNTED_MISSES: u32 = 1000;
 /// the last of them. A chain on time costs one `find_next`: its first slot is `next` itself.
 fn count_missed_occurrences(
     sched: &ScheduleType,
-    tz: &chrono_tz::Tz,
+    tz: &Tz,
     prev: DateTime<Utc>,
     next: DateTime<Utc>,
 ) -> Result<(u32, Option<DateTime<Utc>>)> {
@@ -947,7 +943,7 @@ mod tests {
     fn counts_the_slots_missed_between_two_occurrences() {
         let every_30s = ScheduleType::from_str("*/30 * * * * *", None, false).unwrap();
         let at = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
-        let tz = chrono_tz::UTC;
+        let tz = Tz::UTC;
         let prev = at("2026-09-02T08:20:00Z");
         let count = |next| count_missed_occurrences(&every_30s, &tz, prev, at(next)).unwrap();
         assert_eq!(count("2026-09-02T08:20:30Z"), (0, None));

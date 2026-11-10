@@ -17,7 +17,8 @@ use windmill_common::{
     error,
     git_sync_oss::{sanitize_git_url, validate_git_repo_url},
     worker::{
-        is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
+        is_allowed_file_location, split_python_requirements, to_raw_value,
+        try_parse_locked_python_version_from_requirements, write_file,
         write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
     },
 };
@@ -40,7 +41,7 @@ use crate::{
     handle_child::{handle_child, run_future_with_polling_update_job_poller},
     is_sandboxing_enabled,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_ANSIBLE_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV,
+    PyV, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_ANSIBLE_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV,
     PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -764,6 +765,92 @@ async fn clone_repo_without_history(
 
     Ok(())
 }
+
+/// The Python `ansible-playbook` runs on. The script's Python dependencies are put on its
+/// `PYTHONPATH`, so they must be resolved and installed for this version: a wheel with a
+/// compiled extension built for any other one fails on import. `None` when it cannot be read,
+/// e.g. on a worker without ansible.
+pub async fn ansible_python_version() -> Option<PyV> {
+    static VERSION: tokio::sync::OnceCell<Option<PyV>> = tokio::sync::OnceCell::const_new();
+    VERSION
+        .get_or_init(|| async {
+            let version = read_ansible_python_version(ANSIBLE_PLAYBOOK_PATH.as_str()).await;
+            match &version {
+                Ok(v) => tracing::info!("ansible-playbook runs on python {}", **v),
+                Err(e) => tracing::warn!(
+                    "Could not determine the python version of {}, ansible python dependencies \
+                     use the default python version: {e}",
+                    *ANSIBLE_PLAYBOOK_PATH
+                ),
+            }
+            version.ok()
+        })
+        .await
+        .clone()
+}
+
+async fn read_ansible_python_version(playbook_path: &str) -> anyhow::Result<PyV> {
+    let script = tokio::fs::read(playbook_path).await?;
+    let interpreter = parse_shebang_interpreter(&script)
+        .ok_or_else(|| anyhow!("{playbook_path} has no python shebang"))?;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        Command::new(&interpreter[0])
+            .args(&interpreter[1..])
+            .args(["-c", "import sys; print('%d.%d' % sys.version_info[:2])"])
+            .stdin(Stdio::null())
+            .output(),
+    )
+    .await??;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "{} exited with {}: {}",
+            interpreter.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(PyV(version.parse::<pep440_rs::Version>().map_err(|e| {
+        anyhow!("unexpected python version {version:?}: {e}")
+    })?))
+}
+
+/// The python command a pip/uv entry-point script runs on, from its `#!` line with `env` (and
+/// its flags) resolved away. A venv path too long for a shebang gets a `#!/bin/sh` trampoline
+/// that names the interpreter on the next line instead.
+fn parse_shebang_interpreter(script: &[u8]) -> Option<Vec<String>> {
+    let mut lines = script.split(|b| *b == b'\n').map(std::str::from_utf8);
+    let line = lines.next()?.ok()?.strip_prefix("#!")?.trim();
+    if line == "/bin/sh" {
+        let path = lines
+            .next()?
+            .ok()?
+            .strip_prefix("'''exec' '")?
+            .split('\'')
+            .next()?;
+        return Some(vec![path.to_string()]);
+    }
+    let mut parts = line.split_whitespace().map(str::to_string).collect_vec();
+    if parts
+        .first()
+        .is_some_and(|p| p.rsplit('/').next() == Some("env"))
+    {
+        parts.remove(0);
+        while parts.first().is_some_and(|p| p.starts_with('-')) {
+            parts.remove(0);
+        }
+    }
+    parts
+        .first()
+        .is_some_and(|p| {
+            p.rsplit('/')
+                .next()
+                .is_some_and(|n| n.starts_with("python"))
+        })
+        .then_some(parts)
+}
+
 async fn handle_ansible_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -778,6 +865,7 @@ async fn handle_ansible_python_deps(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Vec<String>> {
     create_dependencies_dir(job_dir).await;
+    let ansible_py = ansible_python_version().await;
 
     let mut additional_python_paths: Vec<String> = WORKER_CONFIG
         .load()
@@ -787,7 +875,34 @@ async fn handle_ansible_python_deps(
 
     let mut requirements;
     let requirements = match requirements_o {
-        Some(r) => r,
+        Some(r) => {
+            let locked =
+                try_parse_locked_python_version_from_requirements(&r.lines().collect_vec())
+                    .map(PyV::from)
+                    .unwrap_or_default();
+            if let Some(ansible_py) = ansible_py.as_ref() {
+                // A script without python dependencies still has a lock: the `# py:` line.
+                let pins_something = r.lines().any(|l| {
+                    let l = l.trim();
+                    !l.is_empty() && !l.starts_with('#') && !l.starts_with("--")
+                });
+                if pins_something && locked.release().get(..2) != ansible_py.release().get(..2) {
+                    append_logs(
+                        job_id,
+                        w_id,
+                        format!(
+                            "WARN: the python dependencies are locked for python {}, but \
+                             ansible-playbook runs on python {}, so their locked versions are \
+                             installed for it. Redeploy the script to lock them for it.\n",
+                            *locked, **ansible_py
+                        ),
+                        conn,
+                    )
+                    .await;
+                }
+            }
+            r
+        }
         None => {
             requirements = ansible_reqs
                 .map(|x| x.python_reqs.join("\n"))
@@ -803,7 +918,7 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
-                    PyVAlias::Py311.into(),
+                    ansible_py.clone().unwrap_or(PyVAlias::Py311.into()),
                     false,
                 )
                 .await
@@ -827,7 +942,7 @@ async fn handle_ansible_python_deps(
             job_dir,
             worker_dir,
             &mut Some(occupancy_metrics),
-            PyVAlias::default().into(),
+            ansible_py.unwrap_or_default(),
             None,
         )
         .await?;
@@ -2619,6 +2734,25 @@ mod tests {
         // Defense-in-depth boundary: a poisoned entry must error before any config is written.
         assert!(create_ansible_cfg(Some(&reqs), job_dir, false, &Uuid::new_v4()).is_err());
         assert!(!dir.path().join("ansible.cfg").exists());
+    }
+
+    #[test]
+    fn test_parse_shebang_interpreter() {
+        let parse = |s: &str| parse_shebang_interpreter(s.as_bytes());
+        assert_eq!(
+            parse("#!/usr/local/uv/ansible/bin/python\nimport sys\n"),
+            Some(vec!["/usr/local/uv/ansible/bin/python".to_string()])
+        );
+        assert_eq!(
+            parse("#!/usr/bin/env -S python3.14 -E\n"),
+            Some(vec!["python3.14".to_string(), "-E".to_string()])
+        );
+        assert_eq!(
+            parse("#!/bin/sh\n'''exec' '/a long/venv/bin/python' \"$0\" \"$@\"\n' '''\n"),
+            Some(vec!["/a long/venv/bin/python".to_string()])
+        );
+        assert_eq!(parse("#!/bin/bash\necho hi\n"), None);
+        assert_eq!(parse("\x7fELF"), None);
     }
 
     #[test]

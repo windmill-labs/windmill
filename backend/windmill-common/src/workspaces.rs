@@ -206,7 +206,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30052/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30174/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -214,12 +214,12 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30052/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30051/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30172/git-sync-init-repository-windmill";
 
 /// Hub script that reviews a pull request with the workspace's AI (`ai_review_prs`): clones
 /// the base branch, fetches the pull request's head and runs `wmill review --json` from the
 /// `windmill-cli` it pins. The server posts what it returns.
-pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30053/git-sync-review-pull-request-windmill";
+pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30173/git-sync-review-pull-request-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -408,26 +408,44 @@ impl GitRepositorySettings {
             .unwrap_or(LATEST_GIT_SYNC_SCRIPT_PATH)
     }
 
-    pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
-        let path = self.effective_script_path();
-        // example: "hub/28102/sync-script-to-git-repo-windmill"
-        let current = path
-            .split("/") // -> ["hub" "28102" "sync-script-to-git-repo-windmill"]
-            .skip(1) // omit "hub"
-            .next() // get numeric id
-            .ok_or(Error::InternalErr(format!(
-                "cannot get script version id from: {}",
-                path
-            )))?
-            .parse()
-            .unwrap_or_else(|e| {
-                tracing::warn!("cannot get script version id from: {}. e: {e}", path);
-
-                u32::MAX
-            });
-
-        Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
+    /// The path a deployment callback job is queued with.
+    pub fn callback_path(&self) -> String {
+        sync_callback_path(self.script_path.as_deref())
     }
+
+    pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
+        Ok(sync_script_meets_min_version(
+            &self.callback_path(),
+            min_version,
+        ))
+    }
+}
+
+/// The path a git sync script (`None` for the latest one) is queued with: parsed when it
+/// parses. A setting that doesn't parse is kept as written, so its callback is still queued and
+/// fails visibly in the workspace's runs instead of the repository silently not syncing.
+pub fn sync_callback_path(script_path: Option<&str>) -> String {
+    let raw = script_path.unwrap_or(LATEST_GIT_SYNC_SCRIPT_PATH);
+    crate::runnable_ref::RunnableRef::from_path(raw, false)
+        .map_or_else(|_| raw.to_string(), |script| script.path().to_string())
+}
+
+/// Whether the git sync script queued at `path` (from [`sync_callback_path`]) is at least
+/// `min_version`. Never fails, so one repository's setting cannot stop the others' dispatch.
+pub fn sync_script_meets_min_version(path: &str, min_version: u32) -> bool {
+    // Reading the queued path makes `/hub/28102/…` hub 28102. Not `hub_id()`: a workspace path
+    // keeps its second segment as version (`f/28000/…`).
+    let current = path
+        .split('/')
+        .nth(1)
+        .and_then(|id| id.parse().ok())
+        .unwrap_or_else(|| {
+            tracing::warn!("cannot get script version id from: {}", path);
+
+            u32::MAX
+        });
+
+    current >= min_version // this works on assumption that all scripts in hub have sequential ids
 }
 
 /// How auto-pull triggers are delivered for a repository.
@@ -601,8 +619,9 @@ impl AutoPullSettings {
     /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
     /// enabled and the observed head differs from the last sha we pulled for
     /// that ref. Re-observing the same head (a redundant poll) is a no-op. A
-    /// commit our own deploy pushed is not: pushes never write here, so the pull
-    /// it triggers picks up anything pushed under it.
+    /// commit our own deploy pushed is skipped only when it sits directly on the
+    /// synced head (`advance_synced_sha_past_own_push`); pushed on anything else,
+    /// it moves nothing here, so the pull picks up the commits under it.
     pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
         self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
@@ -1352,6 +1371,21 @@ pub async fn check_role_can_code<A: Authable + ?Sized>(
         return Err(Error::PermissionDenied(format!(
             "Your role cannot {action} in this workspace"
         )));
+    }
+    Ok(())
+}
+
+/// Gate for starting a run on the caller's behalf. 403 rather than 401, which the frontend reads as
+/// a dead session.
+pub async fn check_role_can_run<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+) -> Result<()> {
+    if !caller_capabilities(db, workspace_id, authed).await?.run {
+        return Err(Error::PermissionDenied(
+            "Your role cannot run scripts, flows or AI agents in this workspace".to_string(),
+        ));
     }
     Ok(())
 }
@@ -3919,6 +3953,27 @@ mod tests {
 
     fn tenants(list: &[&str]) -> DataTableRoleTenants {
         DataTableRoleTenants { tenants: list.iter().map(|t| t.to_string()).collect() }
+    }
+
+    #[test]
+    fn sync_script_version_is_the_second_segment_of_the_queued_path() {
+        let meets = |p, min| sync_script_meets_min_version(&sync_callback_path(p), min);
+        assert!(meets(None, 28956));
+        assert!(!meets(Some("hub/28102/sync"), 28103));
+        assert!(!meets(Some("/hub/28102/sync"), 28103));
+        assert!(meets(Some("/hub/28103/sync"), 28103));
+        assert!(!meets(Some("f/28000/sync"), 28103));
+        assert!(meets(Some("u/admin/sync"), 28103));
+        assert!(meets(Some("sync"), 28103));
+        assert!(meets(Some("//hub/28102/sync"), 28103));
+        assert_eq!(
+            sync_callback_path(Some("/hub/28102/sync")),
+            "hub/28102/sync"
+        );
+        assert_eq!(
+            sync_callback_path(Some("//hub/28102/sync")),
+            "//hub/28102/sync"
+        );
     }
 
     #[cfg(all(feature = "private", feature = "enterprise"))]

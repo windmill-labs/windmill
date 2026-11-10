@@ -11,6 +11,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import VersionListItem from './VersionListItem.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { isNewTabClick } from '$lib/navigation'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -98,7 +99,10 @@
 								{#snippet action()}
 									{#if openDetails}
 										<Button
-											on:click={() => {
+											href={`/scripts/get/${version.script_hash}?workspace=${$operatingWorkspace}`}
+											onClick={(e) => {
+												if (e instanceof MouseEvent && isNewTabClick(e)) return
+												e?.preventDefault()
 												dispatch('openDetails', { version: version.script_hash })
 											}}
 											class="mr-2 shrink-0 inline-flex gap-1 text-xs items-center"

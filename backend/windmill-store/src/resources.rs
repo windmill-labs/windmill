@@ -25,6 +25,7 @@ use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCh
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
+use crate::variables::{describe_authed, describe_extra_perms};
 use windmill_common::utils::{
     check_proper_path, check_proper_type_name, escape_ilike_pattern, sanitize_db_error,
     BulkDeleteRequest,
@@ -190,6 +191,9 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
+    /// The OAuth scopes the linked account was connected with.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time.
@@ -368,6 +372,7 @@ async fn list_resources(
             "variable.is_oauth",
             "variable.account",
             "account.refresh_error",
+            "account.scopes",
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
@@ -570,6 +575,7 @@ async fn list_resources(
                 is_expired: None,
                 refresh_error: None,
                 account: None,
+                scopes: None,
                 labels,
                 // No deployed row to inherit folder labels from.
                 inherited_labels: None,
@@ -604,7 +610,7 @@ async fn get_resource(
         resource.labels,
         folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",
         (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
-        account.refresh_error,
+        account.refresh_error, account.scopes as \"scopes?\",
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
         variable.account,
@@ -727,13 +733,16 @@ pub async fn explain_resource_perm_error(
         .fetch_optional(db)
         .await?;
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_extra_perms(folder_extra_perms.as_ref()),
+            describe_authed(Some(authed))
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_authed(Some(authed))
         )));
     }
 }

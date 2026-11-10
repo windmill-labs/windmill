@@ -26,10 +26,13 @@ use serde::Deserialize;
 use windmill_api_auth::{
     forbid_elevated_job_token, forbid_superadmin_job_token, require_super_admin,
 };
+use windmill_api_users::users::revoke_mcp_oauth_grants;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::usernames::{validate_username, ANONYMOUS_USERNAME};
+use windmill_common::usernames::{
+    validate_username, RESERVED_JOB_USERNAMES, SUPERADMIN_SECRET_USERNAME,
+};
 use windmill_common::{
     error::{self, Error, Result},
     DB,
@@ -196,41 +199,6 @@ async fn list_guests(
     Ok(Json(GuestList { usage, guests }))
 }
 
-/// Shared while issuing an MCP OAuth grant, exclusive while revoking: no grant outlives a revoke.
-pub(crate) async fn lock_mcp_oauth_grants(
-    conn: &mut sqlx::PgConnection,
-    email: &str,
-    exclusive: bool,
-) -> std::result::Result<(), sqlx::Error> {
-    let q = if exclusive {
-        "SELECT pg_advisory_xact_lock(hashtext('mcp_oauth_grant:' || $1))"
-    } else {
-        "SELECT pg_advisory_xact_lock_shared(hashtext('mcp_oauth_grant:' || $1))"
-    };
-    sqlx::query(q).bind(email).execute(conn).await?;
-    Ok(())
-}
-
-async fn revoke_mcp_oauth_grants(tx: &mut sqlx::PgConnection, email: &str) -> Result<()> {
-    lock_mcp_oauth_grants(&mut *tx, email, true).await?;
-    // The token trigger only notifies for sessions, so evict deleted MCP access tokens explicitly.
-    sqlx::query!(
-        "WITH revoked AS (
-             DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%' RETURNING token_prefix
-         ), refresh AS (
-             DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
-         ), code AS (
-             DELETE FROM mcp_oauth_server_code WHERE user_email = $1
-         )
-         INSERT INTO notify_event (channel, payload)
-         SELECT 'notify_token_invalidation', token_prefix FROM revoked",
-        email
-    )
-    .execute(&mut *tx)
-    .await?;
-    Ok(())
-}
-
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -253,7 +221,7 @@ async fn set_password(
     .execute(&db)
     .await?;
     let mut tx = db.begin().await?;
-    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email, None).await?;
     tx.commit().await?;
     Ok(res)
 }
@@ -276,7 +244,7 @@ async fn set_password_of_user(
     .execute(&db)
     .await?;
     let mut tx = db.begin().await?;
-    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email, None).await?;
     tx.commit().await?;
     Ok(res)
 }
@@ -468,18 +436,22 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query!(
-        "UPDATE v2_job SET permissioned_as = ('u/' || $1) WHERE permissioned_as = ('u/' || $2) AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
+    // An account still holding a reserved job name shares it with jobs Windmill ran under that
+    // name (logged-out visitors, `SUPERADMIN_SECRET`, handlers), which must stay Windmill's:
+    // moving them would hand those runs to the account. Of those, only `SUPERADMIN_SECRET` jobs
+    // also run as `u/<name>`, so for the others `permissioned_as` is the account's own.
+    if old_username != SUPERADMIN_SECRET_USERNAME {
+        sqlx::query!(
+            "UPDATE v2_job SET permissioned_as = ('u/' || $1) WHERE permissioned_as = ('u/' || $2) AND workspace_id = $3",
+            new_username,
+            old_username,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
 
-    // An account still named `anonymous` shares that name with logged-out visitors' jobs, which
-    // must stay theirs: moving them would hand the visitors' runs to the account.
-    if old_username != ANONYMOUS_USERNAME {
+    if !RESERVED_JOB_USERNAMES.contains(&old_username) {
         sqlx::query!(
             "UPDATE v2_job SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
             new_username,
@@ -801,7 +773,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3 AND NOT EXISTS (SELECT 1 FROM flow_node d WHERE d.workspace_id = $3 AND d.hash_v2 = flow_node.hash_v2 AND d.path = REGEXP_REPLACE(flow_node.path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'))"#,
         new_username,
         old_username,
         w_id
@@ -1141,7 +1113,7 @@ async fn reset_password(
     )
     .execute(&mut *tx)
     .await?;
-    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email, None).await?;
 
     // Audit log
     let audit_author = AuditAuthor {

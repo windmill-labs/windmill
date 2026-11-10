@@ -1133,8 +1133,7 @@ pub async fn preview_schedule(
     let schedule =
         ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref(), true)?;
 
-    let tz =
-        chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+    let tz = windmill_common::tz::Tz::from_str(&payload.timezone).map_err(Error::BadRequest)?;
 
     let upcoming: Vec<DateTime<Utc>> = schedule.upcoming(tz, 5)?;
 

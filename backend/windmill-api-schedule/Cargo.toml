@@ -24,7 +24,6 @@ windmill-git-sync.workspace = true
 windmill-queue.workspace = true
 axum.workspace = true
 chrono.workspace = true
-chrono-tz.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sql-builder.workspace = true

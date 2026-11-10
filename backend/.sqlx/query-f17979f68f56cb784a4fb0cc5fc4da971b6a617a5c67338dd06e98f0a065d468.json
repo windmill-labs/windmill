@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id, super_admin)\n         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now() + ($6 || ' seconds')::interval, $7::text[], $8::varchar,\n             $9::bool AND COALESCE((SELECT super_admin FROM password WHERE email = $4), false)\n         WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $8 AND deleted = true)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "TextArray",
+        "Varchar",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f17979f68f56cb784a4fb0cc5fc4da971b6a617a5c67338dd06e98f0a065d468"
+}
