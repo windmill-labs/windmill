@@ -322,12 +322,14 @@ export function toDisplayMessages(
 									: `Used ${row.tool!.name} tool`
 						}
 					: row
-		// Started in the background, its result not in yet. With no turn running any more, it never
-		// will be: its agent was stopped and its job with it.
+		// Started in the background, its result not in yet. Once the turn that started it is no
+		// longer running, it never will be: its agent was stopped and its job with it. A later turn
+		// running does not bring it back.
 		const backgroundStart = started && !streamedBack
-		const backgroundUnfinished = backgroundStart && !busy
+		const ownTurnRunning = busy && (i > latestUser || !!row.pending)
+		const backgroundUnfinished = backgroundStart && !ownTurnRunning
 		const inBackground =
-			(backgroundStart && busy) ||
+			(backgroundStart && ownTurnRunning) ||
 			(message.role === 'tool' &&
 				!!lookups.backgroundWait &&
 				!!message.pending &&

@@ -1028,7 +1028,12 @@ class ChatImpl implements Chat {
                   ...m.tool,
                   arguments: m.tool.arguments ?? row.tool?.arguments,
                   result: m.tool.result ?? row.tool?.result,
-                  status: row.tool?.status ?? m.tool.status
+                  // A row saying the call went to the background, read after its result
+                  // streamed in, does not set it running again.
+                  status:
+                    row.tool?.status === 'running' && m.tool.status !== 'running'
+                      ? m.tool.status
+                      : (row.tool?.status ?? m.tool.status)
                 }
               : row.tool
         }

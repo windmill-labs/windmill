@@ -998,6 +998,62 @@ describe('createChat with server history', () => {
     expect(chat.getState().messages.map((m) => m.tool?.name)).toEqual([undefined, 'report', 'export'])
   })
 
+  test('a row read after a background result streamed in keeps the call finished', async () => {
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sseTimed([
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'tool_call', call_id: 'c1', function_name: 'export' },
+                  { type: 'background_wait' }
+                ),
+                stream_offset: 2
+              },
+              50,
+              {
+                type: 'update',
+                new_result_stream: ndjson({
+                  type: 'tool_result',
+                  call_id: 'c1',
+                  function_name: 'export',
+                  result: '"ok"',
+                  success: true
+                }),
+                stream_offset: 3
+              },
+              600,
+              {
+                type: 'update',
+                new_result_stream: ndjson({ type: 'token_delta', content: 'Done' }),
+                stream_offset: 4,
+                completed: true,
+                only_result: { output: 'Done', messages: [] }
+              }
+            ])
+          : undefined,
+      async (c) => {
+        if (c.method !== 'GET' || !c.url.pathname.endsWith('/messages')) return undefined
+        // The read the wait starts answers after the result streamed in.
+        if (reads++ === 0) await new Promise((resolve) => setTimeout(resolve, 300))
+        return json([
+          messageRow(1, 'user', 'go'),
+          messageRow(2, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-1' })
+        ])
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    const sent = chat.sendMessage('go')
+    await until(() => reads > 0, 'the read')
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    const call = chat.getState().messages.find((m) => m.role === 'tool')
+    expect([call?.content, call?.tool?.status]).toEqual(['Moved export to the background after 5s', 'success'])
+    await sent
+  })
+
   test('a background result streams onto the card its row was read into while waiting', async () => {
     let waited = false
     const { fetch } = fetchMock(
