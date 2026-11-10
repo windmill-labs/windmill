@@ -153,7 +153,8 @@ export type DisplayLookups = {
 
 /** The row the worker writes when a call goes to the background. Its result is a later row of
  *  the same job, which this call's card shows in its place. */
-const BACKGROUND_START = /^(?:Started .+ in the background|Moved .+ to the background( after (\d+)s)?)$/
+const BACKGROUND_START =
+	/^(?:Started .+ in the background|Moved .+ to the background( after (\d+)s)?)$/
 
 /** How long a call ran before it moved to the background, for its card. */
 function movedAfter(content: string): string {
@@ -303,16 +304,27 @@ export function toDisplayMessages(
 			]
 		}
 		const resultRow = backgroundResults.get(i)
+		const started =
+			row.role === 'tool' && resultRow === undefined && BACKGROUND_START.test(row.content)
+		// Its result streamed in ahead of the row that stores it: shown as that row will be.
+		const streamedBack = started && !!row.tool && row.tool.status !== 'running'
 		// The result in the call's place, with the thinking that led to the call, stored on the
 		// row that started it.
 		const message =
-			resultRow === undefined
-				? row
-				: { ...messages[resultRow], id: row.id, reasoning: row.reasoning }
+			resultRow !== undefined
+				? { ...messages[resultRow], id: row.id, reasoning: row.reasoning }
+				: streamedBack
+					? {
+							...row,
+							content:
+								row.success === false
+									? `Error executing ${row.tool!.name}`
+									: `Used ${row.tool!.name} tool`
+						}
+					: row
 		// Started in the background, its result not in yet. With no turn running any more, it never
 		// will be: its agent was stopped and its job with it.
-		const backgroundStart =
-			message.role === 'tool' && resultRow === undefined && BACKGROUND_START.test(message.content)
+		const backgroundStart = started && !streamedBack
 		const backgroundUnfinished = backgroundStart && !busy
 		const inBackground =
 			(backgroundStart && busy) ||
@@ -364,7 +376,9 @@ export function toDisplayMessages(
 				// worker stored them on the row. A row stored without them shows its name and job.
 				const toolName = message.tool?.name
 				const parameters = parseToolPayload(message.tool?.arguments)
-				const result = parseToolPayload(message.tool?.result)
+				// A call started in the background stores, as its result, what the model was told
+				// about it; its card shows the real result once it comes back.
+				const result = backgroundStart ? undefined : parseToolPayload(message.tool?.result)
 				const failed = message.success === false
 				// A call the turn finished without, stopped or lost before its row was written. The
 				// call a structured answer streams as never gets a result of its own, the answer

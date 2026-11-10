@@ -375,7 +375,7 @@ describe('toDisplayMessages', () => {
 			content: 'Started report in the background',
 			jobId: 'bg-job',
 			reasoning: 'This takes a while',
-			tool: { name: 'report', status: 'success' }
+			tool: { name: 'report', status: 'running' }
 		})
 		const later = [
 			message({ role: 'assistant', content: 'On it' }),
@@ -418,7 +418,12 @@ describe('toDisplayMessages', () => {
 
 	it('counts the background results that came back together', () => {
 		const call = (job: string, content: string) =>
-			message({ role: 'tool', content, jobId: job, tool: { name: 'report', status: 'success' } })
+			message({
+				role: 'tool',
+				content,
+				jobId: job,
+				tool: { name: 'report', status: content.startsWith('Used') ? 'success' : 'running' }
+			})
 		const display = toDisplayMessages([
 			call('a', 'Started report in the background'),
 			call('b', 'Moved report to the background after 5s'),
@@ -436,17 +441,44 @@ describe('toDisplayMessages', () => {
 		])
 	})
 
-	it('says how long a call ran before it moved to the background', () => {
+	it('says how long a call ran before it moved to the background, without what the model was told', () => {
 		const moved = message({
 			role: 'tool',
 			content: 'Moved export to the background after 5s',
 			jobId: 'bg-job',
-			tool: { name: 'export', status: 'success' }
+			tool: { name: 'export', status: 'running', result: 'Not finished after 5s, so it continues…' }
 		})
-		expect(toDisplayMessages([moved], true)[0]).toMatchObject({
+		const [card] = toDisplayMessages([moved], true)
+		expect(card).toMatchObject({
 			content: 'Running export in the background (took over 5s)',
 			isLoading: true
 		})
+		expect((card as { result?: unknown }).result).toBeUndefined()
+		// Its result streamed in before its row: the card shows it, and the row folds in later.
+		const streamed = {
+			...moved,
+			tool: { name: 'export', status: 'success' as const, result: '"ok"' }
+		}
+		expect(toDisplayMessages([streamed], true)[0]).toMatchObject({
+			content: 'Used export tool',
+			result: 'ok',
+			isLoading: false
+		})
+		const display = toDisplayMessages([
+			streamed,
+			message({ role: 'assistant', content: 'Started it' }),
+			message({
+				role: 'tool',
+				content: 'Used export tool',
+				jobId: 'bg-job',
+				tool: { name: 'export', status: 'success', result: '"ok"' }
+			})
+		])
+		expect(display.map((m) => m.content)).toEqual([
+			'Used export tool',
+			'Started it',
+			'A background job just finished.'
+		])
 	})
 
 	it('shows the calls still running as in the background while the agent waits on them', () => {
@@ -456,7 +488,9 @@ describe('toDisplayMessages', () => {
 			tool: { callId: 'c1', name: 'report', status: 'running' }
 		})
 		expect(toDisplayMessages([running])[0]).toMatchObject({ content: 'Running report' })
-		expect(toDisplayMessages([running], true, new Set(), { backgroundWait: true })[0]).toMatchObject({
+		expect(
+			toDisplayMessages([running], true, new Set(), { backgroundWait: true })[0]
+		).toMatchObject({
 			content: 'Running report in the background',
 			isLoading: true
 		})

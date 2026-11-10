@@ -695,15 +695,21 @@ class ChatImpl implements Chat {
       patch: Partial<ToolInvocation> & { content?: string; success?: boolean }
     ) => {
       const { content, success, ...toolPatch } = patch
-      // Only this turn's tool messages are pending; a provider may reuse call ids across turns.
+      // Only this turn's: a provider may reuse call ids across turns. Those are the pending
+      // ones and those past the latest question, which a mid-turn row read settles while the
+      // call still waits on its background job.
+      let asked = messages.length - 1
+      while (asked >= 0 && messages[asked].role !== 'user') asked--
       const i = messages.findIndex(
-        (m) => m.pending && m.role === 'tool' && m.tool?.callId === callId
+        (m, j) => (m.pending || j > asked) && m.role === 'tool' && m.tool?.callId === callId
       )
       if (i >= 0) {
         const existing = messages[i]
         messages[i] = {
           ...existing,
-          content: content ?? existing.content,
+          // A stored row keeps its text: one that says the call went to the background is what
+          // its later result row is matched to.
+          content: existing.seq === undefined ? content ?? existing.content : existing.content,
           success: success ?? existing.success,
           tool: { ...existing.tool!, ...toolPatch }
         }
@@ -1201,15 +1207,19 @@ function latestSeq(messages: readonly ChatMessage[]): number {
 }
 
 function fromRow(row: FlowConversationMessage): ChatMessage {
+  // A call that went to the background: its result comes as a later row of the same job.
+  const background =
+    row.message_type === 'tool'
+      ? /^(?:Started (.+) in the background|Moved (.+) to the background(?: after \d+s)?)$/
+          .exec(row.content)
+          ?.slice(1)
+          .find((name) => name !== undefined)
+      : undefined
   const toolName =
     row.message_type === 'tool'
       ? /^Used (.+) tool$/.exec(row.content)?.[1] ??
         /^Error executing (.+)$/.exec(row.content)?.[1] ??
-        // A call that went to the background: its result comes as a later row of the same job.
-        /^(?:Started (.+) in the background|Moved (.+) to the background(?: after \d+s)?)$/
-          .exec(row.content)
-          ?.slice(1)
-          .find((name) => name !== undefined)
+        background
       : undefined
   const success = row.success ?? true
   return {
@@ -1231,7 +1241,7 @@ function fromRow(row: FlowConversationMessage): ChatMessage {
     tool: toolName
       ? {
           name: toolName,
-          status: success ? 'success' : 'error',
+          status: background ? 'running' : success ? 'success' : 'error',
           arguments: row.tool_arguments ?? undefined,
           result: row.tool_result ?? undefined
         }

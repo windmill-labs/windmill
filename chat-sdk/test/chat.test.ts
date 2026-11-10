@@ -1102,6 +1102,62 @@ describe('createChat with server history', () => {
     expect(chat.getState().messages.map((m) => m.tool?.name)).toEqual([undefined, 'report', 'export'])
   })
 
+  test('a background result streams onto the card its row was read into while waiting', async () => {
+    let waited = false
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sseTimed([
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'tool_call', call_id: 'c1', function_name: 'export' },
+                  { type: 'background_wait' }
+                ),
+                stream_offset: 2
+              },
+              100,
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'tool_result', call_id: 'c1', function_name: 'export', result: '"ok"', success: true },
+                  { type: 'token_delta', content: 'Done' }
+                ),
+                stream_offset: 4,
+                completed: true,
+                only_result: { output: 'Done', messages: [] }
+              }
+            ])
+          : undefined,
+      (c) => {
+        if (c.method !== 'GET' || !c.url.pathname.endsWith('/messages')) return undefined
+        if (!waited) {
+          waited = true
+          return json([
+            messageRow(1, 'user', 'go'),
+            messageRow(2, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-1' })
+          ])
+        }
+        return json([
+          messageRow(1, 'user', 'go'),
+          messageRow(2, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-1' }),
+          messageRow(3, 'tool', 'Used export tool', { job_id: 'bg-1', tool_result: '"ok"' }),
+          messageRow(4, 'assistant', 'Done')
+        ])
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('go')
+    // The call's card, filled by the stream and still worded as its row, then the result's row,
+    // which a display folds into that card by job.
+    const tools = chat.getState().messages.filter((m) => m.role === 'tool')
+    expect(tools.map((m) => [m.content, m.tool?.callId, m.tool?.result])).toEqual([
+      ['Moved export to the background after 5s', 'c1', '"ok"'],
+      ['Used export tool', undefined, '"ok"']
+    ])
+  })
+
   test('a message refused because a turn is running leaves nothing behind and names that turn', async () => {
     const { fetch } = fetchMock(
       (c) =>
