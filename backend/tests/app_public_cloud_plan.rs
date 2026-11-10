@@ -61,6 +61,11 @@ async fn public_apps_take_a_paid_plan(db: Pool<Postgres>) -> anyhow::Result<()> 
     app["policy"]["execution_mode"] = json!("viewer");
     let resp = post(format!("{ws}/apps/create")).json(&app).send().await?;
     assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let resp = post(format!("{ws}/apps/update/{APP_PATH}"))
+        .json(&json!({ "execution_mode": "anonymous" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "an app cannot be switched to public");
     sqlx::query(
         "UPDATE app SET policy = jsonb_set(policy, '{execution_mode}', '\"anonymous\"')
          WHERE path = $1 AND workspace_id = 'test-workspace'",

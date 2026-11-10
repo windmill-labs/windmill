@@ -159,8 +159,7 @@
 			On Windmill Cloud, publishing or updating an app that anyone can open without signing in
 			requires a paid plan.
 			{#if mode == 'anonymous'}
-				This app stays reachable as it is, but deploying it again requires a paid plan or switching
-				it to Members.
+				Switch this app to Members to deploy it.
 			{/if}
 			<a href="/workspace_settings?tab=premium" target="_blank" class="underline"
 				>Upgrade this workspace</a
