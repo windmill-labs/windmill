@@ -1065,6 +1065,67 @@ describe('createChat with server history', () => {
       chat.destroy()
     })
 
+    test('a background call whose row was read stays open for the new turn to fill', async () => {
+      let runs = 0
+      const { fetch } = fetchMock(
+        (c) =>
+          c.method === 'POST' && c.url.pathname === `/api/w/ws/jobs/run/f/${FLOW}`
+            ? text(++runs === 1 ? 'job-1' : 'job-2')
+            : undefined,
+        (c) =>
+          c.url.pathname === streamPath
+            ? sseTimed([
+                {
+                  type: 'update',
+                  new_result_stream: ndjson(
+                    { type: 'tool_call', call_id: 'c1', function_name: 'export' },
+                    { type: 'background_wait' }
+                  ),
+                  stream_offset: 2
+                },
+                3000
+              ])
+            : undefined,
+        (c) =>
+          c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-2'
+            ? sseTimed([
+                200,
+                {
+                  type: 'update',
+                  new_result_stream: ndjson({
+                    type: 'tool_result',
+                    call_id: 'c1',
+                    function_name: 'export',
+                    result: '"ok"',
+                    success: true
+                  }),
+                  stream_offset: 1,
+                  completed: true,
+                  only_result: { windmill_chat_answer: 'second answer' }
+                }
+              ])
+            : undefined,
+        (c) =>
+          c.method === 'GET' && c.url.pathname.endsWith('/messages')
+            ? json([
+                messageRow(1, 'user', 'first'),
+                messageRow(2, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-1' })
+              ])
+            : undefined
+      )
+      const chat = createChat(options({}, fetch))
+      void chat.sendMessage('first')
+      await until(
+        () => chat.getState().messages.some((m) => m.seq === 2 && m.tool?.callId === 'c1'),
+        'the background row read'
+      )
+      await chat.sendMessage('more', { overRunningTurn: true })
+      await until(() => chat.getState().status === 'idle', 'the new turn')
+      const tools = chat.getState().messages.filter((m) => m.role === 'tool')
+      expect(tools.map((m) => [m.tool?.callId, m.tool?.status, m.tool?.result])).toEqual([['c1', 'success', '"ok"']])
+      chat.destroy()
+    })
+
     test('follows the new turn when the server takes the message', async () => {
       const { fetch } = fetchMock(...running(() => text('job-2')), (c) =>
         c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-2'

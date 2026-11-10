@@ -252,14 +252,15 @@ class ChatImpl implements Chat {
       if (this.#turn) this.#detachTurn()
       this.#turn = turn
       this.#epoch++
+      const oldTurnStart = lastUserBefore(this.#state.messages, turn.userMessageId)
       this.#set({
-        // A call still running in the background keeps its card open: the new turn streams its
-        // result to it.
-        messages: this.#state.messages.map((m) =>
-          m.pending && m.id !== turn.userMessageId && !(m.role === 'tool' && m.tool?.status === 'running')
-            ? { ...m, pending: false }
-            : m
-        ),
+        // A call of the old turn still running in the background stays open, its row read or
+        // not: the new turn adopts its job and streams its result to it.
+        messages: this.#state.messages.map((m, j) => {
+          const running = m.role === 'tool' && m.tool?.status === 'running'
+          if (running) return j > oldTurnStart ? { ...m, pending: true } : m
+          return m.pending && m.id !== turn.userMessageId ? { ...m, pending: false } : m
+        }),
         status: 'submitted',
         error: undefined
       })
@@ -1277,6 +1278,14 @@ function assistantMessage(content: string, success: boolean, jobId: string | und
     jobId,
     pending: false
   }
+}
+
+/** Index of the latest user message before the one with `id`, the start of the turn it ends. */
+function lastUserBefore(messages: readonly ChatMessage[], id: string): number {
+  let j = messages.findIndex((m) => m.id === id)
+  if (j < 0) j = messages.length
+  while (--j >= 0 && messages[j].role !== 'user') {}
+  return j
 }
 
 function finalized(messages: ChatMessage[]): ChatMessage[] {
