@@ -531,10 +531,13 @@ leaves and ignores the current scope.
 	<!-- Hover is tracked on the wrapper, not on the option button: the row's action is a
 	     sibling of that button, so entering it would otherwise read as leaving the row and
 	     drop the highlight out from under the pointer. -->
+	<!-- A disabled option dims through `disabled:opacity-50` and shows its cursor on this wrapper:
+	     the base `button:disabled` rule in tailwind.config.cjs outranks a plain `opacity-50` and
+	     turns pointer events off on the button itself. -->
 	<div
 		class="group flex items-center transition-colors pr-3 {baseClass} {isHl
 			? 'bg-surface-hover'
-			: ''}"
+			: ''} {leaf.disabled ? 'cursor-not-allowed' : ''}"
 		onmouseenter={(e) => {
 			setHoverHighlight(key)
 			tooltipEnter(e.currentTarget as HTMLElement, leaf)
@@ -553,7 +556,7 @@ leaves and ignores the current scope.
 			aria-label={tip ? `${leaf.label} — ${tip}` : undefined}
 			class="min-w-0 flex-1 text-left flex items-center gap-2 pl-3 {isCur
 				? 'cursor-default text-emphasis font-medium'
-				: 'text-[color:inherit]'} {leaf.disabled ? 'opacity-50 cursor-not-allowed' : ''}"
+				: 'text-[color:inherit]'} disabled:opacity-50"
 			disabled={href ? undefined : leaf.disabled}
 			tabindex={0}
 			onmousedown={(e: MouseEvent) => e.preventDefault()}
