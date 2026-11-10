@@ -29,6 +29,7 @@
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { truncate } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
@@ -356,12 +357,14 @@
 	const bannerClass =
 		'flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md'
 
-	const previewedItemPlaceholder = $derived(
-		previewedItem &&
-			(heldInUse
-				? `Ask about the ${previewedItem.kind} ${previewedItem.name}, or run it…`
-				: `Ask about the ${previewedItem.kind} ${previewedItem.name}, or describe a change…`)
-	)
+	// A placeholder that wraps grows the composer, so a long summary is cut to keep it on one line.
+	const previewedItemPlaceholder = $derived.by(() => {
+		if (!previewedItem) return undefined
+		const item = `${previewedItem.kind} ${truncate(previewedItem.name, 24, '…')}`
+		return heldInUse
+			? `Ask about the ${item}, or run it…`
+			: `Ask about the ${item}, or describe a change…`
+	})
 </script>
 
 {#if !session || !runtime}
