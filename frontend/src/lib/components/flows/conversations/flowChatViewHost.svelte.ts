@@ -153,7 +153,8 @@ export type DisplayLookups = {
 
 /** The row the worker writes when a call goes to the background. Its result is a later row of
  *  the same job, which this call's card shows in its place. */
-const BACKGROUND_START = /^(?:Started .+ in the background|Moved .+ to the background( after (\d+)s)?)$/
+const BACKGROUND_START =
+	/^(?:Started .+ in the background|Moved .+ to the background( after (\d+)s)?)$/
 
 /** How long a call ran before it moved to the background, for its card. */
 function movedAfter(content: string): string {
@@ -364,7 +365,9 @@ export function toDisplayMessages(
 				// worker stored them on the row. A row stored without them shows its name and job.
 				const toolName = message.tool?.name
 				const parameters = parseToolPayload(message.tool?.arguments)
-				const result = parseToolPayload(message.tool?.result)
+				// A call started in the background stores, as its result, what the model was told
+				// about it; its card shows the real result once it comes back.
+				const result = backgroundStart ? undefined : parseToolPayload(message.tool?.result)
 				const failed = message.success === false
 				// A call the turn finished without, stopped or lost before its row was written. The
 				// call a structured answer streams as never gets a result of its own, the answer

@@ -646,9 +646,13 @@ class ChatImpl implements Chat {
       patch: Partial<ToolInvocation> & { content?: string; success?: boolean }
     ) => {
       const { content, success, ...toolPatch } = patch
-      // Only this turn's tool messages are pending; a provider may reuse call ids across turns.
+      // Only this turn's: a provider may reuse call ids across turns. Those are the pending
+      // ones and those past the latest question, which a mid-turn row read settles while the
+      // call still waits on its background job.
+      let asked = messages.length - 1
+      while (asked >= 0 && messages[asked].role !== 'user') asked--
       const i = messages.findIndex(
-        (m) => m.pending && m.role === 'tool' && m.tool?.callId === callId
+        (m, j) => (m.pending || j > asked) && m.role === 'tool' && m.tool?.callId === callId
       )
       if (i >= 0) {
         const existing = messages[i]

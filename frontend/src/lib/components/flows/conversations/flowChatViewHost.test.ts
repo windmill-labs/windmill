@@ -420,17 +420,19 @@ describe('toDisplayMessages', () => {
 		])
 	})
 
-	it('says how long a call ran before it moved to the background', () => {
+	it('says how long a call ran before it moved to the background, without what the model was told', () => {
 		const moved = message({
 			role: 'tool',
 			content: 'Moved export to the background after 5s',
 			jobId: 'bg-job',
-			tool: { name: 'export', status: 'success' }
+			tool: { name: 'export', status: 'success', result: 'Not finished after 5s, so it continues…' }
 		})
-		expect(toDisplayMessages([moved], true)[0]).toMatchObject({
+		const [card] = toDisplayMessages([moved], true)
+		expect(card).toMatchObject({
 			content: 'Running export in the background (took over 5s)',
 			isLoading: true
 		})
+		expect((card as { result?: unknown }).result).toBeUndefined()
 	})
 
 	it('shows the calls still running as in the background while the agent waits on them', () => {
@@ -440,7 +442,9 @@ describe('toDisplayMessages', () => {
 			tool: { callId: 'c1', name: 'report', status: 'running' }
 		})
 		expect(toDisplayMessages([running])[0]).toMatchObject({ content: 'Running report' })
-		expect(toDisplayMessages([running], true, new Set(), { backgroundWait: true })[0]).toMatchObject({
+		expect(
+			toDisplayMessages([running], true, new Set(), { backgroundWait: true })[0]
+		).toMatchObject({
 			content: 'Running report in the background',
 			isLoading: true
 		})
