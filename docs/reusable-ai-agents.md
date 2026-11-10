@@ -203,10 +203,38 @@ Both live in `windmill-worker/src/ai/pause.rs`.
 
 ## Drafts
 
-The agent editor edits the resource through a **per-user resource draft** (`draft` table,
-`item_kind = 'resource'`), autosaved by `useAgentDraft` and deployed by the editor's own Deploy
-button. It is the same draft row the generic resource editor writes and the Review & Deploy page
-lists, so an agent can be deployed from any of them.
+An agent's unsaved edits are a **per-user `agent` draft** (`draft` table, `typ = 'agent'`), kept at
+the resource's path and deployed into the `resource` table. The kind follows the resource's type,
+not the editor that wrote it: the agent editor (`useAgentDraft`), the resource editor's *Edit as
+JSON* view and the AI session's `write_resource` all write that one row, so every draft listing —
+the Review & Deploy page, Home, a session's changes — names it an agent without reading its value,
+and it can be deployed from any of them. The deployed row decides the type, since a deploy keeps
+the row's type; a never-deployed agent is known by the `resource_type` its draft names.
+
+- `update_draft` refuses a draft whose kind disagrees with that type: a `resource` draft of an
+  agent would be a second draft that nothing shows or deploys.
+- The resource routes pick the kind per row (`UserDraftItemKind::for_resource_type`) for a read's
+  overlay and a listing's draft flag. A cascade keyed on the path alone — deleting a resource, a
+  rename clearing the old path — clears both kinds (`RESOURCE_KINDS`), since a path holds one
+  resource. Retyping a resource into or out of `ai_agent` moves the drafts at its path to the new
+  kind.
+- The session tools address an agent as `type: "resource"`, as the model does. A read tries the
+  `agent` kind, then `resource`; a write takes its kind from the `resource_type` it names
+  (`draft_kinds` / `write_kind` in `ai_session_tools/workspace.rs`, mirrored by `itemKindsFor` in
+  the chat's `userDraftAdapter.ts`).
+
+Agent drafts are shared across users the way script and flow drafts are
+(`shares_drafts_across_users`): whoever can read the agent sees who else has a draft of it, and
+can open one. The agent editor carries the same draft controls as the script and flow editors: the
+autosave indicator (save state, *Reset to deployed*, others' drafts, the auto-save toggle), a *Diff*
+button, Ctrl/Cmd+S, and the draft prompts (`DraftEditorModals`: a refused save, others' drafts, a
+draft older than the last deploy). With auto-save off, closing the dialog or leaving the page asks
+before dropping edits that were never saved.
+
+Deploying a draft keeps the identity the agent runs as. A draft never carries one, so a deploy of it
+sends `preserve_on_behalf_of` with no `on_behalf_of`, which keeps the deployed agent's identity for
+a caller allowed to keep another one; anyone else's deploy makes it theirs, as any write of the
+agent does.
 
 A flow does not wait for that deploy to see the draft:
 

@@ -178,7 +178,7 @@ link; the step is the only copy of the edits until Save changes, Cancel or Disca
 (`docs/reusable-ai-agents.md`). Evals open from the agent card in both of its states: from the
 editing card they run the edits as the step holds them when Run is pressed; from the linked card
 they run the deployed agent, the same reading a linked step makes at run time. The agent's own
-resource draft — the one the resource editor writes — is never read by evals. The card also names
+`agent` draft — the one the agent editor writes — is never read by evals. The card also names
 the version a run is recorded against (`v24`, and `v24` beside an unsaved-changes badge for edits
 on top of it), read from the resource's newest history entry since the resource itself does not
 carry its version.
