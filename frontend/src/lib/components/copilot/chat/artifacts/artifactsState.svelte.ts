@@ -14,7 +14,6 @@ import {
 	type ArtifactEdit,
 	type ArtifactKind,
 	type ArtifactVersion,
-	type ArtifactWrite,
 	type PersistedArtifact
 } from './artifactsDB'
 import { homeWorkspace, publishArtifact, restoreArtifact, trashArtifact } from './artifactLibrary'
@@ -285,8 +284,9 @@ export class SessionArtifactsStore {
 	 * Hand the next version of an artifact to the server before this browser stores it: when the
 	 * artifact is shared, people with access see it there. The server refuses a version based on
 	 * an older one than the latest it knows, which its owner wrote from another browser since
-	 * this one last did; that throws ArtifactStaleError. Resolves whether the server is behind
-	 * this browser instead, for the caller to bring it up to date once the version is stored.
+	 * this one last did; that throws ArtifactStaleError, and a call that fails throws its error.
+	 * Resolves whether the server is behind this browser instead, for the caller to bring it up
+	 * to date once the version is stored.
 	 */
 	async #sendToServer(
 		prior: PersistedArtifact,
@@ -295,25 +295,19 @@ export class SessionArtifactsStore {
 		const workspace = prior.workspaceId ?? this.#home()
 		if (!workspace) return false
 		const base = currentVersion(prior)
-		let result: AiArtifactWriteResult
-		try {
-			result = await AiService.writeAiArtifact({
-				workspace,
-				artifactId: prior.id,
-				requestBody: {
-					base_version: base,
-					version: base + 1,
-					name: next.name,
-					content: next.content,
-					session_id: prior.sessionId
-				}
-			})
-		} catch (err) {
-			// The version is stored here regardless, and the next write that reaches the server
-			// finds it behind and brings it up to date.
-			console.error('Could not send the artifact to the server', err)
-			return false
-		}
+		// Not caught: a version stored here that the server never weighed is the base of this
+		// browser's next write, which would then replace one written elsewhere in between.
+		const result: AiArtifactWriteResult = await AiService.writeAiArtifact({
+			workspace,
+			artifactId: prior.id,
+			requestBody: {
+				base_version: base,
+				version: base + 1,
+				name: next.name,
+				content: next.content,
+				session_id: prior.sessionId
+			}
+		})
 		const latest = result.latest_version
 		if (result.outcome !== 'stale' || latest === undefined) return false
 		if (latest < base) return true
@@ -341,7 +335,10 @@ export class SessionArtifactsStore {
 			return false
 		}
 		if (copy.shown_version !== latest) return false
-		return (await this.#adopt(prior.id, copy)).outcome === 'saved'
+		await this.#adopt(prior.id, copy)
+		// Asked of the copy the edit is redone on: the one `get` reads.
+		const held = await this.get(prior.id)
+		return held !== undefined && currentVersion(held) >= latest
 	}
 
 	/**
@@ -356,12 +353,19 @@ export class SessionArtifactsStore {
 		) {
 			return local
 		}
-		return (await this.#adopt(local.id, copy)).artifact ?? local
+		return (await this.#adopt(local.id, copy)) ?? local
 	}
 
-	async #adopt(id: string, copy: AiArtifactWithContent): Promise<ArtifactWrite> {
+	/**
+	 * This browser's copy of an artifact once it holds `copy`'s version, the server's. When the
+	 * store already holds that version or a later one, which another tab of this browser took,
+	 * that copy is the one reflected: the in-memory list can be older than the store.
+	 */
+	async #adopt(id: string, copy: AiArtifactWithContent): Promise<PersistedArtifact | undefined> {
 		const version = copy.shown_version
+		let stored: PersistedArtifact | undefined
 		const write = await mutateArtifact(id, (existing) => {
+			stored = existing
 			if (!existing || currentVersion(existing) >= version) return undefined
 			const next: PersistedArtifact = {
 				...existing,
@@ -375,8 +379,12 @@ export class SessionArtifactsStore {
 				snapshots: [snapshotOf(next, version, 'Written in another browser')]
 			}
 		})
-		if (write.artifact) this.#reflect(write.artifact)
-		return write
+		const held = furtherAlong(
+			write.artifact ?? stored,
+			this.artifacts.find((a) => a.id === id)
+		)
+		if (held && isLive(held)) this.#reflect(held)
+		return held
 	}
 
 	/** Give the server a version this browser stored without it, which its owner's writes from

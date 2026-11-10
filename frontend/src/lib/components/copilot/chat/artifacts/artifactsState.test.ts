@@ -587,11 +587,32 @@ describe('SessionArtifactsStore with a server copy', () => {
 		expect(await shared.getVersion(doc.id, 3)).toMatchObject({ note: 'Written in another browser' })
 	})
 
-	it('stores an edit the server missed, and brings the server up to date on the next one', async () => {
+	it('takes the version another tab of this browser stored, which the chat has not read', async () => {
+		const { AiService, shared, doc } = await sharedDoc()
+		const copy = { name: 'Doc', content: 'v3 from elsewhere', shown_version: 3, latest_version: 3 }
+		await new stateMod.SessionArtifactsStore(() => 'ws').catchUp(doc, copy as never)
+		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'stale', latest_version: 3 })
+		AiService.getAiArtifact.mockResolvedValue(copy as never)
+
+		await expect(shared.update(doc.id, { content: 'v2 from here' })).rejects.toMatchObject({
+			name: 'ArtifactStaleError',
+			caughtUp: true
+		})
+		expect(await shared.get(doc.id)).toMatchObject({ version: 3, content: 'v3 from elsewhere' })
+	})
+
+	it('stores no edit the server did not take', async () => {
 		const { AiService, shared, doc } = await sharedDoc()
 		AiService.writeAiArtifact.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-		vi.spyOn(console, 'error').mockImplementationOnce(() => {})
-		expect(await shared.update(doc.id, { content: 'v2' })).toMatchObject({ version: 2 })
+		await expect(shared.update(doc.id, { content: 'v2' })).rejects.toThrow('Failed to fetch')
+		expect(await shared.get(doc.id)).toMatchObject({ version: 1, content: 'v1' })
+	})
+
+	it('brings a server copy behind this browser up to date', async () => {
+		const { AiService, shared, doc } = await sharedDoc()
+		// Shared before its writes reached the server, which still holds the version shared then.
+		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'not_shared' })
+		await shared.update(doc.id, { content: 'v2' })
 
 		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'stale', latest_version: 1 })
 		AiService.publishAiArtifact.mockResolvedValue({} as never)

@@ -48,8 +48,7 @@ export function publishArtifact(a: PersistedArtifact, workspace: string): Promis
 
 /** Choose the version people with access see: `pinned` keeps them on `version` while newer ones
  * are written, unpinned shows them the latest, which `version` must then be. The server takes
- * only versions it knows, so the latest this browser wrote while it was out of reach goes to it
- * first. */
+ * only versions it knows, so a later one this browser holds goes to it first. */
 export async function showVersion(
 	local: PersistedArtifact,
 	workspace: string,
