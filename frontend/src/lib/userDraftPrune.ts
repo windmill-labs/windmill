@@ -52,7 +52,10 @@ const MAX_PASSES = 3
  * could have banked a draft nobody wrote — minus the ones no diff can be
  * computed for, which would throw and keep the pass unsealed forever. */
 function isSweepableKind(kind: UserDraftItemKind): boolean {
-	return (kind === 'resource' || kind.startsWith('trigger_')) && canDiffDraftKind(kind)
+	return (
+		(kind === 'resource' || kind === 'agent' || kind.startsWith('trigger_')) &&
+		canDiffDraftKind(kind)
+	)
 }
 
 /** Overlay GETs are one round trip each and a cluttered workspace has dozens;

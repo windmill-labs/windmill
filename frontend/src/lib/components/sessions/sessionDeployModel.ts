@@ -35,7 +35,9 @@ const DEPLOY_KIND_BY_DRAFT_KIND: Partial<Record<UserDraftItemKind, Kind>> = {
 	// speaks `trigger_default_email`.
 	trigger_default_email: 'email_trigger',
 	trigger_email: 'email_trigger',
-	raw_app: 'raw_app'
+	raw_app: 'raw_app',
+	// Deployed as a resource; its draft kind is what tells the rows it is an agent.
+	agent: 'resource'
 }
 
 function deployKindOf(draftKind: UserDraftItemKind, rawApp: boolean): Kind {

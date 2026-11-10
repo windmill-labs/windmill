@@ -80,6 +80,7 @@ const OVERLAY_GETTERS: Partial<
 	variable: (workspace, path) =>
 		VariableService.getVariable({ workspace, path, decryptSecret: false, getDraft: true }),
 	resource: (workspace, path) => ResourceService.getResource({ workspace, path, getDraft: true }),
+	agent: (workspace, path) => ResourceService.getResource({ workspace, path, getDraft: true }),
 	trigger_schedule: (workspace, path) =>
 		ScheduleService.getSchedule({ workspace, path, getDraft: true }),
 	trigger_http: (workspace, path) =>
@@ -247,12 +248,12 @@ function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean)
 			ws_specific: (isDraft ? raw.wsSpecific : raw.ws_specific) ?? undefined
 		}
 	}
-	if (kind === 'resource') {
+	if (kind === 'resource' || kind === 'agent') {
 		// draft: { args, description, resource_type, labels, wsSpecific }
 		// deployed row: { value, description, resource_type, labels, ws_specific }
 		// An agent's identity is in its deployed value and never in a draft, which is not an edit.
 		let value = (isDraft ? raw.args : raw.value) ?? {}
-		if (raw.resource_type === 'ai_agent') {
+		if (kind === 'agent' || raw.resource_type === 'ai_agent') {
 			const { on_behalf_of: _, ...rest } = value
 			value = rest
 		}
@@ -401,8 +402,8 @@ export async function getDraftDiffValues(
 		const { deployed, draft, hasDraft, noDeployed } = splitOverlay(await getter(workspace, path))
 		// The agent editor's draft of a deployed agent omits its type, which deploying keeps.
 		const draftWithType =
-			kind === 'resource' && draft && !draft.resource_type && deployed?.resource_type
-				? { ...draft, resource_type: deployed.resource_type }
+			kind === 'agent' && draft && !draft.resource_type
+				? { ...draft, resource_type: 'ai_agent' }
 				: draft
 		return {
 			deployed: draftOnly ? {} : canonicalizeDraftDiffValue(kind, deployed, false),
@@ -679,8 +680,9 @@ export async function deployDraft(
 					}
 				})
 			}
-		} else if (kind === 'resource') {
-			const overlay = await OVERLAY_GETTERS.resource!(workspace, path)
+		} else if (kind === 'resource' || kind === 'agent') {
+			const agent = kind === 'agent'
+			const overlay = await OVERLAY_GETTERS[kind]!(workspace, path)
 			// Adopt the row this promote is based on as the baseline for the delete below. Without one
 			// the backend deletes unconditionally, so a draft saved between that read and the delete is
 			// destroyed having never been deployed — a caller that only ever read through a listing has
@@ -714,24 +716,21 @@ export async function deployDraft(
 						path: d.path ?? path,
 						value: d.args ?? {},
 						description: d.description ?? '',
-						resource_type: d.resource_type ?? deployed.resource_type,
+						resource_type: d.resource_type ?? (agent ? 'ai_agent' : deployed.resource_type),
 						labels: d.labels,
 						ws_specific: d.wsSpecific
 					}
 				})
 			} else {
-				// As for an app: an agent draft carries no identity, so the deployed one is kept (the
-				// backend resets it to the deploying user without the flag, gated by
-				// can_preserve_on_behalf_of).
-				const agentObo =
-					deployed.resource_type === 'ai_agent' ? deployed.value?.on_behalf_of : undefined
 				await ResourceService.updateResource({
 					workspace,
 					path,
 					requestBody: {
 						path: d.path ?? path,
-						value: agentObo ? { ...(d.args ?? {}), on_behalf_of: agentObo } : (d.args ?? {}),
-						preserve_on_behalf_of: agentObo ? true : undefined,
+						value: d.args ?? {},
+						// As for an app: an agent draft carries no identity, so the deployed one is kept,
+						// for whoever the server lets keep it.
+						preserve_on_behalf_of: agent || undefined,
 						description: d.description ?? '',
 						labels: d.labels,
 						ws_specific: d.wsSpecific
@@ -739,8 +738,7 @@ export async function deployDraft(
 				})
 			}
 			// What shows a deployed agent reads it again on this, wherever the deploy came from.
-			if (!noop && (d.resource_type ?? deployed?.resource_type) === 'ai_agent')
-				markAgentWritten(workspace, d.path ?? path)
+			if (!noop && agent) markAgentWritten(workspace, d.path ?? path)
 		} else if (kind === 'trigger_schedule') {
 			const { draft: d } = splitOverlay(await OVERLAY_GETTERS.trigger_schedule!(workspace, path))
 			// The schedule editor's draft IS the cfg shape `saveScheduleFromCfg`

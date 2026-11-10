@@ -103,11 +103,15 @@
 	let initialStates: Record<string, ResourceState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
+	/** Each workspace's draft kind: an agent opened here as JSON keeps its draft where the agent
+	 *  editor does. Set from the load, before the gate or the handle names the kind. */
+	let draftKinds: Record<string, 'resource' | 'agent'> = $state({})
+	const kindOf = (ws: string) => draftKinds[ws] ?? 'resource'
 	const acting = useActingUser(() => selected)
 
 	const handlesArray = UserDraft.useMany<ResourceState>(() =>
 		workspaceSpecs.map((s) => ({
-			itemKind: 'resource' as const,
+			itemKind: kindOf(s.ws),
 			path: initialPath ?? '',
 			workspace: s.ws,
 			defaultValue: s.defaultValue,
@@ -146,10 +150,10 @@
 		if (!initialPath) return
 		if (gated === suspendedWorkspaces.has(ws)) return
 		if (gated) {
-			UserDraft.stopSync('resource', initialPath, { workspace: ws })
+			UserDraft.stopSync(kindOf(ws), initialPath, { workspace: ws })
 			suspendedWorkspaces.add(ws)
 		} else {
-			UserDraft.restartSync('resource', initialPath, { workspace: ws })
+			UserDraft.restartSync(kindOf(ws), initialPath, { workspace: ws })
 			suspendedWorkspaces.delete(ws)
 		}
 	}
@@ -300,7 +304,7 @@
 		selected && initialPath
 			? UserDraftDbSyncer.getConflict({
 					workspace: selected,
-					itemKind: 'resource',
+					itemKind: kindOf(selected),
 					path: initialPath
 				}).conflict
 			: undefined
@@ -310,7 +314,7 @@
 		const ws = selected
 		const p = initialPath
 		if (!ws || !p || resolvingConflict) return
-		const query = { workspace: ws, itemKind: 'resource' as const, path: p }
+		const query = { workspace: ws, itemKind: kindOf(ws), path: p }
 		const token = conflictSession.start()
 		const stillOurs = () => conflictSession.holds(token) && selected === ws
 		try {
@@ -399,7 +403,7 @@
 				userEdited[ws] = false
 				setGated(ws, true)
 			}
-			UserDraft.seed('resource', p, loadedDraft ?? deployedState, { workspace: ws })
+			UserDraft.seed(kindOf(ws), p, loadedDraft ?? deployedState, { workspace: ws })
 		} catch (e) {
 			// Nothing was given up above, so the conflict stands and the edit is still here to
 			// resolve again — which is the whole point of reading first.
@@ -419,7 +423,7 @@
 		untrack(() => {
 			if (!p) return
 			for (const ws of loadedWs) {
-				if (!dirty.includes(ws)) setLocalDraftHint(ws, 'resource', p, false)
+				if (!dirty.includes(ws)) setLocalDraftHint(ws, kindOf(ws), p, false)
 			}
 		})
 	})
@@ -473,6 +477,7 @@
 					// `.draft` already holds the editor's `ResourceState` shape.
 					const savedDraftState = (r as any).draft as ResourceState | undefined
 					fetchedResources[ws] = r
+					draftKinds[ws] = r.resource_type === 'ai_agent' ? 'agent' : 'resource'
 					// Deployed baseline as the dirty-check reference, so the banner
 					// compares draft-vs-deployed and fires immediately when a draft exists.
 					const deployedState: ResourceState = {
@@ -487,7 +492,7 @@
 					// the alert is about and leave "Keep mine" offering to keep the other one.
 					const conflictQuery = {
 						workspace: ws,
-						itemKind: 'resource' as const,
+						itemKind: kindOf(ws),
 						path: initialPath
 					}
 					const refused = UserDraftDbSyncer.getConflict(conflictQuery).conflict
@@ -554,7 +559,7 @@
 				setGated(ws, false)
 				void UserDraftDbSyncer.save({
 					workspace: ws,
-					itemKind: 'resource',
+					itemKind: kindOf(ws),
 					path: initialPath,
 					value: settled
 				})
@@ -611,7 +616,7 @@
 		openedOnDraft[selected] = false
 		userEdited[selected] = false
 		setGated(selected, true)
-		UserDraft.discard('resource', initialPath ?? '', initialStates[selected], {
+		UserDraft.discard(kindOf(selected), initialPath ?? '', initialStates[selected], {
 			workspace: selected
 		})
 	}
@@ -658,10 +663,11 @@
 				const ini = initialStates[ws]
 				if (existedInitially[ws]) {
 					const fetched = fetchedResources[ws]
-					// An agent keeps the identity its value names, as its own editor keeps it: without
-					// the flag an admin's save would take it over. The backend resets it to the writer
-					// for anyone not allowed to keep it.
-					const keepAgentObo = fetched?.resource_type === 'ai_agent' && !!s.args?.on_behalf_of
+					// An agent keeps its identity, as its own editor keeps it: the one its value names,
+					// or the deployed one when it names none, as a draft never does. Without the flag
+					// an admin's save would take it over. The backend resets it to the writer for anyone
+					// not allowed to keep it.
+					const keepAgentObo = fetched?.resource_type === 'ai_agent'
 					await ResourceService.updateResource({
 						workspace: ws,
 						path: ini.path,
@@ -694,7 +700,7 @@
 				// `remove`. See VariableEditor for the full rationale.
 				initialStates[ws] = $state.snapshot(s) as ResourceState
 				existedInitially[ws] = true
-				UserDraft.discard('resource', initialPath ?? '', s, { workspace: ws })
+				UserDraft.discard(kindOf(ws), initialPath ?? '', s, { workspace: ws })
 				// Path now exists server-side — drop the autocomplete cache so
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)

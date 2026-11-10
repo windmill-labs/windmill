@@ -92,7 +92,7 @@
 			draft_only={agent.draft_only}
 			currentUsername={$userStore?.username}
 			workspace={$workspaceStore ?? undefined}
-			itemKind="resource"
+			itemKind="agent"
 			path={agent.path}
 			onMigrated={() => dispatch('change')}
 		/>

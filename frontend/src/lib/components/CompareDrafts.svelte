@@ -135,6 +135,8 @@
 	// Trigger kinds swap the prefix to a suffix; kinds the layout doesn't
 	// know (webhook, native triggers) borrow the generic 'trigger' icon.
 	function toLayoutKind(kind: DraftItem['kind']): LayoutKind {
+		// An agent is deployed as a resource; `isAgent` gives its row the agent icon.
+		if (kind === 'agent') return 'resource'
 		if (kind === 'trigger_schedule') return 'schedule'
 		if (kind === 'trigger_default_email') return 'email_trigger'
 		if (kind.startsWith('trigger_')) {
@@ -269,9 +271,6 @@
 				draft?: string
 				stale?: boolean
 				loading?: boolean
-				/** A resource row that is an AI agent, and the path its draft names. */
-				agent?: boolean
-				draftPath?: string
 			}
 		>
 	>({})
@@ -280,25 +279,18 @@
 		if (summaryCache[item.key]) return
 		summaryCache[item.key] = { loading: true }
 		try {
-			// The drafts list says neither which resources are agents nor where a never-named one
-			// will deploy, so an agent row is read for its summary and its draft's path.
-			if (item.draftKind === 'resource') {
+			// An agent's summary is its resource's description.
+			if (item.draftKind === 'agent') {
 				const r = await ResourceService.getResource({
 					workspace: currentWorkspaceId,
 					path: item.path,
 					getDraft: true
 				})
-				const draft = r.draft as { path?: string; description?: string; resource_type?: string }
-				const agent = (draft?.resource_type ?? r.resource_type) === 'ai_agent'
-				summaryCache[item.key] = agent
-					? {
-							agent,
-							deployed: item.draft_only ? undefined : r.description,
-							draft: draft?.description ?? r.description,
-							draftPath: draft?.path,
-							loading: false
-						}
-					: { loading: false }
+				summaryCache[item.key] = {
+					deployed: r.description,
+					draft: (r.draft as { description?: string } | undefined)?.description,
+					loading: false
+				}
 				return
 			}
 			const r = (await (item.draftKind === 'script'
@@ -337,9 +329,8 @@
 			for (const item of current) {
 				if (
 					item.mine &&
-					((!item.draft_only &&
-						(['script', 'flow', 'app'].includes(item.draftKind) || item.raw_app)) ||
-						item.draftKind === 'resource') &&
+					!item.draft_only &&
+					(['script', 'flow', 'app', 'agent'].includes(item.draftKind) || item.raw_app) &&
 					!summaryCache[item.key]
 				) {
 					void fetchDraftSummary(item)
@@ -666,7 +657,7 @@
 				? `/pipeline/${encodeURIComponent(folder)}?workspace=${encodeURIComponent(currentWorkspaceId)}`
 				: undefined
 		}
-		if (summaryCache[d.key]?.agent) {
+		if (d.draftKind === 'agent') {
 			return `/agents/edit/${d.path}?workspace=${encodeURIComponent(currentWorkspaceId)}`
 		}
 		const listPage = LIST_PAGE_FOR_KIND[d.draftKind]
@@ -726,7 +717,7 @@
 			{deploymentStatus}
 			{allSelected}
 			selectablePredicate={(item) => isDiscardable(item as unknown as Row)}
-			isAgent={(item) => !!summaryCache[item.key]?.agent}
+			isAgent={(item) => (item as unknown as Row).draftKind === 'agent'}
 			selectBlockedReason={(item) => blockedReason(item as unknown as Row)}
 			onToggleItem={toggleItem}
 			onSelectAll={selectAll}
@@ -804,7 +795,7 @@
 				{@const oldSummary = cache?.deployed ?? draftItem.summary}
 				{@const newSummary = cache?.draft ?? draftItem.summary}
 				<WorkspaceDeployItemSummary
-					path={cache?.agent ? (cache.draftPath ?? draftItem.path) : displayPath(draftItem)}
+					path={displayPath(draftItem)}
 					{editUrl}
 					{oldSummary}
 					{newSummary}
@@ -817,13 +808,7 @@
 
 			{#snippet itemPath(item)}
 				{@const draftItem = item as unknown as Row}
-				{@const agent = summaryCache[draftItem.key]?.agent
-					? summaryCache[draftItem.key]
-					: undefined}
-				{#if agent}
-					<!-- Titled by its summary like a script; a summary-less one is titled by this path. -->
-					{#if agent.draft}{agent.draftPath ?? draftItem.path}{/if}
-				{:else if draftItem.kind === 'resource' || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
+				{#if draftItem.draftKind === 'resource' || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
 					<!-- drawer-only items show their path as the title; keep this line empty -->
 				{:else if !draftItem.draft_only && draftItem.draft_path && draftItem.draft_path !== draftItem.path}
 					<!-- Path rename: a *deployed* item's draft moves it to a new path. Strike
@@ -842,7 +827,7 @@
 				{@const others = otherDraftUsers(draftItem)}
 				<div class="flex items-center gap-1">
 					<Badge color="gray" size="xs">
-						{summaryCache[draftItem.key]?.agent ? 'agent' : kindLabel(draftItem.draftKind)}
+						{kindLabel(draftItem.draftKind)}
 					</Badge>
 					<DraftBadge
 						is_draft={true}

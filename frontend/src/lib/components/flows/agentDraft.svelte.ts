@@ -68,11 +68,9 @@ function agentConfigRunError(args: Record<string, any> | undefined): string | un
 }
 
 /**
- * The draft shape every resource editor writes, and the only one the review/deploy page knows how
- * to canonicalize and deploy (`utils_draft_deploy.ts`, `canonicalizeDraftDiffValue` /
- * `deployDraft`). The agent editor is a different *form* over this same row, never a parallel
- * draft: writing anything else here would take agent drafts off the deploy page and out of the
- * generic editor.
+ * An `agent` draft: the shape every resource editor writes, which the review/deploy page
+ * canonicalizes and deploys as it does a resource's (`utils_draft_deploy.ts`,
+ * `canonicalizeDraftDiffValue` / `deployDraft`).
  *
  * `args` is the resource value. `description`, `labels` and `wsSpecific` are round-tripped
  * untouched — the agent form has no place for them, and dropping them would rewrite the resource
@@ -83,7 +81,7 @@ export interface AgentResourceState {
 	description: string
 	args: AIAgentConfig
 	/** Present only for a path with no deployed row, whose type the draft is the sole record of.
-	 *  Elsewhere it is left out to match the generic resource editor, which has no field for it. */
+	 *  Elsewhere the row's type answers, which a deploy keeps. */
 	resource_type?: string
 	labels?: string[]
 	wsSpecific: boolean
@@ -102,7 +100,7 @@ export function agentDraftDeployRefusal(
 	currentPath: string | undefined
 ): string | undefined {
 	// The editor offers only values, but a transform can arrive from a step that was forked
-	// before this existed, or from the generic resource editor: say so rather than writing it.
+	// before this existed, or from a draft the AI chat wrote: say so rather than writing it.
 	const transformValued = transformValuedBrainKeys(state.args)
 	if (transformValued.length > 0) {
 		const fields = transformValued.map((key) => AGENT_BRAIN_LABELS[key] ?? key)
@@ -123,7 +121,7 @@ export function agentDraftDeployRefusal(
 		return `This draft renames the agent to ${state.path}. Deploy it from the agent editor instead.`
 	}
 	// Only a draft naming another type: the load refuses a resource that is not an agent, while a
-	// draft the generic resource editor wrote names no type at all and inherits the loaded one.
+	// draft of a deployed agent names no type at all and inherits the loaded one.
 	if (state.resource_type && state.resource_type !== 'ai_agent') {
 		return `This draft is a ${state.resource_type} resource, not an agent.`
 	}
@@ -241,8 +239,8 @@ export interface AgentDraftHandle {
 
 /**
  * Local-autosave wiring for an `ai_agent` resource, over the shared drawer-kind draft sync. Holding
- * a live handle is what makes a write from elsewhere — another tab, the generic resource editor on
- * the same path — land in the open agent editor.
+ * a live handle is what makes a write from elsewhere — another tab, the resource editor's JSON view
+ * on the same path, the AI chat — land in the open agent editor.
  */
 export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	let state = $state<AgentResourceState | undefined>(undefined)
@@ -259,7 +257,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	let refusal = $state<string | undefined>(undefined)
 
 	const sync = useTriggerDraftSync({
-		itemKind: 'resource',
+		itemKind: 'agent',
 		// An empty path holds no draft handle, which is what keeps a deployed-only view off the draft.
 		path: () => (opts.deployedOnly?.() ? '' : (opts.path() ?? '')),
 		workspace: () => opts.workspace(),
@@ -285,7 +283,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		const target = seedNewUntilInput
 		if (!target || !state) return
 		const settled = $state.snapshot(state)
-		untrack(() => UserDraft.seed('resource', target.path, settled, { workspace: target.ws }))
+		untrack(() => UserDraft.seed('agent', target.path, settled, { workspace: target.ws }))
 	})
 
 	function refuse(reason: string) {
@@ -348,9 +346,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							description: r.description ?? '',
 							args,
 							// Only where nothing else answers for the type: with a deployed row both the
-							// create below and the review page's `deployDraft` read it from there, and
-							// carrying it would make every draft the generic resource editor writes — which
-							// has no field for it — differ from this baseline on that key alone.
+							// create below and the review page's `deployDraft` read it from there.
 							...(noDeployed ? { resource_type: r.resource_type } : {}),
 							labels: r.labels ?? undefined,
 							wsSpecific: r.ws_specific ?? false
@@ -383,11 +379,11 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// each tab goes out with no `last_sync`, which the backend treats as unconditional
 						// and so silently overwrites another tab's newer draft. It also clears any parked
 						// conflict or failure for the key: a conflict is deliberately sticky (the retry
-						// keeps the same baseline), and nothing else mounts a resolver for `resource`
+						// keeps the same baseline), and nothing else mounts a resolver for `agent`
 						// drafts, so re-opening the agent is the only place it can be resolved.
 						if (!opts.deployedOnly?.()) {
 							UserDraftDbSyncer.recordRemoteSync(
-								{ workspace: ws, itemKind: 'resource', path },
+								{ workspace: ws, itemKind: 'agent', path },
 								(r as { draft_saved_at?: string }).draft_saved_at
 							)
 						}

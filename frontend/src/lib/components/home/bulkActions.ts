@@ -15,13 +15,11 @@ import { updateItemPathAndSummary } from '$lib/components/moveRenameManager'
 import { discardDraft } from '$lib/utils_draft_deploy'
 import type { BulkItem } from './homeSelection.svelte'
 
-/** The draft overlay is the one place a raw app is its own kind, and an agent's
- * draft is filed as the resource it is. Narrowed so the compiler checks that a
- * `BulkItem` never maps to anything else. */
+/** The draft overlay is the one place a raw app is its own kind. Narrowed so the
+ * compiler checks that a `BulkItem` never maps to anything else. */
 function draftKind(
 	item: BulkItem
-): Extract<UserDraftItemKind, 'script' | 'flow' | 'app' | 'raw_app' | 'resource'> {
-	if (item.kind === 'agent') return 'resource'
+): Extract<UserDraftItemKind, 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> {
 	return item.kind === 'app' && item.rawApp ? 'raw_app' : item.kind
 }
 
@@ -108,7 +106,7 @@ async function moveItem(ctx: BulkContext, item: BulkItem, target: string): Promi
 		// Nothing is deployed at this path, so there is no deploy to re-run: the
 		// item IS its draft row, and moving it rewrites that row.
 		const kind = draftKind(item)
-		if (kind === 'resource') throw new Error('a draft-only agent cannot be moved here')
+		if (kind === 'agent') throw new Error('a draft-only agent cannot be moved here')
 		await DraftService.moveDraft({
 			workspace: ctx.workspace,
 			kind,

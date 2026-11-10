@@ -1,4 +1,10 @@
-import { AppService, FlowService, ScriptService, type UserDraftItemKind } from '$lib/gen'
+import {
+	AppService,
+	FlowService,
+	ResourceService,
+	ScriptService,
+	type UserDraftItemKind
+} from '$lib/gen'
 import type { Value } from '$lib/utils'
 import { DEFAULT_DATA, extractDataConfig } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appDraftSettings } from '$lib/components/apps/editor/appDraftSettings'
@@ -46,6 +52,18 @@ export async function fetchDeployedValueForDiff(
 				summary: app.summary,
 				policy: app.policy,
 				custom_path: app.custom_path
+			} as unknown as Value
+		}
+		case 'agent': {
+			// The agent editor's state; the identity is the deployed one's alone, never a draft's.
+			const resource = await ResourceService.getResource({ workspace, path })
+			const { on_behalf_of: _, ...args } = (resource.value ?? {}) as Record<string, unknown>
+			return {
+				path: resource.path,
+				description: resource.description ?? '',
+				args,
+				labels: resource.labels ?? undefined,
+				wsSpecific: resource.ws_specific ?? false
 			} as unknown as Value
 		}
 		default:

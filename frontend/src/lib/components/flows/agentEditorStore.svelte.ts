@@ -72,12 +72,12 @@ export function agentWriteCount(workspace: string | undefined, path: string | un
  *  card keyed on that alone would keep describing the config a test no longer runs. */
 let agentDraftSaves = $state<Record<string, number>>({})
 
-/** Every writer in this document goes through the draft syncer — this editor, the generic resource
- *  editor — so one subscription answers for them all, firing when the write lands rather than on
- *  each keystroke. `resource` is the item kind agent draft rows use. In-memory: a save in another
- *  tab never arrives here, so a card lags it until reload, while what a test runs is read live. */
+/** Every writer in this document goes through the draft syncer — this editor, the resource
+ *  editor's JSON view, the chat — so one subscription answers for them all, firing when the write lands rather than on each keystroke.
+ *  In-memory: a save in another tab never arrives here, so a card lags it until reload, while
+ *  what a test runs is read live. */
 UserDraftDbSyncer.onAnySaved(({ workspace, itemKind, path }) => {
-	if (itemKind !== 'resource') return
+	if (itemKind !== 'agent') return
 	const key = writeKey(workspace, path)
 	agentDraftSaves[key] = (agentDraftSaves[key] ?? 0) + 1
 })

@@ -253,7 +253,6 @@
 	})
 	// The cards know only kind and path, so their drafts come from the workspace's draft list,
 	// keyed the way favorites are: a raw app's card can be an `app` one, its draft is `raw_app`.
-	// An agent is a resource and drafts as one; no other resource can sit at its path.
 	// The list holds the user's own drafts and legacy ones, so an item only another user drafted
 	// shows its badge in the list below but not on its card.
 	const drafts = useWorkspaceDrafts(() => workspace)
@@ -261,7 +260,7 @@
 		if (kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app') {
 			return asStarKind(kind)
 		}
-		return kind === 'resource' ? 'agent' : undefined
+		return kind === 'agent' ? 'agent' : undefined
 	}
 	let draftByItem = $derived(
 		new Map<string, DraftItem>(

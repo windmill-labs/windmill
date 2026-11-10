@@ -255,7 +255,7 @@
 	// debounced autosave and the refetch behind it; the fetched answer covers a draft written
 	// elsewhere, which no editor here has published an opinion about.
 	let hasDraft = $derived(
-		getLocalDraftHint(ws, 'resource', agent ?? '') ?? linkedInfo?.fromDraft ?? false
+		getLocalDraftHint(ws, 'agent', agent ?? '') ?? linkedInfo?.fromDraft ?? false
 	)
 	/** The agent the card is about: the one this step links to, or the one being edited. */
 	let cardPath = $derived(agent)

@@ -343,7 +343,7 @@
 			// Writes the resource, deletes the draft row, and clears the local hint and the workspace
 			// drafts cache. A failure aborts the flow save the way a failing trigger does, rather than
 			// deploying a flow against agents that were meant to change with it.
-			const deployed = await deployDraft('resource', agent.path, ws, {
+			const deployed = await deployDraft('agent', agent.path, ws, {
 				draftOnly: agent.noDeployed
 			})
 			if (!deployed.success) {
@@ -360,7 +360,7 @@
 			// cell is what `agentDraftState` prefers — a still-mounted holder would otherwise keep
 			// feeding a phantom draft to the cards and to the next deploy dialog. Local only: `remove`
 			// would POST a second delete, debounced and past the baseline the first one cleared.
-			UserDraft.forgetLocal('resource', agent.path, { workspace: ws })
+			UserDraft.forgetLocal('agent', agent.path, { workspace: ws })
 			// Every linked card and the graph key on this to refetch the agent they display.
 			markAgentWritten(ws, agent.path)
 			logReusableAgentUsage('draft_deployed_with_flow')

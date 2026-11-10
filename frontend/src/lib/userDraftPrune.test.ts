@@ -33,7 +33,8 @@ vi.mock('./userDraftDbSyncer.svelte', () => ({
 			get state() {
 				return syncState
 			}
-		})
+		}),
+		onAnySaved: () => {}
 	}
 }))
 

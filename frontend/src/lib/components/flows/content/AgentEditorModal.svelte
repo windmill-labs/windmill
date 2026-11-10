@@ -132,10 +132,10 @@
 			page: () => `${RESOURCES_PATH}#/resource/${path}`,
 			workspaceId: workspace,
 			beforeOpen: async () => {
-				await persistDraftForSession(workspace, 'resource', path)
+				await persistDraftForSession(workspace, 'agent', path)
 				// A new agent has no draft row until an edit autosaves one, and the session reads the
 				// agent from the server. Only for one never deployed, which has no baseline to skip.
-				if (draftOnly) await UserDraft.forcePersist('resource', path, { workspace })
+				if (draftOnly) await UserDraft.forcePersist('agent', path, { workspace })
 			}
 		}
 	})

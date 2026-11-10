@@ -53,6 +53,7 @@ export const GLOBAL_DRAFT_KINDS = [
 	'trigger_azure',
 	'trigger_email',
 	'resource',
+	'agent',
 	'variable'
 ] as const satisfies UserDraftItemKind[]
 
@@ -101,6 +102,18 @@ export function itemKindFor(
 	}
 }
 
+/** The draft kinds an item's draft can be stored under, in the order a read tries them. An
+ * agent is a resource whose drafts are `agent` drafts; a path holds one resource, so at most
+ * one of the two has a draft there. Mirrors `draft_kinds` in `ai_session_tools/workspace.rs`. */
+export function itemKindsFor(
+	type: WorkspaceItemType,
+	triggerKind?: TriggerKind
+): UserDraftItemKind[] {
+	if (type === 'resource') return ['agent', 'resource']
+	const kind = itemKindFor(type, triggerKind)
+	return kind ? [kind] : []
+}
+
 export function triggerKindToUserDraftKind(kind: TriggerKind): UserDraftItemKind {
 	return TRIGGER_DRAFT_KIND_BY_TRIGGER_KIND[kind]
 }
@@ -119,6 +132,8 @@ export function itemTypeForKind(
 		case 'resource':
 		case 'variable':
 			return { type: kind }
+		case 'agent':
+			return { type: 'resource' }
 		case 'app':
 		case 'raw_app':
 			return { type: 'app' }
@@ -209,7 +224,11 @@ function triggerDraftToWorkspaceItem(
 	}
 }
 
-function resourceDraftToWorkspaceItem(path: string, draft: ResourceDraftState): WorkspaceItem {
+function resourceDraftToWorkspaceItem(
+	path: string,
+	draft: ResourceDraftState,
+	agent = false
+): WorkspaceItem {
 	return {
 		type: 'resource',
 		path,
@@ -218,7 +237,8 @@ function resourceDraftToWorkspaceItem(path: string, draft: ResourceDraftState): 
 			path,
 			value: clone(draft.args),
 			description: draft.description,
-			resource_type: draft.resource_type ?? '',
+			// The agent editor's draft of a deployed agent names no type: its kind does.
+			resource_type: draft.resource_type ?? (agent ? 'ai_agent' : ''),
 			labels: draft.labels,
 			ws_specific: draft.wsSpecific
 		},
@@ -268,7 +288,12 @@ function userDraftEntryToWorkspaceItem(
 			item = scheduleDraftToWorkspaceItem(path, entry.value as NewSchedule)
 			break
 		case 'resource':
-			item = resourceDraftToWorkspaceItem(path, entry.value as ResourceDraftState)
+		case 'agent':
+			item = resourceDraftToWorkspaceItem(
+				path,
+				entry.value as ResourceDraftState,
+				entry.itemKind === 'agent'
+			)
 			break
 		case 'variable':
 			item = variableDraftToWorkspaceItem(path, entry.value as VariableDraftState)
@@ -323,8 +348,11 @@ export function getGlobalDraftStoragePath(
 	path: string,
 	triggerKind?: TriggerKind
 ): string {
-	const itemKind = itemKindFor(type, triggerKind)
-	return itemKind ? resolveDraftStoragePath(workspace, itemKind, path) : path
+	for (const itemKind of itemKindsFor(type, triggerKind)) {
+		const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+		if (storagePath !== path) return storagePath
+	}
+	return path
 }
 
 function getGlobalDraftSlot(
@@ -333,8 +361,14 @@ function getGlobalDraftSlot(
 	path: string,
 	triggerKind?: TriggerKind
 ) {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return undefined
+	for (const itemKind of itemKindsFor(type, triggerKind)) {
+		const slot = getGlobalDraftSlotOfKind(workspace, itemKind, path)
+		if (slot) return slot
+	}
+	return undefined
+}
+
+function getGlobalDraftSlotOfKind(workspace: string, itemKind: UserDraftItemKind, path: string) {
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
 	const draft = UserDraft.get(itemKind, storagePath, { workspace })
 	if (draft === undefined) return undefined
@@ -480,17 +514,18 @@ export async function getGlobalDraft(
 ): Promise<WorkspaceItem | undefined> {
 	const slot = getGlobalDraftSlot(workspace, type, path, triggerKind)
 	if (slot) return slot.item
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return undefined
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	const value = await fetchBackendDraftValue(workspace, itemKind, storagePath)
-	if (value === undefined || value === null) return undefined
-	const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
-	return userDraftEntryToWorkspaceItem(
-		{ workspace, itemKind, path: storagePath, value },
-		displayPath,
-		isLiveDraft
-	)
+	for (const itemKind of itemKindsFor(type, triggerKind)) {
+		const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+		const value = await fetchBackendDraftValue(workspace, itemKind, storagePath)
+		if (value === undefined || value === null) continue
+		const { displayPath, isLiveDraft } = liveDisplayPath(workspace, itemKind, storagePath)
+		return userDraftEntryToWorkspaceItem(
+			{ workspace, itemKind, path: storagePath, value },
+			displayPath,
+			isLiveDraft
+		)
+	}
+	return undefined
 }
 
 // Maps a backend `listDrafts` metadata row (no value) to a lightweight item.
@@ -514,6 +549,9 @@ function backendDraftRowToWorkspaceItem(
 		case 'resource':
 		case 'variable':
 			type = row.kind
+			break
+		case 'agent':
+			type = 'resource'
 			break
 		case 'raw_app':
 			type = 'app'
@@ -590,10 +628,11 @@ export async function deleteGlobalDraft(
 	triggerKind?: TriggerKind,
 	options: DeleteGlobalDraftOptions = {}
 ): Promise<void> {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	await deleteDraftAt(workspace, itemKind, storagePath, path, options)
+	// Every kind the item's draft can be under: a delete of one that holds none is a no-op.
+	for (const itemKind of itemKindsFor(type, triggerKind)) {
+		const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+		await deleteDraftAt(workspace, itemKind, storagePath, path, options)
+	}
 }
 
 /** `deleteGlobalDraft` at a resolved storage key; `path` names the draft in its errors. */

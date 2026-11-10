@@ -22,7 +22,7 @@ vi.mock('$lib/gen', () => ({
 	EmailTriggerService: {}
 }))
 vi.mock('$lib/userDraftDbSyncer.svelte', () => ({
-	UserDraftDbSyncer: { save: vi.fn(), recordRemoteSync: vi.fn() }
+	UserDraftDbSyncer: { save: vi.fn(), recordRemoteSync: vi.fn(), onAnySaved: vi.fn() }
 }))
 vi.mock('$lib/workspaceDrafts.svelte', () => ({ invalidateWorkspaceDrafts: vi.fn() }))
 vi.mock('$lib/workspaceComparison', () => ({ invalidateWorkspaceComparison: vi.fn() }))
@@ -127,7 +127,7 @@ describe('deployDraft preserves on_behalf_of', () => {
 		)
 	})
 
-	it('agent: claims the deployed identity, which its draft never carries', async () => {
+	it('agent: asks to keep the deployed identity, which its draft never carries', async () => {
 		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
 			path: 'f/support/triage_agent',
 			resource_type: 'ai_agent',
@@ -135,11 +135,11 @@ describe('deployDraft preserves on_behalf_of', () => {
 			draft: { path: 'f/support/triage_agent', args: { system_prompt: 'drafted' } }
 		} as any)
 
-		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
+		expect(await deployDraft('agent', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
 		expect(ResourceService.updateResource).toHaveBeenCalledWith(
 			expect.objectContaining({
 				requestBody: expect.objectContaining({
-					value: { system_prompt: 'drafted', on_behalf_of: 'u/alice' },
+					value: { system_prompt: 'drafted' },
 					preserve_on_behalf_of: true
 				})
 			})
