@@ -546,7 +546,13 @@ async fn manage_denied(db: &DB, w_id: &str, authed: &ApiAuthed) -> Vec<(ManageKi
     if !authed.is_admin {
         for kind in [ManageKind::Schedules, ManageKind::Triggers] {
             if let Err(e) = check_operator_can_manage(db, w_id, authed, kind).await {
-                denied.push((kind, e.to_string()));
+                // Shown as a lock text, a plain sentence like the path rules' texts, so without
+                // the "Permission denied: " prefix the error's display adds.
+                let reason = match e {
+                    Error::PermissionDenied(reason) => reason,
+                    e => e.to_string(),
+                };
+                denied.push((kind, reason));
             }
         }
     }

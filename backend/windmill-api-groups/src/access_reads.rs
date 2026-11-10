@@ -546,8 +546,17 @@ fn app_runs_as(policy: Option<&Value>) -> RunsAs {
 }
 
 fn root_from_source(kind: RootKind, item: &str, source: ReadsSource) -> Result<(Node, RunsAs)> {
-    let missing =
-        |field: &str| Error::BadRequest(format!("the source of a {} needs {field}", kind.as_str()));
+    let article = if matches!(kind, RootKind::App) {
+        "an"
+    } else {
+        "a"
+    };
+    let missing = |field: &str| {
+        Error::BadRequest(format!(
+            "the source of {article} {} needs {field}",
+            kind.as_str()
+        ))
+    };
     Ok(match kind {
         RootKind::Script => {
             let content = source.content.ok_or_else(|| missing("content"))?;

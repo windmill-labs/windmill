@@ -321,8 +321,8 @@
 					What members of g/{name} can read through this group alone, and which grant gives each item.
 					Members may reach more through their own grants and other groups.
 				{:else}
-					What {principal} can read, and which grant gives each item. Jobs that run as
-					{principal} read exactly this set.
+					What {principal} can read, and which grant gives each item.
+					{#if access && !access.is_admin}Jobs that run as {principal} read exactly this set.{/if}
 				{/if}
 			</p>
 
