@@ -70,6 +70,8 @@ export interface DraftSender<A> {
 	/** The chat refused a send outright (an upload that failed, Stop during it); the draft
 	 * is handed back after this. */
 	sendFailed(error: unknown, draft: Draft<A>): void
+	/** The running turn's agent waits on an approval or a question shown here. */
+	awaitsAnswer?(): boolean
 }
 
 /**
@@ -98,6 +100,7 @@ export class ConversationTurns<A> {
 	/** The job of the turn a message was sent over, until the server takes or refuses it. What
 	 * is sent meanwhile is queued behind it: a refused message goes back ahead of the queue. */
 	#sentOver: string | undefined
+	#waiting = false
 
 	constructor(chat: Chat, sender: () => DraftSender<A>) {
 		this.chat = chat
@@ -144,10 +147,13 @@ export class ConversationTurns<A> {
 		const message = { text, attachments: draft.attachments }
 		const state = this.chat.getState()
 		const busy = isBusy(state.status)
-		// Sent at once over a running turn: the server takes it over when it is parked, and
-		// otherwise refuses it, which queues it behind that turn below.
+		// Sent at once over a turn known to be parked, which the server takes over; a refusal,
+		// when the agent woke meanwhile, queues it behind that turn below. A working turn would
+		// refuse it, so it is queued here without asking.
+		const parked = !!state.waitingOnBackground || !!this.#sender().awaitsAnswer?.()
 		const overRunningTurn =
 			busy &&
+			parked &&
 			message.attachments.length === 0 &&
 			state.history === 'server' &&
 			this.#sentOver === undefined
@@ -269,6 +275,12 @@ export class ConversationTurns<A> {
 		if (this.#sentOver !== undefined && state.runningJobId !== this.#sentOver) {
 			this.#sentOver = undefined
 		}
+		// The agent answered and now waits on background jobs: what was queued while it worked
+		// goes out over it. Not on an approval or a question, which it would drop unseen.
+		const waiting = !!state.waitingOnBackground
+		const startsWaiting = waiting && !this.#waiting
+		this.#waiting = waiting
+		if (startsWaiting && isBusy(state.status)) queueMicrotask(() => this.#flushOverParked())
 		if (!isBusy(was) || isBusy(state.status)) return
 		// The turn settled. The queued message goes out once the turn is released, not now:
 		// the chat publishes `idle` from inside its own `sendMessage`, which still counts the
@@ -289,6 +301,13 @@ export class ConversationTurns<A> {
 		if (!this.#queued.text || this.#disposed) return
 		const replayInputs = this.#queuedReplay
 		void this.send(this.#takeQueued(), replayInputs)
+	}
+
+	#flushOverParked(): void {
+		const state = this.chat.getState()
+		if (this.#sentOver === undefined && isBusy(state.status) && state.waitingOnBackground) {
+			this.#flush()
+		}
 	}
 
 	#takeQueued(): Draft<A> {

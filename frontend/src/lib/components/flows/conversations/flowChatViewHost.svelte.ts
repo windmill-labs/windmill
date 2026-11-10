@@ -749,6 +749,10 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		}
 	}
 
+	awaitsAnswer(): boolean {
+		return this.#agentRequest !== undefined
+	}
+
 	cancel = () => {
 		const { messages, status } = this.#state
 		const turn = isBusy(status) ? [...messages].reverse().find((m) => m.role === 'user') : undefined

@@ -92,8 +92,7 @@ function fakeChat(initial: ChatState = idleState()) {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-/** The sends that ran a turn: a message typed during one that works is offered over it first,
- *  and the server's refusal queues it. */
+/** The sends that ran a turn, not the ones offered over a parked turn. */
 const realSends = (chat: ReturnType<typeof fakeChat>['chat']) =>
 	chat.sendMessage.mock.calls.filter(([, options]) => !options?.overRunningTurn)
 
@@ -621,7 +620,9 @@ describe('FlowChatViewHost', () => {
 	})
 
 	it('sends a message typed during a parked turn rather than queueing it', async () => {
-		const { chat } = fakeChat(idleState({ status: 'streaming', runningJobId: 'parked-job' }))
+		const { chat } = fakeChat(
+			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })
+		)
 		// The server takes it: the turn's agent is parked.
 		chat.sendMessage.mockImplementationOnce(async () => {})
 		const host = hostOn(chat)
@@ -637,13 +638,36 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
-	it('queues what is typed while a message waits on the server, behind it', async () => {
-		const { chat } = fakeChat(idleState({ status: 'streaming', runningJobId: 'working-job' }))
+	it('queues what is typed while the turn works, and sends it over once the turn waits', async () => {
+		const { chat, set } = fakeChat(idleState({ status: 'streaming', runningJobId: 'working-job' }))
 		const host = hostOn(chat)
 		host.queueMessage('one')
 		host.queueMessage('two')
 		await flush()
-		// Offered once, refused because the turn works, then queued ahead of what followed it.
+		// Not offered to the server, which would refuse it.
+		expect(chat.sendMessage).not.toHaveBeenCalled()
+		expect(host.queuedMessage).toBe('one\ntwo')
+		chat.sendMessage.mockImplementationOnce(async () => {})
+		set({ waitingOnBackground: true })
+		await flush()
+		expect(chat.sendMessage).toHaveBeenCalledWith(
+			'one\ntwo',
+			expect.objectContaining({ overRunningTurn: true })
+		)
+		expect(host.queuedMessage).toBe('')
+		host.dispose()
+	})
+
+	it('queues what is typed while a message waits on the server, behind it', async () => {
+		const { chat } = fakeChat(
+			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })
+		)
+		const host = hostOn(chat)
+		host.queueMessage('one')
+		host.queueMessage('two')
+		await flush()
+		// Offered once, refused because the agent woke meanwhile, then queued ahead of what
+		// followed it.
 		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
 		expect(host.queuedMessage).toBe('one\ntwo')
 		host.dispose()
