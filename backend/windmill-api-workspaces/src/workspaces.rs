@@ -8827,6 +8827,7 @@ async fn clone_flows(
         "SELECT id, workspace_id, path, value, schema, created_by, created_at
          FROM flow_version
          WHERE workspace_id = $1
+         AND NOT starts_with(path, '__deleted/')
          ORDER BY path, created_at",
         source_workspace_id
     )

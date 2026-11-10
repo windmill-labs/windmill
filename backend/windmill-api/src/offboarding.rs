@@ -921,7 +921,7 @@ async fn offboard_user_from_workspace<'c>(
     ).execute(&mut **tx).await?;
 
     sqlx::query!(
-        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3 AND NOT EXISTS (SELECT 1 FROM flow_node d WHERE d.workspace_id = $3 AND d.hash_v2 = flow_node.hash_v2 AND d.path = REGEXP_REPLACE(flow_node.path, 'u/' || $2 || '/(.*)', $1 || '/\1'))"#,
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
 
