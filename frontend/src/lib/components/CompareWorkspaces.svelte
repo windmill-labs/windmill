@@ -854,9 +854,38 @@
 
 		if (result.success) {
 			deploymentStatus[statusKey] = { status: 'deployed' }
+			if (kind === 'folder' && !removes) {
+				warnOnAddedFolderOwners(path, workspaceFrom, workspaceToDeployTo)
+			}
 		} else {
 			deploymentStatus[statusKey] = { status: 'failed', error: result.error }
 			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`, 'error')
+		}
+	}
+
+	// A non-admin can't drop their own ownership of a folder (the folder UPDATE policy
+	// rejects a row they don't own), so updateFolder keeps them as an owner. The folder then
+	// never matches its source, and the conflict comes back on every compare unless we say why.
+	async function warnOnAddedFolderOwners(path: string, workspaceFrom: string, workspaceTo: string) {
+		const name = path.replace(/^f\//, '')
+		try {
+			const [source, target, me] = await Promise.all([
+				FolderService.getFolder({ workspace: workspaceFrom, name }),
+				FolderService.getFolder({ workspace: workspaceTo, name }),
+				UserService.whoami({ workspace: workspaceTo })
+			])
+			const owner = `u/${me.username}`
+			if (!me.is_admin && target.owners.includes(owner) && !source.owners.includes(owner)) {
+				sendUserToast(
+					`${path} still differs in ${workspaceTo}: it kept ${owner} as owner, because a non-admin can't remove their own ownership of a folder. To clear it, make ${owner} owner of ${path} in ${workspaceFrom} too, or deploy as an admin of ${workspaceTo}.`,
+					'warning',
+					[],
+					undefined,
+					15000
+				)
+			}
+		} catch {
+			// The deploy itself succeeded; the next compare still shows the difference.
 		}
 	}
 

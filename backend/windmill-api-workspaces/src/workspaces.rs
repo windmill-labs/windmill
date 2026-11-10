@@ -8827,6 +8827,7 @@ async fn clone_flows(
         "SELECT id, workspace_id, path, value, schema, created_by, created_at
          FROM flow_version
          WHERE workspace_id = $1
+         AND NOT starts_with(path, '__deleted/')
          ORDER BY path, created_at",
         source_workspace_id
     )
@@ -11639,6 +11640,20 @@ pub(crate) async fn archive_workspace_impl(
     for schedule_path in &disabled_schedules {
         windmill_queue::schedule::clear_schedule(&mut tx, schedule_path, w_id).await?;
     }
+
+    // Public apps are served without a session, so nothing else about an archived workspace
+    // stops them: take them private. `publisher`, not `viewer`: viewer mode runs as whoever opens
+    // the app and skips its runnable allowlist, which an operator-built app must never get.
+    // Unarchiving does not restore them.
+    let unpublished_apps = sqlx::query!(
+        "UPDATE app SET policy = jsonb_set(policy, '{execution_mode}', '\"publisher\"')
+         WHERE workspace_id = $1 AND policy->>'execution_mode' = 'anonymous'",
+        w_id
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    tracing::info!("Made {unpublished_apps} public apps private in workspace {w_id}");
 
     // Delete non-session tokens scoped to this workspace
     let deleted_tokens = sqlx::query_scalar!(

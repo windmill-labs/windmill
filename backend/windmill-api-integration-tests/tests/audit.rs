@@ -136,6 +136,51 @@ async fn test_job_run_is_searchable_by_token_and_by_caller(
     Ok(())
 }
 
+/// Paging with the `(timestamp, id)` cursor must return every row once, in `timestamp DESC, id
+/// DESC` order, even where ids disagree with timestamps (an id is drawn at insert, the timestamp
+/// at transaction start).
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_audit_list_cursor_follows_timestamp_order(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // Hours ahead stay inside the partitions created for the next days.
+    sqlx::query(
+        "INSERT INTO audit_partitioned (workspace_id, id, timestamp, username, operation, action_kind)
+         SELECT 'test-workspace', id, date_trunc('second', now()) + h * interval '1 hour',
+                'test-user', 'cursor.probe', 'create'
+         FROM (VALUES (9000001, 1), (9000002, 3), (9000003, 2), (9000004, 2), (9000005, 1)) v(id, h)",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let mut seen = vec![];
+    let mut cursor: Vec<(&str, String)> = vec![];
+    loop {
+        let url = format!("http://localhost:{port}/api/w/test-workspace/audit/list");
+        let page = authed(client().get(url))
+            .query(&[("operation", "cursor.probe"), ("per_page", "1")])
+            .query(&cursor)
+            .send()
+            .await?
+            .json::<Vec<serde_json::Value>>()
+            .await?;
+        let Some(row) = page.first() else { break };
+        seen.push(row["id"].as_i64().unwrap());
+        cursor = vec![
+            ("before_id", row["id"].to_string()),
+            (
+                "before_id_timestamp",
+                row["timestamp"].as_str().unwrap().to_string(),
+            ),
+        ];
+    }
+    assert_eq!(seen, [9000002, 9000004, 9000003, 9000005, 9000001]);
+
+    Ok(())
+}
+
 /// The run filter must find a run's entries under each key they keep its id in: the run itself
 /// (`parameters.uuid`), a cancel (`resource`) and a resume (`parameters.job_id`), and only those.
 #[cfg(all(feature = "enterprise", feature = "private"))]

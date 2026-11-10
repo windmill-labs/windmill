@@ -4868,23 +4868,34 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
             // An app is relocked in place: a raw app's bundle is stored under its version id,
             // so a copy minted here could never be published.
             JobKind::Dependencies | JobKind::AppDependencies => *base_hash,
-            JobKind::FlowDependencies => {
-                sqlx::query_scalar!(
-                    "INSERT INTO flow_version
-                    (workspace_id, path, value, schema, created_by)
+            // The flow row is locked so that a concurrent delete or rename either waits for the
+            // copy and moves it with the flow's other versions, or wins and no copy is made: one
+            // committed after it would sit at the path of a flow recreated there. A rename first
+            // updates the row without changing its key, which `FOR KEY SHARE` would not wait for.
+            JobKind::FlowDependencies => sqlx::query_scalar!(
+                "INSERT INTO flow_version
+                (workspace_id, path, value, schema, created_by)
 
-                    SELECT workspace_id, path, value, schema, created_by
-                    FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+                SELECT v.workspace_id, v.path, v.value, v.schema, v.created_by
+                FROM flow_version v
+                JOIN flow f ON f.workspace_id = v.workspace_id AND f.path = v.path
+                WHERE v.path = $1 AND v.workspace_id = $2 AND v.id = $3
+                FOR SHARE OF f
 
-                    RETURNING id
-                    ",
-                    j.runnable_path(),
-                    j.workspace_id,
-                    *base_hash,
-                )
-                .fetch_one(db)
-                .await?
-            }
+                RETURNING id
+                ",
+                j.runnable_path(),
+                j.workspace_id,
+                *base_hash,
+            )
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| {
+                Error::NotFound(format!(
+                    "Flow {} was deleted before its relock",
+                    j.runnable_path()
+                ))
+            })?,
             _ => *base_hash,
         };
 

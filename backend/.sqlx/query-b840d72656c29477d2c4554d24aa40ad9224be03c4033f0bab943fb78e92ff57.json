@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, path, value, schema, created_by, created_at\n         FROM flow_version\n         WHERE workspace_id = $1\n         ORDER BY path, created_at",
+  "query": "SELECT id, workspace_id, path, value, schema, created_by, created_at\n         FROM flow_version\n         WHERE workspace_id = $1\n         AND NOT starts_with(path, '__deleted/')\n         ORDER BY path, created_at",
   "describe": {
     "columns": [
       {
@@ -54,5 +54,5 @@
       false
     ]
   },
-  "hash": "c98a28cdeced035b21b8893041c4f94e2564a609eb5b8b9c562a0dbded4d5b96"
+  "hash": "b840d72656c29477d2c4554d24aa40ad9224be03c4033f0bab943fb78e92ff57"
 }
