@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte'
 	import { resource } from 'runed'
 	import {
+		AlertTriangle,
 		ArrowLeft,
 		ClipboardList,
 		Code,
@@ -44,6 +45,7 @@
 	import {
 		artifactPath,
 		shareWorkspaceId,
+		UNKNOWN_AUDIENCE,
 		whoCanSee
 	} from '$lib/components/copilot/chat/artifacts/artifactSharing'
 	import {
@@ -88,6 +90,8 @@
 		local: PersistedArtifact | undefined
 		/** The server's copy, with the version people with access see; absent until shared. */
 		server: AiArtifactWithContent | undefined
+		/** Why the server's copy could not be read, when this browser's copy is shown without it. */
+		serverError?: string
 	}
 	type Loaded = Found | { state: 'gone' } | { state: 'error'; message: string }
 
@@ -113,7 +117,7 @@
 		if (!held && !server.found) return { state: 'gone' }
 		// A version its owner wrote in another browser reaches this one through the server's copy.
 		const local = held && server.found ? await store.catchUp(held, server.found) : held
-		return { state: 'found', local, server: server.found }
+		return { state: 'found', local, server: server.found, serverError: server.error }
 	}
 
 	let reloads = $state(0)
@@ -163,11 +167,13 @@
 	)
 	// Nobody else opens an artifact whose server copy is in the trash, whoever its access list names.
 	const who = $derived(
-		whoCanSee(
-			server && !server.deleted_at ? server.extra_perms : undefined,
-			workspaceName,
-			mine ? undefined : server?.owner
-		)
+		found?.serverError
+			? UNKNOWN_AUDIENCE
+			: whoCanSee(
+					server && !server.deleted_at ? server.extra_perms : undefined,
+					workspaceName,
+					mine ? undefined : server?.owner
+				)
 	)
 
 	const session = $derived.by(() => {
@@ -197,6 +203,7 @@
 		| { kind: 'trash'; at: number }
 		| { kind: 'older'; version: number; latest: number }
 		| { kind: 'updated'; version: number }
+		| { kind: 'unreachable'; message: string }
 		| { kind: 'behind'; shown: number; latest: number }
 		| { kind: 'shared'; owner: string; left: boolean; updatedAt: string }
 
@@ -209,6 +216,7 @@
 		}
 		const landed = newer && shownVersion(newer)
 		if (landed !== undefined) return { kind: 'updated', version: landed }
+		if (found.serverError) return { kind: 'unreachable', message: found.serverError }
 		if (server && shared && latest !== undefined && server.shown_version < latest) {
 			return { kind: 'behind', shown: server.shown_version, latest }
 		}
@@ -568,6 +576,16 @@
 					<Button variant="default" unifiedSize="xs" onclick={showNewer}>
 						Show v{banner.version}
 					</Button>
+				</div>
+			</div>
+		{:else if banner?.kind === 'unreachable'}
+			<div class="{BAR} {WARNING}">
+				<AlertTriangle size={12} class="shrink-0" />
+				<span class="truncate" title={banner.message}>
+					Could not read this artifact from the server, so who can see it is unknown.
+				</span>
+				<div class="ml-auto shrink-0">
+					<Button variant="default" unifiedSize="xs" onclick={() => reloads++}>Retry</Button>
 				</div>
 			</div>
 		{:else if banner?.kind === 'behind'}

@@ -26,8 +26,15 @@ export function artifactPath(workspaceId: string, artifactId: string): string {
 	return `/artifacts/${encodeURIComponent(artifactId)}?workspace=${encodeURIComponent(workspaceId)}`
 }
 
-/** Who can open an artifact, as the artifacts page filters on it. */
-export type Audience = 'only_you' | 'everyone' | 'specific'
+/** Who can open an artifact, as the artifacts page filters on it. No filter matches `unknown`. */
+export type Audience = 'only_you' | 'everyone' | 'specific' | 'unknown'
+
+/** Shown when the server's copy could not be read. "Only you" would tell the owner that a share
+ * they made was revoked. */
+export const UNKNOWN_AUDIENCE: { audience: Audience; label: string } = {
+	audience: 'unknown',
+	label: 'Unknown'
+}
 
 /** The group every member of a workspace is in. */
 export const EVERYONE = 'g/all'

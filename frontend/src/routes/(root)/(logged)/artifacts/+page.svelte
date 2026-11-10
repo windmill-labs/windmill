@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte'
 	import { resource } from 'runed'
 	import {
+		AlertTriangle,
 		ArrowLeft,
 		ClipboardList,
 		Code2,
@@ -11,6 +12,7 @@
 		Files,
 		Lock,
 		MessageSquarePlus,
+		RefreshCw,
 		RotateCcw,
 		Search,
 		Trash2,
@@ -19,7 +21,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import { Button, EmptyState, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, EmptyState, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Cell, DataTable, Row } from '$lib/components/table'
@@ -40,6 +42,7 @@
 	import {
 		artifactPath,
 		shareWorkspaceId,
+		UNKNOWN_AUDIENCE,
 		whoCanSee,
 		type Audience
 	} from '$lib/components/copilot/chat/artifacts/artifactSharing'
@@ -98,18 +101,22 @@
 		async ({ home, ready }) => (home ? await workspaceArtifacts(home, ready) : undefined)
 	)
 
+	// On `error`, the rows hold only this browser's artifacts, and who can see them is unknown.
 	const server = resource(
 		() => ({ home, trash: trashView, reloads }),
-		async ({ home, trash }): Promise<AiArtifactListEntry[] | undefined> => {
+		async ({
+			home,
+			trash
+		}): Promise<{ rows: AiArtifactListEntry[]; error?: string } | undefined> => {
 			if (!home) return undefined
 			try {
-				return await AiService.listAiArtifacts({ workspace: home, includeDeleted: trash })
+				return { rows: await AiService.listAiArtifacts({ workspace: home, includeDeleted: trash }) }
 			} catch (err) {
-				sendUserToast('Could not list shared artifacts', true, [], apiErrorMessage(err))
-				return []
+				return { rows: [], error: apiErrorMessage(err) }
 			}
 		}
 	)
+	const listError = $derived(server.current?.error)
 
 	// Content is on the server only for the artifacts this browser does not hold. Responses can
 	// land out of order, so each carries the query it answers.
@@ -140,7 +147,7 @@
 	const loading = $derived(local.current === undefined || server.current === undefined)
 
 	const rows = $derived.by(() => {
-		let all = mergeArtifactRows(local.current ?? [], server.current ?? [], trashView)
+		let all = mergeArtifactRows(local.current ?? [], server.current?.rows ?? [], trashView)
 		if (query) {
 			const q = query.toLowerCase()
 			const hits = found.current?.query === query ? found.current.hits : undefined
@@ -170,7 +177,7 @@
 					(kind === 'plan'
 						? r.role === 'plan'
 						: r.kind === kind && (kind === 'html' || r.role !== 'plan'))) &&
-				(!audience || whoCanSee(r.extraPerms, workspaceName).audience === audience) &&
+				(!audience || audienceOf(r).audience === audience) &&
 				(!owner || tab === 'mine' || (owner === ME ? r.mine : !r.mine && r.owner === owner))
 		)
 		const byName = (a: ArtifactRow, b: ArtifactRow) => a.name.localeCompare(b.name)
@@ -204,6 +211,12 @@
 	 * session known to be deleted rather than kept in another browser. */
 	function sessionDeleted(r: ArtifactRow): boolean {
 		return !!r.local && !!r.sessionId && sessionState.hydrated && sessionOf(r) === undefined
+	}
+
+	function audienceOf(r: ArtifactRow): { audience: Audience; label: string } {
+		return listError
+			? UNKNOWN_AUDIENCE
+			: whoCanSee(r.extraPerms, workspaceName, r.mine ? undefined : r.owner)
 	}
 
 	/** The owner, or an admin, who changes who has access to any item on the server. */
@@ -373,7 +386,19 @@
 		{#if loading}
 			<Skeleton layout={[[2], 0.5, [2], 0.5, [2], 0.5, [2]]} />
 		{:else if shown.length === 0}
-			{#if query}
+			{#if listError}
+				<EmptyState
+					icon={AlertTriangle}
+					title="Could not list artifacts from the server"
+					description={listError}
+					action={{
+						label: 'Retry',
+						icon: RefreshCw,
+						onClick: () => reloads++,
+						disabled: server.loading
+					}}
+				/>
+			{:else if query}
 				<EmptyState icon={Search} title="No artifact matches ‘{query}’." />
 			{:else if filtering}
 				<EmptyState icon={Search} title="No artifact matches these filters." />
@@ -402,6 +427,23 @@
 				/>
 			{/if}
 		{:else}
+			{#if listError}
+				<Alert
+					type="error"
+					size="xs"
+					title="Could not list artifacts from the server"
+					actions={[
+						{
+							label: 'Retry',
+							startIcon: { icon: RefreshCw },
+							onClick: () => reloads++,
+							loading: server.loading
+						}
+					]}
+				>
+					Only the artifacts this browser holds are listed. {listError}
+				</Alert>
+			{/if}
 			<DataTable size="sm" tableFixed>
 				<Head>
 					<tr>
@@ -431,7 +473,7 @@
 						{/if}
 						{#each group.rows as r (r.id)}
 							{@const Icon = rowIcon(r)}
-							{@const who = whoCanSee(r.extraPerms, workspaceName, r.mine ? undefined : r.owner)}
+							{@const who = audienceOf(r)}
 							{@const session = sessionOf(r)}
 							<Row hoverable={!trashView} on:click={() => !trashView && goto(href(r))}>
 								<Cell first>
