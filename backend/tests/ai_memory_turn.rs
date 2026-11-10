@@ -132,6 +132,16 @@ async fn hold_with_parked_agent(
     )
     .execute(&mut *tx)
     .await?;
+    sqlx::query!(
+        "INSERT INTO v2_job (id, workspace_id, kind, parent_job, root_job)
+         VALUES ($1, $2, 'script', $3, $4)",
+        BACKGROUND_JOB,
+        WS,
+        agent,
+        holder
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(agent)
 }
@@ -172,6 +182,17 @@ async fn test_a_parked_last_step_hands_its_memory_id_over(
     assert_eq!(woken.suspend, 0);
     assert_eq!(woken.handed_over, Some(serde_json::json!(true)));
     assert!(woken.waiting_on.is_empty());
+    // Under the new run, whose cancel then reaches it.
+    let moved = sqlx::query!(
+        "SELECT parent_job, root_job FROM v2_job WHERE id = $1",
+        BACKGROUND_JOB
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        (moved.parent_job, moved.root_job),
+        (Some(new_run), Some(new_run))
+    );
     Ok(())
 }
 

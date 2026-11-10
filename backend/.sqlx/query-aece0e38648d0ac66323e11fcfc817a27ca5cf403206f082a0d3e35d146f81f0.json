@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job j\n         SET parent_job = $2, root_job = $2, flow_innermost_root_job = $2\n         FROM ai_agent_checkpoint c, jsonb_array_elements(c.checkpoint->'background') b\n         WHERE c.job_id = ANY($1) AND j.id = (b->>'job_id')::uuid",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aece0e38648d0ac66323e11fcfc817a27ca5cf403206f082a0d3e35d146f81f0"
+}

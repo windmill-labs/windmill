@@ -658,6 +658,22 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
+	it('sends again shortly when refused while the turn still says it waits', async () => {
+		const { chat } = fakeChat(
+			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })
+		)
+		const host = hostOn(chat)
+		// Refused: the agent said it waits before its park was written.
+		host.queueMessage('meanwhile')
+		await flush()
+		expect(host.queuedMessage).toBe('meanwhile')
+		chat.sendMessage.mockImplementationOnce(async () => {})
+		await new Promise((resolve) => setTimeout(resolve, 1100))
+		expect(chat.sendMessage).toHaveBeenCalledTimes(2)
+		expect(host.queuedMessage).toBe('')
+		host.dispose()
+	})
+
 	it('queues what is typed while a message waits on the server, behind it', async () => {
 		const { chat } = fakeChat(
 			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })

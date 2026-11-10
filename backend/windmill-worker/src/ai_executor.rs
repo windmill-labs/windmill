@@ -1560,6 +1560,21 @@ async fn adopt_handed_jobs(
     for adopted in &mut jobs {
         adopted.adopted = true;
     }
+    // Under this agent, as the jobs it starts are: its cancel and its cleanup walk its children.
+    let ids: Vec<Uuid> = jobs.iter().map(|j| j.job_id).collect();
+    if !ids.is_empty() {
+        sqlx::query!(
+            "UPDATE v2_job SET parent_job = $2, root_job = $3, flow_innermost_root_job = $4
+             WHERE id = ANY($1) AND workspace_id = $5",
+            &ids,
+            job.id,
+            get_root_job_id(job),
+            job.flow_innermost_root_job.unwrap_or(job.id),
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+    }
     Ok(jobs)
 }
 

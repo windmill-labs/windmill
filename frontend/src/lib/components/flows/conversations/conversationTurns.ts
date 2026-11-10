@@ -30,6 +30,11 @@ export function lastTurnFailed(messages: readonly ChatMessage[]): boolean {
 	return false
 }
 
+/** A refusal of a send over a turn the chat sees waiting is retried this often, this far apart;
+ * a run that keeps refusing (steps after its agent) is then left to queue. */
+const PARK_RETRIES = 3
+const PARK_RETRY_MS = 1000
+
 export function isBusy(status: ChatState['status']): boolean {
 	return status === 'submitted' || status === 'streaming'
 }
@@ -101,6 +106,7 @@ export class ConversationTurns<A> {
 	 * is sent meanwhile is queued behind it: a refused message goes back ahead of the queue. */
 	#sentOver: string | undefined
 	#waiting = false
+	#parkRetries = 0
 
 	constructor(chat: Chat, sender: () => DraftSender<A>) {
 		this.chat = chat
@@ -190,6 +196,12 @@ export class ConversationTurns<A> {
 					this.#notify()
 					// Sent over a turn this chat follows already, whose release the queue waits on.
 					if (!overRunningTurn) this.resume(e.turn)
+					// The agent says it waits before its park is written, and a send in between
+					// is refused: try again shortly while it still says so.
+					else if (this.#parkRetries < PARK_RETRIES) {
+						this.#parkRetries++
+						setTimeout(() => this.#flushOverParked(), PARK_RETRY_MS)
+					}
 					return
 				}
 				if (!stopped) this.#sender().sendFailed(e, message)
@@ -280,6 +292,7 @@ export class ConversationTurns<A> {
 		const waiting = !!state.waitingOnBackground
 		const startsWaiting = waiting && !this.#waiting
 		this.#waiting = waiting
+		if (startsWaiting) this.#parkRetries = 0
 		if (startsWaiting && isBusy(state.status)) queueMicrotask(() => this.#flushOverParked())
 		if (!isBusy(was) || isBusy(state.status)) return
 		// The turn settled. The queued message goes out once the turn is released, not now:
