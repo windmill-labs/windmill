@@ -397,6 +397,11 @@ describe('toDisplayMessages', () => {
 			error: 'report did not finish',
 			isLoading: false
 		})
+		// Nor when a later turn runs.
+		expect(toDisplayMessages([started, later[0], later[1]], true)[1]).toMatchObject({
+			content: 'report did not finish',
+			isLoading: false
+		})
 		const display = toDisplayMessages([started, ...later])
 		expect(display.filter((m) => m.role === 'tool')).toHaveLength(1)
 		// The thinking that led to the call stays beside it.
