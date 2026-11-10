@@ -737,6 +737,16 @@ export const UserDraftDbSyncer = {
 	},
 
 	/**
+	 * Resolves once no POST for this key is in flight or queued behind one; a save still in its
+	 * debounce window is not waited for. A loader awaits it before reading the draft: a read
+	 * overlapping a POST can return the row and timestamp from before it and still arrive after
+	 * it, leaving a baseline the next save conflicts with.
+	 */
+	async settled(query: UserDraftLastSyncQuery): Promise<void> {
+		await runner.settled(draftKey(query.workspace, query.itemKind, query.path))
+	},
+
+	/**
 	 * Stop scheduling saves for this key and wait until nothing for it is still in flight.
 	 * Cancelling alone cannot stop a POST the runner already started, and such a POST settles
 	 * *after* the caller has moved on — a rejected one re-raising the conflict it was told to

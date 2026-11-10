@@ -317,6 +317,9 @@
 		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
 		// flag so it doesn't linger in the URL / remembered nav route.
 		stripNewDraftFlag()
+		// A session pane leaving for this page flushes its last save as it unmounts.
+		await UserDraftDbSyncer.settled({ workspace: $workspaceStore!, itemKind: 'raw_app', path })
+		if (tok !== loadAppToken) return
 		const backendApp = (await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,
