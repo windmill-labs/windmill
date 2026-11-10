@@ -489,7 +489,9 @@ pub async fn wait_for_migrations(
     // makes the pod restart and look like a crash loop, so wait long enough to
     // cover a normal rollout and only give up if the server is truly not coming.
     const RECHECK_SECS: u64 = 3;
-    const MAX_WAIT_SECS: u64 = 15 * 60;
+    // Over 12 rollouts (3,430 worker starts) the longest wait was 94s and
+    // p99 47s; 3 minutes covers that with margin.
+    const MAX_WAIT_SECS: u64 = 3 * 60;
     const LOG_EVERY: u64 = 10;
     let mut attempts: u64 = 0;
 
