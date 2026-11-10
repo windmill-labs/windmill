@@ -970,7 +970,7 @@ async fn claim_memory_turn(
         .fetch_one(&mut **tx)
         .await?;
         let handed_jobs = if queued {
-            match hand_over_parked_turn(tx, holder, job_id).await? {
+            match hand_over_parked_turn(tx, holder).await? {
                 Some(jobs) => Some(jobs),
                 None => {
                     let parked = sqlx::query_scalar!(
@@ -986,6 +986,20 @@ async fn claim_memory_turn(
                 }
             }
         } else {
+            // Jobs handed to the ended run and never adopted: as the monitor does for a claim it
+            // deletes, cancelled rather than dropped with the row.
+            sqlx::query!(
+                "UPDATE v2_job_queue q
+                 SET canceled_by = 'monitor', scheduled_for = now(), suspend = 0,
+                     canceled_reason = 'the turn its AI agent was handed to ended before taking it'
+                 FROM ai_memory_turn t, jsonb_each(t.handed_jobs) s, jsonb_array_elements(s.value) b
+                 WHERE t.workspace_id = $1 AND t.memory_id = $2
+                   AND q.id = (b->>'job_id')::uuid AND q.canceled_by IS NULL",
+                w_id,
+                memory_id
+            )
+            .execute(&mut **tx)
+            .await?;
             None
         };
         sqlx::query!(
@@ -1019,7 +1033,6 @@ async fn claim_memory_turn(
 async fn hand_over_parked_turn(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     holder: Uuid,
-    new_run: Uuid,
 ) -> error::Result<Option<serde_json::Value>> {
     let parked = sqlx::query!(
         r#"UPDATE v2_job_queue q SET suspend = 0
@@ -1042,18 +1055,6 @@ async fn hand_over_parked_turn(
          SET checkpoint = jsonb_set(checkpoint, '{handed_over}', 'true'), waiting_on = '{}'
          WHERE job_id = ANY($1)",
         &ids
-    )
-    .execute(&mut **tx)
-    .await?;
-    // Under the new run, so a cancel walking its job tree reaches them before its agent adopts
-    // them (and re-parents them to itself); under the old agent they would outlive both runs.
-    sqlx::query!(
-        "UPDATE v2_job j
-         SET parent_job = $2, root_job = $2, flow_innermost_root_job = $2
-         FROM ai_agent_checkpoint c, jsonb_array_elements(c.checkpoint->'background') b
-         WHERE c.job_id = ANY($1) AND j.id = (b->>'job_id')::uuid",
-        &ids,
-        new_run
     )
     .execute(&mut **tx)
     .await?;

@@ -2241,15 +2241,7 @@ pub async fn run_agent(
             }
             // The model has answered but background jobs still run: wait for one, without a
             // worker. This iteration runs again, starting with what finished.
-            if let Some(processor) = stream_event_processor.as_ref() {
-                processor
-                    .send(StreamingEvent::BackgroundWait, &mut final_events_str)
-                    .await?;
-            }
-            if let Some(handle) = stream_event_processor.take().and_then(|p| p.to_handle()) {
-                let _ = handle.await;
-            }
-            let checkpoint = AgentCheckpoint {
+            let mut checkpoint = AgentCheckpoint {
                 history: messages.checkpoint(),
                 actions: actions.clone(),
                 content: content.clone(),
@@ -2276,6 +2268,17 @@ pub async fn run_agent(
                 &messages,
             )
             .await;
+            // Told once the memory is saved, which can take a while: a client sends its next
+            // message over the turn on it, and the claim refuses one until the park is written.
+            if let Some(processor) = stream_event_processor.as_ref() {
+                processor
+                    .send(StreamingEvent::BackgroundWait, &mut final_events_str)
+                    .await?;
+            }
+            if let Some(handle) = stream_event_processor.take().and_then(|p| p.to_handle()) {
+                let _ = handle.await;
+            }
+            checkpoint.events = final_events_str.clone();
             match park_agent(db, conn, job, &checkpoint, &cancel_rx).await {
                 Some(parked) => return Err(parked),
                 None => {

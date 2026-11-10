@@ -142,6 +142,13 @@ async fn hold_with_parked_agent(
     )
     .execute(&mut *tx)
     .await?;
+    sqlx::query!(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for) VALUES ($1, $2, now())",
+        BACKGROUND_JOB,
+        WS
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(agent)
 }
@@ -182,17 +189,21 @@ async fn test_a_parked_last_step_hands_its_memory_id_over(
     assert_eq!(woken.suspend, 0);
     assert_eq!(woken.handed_over, Some(serde_json::json!(true)));
     assert!(woken.waiting_on.is_empty());
-    // Under the new run, whose cancel then reaches it.
-    let moved = sqlx::query!(
-        "SELECT parent_job, root_job FROM v2_job WHERE id = $1",
+    // The new run ends before its agent adopts the job: the next claim cancels it.
+    sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", new_run)
+        .execute(&db)
+        .await?;
+    let mut tx = db.begin().await?;
+    let (_, claimed) = push_with_memory(&mut tx).await?;
+    tx.commit().await?;
+    assert!(claimed);
+    let cancelled = sqlx::query_scalar!(
+        "SELECT canceled_by FROM v2_job_queue WHERE id = $1",
         BACKGROUND_JOB
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(
-        (moved.parent_job, moved.root_job),
-        (Some(new_run), Some(new_run))
-    );
+    assert_eq!(cancelled.as_deref(), Some("monitor"));
     Ok(())
 }
 

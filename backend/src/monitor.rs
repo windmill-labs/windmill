@@ -7873,18 +7873,36 @@ async fn cleanup_ai_agent_orphaned_rows(db: &DB) -> error::Result<()> {
     // to the memory ids in use.
     // Matched on the job too: a claim taken over while this waits on its row lock no longer
     // names that job when the delete re-reads it, so it is kept.
+    // Background jobs handed to a run that ended before its agent adopted them (stopped while an
+    // earlier step ran, say) belong to no turn any more: their old agent has ended, and a cancel
+    // of the new run does not reach them, so they are cancelled here.
     let released = sqlx::query!(
-        "DELETE FROM ai_memory_turn t
-         USING (SELECT workspace_id, memory_id, job_id FROM ai_memory_turn s
-                WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = s.job_id)) stale
-         WHERE t.workspace_id = stale.workspace_id AND t.memory_id = stale.memory_id
-           AND t.job_id = stale.job_id",
+        r#"WITH released AS (
+             DELETE FROM ai_memory_turn t
+             USING (SELECT workspace_id, memory_id, job_id FROM ai_memory_turn s
+                    WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = s.job_id)) stale
+             WHERE t.workspace_id = stale.workspace_id AND t.memory_id = stale.memory_id
+               AND t.job_id = stale.job_id
+             RETURNING t.handed_jobs
+           ), cancelled AS (
+             UPDATE v2_job_queue q
+             SET canceled_by = 'monitor', scheduled_for = now(), suspend = 0,
+                 canceled_reason = 'the turn its AI agent was handed to ended before taking it'
+             FROM released r, jsonb_each(r.handed_jobs) s, jsonb_array_elements(s.value) b
+             WHERE q.id = (b->>'job_id')::uuid AND q.canceled_by IS NULL
+             RETURNING q.id
+           )
+           SELECT (SELECT count(*) FROM released) AS "released!",
+                  (SELECT count(*) FROM cancelled) AS "cancelled!""#,
     )
-    .execute(db)
-    .await?
-    .rows_affected();
-    if released > 0 {
-        tracing::info!("Cleaned up {released} released ai_memory_turn rows");
+    .fetch_one(db)
+    .await?;
+    if released.released > 0 {
+        tracing::info!(
+            "Cleaned up {} released ai_memory_turn rows, cancelling {} background jobs no turn adopted",
+            released.released,
+            released.cancelled
+        );
     }
     Ok(())
 }
