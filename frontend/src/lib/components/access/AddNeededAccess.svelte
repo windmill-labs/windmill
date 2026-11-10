@@ -41,7 +41,8 @@
 	let needs: Needs | undefined = $state()
 	let error: string | undefined = $state()
 	let selected: Record<string, boolean> = $state({})
-	let results: Record<string, string> = $state({})
+	/** Rows the last Grant sent: true once granted, the refusal's text when refused. */
+	let results: Record<string, true | string> = $state({})
 	let granting = $state(false)
 
 	const needed = $derived(needs && neededByGrantee(needs, principal))
@@ -78,10 +79,12 @@
 		granting = true
 		for (const item of needed.items) {
 			const key = `${item.kind}:${item.path}`
-			if (!selected[key]) continue
+			// A row covered since the scan, from the navigator or the table, is not sent: a grant
+			// replaces the principal's entry, so sending it at `item.level` can lower a write to read.
+			if (!selected[key] || covered(item)) continue
 			try {
 				await setGrant($operatingWorkspace!, item.kind, item.path, principal, item.level)
-				results[key] = 'Granted'
+				results[key] = true
 				selected[key] = false
 			} catch (e) {
 				results[key] = `${e?.body ?? e}`
@@ -91,7 +94,9 @@
 		onGranted()
 	}
 
-	const selectedCount = $derived(Object.values(selected).filter(Boolean).length)
+	const selectedCount = $derived(
+		needed?.items.filter((i) => selected[`${i.kind}:${i.path}`] && !covered(i)).length ?? 0
+	)
 </script>
 
 <div class="flex flex-col gap-3 rounded-md border p-3">
@@ -134,10 +139,11 @@
 				{#each needed.items as item (item.kind + ':' + item.path)}
 					{@const key = `${item.kind}:${item.path}`}
 					{@const already = covered(item)}
+					{@const result = results[key]}
 					<label class="flex items-start gap-2 px-3 py-1.5 text-xs">
 						<Checkbox
 							class="mt-0.5"
-							checked={selected[key]}
+							checked={selected[key] && !already}
 							disabled={already || granting}
 							onChange={() => (selected[key] = !selected[key])}
 						/>
@@ -146,9 +152,20 @@
 							<span class="text-2xs text-secondary truncate">
 								{KIND_LABELS[item.kind]}, used by {item.sources.join(', ')}
 							</span>
+							{#if typeof result === 'string'}
+								<span class="text-2xs text-red-500">{result}</span>
+							{/if}
 						</span>
-						<span class="text-2xs text-secondary shrink-0">
-							{results[key] ?? status(item)}
+						<span
+							class="text-2xs shrink-0 {typeof result === 'string'
+								? 'text-red-500'
+								: 'text-secondary'}"
+						>
+							{result === true
+								? 'Granted'
+								: typeof result === 'string'
+									? 'Not granted'
+									: status(item)}
 						</span>
 					</label>
 				{/each}
