@@ -272,11 +272,20 @@ paths:
           in: query
           description: >
             only return logs with an id strictly lower than this one. Logs are ordered by
-            descending id, so this is a keyset cursor to stream a page in several batches
-            without paying a growing offset.
+            descending timestamp then id: pass the last row's timestamp as
+            before_id_timestamp too, and the pair is a keyset cursor to stream a page in
+            several batches without paying a growing offset.
           schema:
             type: integer
             format: int64
+        - name: before_id_timestamp
+          in: query
+          description: >
+            the timestamp of the row whose id is before_id: with it, only logs strictly
+            before that row in (timestamp, id) order are returned
+          schema:
+            type: string
+            format: date-time
         - name: all_workspaces
           in: query
           description: get audit logs for all workspaces
