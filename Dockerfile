@@ -49,7 +49,10 @@ ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/backend/sccache
 WORKDIR /windmill
 
 ENV SQLX_OFFLINE=true
-# ENV CARGO_INCREMENTAL=1
+# backend/.cargo/config.toml enables incremental for dev builds, and it would
+# reach this release build too, where nothing is ever rebuilt incrementally and
+# incremental crates cannot be cached by sccache.
+ENV CARGO_INCREMENTAL=0
 
 FROM rust_base AS windmill_duckdb_ffi_internal_builder
 
