@@ -10,7 +10,7 @@ use crate::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{collect_system_prompt, extract_text_content, should_use_structured_output_tool},
+    utils::{collect_system_prompt, extract_text_content},
 };
 use async_trait::async_trait;
 use http::Method;
@@ -71,19 +71,6 @@ pub struct AnthropicWebSearchTool {
 pub enum AnthropicTool {
     Custom(AnthropicCustomTool),
     WebSearch(AnthropicWebSearchTool),
-}
-
-/// Tool choice for Anthropic API to force tool usage
-#[derive(Serialize, Debug)]
-pub struct AnthropicToolChoice {
-    pub r#type: String,
-}
-
-impl AnthropicToolChoice {
-    /// Create a tool_choice that forces the model to use any tool
-    pub fn any() -> Self {
-        Self { r#type: "any".to_string() }
-    }
 }
 
 /// Content block for Anthropic messages (for serialization to API)
@@ -159,10 +146,23 @@ impl AnthropicThinking {
     }
 }
 
-/// Carries the reasoning effort token alongside adaptive thinking.
-#[derive(Serialize, Debug)]
+/// Carries the reasoning effort token alongside adaptive thinking, and the
+/// schema the final answer must follow.
+#[derive(Serialize, Debug, Default)]
 pub struct AnthropicOutputConfig {
-    pub effort: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<AnthropicOutputFormat>,
+}
+
+/// Structured outputs: constrains the final text answer to a JSON schema. Replaces
+/// forcing a tool call, which `tool_choice` `any`/`tool` no longer allows on the
+/// newest models and never allowed alongside thinking.
+#[derive(Serialize, Debug)]
+pub struct AnthropicOutputFormat {
+    pub r#type: &'static str,
+    pub schema: OpenAPISchema,
 }
 
 /// Resolve the thinking config, effort and sampling params for a reasoning
@@ -189,7 +189,7 @@ fn anthropic_thinking_config(
         }
         Some(effort) => (
             Some(AnthropicThinking::adaptive()),
-            Some(AnthropicOutputConfig { effort: effort.to_string() }),
+            Some(AnthropicOutputConfig { effort: Some(effort.to_string()), format: None }),
             None,
         ),
         None => (None, None, temperature),
@@ -205,8 +205,6 @@ pub struct AnthropicRequest<'a> {
     pub messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<AnthropicTool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<AnthropicToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -230,8 +228,6 @@ pub struct AnthropicVertexRequest {
     pub messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<AnthropicTool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<AnthropicToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -643,23 +639,6 @@ impl AnthropicQueryBuilder {
             }]
         });
 
-        // Check if we need to force tool usage for structured output
-        let has_output_properties = args
-            .output_schema
-            .and_then(|schema| schema.properties.as_ref())
-            .map(|props| !props.is_empty())
-            .unwrap_or(false);
-
-        let should_use_structured_output =
-            should_use_structured_output_tool(&self.provider_kind, args.model);
-
-        // Force tool usage when structured output is needed
-        let tool_choice = if should_use_structured_output && has_output_properties {
-            Some(AnthropicToolChoice::any())
-        } else {
-            None
-        };
-
         let mut tools_option = if tools.is_empty() { None } else { Some(tools) };
         let max_tokens = Some(args.max_tokens.unwrap_or(64000));
 
@@ -689,8 +668,18 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        let (thinking, output_config, temperature) =
+        let (thinking, mut output_config, temperature) =
             anthropic_thinking_config(args.model, args.reasoning_effort, args.temperature);
+
+        if let Some(schema) = args
+            .output_schema
+            .filter(|schema| schema.properties.as_ref().is_some_and(|p| !p.is_empty()))
+        {
+            let mut schema = schema.clone();
+            schema.make_strict();
+            output_config.get_or_insert_with(Default::default).format =
+                Some(AnthropicOutputFormat { r#type: "json_schema", schema });
+        }
 
         // Build request based on platform
         if self.is_vertex() {
@@ -700,7 +689,6 @@ impl AnthropicQueryBuilder {
                 system,
                 messages: anthropic_messages,
                 tools: tools_option,
-                tool_choice,
                 temperature,
                 thinking,
                 output_config,
@@ -716,7 +704,6 @@ impl AnthropicQueryBuilder {
                 system,
                 messages: anthropic_messages,
                 tools: tools_option,
-                tool_choice,
                 temperature,
                 thinking,
                 output_config,
@@ -1314,10 +1301,12 @@ mod tests {
             system: None,
             messages: vec![],
             tools: None,
-            tool_choice: None,
             temperature: None,
             thinking: Some(AnthropicThinking::adaptive()),
-            output_config: Some(AnthropicOutputConfig { effort: "high".to_string() }),
+            output_config: Some(AnthropicOutputConfig {
+                effort: Some("high".to_string()),
+                format: None,
+            }),
             max_tokens: Some(64000),
             stream: true,
         };
@@ -1344,7 +1333,10 @@ mod tests {
         let (thinking, output_config, temperature) =
             anthropic_thinking_config("claude-sonnet-4-6", Some("xhigh"), Some(0.5));
         assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("adaptive"));
-        assert_eq!(output_config.map(|c| c.effort), Some("xhigh".to_string()));
+        assert_eq!(
+            output_config.and_then(|c| c.effort),
+            Some("xhigh".to_string())
+        );
         // Adaptive thinking rejects sampling params on every model.
         assert!(temperature.is_none());
 
@@ -1390,7 +1382,6 @@ mod tests {
             system: None,
             messages: vec![],
             tools: None,
-            tool_choice: None,
             temperature,
             thinking,
             output_config,
@@ -1415,7 +1406,6 @@ mod tests {
             system: None,
             messages: vec![],
             tools: None,
-            tool_choice: None,
             temperature: Some(0.5),
             thinking: None,
             output_config: None,

@@ -113,10 +113,8 @@ impl OtherQueryBuilder {
             .unwrap_or(false);
 
         let should_use_structured_output_tool =
-            should_use_structured_output_tool(&self.provider_kind, args.model);
+            should_use_structured_output_tool(&self.provider_kind);
 
-        // Only use response_format for providers that support it (not Claude/Anthropic)
-        // Claude models use a tool for structured output instead
         let response_format = if has_output_properties
             && args.output_schema.is_some()
             && !should_use_structured_output_tool
@@ -135,7 +133,6 @@ impl OtherQueryBuilder {
             None
         };
 
-        // Force usage of structured output tool for Claude models when structured output is provided
         let tool_choice = if should_use_structured_output_tool && has_output_properties {
             Some(ToolChoice::Required)
         } else {
