@@ -1715,7 +1715,7 @@ pub async fn run_agent(
                 function: ToolDefFunction {
                     name: unique_tool_name,
                     description: Some(
-                        "This tool MUST be used last to return a structured JSON object as the final output."
+                        "Return the final answer. Always finish by calling this tool exactly once with the answer as its input, instead of replying in plain text."
                             .to_string(),
                     ),
                     parameters: to_raw_value(&schema),
