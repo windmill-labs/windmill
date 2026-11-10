@@ -200,16 +200,15 @@
 		})
 	)
 
-	// Sessions inactive for over a week fold under a "Show older" row, unless one is on screen or
-	// has unread turns, which would otherwise go unseen.
+	// With no activity cutoff picked, sessions inactive for over a week fold under a "Show older"
+	// row, except the one on screen. A picked cutoff is the reader's own choice and folds nothing.
 	let showOlder = $state(false)
 	const olderIds = $derived.by(() => {
+		if (lastActivityDays.val > 0) return new Set<string>()
 		const cutoff = clock - SIDEBAR_RECENT_MS
 		return new Set(
 			filteredSessions
-				.filter(
-					(s) => s.id !== activeRowId && unreadFor(s) === 0 && sessionLastActivityAt(s) < cutoff
-				)
+				.filter((s) => s.id !== activeRowId && sessionLastActivityAt(s) < cutoff)
 				.map((s) => s.id)
 		)
 	})
