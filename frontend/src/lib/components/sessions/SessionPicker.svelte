@@ -65,7 +65,7 @@
 		SIDEBAR_RECENT_MS
 	} from '$lib/components/sidebar/SidebarShowOlder.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -88,7 +88,7 @@
 	}
 
 	function isForkFor(session: Session): boolean {
-		return isForkSession(session, $userWorkspaces)
+		return isForkSession(session, $usersWorkspaceStore ? $userWorkspaces : undefined)
 	}
 
 	// Compute the unread count for a session. Driven by the per-runtime
@@ -420,7 +420,11 @@
 	})
 
 	function isUnavailableFork(session: Session): boolean {
-		return !!session.workspace_id && !$userWorkspaces.find((w) => w.id === session.workspace_id)
+		return (
+			!!session.workspace_id &&
+			!!$usersWorkspaceStore &&
+			!$userWorkspaces.find((w) => w.id === session.workspace_id)
+		)
 	}
 
 	async function activate(session: Session, restoreFocus: boolean = false) {
