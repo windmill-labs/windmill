@@ -998,7 +998,7 @@ describe('createChat with server history', () => {
     expect(chat.getState().messages.map((m) => m.tool?.name)).toEqual([undefined, 'report', 'export'])
   })
 
-  test('a row read after a background result streamed in keeps the call finished', async () => {
+  test.each([true, false])('a row read after a background result streamed in keeps how it went (success: %p)', async (success) => {
     let reads = 0
     const { fetch } = fetchMock(
       run,
@@ -1021,7 +1021,7 @@ describe('createChat with server history', () => {
                   call_id: 'c1',
                   function_name: 'export',
                   result: '"ok"',
-                  success: true
+                  success
                 }),
                 stream_offset: 3
               },
@@ -1050,7 +1050,11 @@ describe('createChat with server history', () => {
     await until(() => reads > 0, 'the read')
     await new Promise((resolve) => setTimeout(resolve, 450))
     const call = chat.getState().messages.find((m) => m.role === 'tool')
-    expect([call?.content, call?.tool?.status]).toEqual(['Moved export to the background after 5s', 'success'])
+    expect([call?.content, call?.tool?.status, call?.success]).toEqual([
+      'Moved export to the background after 5s',
+      success ? 'success' : 'error',
+      success
+    ])
     await sent
   })
 

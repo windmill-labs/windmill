@@ -1017,9 +1017,13 @@ class ChatImpl implements Chat {
       }
       if (i >= 0) {
         const m = messages[i]
+        // A row saying the call went to the background, read after its result streamed in,
+        // does not set it running again nor undo how it went.
+        const outrun = row.tool?.status === 'running' && !!m.tool && m.tool.status !== 'running'
         messages[i] = {
           ...row,
           id: m.id,
+          success: outrun ? m.success : row.success,
           reasoning: m.reasoning ?? row.reasoning,
           // The stream's call wins where it has a value; a stream cut short leaves gaps the row fills.
           tool:
@@ -1028,12 +1032,7 @@ class ChatImpl implements Chat {
                   ...m.tool,
                   arguments: m.tool.arguments ?? row.tool?.arguments,
                   result: m.tool.result ?? row.tool?.result,
-                  // A row saying the call went to the background, read after its result
-                  // streamed in, does not set it running again.
-                  status:
-                    row.tool?.status === 'running' && m.tool.status !== 'running'
-                      ? m.tool.status
-                      : (row.tool?.status ?? m.tool.status)
+                  status: outrun ? m.tool.status : (row.tool?.status ?? m.tool.status)
                 }
               : row.tool
         }
