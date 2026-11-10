@@ -1,5 +1,38 @@
 import type { AiArtifactListEntry } from '$lib/gen'
-import { currentVersion, type ArtifactKind, type PersistedArtifact } from './artifactsDB'
+import { sessionState } from '$lib/components/sessions/sessionState.svelte'
+import { homeWorkspace } from './artifactLibrary'
+import {
+	currentVersion,
+	listAllArtifacts,
+	patchArtifact,
+	type ArtifactKind,
+	type PersistedArtifact
+} from './artifactsDB'
+
+/**
+ * The user's artifacts in this browser that belong to `home`. Until the sessions are read
+ * (`hydrated`), an artifact that does not name its workspace has no way to find it: it waits
+ * rather than being filed under this one.
+ */
+export async function workspaceArtifacts(
+	home: string,
+	hydrated: boolean
+): Promise<PersistedArtifact[]> {
+	const all = await listAllArtifacts()
+	return all.filter((a) =>
+		a.workspaceId ? a.workspaceId === home : hydrated && workspaceOf(a, home) === home
+	)
+}
+
+/** The workspace of an artifact written before artifacts recorded it: its session's, or `home`
+ * when its session is gone from this browser. It keeps that one from then on. */
+function workspaceOf(a: PersistedArtifact, home: string): string {
+	const session = sessionState.sessions.find((s) => s.id === a.sessionId)
+	const ws = session?.workspace_id ?? session?.pending_workspace_id
+	const found = ws ? homeWorkspace(ws) : home
+	void patchArtifact(a.id, { workspaceId: found })
+	return found
+}
 
 /** One row of the artifacts page: an artifact in this browser, on the server, or both. */
 export type ArtifactRow = {

@@ -35,6 +35,7 @@
 	import {
 		matchLine,
 		mergeArtifactRows,
+		workspaceArtifacts,
 		type ArtifactRow
 	} from '$lib/components/copilot/chat/artifacts/artifactRows'
 	import {
@@ -42,11 +43,6 @@
 		whoCanSee,
 		type Audience
 	} from '$lib/components/copilot/chat/artifacts/artifactSharing'
-	import {
-		listAllArtifacts,
-		patchArtifact,
-		type PersistedArtifact
-	} from '$lib/components/copilot/chat/artifacts/artifactsDB'
 	import { sessionPageHref, sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { openNewSession } from '$lib/components/sessions/sessionSwitch.svelte'
@@ -92,29 +88,9 @@
 		logFeatureUsage('ai_artifacts', 'search')
 	}
 
-	/** The workspace an artifact belongs to. One written before artifacts recorded it takes its
-	 * session's, or the one this page is opened in when its session is gone from this browser,
-	 * and keeps it from then on. */
-	function workspaceOf(a: PersistedArtifact, home: string): string {
-		if (a.workspaceId) return a.workspaceId
-		const session = sessionState.sessions.find((s) => s.id === a.sessionId)
-		const ws = session?.workspace_id ?? session?.pending_workspace_id
-		const found = ws ? homeWorkspace(ws) : home
-		void patchArtifact(a.id, { workspaceId: found })
-		return found
-	}
-
 	const local = resource(
 		() => ({ home, hydrated: sessionState.hydrated, reloads }),
-		async ({ home, hydrated }) => {
-			if (!home) return []
-			const all = await listAllArtifacts()
-			// Until the sessions are read, an artifact that does not name its workspace has no way
-			// to find it: it waits rather than being filed under this one.
-			return all.filter((a) =>
-				a.workspaceId ? a.workspaceId === home : hydrated && workspaceOf(a, home) === home
-			)
-		}
+		async ({ home, hydrated }) => (home ? await workspaceArtifacts(home, hydrated) : [])
 	)
 
 	const server = resource(

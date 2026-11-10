@@ -19,6 +19,7 @@
 		Trash2
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { Button, EmptyState, Skeleton } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -28,6 +29,7 @@
 	import ArtifactExportButton from '$lib/components/copilot/chat/artifacts/ArtifactExportButton.svelte'
 	import ArtifactShareDialog from '$lib/components/copilot/chat/artifacts/ArtifactShareDialog.svelte'
 	import ArtifactVersionPicker from '$lib/components/copilot/chat/artifacts/ArtifactVersionPicker.svelte'
+	import MermaidCodeBlock from '$lib/components/copilot/chat/artifacts/MermaidCodeBlock.svelte'
 	import {
 		deleteArtifactForever,
 		homeWorkspace,
@@ -36,7 +38,11 @@
 		showVersion,
 		trashArtifact
 	} from '$lib/components/copilot/chat/artifacts/artifactLibrary'
-	import { whoCanSee } from '$lib/components/copilot/chat/artifacts/artifactSharing'
+	import {
+		mergeArtifactRows,
+		workspaceArtifacts
+	} from '$lib/components/copilot/chat/artifacts/artifactRows'
+	import { artifactPath, whoCanSee } from '$lib/components/copilot/chat/artifacts/artifactSharing'
 	import {
 		currentVersion,
 		getArtifact,
@@ -109,11 +115,14 @@
 			const result = await load(workspace, id)
 			newer = undefined
 			if (result.state === 'found') markArtifactOpened(id)
-			return result
+			return { id, result }
 		}
 	)
 
-	const found = $derived(loaded.current?.state === 'found' ? loaded.current : undefined)
+	// The header's switcher keeps this page mounted from one artifact to the next: a load, and a
+	// version picked, count only for the artifact they were for.
+	const current = $derived(loaded.current?.id === id ? loaded.current.result : undefined)
+	const found = $derived(current?.state === 'found' ? current : undefined)
 	const local = $derived(found?.local)
 	const server = $derived(found?.server)
 	const mine = $derived(local !== undefined || server?.is_owner === true)
@@ -132,7 +141,8 @@
 	const store = new SessionArtifactsStore(() => workspace)
 
 	/** An older version the owner picked, shown in place of the latest. */
-	let snapshot: ArtifactVersion | undefined = $state()
+	let picked: { id: string; version: ArtifactVersion } | undefined = $state()
+	const snapshot = $derived(picked?.id === id ? picked.version : undefined)
 	const text = $derived(snapshot ?? local ?? server)
 	const kind = $derived(local?.kind ?? server?.kind ?? 'md')
 	const role = $derived(local?.role ?? server?.role)
@@ -152,6 +162,27 @@
 	const session = $derived.by(() => {
 		const sessionId = local?.sessionId ?? server?.session_id
 		return mine && sessionId ? sessionState.sessions.find((s) => s.id === sessionId) : undefined
+	})
+
+	// The header's switcher lists what the artifacts page does, outside Recently deleted.
+	const siblings = resource(
+		() => ({ workspace, hydrated: sessionState.hydrated, reloads }),
+		async ({ workspace, hydrated }) => {
+			if (!workspace) return []
+			const [mineHere, listed] = await Promise.all([
+				workspaceArtifacts(workspace, hydrated).catch(() => []),
+				AiService.listAiArtifacts({ workspace }).catch(() => [])
+			])
+			return mergeArtifactRows(
+				mineHere.filter((a) => a.deletedAt === undefined),
+				listed.filter((s) => !s.deleted_at)
+			).sort((a, b) => b.updatedAt - a.updatedAt)
+		}
+	)
+	const navItems = $derived.by(() => {
+		const items = (siblings.current ?? []).map((r) => ({ id: r.id, name: r.name }))
+		if (text && !items.some((a) => a.id === id)) items.unshift({ id, name: text.name })
+		return items
 	})
 
 	type Banner =
@@ -191,11 +222,12 @@
 
 	async function checkForNewer() {
 		const shown = loaded.current
-		if (!workspace || !id || shown?.state !== 'found') return
-		const fresh = await load(workspace, id)
+		if (!workspace || shown?.id !== id || shown.result.state !== 'found') return
+		const before = shown.result
+		const fresh = await load(workspace, shown.id)
 		if (fresh.state !== 'found' || loaded.current !== shown) return
 		const version = shownVersion(fresh)
-		if (version !== undefined && version !== shownVersion(shown)) newer = fresh
+		if (version !== undefined && version !== shownVersion(before)) newer = fresh
 	}
 
 	// Phase 1 has no push: a version written elsewhere is found on focus and once a minute.
@@ -211,22 +243,23 @@
 
 	function showNewer() {
 		if (!newer) return
-		snapshot = undefined
-		loaded.mutate(newer)
+		picked = undefined
+		loaded.mutate({ id, result: newer })
 		newer = undefined
 	}
 
 	let reading = 0
 	async function selectVersion(version: number | undefined) {
 		const seq = ++reading
-		if (version === undefined || !liveLocal) {
-			snapshot = undefined
+		const artifact = liveLocal
+		if (version === undefined || !artifact) {
+			picked = undefined
 			return
 		}
 		try {
-			const read = await store.getVersion(liveLocal.id, version)
+			const read = await store.getVersion(artifact.id, version)
 			if (seq !== reading) return
-			if (read) snapshot = read
+			if (read) picked = { id: artifact.id, version: read }
 			else sendUserToast(`Version ${version} is no longer in this browser`, true)
 		} catch (err) {
 			if (seq === reading) {
@@ -273,7 +306,7 @@
 					true
 				)
 			}
-			snapshot = undefined
+			picked = undefined
 			reloads++
 		}, `Could not restore v${from.version}`)
 	}
@@ -306,7 +339,7 @@
 		return run(
 			async () => {
 				await trashArtifact(id, ws)
-				snapshot = undefined
+				picked = undefined
 				reloads++
 			},
 			`Could not delete "${text?.name ?? 'the artifact'}"`
@@ -391,6 +424,19 @@
 		<span class="shrink-0 text-hint">· v{server.shown_version} pinned</span>
 	{/if}
 {/snippet}
+
+<PageHeaderContent
+	section={{
+		label: 'Artifacts',
+		navArtifacts: workspace
+			? {
+					items: navItems,
+					currentId: id,
+					href: (other) => artifactPath(workspace, other)
+				}
+			: undefined
+	}}
+/>
 
 <div class="flex h-full min-h-0 flex-col">
 	<div class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b px-4 py-2">
@@ -541,16 +587,16 @@
 			<!-- Source fills the height; the rendered document grows with its text, which keeps the
 			     body's sticky fade inside a box as tall as the scroll. -->
 			<div class="mx-auto w-full max-w-4xl px-8 {source ? 'h-full' : 'min-h-full'}">
-				<ArtifactBody content={text.content} {source} />
+				<ArtifactBody content={text.content} {source} pre={MermaidCodeBlock} />
 			</div>
 		</div>
-	{:else if loaded.current?.state === 'gone'}
+	{:else if current?.state === 'gone'}
 		<EmptyState icon={Link2Off} title="This artifact isn't shared with you, or no longer exists" />
-	{:else if loaded.current?.state === 'error'}
+	{:else if current?.state === 'error'}
 		<EmptyState
 			icon={Link2Off}
 			title="Could not load this artifact"
-			description={loaded.current.message}
+			description={current.message}
 		/>
 	{:else}
 		<div class="mx-auto w-full max-w-4xl px-8 py-6">
