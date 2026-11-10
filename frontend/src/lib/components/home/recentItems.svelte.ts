@@ -167,16 +167,15 @@ class RecentItems {
 		const isLatest = this.#checks.start()
 		const sentWith = readSessionHint()
 		const sentAt = Date.now()
-		const paths = (kind: RecentKind) =>
-			asked.filter((x) => itemKind(x.kind) === kind).map((x) => x.path)
-		let live: Awaited<ReturnType<typeof ScriptService.existingRunnables>>
+		let live: Awaited<ReturnType<typeof ScriptService.listRunnables>>
 		try {
-			live = await ScriptService.existingRunnables({
+			live = await ScriptService.listRunnables({
 				workspace,
-				script: paths('script'),
-				flow: paths('flow'),
-				app: paths('app'),
-				agent: paths('agent')
+				paths: [...new Set(asked.map((x) => x.path))].join(','),
+				includeWithoutMain: true,
+				// Everything absent is dropped, so it must all fit in one page: the listing has
+				// at most one row per kind and path, and Recent holds at most MAX_ITEMS paths.
+				perPage: 4 * MAX_ITEMS
 			})
 		} catch (e) {
 			console.error('Could not check the recent items', e)
@@ -184,11 +183,7 @@ class RecentItems {
 		}
 		if (!isLatest() || cacheIdentity() !== identity || !sameSessionSince(sentWith)) return
 		const checked = new Set(asked.map((x) => itemKey(x.kind, x.path)))
-		const found = new Set(
-			(['script', 'flow', 'app', 'agent'] as const).flatMap((kind) =>
-				live[kind].map((path) => itemKey(kind, path))
-			)
-		)
+		const found = new Set(live.items.map((x) => itemKey(x.type, x.path)))
 		// Re-read: what changed while the check was out is newer than the snapshot it asked about.
 		const items = read(workspace)
 		const kept = items.filter((x) => {

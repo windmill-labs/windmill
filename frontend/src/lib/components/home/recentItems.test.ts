@@ -11,7 +11,7 @@ vi.mock('$lib/lastSession', () => ({
 	readSessionHint: () => session.hint,
 	sameSessionSince: (sentWith: string | undefined) => session.hint === sentWith
 }))
-vi.mock('$lib/gen', () => ({ ScriptService: { existingRunnables: vi.fn() } }))
+vi.mock('$lib/gen', () => ({ ScriptService: { listRunnables: vi.fn() } }))
 
 import { ScriptService } from '$lib/gen'
 import { userStore, type UserExt } from '$lib/stores'
@@ -32,14 +32,19 @@ function paths(): string[] {
 function heldReply() {
 	let answer!: (live: Live) => void
 	let fail!: (e: unknown) => void
-	vi.mocked(ScriptService.existingRunnables).mockImplementationOnce(
+	vi.mocked(ScriptService.listRunnables).mockImplementationOnce(
 		() =>
 			new Promise((resolve, reject) => {
 				answer = resolve
 				fail = reject
 			}) as any
 	)
-	return { answer: (live: Live) => answer(live), fail: (e: unknown) => fail(e) }
+	const items = (live: Live) =>
+		Object.entries(live).flatMap(([type, paths]) => paths.map((path) => ({ type, path })))
+	return {
+		answer: (live: Live) => answer({ items: items(live) } as any),
+		fail: (e: unknown) => fail(e)
+	}
 }
 
 beforeEach(() => {
@@ -51,7 +56,7 @@ beforeEach(() => {
 	session.identity = 'a@x.com'
 	session.hint = 'h1'
 	userStore.set({ email: 'a@x.com', username: 'a' } as unknown as UserExt)
-	vi.mocked(ScriptService.existingRunnables).mockReset()
+	vi.mocked(ScriptService.listRunnables).mockReset()
 })
 
 describe('rename', () => {
@@ -107,10 +112,8 @@ describe('prune', () => {
 		reply.answer({ ...none, flow: ['u/a/shared'], app: ['u/a/app'] })
 		await done
 		expect(paths()).toEqual(['raw_app:u/a/app', 'flow:u/a/shared'])
-		expect(vi.mocked(ScriptService.existingRunnables).mock.calls[0][0]).toMatchObject({
-			script: ['u/a/shared'],
-			flow: ['u/a/shared'],
-			app: ['u/a/app']
+		expect(vi.mocked(ScriptService.listRunnables).mock.calls[0][0]).toMatchObject({
+			paths: 'u/a/app,u/a/shared'
 		})
 	})
 
@@ -180,7 +183,7 @@ describe('prune', () => {
 		recentItems.record(WS, { kind: 'script', path: 'u/a/one', via: 'view' })
 		session.identity = undefined
 		await recentItems.prune(WS)
-		expect(ScriptService.existingRunnables).not.toHaveBeenCalled()
+		expect(ScriptService.listRunnables).not.toHaveBeenCalled()
 		expect(paths()).toEqual(['script:u/a/one'])
 	})
 })

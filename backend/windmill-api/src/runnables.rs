@@ -45,7 +45,6 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_runnables))
         .route("/counts", get(count_runnables_by_owner))
-        .route("/existing", get(existing_runnables))
 }
 
 #[derive(Deserialize)]
@@ -61,6 +60,8 @@ struct ListRunnablesQuery {
     include_without_main: Option<bool>,
     /// Restrict to paths under this prefix (owner/folder filter).
     path_start: Option<String>,
+    /// Comma-separated exact paths: list only the rows at one of them.
+    paths: Option<String>,
     /// Comma-separated labels; a row matches if it (or its folder) carries all.
     label: Option<String>,
     /// Case-insensitive fuzzy match on `summary (path)`, mirroring how the homepage
@@ -520,6 +521,13 @@ async fn list_runnables(
         // `u/<caller>/draft_<uuid>` it is parked at.
         draft_common.push(format!("COALESCE(o.draft_path, o.path) LIKE {}", p));
     }
+    if let Some(ps) = q.paths.as_ref().filter(|s| !s.is_empty()) {
+        let p = add_bind(&mut binds, ps.clone());
+        common.push(format!("o.path = ANY(string_to_array({p}, ','))"));
+        draft_common.push(format!(
+            "COALESCE(o.draft_path, o.path) = ANY(string_to_array({p}, ','))"
+        ));
+    }
     if let Some(search) = q.search.as_ref().filter(|s| !s.is_empty()) {
         let terms = search_terms(search);
         if terms.is_empty() {
@@ -830,85 +838,6 @@ async fn list_runnables(
     tx.commit().await?;
 
     Ok(Json(ListRunnablesResponse { items, next_cursor }))
-}
-
-const MAX_EXISTING_PATHS: usize = 100;
-
-#[derive(Serialize, Default)]
-struct ExistingRunnables {
-    script: Vec<String>,
-    flow: Vec<String>,
-    app: Vec<String>,
-    agent: Vec<String>,
-}
-
-/// Home deletes from its Recent list every path this leaves out, so it must answer
-/// each path asked: no pagination, and none of `list_runnables`' own filters.
-async fn existing_runnables(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Query(pairs): Query<Vec<(String, String)>>,
-) -> JsonResult<ExistingRunnables> {
-    let mut asked: HashMap<&'static str, Vec<String>> = HashMap::new();
-    for (key, path) in pairs {
-        if let Some(kind) = ALL_KINDS.iter().find(|k| **k == key) {
-            asked.entry(kind).or_default().push(path);
-        }
-    }
-    if asked.values().map(Vec::len).sum::<usize>() > MAX_EXISTING_PATHS {
-        return Err(Error::BadRequest(format!(
-            "at most {MAX_EXISTING_PATHS} paths can be checked at once"
-        )));
-    }
-
-    let mut existing = ExistingRunnables::default();
-    let mut tx = user_db.begin(&authed).await?;
-    for (kind, paths) in asked {
-        let (source, domain) = match kind {
-            "script" => (
-                "SELECT DISTINCT o.path FROM script o \
-                 WHERE o.workspace_id = $1 AND o.path = ANY($2) AND o.archived = false",
-                "scripts",
-            ),
-            "flow" => (
-                "SELECT o.path FROM flow o \
-                 WHERE o.workspace_id = $1 AND o.path = ANY($2) AND o.archived = false",
-                "flows",
-            ),
-            "app" => (
-                "SELECT o.path FROM app o WHERE o.workspace_id = $1 AND o.path = ANY($2)",
-                "apps",
-            ),
-            _ => (
-                "SELECT o.path FROM resource o \
-                 WHERE o.workspace_id = $1 AND o.path = ANY($2) AND o.resource_type = 'ai_agent'",
-                "resources",
-            ),
-        };
-        let mut binds: Vec<String> = vec![];
-        let mut sql = source.to_string();
-        if let Some(scope) = scope_path_predicate(&authed, domain, "o", 2, &mut binds) {
-            sql.push_str(" AND ");
-            sql.push_str(&scope);
-        }
-        let mut query = sqlx::query_scalar::<_, String>(&sql)
-            .bind(&w_id)
-            .bind(&paths);
-        for b in &binds {
-            query = query.bind(b);
-        }
-        let found = query.fetch_all(&mut *tx).await?;
-        match kind {
-            "script" => existing.script = found,
-            "flow" => existing.flow = found,
-            "app" => existing.app = found,
-            _ => existing.agent = found,
-        }
-    }
-    tx.commit().await?;
-
-    Ok(Json(existing))
 }
 
 #[derive(Deserialize)]
