@@ -88,7 +88,7 @@
 				variant="subtle"
 				unifiedSize="2xs"
 				destructive
-				btnClasses="text-red-600 dark:text-red-400 hover:bg-red-100 hover:text-red-800 dark:hover:bg-red-700/40 dark:hover:text-red-100"
+				btnClasses="font-main text-2xs text-red-600 dark:text-red-400 hover:bg-red-100 hover:text-red-800 dark:hover:bg-red-700/40 dark:hover:text-red-100"
 				title="Show the failed call"
 				onClick={revealFailedCall}
 			>
