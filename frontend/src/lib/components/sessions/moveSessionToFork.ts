@@ -8,7 +8,8 @@ import { invalidateWorkspaceDiffCache } from '$lib/components/copilot/chat/globa
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import {
 	anyEditorUnparseable,
-	flushAllPendingEditorChanges
+	flushAllPendingEditorChanges,
+	settlePendingEditors
 } from '$lib/components/pendingEditorFlush'
 import { flushEditorSaves } from './useUserDraftSync.svelte'
 import {
@@ -47,6 +48,7 @@ export type MoveSessionResult =
  * effect, hence the ticks.
  */
 export async function flushPendingSaves(workspace: string): Promise<string | undefined> {
+	await settlePendingEditors()
 	flushAllPendingEditorChanges()
 	await tick()
 	// Text that does not parse never reaches the draft, and the move closes the editor holding it.

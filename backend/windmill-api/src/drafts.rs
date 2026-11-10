@@ -1235,6 +1235,20 @@ async fn transfer_drafts(
             Some(&locked),
         )
         .await?;
+        // A save that created one of these rows after the check above was skipped by the copy.
+        // Returning drops the transaction, so as with any conflict nothing is written.
+        let raced: Vec<_> = locked
+            .iter()
+            .filter(|item| !copied.contains(item))
+            .cloned()
+            .collect();
+        if !raced.is_empty() {
+            return Ok(Json(TransferDraftsResponse {
+                copied: vec![],
+                removed: vec![],
+                conflicts: to_refs(raced),
+            }));
+        }
         // A copied app policy or trigger may name someone who is not a member of the fork, as a
         // fork's own clone may; fork creation re-points those at the user, and so does this.
         windmill_api_workspaces::workspaces::repoint_unresolvable_draft_identities(

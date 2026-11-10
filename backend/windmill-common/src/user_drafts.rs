@@ -669,9 +669,9 @@ pub async fn delete_own_draft_for_path(
 /// the credential behind `email` may act on `target`, and that it may write each copied path
 /// there. Secret values are copied as encrypted, so the two workspaces must share a key.
 ///
-/// A plain INSERT: the caller guarantees the target holds none of the copied rows (an empty
-/// fork, or a conflict check or delete under the same transaction), else `draft_pkey_with_user`
-/// aborts it.
+/// A row the target already holds is skipped and left out of the result: a conflict check earlier
+/// in the transaction cannot see a save committed after it, so a caller that needs every row
+/// copied compares the result with what it asked for.
 /// `created_at` is preserved so the per-tab `last_sync` baseline the editor reads lines up with
 /// the source's timeline — otherwise the first save from an open editor would trip the conflict
 /// modal on every copied draft.
@@ -736,6 +736,7 @@ pub async fn copy_drafts_to_workspace(
                              AND (d.typ::text, d.path) IN (SELECT * FROM unnest($4::text[], $5::text[]))
                    END
          ) s
+         ON CONFLICT DO NOTHING
          RETURNING typ AS "typ: UserDraftItemKind", path"#,
         source,
         target,

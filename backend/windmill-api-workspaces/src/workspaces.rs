@@ -9298,8 +9298,8 @@ async fn clone_raw_apps(
 }
 
 // Only `email = authed_email` and the legacy NULL row are cloned — see
-// `clone_workspace_data` for the rationale. The fork is empty at create time, which is what
-// makes the plain INSERT of `copy_drafts_to_workspace` safe here.
+// `clone_workspace_data` for the rationale. The fork is empty at create time, so
+// `copy_drafts_to_workspace` skips nothing here.
 async fn clone_drafts(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,

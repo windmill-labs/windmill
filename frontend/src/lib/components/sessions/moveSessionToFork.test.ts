@@ -3,7 +3,9 @@ import { get } from 'svelte/store'
 import { DraftService } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { materializeForkOutcome, sessionState, type Session } from './sessionState.svelte'
-import { moveSessionToFork } from './moveSessionToFork'
+import { flushPendingSaves, moveSessionToFork } from './moveSessionToFork'
+import { registerPendingEditor } from '$lib/components/pendingEditorFlush'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 vi.mock('$lib/gen', async (orig) => {
 	const actual = await orig<typeof import('$lib/gen')>()
@@ -135,5 +137,24 @@ describe('moveSessionToFork', () => {
 		})
 		expect(DraftService.transferDrafts).not.toHaveBeenCalled()
 		expect(sessionState.sessions.find((x) => x.id === s.id)?.workspace_id).toBe('root_ws')
+	})
+
+	it('saves only after the editors that report late have reported', async () => {
+		let settled = false
+		const unregister = registerPendingEditor({
+			flushPendingChanges: () => {},
+			settle: async () => {
+				await new Promise((r) => setTimeout(r, 0))
+				settled = true
+			}
+		})
+		const flush = vi.spyOn(UserDraftDbSyncer, 'flushWorkspace').mockImplementation(async () => {
+			expect(settled).toBe(true)
+			return []
+		})
+		await flushPendingSaves('root_ws')
+		expect(flush).toHaveBeenCalled()
+		flush.mockRestore()
+		unregister()
 	})
 })
