@@ -304,16 +304,27 @@ export function toDisplayMessages(
 			]
 		}
 		const resultRow = backgroundResults.get(i)
+		const started =
+			row.role === 'tool' && resultRow === undefined && BACKGROUND_START.test(row.content)
+		// Its result streamed in ahead of the row that stores it: shown as that row will be.
+		const streamedBack = started && !!row.tool && row.tool.status !== 'running'
 		// The result in the call's place, with the thinking that led to the call, stored on the
 		// row that started it.
 		const message =
-			resultRow === undefined
-				? row
-				: { ...messages[resultRow], id: row.id, reasoning: row.reasoning }
+			resultRow !== undefined
+				? { ...messages[resultRow], id: row.id, reasoning: row.reasoning }
+				: streamedBack
+					? {
+							...row,
+							content:
+								row.success === false
+									? `Error executing ${row.tool!.name}`
+									: `Used ${row.tool!.name} tool`
+						}
+					: row
 		// Started in the background, its result not in yet. With no turn running any more, it never
 		// will be: its agent was stopped and its job with it.
-		const backgroundStart =
-			message.role === 'tool' && resultRow === undefined && BACKGROUND_START.test(message.content)
+		const backgroundStart = started && !streamedBack
 		const backgroundUnfinished = backgroundStart && !busy
 		const inBackground =
 			(backgroundStart && busy) ||

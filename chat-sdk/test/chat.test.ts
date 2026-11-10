@@ -1035,13 +1035,23 @@ describe('createChat with server history', () => {
             messageRow(2, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-1' })
           ])
         }
-        return json([])
+        return json([
+          messageRow(1, 'user', 'go'),
+          messageRow(2, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-1' }),
+          messageRow(3, 'tool', 'Used export tool', { job_id: 'bg-1', tool_result: '"ok"' }),
+          messageRow(4, 'assistant', 'Done')
+        ])
       }
     )
     const chat = createChat(options({}, fetch))
     await chat.sendMessage('go')
+    // The call's card, filled by the stream and still worded as its row, then the result's row,
+    // which a display folds into that card by job.
     const tools = chat.getState().messages.filter((m) => m.role === 'tool')
-    expect(tools.map((m) => [m.tool?.callId, m.tool?.result])).toEqual([['c1', '"ok"']])
+    expect(tools.map((m) => [m.content, m.tool?.callId, m.tool?.result])).toEqual([
+      ['Moved export to the background after 5s', 'c1', '"ok"'],
+      ['Used export tool', undefined, '"ok"']
+    ])
   })
 
   test('a message refused because a turn is running leaves nothing behind and names that turn', async () => {
