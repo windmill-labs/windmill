@@ -3048,13 +3048,15 @@ async fn create_script_internal<'c>(
         // Its dependency job is tagged for a dedicated worker. One taking it through a
         // `dedicated_workers` pattern only listens to the scripts it found at its last config
         // load: re-saving the group's config reloads it, unless the live version it replaces
-        // was served already (a version adopted from a deleted path was not).
+        // was served already (a version adopted from a deleted path was not). An entry's one
+        // leading `/` is dropped first, as `WorkspacedPath::dedicated` reads it for the worker.
         sqlx::query(
             "UPDATE config SET config = config
              WHERE name LIKE 'worker\\_\\_%'
                AND jsonb_typeof(config->'dedicated_workers') = 'array'
                AND EXISTS (
-                   SELECT 1 FROM jsonb_array_elements_text(config->'dedicated_workers') e
+                   SELECT 1 FROM jsonb_array_elements_text(config->'dedicated_workers') raw,
+                       regexp_replace(raw, '^([^:]*):/(?!/)', '\\1:') e
                    WHERE right(e, 2) = '/*' AND starts_with($1 || ':' || $2, left(e, -1)))
                AND NOT EXISTS (
                    SELECT 1 FROM script WHERE workspace_id = $1 AND hash = $3 AND path = $2
