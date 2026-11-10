@@ -13144,6 +13144,11 @@ paths:
           description: restrict to paths under this prefix
           schema:
             type: string
+        - name: paths
+          in: query
+          description: comma-separated exact paths, to list only the rows at one of them
+          schema:
+            type: string
         - name: label
           in: query
           schema:

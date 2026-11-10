@@ -41,7 +41,14 @@
 		getFavoriteHref,
 		type FavoriteKind
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import { MAX_AGE_DAYS, recentItems, type RecentKind, type RecentVia } from './recentItems.svelte'
+	import {
+		MAX_AGE_DAYS,
+		itemKey,
+		itemKind,
+		recentItems,
+		type RecentKind,
+		type RecentVia
+	} from './recentItems.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import {
 		homeComposerContext,
@@ -71,10 +78,6 @@
 		title: string
 		at?: number
 		via?: RecentVia
-	}
-
-	function asStarKind(kind: RecentKind): FavoriteKind {
-		return kind === 'raw_app' ? 'app' : kind
 	}
 
 	const RECENT_COUNT = 6
@@ -237,14 +240,12 @@
 	// With the favorites turned off, a starred item opened lately shows among the recent ones.
 	let recentAll: Entry[] = $derived.by(() => {
 		const { showFavorites, showRecent } = homeQuickAccessSettings
-		const starred = new Set(
-			showFavorites ? favorites.map((f) => `${asStarKind(f.kind)}/${f.path}`) : []
-		)
+		const starred = new Set(showFavorites ? favorites.map((f) => itemKey(f.kind, f.path)) : [])
 		return (showRecent ? recentItems.list(workspace) : [])
-			.filter((r) => !starred.has(`${asStarKind(r.kind)}/${r.path}`))
+			.filter((r) => !starred.has(itemKey(r.kind, r.path)))
 			.map((r) => ({
 				kind: r.kind,
-				starKind: asStarKind(r.kind),
+				starKind: itemKind(r.kind),
 				path: r.path,
 				title: r.summary || r.path,
 				at: r.at,
@@ -259,7 +260,7 @@
 	const drafts = useWorkspaceDrafts(() => workspace)
 	function cardKind(kind: DraftItem['kind']): FavoriteKind | undefined {
 		if (kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app') {
-			return asStarKind(kind)
+			return itemKind(kind)
 		}
 		return kind === 'resource' ? 'agent' : undefined
 	}
