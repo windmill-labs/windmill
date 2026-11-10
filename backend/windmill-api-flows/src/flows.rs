@@ -1366,7 +1366,9 @@ async fn update_flow(
         windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
     }
 
-    sqlx::query!(
+    // A version is inserted at the path below and nothing else ties it to a live flow: one
+    // written for a flow deleted meanwhile would surface in a flow recreated there.
+    let updated = sqlx::query!(
         "
         UPDATE
             flow
@@ -1412,7 +1414,11 @@ async fn update_flow(
     .await
     .map_err(|e| {
         error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}"))
-    })?;
+    })?
+    .rows_affected();
+    if updated == 0 {
+        return Err(Error::NotFound(format!("Flow {flow_path} not found")));
+    }
     if set_job_token_scopes {
         windmill_common::scopes::log_job_token_scopes_deploy("flow", job_token_scopes.as_deref());
     }
