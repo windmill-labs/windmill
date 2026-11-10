@@ -348,6 +348,7 @@ function mcpServerPath(call: ToolDisplayMessage): string | undefined {
 }
 
 function callName(call: ToolDisplayMessage): string {
+	if (call.readsAgent) return 'read agent'
 	const mcpTool = call.parameters?.tool
 	const name =
 		call.toolName === 'call_mcp_read_tool' && typeof mcpTool === 'string'
@@ -375,6 +376,7 @@ const COUNTED_VERBS = new Set(['read', 'inspect'])
 function repeated(name: string, n: number): string {
 	if (n === 1) return name
 	const [verb, ...rest] = name.split(' ')
+	if (name === 'read agent') return `read ${n} agents`
 	return COUNTED_VERBS.has(verb) && rest.length > 0
 		? `${verb} ${n} ${rest.join(' ')}`
 		: `${name} ${n} times`

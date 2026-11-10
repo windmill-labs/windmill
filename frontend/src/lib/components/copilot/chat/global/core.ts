@@ -3553,10 +3553,13 @@ export const globalTools: SessionTool<{}>[] = [
 			} else if (read.success === false) {
 				toolCallbacks.setToolStatus(toolId, { content: read.error, error: read.error })
 			} else {
+				const readsAgent = read.value?.resource_type === 'ai_agent'
+				const noun = readsAgent ? 'agent' : type
 				toolCallbacks.setToolStatus(toolId, {
 					content: read.isDraft
-						? `Read draft ${type} "${parsed.path}"`
-						: `Read ${type} "${parsed.path}"`
+						? `Read draft ${noun} "${parsed.path}"`
+						: `Read ${noun} "${parsed.path}"`,
+					readsAgent
 				})
 			}
 			return text
@@ -7009,8 +7012,12 @@ async function deployDraft(
 		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
 	}
 
+	const noun =
+		type === 'resource' && (draft.value as CreateResource).resource_type === 'ai_agent'
+			? 'agent'
+			: type
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deploying ${type} "${path}"...`
+		content: `Deploying ${noun} "${path}"...`
 	})
 
 	let actions: ToolDisplayAction[] | undefined
@@ -7361,7 +7368,7 @@ async function deployDraft(
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deployed ${type} "${path}"`,
+		content: `Deployed ${noun} "${path}"`,
 		result: 'Deployed',
 		actions
 	})
