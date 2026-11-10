@@ -163,7 +163,8 @@ export class ConversationTurns<A> {
 			message.attachments.length === 0 &&
 			state.history === 'server' &&
 			this.#sentOver === undefined
-		if (busy && !overRunningTurn) {
+		// Behind a message still sent over a turn, even one that has ended since.
+		if ((busy && !overRunningTurn) || this.#sentOver !== undefined) {
 			this.queue(message, replayInputs)
 			return true
 		}
@@ -283,8 +284,13 @@ export class ConversationTurns<A> {
 	#onState(state: ChatState): void {
 		const was = this.#status
 		this.#status = state.status
-		// Taken: the chat follows the new turn, or the old one ended while the server answered.
-		if (this.#sentOver !== undefined && state.runningJobId !== this.#sentOver) {
+		// Taken: the chat follows the new turn. The old one ending while the server answers does not
+		// release it: the chat refuses another send until this one settles.
+		if (
+			this.#sentOver !== undefined &&
+			state.runningJobId !== undefined &&
+			state.runningJobId !== this.#sentOver
+		) {
 			this.#sentOver = undefined
 		}
 		// The agent answered and now waits on background jobs: what was queued while it worked

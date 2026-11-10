@@ -663,6 +663,23 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
+	it('queues what is typed while a message sent over a turn that has since ended waits', async () => {
+		const { chat, set } = fakeChat(
+			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })
+		)
+		// The server has not answered yet.
+		chat.sendMessage.mockImplementationOnce(() => new Promise(() => {}))
+		const host = hostOn(chat)
+		host.queueMessage('one')
+		await flush()
+		set({ status: 'idle', runningJobId: undefined, waitingOnBackground: undefined })
+		host.queueMessage('two')
+		await flush()
+		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		expect(host.queuedMessage).toBe('two')
+		host.dispose()
+	})
+
 	it('sends again shortly when refused while the turn still says it waits', async () => {
 		const { chat } = fakeChat(
 			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })

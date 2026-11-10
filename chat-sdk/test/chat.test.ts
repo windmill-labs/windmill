@@ -1065,6 +1065,35 @@ describe('createChat with server history', () => {
       chat.destroy()
     })
 
+    test('refuses another message while one sent over a turn that has since ended waits', async () => {
+      let runs = 0
+      const { fetch } = fetchMock(
+        (c) =>
+          c.method === 'POST' && c.url.pathname === `/api/w/ws/jobs/run/f/${FLOW}`
+            ? ++runs === 1
+              ? text('job-1')
+              : (new Promise<Response>(() => {}) as unknown as Response)
+            : undefined,
+        (c) =>
+          c.url.pathname === streamPath
+            ? sseTimed([
+                { type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'parked answer' }), stream_offset: 1 },
+                300,
+                { type: 'update', completed: true, only_result: { windmill_chat_answer: 'parked answer' } }
+              ])
+            : undefined
+      )
+      const chat = createChat(options({}, fetch))
+      const first = chat.sendMessage('first')
+      await until(() => chat.getState().messages.some((m) => m.content === 'parked answer'), 'the first answer')
+      void chat.sendMessage('one', { overRunningTurn: true }).catch(() => {})
+      await first
+      expect(chat.getState().status).toBe('idle')
+      const another = await chat.sendMessage('two').catch((e) => e)
+      expect(another).toBeInstanceOf(Error)
+      chat.destroy()
+    })
+
     test('a background call whose row was read stays open for the new turn to fill', async () => {
       let runs = 0
       const { fetch } = fetchMock(
