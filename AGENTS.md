@@ -53,6 +53,9 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Operator builder rights**: `docs/operator-builder-rights.md` — the workspace settings that let
   operators compose flows, AI agents and full-code apps, what the composition check must cover, which
   raw-app endpoint stays closed on purpose, and why either right costs a full seat
+- **AI agents**: `docs/reusable-ai-agents.md` — saved agents, linked from flow steps and also run
+  on their own (page, API, Slack, apps) as a one-step flow, so flow and chat-flow behaviour
+  reaches them too; memory, approvals and questions
 - **Auth surface**: `docs/auth-surface.md` — credential precedence, session/cache invalidation
   scope, which token labels email their owner at expiry, how OAuth login matches `login_type`, and
   that every superadmin route refuses `$WM_TOKEN`. Read before designing anything that creates

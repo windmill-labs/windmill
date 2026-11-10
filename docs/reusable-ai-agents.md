@@ -8,6 +8,20 @@ agent, and edits to the agent propagate to every linked step.
 The `ai_agent` resource type is defined in the hub (windmill-integrations) and synced into
 every workspace via the standard cached-resource-type sync, like other built-in types.
 
+## Running an agent on its own
+
+A saved agent also runs without any flow of the author's: from its own page (the agent editor's
+run pane), through `POST /w/{workspace}/jobs/run/agent/{path}` (scope `jobs:run:agents:<path>`),
+from a Slack channel it is shared in, from a full-code app, and from the AI session's run tools.
+All of them go through `windmill-api/src/agent_runs.rs`, which reads the agent and runs it as a
+**one-step flow** (`agent_step_flow`, step id `__wm_agent_root`). A run with a `memory_id` is a
+turn of a conversation, filed under `<path>.chat` and run with chat input enabled; the step's own
+`memory_id` and `previous_messages` are dropped so history comes from the conversation alone.
+
+Since the run is a flow, everything written for flow runs and chat flows applies to it as well:
+conversations, the running-turn check, approvals and questions. A change to one of those paths must keep working for this one-step shape, and can be
+tested from the agent's page as well as from a flow.
+
 ## Rigid linking
 
 `FlowModuleValue::AIAgent` has an optional `agent` field holding the resource path, plus a
