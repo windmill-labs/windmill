@@ -15043,13 +15043,92 @@ paths:
                           type: boolean
                           description: nothing was written and the session must be pushed whole again; an incremental part found no listed session to ride on (the backup was removed, or a push split over parts is in progress or was abandoned), or a later part of a push split over parts found another push had superseded it
 
-  /w/{workspace}/ai/shared_artifacts/share:
-    post:
-      summary: share an AI session artifact with the workspace
+  /w/{workspace}/ai/artifacts/list:
+    get:
+      summary: list the AI session artifacts on the server the caller can open
       description: >
-        Stores a read-only copy that any member of the workspace can open by id. Sharing the
-        same artifact again updates that copy, keeps its id, and restarts its retention window.
-      operationId: shareAiArtifact
+        The caller's own artifacts that are on the server, because they were shared once, and
+        the artifacts shared with them, most recently updated first. Workspace admins are
+        shared every artifact on the server. Artifacts never shared live only in their owner's
+        browser and backup, so they are not listed.
+      operationId: listAiArtifacts
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: search
+          in: query
+          description: matches the name or the content, case-insensitively
+          schema:
+            type: string
+        - name: include_deleted
+          in: query
+          description: also list the caller's own artifacts in the trash
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: the artifacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiArtifactListEntry"
+
+  /w/{workspace}/ai/artifacts/get/{artifact_id}:
+    get:
+      summary: get an AI session artifact and the version people with access see
+      operationId: getAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/AiArtifactId"
+      responses:
+        "200":
+          description: the artifact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiArtifactWithContent"
+
+  /w/{workspace}/ai/artifacts/legacy/{id}:
+    get:
+      summary: resolve a link to an AI artifact share made before artifacts were items
+      operationId: resolveLegacyAiArtifactLink
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the artifact the link points at
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - artifact_id
+                properties:
+                  artifact_id:
+                    type: string
+
+  /w/{workspace}/ai/artifacts/publish:
+    post:
+      summary: put one of the caller's AI session artifacts on the server
+      description: >
+        Makes the artifact an item with a path under the caller's user folder, before its access
+        list is first changed, with this version as the one people with access see. An artifact
+        already on the server keeps its path and access list, takes this version when it is newer
+        than the latest it knows, and leaves the trash.
+      operationId: publishAiArtifact
       tags:
         - ai
       parameters:
@@ -15069,12 +15148,17 @@ paths:
               properties:
                 artifact_id:
                   type: string
-                  description: the artifact's id in the author's session
+                  description: the artifact's id in the owner's browser
                 name:
                   type: string
                 kind:
                   type: string
                   enum: [md, html]
+                role:
+                  type: string
+                  enum: [plan]
+                session_id:
+                  type: string
                 version:
                   type: integer
                   minimum: 1
@@ -15082,90 +15166,146 @@ paths:
                   type: string
       responses:
         "200":
-          description: the shared copy
+          description: the artifact on the server
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SharedAiArtifactInfo"
+                $ref: "#/components/schemas/AiArtifact"
 
-  /w/{workspace}/ai/shared_artifacts/status:
-    get:
-      summary: get the calling user's share of one of their AI session artifacts
-      operationId: getAiArtifactShareStatus
+  /w/{workspace}/ai/artifacts/write/{artifact_id}:
+    post:
+      summary: save a new version of one of the caller's shared AI session artifacts
+      description: >
+        Refused, with outcome stale, unless base_version is the latest version the server knows.
+        People with access see the new version at once unless the owner pinned one.
+      operationId: writeAiArtifact
       tags:
         - ai
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: artifact_id
-          in: query
-          required: true
-          schema:
-            type: string
+        - $ref: "#/components/parameters/AiArtifactId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - base_version
+                - version
+                - name
+                - content
+              properties:
+                base_version:
+                  type: integer
+                  minimum: 1
+                  description: the version the edit was made on
+                version:
+                  type: integer
+                  minimum: 2
+                name:
+                  type: string
+                content:
+                  type: string
+                session_id:
+                  type: string
       responses:
         "200":
-          description: the live share, if any, and how long shares last
+          description: what the write did
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - retention_secs
-                properties:
-                  retention_secs:
-                    type: integer
-                  share:
-                    $ref: "#/components/schemas/SharedAiArtifactInfo"
+                $ref: "#/components/schemas/AiArtifactWriteResult"
 
-  /w/{workspace}/ai/shared_artifacts/get/{id}:
-    get:
-      summary: get a shared AI session artifact
-      operationId: getSharedAiArtifact
+  /w/{workspace}/ai/artifacts/show/{artifact_id}:
+    post:
+      summary: choose the version people with access to an AI session artifact see
+      operationId: showAiArtifactVersion
       tags:
         - ai
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: "#/components/parameters/AiArtifactId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - pinned
+                - version
+                - name
+                - content
+              properties:
+                pinned:
+                  type: boolean
+                  description: >
+                    true keeps people on this version while newer ones are written; false shows
+                    them the latest version, which version must then be
+                version:
+                  type: integer
+                  minimum: 1
+                name:
+                  type: string
+                content:
+                  type: string
       responses:
         "200":
-          description: the shared artifact
+          description: what the change did
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/SharedAiArtifactInfo"
-                  - type: object
-                    required:
-                      - content
-                      - can_unshare
-                    properties:
-                      content:
-                        type: string
-                      can_unshare:
-                        type: boolean
-                        description: whether the caller authored the share or is a workspace admin
+                $ref: "#/components/schemas/AiArtifactWriteResult"
 
-  /w/{workspace}/ai/shared_artifacts/delete/{id}:
+  /w/{workspace}/ai/artifacts/trash/{artifact_id}:
+    post:
+      summary: move one of the caller's AI session artifacts to the trash
+      description: Nobody else can open it while it is there, and it is purged after 30 days.
+      operationId: trashAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/AiArtifactId"
+      responses:
+        "200":
+          description: artifact moved to the trash
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai/artifacts/restore/{artifact_id}:
+    post:
+      summary: restore one of the caller's AI session artifacts from the trash
+      operationId: restoreAiArtifact
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/AiArtifactId"
+      responses:
+        "200":
+          description: artifact restored
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/ai/artifacts/delete/{artifact_id}:
     delete:
-      summary: stop sharing an AI session artifact
-      operationId: unshareAiArtifact
+      summary: delete an AI session artifact from the server for good
+      description: Allowed to its owner and to workspace admins.
+      operationId: deleteAiArtifact
       tags:
         - ai
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: "#/components/parameters/AiArtifactId"
       responses:
         "200":
-          description: share deleted
+          description: artifact deleted
           content:
             text/plain:
               schema:
@@ -25264,6 +25404,7 @@ paths:
                 sqs_trigger,
                 email_trigger,
                 volume,
+                ai_artifact,
               ]
       responses:
         "200":
@@ -25312,6 +25453,7 @@ paths:
                 sqs_trigger,
                 email_trigger,
                 volume,
+                ai_artifact,
               ]
       requestBody:
         description: acl to add
@@ -25371,6 +25513,7 @@ paths:
                 sqs_trigger,
                 email_trigger,
                 volume,
+                ai_artifact,
               ]
       requestBody:
         description: acl to add
@@ -29008,6 +29151,13 @@ components:
       required: true
       schema:
         type: string
+    AiArtifactId:
+      name: artifact_id
+      in: path
+      required: true
+      description: the artifact's id, made in its owner's browser and used in its links
+      schema:
+        type: string
     GcpProjectId:
       name: project_id
       in: query
@@ -31303,35 +31453,111 @@ components:
         - output_tokens
         - requests
 
-    SharedAiArtifactInfo:
+    AiArtifact:
       type: object
+      description: an AI session artifact on the server, an item since its owner first shared it
       properties:
-        id:
+        artifact_id:
           type: string
-          format: uuid
+        path:
+          type: string
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        owner:
+          type: string
+          description: the owner's username
+        is_owner:
+          type: boolean
+        session_id:
+          type: string
+          description: the session that wrote it, sent to its owner only
         name:
           type: string
         kind:
           type: string
           enum: [md, html]
-        version:
+        role:
+          type: string
+          enum: [plan]
+        shown_version:
           type: integer
-        created_by:
-          type: string
-        shared_at:
+          description: the version people with access see
+        latest_version:
+          type: integer
+          description: the newest version the owner wrote, above shown_version only while pinned
+        pinned:
+          type: boolean
+        created_at:
           type: string
           format: date-time
-        expires_at:
+        updated_at:
           type: string
           format: date-time
+          description: when the version people with access see last changed
+        deleted_at:
+          type: string
+          format: date-time
+          description: when its owner moved it to the trash
       required:
-        - id
+        - artifact_id
+        - path
+        - extra_perms
+        - owner
+        - is_owner
         - name
         - kind
-        - version
-        - created_by
-        - shared_at
-        - expires_at
+        - shown_version
+        - latest_version
+        - pinned
+        - created_at
+        - updated_at
+
+    AiArtifactListEntry:
+      allOf:
+        - $ref: "#/components/schemas/AiArtifact"
+        - type: object
+          required:
+            - owner_is_member
+          properties:
+            owner_is_member:
+              type: boolean
+              description: false once the owner has left the workspace
+            match_line:
+              type: string
+              description: the first line of the content matching the search, when it did
+
+    AiArtifactWithContent:
+      allOf:
+        - $ref: "#/components/schemas/AiArtifact"
+        - type: object
+          required:
+            - owner_is_member
+            - content
+          properties:
+            owner_is_member:
+              type: boolean
+              description: false once the owner has left the workspace
+            content:
+              type: string
+              description: the version people with access see
+
+    AiArtifactWriteResult:
+      type: object
+      properties:
+        outcome:
+          type: string
+          enum: [saved, stale, not_shared]
+          description: >
+            stale: the write was based on an older version than latest_version, and nothing was
+            saved; not_shared: the server holds no live copy of this artifact of the caller's
+        latest_version:
+          type: integer
+        artifact:
+          $ref: "#/components/schemas/AiArtifact"
+      required:
+        - outcome
 
     SharedAiSessionInfo:
       type: object

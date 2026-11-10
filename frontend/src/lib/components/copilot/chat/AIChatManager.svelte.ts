@@ -333,7 +333,6 @@ export function supportsPlanMode(mode: AIMode): boolean {
 
 const navCapabilities = fromStore(roleCapabilities)
 
-
 function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
@@ -512,7 +511,7 @@ export class AIChatManager implements ChatViewHost {
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
 	/** Markdown artifacts the copilot created for the current session. */
-	artifacts = new SessionArtifactsStore()
+	artifacts = new SessionArtifactsStore(() => this.operatingWorkspace)
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
 	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)

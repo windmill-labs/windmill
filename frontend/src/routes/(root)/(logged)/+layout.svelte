@@ -91,7 +91,8 @@
 		Home,
 		Play,
 		Search,
-		ArrowLeft
+		ArrowLeft,
+		Files
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
@@ -1200,6 +1201,18 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			}, 100)
 		}}
 	/>
+	<!-- What the AI writes in sessions, so it shows wherever sessions do. -->
+	{#if sessionsShown}
+		<MenuLink
+			class="!text-xs"
+			label="Artifacts"
+			href="/artifacts"
+			icon={Files}
+			isCollapsed={collapsed}
+			aiId="sidebar-menu-link-artifacts"
+			aiDescription="Button to navigate to the AI artifacts page"
+		/>
+	{/if}
 {/snippet}
 
 <!-- In the rail's pinned footer, right above the plan usage, in both rails:

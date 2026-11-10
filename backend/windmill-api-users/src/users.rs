@@ -2594,6 +2594,7 @@ pub async fn delete_workspace_user_internal(
         "gcp_trigger",
         "azure_trigger",
         "email_trigger",
+        "ai_artifact",
     ];
     // SAFETY: `table` comes from a hardcoded allowlist `extra_perms_tables`, not user input.
     for table in &extra_perms_tables {

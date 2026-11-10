@@ -100,13 +100,21 @@ describe('artifactsDB', () => {
 		expect(await db.getArtifact('a')).toBeUndefined()
 	})
 
-	it('deletes every artifact for a session, leaving others intact', async () => {
-		await db.putArtifact(artifact({ id: 'a', sessionId: 's1' }))
-		await db.putArtifact(artifact({ id: 'b', sessionId: 's1' }))
-		await db.putArtifact(artifact({ id: 'c', sessionId: 's2' }))
-		await db.deleteArtifactsForSession('s1')
-		expect(await db.listArtifactsForSession('s1')).toEqual([])
-		expect((await db.listArtifactsForSession('s2')).map((a) => a.id)).toEqual(['c'])
+	it("deletes a workspace's artifacts, leaving those that recorded no workspace", async () => {
+		await db.putArtifact(artifact({ id: 'a', sessionId: 's1', workspaceId: 'w1' }))
+		await db.putArtifact(artifact({ id: 'b', sessionId: 's2', workspaceId: 'w2' }))
+		await db.putArtifact(artifact({ id: 'c', sessionId: 's1' }))
+		expect(await db.deleteArtifactsForWorkspace('w1')).toEqual(['a'])
+		expect((await db.listAllArtifacts()).map((a) => a.id).sort()).toEqual(['b', 'c'])
+	})
+
+	it('purges what has been in Recently deleted since before the cutoff, with its history', async () => {
+		await put(db, artifact({ id: 'old', deletedAt: 10 }), [version(1, 'old')])
+		await put(db, artifact({ id: 'recent', deletedAt: 30 }), [version(1, 'recent')])
+		await put(db, artifact({ id: 'live' }), [version(1, 'live')])
+		expect(await db.purgeDeletedArtifacts(20)).toEqual(['old'])
+		expect((await db.listAllArtifacts()).map((a) => a.id).sort()).toEqual(['live', 'recent'])
+		expect(await db.listArtifactVersions('old')).toEqual([])
 	})
 
 	it('upgrades a version-1 database in place, keeping the artifacts already in it', async () => {
@@ -185,17 +193,15 @@ describe('artifactsDB', () => {
 		expect(await db.listArtifactVersions('a1')).toHaveLength(db.MIN_VERSIONS_PER_ARTIFACT)
 	})
 
-	it('deleting an artifact, or a whole session, drops the versions with it', async () => {
-		await db.putArtifact(artifact({ id: 'a1', sessionId: 's1' }))
-		await db.putArtifact(artifact({ id: 'a2', sessionId: 's1' }))
-		await put(db, artifact({ id: 'a1', sessionId: 's1' }), [version(1)])
-		await put(db, artifact({ id: 'a2', sessionId: 's1' }), [version(1, 'a2')])
+	it('deleting an artifact, or a whole workspace, drops the versions with it', async () => {
+		await put(db, artifact({ id: 'a1', workspaceId: 'w1' }), [version(1)])
+		await put(db, artifact({ id: 'a2', workspaceId: 'w1' }), [version(1, 'a2')])
 
 		await db.deleteArtifact('a1')
 		expect(await db.listArtifactVersions('a1')).toEqual([])
 		expect(await db.listArtifactVersions('a2')).toHaveLength(1)
 
-		await db.deleteArtifactsForSession('s1')
+		await db.deleteArtifactsForWorkspace('w1')
 		expect(await db.listArtifactVersions('a2')).toEqual([])
 	})
 
@@ -220,7 +226,7 @@ describe('artifactsDB', () => {
 		expect(await noDb.getArtifact('a1')).toBeUndefined()
 		expect(await noDb.listArtifactsForSession('s1')).toEqual([])
 		await expect(noDb.deleteArtifact('a1')).resolves.toBeUndefined()
-		await expect(noDb.deleteArtifactsForSession('s1')).resolves.toBe(false)
+		await expect(noDb.deleteArtifactsForWorkspace('w1')).resolves.toEqual([])
 	})
 
 	it('rejects a version read it could not make, instead of reading as absent', async () => {

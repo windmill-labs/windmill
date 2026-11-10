@@ -583,6 +583,32 @@ async fn update_username_in_workpsace<'c>(
     )
     .execute(&mut **tx)
     .await?;
+
+    sqlx::query!(
+        r#"UPDATE ai_artifact SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE ai_artifact SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE ai_artifact SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
     sqlx::query!(
         "UPDATE eval_dataset SET edited_by = $1 WHERE edited_by = $2 AND workspace_id = $3",
         new_username,

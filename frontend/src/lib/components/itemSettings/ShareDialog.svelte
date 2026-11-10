@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	export type ShareKind = 'flow' | 'script' | 'app' | 'raw_app'
+	export type ShareKind = 'flow' | 'script' | 'app' | 'raw_app' | 'ai_artifact'
 </script>
 
 <script lang="ts">
@@ -29,6 +29,8 @@
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { logShareOpen, type ShareOpenSource } from './sharingTelemetry'
 	import { useEditRights } from '$lib/operatorWriteRights'
+	import ArtifactAudience from '$lib/components/copilot/chat/artifacts/ArtifactAudience.svelte'
+	import { artifactUrl } from '$lib/components/copilot/chat/artifacts/artifactSharing'
 
 	interface Props {
 		/** Called after a write to the app row, with the row as it now is. */
@@ -57,12 +59,17 @@
 	let answerDeploy: ((deploy: boolean) => void) | undefined = undefined
 
 	let app: AppWithLastVersion | undefined = $state()
+	/** An artifact's id, which its link carries rather than its path. */
+	let artifactId: string | undefined = $state()
+	/** An artifact's name, which its path does not keep. */
+	let title: string | undefined = $state()
+	let audience: ArtifactAudience | undefined = $state()
 	/** Who the deployed flow or script runs as, and whether the user may change it, once read. An
 	 *  app's run-as user is in its policy. */
 	let runnableIdentity: { runAs: string | undefined; canEdit: boolean } | undefined = $state()
 
-	let name = $derived(path.split('/').pop() ?? path)
-	let noun = $derived(kind === 'raw_app' ? 'app' : kind)
+	let name = $derived(title ?? path.split('/').pop() ?? path)
+	let noun = $derived(kind === 'raw_app' ? 'app' : kind === 'ai_artifact' ? 'artifact' : kind)
 	let isApp = $derived(kind === 'app' || kind === 'raw_app')
 	let runAs = $derived(app?.policy.on_behalf_of ?? app?.policy.on_behalf_of_email)
 	// Who can open the app is part of its policy, which only someone who can edit the app may
@@ -71,7 +78,9 @@
 		!!app && editRights.canEditItem(app.raw_app ? 'raw_app' : 'app', app.path, app.extra_perms)
 	)
 	let itemUrl = $derived(
-		`${window.location.origin}/${kind === 'flow' ? 'flows' : 'scripts'}/get/${path}?workspace=${$operatingWorkspace}`
+		kind === 'ai_artifact' && artifactId
+			? artifactUrl($operatingWorkspace ?? '', artifactId)
+			: `${window.location.origin}/${kind === 'flow' ? 'flows' : 'scripts'}/get/${path}?workspace=${$operatingWorkspace}`
 	)
 	// What a run can reach. It changes only with a deploy, so Share explains it and says where.
 	let permissions = $derived.by(() => {
@@ -99,11 +108,18 @@
 		}
 	})
 
-	/** `stagedPath` is the path the editor's draft deploys the item to. */
+	/** `stagedPath` is the path the editor's draft deploys the item to. An artifact passes its
+	 *  `artifactId` and its `title`. */
 	export function openDialog(
 		kind_l: ShareKind,
 		path_l: string,
-		opts: { source: ShareOpenSource; fromEditor?: boolean; stagedPath?: string }
+		opts: {
+			source: ShareOpenSource
+			fromEditor?: boolean
+			stagedPath?: string
+			artifactId?: string
+			title?: string
+		}
 	) {
 		settleDeploy(false)
 		logShareOpen(opts.source)
@@ -116,10 +132,12 @@
 		deployLabel = undefined
 		app = undefined
 		runnableIdentity = undefined
+		artifactId = opts.artifactId
+		title = opts.title
 		open = true
 		if (kind === 'app' || kind === 'raw_app') {
 			void loadApp()
-		} else {
+		} else if (kind !== 'ai_artifact') {
 			// Without it the section stays hidden: it only explains.
 			void loadRunnableIdentity().catch(() => {})
 		}
@@ -248,7 +266,6 @@
 			body: parts.join(' ')
 		}
 	})
-
 </script>
 
 <!-- Closed by Escape, the backdrop, the close button or Cancel: a deploy waiting on it does not go
@@ -277,11 +294,21 @@
 			<ItemAccessList
 				{kind}
 				{path}
+				viewerOnly={kind === 'ai_artifact'}
 				onChange={() => {
 					onChange?.()
+					void audience?.reload()
 					if (moveTo) void loadMoveLoss()
 				}}
 			/>
+			{#if kind === 'ai_artifact' && artifactId && $operatingWorkspace}
+				<ArtifactAudience
+					bind:this={audience}
+					workspace={$operatingWorkspace}
+					{artifactId}
+					{onChange}
+				/>
+			{/if}
 		{/key}
 
 		{#if isApp}

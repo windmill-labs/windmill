@@ -13,9 +13,18 @@ vi.mock('esm-env', async (orig) => ({
 // svelte/app-store graphs out of the per-test cold transform.
 vi.mock('$lib/stores', async () => {
 	const { writable } = await import('svelte/store')
-	return { userStore: writable(undefined) }
+	return { userStore: writable(undefined), userWorkspaces: writable([]) }
 })
 vi.mock('$lib/utils', () => ({ getLocalSetting: () => undefined, storeLocalSetting: () => {} }))
+vi.mock('$lib/gen', () => ({
+	AiService: {
+		writeAiArtifact: vi.fn(),
+		getAiArtifact: vi.fn(),
+		publishAiArtifact: vi.fn(),
+		trashAiArtifact: vi.fn(),
+		restoreAiArtifact: vi.fn()
+	}
+}))
 
 // The DB module memoises its handle at module scope. A fresh IDBFactory per test only
 // isolates data once the handle is reset, so reset modules and re-import both together.
@@ -375,9 +384,10 @@ describe('SessionArtifactsStore', () => {
 		quiet.mockRestore()
 	})
 
-	it('holds one plan per session, and frees the slot when it is deleted', async () => {
+	it('holds one plan per session, and gives a deleted plan its slot back', async () => {
 		await store.setSession('s1')
 		const plan = await store.create('s1', { name: 'Plan', content: 'x', role: 'plan' })
+		await store.approve(plan.id, 1)
 		await expect(store.create('s1', { name: 'Other', content: 'y', role: 'plan' })).rejects.toThrow(
 			/already has a plan/
 		)
@@ -386,10 +396,12 @@ describe('SessionArtifactsStore', () => {
 			store.create('s2', { name: 'Elsewhere', content: 'z', role: 'plan' })
 		).resolves.toBeDefined()
 
-		await store.remove(plan.id)
-		await expect(store.create('s1', { name: 'Next', content: 'w', role: 'plan' })).resolves.toEqual(
-			expect.objectContaining({ role: 'plan' })
-		)
+		await store.trash(plan.id)
+		const next = await store.create('s1', { name: 'Next', content: 'w', role: 'plan' })
+		// Its versions carry on, and the approval of the deleted plan is not the new one's.
+		expect(next).toMatchObject({ id: plan.id, name: 'Next', version: 2, role: 'plan' })
+		expect(next.approvedVersion).toBeUndefined()
+		expect(store.artifacts.map((a) => a.id)).toContain(plan.id)
 	})
 
 	it('gives two tabs proposing at once distinct versions, keeping both snapshots', async () => {
@@ -514,13 +526,71 @@ describe('SessionArtifactsStore', () => {
 		expect(revised).toMatchObject({ version: 3, approvedVersion: 3 })
 	})
 
-	it('remove deletes from the DB and the loaded list', async () => {
+	it('trash puts an artifact out of reach of the chat until it is restored', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Plan', content: 'x' })
+		const created = await store.create('s1', { name: 'Doc', content: 'x' })
 
-		await store.remove(created.id)
+		await store.trash(created.id)
 		expect(store.artifacts).toEqual([])
-		expect(await dbMod.getArtifact(created.id)).toBeUndefined()
+		expect(await store.get(created.id)).toBeUndefined()
+		expect(await store.update(created.id, { content: 'y' })).toBeUndefined()
+		expect(await new stateMod.SessionArtifactsStore().listForSession('s1')).toEqual([])
+
+		await store.restore(created.id)
+		expect(store.artifacts.map((a) => a.id)).toEqual([created.id])
+		expect(await store.get(created.id)).toMatchObject({ content: 'x', version: 1 })
+	})
+})
+
+describe('SessionArtifactsStore with a server copy', () => {
+	async function sharedDoc() {
+		const AiService = vi.mocked((await import('$lib/gen')).AiService)
+		const shared = new stateMod.SessionArtifactsStore(() => 'ws')
+		await shared.setSession('s1')
+		const doc = await shared.create('s1', { name: 'Doc', content: 'v1' })
+		return { AiService, shared, doc }
+	}
+
+	it('refuses an edit the owner overtook from another browser, and takes that version', async () => {
+		const { AiService, shared, doc } = await sharedDoc()
+		AiService.writeAiArtifact.mockResolvedValue({ outcome: 'stale', latest_version: 3 })
+		AiService.getAiArtifact.mockResolvedValue({
+			shown_version: 3,
+			name: 'Doc',
+			content: 'v3 from elsewhere'
+		} as never)
+
+		await expect(shared.update(doc.id, { content: 'v2 from here' })).rejects.toMatchObject({
+			name: 'ArtifactStaleError',
+			latest: 3,
+			caughtUp: true
+		})
+		expect(await shared.get(doc.id)).toMatchObject({ version: 3, content: 'v3 from elsewhere' })
+		// The edit is redone on that version, and lands.
+		AiService.writeAiArtifact.mockResolvedValue({ outcome: 'saved' } as never)
+		expect(await shared.update(doc.id, { content: 'v4 from here' })).toMatchObject({ version: 4 })
+		expect(AiService.writeAiArtifact).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ base_version: 3, version: 4 })
+			})
+		)
+	})
+
+	it('stores an edit the server missed, and brings the server up to date on the next one', async () => {
+		const { AiService, shared, doc } = await sharedDoc()
+		AiService.writeAiArtifact.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+		vi.spyOn(console, 'error').mockImplementationOnce(() => {})
+		expect(await shared.update(doc.id, { content: 'v2' })).toMatchObject({ version: 2 })
+
+		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'stale', latest_version: 1 })
+		AiService.publishAiArtifact.mockResolvedValue({} as never)
+		expect(await shared.update(doc.id, { content: 'v3' })).toMatchObject({ version: 3 })
+		expect(AiService.publishAiArtifact).toHaveBeenCalledWith(
+			expect.objectContaining({
+				workspace: 'ws',
+				requestBody: expect.objectContaining({ artifact_id: doc.id, version: 3, content: 'v3' })
+			})
+		)
 	})
 })
 

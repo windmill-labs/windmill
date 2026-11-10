@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ai_artifact WHERE deleted_at <= now() - interval '30 days'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "cbc5ef31421490ff8a4272d50c2d1846c860b3753a5e67d5784c02bcbd24b5a3"
+}

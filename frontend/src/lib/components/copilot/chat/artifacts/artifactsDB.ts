@@ -1,5 +1,6 @@
-// Scoped by sessionId (fixed for the session's life), not chatId: a session follows its
-// active chat's rotation, so chatId-keying would drop artifacts on each new conversation.
+// Indexed by sessionId (fixed for the session's life), not chatId: a session follows its
+// active chat's rotation, so chatId-keying would drop artifacts on each new conversation. An
+// artifact outlives its session: deleting a session leaves its artifacts here.
 import { type DBSchema as IDBSchema, type IDBPObjectStore, type IDBPTransaction } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
@@ -24,7 +25,17 @@ export interface PersistedArtifact {
 	updatedAt: number
 	/** Absent on artifacts written before history existed — read it through currentVersion(). */
 	version?: number
+	/** The workspace it belongs to, where its viewers are: the topmost one above the session's
+	 * that its owner is a member of. Absent on artifacts written before artifacts outlived their
+	 * sessions, whose session tells it instead. */
+	workspaceId?: string
+	/** When its owner moved it to Recently deleted, which it leaves for good after
+	 * TRASH_RETENTION_MS. */
+	deletedAt?: number
 }
+
+/** How long an artifact stays in Recently deleted. */
+export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 /** A content snapshot taken every time an artifact's content changes. */
 export interface ArtifactVersion {
@@ -203,6 +214,86 @@ export async function listArtifactsForSession(sessionId: string): Promise<Persis
 		return await db.getAllFromIndex('items', 'by-session', sessionId)
 	} catch (err) {
 		console.error('Could not read artifacts', err)
+		return []
+	}
+}
+
+/** Every artifact of every session, Recently deleted included. */
+export async function listAllArtifacts(): Promise<PersistedArtifact[]> {
+	const db = await getDB()
+	if (!db) return []
+	try {
+		return await db.getAll('items')
+	} catch (err) {
+		console.error('Could not read artifacts', err)
+		return []
+	}
+}
+
+/**
+ * Set what an artifact is filed under, leaving the document, its version and its history alone.
+ * A key given as undefined is cleared. Resolves to the row as stored, or undefined when there is
+ * no such artifact or the store refused the write.
+ */
+export async function patchArtifact(
+	id: string,
+	patch: Partial<Pick<PersistedArtifact, 'workspaceId' | 'deletedAt'>>
+): Promise<PersistedArtifact | undefined> {
+	const db = await getDB()
+	if (!db) return undefined
+	try {
+		const tx = db.transaction('items', 'readwrite')
+		const existing = await tx.store.get(id)
+		if (!existing) {
+			await tx.done
+			return undefined
+		}
+		const next: PersistedArtifact = { ...existing, ...patch }
+		for (const [key, value] of Object.entries(patch)) {
+			if (value === undefined) delete next[key as keyof typeof patch]
+		}
+		await tx.store.put(next)
+		await tx.done
+		markSessionDirty(next.sessionId, undefined, emailOfScopedKey(ARTIFACTS_DB, db.name))
+		return next
+	} catch (err) {
+		console.error('Could not update artifact', err)
+		return undefined
+	}
+}
+
+/** Delete for good what has been in Recently deleted since before `cutoff`, with its history.
+ * Resolves to the ids deleted. */
+export async function purgeDeletedArtifacts(cutoff: number): Promise<string[]> {
+	return deleteItemsWhere((a) => a.deletedAt !== undefined && a.deletedAt < cutoff)
+}
+
+/** Delete the artifacts that belong to a workspace that no longer exists. Those written before
+ * artifacts recorded their workspace are left alone: nothing here says where they belong. */
+export async function deleteArtifactsForWorkspace(workspaceId: string): Promise<string[]> {
+	return deleteItemsWhere((a) => a.workspaceId === workspaceId)
+}
+
+async function deleteItemsWhere(match: (a: PersistedArtifact) => boolean): Promise<string[]> {
+	const db = await getDB()
+	if (!db) return []
+	try {
+		const tx = db.transaction(['items', 'versions'], 'readwrite')
+		const items = tx.objectStore('items')
+		const versions = tx.objectStore('versions')
+		const doomed = (await items.getAll()).filter(match)
+		for (const a of doomed) {
+			await items.delete(a.id)
+			await deleteVersionsIn(versions, a.id)
+		}
+		await tx.done
+		const email = emailOfScopedKey(ARTIFACTS_DB, db.name)
+		for (const sessionId of new Set(doomed.map((a) => a.sessionId))) {
+			markSessionDirty(sessionId, undefined, email)
+		}
+		return doomed.map((a) => a.id)
+	} catch (err) {
+		console.error('Could not delete artifacts', err)
 		return []
 	}
 }
@@ -445,33 +536,6 @@ export async function pruneSessionArtifacts(
 		return true
 	} catch (err) {
 		console.error('Could not prune artifacts for session', err)
-		return false
-	}
-}
-
-/** False when the store could not be reached or the deletion failed. With `email`, only that
- * user's store is touched: a caller that captured its user must not follow an account switch. */
-export async function deleteArtifactsForSession(
-	sessionId: string,
-	email?: string
-): Promise<boolean> {
-	const db = await getDB()
-	if (!db || (email !== undefined && db.name !== scopedKeyFor(ARTIFACTS_DB, email))) return false
-	try {
-		const tx = db.transaction(['items', 'versions'], 'readwrite')
-		const items = tx.objectStore('items')
-		const versions = tx.objectStore('versions')
-		// Collect the ids up front rather than deleting from a live cursor: interleaving
-		// another store's requests between continue() calls is what breaks a cursor walk.
-		const ids = await items.index('by-session').getAllKeys(sessionId)
-		for (const id of ids) {
-			await items.delete(id)
-			await deleteVersionsIn(versions, id)
-		}
-		await tx.done
-		return true
-	} catch (err) {
-		console.error('Could not delete artifacts for session', err)
 		return false
 	}
 }

@@ -11,7 +11,11 @@
 	import ArtifactShareButton from './ArtifactShareButton.svelte'
 	import ArtifactVersionPicker from './ArtifactVersionPicker.svelte'
 	import type { SessionArtifactsStore } from './artifactsState.svelte'
-	import { History } from 'lucide-svelte'
+	import { History, Maximize2 } from 'lucide-svelte'
+	import { fromStore } from 'svelte/store'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { homeWorkspace, markArtifactOpened } from './artifactLibrary'
+	import { artifactPath } from './artifactSharing'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { planBadge, planVersionView, PLAN_MODE_TEXT_COLOR } from '../planMode'
@@ -27,6 +31,15 @@
 
 	let { artifact, store, pinned, onPin }: Props = $props()
 
+	// A preview tab shows one artifact for its whole life, so mounting is opening it.
+	untrack(() => markArtifactOpened(artifact.id))
+
+	const operating = fromStore(useOperatingWorkspace())
+	// Where the artifacts page finds it: the workspace it was written for, or for one written
+	// before artifacts recorded it, the one this session works in.
+	const home = $derived(
+		artifact.workspaceId ?? (operating.current ? homeWorkspace(operating.current) : undefined)
+	)
 	const latest = $derived(currentVersion(artifact))
 	// Nothing to pick between until a second version exists.
 	const hasHistory = $derived(latest > 1)
@@ -144,16 +157,19 @@
 			{/if}
 		</div>
 		<div class="flex items-center gap-2 shrink-0">
-			<!-- Both export and share `shown`, which is still the current document while a pin is
-			     restoring, so both wait for it. -->
-			<ArtifactShareButton
-				artifactId={artifact.id}
-				name={shown.name}
-				kind={artifact.kind}
-				content={shown.content}
-				version={shownVersion ?? latest}
-				disabled={restoringPin}
-			/>
+			<ArtifactShareButton artifactId={artifact.id} name={artifact.name} {artifact} />
+			{#if home}
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					iconOnly
+					startIcon={{ icon: Maximize2 }}
+					title="Open in artifacts page"
+					href={artifactPath(home, artifact.id)}
+				/>
+			{/if}
+			<!-- Export saves `shown`, which is still the current document while a pin is restoring,
+			     so it waits for it. -->
 			<ArtifactExportButton
 				name={shown.name}
 				kind={artifact.kind}

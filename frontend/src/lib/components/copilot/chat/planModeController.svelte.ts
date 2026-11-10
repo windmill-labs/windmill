@@ -19,7 +19,7 @@ import {
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { normalizeChangeNote } from './artifacts/artifactLimits'
 import { currentVersion } from './artifacts/artifactsDB'
-import { type SessionArtifactsStore } from './artifacts/artifactsState.svelte'
+import { ArtifactStaleError, type SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 
 /** What plan mode needs from the chat it runs in: it reads the work mode and the autonomy
  * state and asks for the two changes it can cause, rather than owning any of it. */
@@ -228,6 +228,9 @@ export class PlanModeController {
 			}
 			return { plan: { id: plan.id, name: plan.name, version } }
 		} catch (e) {
+			if (e instanceof ArtifactStaleError) {
+				return { error: PLAN_MODE_MESSAGES.stalePlan(e.latest, e.caughtUp) }
+			}
 			console.error('Failed to persist plan artifact', e)
 			return unsaved
 		}

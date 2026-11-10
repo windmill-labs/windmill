@@ -3,6 +3,7 @@ import {
 	Calendar,
 	DollarSign,
 	Eye,
+	Files,
 	FolderOpen,
 	Home,
 	HardHat,
@@ -35,6 +36,7 @@ export type NavPage = {
 export const NAV_PAGES: NavPage[] = [
 	{ label: 'Home', path: '/', icon: Home },
 	{ label: 'Runs', path: '/runs', icon: Play, visibilityKey: 'runs' },
+	{ label: 'Artifacts', path: '/artifacts', icon: Files },
 	{ label: 'Variables', path: '/variables', icon: DollarSign, visibilityKey: 'variables' },
 	{ label: 'Resources', path: '/resources', icon: Boxes, visibilityKey: 'resources' },
 	{ label: 'Assets', path: '/assets', icon: Pyramid, visibilityKey: 'assets' },

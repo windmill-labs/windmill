@@ -1,13 +1,14 @@
 import { randomUUID } from '$lib/utils/uuid'
+import { AiService, type AiArtifactWriteResult } from '$lib/gen'
 import {
 	currentVersion,
-	deleteArtifact,
 	getArtifact,
 	getArtifactVersion,
 	isPlanArtifact,
 	listArtifactVersions,
 	listArtifactsForSession,
 	mutateArtifact,
+	patchArtifact,
 	planArtifactId,
 	versionKey,
 	type ArtifactEdit,
@@ -15,6 +16,7 @@ import {
 	type ArtifactVersion,
 	type PersistedArtifact
 } from './artifactsDB'
+import { homeWorkspace, publishArtifact, restoreArtifact, trashArtifact } from './artifactLibrary'
 
 export interface CreateArtifactInput {
 	name: string
@@ -67,10 +69,25 @@ export class ArtifactPersistenceError extends Error {
 	}
 }
 
+/** A new version of a shared artifact the server refused, because its owner wrote a later one
+ * from another browser since this one last did. Nothing was stored. */
+export class ArtifactStaleError extends Error {
+	constructor(
+		readonly artifact: PersistedArtifact,
+		/** The latest version the server knows. */
+		readonly latest: number,
+		/** Whether this browser now holds that version, for the edit to be redone on it. */
+		readonly caughtUp: boolean
+	) {
+		super(`Artifact ${artifact.id} changed in another browser (now v${latest})`)
+		this.name = 'ArtifactStaleError'
+	}
+}
+
 /**
  * Reactive view of the active session's artifacts, owned by AIChatManager (like
  * AttachedFilesStore). The consumer drives which session is loaded via setSession(); the
- * write tools mutate through create/update/remove, which persist and update the in-memory
+ * write tools mutate through create/update/trash, which persist and update the in-memory
  * list in one step.
  */
 export class SessionArtifactsStore {
@@ -80,6 +97,19 @@ export class SessionArtifactsStore {
 	#sessionId: string | undefined
 	// A later load always wins, even if an earlier DB read resolves after it.
 	#seq = 0
+	#workspace: (() => string | undefined) | undefined
+
+	/** `workspace` is the one the session works in; a store without one reads artifacts and
+	 * never reaches the server. */
+	constructor(workspace?: () => string | undefined) {
+		this.#workspace = workspace
+	}
+
+	/** The workspace a new artifact of this session belongs to. */
+	#home(): string | undefined {
+		const ws = this.#workspace?.()
+		return ws ? homeWorkspace(ws) : undefined
+	}
 
 	/** Load the given session's artifacts into the reactive list, if it changed. */
 	async setSession(sessionId: string | undefined): Promise<void> {
@@ -110,7 +140,7 @@ export class SessionArtifactsStore {
 		this.loading = true
 		const items = await listArtifactsForSession(id)
 		if (token !== this.#seq) return
-		this.artifacts = sortByUpdatedDesc(items)
+		this.artifacts = sortByUpdatedDesc(items.filter(isLive))
 		this.loading = false
 	}
 
@@ -130,14 +160,16 @@ export class SessionArtifactsStore {
 		this.#applyWrite(sortByUpdatedDesc([artifact, ...rest]))
 	}
 
+	/** An artifact of any session, unless it is in Recently deleted. */
 	async get(id: string): Promise<PersistedArtifact | undefined> {
 		// In-memory first: a write whose persist silently failed (quota) is still readable here.
-		return this.artifacts.find((a) => a.id === id) ?? (await getArtifact(id))
+		const found = this.artifacts.find((a) => a.id === id) ?? (await getArtifact(id))
+		return found && isLive(found) ? found : undefined
 	}
 
 	async listForSession(sessionId: string): Promise<PersistedArtifact[]> {
 		if (sessionId === this.#sessionId) return [...this.artifacts]
-		return sortByUpdatedDesc(await listArtifactsForSession(sessionId))
+		return sortByUpdatedDesc((await listArtifactsForSession(sessionId)).filter(isLive))
 	}
 
 	/**
@@ -152,6 +184,7 @@ export class SessionArtifactsStore {
 		opts?: { canWritePlan?: () => boolean }
 	): Promise<PersistedArtifact> {
 		const now = Date.now()
+		const workspaceId = this.#home()
 		const draft = (id: string): PersistedArtifact => ({
 			id,
 			sessionId,
@@ -163,7 +196,8 @@ export class SessionArtifactsStore {
 			content: input.content,
 			createdAt: now,
 			updatedAt: now,
-			version: 1
+			version: 1,
+			workspaceId
 		})
 		// A plan's id is the session's, so a second one cannot be minted; the slot check happens
 		// on the row this write is about to replace, inside the transaction that replaces it.
@@ -174,7 +208,12 @@ export class SessionArtifactsStore {
 			if (input.role === 'plan' && opts?.canWritePlan?.() === false) {
 				throw new PlanWriteRefusedError()
 			}
-			if (existing) throw new PlanSlotTakenError(existing)
+			if (existing && isLive(existing)) throw new PlanSlotTakenError(existing)
+			if (existing) {
+				const edit = reviseInto(revived(existing), { name: input.name, content: input.content })
+				edit.artifact.workspaceId ??= workspaceId
+				return edit
+			}
 			const created = draft(id)
 			return { artifact: created, snapshots: [snapshotOf(created, 1)] }
 		})
@@ -195,12 +234,28 @@ export class SessionArtifactsStore {
 		input: UpdateArtifactInput,
 		opts?: { sessionId?: string; canWritePlan?: () => boolean }
 	): Promise<PersistedArtifact | undefined> {
+		const prior = await this.get(id)
+		const admitted =
+			prior !== undefined &&
+			(opts?.sessionId === undefined || prior.sessionId === opts.sessionId) &&
+			!(opts?.canWritePlan?.() === false && isPlanArtifact(prior, prior.sessionId))
+		const serverBehind =
+			admitted && input.content !== undefined && input.content !== prior.content
+				? await this.#sendToServer(prior, {
+						name: input.name ?? prior.name,
+						content: input.content
+					})
+				: false
 		let refused = false
 		const { outcome, artifact } = await mutateArtifact(id, (stored) => {
 			// Read inside the mutator: hoisted out, it would weigh a stale copy against a fresh one.
 			const held = this.artifacts.find((a) => a.id === id)
 			const existing = furtherAlong(stored, held)
-			if (!existing || (opts?.sessionId !== undefined && existing.sessionId !== opts.sessionId)) {
+			if (
+				!existing ||
+				!isLive(existing) ||
+				(opts?.sessionId !== undefined && existing.sessionId !== opts.sessionId)
+			) {
 				refused = true
 				return undefined
 			}
@@ -212,12 +267,102 @@ export class SessionArtifactsStore {
 			) {
 				throw new PlanWriteRefusedError()
 			}
-			return reviseInto(existing, input)
+			const edit = reviseInto(existing, input)
+			edit.artifact.workspaceId ??= this.#home()
+			return edit
 		})
 		if (refused) return undefined
 		if (artifact?.role === 'plan' && outcome !== 'saved') throw new ArtifactPersistenceError()
-		if (artifact) this.#reflect(artifact)
+		if (artifact) {
+			this.#reflect(artifact)
+			if (serverBehind) this.#bringServerUpToDate(artifact)
+		}
 		return artifact
+	}
+
+	/**
+	 * Hand the next version of an artifact to the server before this browser stores it: when the
+	 * artifact is shared, people with access see it there. The server refuses a version based on
+	 * an older one than the latest it knows, which its owner wrote from another browser since
+	 * this one last did; that throws ArtifactStaleError. Resolves whether the server is behind
+	 * this browser instead, for the caller to bring it up to date once the version is stored.
+	 */
+	async #sendToServer(
+		prior: PersistedArtifact,
+		next: { name: string; content: string }
+	): Promise<boolean> {
+		const workspace = prior.workspaceId ?? this.#home()
+		if (!workspace) return false
+		const base = currentVersion(prior)
+		let result: AiArtifactWriteResult
+		try {
+			result = await AiService.writeAiArtifact({
+				workspace,
+				artifactId: prior.id,
+				requestBody: {
+					base_version: base,
+					version: base + 1,
+					name: next.name,
+					content: next.content,
+					session_id: prior.sessionId
+				}
+			})
+		} catch (err) {
+			// The version is stored here regardless, and the next write that reaches the server
+			// finds it behind and brings it up to date.
+			console.error('Could not send the artifact to the server', err)
+			return false
+		}
+		const latest = result.latest_version
+		if (result.outcome !== 'stale' || latest === undefined) return false
+		if (latest < base) return true
+		throw new ArtifactStaleError(
+			prior,
+			latest,
+			await this.#takeServerCopy(prior, workspace, latest)
+		)
+	}
+
+	/**
+	 * Store the server's copy as this browser's latest version, when it is the latest one: the
+	 * server keeps only the version people see, an older one while its owner has one pinned.
+	 * Resolves whether this browser now holds version `latest`.
+	 */
+	async #takeServerCopy(
+		prior: PersistedArtifact,
+		workspace: string,
+		latest: number
+	): Promise<boolean> {
+		let copy: Awaited<ReturnType<typeof AiService.getAiArtifact>>
+		try {
+			copy = await AiService.getAiArtifact({ workspace, artifactId: prior.id })
+		} catch {
+			return false
+		}
+		if (copy.shown_version !== latest) return false
+		const { outcome, artifact } = await mutateArtifact(prior.id, (existing) => {
+			if (!existing || currentVersion(existing) >= latest) return undefined
+			const next: PersistedArtifact = {
+				...existing,
+				name: copy.name,
+				content: copy.content,
+				version: latest,
+				updatedAt: Date.now()
+			}
+			return { artifact: next, snapshots: [snapshotOf(next, latest, 'Written in another browser')] }
+		})
+		if (artifact) this.#reflect(artifact)
+		return outcome === 'saved'
+	}
+
+	/** Give the server a version this browser stored without it, which its owner's writes from
+	 * here are refused until it has. */
+	#bringServerUpToDate(artifact: PersistedArtifact): void {
+		const workspace = artifact.workspaceId ?? this.#home()
+		if (!workspace) return
+		publishArtifact(artifact, workspace).catch((err) =>
+			console.error('Could not bring the server copy of the artifact up to date', err)
+		)
 	}
 
 	/**
@@ -233,8 +378,17 @@ export class SessionArtifactsStore {
 		chatId: string | undefined
 	): Promise<PersistedArtifact> {
 		const id = planArtifactId(sessionId)
+		const prior = await this.get(id)
+		const serverBehind =
+			prior !== undefined && prior.content !== revision.content
+				? await this.#sendToServer(prior, revision)
+				: false
 		const { outcome, artifact } = await mutateArtifact(id, (existing) => {
-			if (existing) return reviseInto(existing, revision)
+			if (existing) {
+				const edit = reviseInto(isLive(existing) ? existing : revived(existing), revision)
+				edit.artifact.workspaceId ??= this.#home()
+				return edit
+			}
 			const now = Date.now()
 			const created: PersistedArtifact = {
 				id,
@@ -246,13 +400,15 @@ export class SessionArtifactsStore {
 				content: revision.content,
 				createdAt: now,
 				updatedAt: now,
-				version: 1
+				version: 1,
+				workspaceId: this.#home()
 			}
 			return { artifact: created, snapshots: [snapshotOf(created, 1)] }
 		})
 		// A plan the database refused would let the user approve one that disappears on reload.
 		if (!artifact || outcome !== 'saved') throw new ArtifactPersistenceError()
 		this.#reflect(artifact)
+		if (serverBehind) this.#bringServerUpToDate(artifact)
 		return artifact
 	}
 
@@ -329,12 +485,39 @@ export class SessionArtifactsStore {
 		}
 	}
 
-	async remove(id: string): Promise<void> {
-		await deleteArtifact(id)
-		// Guard on presence: a no-op remove must not invalidate an in-flight load.
+	/** Move an artifact to Recently deleted, where its owner can restore it for 30 days. Rejects
+	 * when the server holds a copy it could not move there too. */
+	async trash(id: string): Promise<void> {
+		const workspace = (await this.get(id))?.workspaceId ?? this.#home()
+		if (workspace) await trashArtifact(id, workspace)
+		else await patchArtifact(id, { deletedAt: Date.now() })
+		// Guard on presence: a no-op removal must not invalidate an in-flight load.
 		const next = this.artifacts.filter((a) => a.id !== id)
 		if (next.length !== this.artifacts.length) this.#applyWrite(next)
 	}
+
+	/** Bring an artifact back from Recently deleted, shared with whoever it was shared with. */
+	async restore(id: string): Promise<void> {
+		const workspace = (await getArtifact(id))?.workspaceId ?? this.#home()
+		if (workspace) await restoreArtifact(id, workspace)
+		else await patchArtifact(id, { deletedAt: undefined })
+		const restored = await getArtifact(id)
+		if (restored && isLive(restored)) this.#reflect(restored)
+	}
+}
+
+function isLive(a: PersistedArtifact): boolean {
+	return a.deletedAt === undefined
+}
+
+/**
+ * A plan in Recently deleted, back for a new plan of its session to take its place: the plan id
+ * is the session's, so the slot is still the deleted one's. Its versions carry on, which keeps
+ * the server copy taking new ones, but not its approval. That copy stays in the trash, unshared
+ * until shared again.
+ */
+function revived(plan: PersistedArtifact): PersistedArtifact {
+	return { ...plan, deletedAt: undefined, approvedVersion: undefined }
 }
 
 /**

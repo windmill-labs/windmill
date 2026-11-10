@@ -10,6 +10,7 @@ import {
 } from './artifactsDB'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
 import {
+	ArtifactStaleError,
 	PlanSlotTakenError,
 	PlanWriteRefusedError,
 	type SessionArtifactsStore
@@ -197,8 +198,13 @@ export const artifactTools: SessionTool<{}>[] = [
 					{ sessionId, canWritePlan: () => toolCallbacks.isPlanModeActive?.() !== true }
 				)
 			} catch (e) {
-				if (!(e instanceof PlanWriteRefusedError)) throw e
-				return reportPlanWriteRefused(toolCallbacks, toolId)
+				if (e instanceof PlanWriteRefusedError) return reportPlanWriteRefused(toolCallbacks, toolId)
+				if (!(e instanceof ArtifactStaleError)) throw e
+				const error = e.caughtUp
+					? `"${e.artifact.name}" was changed in another browser since you read it (now version ${e.latest}), so your edit was not saved. Read it again with read_artifact and redo your edit on that version.`
+					: `"${e.artifact.name}" was changed in another browser (now version ${e.latest}), and that version has not reached this browser, so your edit was not saved. Tell the user to continue editing it from the other browser.`
+				toolCallbacks.setToolStatus(toolId, { content: error, error })
+				return JSON.stringify({ success: false, error })
 			}
 			if (!updated) {
 				const error = `No artifact found with id "${parsed.id}".`
