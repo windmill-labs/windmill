@@ -30,6 +30,7 @@ use windmill_api_scripts::body_parse::{
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    runnable_ref::RunnableRef,
     scripts::{to_i64, ScriptLang},
 };
 
@@ -341,6 +342,23 @@ fn json_link(s: &str) -> Option<ItemReference> {
         .flatten()
 }
 
+/// What a flow step or an app runnable runs, with its path parsed as the runtime parses it.
+/// `None` for a Hub runnable, which reads nothing in the workspace. A path the parser refuses
+/// stays as written, so the step shows as unreadable rather than vanishing.
+fn runnable_target(kind: &str, path: &str, hash: Option<i64>) -> Option<NodeKey> {
+    let is_flow = kind == "flow";
+    let path = RunnableRef::from_path(path, is_flow)
+        .map_or_else(|_| path.to_string(), |runnable| runnable.path().to_string());
+    if path.starts_with("hub/") {
+        return None;
+    }
+    Some(if is_flow {
+        NodeKey::Flow(path)
+    } else {
+        NodeKey::Script { path, hash }
+    })
+}
+
 fn walk_object(
     node: &mut Node,
     item: &str,
@@ -369,15 +387,12 @@ fn walk_object(
     match ctx {
         Ctx::Flow => {
             match (str_of("type"), str_of("path")) {
-                (Some(kind @ ("script" | "flow")), Some(path)) if !path.starts_with("hub/") => {
-                    let target = if kind == "script" {
-                        let hash = str_of("hash").and_then(|hash| to_i64(hash).ok());
-                        NodeKey::Script { path: path.to_string(), hash }
-                    } else {
-                        NodeKey::Flow(path.to_string())
-                    };
-                    static_who = Who::Edge(node.edges.len());
-                    node.edges.push(Edge { target, keep_obo: true, who });
+                (Some(kind @ ("script" | "flow")), Some(path)) => {
+                    let hash = str_of("hash").and_then(|hash| to_i64(hash).ok());
+                    if let Some(target) = runnable_target(kind, path, hash) {
+                        static_who = Who::Edge(node.edges.len());
+                        node.edges.push(Edge { target, keep_obo: true, who });
+                    }
                 }
                 (Some("aiagent"), _) => {
                     if let Some(reference) = str_of("agent") {
@@ -397,10 +412,7 @@ fn walk_object(
         }
         Ctx::App => {
             let target = match (str_of("runType"), str_of("path")) {
-                (Some("script"), Some(path)) => {
-                    Some(NodeKey::Script { path: path.to_string(), hash: None })
-                }
-                (Some("flow"), Some(path)) => Some(NodeKey::Flow(path.to_string())),
+                (Some(kind @ ("script" | "flow")), Some(path)) => runnable_target(kind, path, None),
                 (Some("agent"), Some(path)) => {
                     node.agent(path, who, label);
                     None
@@ -1138,5 +1150,26 @@ mod tests {
             ]
         );
         assert_eq!(tagged.errors, vec!["f/x/hidden: not found or not readable"]);
+    }
+
+    #[test]
+    fn steps_and_runnables_name_their_target_as_the_runtime_parses_it() {
+        let targets = |node: Node| node.edges.into_iter().map(|e| e.target).collect::<Vec<_>>();
+        let flow = serde_json::json!({"modules": [
+            {"id": "a", "value": {"type": "script", "path": "/f/x/bot"}},
+            {"id": "b", "value": {"type": "script", "path": "/hub/1/x"}},
+        ]});
+        assert_eq!(
+            targets(flow_node("f/x/flow", Some(&flow), None, None)),
+            vec![script("f/x/bot")]
+        );
+        let app = serde_json::json!({"runnables": [
+            {"runType": "flow", "path": "/f/x/sub"},
+            {"runType": "script", "path": "hub/1/x"},
+        ]});
+        assert_eq!(
+            targets(app_node("f/x/app", &app)),
+            vec![NodeKey::Flow("f/x/sub".to_string())]
+        );
     }
 }

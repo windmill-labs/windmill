@@ -53,10 +53,13 @@ impl ItemReference {
             .iter()
             .find(|(prefix, k)| *k == kind && literal.starts_with(prefix))
             .map_or(literal, |(prefix, _)| &literal[prefix.len()..]);
-        // A resource named as an asset can carry `?table=…`: the item is what precedes it.
         let path = match kind {
+            // A resource named as an asset can carry `?table=…`: the item is what precedes it.
             ItemKind::Resource => path.split('?').next().unwrap_or(path),
-            _ => path,
+            // The runtime parses a script or flow path with `RunnableRef::from_path`, which drops
+            // one leading `/`.
+            ItemKind::Script | ItemKind::Flow => path.strip_prefix('/').unwrap_or(path),
+            ItemKind::Variable => path,
         };
         is_item_path(path).then(|| ItemReference { kind, path: path.to_string(), access })
     }
@@ -411,5 +414,14 @@ func main() {
                 r(Script, "f/ops/cleanup", Run),
             ]
         );
+    }
+
+    #[test]
+    fn a_script_or_flow_path_may_start_with_one_slash() {
+        assert_eq!(
+            ItemReference::of(Script, Task, "/f/ops/cleanup"),
+            Some(r(Script, "f/ops/cleanup", Task))
+        );
+        assert_eq!(ItemReference::of(Flow, Run, "//f/ops/nightly"), None);
     }
 }
