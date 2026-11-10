@@ -601,6 +601,38 @@ describe('SessionArtifactsStore with a server copy', () => {
 		expect(await shared.get(doc.id)).toMatchObject({ version: 3, content: 'v3 from elsewhere' })
 	})
 
+	it('takes the latest version another tab stored while an older one is pinned', async () => {
+		const { AiService, shared, doc } = await sharedDoc()
+		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'saved' } as never)
+		await new stateMod.SessionArtifactsStore(() => 'ws').update(doc.id, { content: 'v2 elsewhere' })
+		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'stale', latest_version: 2 })
+		AiService.getAiArtifact.mockResolvedValue({
+			name: 'Doc',
+			content: 'v1',
+			shown_version: 1,
+			latest_version: 2
+		} as never)
+
+		await expect(shared.update(doc.id, { content: 'v2 from here' })).rejects.toMatchObject({
+			name: 'ArtifactStaleError',
+			caughtUp: true
+		})
+		expect(await shared.get(doc.id)).toMatchObject({ version: 2, content: 'v2 elsewhere' })
+	})
+
+	it('stores no edit the server took once another tab stored a later version', async () => {
+		const { AiService, shared, doc } = await sharedDoc()
+		let answer!: (result: unknown) => void
+		AiService.writeAiArtifact.mockReturnValueOnce(new Promise((r) => (answer = r)) as never)
+		const edit = shared.update(doc.id, { content: 'v2 from here' })
+		const copy = { name: 'Doc', content: 'v3 elsewhere', shown_version: 3, latest_version: 3 }
+		await new stateMod.SessionArtifactsStore(() => 'ws').catchUp(doc, copy as never)
+		answer({ outcome: 'saved' })
+
+		await expect(edit).rejects.toMatchObject({ name: 'ArtifactStaleError', latest: 3 })
+		expect(await shared.get(doc.id)).toMatchObject({ version: 3, content: 'v3 elsewhere' })
+	})
+
 	it('stores no edit the server did not take', async () => {
 		const { AiService, shared, doc } = await sharedDoc()
 		AiService.writeAiArtifact.mockRejectedValueOnce(new TypeError('Failed to fetch'))

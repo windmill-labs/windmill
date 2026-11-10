@@ -69,8 +69,9 @@ export class ArtifactPersistenceError extends Error {
 	}
 }
 
-/** A new version of a shared artifact the server refused, because its owner wrote a later one
- * from another browser since this one last did. Nothing was stored. */
+/** A new version of a shared artifact, not stored because a later one exists: one its owner
+ * wrote from another browser since this one last did, against which the server refused it, or
+ * one another tab stored while the server was taking it. */
 export class ArtifactStaleError extends Error {
 	constructor(
 		readonly artifact: PersistedArtifact,
@@ -239,14 +240,16 @@ export class SessionArtifactsStore {
 			prior !== undefined &&
 			(opts?.sessionId === undefined || prior.sessionId === opts.sessionId) &&
 			!(opts?.canWritePlan?.() === false && isPlanArtifact(prior, prior.sessionId))
-		const serverBehind =
+		const sent =
 			admitted && input.content !== undefined && input.content !== prior.content
 				? await this.#sendToServer(prior, {
 						name: input.name ?? prior.name,
 						content: input.content
 					})
-				: false
+				: undefined
+		const base = prior ? currentVersion(prior) : 0
 		let refused = false
+		let overtaken: PersistedArtifact | undefined
 		const { outcome, artifact } = await mutateArtifact(id, (stored) => {
 			// Read inside the mutator: hoisted out, it would weigh a stale copy against a fresh one.
 			const held = this.artifacts.find((a) => a.id === id)
@@ -267,17 +270,32 @@ export class SessionArtifactsStore {
 			) {
 				throw new PlanWriteRefusedError()
 			}
+			// The server took this edit as the version after `prior`'s. Revised from a row that
+			// moved past that one meanwhile, it would be stored over a later version under a
+			// number the server never gave it.
+			if (sent === 'saved' && currentVersion(existing) > base) {
+				overtaken = existing
+				return undefined
+			}
 			const edit = reviseInto(existing, input)
 			edit.artifact.workspaceId ??= this.#home()
 			return edit
 		})
 		if (refused) return undefined
+		if (overtaken) this.#overtaken(overtaken)
 		if (artifact?.role === 'plan' && outcome !== 'saved') throw new ArtifactPersistenceError()
 		if (artifact) {
 			this.#reflect(artifact)
-			if (serverBehind) this.#bringServerUpToDate(artifact)
+			if (sent === 'behind') this.#bringServerUpToDate(artifact)
 		}
 		return artifact
+	}
+
+	/** An edit the server took, overtaken here by a later version another tab stored meanwhile:
+	 * this list takes that version, for the edit to be redone on it. */
+	#overtaken(by: PersistedArtifact): never {
+		if (isLive(by)) this.#reflect(by)
+		throw new ArtifactStaleError(by, currentVersion(by), isLive(by))
 	}
 
 	/**
@@ -285,15 +303,16 @@ export class SessionArtifactsStore {
 	 * artifact is shared, people with access see it there. The server refuses a version based on
 	 * an older one than the latest it knows, which its owner wrote from another browser since
 	 * this one last did; that throws ArtifactStaleError, and a call that fails throws its error.
-	 * Resolves whether the server is behind this browser instead, for the caller to bring it up
+	 * Resolves `saved` when the server took the version, `unshared` when it holds no copy to take
+	 * it into, and `behind` when its copy is older than this browser's, for the caller to bring up
 	 * to date once the version is stored.
 	 */
 	async #sendToServer(
 		prior: PersistedArtifact,
 		next: { name: string; content: string }
-	): Promise<boolean> {
+	): Promise<'saved' | 'unshared' | 'behind'> {
 		const workspace = prior.workspaceId ?? this.#home()
-		if (!workspace) return false
+		if (!workspace) return 'unshared'
 		const base = currentVersion(prior)
 		// Not caught: a version stored here that the server never weighed is the base of this
 		// browser's next write, which would then replace one written elsewhere in between.
@@ -308,9 +327,10 @@ export class SessionArtifactsStore {
 				session_id: prior.sessionId
 			}
 		})
+		if (result.outcome === 'saved') return 'saved'
 		const latest = result.latest_version
-		if (result.outcome !== 'stale' || latest === undefined) return false
-		if (latest < base) return true
+		if (result.outcome !== 'stale' || latest === undefined) return 'unshared'
+		if (latest < base) return 'behind'
 		throw new ArtifactStaleError(
 			prior,
 			latest,
@@ -319,15 +339,17 @@ export class SessionArtifactsStore {
 	}
 
 	/**
-	 * Store the server's copy as this browser's latest version, when it is the latest one: the
-	 * server keeps only the version people see, an older one while its owner has one pinned.
-	 * Resolves whether this browser now holds version `latest`.
+	 * Catch this browser up with version `latest`, the server's latest: from the store, where
+	 * another tab may have put it, or else from the server's copy when that holds it. The server
+	 * keeps only the version people see, an older one while its owner has one pinned. Resolves
+	 * whether this browser now holds version `latest`.
 	 */
 	async #takeServerCopy(
 		prior: PersistedArtifact,
 		workspace: string,
 		latest: number
 	): Promise<boolean> {
+		if (await this.#holds(prior.id, latest)) return true
 		let copy: AiArtifactWithContent
 		try {
 			copy = await AiService.getAiArtifact({ workspace, artifactId: prior.id })
@@ -336,9 +358,20 @@ export class SessionArtifactsStore {
 		}
 		if (copy.shown_version !== latest) return false
 		await this.#adopt(prior.id, copy)
-		// Asked of the copy the edit is redone on: the one `get` reads.
-		const held = await this.get(prior.id)
-		return held !== undefined && currentVersion(held) >= latest
+		return this.#holds(prior.id, latest)
+	}
+
+	/** Whether the copy an edit is redone on, the one `get` reads, holds `version` or a later one,
+	 * once this list has taken the stored row if that is further along. */
+	async #holds(id: string, version: number): Promise<boolean> {
+		const stored = await getArtifact(id).catch(() => undefined)
+		const held = furtherAlong(
+			stored,
+			this.artifacts.find((a) => a.id === id)
+		)
+		if (!held || !isLive(held)) return false
+		this.#reflect(held)
+		return currentVersion(held) >= version
 	}
 
 	/**
@@ -411,11 +444,18 @@ export class SessionArtifactsStore {
 	): Promise<PersistedArtifact> {
 		const id = planArtifactId(sessionId)
 		const prior = await this.get(id)
-		const serverBehind =
+		const sent =
 			prior !== undefined && prior.content !== revision.content
 				? await this.#sendToServer(prior, revision)
-				: false
+				: undefined
+		const base = prior ? currentVersion(prior) : 0
+		let overtaken: PersistedArtifact | undefined
 		const { outcome, artifact } = await mutateArtifact(id, (existing) => {
+			// As in `update`: the server took this revision as the version after `prior`'s.
+			if (sent === 'saved' && existing && currentVersion(existing) > base) {
+				overtaken = existing
+				return undefined
+			}
 			if (existing) {
 				const edit = reviseInto(isLive(existing) ? existing : revived(existing), revision)
 				edit.artifact.workspaceId ??= this.#home()
@@ -437,10 +477,11 @@ export class SessionArtifactsStore {
 			}
 			return { artifact: created, snapshots: [snapshotOf(created, 1)] }
 		})
+		if (overtaken) this.#overtaken(overtaken)
 		// A plan the database refused would let the user approve one that disappears on reload.
 		if (!artifact || outcome !== 'saved') throw new ArtifactPersistenceError()
 		this.#reflect(artifact)
-		if (serverBehind) this.#bringServerUpToDate(artifact)
+		if (sent === 'behind') this.#bringServerUpToDate(artifact)
 		return artifact
 	}
 
