@@ -58,7 +58,7 @@ async fn public_apps_take_a_paid_plan(db: Pool<Postgres>) -> anyhow::Result<()> 
 
     // An app made public before the rule: its next version is refused too.
     let mut app = public_app();
-    app["policy"]["execution_mode"] = json!("viewer");
+    app["policy"]["execution_mode"] = json!("publisher");
     let resp = post(format!("{ws}/apps/create")).json(&app).send().await?;
     assert_eq!(resp.status(), 201, "{}", resp.text().await?);
     let resp = post(format!("{ws}/apps/update/{APP_PATH}"))
@@ -85,7 +85,7 @@ async fn public_apps_take_a_paid_plan(db: Pool<Postgres>) -> anyhow::Result<()> 
 
     // Taking it out of public stays allowed.
     let resp = post(format!("{ws}/apps/update/{APP_PATH}"))
-        .json(&json!({ "execution_mode": "viewer" }))
+        .json(&json!({ "execution_mode": "publisher" }))
         .send()
         .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
