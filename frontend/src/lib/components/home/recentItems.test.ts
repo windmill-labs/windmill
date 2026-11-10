@@ -60,27 +60,28 @@ beforeEach(() => {
 })
 
 describe('rename', () => {
-	it('moves the item in place, keeping its spot and time', () => {
-		recentItems.record(WS, { kind: 'script', path: 'u/a/one', via: 'view' })
+	it('moves the item in place, keeping its spot and time, with its new summary', () => {
+		recentItems.record(WS, { kind: 'script', path: 'u/a/one', summary: 'Old', via: 'view' })
 		recentItems.record(WS, { kind: 'flow', path: 'u/a/two', via: 'view' })
 		const before = stored()
-		recentItems.rename(WS, 'script', 'u/a/one', 'u/a/renamed')
+		recentItems.rename(WS, 'script', 'u/a/one', 'u/a/renamed', 'New')
 		expect(paths()).toEqual(['flow:u/a/two', 'script:u/a/renamed'])
-		expect(stored()[1].at).toBe(before[1].at)
+		expect(stored()[1]).toMatchObject({ at: before[1].at, summary: 'New' })
 	})
 
-	it('does nothing when the path is unchanged (a summary-only save)', () => {
-		recentItems.record(WS, { kind: 'script', path: 'u/a/one', via: 'view' })
-		recentItems.rename(WS, 'script', 'u/a/one', 'u/a/one')
+	it('updates the summary of a summary-only save without marking it moved', () => {
+		recentItems.record(WS, { kind: 'script', path: 'u/a/one', summary: 'Old', via: 'view' })
+		recentItems.rename(WS, 'script', 'u/a/one', 'u/a/one', 'New')
 		expect(paths()).toEqual(['script:u/a/one'])
+		expect(stored()[0].summary).toBe('New')
 		expect(stored()[0].movedAt).toBeUndefined()
 	})
 
-	it('merges into an entry already at the new path', () => {
-		recentItems.record(WS, { kind: 'flow', path: 'u/a/to', via: 'view' })
-		recentItems.record(WS, { kind: 'flow', path: 'u/a/from', via: 'view' })
-		recentItems.rename(WS, 'flow', 'u/a/from', 'u/a/to')
-		expect(paths()).toEqual(['flow:u/a/to'])
+	it('keeps the renamed item over a gone one already at the new path', () => {
+		recentItems.record(WS, { kind: 'raw_app', path: 'u/a/to', summary: 'Gone', via: 'view' })
+		recentItems.record(WS, { kind: 'app', path: 'u/a/from', summary: 'Kept', via: 'view' })
+		recentItems.rename(WS, 'app', 'u/a/from', 'u/a/to', 'Kept')
+		expect(stored()).toMatchObject([{ kind: 'app', path: 'u/a/to', summary: 'Kept' }])
 	})
 
 	it('treats an app and a raw app at one path as one item', () => {
@@ -89,14 +90,14 @@ describe('rename', () => {
 		expect(paths()).toEqual(['app:u/a/app'])
 		// The shared rename function only knows `app`.
 		recentItems.record(WS, { kind: 'raw_app', path: 'u/a/raw', via: 'view' })
-		recentItems.rename(WS, 'app', 'u/a/raw', 'u/a/raw2')
+		recentItems.rename(WS, 'app', 'u/a/raw', 'u/a/raw2', '')
 		expect(paths()).toContain('raw_app:u/a/raw2')
 	})
 
 	it('waits for the user, like record', () => {
 		recentItems.record(WS, { kind: 'script', path: 'u/a/one', via: 'view' })
 		userStore.set(undefined)
-		recentItems.rename(WS, 'script', 'u/a/one', 'u/a/two')
+		recentItems.rename(WS, 'script', 'u/a/one', 'u/a/two', '')
 		userStore.set({ email: 'a@x.com', username: 'a' } as unknown as UserExt)
 		expect(paths()).toEqual(['script:u/a/two'])
 	})

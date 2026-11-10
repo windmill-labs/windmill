@@ -107,5 +107,5 @@ export async function updateItemPathAndSummary(opts: {
 	// The path changed (rename/move) — drop the autocomplete cache so the new
 	// path shows up immediately instead of after the 60s TTL.
 	invalidateWorkspacePaths(workspace)
-	recentItems.rename(workspace, kind, initialPath, newPath)
+	recentItems.rename(workspace, kind, initialPath, newPath, newSummary)
 }

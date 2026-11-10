@@ -123,21 +123,37 @@ class RecentItems {
 	}
 
 	/** Moves an item to its new path, where it was: its place and time are the user's visit,
-	 * which a rename is not. */
-	rename(workspace: string, kind: RecentKind, fromPath: string, toPath: string): void {
-		if (!workspace || !fromPath || !toPath || fromPath === toPath) return
-		if (!this.#whenUserKnown(workspace, () => this.rename(workspace, kind, fromPath, toPath)))
+	 * which a rename is not. An entry already at the new path is dropped: the server refuses to
+	 * rename onto a live item, so it was a gone one's. */
+	rename(
+		workspace: string,
+		kind: RecentKind,
+		fromPath: string,
+		toPath: string,
+		summary: string
+	): void {
+		if (!workspace || !fromPath || !toPath) return
+		if (
+			!this.#whenUserKnown(workspace, () => this.rename(workspace, kind, fromPath, toPath, summary))
+		)
 			return
 		const items = fresh(read(workspace))
 		const source = items.find((x) => itemKey(x.kind, x.path) === itemKey(kind, fromPath))
 		if (!source) return
-		const movedAt = Date.now()
-		const target = items.find((x) => itemKey(x.kind, x.path) === itemKey(kind, toPath))
+		const moved = fromPath !== toPath
+		if (!moved && summary === source.summary) return
+		const next: RecentItem = {
+			...source,
+			path: toPath,
+			summary,
+			...(moved && { movedAt: Date.now() })
+		}
+		const target = items.find(
+			(x) => x !== source && itemKey(x.kind, x.path) === itemKey(kind, toPath)
+		)
 		write(
 			workspace,
-			target
-				? items.filter((x) => x !== source).map((x) => (x === target ? { ...x, movedAt } : x))
-				: items.map((x) => (x === source ? { ...x, path: toPath, movedAt } : x))
+			items.filter((x) => x !== target).map((x) => (x === source ? next : x))
 		)
 		this.#bump()
 	}
