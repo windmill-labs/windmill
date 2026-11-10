@@ -31,7 +31,7 @@
 	import { onDestroy } from 'svelte'
 	import { slide } from 'svelte/transition'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { copyToClipboard, download } from '$lib/utils'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
@@ -210,7 +210,7 @@
 	<!-- Outgoing slide paired with the diagram's incoming one, so the block's height eases from
 	     this to the diagram's instead of jumping and shoving the document below it. -->
 	<div class="p-2" data-mermaid-pending="true" out:slide={{ duration: revealMs }}>
-		<div class="h-40 animate-skeleton dark:bg-frost-900/50 [animation-delay:1000ms]"></div>
+		<Skeleton layout={[[10]]} />
 	</div>
 {:else}
 	<div class="relative" data-mermaid-pending={!settled} in:slide={{ duration: revealMs }}>
