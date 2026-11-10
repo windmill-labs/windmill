@@ -5,6 +5,7 @@
 
 <script lang="ts">
 	import { Ellipsis } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 
 	// The row under a sidebar list that reveals the rows inactive for over a week, and hides them
 	// again.
@@ -18,13 +19,16 @@
 	const label = $derived(expanded ? 'Show less' : `Show ${count} older`)
 </script>
 
-<button
-	type="button"
-	onclick={onToggle}
+<Button
+	unifiedSize="xs"
+	variant="subtle"
+	startIcon={{ icon: Ellipsis }}
+	iconOnly={rail}
 	title={label}
+	aria-label={label}
 	aria-expanded={expanded}
-	class="flex flex-row items-center gap-2 px-2 h-6 shrink-0 w-full rounded text-xs font-normal text-tertiary hover:bg-surface-hover hover:text-secondary min-w-0"
+	onClick={onToggle}
+	btnClasses="justify-start px-2 font-normal text-tertiary hover:text-secondary"
 >
-	<Ellipsis size={14} class="shrink-0" />
-	<span class={rail ? 'sr-only' : 'truncate'}>{label}</span>
-</button>
+	{label}
+</Button>
