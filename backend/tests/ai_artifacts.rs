@@ -163,6 +163,24 @@ async fn a_write_based_on_an_older_version_is_refused(db: Pool<Postgres>) -> any
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn only_a_shared_copy_is_held_to_the_name_limit(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let api = Api::new(&server);
+    api.publish("draft").await?;
+
+    let write = json!({ "base_version": 1, "version": 2, "name": "n".repeat(300), "content": "x" });
+    let (_, body) = api
+        .post("ai/artifacts/write/never-shared", OWNER, write.clone())
+        .await?;
+    assert_eq!(body["outcome"], "not_shared", "{body}");
+    let (status, body) = api.post("ai/artifacts/write/a1", OWNER, write).await?;
+    assert_eq!(status, 400, "{body}");
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn search_shows_the_matching_line_of_a_long_document(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {

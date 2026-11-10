@@ -682,8 +682,6 @@ async fn write_artifact(
 ) -> JsonResult<WriteResult> {
     let name = payload.name.trim();
     check_id("Artifact id", &artifact_id)?;
-    check_name(name)?;
-    check_content(&payload.content)?;
     check_version(payload.base_version)?;
     if payload.version <= payload.base_version {
         return Err(Error::BadRequest(
@@ -695,6 +693,16 @@ async fn write_artifact(
     }
 
     let mut tx = db.begin().await?;
+    // Every edit reaches here, shared or not. Only a copy the server keeps is held to its
+    // bounds: refusing one it has none of would leave its owner unable to edit it at all.
+    if latest_live_version(&mut tx, &w_id, &artifact_id, &authed.email)
+        .await?
+        .is_none()
+    {
+        return Ok(Json(WriteResult::not_shared()));
+    }
+    check_name(name)?;
+    check_content(&payload.content)?;
     let row = sqlx::query_as!(
         ArtifactRow,
         "UPDATE ai_artifact SET
