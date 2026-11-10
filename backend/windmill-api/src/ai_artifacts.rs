@@ -336,10 +336,11 @@ struct ListQuery {
     include_deleted: bool,
 }
 
-/// The caller's own artifacts on the server and those shared with them, newest first. Shared
-/// means named in `extra_perms`, directly or through a group, or in a folder they read; an admin
-/// is shared every artifact on the server, as they see every item. Owners only see what they
-/// put in the trash.
+/// The caller's own artifacts on the server, then those shared with them, each newest first.
+/// Shared means named in `extra_perms`, directly or through a group, or in a folder they read;
+/// an admin is shared every artifact on the server, as they see every item. Owners only see what
+/// they put in the trash. Own rows come first because the page reads who can see each of them
+/// from this list: cut after others' newer rows, a shared one would read as private.
 async fn list_artifacts(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -370,7 +371,13 @@ async fn list_artifacts(
                   EXISTS (
                       SELECT 1 FROM usr u WHERE u.workspace_id = a.workspace_id AND u.email = a.email
                   ) AS "owner_is_member!",
-                  CASE WHEN $4::text IS NULL THEN NULL ELSE a.content END AS content
+                  -- Enough around the first hit for match_line to cut its line from, rather
+                  -- than up to MAX_LISTED whole documents.
+                  CASE WHEN $9::text IS NULL THEN NULL
+                       ELSE substring(a.content,
+                                      greatest(strpos(lower(a.content), lower($9::text)) - 500, 1),
+                                      1000 + length($9::text))
+                  END AS excerpt
            FROM ai_artifact a
            WHERE a.workspace_id = $1
              AND (a.email = $2
@@ -383,7 +390,7 @@ async fn list_artifacts(
                   OR a.name ILIKE $4 ESCAPE '\'
                   OR a.content ILIKE $4 ESCAPE '\')
              AND ($6::bool OR a.deleted_at IS NULL)
-           ORDER BY a.updated_at DESC
+           ORDER BY a.email = $2 DESC, a.updated_at DESC
            LIMIT $7"#,
         &w_id,
         &authed.email,
@@ -393,6 +400,7 @@ async fn list_artifacts(
         query.include_deleted,
         MAX_LISTED,
         authed.is_admin,
+        search.as_deref(),
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -401,8 +409,8 @@ async fn list_artifacts(
     Ok(Json(
         rows.into_iter()
             .map(|r| {
-                let match_line = match (&search, &r.content) {
-                    (Some(s), Some(content)) => match_line(content, s),
+                let match_line = match (&search, &r.excerpt) {
+                    (Some(s), Some(excerpt)) => match_line(excerpt, s),
                     _ => None,
                 };
                 ArtifactListEntry {

@@ -161,3 +161,24 @@ async fn a_write_based_on_an_older_version_is_refused(db: Pool<Postgres>) -> any
 
     Ok(())
 }
+
+#[sqlx::test(fixtures("base"))]
+async fn search_shows_the_matching_line_of_a_long_document(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let api = Api::new(&server);
+    let line = format!("{}Needle{}", "a".repeat(5000), "b".repeat(5000));
+    api.publish(&format!("# Plan\n{line}\nlast")).await?;
+
+    let (status, listed) = api.get("ai/artifacts/list?search=needle", OWNER).await?;
+    assert_eq!(status, 200, "{listed}");
+    let shown = listed[0]["match_line"].as_str().unwrap_or_default();
+    assert!(
+        shown.starts_with('…') && shown.contains("aNeedleb") && shown.ends_with('…'),
+        "{shown}"
+    );
+
+    Ok(())
+}
