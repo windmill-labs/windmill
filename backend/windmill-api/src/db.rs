@@ -18,6 +18,7 @@ pub use windmill_common::db::DB;
 use windmill_common::{
     error::Error,
     global_settings::INSTANCE_PYTHON_VERSION_SETTING,
+    hub_resource_types::DISABLE_RT_SYNC,
     utils::{generate_lock_id, GIT_VERSION},
     worker::PyVAlias,
 };
@@ -119,6 +120,12 @@ lazy_static::lazy_static! {
                     (20261015114712, include_str!(
                         "../../migrations/20261015114712_queue_workspace_scheduled_for_index.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261105203203, include_str!(
+                        "../../migrations/20261105203203_concurrency_key_waiting_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261106050615, include_str!(
+                        "../../migrations/20261106050615_concurrency_key_place_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     // The widening fails every query the previous release's still-running
                     // servers prepared on the column; `variables::widen_variable_value` does it
                     // once they are gone.
@@ -126,6 +133,12 @@ lazy_static::lazy_static! {
                         "../../migrations/20261012213357_widen_variable_value.up.sql"
                     ).replace("ALTER TABLE variable ALTER COLUMN value TYPE VARCHAR(15040);", "")),
                     ].into_iter().collect();
+
+    /// A whole `INSERT INTO resource_type` statement, quoted `;` included, which
+    /// `DISABLE_RT_SYNC` strips from migrations. Matched rather than marked in the files:
+    /// editing an applied migration changes its checksum, which sqlx refuses at startup.
+    static ref RESOURCE_TYPE_SEED: regex::Regex =
+        regex::Regex::new(r"(?i)INSERT\s+INTO\s+resource_type\b(?:[^;']|'(?:[^']|'')*')*;").unwrap();
 }
 
 pub struct CustomMigrator {
@@ -244,7 +257,21 @@ impl Migrate for CustomMigrator {
             );
 
 
-            if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
+            let mut overridden = OVERRIDDEN_MIGRATIONS
+                .get(&migration.version)
+                .map(|sql| std::borrow::Cow::Borrowed(sql.as_str()));
+            if *DISABLE_RT_SYNC {
+                let sql = overridden.as_deref().unwrap_or(&migration.sql);
+                if let std::borrow::Cow::Owned(stripped) = RESOURCE_TYPE_SEED.replace_all(sql, "") {
+                    tracing::info!(
+                        "DISABLE_RT_SYNC: not seeding the resource types of migration {}",
+                        migration.version
+                    );
+                    overridden = Some(std::borrow::Cow::Owned(stripped));
+                }
+            }
+
+            if let Some(migration_sql) = overridden {
                 tracing::info!("Using custom migration for version {}", migration.version);
 
                 if migration_sql.contains("CONCURRENTLY") {
@@ -271,7 +298,7 @@ impl Migrate for CustomMigrator {
                         }
                     }
                 } else if !migration_sql.is_empty() {
-                    self.inner.execute(&**migration_sql).await?;
+                    self.inner.execute(&*migration_sql).await?;
                 }
                 let _ = sqlx::query(
                     r#"
@@ -500,5 +527,17 @@ pub async fn wait_for_migrations(
             );
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn resource_type_seed_is_stripped_whole() {
+        // Its description carries a `;` inside a quoted string, and statements follow the seed.
+        let sql = include_str!("../../migrations/20260831120907_skills_resource_type.up.sql");
+        let stripped = super::RESOURCE_TYPE_SEED.replace_all(sql, "");
+        assert!(!stripped.to_lowercase().contains("insert into resource_type"));
+        assert!(stripped.contains("INSERT INTO folder"));
     }
 }

@@ -82,6 +82,7 @@ use windmill_queue::DedicatedWorkerJob;
 use windmill_queue::FlowRunners;
 use windmill_queue::MiniCompletedJob;
 use windmill_queue::PulledJobResultToJobErr;
+use windmill_queue::ValidableJson;
 
 use uuid::Uuid;
 
@@ -278,6 +279,16 @@ const VACUUM_PERIOD: u32 = 10000;
 // const DROP_CACHE_PERIOD: u32 = 1000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
+
+/// Dedicated subprocess tasks still running. A killed worker's result processor keeps receiving
+/// until this reaches zero: the main loop waits for the processor before it waits for those
+/// tasks, which send the results of the jobs they drain.
+pub static LIVE_DEDICATED_TASKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Dedicated subprocesses that have reported they are up, counted over the life of the process.
+pub static STARTED_DEDICATED_PROCESSES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 /// Per-language OTEL tracing proxy configuration.
 /// Default languages are configured in frontend instanceSettings.ts
@@ -509,15 +520,18 @@ lazy_static::lazy_static! {
                     );
                 }
 
-                tracing::error!(
-                    "unshare test command failed (exit code: {}). stderr: '{}'. flags: '{}'. \
-                    Unshare isolation will NOT be available. \
-                    If job_isolation is set to 'unshare' in Instance Settings, jobs will run without isolation. \
-                    Common causes: user namespaces disabled (sysctl kernel.unprivileged_userns_clone=0), \
-                    max_user_namespaces=0, or missing privileges (--mount-proc requires privileged mode).",
-                    output.status,
-                    stderr.trim(),
-                    flags
+                log_isolation_probe_failure(
+                    unshare_requested(),
+                    &format!(
+                        "unshare test command failed (exit code: {}). stderr: '{}'. flags: '{}'. \
+                        Unshare isolation will NOT be available. \
+                        If job_isolation is set to 'unshare' in Instance Settings, jobs will run without isolation. \
+                        Common causes: user namespaces disabled (sysctl kernel.unprivileged_userns_clone=0), \
+                        max_user_namespaces=0, or missing privileges (--mount-proc requires privileged mode).",
+                        output.status,
+                        stderr.trim(),
+                        flags
+                    ),
                 );
                 None
             },
@@ -536,17 +550,17 @@ lazy_static::lazy_static! {
                     }
                 }
 
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    tracing::error!(
-                        "unshare binary not found in PATH. Unshare isolation will NOT be available. \
-                        Install the util-linux package to enable unshare isolation."
-                    );
+                let msg = if e.kind() == std::io::ErrorKind::NotFound {
+                    "unshare binary not found in PATH. Unshare isolation will NOT be available. \
+                    Install the util-linux package to enable unshare isolation."
+                        .to_string()
                 } else {
-                    tracing::error!(
+                    format!(
                         "Failed to execute unshare test command: {}. Unshare isolation will NOT be available.",
                         e
-                    );
-                }
+                    )
+                };
+                log_isolation_probe_failure(unshare_requested(), &msg);
                 None
             }
         }
@@ -575,34 +589,38 @@ lazy_static::lazy_static! {
                     nsjail_path
                 );
                 // Most workers never jail anything, and most containers cannot.
-                if *DISABLE_NSJAIL {
-                    tracing::info!("{msg}");
-                } else {
+                if is_sandboxing_enabled() {
                     tracing::error!("{msg}");
+                } else {
+                    tracing::info!("{msg}");
                 }
                 None
             },
             Err(NsjailProbeError::Setup(e)) => {
-                tracing::error!(
-                    "Could not prepare the nsjail test jail: {}. Nsjail sandboxing will NOT be available.",
-                    e
+                log_isolation_probe_failure(
+                    is_sandboxing_enabled(),
+                    &format!(
+                        "Could not prepare the nsjail test jail: {}. Nsjail sandboxing will NOT be available.",
+                        e
+                    ),
                 );
                 None
             },
             Err(NsjailProbeError::Start(e)) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    tracing::error!(
+                let msg = if e.kind() == std::io::ErrorKind::NotFound {
+                    format!(
                         "nsjail not found at '{}'. Nsjail sandboxing will NOT be available. \
                         If using a custom image, ensure nsjail is installed.",
                         nsjail_path
-                    );
+                    )
                 } else {
-                    tracing::error!(
+                    format!(
                         "Failed to execute nsjail test at '{}': {}. Nsjail sandboxing will NOT be available.",
                         nsjail_path,
                         e
-                    );
-                }
+                    )
+                };
+                log_isolation_probe_failure(is_sandboxing_enabled(), &msg);
                 None
             }
         }
@@ -1081,13 +1099,7 @@ fn probe_nsjail(nsjail_path: &str) -> Result<std::process::Output, NsjailProbeEr
 }
 
 pub fn is_sandboxing_enabled() -> bool {
-    if !*DISABLE_NSJAIL {
-        return true;
-    }
-    match get_job_isolation() {
-        JobIsolationLevel::NsjailSandboxing => true,
-        _ => false,
-    }
+    sandboxing_enabled_by(*DISABLE_NSJAIL, get_job_isolation())
 }
 
 /// A `no_network` job loses its network only through the fresh network namespace its
@@ -1292,13 +1304,87 @@ mod no_network_tests {
 /// ENABLE_UNSHARE_PID forces unshare regardless of the global setting.
 /// FAVOR_UNSHARE_PID uses unshare only when the global setting is not set.
 pub fn is_unshare_enabled() -> bool {
-    if *ENABLE_UNSHARE_PID {
-        return true;
+    unshare_enabled_by(*ENABLE_UNSHARE_PID, *FAVOR_UNSHARE_PID, get_job_isolation())
+}
+
+fn unshare_enabled_by(enable: bool, favor: bool, job_isolation: JobIsolationLevel) -> bool {
+    enable
+        || match job_isolation {
+            JobIsolationLevel::Unshare => true,
+            JobIsolationLevel::Undefined => favor,
+            _ => false,
+        }
+}
+
+fn sandboxing_enabled_by(disable_nsjail: bool, job_isolation: JobIsolationLevel) -> bool {
+    !disable_nsjail || job_isolation == JobIsolationLevel::NsjailSandboxing
+}
+
+/// FAVOR_UNSHARE_PID counts as asking for unshare even when the job_isolation setting
+/// overrides it, as the startup check in `run_worker` does.
+fn unshare_requested() -> bool {
+    unshare_requested_by(*ENABLE_UNSHARE_PID, *FAVOR_UNSHARE_PID, get_job_isolation())
+}
+
+fn unshare_requested_by(enable: bool, favor: bool, job_isolation: JobIsolationLevel) -> bool {
+    unshare_enabled_by(enable, favor, job_isolation) || favor
+}
+
+/// A failed isolation probe is an error only on a worker that asked for that isolation: most
+/// workers (a default docker-compose native worker among them) never do, and cannot get it.
+/// The job_isolation setting is applied before the probes run, and a later change to it logs
+/// its own error when the isolation it names is unavailable.
+fn isolation_probe_failure_level(requested: bool) -> tracing::Level {
+    if requested {
+        tracing::Level::ERROR
+    } else {
+        tracing::Level::WARN
     }
-    match get_job_isolation() {
-        JobIsolationLevel::Unshare => true,
-        JobIsolationLevel::Undefined => *FAVOR_UNSHARE_PID,
-        _ => false,
+}
+
+fn log_isolation_probe_failure(requested: bool, msg: &str) {
+    if isolation_probe_failure_level(requested) == tracing::Level::ERROR {
+        tracing::error!("{msg}");
+    } else {
+        tracing::warn!(
+            "{msg} Isolation was not requested for this worker, so this is not an error."
+        );
+    }
+}
+
+#[cfg(test)]
+mod isolation_probe_level_tests {
+    use super::*;
+    use tracing::Level;
+    use JobIsolationLevel::*;
+
+    fn unshare_level(enable: bool, favor: bool, iso: JobIsolationLevel) -> Level {
+        isolation_probe_failure_level(unshare_requested_by(enable, favor, iso))
+    }
+
+    fn nsjail_level(disable_nsjail: bool, iso: JobIsolationLevel) -> Level {
+        isolation_probe_failure_level(sandboxing_enabled_by(disable_nsjail, iso))
+    }
+
+    #[test]
+    fn unrequested_isolation_warns() {
+        // Stock worker: no isolation env vars, job_isolation unset or none.
+        for iso in [Undefined, None] {
+            assert_eq!(unshare_level(false, false, iso), Level::WARN);
+            assert_eq!(nsjail_level(true, iso), Level::WARN);
+        }
+        assert_eq!(unshare_level(false, false, NsjailSandboxing), Level::WARN);
+        assert_eq!(nsjail_level(true, Unshare), Level::WARN);
+    }
+
+    #[test]
+    fn requested_isolation_errors() {
+        assert_eq!(unshare_level(true, false, None), Level::ERROR);
+        assert_eq!(unshare_level(false, true, Undefined), Level::ERROR);
+        assert_eq!(unshare_level(false, true, None), Level::ERROR);
+        assert_eq!(unshare_level(false, false, Unshare), Level::ERROR);
+        assert_eq!(nsjail_level(false, None), Level::ERROR);
+        assert_eq!(nsjail_level(true, NsjailSandboxing), Level::ERROR);
     }
 }
 
@@ -2004,7 +2090,8 @@ pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 #[derive(Clone)]
 pub enum JobCompletedSender {
     Sql(SqlJobCompletedSender),
-    Http(HttpClient),
+    /// The worker name keys the job outcome counters an agent worker reports in its pings.
+    Http(HttpClient, Option<Arc<str>>),
     NeverUsed,
 }
 
@@ -2016,6 +2103,12 @@ impl JobCompletedSender {
     pub fn set_worker_killpill(&mut self, killpill_tx: KillpillSender) {
         if let Self::Sql(sql) = self {
             sql.worker_killpill_tx = Some(killpill_tx);
+        }
+    }
+
+    pub fn set_worker_name(&mut self, worker_name: &str) {
+        if let Self::Http(_, name) = self {
+            *name = Some(worker_name.into());
         }
     }
 
@@ -2073,7 +2166,7 @@ impl JobCompletedSender {
                 let result = Self::new_job_completed_sender_sql(buffer_size);
                 (result.0, Some(result.1))
             }
-            Connection::Http(client) => (Self::Http(client.clone()), None),
+            Connection::Http(client) => (Self::Http(client.clone(), None), None),
         }
     }
 
@@ -2082,6 +2175,15 @@ impl JobCompletedSender {
     }
 
     pub async fn send_job(&self, jc: JobCompleted, wait_for_capacity: bool) -> anyhow::Result<()> {
+        self.send_job_inner(jc, wait_for_capacity, true).await
+    }
+
+    async fn send_job_inner(
+        &self,
+        jc: JobCompleted,
+        wait_for_capacity: bool,
+        record_outcome: bool,
+    ) -> anyhow::Result<()> {
         match self {
             Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
                 if wait_for_capacity {
@@ -2098,8 +2200,15 @@ impl JobCompletedSender {
                     anyhow::anyhow!("Failed to send job completed to background processor")
                 })
             }
-            Self::Http(client) => {
+            Self::Http(client, worker_name) => {
+                // An agent worker's completion is processed on the server, so its outcome is
+                // counted here, with the same `wm_failure` override the result processor applies.
+                let failed = jc.canceled_by.is_none()
+                    && (!jc.success || jc.result.result_metadata().wm_failure.is_some());
                 crate::agent_workers::send_result(client, jc).await?;
+                if let (true, Some(worker_name)) = (record_outcome, worker_name) {
+                    windmill_common::worker_job_stats::record_job_outcome(worker_name, failed);
+                }
                 Ok(())
             }
             Self::NeverUsed => {
@@ -2128,7 +2237,7 @@ impl JobCompletedSender {
                         .await
                 }
             }
-            Self::Http(_) => {
+            Self::Http(..) => {
                 tracing::error!("Sending job completed to http client, this should not happen");
                 Ok(())
             }
@@ -2148,7 +2257,7 @@ impl JobCompletedSender {
                 killpill_tx.send(())?;
                 Ok(())
             }
-            Self::Http(_) => {
+            Self::Http(..) => {
                 tracing::error!("Sending kill to http client, this should not happen");
                 Ok(())
             }
@@ -2477,6 +2586,7 @@ pub async fn handle_all_job_kind_error(
     authed_client: &AuthedClient,
     job: MiniCompletedJob,
     err: Error,
+    canceled: bool,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
@@ -2484,6 +2594,9 @@ pub async fn handle_all_job_kind_error(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
+    // These jobs fail before reaching the result processor, so their outcome is counted here
+    // for both connection kinds; a job canceled before it ran is not held against the worker.
+    windmill_common::worker_job_stats::record_job_outcome(worker_name, !canceled);
     match conn {
         Connection::Sql(db) => {
             handle_job_error(
@@ -2506,7 +2619,7 @@ pub async fn handle_all_job_kind_error(
         }
         Connection::Http(_) => {
             job_completed_tx
-                .send_job(
+                .send_job_inner(
                     JobCompleted {
                         preprocessed_args: None,
                         job: job,
@@ -2526,6 +2639,7 @@ pub async fn handle_all_job_kind_error(
                         flow_runners: None,
                         done_tx: None,
                     },
+                    false,
                     false,
                 )
                 .await
@@ -2894,7 +3008,7 @@ pub async fn run_worker(
     let _ = &*UNSHARE_PATH;
     let _ = &*NSJAIL_AVAILABLE;
 
-    if (is_unshare_enabled() || *FAVOR_UNSHARE_PID) && UNSHARE_PATH.is_none() {
+    if unshare_requested() && UNSHARE_PATH.is_none() {
         tracing::error!(
             worker = %worker_name, hostname = %hostname,
             "Worker is configured to use unshare isolation (FAVOR_UNSHARE_PID={}, job_isolation={:?}) \
@@ -2974,9 +3088,13 @@ pub async fn run_worker(
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     let mut reported_ip = cached_ip();
-    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, true, conn)
+    let reclaimed = insert_ping(hostname, &worker_name, reported_ip, true, conn)
         .await
         .expect("initial ping could be sent");
+    let previous_jobs_executed = reclaimed.jobs_executed;
+    if let Some(job_stats) = reclaimed.job_stats {
+        windmill_common::worker_job_stats::restore_job_stats(&worker_name, job_stats);
+    }
 
     #[cfg(feature = "prometheus")]
     let uptime_metric = if METRICS_ENABLED.load(Ordering::Relaxed) {
@@ -3259,6 +3377,7 @@ pub async fn run_worker(
 
     let (mut job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
     job_completed_tx.set_worker_killpill(killpill_tx.clone());
+    job_completed_tx.set_worker_name(&worker_name);
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
@@ -3764,7 +3883,8 @@ pub async fn run_worker(
                             .map_err(error::Error::from)
                             .and_then(|r| r)
                             {
-                                pulled_job_res.error_while_preprocessing = Some(e.to_string());
+                                pulled_job_res.error_while_preprocessing =
+                                    Some(e.to_string().into());
                             }
                         }
 
@@ -3992,6 +4112,7 @@ pub async fn run_worker(
                                         error::Error::InternalErr(format!(
                                             "failed to send jobs to flow runners: {e:?}"
                                         )),
+                                        false,
                                         Some(&same_worker_tx),
                                         &worker_dir,
                                         &worker_name,
@@ -4272,11 +4393,13 @@ pub async fn run_worker(
                                     .await;
                                 }
                             }
+                            let canceled = arc_job.canceled_by.is_some();
                             handle_all_job_kind_error(
                                 &conn,
                                 &authed_client,
                                 MiniCompletedJob::from(arc_job),
                                 err,
+                                canceled,
                                 Some(&same_worker_tx),
                                 &worker_dir,
                                 &worker_name,
@@ -4448,6 +4571,19 @@ pub async fn run_worker(
     if let Some(send_result) = send_result {
         if let Err(e) = send_result.await {
             tracing::error!("error in awaiting send_result process: {e:?}")
+        }
+    }
+
+    // The last ping can run before the processor recorded the final jobs; a worker restarting
+    // under this name restores whatever the row holds, so write the drained counters.
+    if let (Some(db), Some(job_stats)) = (
+        conn.as_sql(),
+        windmill_common::worker_job_stats::job_stats_snapshot(&worker_name),
+    ) {
+        if let Err(e) =
+            windmill_common::worker::set_worker_job_stats_query(&worker_name, &job_stats, db).await
+        {
+            tracing::error!(worker = %worker_name, "failed to persist final job stats: {e:#}");
         }
     }
 
@@ -4731,6 +4867,8 @@ pub enum StepFailureKind {
     /// leaves state worth pinning to: in the first case that worker is gone, in the second the
     /// flow's own bookkeeping is what just broke.
     Unrecoverable,
+    /// The flow was cancelled by its wall-clock `timeout`: nothing may run but its failure module.
+    FlowTimeout,
 }
 
 impl StepFailureKind {

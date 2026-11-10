@@ -1665,6 +1665,8 @@ pub async fn do_duckdb(
             Ok(r) => r,
             Err(e) => {
                 if let Some((_, meta)) = &materialize {
+                    // Persisted and served by the assets API, so masked like the job error.
+                    let error = mask_secrets(e.to_string(), &hidden_passwords.lock().unwrap());
                     record_mat(
                         conn,
                         &job.workspace_id,
@@ -1674,7 +1676,7 @@ pub async fn do_duckdb(
                         None,
                         None,
                         None,
-                        Some(&e.to_string()),
+                        Some(&error),
                     )
                     .await;
                 }
@@ -1872,14 +1874,7 @@ pub async fn do_duckdb(
             // Passwords might appear in the error message — and, for the
             // structured data-test failure, in sampled row data read from an
             // attached database — so every outgoing error is sanitized here.
-            let sanitize = |mut s: String| {
-                for pwd in hidden_passwords.lock().unwrap().iter() {
-                    if let Some(sanitized) = sanitize_string_from_password(&s, &pwd.clone()) {
-                        s = sanitized;
-                    }
-                }
-                s
-            };
+            let sanitize = |s: String| mask_secrets(s, &hidden_passwords.lock().unwrap());
             match e {
                 // The structured payload must keep its variant: flattening it
                 // to a string (the arm below) would strip the data-test
@@ -1940,6 +1935,20 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
     }
     let mib = ((bytes as f64 * DUCKDB_MEMORY_FRACTION) as i64) / (1024 * 1024);
     Some(format!("{}MiB", mib.max(64)))
+}
+
+/// Longest first: a short secret can occur inside a longer one (an IAM resource's placeholder
+/// password inside the token minted for it), and masking it first leaves the rest unmatched.
+/// An empty secret would put a mask between every character.
+fn mask_secrets(mut s: String, secrets: &[String]) -> String {
+    let mut secrets: Vec<&String> = secrets.iter().filter(|p| !p.is_empty()).collect();
+    secrets.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    for pwd in secrets {
+        if let Some(sanitized) = sanitize_string_from_password(&s, pwd) {
+            s = sanitized;
+        }
+    }
+    s
 }
 
 // The runner reports an engine error as `ERROR <json-encoded-message>`. Decode the JSON string
@@ -2221,6 +2230,41 @@ fn get_attach_db_install_str(db_type: &str) -> Result<&str> {
     }
 }
 
+/// A postgres resource with `use_iam_auth` authenticates with an RDS IAM token, which DuckDB's
+/// postgres extension cannot mint: swap one in as the password before the ATTACH is built, and
+/// force TLS as every IAM connection does. The token is valid for 15 minutes, so a connection
+/// DuckDB opens later in the job is refused.
+async fn apply_pg_iam_auth(
+    db_resource: &mut Value,
+    hidden_passwords: &Arc<Mutex<Vec<String>>>,
+) -> Result<()> {
+    if db_resource.get("use_iam_auth").and_then(Value::as_bool) != Some(true) {
+        return Ok(());
+    }
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let res: PgDatabase = serde_json::from_value(db_resource.clone())?;
+        let token = res.iam_auth_token().await?;
+        // DuckDB's connection errors echo the attach URI, where the token is percent-encoded.
+        hidden_passwords
+            .lock()
+            .unwrap()
+            .extend([urlencoding::encode(&token).into_owned(), token.clone()]);
+        db_resource["password"] = json!(token);
+        if !matches!(res.sslmode.as_deref(), Some("verify-ca" | "verify-full")) {
+            db_resource["sslmode"] = json!("require");
+        }
+        Ok(())
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    {
+        let _ = hidden_passwords;
+        Err(Error::ExecutionErr(
+            "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+        ))
+    }
+}
+
 async fn transform_attach_db_resource_query(
     parsed: &ParsedAttachDbResource<'_>,
     job_id: &Uuid,
@@ -2228,11 +2272,17 @@ async fn transform_attach_db_resource_query(
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     job_dir: &str,
 ) -> Result<Vec<String>> {
-    let db_resource: Value = client
+    let mut db_resource: Value = client
         .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
         .await?;
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
+    if matches!(
+        parsed.db_type.to_lowercase().as_str(),
+        "postgres" | "postgresql"
+    ) {
+        apply_pg_iam_auth(&mut db_resource, hidden_passwords).await?;
     }
     db_resource_to_attach_statements(
         db_resource,
@@ -2299,7 +2349,7 @@ async fn transform_attach_ducklake(
         .map(|m| m.as_str()[1..m.as_str().len() - 1].to_string())
         .unwrap_or_default();
 
-    let ducklake = match conn {
+    let mut ducklake = match conn {
         Connection::Http(client) => get_ducklake_from_agent_http(client, name, w_id).await?,
         Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
     };
@@ -2329,6 +2379,17 @@ async fn transform_attach_ducklake(
         .and_then(|p| p.as_str())
     {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
+    if db_type == "postgres" {
+        apply_pg_iam_auth(&mut ducklake.catalog_resource, hidden_passwords).await?;
+    }
+    // A fork attaches each ancestor's catalog too, usually the same IAM-auth database.
+    for a in ducklake
+        .fork_defer
+        .iter_mut()
+        .flat_map(|d| d.ancestors.iter_mut())
+    {
+        apply_pg_iam_auth(&mut a.catalog_resource, hidden_passwords).await?;
     }
 
     // Escape single quotes: db_conn_str, storage and data_path are embedded in
@@ -2669,6 +2730,8 @@ async fn transform_attach_datatable(
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
+    let mut db_resource = db_resource;
+    apply_pg_iam_auth(&mut db_resource, hidden_passwords).await?;
 
     Ok(Some(pg_secret_attach_statements(
         db_resource,
@@ -2928,6 +2991,16 @@ mod tests {
         ] {
             assert!(parse(malformed).is_err(), "silently ignored: {malformed}");
         }
+    }
+
+    #[test]
+    fn mask_secrets_masks_a_token_containing_a_shorter_secret() {
+        let token = "h:5432/?Action=connect&DBUser=rds_iam&X-Amz-Signature=abc123";
+        let secrets = [String::new(), "rds_iam".to_string(), token.to_string()];
+        assert_eq!(
+            mask_secrets(format!("failed for {token} as rds_iam"), &secrets),
+            "failed for ****** as ******"
+        );
     }
 
     #[test]

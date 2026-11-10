@@ -47,8 +47,13 @@
 
 	// The access picker re-derives a token's scopes from what it can show, which drops what it
 	// does not model (an old token's endpoint list, say). So they are rewritten only once the
-	// user has used the picker; until then the token keeps exactly the scopes it had.
+	// user has edited a selection or picked another access; until then the token keeps exactly
+	// the scopes it had, and a plain `mcp:all` keeps the endpoint tools.
 	let mcpTouched = $state(false)
+	const mcpEdited = $derived.by(() => {
+		const access = mcpAccessOf(mcpScopes)
+		return mcpTouched && (access === 'selected' || access !== mcpAccessOf(initialScopes ?? []))
+	})
 	// Carried over as is, the picker knowing nothing of them: dropping the workspace list
 	// would widen the token to every workspace, dropping `mcp:session` would move a sign-in
 	// back to the endpoint tools once it is given `mcp:all` again.
@@ -59,8 +64,8 @@
 		(mcpAccessOf(mcpScopes) !== 'selected' && s.startsWith('mcp:hub:'))
 	const scopesToSave = $derived(
 		isMcp
-			? mcpTouched
-				? [...mcpScopes, ...(initialScopes ?? []).filter(keptAside)]
+			? mcpEdited
+				? [...new Set([...mcpScopes, ...(initialScopes ?? []).filter(keptAside)])]
 				: (initialScopes ?? [])
 			: pickedScopes
 	)

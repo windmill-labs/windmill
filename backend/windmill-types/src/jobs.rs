@@ -309,6 +309,10 @@ pub struct QueuedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub trigger_kind: Option<TriggerKindLabel>,
+    // `v2_job.trigger`: the path of the trigger, schedule or app that started the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_path: Option<String>,
 }
 
 impl QueuedJob {
@@ -386,6 +390,7 @@ impl Default for QueuedJob {
             labels: None,
             is_retry: None,
             trigger_kind: None,
+            trigger_path: None,
         }
     }
 }
@@ -480,6 +485,10 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub trigger_kind: Option<TriggerKindLabel>,
+    // `v2_job.trigger`: the path of the trigger, schedule or app that started the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_path: Option<String>,
 }
 
 impl CompletedJob {
@@ -631,7 +640,12 @@ pub enum JobPayload {
         // instead of serializing through a single workspace-wide key.
         concurrency_key_append: Option<String>,
     },
-    Identity,
+    /// Passes its input through. Also stands in for a step that is mocked or skipped, which
+    /// the audit entry records.
+    Identity {
+        mocked: bool,
+        skipped: bool,
+    },
     Noop,
     AIAgent {
         path: String,
@@ -690,7 +704,7 @@ impl JobPayload {
     pub fn job_kind(&self) -> JobKind {
         match self {
             JobPayload::Noop => JobKind::Noop,
-            JobPayload::Identity => JobKind::Identity,
+            JobPayload::Identity { .. } => JobKind::Identity,
             JobPayload::Code { .. } => JobKind::Preview,
             JobPayload::AIAgent { .. } => JobKind::AIAgent,
             JobPayload::FlowNode { .. } => JobKind::FlowNode,

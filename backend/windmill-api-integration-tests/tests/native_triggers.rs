@@ -356,6 +356,63 @@ async fn test_decrypt_instance_level(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A resource connected for runnables is a connection too: its account was issued by the instance
+/// connect client (`gworkspace`, not the trigger flow's `google`), and the workspace may have no
+/// OAuth app at all. Its stored scopes say what a trigger still lacks.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_connected_resource_is_a_connection(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let path = "u/test-user/my_google";
+    let account_id: i32 = sqlx::query_scalar(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, scopes)
+         VALUES ('test-workspace', 'gworkspace', now() + interval '1 hour', 'r',
+                 ARRAY['https://www.googleapis.com/auth/drive.readonly'])
+         RETURNING id",
+    )
+    .fetch_one(&db)
+    .await?;
+    let mc = build_crypt(&db, "test-workspace").await?;
+    sqlx::query(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, account, is_oauth)
+         VALUES ('test-workspace', $1, $2, true, '', $3, true)",
+    )
+    .bind(path)
+    .bind(encrypt(&mc, "resource-token"))
+    .bind(account_id)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)
+         VALUES ('test-workspace', $1, $2, 'gworkspace', '{}'::jsonb, 'test-user')",
+    )
+    .bind(path)
+    .bind(json!({ "token": format!("$var:{path}") }))
+    .execute(&db)
+    .await?;
+
+    let config: OAuthConfig =
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google, Some(path)).await?;
+    assert_eq!(config.access_token, "resource-token");
+    assert_eq!(config.account_id, Some(account_id));
+    assert!(!config.managed);
+
+    let mut tx = UserDB::new(db.clone()).begin(&test_authed()).await?;
+    let connections =
+        list_usable_connections(&db, &mut tx, "test-workspace", ServiceName::Google).await?;
+    tx.commit().await?;
+    let connection = connections.iter().find(|c| c.path == path).expect("listed");
+    assert_eq!(
+        connection.missing_scopes.as_deref(),
+        Some(
+            &[
+                "https://www.googleapis.com/auth/calendar.readonly".to_string(),
+                "https://www.googleapis.com/auth/calendar.events".to_string(),
+            ][..]
+        )
+    );
+
+    Ok(())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resource_path = "u/test-user/native_gworkspace";
@@ -1135,5 +1192,76 @@ async fn test_native_trigger_enabled_toggle(db: Pool<Postgres>) -> anyhow::Resul
         "a trigger Windmill has no row for is not treated as paused"
     );
 
+    Ok(())
+}
+
+/// Re-pointing a trigger replaces its webhook token, so the caller must be able to write the
+/// runnable it targets now, not only the one it is moved to.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_update_requires_writer_on_current_runnable(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let conn = "u/bob/native_nextcloud";
+    setup_oauth_integration(&db, ServiceName::Nextcloud, conn, "a", "r", None).await?;
+    let config = NativeTriggerConfig {
+        script_path: "u/alice/my_script".to_string(),
+        is_flow: false,
+        webhook_token: "abcdefghij1234567890".to_string(),
+    };
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-1",
+        &config,
+        json!({"event": "e"}),
+        None,
+        true,
+        conn,
+    )
+    .await?;
+
+    let bob = ApiAuthed {
+        email: "bob@windmill.dev".to_string(),
+        username: "bob".to_string(),
+        is_admin: false,
+        ..test_authed()
+    };
+    let app = axum::Router::new()
+        .nest(
+            "/w/{workspace_id}/native_triggers/nextcloud",
+            windmill_native_triggers::handler::service_routes(NextCloud),
+        )
+        .layer(axum::Extension(windmill_api_auth::OptJobAuthed {
+            job_id: None,
+            authed: bob,
+        }))
+        .layer(axum::Extension(UserDB::new(db.clone())))
+        .layer(axum::Extension(db.clone()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    tokio::spawn(async move { axum::serve(listener, app).await });
+
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://{addr}/w/test-workspace/native_triggers/nextcloud/update/ext-1"
+        ))
+        .json(&json!({
+            "script_path": "u/bob/my_script",
+            "is_flow": false,
+            "service_config": {"event": "e"},
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert!(
+        !status.is_success() && body.contains("u/alice/my_script"),
+        "{status}: {body}"
+    );
+
+    let path: String =
+        sqlx::query_scalar("SELECT script_path FROM native_trigger WHERE external_id = 'ext-1'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(path, "u/alice/my_script");
     Ok(())
 }

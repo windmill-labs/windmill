@@ -11,6 +11,7 @@
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils.svelte'
+	import { nextMock } from '../flowMock'
 
 	import { dfs } from '../dfs'
 	import { nextId, copyId } from '../flowModuleNextId'
@@ -871,7 +872,8 @@
 				if (!module) {
 					throw new Error(`Node ${detail.id} not found`)
 				}
-				module.mock = $state.snapshot(detail.mock)
+				const mock = $state.snapshot(detail.mock)
+				module.mock = mock ? nextMock(module.mock, mock) : mock
 				refreshStateStore(flowStore)
 			}}
 			{onTestFlow}

@@ -793,7 +793,8 @@ impl AuthCache {
                 {
                     let authed = ApiAuthed {
                         email: SUPERADMIN_SECRET_EMAIL.to_string(),
-                        username: "superadmin_secret".to_string(),
+                        username: windmill_common::usernames::SUPERADMIN_SECRET_USERNAME
+                            .to_string(),
                         is_admin: true,
                         is_operator: false,
                         groups: Vec::new(),

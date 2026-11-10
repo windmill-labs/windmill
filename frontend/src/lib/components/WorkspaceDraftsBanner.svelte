@@ -2,7 +2,6 @@
 	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { Badge, Button } from './common'
-	import { goto } from '$app/navigation'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
@@ -22,13 +21,11 @@
 	const drafts = useWorkspaceDrafts(() => (!isFork ? ($workspaceStore ?? undefined) : undefined))
 	const draftCount = $derived(drafts.count)
 
-	function openDraftCompare() {
-		if ($workspaceStore) {
-			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + '&mode=draft', {
-				replaceState: true
-			})
-		}
-	}
+	const draftCompareHref = $derived(
+		$workspaceStore
+			? '/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + '&mode=draft'
+			: undefined
+	)
 	const phone = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
 
 	const menuId = homeHeaderMenu.register(-100, () =>
@@ -36,7 +33,7 @@
 			? [
 					{
 						displayName: `Review & deploy ${draftCount} draft${draftCount !== 1 ? 's' : ''}`,
-						action: openDraftCompare
+						href: draftCompareHref
 					}
 				]
 			: []
@@ -58,7 +55,7 @@
 			btnClasses="wm-page-in"
 			variant="subtle"
 			unifiedSize="sm"
-			onclick={openDraftCompare}
+			href={draftCompareHref}
 			title="Review & deploy drafts"
 		>
 			<Badge color="blue" small>{draftCount}</Badge>
@@ -69,7 +66,7 @@
 			<Badge color="blue" small>
 				{draftCount} draft{draftCount !== 1 ? 's' : ''}
 			</Badge>
-			<Button variant="subtle" unifiedSize="sm" onclick={openDraftCompare}>
+			<Button variant="subtle" unifiedSize="sm" href={draftCompareHref}>
 				Review & deploy drafts
 			</Button>
 		</span>

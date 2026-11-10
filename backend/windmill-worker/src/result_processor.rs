@@ -25,6 +25,7 @@ use windmill_common::{
     utils::WarnAfterExt,
     worker::{error_to_value, to_raw_value, Connection, WORKER_GROUP},
     worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
+    worker_job_stats::record_job_outcome,
     KillpillSender, DB,
 };
 
@@ -366,7 +367,10 @@ pub fn start_background_processor(
             if has_been_killed {
                 tracing::info!("bg processor is killed, draining. same_worker_queue_size: {}, unbounded_rx: {}, bounded_rx: {}", same_worker_queue_size.load(Ordering::SeqCst), unbounded_rx.len(), bounded_rx.len())
             }
-            if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
+            if has_been_killed
+                && same_worker_queue_size.load(Ordering::SeqCst) == 0
+                && crate::worker::LIVE_DEDICATED_TASKS.load(Ordering::SeqCst) == 0
+            {
                 unbounded_rx
                     .try_recv()
                     .ok()
@@ -409,6 +413,7 @@ pub fn start_background_processor(
                         JobKind::Dependencies | JobKind::FlowDependencies
                     ) && !jc.job.build_binary_only;
                     let jc_id = jc.job.id;
+                    let canceled = jc.canceled_by.is_some();
                     #[cfg(feature = "benchmark")]
                     let bench_job_id = jc.job.id;
                     #[cfg(feature = "benchmark")]
@@ -435,6 +440,12 @@ pub fn start_background_processor(
                     .warn_after_seconds(10)
                     .await;
 
+                    // An agent server processes the jobs of remote agent workers, which count
+                    // their own outcomes. A canceled job is not held against the worker.
+                    if !is_agent_server {
+                        record_job_outcome(&worker_name, !final_success && !canceled);
+                    }
+
                     // Resolved here rather than from the main loop's outcome because `wm_failure`
                     // can flip an exit-zero init script to a failure, and dedicated workers must
                     // not install against a host it failed to prepare. An agent server relays other
@@ -460,15 +471,16 @@ pub fn start_background_processor(
                         }
                     }
                     if is_dependency_job && is_dedicated_worker {
-                        tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                        // Re-saving the config unchanged notifies every worker of the group,
+                        // this one included, to reload its dedicated subprocesses.
+                        tracing::info!("Dedicated worker executed a dependency job, a new version has been deployed. Notifying the worker group to reload.");
                         sqlx::query!(
                                 "UPDATE config SET config = config WHERE name = $1",
                                 format!("worker__{}", *WORKER_GROUP)
                             )
                             .execute(&db)
                             .await
-                            .expect("update config to trigger restart of all dedicated workers at that config");
-                        killpill_tx.send();
+                            .expect("update config to trigger a reload of all dedicated workers at that config");
                     }
                     add_time!(bench, "job completed processed");
 
@@ -735,11 +747,13 @@ pub async fn handle_receive_completed_job(
     let workspace = jc.job.workspace_id.clone();
     // This client drives post-completion orchestration (the next step's input transforms fetch
     // prior results) and outlives the finished step, so the step's own token can already be near
-    // expiry. Refresh it — but only from the server-written job_perms row, never from the
-    // completion payload's owner fields, which are untrusted on the agent-worker path.
+    // expiry, or absent for a step failed before it ran (e.g. on a full concurrency key). Refresh
+    // it — but only from the server-written job_perms row, never from the completion payload's
+    // owner fields, which are untrusted on the agent-worker path.
     let token = if jc.job.is_flow_step()
-        && windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
-            .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS)
+        && (jc.token.is_empty()
+            || windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
+                .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS))
     {
         let label = windmill_common::auth::ephemeral_script_token_label(
             &jc.job.permissioned_as,
@@ -771,7 +785,7 @@ pub async fn handle_receive_completed_job(
             }),
             // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
             // token rather than minting an identity from untrusted payload fields. The token is
-            // near expiry, so trace it — the downstream fetch may hit the original failure.
+            // near expiry or absent, so trace it — the downstream fetch may hit the original failure.
             Ok(None) => {
                 tracing::warn!(
                     "no job_perms row to refresh flow-orchestration token for job {}, reusing step token",
@@ -1206,8 +1220,10 @@ async fn maybe_record_git_sync_pushed_head(
         branch: Option<String>,
         #[serde(default)]
         rebased: bool,
+        /// The commit the pushed one sits on; absent from older hub script versions.
+        base_sha: Option<String>,
     }
-    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch), rebased }) =
+    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch), rebased, base_sha }) =
         serde_json::from_str::<PushResult>(result)
     else {
         return;
@@ -1249,6 +1265,23 @@ async fn maybe_record_git_sync_pushed_head(
         tracing::warn!(
             "git sync push: failed to record pushed head {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
         );
+    }
+    if let Some(base_sha) = base_sha {
+        if let Err(e) = windmill_git_sync::advance_synced_sha_past_own_push(
+            db,
+            workspace_id,
+            &repo_path,
+            &branch,
+            &base_sha,
+            &sha,
+            *job_id,
+        )
+        .await
+        {
+            tracing::warn!(
+                "git sync push: failed to advance the synced sha past {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
+            );
+        }
     }
 }
 
@@ -2089,18 +2122,32 @@ pub async fn handle_job_error(
         .await
     };
 
+    // A subflow woken by a timeout's cancel is updated as a flow, as a root is, so its failure
+    // module can run before its parent hears of it. Its `canceled_by` is read from the queue:
+    // the error of a cancelled job pulled from it does not carry one.
+    let own_flow_update = job.is_flow()
+        && job.parent_job.is_some()
+        && sqlx::query_scalar!("SELECT canceled_by FROM v2_job_queue WHERE id = $1", job.id)
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+            .as_deref()
+            == Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER);
     let update_job_future = if job.is_flow_step() || job.is_flow() {
-        let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
-            if let Err(e) = update_job_future().await {
-                tracing::error!(
-                    "error updating job future for job {} for handle_job_error: {e:#}",
-                    job.id
-                );
-            }
-            (parent_job_id, job.id)
-        } else {
-            (job.id, Uuid::nil())
-        };
+        let (flow, job_status_to_update) =
+            if let Some(parent_job_id) = job.parent_job.filter(|_| !own_flow_update) {
+                if let Err(e) = update_job_future().await {
+                    tracing::error!(
+                        "error updating job future for job {} for handle_job_error: {e:#}",
+                        job.id
+                    );
+                }
+                (parent_job_id, job.id)
+            } else {
+                (job.id, Uuid::nil())
+            };
 
         let wrapped_error = WrappedError { error: err_json.clone() };
         tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err_json:?}");

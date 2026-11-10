@@ -259,6 +259,51 @@ function assertAiEngineFreeAppShell() {
 	}
 }
 
+/**
+ * zod's `sideEffects: false` lets the bundler drop the module whose top-level config(en()) installs
+ * its English messages, which turns every default message into "Invalid input" in production builds
+ * only. The entry module needs the flag too, or the bundler never walks from it into that module.
+ * zod 4.5 registers the locale itself, so this can go on that upgrade.
+ */
+function keepZodLocale() {
+	return {
+		name: 'wm-keep-zod-locale',
+		transform(code, id) {
+			if (/\/zod\/(index|v4\/classic\/external)\.js$/.test(id)) {
+				return { code, moduleSideEffects: true }
+			}
+		}
+	}
+}
+
+/**
+ * Fail the build if zod's English messages were tree-shaken out of the client bundle (see
+ * keepZodLocale). Only a production bundle can lose them, so a dev server or a unit test passes
+ * either way.
+ */
+function assertZodMessagesKept() {
+	// The server pass leaves zod external, so none of its chunks hold the messages.
+	// isClientBuild can't skip that pass: it also writes under _app/immutable/, so every build would fail.
+	let ssr = false
+	return {
+		name: 'wm-assert-zod-messages-kept',
+		configResolved(config) {
+			ssr = !!config.build.ssr
+		},
+		generateBundle(_options, bundle) {
+			if (ssr) return
+			const kept = Object.values(bundle).some(
+				(c) => c.type === 'chunk' && c.code.includes('Too big: expected')
+			)
+			if (!kept) {
+				this.error(
+					'No chunk holds zod\'s English messages, so every zod error would read "Invalid input". See keepZodLocale.'
+				)
+			}
+		}
+	}
+}
+
 const remoteUrl =
 	process.env.REMOTE ??
 	(process.env.BACKEND_PORT
@@ -460,7 +505,9 @@ const config = {
 		preloadWithoutLinkScan(),
 		assertLeanPublicAppRoutes(),
 		assertMonacoFreeAppShell(),
-		assertAiEngineFreeAppShell()
+		assertAiEngineFreeAppShell(),
+		keepZodLocale(),
+		assertZodMessagesKept()
 	],
 	define: { '__pkg__.version': JSON.stringify(version) },
 	optimizeDeps: {

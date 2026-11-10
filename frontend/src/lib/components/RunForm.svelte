@@ -28,6 +28,7 @@
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 	import { anyEditorUnparseable, flushAllPendingEditorChanges } from './pendingEditorFlush'
 	import { useOperatingWorkspace } from './operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	// The ephemeral secret variable a password argument mints has to be created in the same
 	// workspace the job runs in: a form embedded in a session runs the job in the session's
@@ -80,6 +81,10 @@
 		// has already written. The keybinding reaches here without the button.
 		if (runRefusal) {
 			sendUserToast(runRefusal, true)
+			return
+		}
+		if (!$roleCaps.run) {
+			sendUserToast('Your role cannot run scripts, flows or AI agents in this workspace', true)
 			return
 		}
 		// An editor whose text does not parse never wrote it to `args`, so running now would send
@@ -196,6 +201,8 @@
 	}: Props = $props()
 
 	const argsReadonly = $derived(!!runRefusal)
+	const roleCaps = useRoleCapabilities()
+	const runDisabled = $derived((!isValid && !jsonView) || argsReadonly || !$roleCaps.run)
 
 	let showPsCommonParams = $derived(
 		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
@@ -407,7 +414,7 @@
 					variant="accent"
 					unifiedSize="md"
 					btnClasses="!inline-flex"
-					disabled={(!isValid && !jsonView) || argsReadonly}
+					disabled={runDisabled}
 					on:click={() => run()}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
@@ -456,7 +463,7 @@
 				variant="accent"
 				unifiedSize="md"
 				btnClasses="!inline-flex"
-				disabled={(!isValid && !jsonView) || argsReadonly}
+				disabled={runDisabled}
 				on:click={() => run(null)}
 				shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 			>
@@ -469,7 +476,7 @@
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			variant="accent"
-			disabled={(!isValid && !jsonView) || argsReadonly}
+			disabled={runDisabled}
 			on:click={() => run(null)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
@@ -480,6 +487,11 @@
 </div>
 
 {#snippet unparseableError()}
+	{#if !$roleCaps.run}
+		<div class="flex-row-reverse flex w-full text-secondary text-xs mt-1">
+			Your role can view runs but not start them in this workspace.
+		</div>
+	{/if}
 	{#if blockedByUnparseable}
 		<div class="flex-row-reverse flex w-full text-red-600 dark:text-red-400 text-xs mt-1">
 			Some input is not valid JSON. Fix it before running.

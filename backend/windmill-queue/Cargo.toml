@@ -37,7 +37,6 @@ serde_json.workspace = true
 ulid.workspace = true
 uuid.workspace = true
 chrono.workspace = true
-chrono-tz.workspace = true
 hex.workspace = true
 rand.workspace = true
 reqwest.workspace = true

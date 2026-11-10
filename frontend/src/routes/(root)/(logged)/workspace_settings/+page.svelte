@@ -40,7 +40,11 @@
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
-	import type { GuestUsage } from '$lib/gen'
+	import type { GuestUsage, WorkspaceWebhookEventType } from '$lib/gen'
+	import { $WorkspaceWebhookEventType as webhookEventTypeSchema } from '$lib/gen/schemas.gen'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
+	import { webhookEventPresets } from '$lib/components/workspaceSettings/webhookEventPresets'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -82,7 +86,6 @@
 	import { untrack } from 'svelte'
 	import { resource } from 'runed'
 	import NativeOAuthCallback from '$lib/components/triggers/native/NativeOAuthCallback.svelte'
-	import { nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
@@ -211,6 +214,30 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
+	// undefined sends every event type
+	let webhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
+	const webhookEventItems = webhookEventTypeSchema.enum.map((value) => ({ label: value, value }))
+	function toggleWebhookEventPreset(events: readonly WorkspaceWebhookEventType[]) {
+		const current = webhookEvents ?? []
+		webhookEvents = events.every((e) => current.includes(e))
+			? current.filter((e) => !events.includes(e))
+			: [...current, ...events.filter((e) => !current.includes(e))]
+	}
+	function webhookPresetSelectedCount(events: readonly WorkspaceWebhookEventType[]) {
+		return events.filter((e) => webhookEvents?.includes(e)).length
+	}
+	let customizeWebhookEvents = $state(false)
+	// A partly selected category can only be read in the per-event list.
+	$effect(() => {
+		if (
+			webhookEventPresets.some((p) => {
+				const n = webhookPresetSelectedCount(p.events)
+				return n > 0 && n < p.events.length
+			})
+		) {
+			customizeWebhookEvents = true
+		}
+	})
 	const noErrorHandler = handlerDraftFromStored(
 		'error',
 		undefined,
@@ -294,6 +321,7 @@
 
 	// Track initial webhook for unsaved changes detection
 	let initialWebhook: string | undefined = $state(undefined)
+	let initialWebhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
 
 	// Track initial encryption key for unsaved changes detection
 	let initialEditedWorkspaceEncryptionKey: string | undefined = $state(undefined)
@@ -653,19 +681,26 @@
 			}
 		}
 
+		if (webhookEvents?.length === 0) {
+			sendUserToast('Select at least one event type, or send all events', true)
+			return
+		}
+
 		try {
 			if (webhook && webhook.trim() !== '') {
 				await WorkspaceService.editWebhook({
 					workspace: $workspaceStore!,
-					requestBody: { webhook }
+					requestBody: { webhook, events: webhookEvents ?? null }
 				})
 				sendUserToast(`webhook set to ${webhook}`)
 				initialWebhook = webhook
+				initialWebhookEvents = $state.snapshot(webhookEvents)
 			} else {
 				await WorkspaceService.editWebhook({
 					workspace: $workspaceStore!,
-					requestBody: { webhook: undefined }
+					requestBody: { webhook: undefined, events: webhookEvents ?? null }
 				})
+				initialWebhookEvents = $state.snapshot(webhookEvents)
 				sendUserToast(`webhook removed`)
 				initialWebhook = ''
 				webhook = ''
@@ -809,6 +844,7 @@
 		plan = settings.plan
 		customer_id = settings.customer_id
 		webhook = settings.webhook
+		webhookEvents = settings.webhook_events
 
 		aiInitialConfig = settings.ai_config ?? {}
 		hasInstanceAiConfig = copilotSettingsState.has_instance_ai_config
@@ -905,6 +941,7 @@
 
 		// Store initial webhook state for unsaved changes detection
 		initialWebhook = webhook
+		initialWebhookEvents = $state.snapshot(webhookEvents)
 
 		// Store initial encryption key state for unsaved changes detection
 		initialEditedWorkspaceEncryptionKey = editedWorkspaceEncryptionKey
@@ -1293,11 +1330,13 @@
 			value && value.trim() !== '' ? value : undefined
 
 		const savedValue = {
-			webhook: normalizeWebhookValue(initialWebhook)
+			webhook: normalizeWebhookValue(initialWebhook),
+			events: initialWebhookEvents
 		}
 
 		const modifiedValue = {
-			webhook: normalizeWebhookValue(webhook)
+			webhook: normalizeWebhookValue(webhook),
+			events: webhookEvents
 		}
 
 		return { savedValue, modifiedValue }
@@ -1306,6 +1345,7 @@
 	// Function to discard unsaved webhook settings changes
 	function discardWebhookSettingsChanges() {
 		webhook = initialWebhook || ''
+		webhookEvents = $state.snapshot(initialWebhookEvents)
 	}
 
 	// Function to check if there are unsaved changes in encryption key settings
@@ -1583,9 +1623,9 @@
 				},
 				{
 					id: 'native_triggers',
-					label: 'Native triggers',
+					label: 'Integration triggers',
 					aiId: 'workspace-settings-integrations',
-					aiDescription: 'Workspace integrations for native triggers'
+					aiDescription: 'Workspace integrations for integration triggers'
 				}
 			]
 		},
@@ -1719,11 +1759,16 @@
 		page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
 		workspaceId: $workspaceStore ?? undefined
 	})
+	function tabHref(id: string): string {
+		const params = new URLSearchParams($page.url.searchParams)
+		params.set('tab', id)
+		return `?${params.toString()}`
+	}
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
 	{#if nativeOAuthService}
-		<NativeOAuthCallback redirectUri={nativeOAuthRedirectUri(nativeOAuthService)} />
+		<NativeOAuthCallback />
 	{:else if canAdmin || isForkOwner}
 		<!-- No title of its own: the band already says which workspace's settings these are, and the
 		     two controls that sat beside the title are the page's actions. The panes below scroll
@@ -1750,11 +1795,8 @@
 					<SidebarNavigation
 						groups={navigationGroups}
 						selectedId={tab}
-						onNavigate={(id) => {
-							const params = new URLSearchParams($page.url.searchParams)
-							params.set('tab', id)
-							goto(`?${params.toString()}`)
-						}}
+						onNavigate={(id) => goto(tabHref(id))}
+						itemHref={tabHref}
 					/>
 				</div>
 			{/if}
@@ -1822,7 +1864,7 @@
 									<Button
 										variant="default"
 										startIcon={{ icon: Target }}
-										onclick={() => goto('/forks/compare?mode=fork')}
+										href="/forks/compare?mode=fork"
 									>
 										Merge into another workspace
 									</Button>
@@ -2259,12 +2301,67 @@
 									<div class="text-xs text-red-600 dark:text-red-400">{webhookValidationError}</div>
 								{/if}
 							</SettingCard>
+							<SettingCard
+								label="Events to send"
+								description="Send every event, or only the categories you select."
+								class="mt-6"
+							>
+								<ToggleButtonGroup
+									selected={webhookEvents === undefined ? 'all' : 'selected'}
+									onSelected={(v) => {
+										webhookEvents = v === 'all' ? undefined : [...(initialWebhookEvents ?? [])]
+									}}
+									class="max-w-lg"
+								>
+									{#snippet children({ item })}
+										<ToggleButton {item} value="all" label="All events" />
+										<ToggleButton {item} value="selected" label="Selected events" />
+									{/snippet}
+								</ToggleButtonGroup>
+								{#if webhookEvents !== undefined}
+									<div class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 max-w-lg mt-3">
+										{#each webhookEventPresets as preset (preset.label)}
+											{@const count = webhookPresetSelectedCount(preset.events)}
+											<label class="flex items-center gap-2 text-xs text-primary cursor-pointer">
+												<Checkbox
+													checked={count === preset.events.length}
+													indeterminate={count > 0 && count < preset.events.length}
+													onChange={() => toggleWebhookEventPreset(preset.events)}
+												/>
+												{preset.label}
+											</label>
+										{/each}
+									</div>
+									<CollapseLink
+										text="Customize individual events"
+										bind:open={customizeWebhookEvents}
+										class="mt-3"
+									>
+										<MultiSelect
+											items={webhookEventItems}
+											bind:value={webhookEvents}
+											placeholder="Select event types"
+											class="max-w-lg"
+										/>
+									</CollapseLink>
+									{#if webhookEventTypeSchema.enum.every((e) => webhookEvents?.includes(e))}
+										<div class="text-xs text-secondary max-w-lg">
+											Every event type is selected. Event types added in later versions are not sent
+											unless you choose All events.
+										</div>
+									{:else if webhookEvents.length === 0}
+										<div class="text-xs text-red-600 dark:text-red-400">
+											Select at least one category or event type
+										</div>
+									{/if}
+								{/if}
+							</SettingCard>
 							<SettingsFooter
 								hasUnsavedChanges={hasWebhookChanges}
 								onSave={editWebhook}
 								onDiscard={discardWebhookSettingsChanges}
 								saveLabel="Save webhook"
-								disabled={!!webhookValidationError}
+								disabled={!!webhookValidationError || webhookEvents?.length === 0}
 								class="mt-8"
 							/>
 						{:else if tab == 'error_handler'}
@@ -2881,10 +2978,10 @@ export async function main(
 		{#if pageHeader.actionFold >= 1}
 			<DropdownV2
 				size="sm"
-				items={[{ displayName: 'Instance settings', action: () => goto('#superadmin-settings') }]}
+				items={[{ displayName: 'Instance settings', href: '#superadmin-settings' }]}
 			/>
 		{:else}
-			<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
+			<Button variant="default" unifiedSize="sm" href="#superadmin-settings">
 				Instance settings
 			</Button>
 		{/if}

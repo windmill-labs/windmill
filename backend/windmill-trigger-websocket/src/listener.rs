@@ -20,6 +20,7 @@ use windmill_common::ssrf::SsrfValidationError;
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     jobs::JobTriggerKind,
+    runnable_ref::RunnableRef,
     triggers::TriggerMetadata,
     utils::report_critical_error,
     worker::to_raw_value,
@@ -27,18 +28,14 @@ use windmill_common::{
 };
 use windmill_queue::PushArgsOwned;
 use windmill_trigger::filter::CompiledFilters;
-use windmill_trigger::listener::{reconnect_delay, update_rw_lock, ListeningTrigger};
+use windmill_trigger::listener::{
+    is_transient_error, transient_error, update_rw_lock, ListeningTrigger,
+};
 use windmill_trigger::trigger_helpers::{
     trigger_runnable, trigger_runnable_and_wait_for_raw_result,
     trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
 };
 use windmill_trigger::Listener;
-
-/// Unit of the connect backoff (see [`reconnect_delay`]). Tests shrink it to avoid
-/// waiting out real seconds; nothing else writes it.
-#[doc(hidden)]
-pub static CONNECT_RETRY_BASE_DELAY_MS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(1000);
 
 /// How often an open connection is pinged. A connection that delivers no frame at all
 /// (message, ping or pong) for [`MISSED_PINGS_BEFORE_RECONNECT`] intervals is presumed
@@ -78,24 +75,6 @@ fn is_transient_connect_error(err: &tungstenite::Error) -> bool {
     }
 }
 
-/// A URL runnable that ran and failed, or whose result could not be awaited (the
-/// result wait times out, the DB blips), may succeed on the next run: worker group
-/// saturated, upstream API down. Anything else (missing runnable, no permission,
-/// non-string result, workers too old) fails the same way every time. An allowlist, so
-/// that a new error kind disables rather than re-running a job every few minutes forever.
-fn is_transient_runnable_error(err: &Error) -> bool {
-    matches!(
-        err,
-        Error::InternalErr(_)
-            | Error::InternalErrLoc { .. }
-            | Error::InternalErrAt(..)
-            | Error::Anyhow { .. }
-            | Error::SqlErr { .. }
-            | Error::ConnectingToDatabase(_)
-            | Error::BadGateway(_)
-    )
-}
-
 async fn connect_once(
     db: &DB,
     listening_trigger: &ListeningTrigger<WebsocketConfig>,
@@ -103,15 +82,11 @@ async fn connect_once(
 ) -> std::result::Result<<WebsocketTrigger as Listener>::Consumer, ConnectFailure> {
     let url = &listening_trigger.trigger_config.url;
     let connect_url: Cow<str> = if url.starts_with("$") {
-        let Some((kind, path)) = url
-            .split_once(':')
-            .filter(|(kind, _)| *kind == "$flow" || *kind == "$script")
-        else {
-            return Err(ConnectFailure {
-                error: format!("Invalid WebSocket runnable path: {}", url),
-                transient: false,
-            });
-        };
+        let runnable = match RunnableRef::from_ws_url(url) {
+            Some(parsed) => parsed.map_err(|err| err.to_string()),
+            None => Err(format!("Invalid WebSocket runnable path: {url}")),
+        }
+        .map_err(|error| ConnectFailure { error, transient: false })?;
         update_rw_lock(
             err_message,
             Some("Waiting on runnable to return WebSocket URL...".to_string()),
@@ -125,8 +100,7 @@ async fn connect_once(
         let url = async {
             let authed = listening_trigger.authed(db, "ws").await?;
             get_url_from_runnable_value(
-                path,
-                kind == "$flow",
+                &runnable,
                 db,
                 authed,
                 args,
@@ -135,8 +109,11 @@ async fn connect_once(
             .await
         }
         .await
+        // A URL runnable that ran and failed, or whose result could not be awaited, may
+        // succeed on the next run (worker group saturated, upstream API down); a missing
+        // runnable or a non-string result fails the same way every time.
         .map_err(|err| ConnectFailure {
-            transient: is_transient_runnable_error(&err),
+            transient: is_transient_error(&err),
             error: format!("Error getting WebSocket URL from runnable: {}", err),
         })?;
         Cow::Owned(url)
@@ -270,8 +247,7 @@ async fn send_initial_messages(
                     None,
                     authed.clone(),
                     &listening_trigger.workspace_id,
-                    &path,
-                    is_flow,
+                    &RunnableRef::from_path(&path, is_flow)?,
                     PushArgsOwned { args, extra: None },
                     None,
                     None,
@@ -316,7 +292,6 @@ impl Listener for WebsocketTrigger {
     type Extra = ReturnMessageChannels;
     type ExtraState = ();
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Websocket;
-    const RECONNECT_ON_CONSUMER_EXIT: bool = true;
     async fn get_consumer(
         &self,
         db: &DB,
@@ -324,59 +299,11 @@ impl Listener for WebsocketTrigger {
         err_message: Arc<RwLock<Option<String>>>,
         _killpill_rx: tokio::sync::broadcast::Receiver<()>,
     ) -> Result<Option<Self::Consumer>> {
-        // The caller runs `loop_ping` alongside, so the lease and the status line stay
-        // alive across the sleeps, and cancels this future on killpill or a lost lease.
-        let mut attempt = 0;
-        loop {
-            attempt += 1;
-            match connect_once(db, listening_trigger, err_message.clone()).await {
-                Ok(conn) => return Ok(Some(conn)),
-                // Only retry in trigger mode, where a failure disables the trigger until
-                // a human re-enables it: capture mode is an interactive test where
-                // instant feedback beats resilience (an `Io` error can also be a
-                // permanent misconfiguration, e.g. a typo'd host).
-                Err(ConnectFailure { error, transient: true })
-                    if listening_trigger.trigger_mode =>
-                {
-                    let delay = reconnect_delay(
-                        Duration::from_millis(
-                            CONNECT_RETRY_BASE_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed),
-                        ),
-                        attempt,
-                    );
-                    let next_attempt_at =
-                        chrono::Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default();
-                    tracing::warn!(
-                        "Transient error connecting to WebSocket for trigger {} (attempt {}), retrying in {:?}: {}",
-                        listening_trigger.path,
-                        attempt,
-                        delay,
-                        error
-                    );
-                    update_rw_lock(
-                        err_message.clone(),
-                        Some(format!(
-                            "Connection attempt {} failed, retrying in {:?} (at {}): {}",
-                            attempt,
-                            delay,
-                            next_attempt_at.format("%Y-%m-%d %H:%M:%S UTC"),
-                            error
-                        )),
-                    )
-                    .await;
-                    tokio::time::sleep(delay).await;
-                }
-                Err(ConnectFailure { error, .. }) => {
-                    let error = if attempt > 1 {
-                        format!("{} (connection attempt {})", error, attempt)
-                    } else {
-                        error
-                    };
-                    return Err(Error::Generic(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        error,
-                    ));
-                }
+        match connect_once(db, listening_trigger, err_message).await {
+            Ok(conn) => Ok(Some(conn)),
+            Err(ConnectFailure { error, transient: true }) => Err(transient_error(error)),
+            Err(ConnectFailure { error, transient: false }) => {
+                Err(Error::Generic(http::StatusCode::BAD_REQUEST, error))
             }
         }
     }
@@ -532,10 +459,21 @@ impl Listener for WebsocketTrigger {
                                         }
                                     }
 
-                                    if filters.matches(&text) {
-                                        let trigger_info = HashMap::from([
-                                            ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
-                                        ]);
+                                    let mut trigger_info = HashMap::from([
+                                        ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
+                                    ]);
+                                    let should_handle = match filters.matches(&text) {
+                                        Ok(matched) => matched,
+                                        Err(error) if listening_trigger.trigger_config.run_on_filter_error => {
+                                            trigger_info.insert("filter_error".to_string(), to_raw_value(&error));
+                                            true
+                                        }
+                                        Err(error) => {
+                                            tracing::warn!("WebSocket trigger {} skipped a message: its filters could not be applied, {}", listening_trigger.path, error);
+                                            false
+                                        }
+                                    };
+                                    if should_handle {
                                         let _ = self.handle_event(db, listening_trigger, text, trigger_info, return_message_channels.clone()).await;
                                     }
                                 },
@@ -594,15 +532,10 @@ impl Listener for WebsocketTrigger {
         let WebsocketConfig { url, .. } = trigger_config;
 
         trigger_info.insert("trigger_path".to_string(), to_raw_value(path));
-        let args = WebsocketTrigger::build_job_args(
-            &script_path,
-            *is_flow,
-            workspace_id,
-            db,
-            payload,
-            trigger_info,
-        )
-        .await;
+        let runnable = RunnableRef::from_path(script_path, *is_flow)?;
+        let args =
+            WebsocketTrigger::build_job_args(&runnable, workspace_id, db, payload, trigger_info)
+                .await;
 
         let args = match args {
             Ok(args) => args,
@@ -629,8 +562,7 @@ impl Listener for WebsocketTrigger {
                 None,
                 authed,
                 &workspace_id,
-                &script_path,
-                *is_flow,
+                &runnable,
                 args,
                 retry,
                 error_handler_path,
@@ -644,8 +576,6 @@ impl Listener for WebsocketTrigger {
         } else if let Some(ReturnMessageChannels { send_message_tx, mut killpill_rx }) = extra {
             let db_ = db.clone();
             let url = url.to_owned();
-            let script_path = script_path.to_owned();
-            let is_flow = *is_flow;
             let w_id = workspace_id.to_owned();
             let retry = retry.cloned();
             let error_handler_path = error_handler_path.map(|s| s.to_string());
@@ -662,8 +592,7 @@ impl Listener for WebsocketTrigger {
                         None,
                         authed,
                         &w_id,
-                        &script_path,
-                        is_flow,
+                        &runnable,
                         args,
                         retry.as_ref(),
                         error_handler_path.as_deref(),

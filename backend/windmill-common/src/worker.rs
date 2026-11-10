@@ -524,6 +524,10 @@ lazy_static::lazy_static! {
     pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 =
         AtomicU32::new(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
 
+    /// Admit the jobs waiting on a concurrency key in order: per tag, by priority, then by
+    /// when they became due. On unless the `concurrency_limit_in_order` setting is false.
+    pub static ref CONCURRENCY_LIMIT_IN_ORDER: AtomicBool = AtomicBool::new(true);
+
     /// Cloud-only ceiling on the total number of jobs a workspace may have queued at once,
     /// across every concurrency key and script. Guards against a workspace flooding the queue
     /// generally (not just behind one key), including from parallel for-loops. `0` disables it.
@@ -642,6 +646,12 @@ pub fn is_cloud_production_host() -> bool {
 /// Cached resolved native mode flag, updated when worker config is reloaded.
 /// Use this for hot-path checks (e.g. per-job dispatch) to avoid read-locking WORKER_CONFIG.
 pub static NATIVE_MODE_RESOLVED: AtomicBool = AtomicBool::new(false);
+
+/// Notified when a dedicated worker group's config is re-saved unchanged, which is how a deploy
+/// of one of its scripts reaches every worker of the group: they reload their dedicated
+/// subprocesses in place rather than restart.
+pub static DEDICATED_WORKER_RELOAD: std::sync::LazyLock<tokio::sync::Notify> =
+    std::sync::LazyLock::new(tokio::sync::Notify::new);
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 #[derive(Clone)]
@@ -2064,6 +2074,8 @@ pub struct Ping {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draining: Option<bool>,
     pub ping_type: PingType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_stats: Option<crate::worker_job_stats::WorkerJobStats>,
 }
 pub async fn update_ping_http(
     insert_ping: Ping,
@@ -2091,6 +2103,7 @@ pub async fn update_ping_http(
                 insert_ping
                     .last_job_executed
                     .zip(insert_ping.last_job_workspace_id.as_deref()),
+                insert_ping.job_stats.as_ref(),
                 db,
             )
             .await?
@@ -2142,7 +2155,10 @@ pub async fn update_ping_http(
                 insert_ping.last_job_executed.unwrap_or_default(),
                 db,
             )
-            .await?
+            .await?;
+            if let Some(job_stats) = insert_ping.job_stats.as_ref() {
+                set_worker_job_stats_query(worker_name, job_stats, db).await?;
+            }
         }
         PingType::Draining => set_worker_draining_query(worker_name, db).await?,
     }
@@ -2153,6 +2169,82 @@ pub async fn set_worker_draining_query(worker_name: &str, db: &DB) -> anyhow::Re
     sqlx::query!(
         "UPDATE worker_ping SET draining = true WHERE worker = $1",
         worker_name
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// How long a dedicated worker's restart holds its group's turn at most: a successor that never
+/// reports ready must not block the group's other workers for longer.
+const DEDICATED_RESTART_TURN_SECS: f64 = 300.0;
+
+/// Restarts this worker once no other worker of its group is restarting, so that a change that
+/// reaches a whole dedicated worker group never takes all of its warm workers down at once.
+/// The turn is keyed on the host, which a supervisor's restart keeps, and is released by the
+/// next worker of this host once its dedicated subprocesses are up (`dedicated_worker_ready`).
+pub fn restart_dedicated_worker_in_turn(db: DB, killpill_tx: KillpillSender) {
+    tokio::spawn(async move {
+        let mut waiting = false;
+        loop {
+            match claim_dedicated_restart_turn(&db).await {
+                Ok(true) => break,
+                Ok(false) if !waiting => {
+                    tracing::info!("waiting for another worker of group {} to finish restarting before restarting", *WORKER_GROUP);
+                    waiting = true;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::error!(
+                        "could not take the dedicated worker restart turn, restarting now: {e:#}"
+                    );
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+        tracing::info!("Dedicated worker restarting, expecting to be restarted by supervisor.");
+        killpill_tx.send();
+    });
+}
+
+async fn claim_dedicated_restart_turn(db: &DB) -> sqlx::Result<bool> {
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('dedicated_restart_turn:' || $1))",
+        &*WORKER_GROUP
+    )
+    .execute(&mut *tx)
+    .await?;
+    let busy = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM worker_ping WHERE worker_group = $1 AND worker_instance <> $2
+            AND dedicated_restart_at > now() - make_interval(secs => $3)) AS "busy!""#,
+        &*WORKER_GROUP,
+        &*crate::utils::HOSTNAME,
+        DEDICATED_RESTART_TURN_SECS
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if !busy {
+        sqlx::query!(
+            "UPDATE worker_ping SET dedicated_restart_at = now() WHERE worker_group = $1 AND worker_instance = $2",
+            &*WORKER_GROUP,
+            &*crate::utils::HOSTNAME
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(!busy)
+}
+
+/// Releases the restart turn held by this host's previous worker of the group, if any.
+pub async fn dedicated_worker_ready(db: &DB) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET dedicated_restart_at = NULL
+            WHERE worker_group = $1 AND worker_instance = $2 AND dedicated_restart_at IS NOT NULL",
+        &*WORKER_GROUP,
+        &*crate::utils::HOSTNAME
     )
     .execute(db)
     .await?;
@@ -2283,15 +2375,15 @@ pub async fn insert_ping_query(
     native_mode: bool,
     draining: Option<bool>,
     db: &DB,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<ReclaimedPing> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
     // meanwhile the value a previous process wrote to a reclaimed row is the best guess we have. A
     // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
-    let previous_jobs_executed = sqlx::query_scalar!(
+    let reclaimed = sqlx::query!(
         "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, false)) ON CONFLICT (worker)
         DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = COALESCE($13, worker_ping.draining)
-        RETURNING jobs_executed",
+        RETURNING jobs_executed, job_stats",
         worker_instance,
         worker_name,
         ip,
@@ -2308,7 +2400,19 @@ pub async fn insert_ping_query(
         )
         .fetch_one(db)
         .await?;
-    Ok(previous_jobs_executed)
+    Ok(ReclaimedPing {
+        jobs_executed: reclaimed.jobs_executed,
+        job_stats: reclaimed
+            .job_stats
+            .and_then(|v| serde_json::from_value(v).ok()),
+    })
+}
+
+/// What a worker starting under the name of an earlier process carries over from its row.
+#[derive(Default)]
+pub struct ReclaimedPing {
+    pub jobs_executed: i32,
+    pub job_stats: Option<crate::worker_job_stats::WorkerJobStats>,
 }
 
 pub async fn update_worker_ping_from_job_query(
@@ -2383,6 +2487,21 @@ pub async fn update_job_ping_query(
     }
 }
 
+pub async fn set_worker_job_stats_query(
+    worker_name: &str,
+    job_stats: &crate::worker_job_stats::WorkerJobStats,
+    db: &DB,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET job_stats = $1 WHERE worker = $2",
+        serde_json::to_value(job_stats)?,
+        worker_name,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn update_worker_ping_main_loop_query(
     worker_name: &str,
     tags: &[String],
@@ -2398,14 +2517,17 @@ pub async fn update_worker_ping_main_loop_query(
     native_mode: bool,
     ip: Option<&str>,
     last_job: Option<(Uuid, &str)>,
+    job_stats: Option<&crate::worker_job_stats::WorkerJobStats>,
     db: &DB,
 ) -> anyhow::Result<()> {
     let (last_job_id, last_job_workspace_id) = last_job.unzip();
+    let job_stats = job_stats.and_then(|s| serde_json::to_value(s).ok());
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
          memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip),
-         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id) WHERE worker = $6",
+         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id),
+         job_stats = COALESCE($16, job_stats) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -2421,6 +2543,7 @@ pub async fn update_worker_ping_main_loop_query(
         ip,
         last_job_id,
         last_job_workspace_id,
+        job_stats,
     )
         .execute(db))
     .await??;
@@ -2479,6 +2602,49 @@ pub fn with_dev_workspace_suffix(tag: &str, suffix: &str) -> String {
 /// alone does not tell whose it is: two workspaces may share it.
 pub fn is_hashed_dedicated_worker_tag(tag: &str) -> bool {
     tag.len() == MAX_TAG_LEN && tag.as_bytes().get(MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN) == Some(&b'#')
+}
+
+/// The path prefix a `dedicated_workers` entry ending in `/*` (`f/dw/*`) stands for: every
+/// script under it, nested folders included. Flows are listed one by one.
+pub fn dedicated_worker_pattern_prefix(path: &str) -> Option<&str> {
+    path.strip_suffix('*')
+        .filter(|p| p.ends_with('/') && p.len() > 1 && !p.starts_with("flow/"))
+}
+
+/// `entries` with each pattern replaced by the scripts under it that a dedicated worker serves:
+/// those enabling `dedicated_worker` with an unrestricted job token, the only ones whose jobs
+/// get the dedicated tag on push. Reads every workspace's scripts unchecked: `entries` must come
+/// from a worker group config, which only an instance admin or devops user can write, never from a
+/// request.
+pub async fn expand_dedicated_workers(
+    db: &DB,
+    entries: &[WorkspacedPath],
+) -> error::Result<Vec<WorkspacedPath>> {
+    let mut out: Vec<WorkspacedPath> = vec![];
+    for wp in entries {
+        let Some(prefix) = dedicated_worker_pattern_prefix(&wp.path) else {
+            out.push(wp.clone());
+            continue;
+        };
+        let paths = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT path FROM script
+             WHERE workspace_id = $1 AND starts_with(path, $2) AND archived = false
+               AND dedicated_worker = true AND job_token_scopes IS NULL
+             ORDER BY path",
+        )
+        .bind(&wp.workspace_id)
+        .bind(prefix)
+        .fetch_all(db)
+        .await?;
+        out.extend(
+            paths
+                .into_iter()
+                .map(|path| WorkspacedPath { workspace_id: wp.workspace_id.clone(), path }),
+        );
+    }
+    let mut seen = HashSet::new();
+    out.retain(|wp| seen.insert((wp.workspace_id.clone(), wp.path.clone())));
+    Ok(out)
 }
 
 pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
@@ -2580,6 +2746,10 @@ pub async fn load_worker_config(
                 .collect::<Result<Vec<_>, _>>()
         })
         .transpose()?;
+    let dedicated_scripts = match dedicated_workers.as_deref() {
+        Some(dws) => Some(expand_dedicated_workers(db, dws).await?),
+        None => None,
+    };
     if *WORKER_GROUP == "default" && dedicated_worker.is_none() {
         let mut all_tags = config
             .worker_tags
@@ -2614,7 +2784,7 @@ pub async fn load_worker_config(
         .worker_tags
         .or_else(|| {
             // Check for multiple dedicated workers
-            if let Some(ref dws) = dedicated_workers.as_ref() {
+            if let Some(ref dws) = dedicated_scripts.as_ref() {
                 let mut dedi_tags: Vec<String> = dws
                     .iter()
                     .map(|dw| dedicated_worker_tag(&dw.workspace_id, &dw.path))
@@ -3766,6 +3936,16 @@ mod tests {
         assert!(!marked.applies_to_workspace(&chain(&["prod"])));
         assert!(!marked.applies_to_workspace(&fork));
         assert!(marked.applies_to_workspace(&chain(&["other"])));
+    }
+
+    #[test]
+    fn dedicated_worker_patterns_are_script_folders() {
+        assert_eq!(dedicated_worker_pattern_prefix("f/dw/*"), Some("f/dw/"));
+        assert_eq!(dedicated_worker_pattern_prefix("u/alice/*"), Some("u/alice/"));
+        assert_eq!(dedicated_worker_pattern_prefix("f/dw/script"), None);
+        assert_eq!(dedicated_worker_pattern_prefix("f/dw*"), None);
+        assert_eq!(dedicated_worker_pattern_prefix("/*"), None);
+        assert_eq!(dedicated_worker_pattern_prefix("flow/f/dw/*"), None);
     }
 
     #[test]

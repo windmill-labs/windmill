@@ -125,7 +125,7 @@
 					Retry loading events
 				</Button>
 				<Button variant="subtle" href="/workspace_settings?tab=native_triggers" target="_blank">
-					Native trigger settings
+					Integration trigger settings
 				</Button>
 			</div>
 		</div>

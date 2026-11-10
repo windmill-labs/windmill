@@ -22,6 +22,7 @@ import {
 import { deepEqual } from 'fast-equals'
 import { promptSafe, type ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
 import { canDraftItem, roleCanDraft } from '$lib/editRights'
+import { renderPromptTemplate } from './promptTemplate'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
 	CreateVariable,
@@ -1335,7 +1336,7 @@ type FolderPromptContext = {
 // write anywhere, but `folders` only carries their explicitly-permissioned subset,
 // so for admins it is a non-exhaustive hint and list_workspace_items has the rest.
 // Capped so a folder-heavy workspace can't dominate the prompt.
-function buildFolderGuidance(
+export function buildFolderGuidance(
 	username: string,
 	ctx: FolderPromptContext | undefined,
 	canCreateFolder: boolean,
@@ -1389,50 +1390,118 @@ function buildFolderGuidance(
 const listJoin = (items: (string | false)[], type: 'conjunction' | 'disjunction' = 'conjunction') =>
 	new Intl.ListFormat('en', { type }).format(items.filter((i): i is string => !!i))
 
-// The prompt an external MCP client reads. A directory reviewer reads it as a description of
-// what the server does, so it names only the server's own tools and leaves how each one works
-// to its description and to get_instructions. OpenAI asks for the most important details in
-// the first 512 characters and some clients keep only the first 4096, so the drafts rule
-// opens and the rules come before the path conventions.
-function buildExternalPrompt(username: string, paths: string, skills: AiSkillListItem[]) {
-	return `This server works in a Windmill workspace as the user "${username}".
+// Prompt templates: `{{#flag}}…{{/flag}}` keeps its body when the flag is set, `{{^flag}}…{{/flag}}`
+// when it is not, and `{{name}}` takes a variable (`promptTemplate.ts`). A block carries its own
+// leading newline, so a dropped one leaves no blank line behind.
 
-Rules:
-- What you write is a per-user draft, saved server-side and visible only to this user. Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.
-- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.
-- Find items with list_workspace_items and read one with read_workspace_item before changing it. An agent is a resource of type \`ai_agent\`: test it with test_run_agent and run a deployed one with run_agent, never run_flow or run_script.
-- Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language. Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and get_db_schema before writing SQL against a database resource.
-- After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.
-- A request to run something also goes to the test_run tools. Use run_script, run_flow or run_agent only when the user asks for the deployed version, after reading it with version "deployed" so the arguments match.
-- To undo your own work, discard its draft with discard_local_draft. delete_workspace_item removes an item that is deployed.
+// Shared by the chat and the external prompt. Flags: can_write_any_draft, can_create_folder.
+// Variables: username, folder_guidance (the folder lines, with their leading newline).
+const PATH_CONVENTIONS = `{{#can_write_any_draft}}
+
+Path conventions:
+- A workspace path starts with one of two namespaces; its trailing <name> may itself contain "/", so a path has three or more segments:
+  - \`u/{{username}}/<name>\` — your personal scope. Default for ad-hoc, exploratory, or scratch work.
+  - \`f/<folder>/<name>\` — a shared folder scope; the <folder> must already exist (a bare \`f/<name>\` with no folder segment is INVALID and will fail).
+- If the user supplies a fully qualified \`f/<folder>/...\` path, use that exact path; they have already chosen the folder. Do not ask for folder confirmation or substitute a \`u/{{username}}/...\` path unless a tool rejects it.
+- Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/{{username}}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist{{#can_create_folder}}; create one with \`create_folder\` only when the user explicitly asks for a new folder{{/can_create_folder}}.{{folder_guidance}}{{/can_write_any_draft}}{{#can_create_folder}}{{^can_write_any_draft}}
+- You can create a shared folder with \`create_folder\` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.{{/can_write_any_draft}}{{/can_create_folder}}`
+
+// The prompt an external MCP client reads, rendered with the flags `externalPromptProfile` gives
+// an access profile: by the MCP server from `gen/prompt.json`, and by `buildGlobalSystemPrompt`. A directory reviewer reads it as a
+// description of what the server does, so it names only the server's own tools and leaves how
+// each one works to its description and to get_instructions. OpenAI asks for the most
+// important details in the first 512 characters and some clients keep only the first 4096, so
+// the drafts rule opens and the rules come before the path conventions.
+// Each gated block mirrors a tool the server refuses this access: what a read-only token or a
+// restricted role cannot do is stated up front rather than left to a failed call.
+export const EXTERNAL_PROMPT = `This server works in a Windmill workspace as the user "{{username}}".{{#read_only}}{{#runs_deployed}}
+
+This connection can read the workspace's items, runs and data, and run scripts, flows and agents that are already deployed. It cannot create, edit, deploy or delete anything, nor test-run code that is not deployed: when the user asks for such a change, say plainly that this connection cannot make it, rather than describing steps as if you had made it.{{/runs_deployed}}{{^runs_deployed}}
+
+This connection is read-only: it can read the workspace's items, runs and data, but cannot run, create, edit, deploy or delete anything. When the user asks for a run or a change, say plainly that this connection cannot make it, rather than describing steps as if you had made it.{{/runs_deployed}}{{/read_only}}{{^read_only}}{{^can_write_draft}}
+
+This user's role does not let them create or edit {{refused_kinds}} here, so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had, and suggest asking a workspace admin, who can grant their role more.{{#builds_flows}} Their role does let them compose flows out of scripts and flows that are already deployed: write flows with write_flow and patch_flow_json, every step calling a deployed script or flow by path. The server refuses inline code anywhere in the flow, so when a flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.{{/builds_flows}}{{#builds_apps}} Their role does let them build raw apps whose backend runnables are path runnables to deployed scripts or flows; call get_instructions with subject "app" first. The server refuses inline and hub runnables, and runs an app they deploy sandboxed, as the user who deployed it.{{/builds_apps}}{{#has_draft_tools}} They can draft with {{draft_tools}}.{{/has_draft_tools}}{{/can_write_draft}}{{/read_only}}
+
+Rules:{{#can_write_any_draft}}
+- What you write is a per-user draft, saved server-side and visible only to this user. {{#can_deploy}}Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.{{/can_deploy}}{{^can_deploy}}{{#can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, and this workspace's deploy rules let this user deploy only the schedules and triggers their role manages: call deploy_workspace_item for those only when the user asks, and for anything else give them the draft's link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{^can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, which this workspace's deploy rules do not let this user do: when a draft is ready, give them its link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{/can_deploy}}{{/can_write_any_draft}}
+{{#can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}{{^can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, an item's page. Whenever the user will want to see what you found{{#runs}} or ran{{/runs}}, or has to do a step in Windmill themselves: show it with show_run, show_runs or show_item when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}
+- Find items with list_workspace_items and read one with read_workspace_item{{#can_write_any_draft}} before changing it{{/can_write_any_draft}}. An agent is a resource of type \`ai_agent\`{{#runs}}: {{#can_run_flow_preview}}test it with test_run_agent and {{/can_run_flow_preview}}run a deployed one with run_agent, never run_flow or run_script.{{/runs}}{{^runs}}.{{/runs}}{{#can_write_draft}}
+- Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and{{/can_draft_triggers}}{{^can_draft_triggers}} Call{{/can_draft_triggers}} get_db_schema before writing SQL against a database resource.{{/can_write_draft}}{{^can_write_draft}}{{#can_draft_resources}}
+- Call get_instructions before writing a resource.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields.{{/can_draft_triggers}}{{/can_draft_resources}}{{/can_write_draft}}{{#can_write_draft}}{{#can_run_preview}}
+- After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.{{/can_run_preview}}{{/can_write_draft}}{{^can_write_draft}}{{#builds_flows}}{{#can_run_flow_preview}}
+- After writing a flow, test it with test_run_flow before saying it works. It runs the draft, so nothing needs deploying.{{/can_run_flow_preview}}{{/builds_flows}}{{/can_write_draft}}{{#can_run_preview}}
+- A request to run something also goes to the test_run tools. Use run_script, run_flow or run_agent only when the user asks for the deployed version, after reading it with version "deployed" so the arguments match.{{/can_run_preview}}{{^can_run_preview}}{{#can_run_flow_preview}}
+- A request to run a flow or agent also goes to test_run_flow or test_run_agent, which run the draft. Use run_flow or run_agent only when the user asks for the deployed version, and run_script for any script: those run the DEPLOYED item as this user, so read it with read_workspace_item version "deployed" first so the arguments match.{{/can_run_flow_preview}}{{^can_run_flow_preview}}{{#runs}}
+- run_script, run_flow and run_agent are how you run anything here: they run the DEPLOYED item as this user. Read it with read_workspace_item version "deployed" first so the arguments match.{{/runs}}{{/can_run_flow_preview}}{{/can_run_preview}}{{#can_write_any_draft}}
+- To undo your own work, discard its draft with discard_local_draft.{{#can_deploy_any_kind}} delete_workspace_item removes an item that is deployed.{{/can_deploy_any_kind}}{{/can_write_any_draft}}{{^can_write_any_draft}}{{^read_only}}
+- You cannot create or edit anything, but where the server allows it discard_local_draft drops a draft this user left behind, deploy_workspace_item deploys one when the user asks, and delete_workspace_item removes a deployed item.{{/read_only}}{{/can_write_any_draft}}{{^read_only}}{{#unmanaged}}
+- This workspace does not let this user change {{unmanaged_kinds}}, here or in Windmill: suggest asking a workspace admin.{{/unmanaged}}{{/read_only}}
 - Listings return only what this user can see. When an item they name is missing, say it may be in a folder they cannot read, not that it does not exist.
-- No one can read a variable's value through these tools. When editing a variable, pass only the fields that change.
-- Before writing code against a third-party API, look for its integration with search_hub_scripts and get_hub_integration.
-- Only raw apps (\`rawApp\` true) can be read, edited and deployed here. When a deploy says it widens who may open an app, tell the user in plain words.
-- Datatables are set up in the workspace settings. Start from list_datatables; one with \`migrations_enabled\` changes its schema through migrations only.
-- create_resource_type adds a resource type: show the user the schema first and create it once they agree.
-- For how Windmill itself works, use search_docs and read_docs_page, and link the page you relied on.${paths}${
-		skills.length > 0
-			? `
+- No one can read a variable's value through these tools.{{#can_draft_variables}} When editing a variable, pass only the fields that change.{{/can_draft_variables}}{{#can_write_draft}}
+- Before writing code against a third-party API, look for its integration with search_hub_scripts and get_hub_integration.{{/can_write_draft}}
+- {{#can_write_app_draft}}Only raw apps (\`rawApp\` true) can be read, edited and deployed here. When a deploy says it widens who may open an app, tell the user in plain words.{{/can_write_app_draft}}{{^can_write_app_draft}}Only raw apps (\`rawApp\` true) can be read here.{{/can_write_app_draft}}
+- Datatables are set up in the workspace settings. Start from list_datatables; one with \`migrations_enabled\` changes its schema through migrations only.{{#can_draft_resources}}{{#can_create_resource_type}}
+- create_resource_type adds a resource type: show the user the schema first and create it once they agree.{{/can_create_resource_type}}{{^can_create_resource_type}}
+- This user cannot create a resource type here, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin.{{/can_create_resource_type}}{{/can_draft_resources}}
+- For how Windmill itself works, use search_docs and read_docs_page, and link the page you relied on.${PATH_CONVENTIONS}`
+
+/** The flags and variables `EXTERNAL_PROMPT` renders with for one access profile, which the
+ * generator exports per `prompt_profile` key: the server only fills the template. */
+export function externalPromptProfile(access: SessionAccess | undefined, runsDeployed: boolean) {
+	const a = accessFlags(access)
+	const flags: Record<string, boolean> = {
+		read_only: a.readOnly,
+		runs_deployed: runsDeployed,
+		runs: !a.readOnly || runsDeployed,
+		can_write_any_draft: a.canWriteAnyDraft,
+		can_write_draft: a.canWriteDraft,
+		can_write_app_draft: a.canWriteAppDraft,
+		builds_flows: a.buildsFlows,
+		builds_apps: a.buildsApps,
+		has_draft_tools:
+			a.canDraftResources || a.canDraftVariables || a.canDraftSchedules || a.canDraftTriggers,
+		can_draft_triggers: a.canDraftTriggers,
+		can_draft_resources: a.canDraftResources,
+		can_draft_variables: a.canDraftVariables,
+		can_deploy: a.canDeploy,
+		can_deploy_any_kind: a.canDeployAnyKind,
+		can_run_preview: a.canRunPreview,
+		can_run_flow_preview: a.canRunFlowPreview,
+		unmanaged: !a.canManageSchedules || !a.canManageTriggers,
+		can_create_resource_type: a.canCreateResourceType,
+		can_create_folder: a.canCreateFolder
+	}
+	return {
+		flags: new Set(Object.keys(flags).filter((f) => flags[f])),
+		vars: {
+			refused_kinds: listJoin(a.refusedKinds, 'disjunction'),
+			draft_tools: listJoin([
+				a.canDraftResources && 'write_resource',
+				a.canDraftVariables && 'write_variable',
+				a.canDraftSchedules && 'write_schedule',
+				a.canDraftTriggers && 'write_trigger'
+			]),
+			unmanaged_kinds:
+				!a.canManageSchedules && !a.canManageTriggers
+					? 'schedules or triggers'
+					: !a.canManageSchedules
+						? 'schedules'
+						: 'triggers'
+		}
+	}
+}
+
+function externalSkills(skills: AiSkillListItem[]): string {
+	return skills.length > 0
+		? `
 
 Skills:
 - This workspace keeps skills, guidance documents for specific kinds of tasks, listed below by path and description. read_skill returns one: read it when a request matches its description, then do the work with the tools above.
 ${skills.map((s) => `- ${s.path}: ${s.description}`).join('\n')}`
-			: ''
-	}`
+		: ''
 }
 
-const buildGlobalSystemPrompt = (
-	username: string,
-	previewTools: boolean,
-	folderCtx?: FolderPromptContext,
-	skills: AiSkillListItem[] = [],
-	mcpServers: McpServer[] = [],
-	access?: SessionAccess,
-	// The prompt an external MCP client reads (`buildExternalPrompt`): it shares only the path
-	// conventions, which carry the folder guidance.
-	external = false
-) => {
+function accessFlags(access: SessionAccess | undefined) {
 	// Each `can*` mirrors the capability the matching tools declare in `requires`, so a
 	// rule cannot outlive the tool it describes. An unresolved profile keeps every block.
 	const canWriteDraft = !access || access.has('write_draft')
@@ -1502,6 +1571,76 @@ const buildGlobalSystemPrompt = (
 	// resource type text.
 	const canCreateFolder = !access || access.has('deploy')
 	const canCreateResourceType = !access || access.has('deploy')
+	return {
+		canWriteDraft,
+		canWriteFlowDraft,
+		canWriteAppDraft,
+		canDraftSchedules,
+		canDraftTriggers,
+		canDraftResources,
+		canDraftVariables,
+		inlineFlowCode,
+		buildsFlows,
+		buildsApps,
+		canWriteAnyDraft,
+		canDeploy,
+		readOnly,
+		canDeployAnyKind,
+		draftedKinds,
+		draftedOperatorKinds,
+		deployableKinds,
+		refusedKinds,
+		refusedCode,
+		canRunPreview,
+		canRunFlowPreview,
+		testRunTools,
+		canManageSchedules,
+		canManageTriggers,
+		canCreateFolder,
+		canCreateResourceType
+	}
+}
+
+const buildGlobalSystemPrompt = (
+	username: string,
+	previewTools: boolean,
+	folderCtx?: FolderPromptContext,
+	skills: AiSkillListItem[] = [],
+	mcpServers: McpServer[] = [],
+	access?: SessionAccess,
+	// The prompt an external MCP client reads (`EXTERNAL_PROMPT`): it shares only the path
+	// conventions, which carry the folder guidance.
+	external = false,
+	// Whether a read-only external session may still run deployed items (`mcp:read_run`).
+	runsDeployed = true
+) => {
+	const {
+		canWriteDraft,
+		canWriteFlowDraft,
+		canWriteAppDraft,
+		canDraftSchedules,
+		canDraftTriggers,
+		canDraftResources,
+		canDraftVariables,
+		inlineFlowCode,
+		buildsFlows,
+		buildsApps,
+		canWriteAnyDraft,
+		readOnly,
+		canDeployAnyKind,
+		draftedKinds,
+		draftedOperatorKinds,
+		deployableKinds,
+		refusedKinds,
+		refusedCode,
+		canRunPreview,
+		canRunFlowPreview,
+		testRunTools,
+		canManageSchedules,
+		canManageTriggers,
+		canCreateFolder,
+		canCreateResourceType
+	} = accessFlags(access)
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
 	const when = (cond: boolean, block: string) => (cond ? block : '')
@@ -1562,6 +1701,9 @@ const buildGlobalSystemPrompt = (
 		`
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.`
 	)
+	const resourceTypeRule = canCreateResourceType
+		? '- create_resource_type creates a resource type the workspace lacks. The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.\n'
+		: '- This user cannot create a resource type here, in chat or on the Resources page, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin, who can add it.\n'
 	const instructionsRule =
 		'- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.'
 	const testDraftRule = `- After creating or editing a script${canWriteFlowDraft ? ' or flow' : ''} draft, run ${testRunTools} with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.`
@@ -1573,7 +1715,11 @@ const buildGlobalSystemPrompt = (
 		`
 - Default to ${testRunTools} for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. ${testRunList}, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. test_run_step's form is the step's own inputs, not the flow's.`
 	)}${when(
-		!canRunPreview,
+		!canRunPreview && canRunFlowPreview,
+		`
+- A request to run a flow goes to test_run_flow, which prefers the draft and needs no deployment. Use run_flow only when the user names the deployed version, and run_script for any script: those run the DEPLOYED item under this user's own permissions, so read it with read_workspace_item version: "deployed" first so the arguments match the deployed schema. Each shows the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat.`
+	)}${when(
+		!canRunPreview && !canRunFlowPreview,
 		`
 - run_script and run_flow are how you run anything here: they run the DEPLOYED item under this user's own permissions, and show them an argument form prefilled with what you sent. Read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every argument you can infer rather than asking for it in chat.`
 	)}`
@@ -1613,24 +1759,22 @@ ${
 					}.`
 				)}`
 }`
-	const paths = `${when(
-		canWriteAnyDraft,
-		`
-
-Path conventions:
-- A workspace path starts with one of two namespaces; its trailing <name> may itself contain "/", so a path has three or more segments:
-  - \`u/${username}/<name>\` — your personal scope. Default for ad-hoc, exploratory, or scratch work.
-  - \`f/<folder>/<name>\` — a shared folder scope; the <folder> must already exist (a bare \`f/<name>\` with no folder segment is INVALID and will fail).
-- If the user supplies a fully qualified \`f/<folder>/...\` path, use that exact path; they have already chosen the folder. Do not ask for folder confirmation or substitute a \`u/${username}/...\` path unless a tool rejects it.
-- Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist${when(
-			canCreateFolder,
-			'; create one with `create_folder` only when the user explicitly asks for a new folder'
-		)}.${folderGuidanceBlock}`
-	)}${when(
-		canCreateFolder && !canWriteAnyDraft,
-		'\n- You can create a shared folder with `create_folder` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.'
-	)}`
-	if (external) return buildExternalPrompt(username, paths, skills)
+	const runtimeVars = { username, folder_guidance: folderGuidanceBlock }
+	if (external) {
+		const profile = externalPromptProfile(access, runsDeployed)
+		return (
+			renderPromptTemplate(EXTERNAL_PROMPT, profile.flags, { ...profile.vars, ...runtimeVars }) +
+			externalSkills(skills)
+		)
+	}
+	const paths = renderPromptTemplate(
+		PATH_CONVENTIONS,
+		new Set([
+			...(canWriteAnyDraft ? ['can_write_any_draft'] : []),
+			...(canCreateFolder ? ['can_create_folder'] : [])
+		]),
+		runtimeVars
+	)
 
 	return `${intro}${paths}
 
@@ -1686,9 +1830,9 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 - Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (note the source hub path in a comment at the top of the code), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
 - Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, its auth fields and the integration's most-used scripts, which beats inferring them from script bodies. Call it for the integration you are about to write against, whichever it is. A search marks an integration \`documented\` when the hub additionally holds provider knowledge checked against the live API — pagination, enums, error codes and gotchas — so read that closely where it appears rather than trusting your own memory of the API.
 - If you have a web search tool and the hub does not cover a third-party API, search for the vendor's own API documentation rather than writing its endpoints and auth from memory, and link the page you relied on. Reserve it for external APIs: search_docs answers questions about Windmill itself.
-${when(canCreateResourceType, `- create_resource_type creates a resource type the workspace lacks. The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.\n`)}${when(!canCreateResourceType, '- This user cannot create a resource type here, in chat or on the Resources page, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin, who can add it.\n')}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}${instructionsRule}
+${resourceTypeRule}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}${instructionsRule}
 ${pipelineBullet}`
-	)}${when(
+	)}${when(!canWriteDraft && canDraftResources, `\n${resourceTypeRule.trimEnd()}`)}${when(
 		canRunPreview && canWriteDraft,
 		`
 ${testDraftRule}
@@ -7348,6 +7492,8 @@ export function prepareGlobalSystemMessage(
 		access?: SessionAccess
 		/** Render for an external MCP client rather than the Windmill chat. */
 		external?: boolean
+		/** For `external` with read-only `access`: whether deployed items may still be run. */
+		runsDeployed?: boolean
 	}
 ): ChatCompletionSystemMessageParam {
 	const user = opts?.user ?? get(userStore)
@@ -7367,7 +7513,8 @@ export function prepareGlobalSystemMessage(
 		opts?.skills ?? [],
 		opts?.mcpServers ?? [],
 		opts?.access,
-		opts?.external ?? false
+		opts?.external ?? false,
+		opts?.runsDeployed ?? true
 	)
 	if (instructions?.workspace?.trim()) {
 		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`

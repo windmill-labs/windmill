@@ -107,6 +107,13 @@ async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
   }
 }
 
+// A server stores a target without its one tolerated leading `/`, while one predating
+// that stores it as typed. Compared as written, the two spellings never match and every
+// push re-saves the schedule, which resets its run-as to a non-admin pusher.
+function canonicalTarget(path: string): string {
+  return path?.startsWith("/") && !path.startsWith("//") ? path.slice(1) : path;
+}
+
 export async function pushSchedule(
   workspace: string,
   path: string,
@@ -129,6 +136,8 @@ export async function pushSchedule(
 
   // Strip CLI-only boolean marker before sending to API
   delete (localSchedule as any).has_permissioned_as;
+
+  localSchedule.script_path = canonicalTarget(localSchedule.script_path);
 
   // In a fork, the file's `enabled` is the parent's for a path the parent
   // also has (see sync push's `parentOwnedScheduleEnabled`): the fork's own
@@ -158,7 +167,8 @@ export async function pushSchedule(
   }
 
   if (schedule) {
-    if (isSuperset(localSchedule, schedule)) {
+    const remote = { ...schedule, script_path: canonicalTarget(schedule.script_path) };
+    if (isSuperset(localSchedule, remote)) {
       log.debug(`Schedule ${path} is up to date`);
       return;
     }

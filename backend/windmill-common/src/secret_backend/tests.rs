@@ -29,6 +29,7 @@ mod tests {
             jwt_role: Some("windmill-secrets".to_string()),
             jwt_mount_path: None,
             approle_role_id: None,
+            approle_secret_id: None,
             approle_mount_path: None,
             namespace: None,
             token: Some("test-root-token".to_string()),

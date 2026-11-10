@@ -13,13 +13,17 @@
 		Wrench
 	} from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
-	import './runs-grid.css'
+	import {
+		RUNS_COLUMNS,
+		runsGridTemplateColumns,
+		runsTableMinWidth,
+		type RunsColumnId
+	} from './runsColumns'
 	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import RightClickPopover from '../RightClickPopover.svelte'
 	import DropdownMenu, { type Props as DropdownMenuProps } from '../DropdownMenu.svelte'
 	import { clickOutside, isJobCancelable, isJobReRunnable, isJobResolvable } from '$lib/utils'
-	import { goto } from '$lib/navigation'
 	import { useHostedPage } from '../hostedPage'
 	import { useOperatingWorkspace } from '../operatingWorkspace.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
@@ -43,6 +47,7 @@
 		onCancelJobs: (jobIds: string[]) => void
 		onSetJobsResolution: (jobIds: string[], resolved: boolean) => void
 		loadingExtra?: boolean
+		columns: RunsColumnId[]
 	}
 
 	let {
@@ -59,7 +64,8 @@
 		onCancelJobs,
 		onSetJobsResolution,
 		batchRerunOptionsIsOpen = $bindable(),
-		loadingExtra = false
+		loadingExtra = false,
+		columns
 	}: Props = $props()
 
 	let hasClickFocus = $state(false)
@@ -210,9 +216,12 @@
 
 	// Under a host the link opens where it decides, in the workspace the run belongs to: the
 	// document's own router would leave the host for the navigation workspace.
-	function open(href: string) {
-		if (!hosted) goto(href)
-		else hosted.openLink(withWorkspaceParam(href, selectedWorkspace ?? $operatingWorkspace))
+	function linkTo(href: string): { href: string } | { onClick: () => void } {
+		if (!hosted) return { href }
+		return {
+			onClick: () =>
+				hosted.openLink(withWorkspaceParam(href, selectedWorkspace ?? $operatingWorkspace))
+		}
 	}
 
 	let scrollToIndex = $state(0)
@@ -255,6 +264,11 @@
 	})
 
 	let showTag = $derived(containerWidth > 700)
+	let shownColumns = $derived(
+		columns.filter((c) => (c !== 'labels' || containsLabel) && (c !== 'tag' || showTag))
+	)
+	let gridTemplateColumns = $derived(runsGridTemplateColumns(shownColumns, !!manualSelectionMode))
+	let minWidth = $derived(runsTableMinWidth(shownColumns, !!manualSelectionMode))
 	let selectedIdsPossibleActions = $derived.by(() => {
 		const cancellableJobIds: string[] = []
 		const rerunnableJobIds: string[] = []
@@ -285,7 +299,7 @@
 			actions.push({
 				label: 'Show run details',
 				icon: ExternalLinkIcon,
-				onClick: () => open(`/run/${selectedIds[0]}`)
+				...linkTo(`/run/${selectedIds[0]}`)
 			})
 			const job = flatJobs?.find(
 				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === selectedIds[0]
@@ -295,25 +309,24 @@
 					actions.push({
 						label: 'Go to script page',
 						icon: Code2Icon,
-						onClick: () =>
-							open(
-								// A host addresses an item by its path, and pins a version in the query.
-								hosted
-									? `/scripts/get/${job.job.script_path}?version=${job.job.script_hash}`
-									: `/scripts/get/${job.job.script_hash}`
-							)
+						...linkTo(
+							// A host addresses an item by its path, and pins a version in the query.
+							hosted
+								? `/scripts/get/${job.job.script_path}?version=${job.job.script_hash}`
+								: `/scripts/get/${job.job.script_hash}`
+						)
 					})
 				}
 				if (job.job.job_kind === 'flow') {
 					actions.push({
 						label: 'Go to flow page',
 						icon: BarsStaggered,
-						onClick: () => open(`/flows/get/${job.job.script_path}`)
+						...linkTo(`/flows/get/${job.job.script_path}`)
 					})
 				}
 			}
 		}
-		if (rerunnable)
+		if (rerunnable && $roleCaps.run)
 			actions.push({
 				label: 'Run again',
 				icon: RefreshCwIcon,
@@ -381,7 +394,8 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="divide-y h-full flex flex-col min-w-[650px]"
+	class="divide-y h-full flex flex-col"
+	style="min-width: {minWidth}px"
 	id="runs-table-wrapper"
 	onclick={() => (hasClickFocus = true)}
 	use:clickOutside={{ onClickOutside: () => (hasClickFocus = false) }}
@@ -390,16 +404,7 @@
 	<div>
 		<div
 			class="grid sticky top-0 w-full min-h-6 my-2 pr-4 items-end"
-			class:grid-runs-table={!containsLabel && !manualSelectionMode && showTag}
-			class:grid-runs-table-with-labels={containsLabel && !manualSelectionMode && showTag}
-			class:grid-runs-table-selection={!containsLabel && manualSelectionMode && showTag}
-			class:grid-runs-table-with-labels-selection={containsLabel && manualSelectionMode && showTag}
-			class:grid-runs-table-no-tag={!containsLabel && !manualSelectionMode && !showTag}
-			class:grid-runs-table-with-labels-no-tag={containsLabel && !manualSelectionMode && !showTag}
-			class:grid-runs-table-selection-no-tag={!containsLabel && manualSelectionMode && !showTag}
-			class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
-				manualSelectionMode &&
-				!showTag}
+			style="grid-template-columns: {gridTemplateColumns}"
 		>
 			{#if manualSelectionMode}
 				{@const allSelected = selectedIds.length === selectableJobs?.length}
@@ -439,16 +444,11 @@
 					{jobCount}
 				{/if}
 			</div>
-			<div></div>
-			<div class="text-xs font-semibold leading-3">Duration</div>
-			<div class="text-xs font-semibold leading-3">Path</div>
-			{#if containsLabel}
-				<div class="text-xs font-semibold leading-3">Label</div>
-			{/if}
-			<div class="text-xs font-semibold leading-3">Triggered by</div>
-			{#if showTag}
-				<div class="text-xs font-semibold leading-3">Tag</div>
-			{/if}
+			{#each RUNS_COLUMNS.filter((c) => shownColumns.includes(c.id)) as column (column.id)}
+				<div class="text-xs font-semibold leading-3 truncate">
+					{column.id === 'started' ? '' : column.label}
+				</div>
+			{/each}
 			<div> </div>
 		</div>
 	</div>
@@ -508,8 +508,8 @@
 										>
 											<RunRow
 												{manualSelectionMode}
-												{containsLabel}
-												{showTag}
+												columns={shownColumns}
+												{gridTemplateColumns}
 												job={jobOrDate.job}
 												{selected}
 												on:select={() => {
@@ -569,6 +569,7 @@
 												on:filterByConcurrencyKey
 												on:filterBySchedule
 												on:filterByWorker
+												on:filterByTriggerKind
 												{containerWidth}
 											/>
 										</div>
