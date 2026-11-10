@@ -23,6 +23,15 @@ export function readSessionHint(cookies?: string): string | undefined {
 	return undefined
 }
 
+/**
+ * A response may be filed only under the session that answered it: another tab logging in
+ * while a request is in flight swaps the cookie under this tab, whose user stays the old one.
+ * `sentWith` is `readSessionHint()` taken before sending.
+ */
+export function sameSessionSince(sentWith: string | undefined): boolean {
+	return readSessionHint() === sentWith
+}
+
 // The session hint this tab's user was confirmed under: by `whoami`, or by the remembered user
 // it renders as. Another tab logging in swaps the session under this one, whose user stays
 // the old one until its next `whoami`: until then, nothing may be read or written as them.

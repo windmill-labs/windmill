@@ -121,9 +121,15 @@ impl HttpTriggerArgs {
         params: &HashMap<String, String>,
         format: RunnableFormat,
         wrap_body: bool,
+        windmill_authed: bool,
     ) -> Result<PushArgsOwned, Error> {
-        let headers = build_headers(&self.0.metadata.headers, None, true);
-        let query = build_query(self.0.metadata.query.as_deref(), None, true);
+        let headers = build_headers(&self.0.metadata.headers, None, true, windmill_authed);
+        let query = build_query(
+            self.0.metadata.query.as_deref(),
+            None,
+            true,
+            windmill_authed,
+        );
         match format {
             RunnableFormat { has_preprocessor: true, version: RunnableFormatVersion::V2 } => {
                 // we don't care about wrap_body in v2

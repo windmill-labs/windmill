@@ -405,6 +405,7 @@
 				rejectDestructive
 				confirmLabel={confirmAction.label}
 				confirmIcon={confirmAction.icon}
+				confirmDestructive={confirmAction.destructive}
 			/>
 		{:else if pendingOutOfScope}
 			<OutOfScopeFooter

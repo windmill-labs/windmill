@@ -14,6 +14,7 @@ import type {
 } from '@anthropic-ai/sdk/resources'
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import type { AIProviderModel } from '$lib/gen'
+import type { CopilotInfo } from '$lib/aiStore'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
 import {
@@ -137,13 +138,15 @@ export async function getAnthropicCompletion(
 		anthropicClient?: Anthropic
 		webSearch?: boolean
 		reasoningEffort?: string
+		info?: CopilotInfo
 	}
 ): Promise<MessageStream> {
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: true,
 		forceModelProvider: options?.forceModelProvider,
-		reasoningEffort: options?.reasoningEffort
+		reasoningEffort: options?.reasoningEffort,
+		info: options?.info
 	})
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 	let anthropicTools = convertOpenAIToolsToAnthropic(tools)

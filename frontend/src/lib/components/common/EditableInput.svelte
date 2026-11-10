@@ -127,7 +127,7 @@ this component just proposes new values.
 
 {#if editing}
 	<span
-		class="input-sizer inline-grid items-center {textClass} {className}"
+		class="input-sizer inline-grid grid-cols-[minmax(0,1fr)] min-w-0 items-center {textClass} {className}"
 		data-value={draft || placeholder}
 	>
 		<TextInput
@@ -162,9 +162,11 @@ this component just proposes new values.
 
 <style>
 	.input-sizer::after {
-		content: attr(data-value) ' ';
+		/* Must measure exactly as wide as the idle button, or siblings move on toggle. */
+		content: attr(data-value);
 		visibility: hidden;
 		white-space: pre;
+		overflow: hidden;
 		grid-area: 1 / 1;
 		font: inherit;
 		padding: 2px;

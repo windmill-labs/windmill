@@ -39,9 +39,15 @@ _Avoid_: JS field, code input
 
 ### Flow chat
 
+**Agent**:
+A saved AI agent: an `ai_agent` resource holding a model, prompt and tools. Flow steps link to
+it, and it also runs on its own (its page, the API, Slack, apps) as a one-step flow, so it has
+conversations of its own. See `docs/reusable-ai-agents.md`.
+_Avoid_: bot, assistant
+
 **Conversation**:
-One thread of messages against one chat-enabled flow, with its own agent memory. A flow has
-many; the chat shows one at a time.
+One thread of messages against one chat-enabled flow or one agent, with its own agent memory.
+Each has many; the chat shows one at a time.
 _Avoid_: thread, session (that names an AI session, a different thing), chat (that names the surface)
 
 **Turn**:
