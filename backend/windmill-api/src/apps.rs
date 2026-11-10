@@ -378,6 +378,31 @@ fn refuse_guest_mode_where_unavailable(
     )))
 }
 
+/// Whether this workspace may deploy apps that stay public (`Anonymous`). On the
+/// cloud that takes a paid plan, resolved through the fork/dev root; no workspace
+/// admin can lift it, unlike `RestrictAnonymousAppDeployment`. Every deploy that
+/// leaves an app public is refused, not only the transition into it, so a free
+/// workspace's existing public apps stay frozen until it upgrades.
+async fn public_apps_allowed(_db: &DB, _w_id: &str) -> Result<bool> {
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED {
+        return Ok(
+            windmill_common::workspaces::get_team_plan_status(_db, _w_id)
+                .await?
+                .premium,
+        );
+    }
+    Ok(true)
+}
+
+fn public_app_requires_plan(path: &str) -> Error {
+    Error::BadRequest(format!(
+        "app {path} is public (accessible without login), which requires a paid plan on \
+         Windmill Cloud. Upgrade this workspace in Workspace Settings > Premium plans to publish \
+         or update public apps, or change who can open the app."
+    ))
+}
+
 /// Gate a viewer on the app's `execution_mode`, as far as can be decided without an
 /// ACL probe. `Ok(true)` means already authorized — anonymous admits anyone, guest
 /// admits anyone signed in; `Ok(false)` means the caller is a member and still owes
@@ -2853,6 +2878,11 @@ async fn create_app_internal<'a>(
                 "Summary must be less than 300 characters on cloud".to_string(),
             ));
         }
+        if app.policy.execution_mode() == ExecutionMode::Anonymous
+            && !public_apps_allowed(&db, w_id).await?
+        {
+            return Err(public_app_requires_plan(&app.path));
+        }
     }
     // Resolve the on-behalf-of defaults on the (non-RLS) pool *before* opening
     // the RLS transaction below: doing these lookups mid-transaction would hold
@@ -3878,6 +3908,10 @@ async fn update_app_internal<'a>(
         }
     }
 
+    // Resolved before the transaction for the reason above; checked against the row
+    // as written, once every field below has landed.
+    let public_apps_allowed = public_apps_allowed(&db, w_id).await?;
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     // `app_version.raw_app` is set by whichever endpoint writes the version, so a
@@ -4232,6 +4266,19 @@ async fn update_app_internal<'a>(
             )));
         }
     };
+    if !public_apps_allowed
+        && sqlx::query_scalar!(
+            "SELECT policy->>'execution_mode' = 'anonymous' FROM app
+             WHERE path = $1 AND workspace_id = $2",
+            npath,
+            w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false)
+    {
+        return Err(public_app_requires_plan(&npath));
+    }
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
     // path instead of wiping it as part of the deploy. Only wipe the deployer's
     // own draft (plus the legacy NULL-email row) — see create_app_internal.
