@@ -69,18 +69,22 @@ export class ArtifactPersistenceError extends Error {
 	}
 }
 
-/** A new version of a shared artifact, not stored because a later one exists: one its owner
- * wrote from another browser since this one last did, against which the server refused it, or
- * one another tab stored while the server was taking it. */
+/** A new version of an artifact, not stored because a later one exists: one its owner wrote
+ * from another browser since this one last did, against which the server refused it, or one
+ * another tab stored after this edit was made. */
 export class ArtifactStaleError extends Error {
 	constructor(
 		readonly artifact: PersistedArtifact,
-		/** The latest version the server knows. */
+		/** The latest version: the server's, or the one another tab stored. */
 		readonly latest: number,
 		/** Whether this browser now holds that version, for the edit to be redone on it. */
-		readonly caughtUp: boolean
+		readonly caughtUp: boolean,
+		/** The version the server took the edit as, before another tab stored a later one. That
+		 * one was made on it, since the server takes no write made on an older version, so the
+		 * edit is already in it and redoing it would apply it twice. */
+		readonly savedAs?: number
 	) {
-		super(`Artifact ${artifact.id} changed in another browser (now v${latest})`)
+		super(`Artifact ${artifact.id} changed in another tab or browser (now v${latest})`)
 		this.name = 'ArtifactStaleError'
 	}
 }
@@ -270,10 +274,11 @@ export class SessionArtifactsStore {
 			) {
 				throw new PlanWriteRefusedError()
 			}
-			// The server took this edit as the version after `prior`'s. Revised from a row that
-			// moved past that one meanwhile, it would be stored over a later version under a
-			// number the server never gave it.
-			if (sent === 'saved' && currentVersion(existing) > base) {
+			// Made on `prior`, and weighed by the server against it if it was asked at all, which
+			// an edit leaving `prior`'s text as it is never is. Over a row that moved past `prior`,
+			// it would land under a number the server never checked, the base of this browser's
+			// next write. Two tabs' edits of an artifact the server has no copy of both land.
+			if (prior && sent !== 'unshared' && currentVersion(existing) > base) {
 				overtaken = existing
 				return undefined
 			}
@@ -282,7 +287,7 @@ export class SessionArtifactsStore {
 			return edit
 		})
 		if (refused) return undefined
-		if (overtaken) this.#overtaken(overtaken)
+		if (overtaken) this.#overtaken(overtaken, sent === 'saved' ? base + 1 : undefined)
 		if (artifact?.role === 'plan' && outcome !== 'saved') throw new ArtifactPersistenceError()
 		if (artifact) {
 			this.#reflect(artifact)
@@ -291,11 +296,12 @@ export class SessionArtifactsStore {
 		return artifact
 	}
 
-	/** An edit the server took, overtaken here by a later version another tab stored meanwhile:
-	 * this list takes that version, for the edit to be redone on it. */
-	#overtaken(by: PersistedArtifact): never {
+	/** An edit not stored because another tab stored a later version than the one it was made
+	 * on: this list takes that version. `savedAs` is the version the server took the edit as,
+	 * when it did. */
+	#overtaken(by: PersistedArtifact, savedAs: number | undefined): never {
 		if (isLive(by)) this.#reflect(by)
-		throw new ArtifactStaleError(by, currentVersion(by), isLive(by))
+		throw new ArtifactStaleError(by, currentVersion(by), isLive(by), savedAs)
 	}
 
 	/**
@@ -451,8 +457,9 @@ export class SessionArtifactsStore {
 		const base = prior ? currentVersion(prior) : 0
 		let overtaken: PersistedArtifact | undefined
 		const { outcome, artifact } = await mutateArtifact(id, (existing) => {
-			// As in `update`: the server took this revision as the version after `prior`'s.
-			if (sent === 'saved' && existing && currentVersion(existing) > base) {
+			// As in `update`. Without `prior` no plan was there to make this one on, and it
+			// revises whatever another tab put in the slot meanwhile.
+			if (prior && sent !== 'unshared' && existing && currentVersion(existing) > base) {
 				overtaken = existing
 				return undefined
 			}
@@ -477,7 +484,7 @@ export class SessionArtifactsStore {
 			}
 			return { artifact: created, snapshots: [snapshotOf(created, 1)] }
 		})
-		if (overtaken) this.#overtaken(overtaken)
+		if (overtaken) this.#overtaken(overtaken, sent === 'saved' ? base + 1 : undefined)
 		// A plan the database refused would let the user approve one that disappears on reload.
 		if (!artifact || outcome !== 'saved') throw new ArtifactPersistenceError()
 		this.#reflect(artifact)

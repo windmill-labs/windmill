@@ -318,10 +318,17 @@
 				}
 			} catch (err) {
 				if (!(err instanceof ArtifactStaleError)) throw err
-				sendUserToast(
-					`This artifact changed in another browser (now v${err.latest}), so nothing was restored`,
-					true
-				)
+				if (err.savedAs !== undefined) {
+					logFeatureUsage('ai_artifacts', 'restore', { key: 'version' })
+					sendUserToast(
+						`Restored v${from.version} as v${err.savedAs}, and another tab has since saved v${err.latest}`
+					)
+				} else {
+					sendUserToast(
+						`This artifact changed in another tab or browser (now v${err.latest}), so nothing was restored`,
+						true
+					)
+				}
 			}
 			picked = undefined
 			reloads++

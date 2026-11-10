@@ -229,7 +229,7 @@ export class PlanModeController {
 			return { plan: { id: plan.id, name: plan.name, version } }
 		} catch (e) {
 			if (e instanceof ArtifactStaleError) {
-				return { error: PLAN_MODE_MESSAGES.stalePlan(e.latest, e.caughtUp) }
+				return { error: PLAN_MODE_MESSAGES.stalePlan(e.latest, e.caughtUp, e.savedAs) }
 			}
 			console.error('Failed to persist plan artifact', e)
 			return unsaved

@@ -629,8 +629,35 @@ describe('SessionArtifactsStore with a server copy', () => {
 		await new stateMod.SessionArtifactsStore(() => 'ws').catchUp(doc, copy as never)
 		answer({ outcome: 'saved' })
 
-		await expect(edit).rejects.toMatchObject({ name: 'ArtifactStaleError', latest: 3 })
+		await expect(edit).rejects.toMatchObject({
+			name: 'ArtifactStaleError',
+			latest: 3,
+			savedAs: 2
+		})
 		expect(await shared.get(doc.id)).toMatchObject({ version: 3, content: 'v3 elsewhere' })
+	})
+
+	it('stores no unchanged text from a chat another tab has moved past', async () => {
+		const { AiService, shared, doc } = await sharedDoc()
+		const other = new stateMod.SessionArtifactsStore(() => 'ws')
+		AiService.writeAiArtifact.mockResolvedValue({ outcome: 'saved' } as never)
+		await other.update(doc.id, { content: 'v2 elsewhere' })
+		const plan = await shared.savePlan('s1', { name: 'Plan', content: 'p1', note: 'a' }, undefined)
+		await other.savePlan('s1', { name: 'Plan', content: 'p2 elsewhere', note: 'b' }, undefined)
+		AiService.writeAiArtifact.mockClear()
+
+		// A rename and a repeated proposal carry the chat's own text, so the server is not asked.
+		await expect(shared.update(doc.id, { name: 'Renamed', content: 'v1' })).rejects.toMatchObject({
+			name: 'ArtifactStaleError',
+			latest: 2,
+			caughtUp: true
+		})
+		await expect(
+			shared.savePlan('s1', { name: 'Plan', content: 'p1', note: 'c' }, undefined)
+		).rejects.toMatchObject({ name: 'ArtifactStaleError', latest: 2 })
+		expect(AiService.writeAiArtifact).not.toHaveBeenCalled()
+		expect(await dbMod.getArtifact(doc.id)).toMatchObject({ version: 2, content: 'v2 elsewhere' })
+		expect(await dbMod.getArtifact(plan.id)).toMatchObject({ version: 2, content: 'p2 elsewhere' })
 	})
 
 	it('stores no edit the server did not take', async () => {

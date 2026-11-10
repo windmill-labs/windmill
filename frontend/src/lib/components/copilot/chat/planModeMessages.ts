@@ -24,12 +24,14 @@ export const PLAN_MODE_MESSAGES = {
 	approvedWithDoc: 'Plan approved and saved as a document. You may now execute it.',
 	persistenceFailed:
 		'Plan approval could not be saved. Plan mode remains active. Retry after artifact persistence is available.',
-	// The plan document is shared, and its owner revised it from another browser: proposing the
-	// same text again would overwrite that revision.
-	stalePlan: (latest: number, caughtUp: boolean) =>
-		caughtUp
-			? `The plan document was changed in another browser (now version ${latest}), so your plan was not saved. Plan mode remains active. Read the plan document with read_artifact, fold your plan into it, and call exit_plan_mode again.`
-			: `The plan document was changed in another browser (now version ${latest}), and that version has not reached this browser, so your plan was not saved. Plan mode remains active. Tell the user to continue from the other browser.`,
+	// The plan document was revised in another tab or browser: proposing the same text again
+	// would overwrite that revision.
+	stalePlan: (latest: number, caughtUp: boolean, savedAs?: number) =>
+		savedAs !== undefined
+			? `Your plan was saved as version ${savedAs} of the plan document, and another tab has since saved version ${latest} on top of it, so your plan was not put up for approval. Plan mode remains active. Read the plan document with read_artifact, fold your plan into it if it is not there, and call exit_plan_mode again.`
+			: caughtUp
+				? `The plan document was changed in another tab or browser (now version ${latest}), so your plan was not saved. Plan mode remains active. Read the plan document with read_artifact, fold your plan into it, and call exit_plan_mode again.`
+				: `The plan document was changed in another browser (now version ${latest}), and that version has not reached this browser, so your plan was not saved. Plan mode remains active. Tell the user to continue from the other browser.`,
 	enterPrompt:
 		'Switch to plan mode? The assistant will research and draft a plan for your approval before changing anything.',
 	exitPrompt: 'Ready to execute this plan?',
