@@ -1333,6 +1333,7 @@ async fn create_resource(
             &res_value,
             resource.preserve_on_behalf_of.unwrap_or(false),
             true,
+            None,
         )
         .await?;
     }
@@ -2307,6 +2308,12 @@ async fn update_resource(
     .await?;
     let current_type = current.as_ref().map(|c| c.resource_type.clone());
     let resource_type = ns.resource_type.clone().or_else(|| current_type.clone());
+    let current_on_behalf_of = current
+        .as_ref()
+        .filter(|c| c.resource_type == "ai_agent")
+        .and_then(|c| c.value.as_ref())
+        .and_then(|v| serde_json::from_str::<serde_json::Value>(v.0.get()).ok())
+        .and_then(|v| v.get("on_behalf_of")?.as_str().map(str::to_string));
     // Retyping a resource into an agent makes its value an agent's, identity included, so it is
     // resolved as a written one is.
     let retyped = ns.resource_type.as_deref() == Some("ai_agent")
@@ -2329,6 +2336,7 @@ async fn update_resource(
                 &nvalue,
                 ns.preserve_on_behalf_of.unwrap_or(false),
                 false,
+                current_on_behalf_of.as_deref(),
             )
             .await?
         } else {
@@ -2531,7 +2539,8 @@ async fn update_resource_value(
 /// it as a flow's `on_behalf_of` is on every deploy. It exists only while the agent's
 /// `run_on_behalf_of` is set: then the writer's own, unless one allowed to keep the one the value
 /// names asks to, and a folder's default for a new agent. The value is written by anyone who can
-/// write the agent, so the key it arrives with is only a request.
+/// write the agent, so the key it arrives with is only a request. Asking to keep one without
+/// naming it asks for `deployed`, the one the agent runs as now: a draft never carries it.
 ///
 /// Every write of an agent passes here, so this is also where an operator's is held to the
 /// composed-flow rules: a flow step linking the agent runs its tools unchecked.
@@ -2544,6 +2553,7 @@ async fn resolve_agent_on_behalf_of(
     value: &mut serde_json::Value,
     preserve: bool,
     created: bool,
+    deployed: Option<&str>,
 ) -> Result<()> {
     if authed.is_operator {
         windmill_api_auth::composed::validate_operator_agent(value, authed, db, tx, w_id).await?;
@@ -2554,6 +2564,9 @@ async fn resolve_agent_on_behalf_of(
     let mut requested = obj
         .remove("on_behalf_of")
         .and_then(|v| v.as_str().map(str::to_string));
+    if requested.is_none() && preserve {
+        requested = deployed.map(str::to_string);
+    }
     if obj.get("run_on_behalf_of").and_then(|v| v.as_bool()) != Some(true) {
         return Ok(());
     }
@@ -2631,9 +2644,21 @@ async fn resolve_agent_raw_value(
     value: &RawValue,
     preserve: bool,
     created: bool,
+    deployed: Option<&str>,
 ) -> Result<Box<RawValue>> {
     let mut parsed: serde_json::Value = serde_json::from_str(value.get())?;
-    resolve_agent_on_behalf_of(tx, authed, db, w_id, path, &mut parsed, preserve, created).await?;
+    resolve_agent_on_behalf_of(
+        tx,
+        authed,
+        db,
+        w_id,
+        path,
+        &mut parsed,
+        preserve,
+        created,
+        deployed,
+    )
+    .await?;
     Ok(serde_json::value::to_raw_value(&parsed)?)
 }
 
@@ -2676,7 +2701,8 @@ async fn set_resource_value(
         .fetch_optional(&mut *tx)
         .await?;
         if resource_type.as_deref() == Some("ai_agent") {
-            resolve_agent_on_behalf_of(&mut tx, authed, db, w_id, path, v, false, false).await?;
+            resolve_agent_on_behalf_of(&mut tx, authed, db, w_id, path, v, false, false, None)
+                .await?;
         }
     }
 

@@ -211,29 +211,14 @@ async fn upsert(
 }
 
 /// An agent's draft never carries the identity it runs as, and without the flag the server
-/// resets it to the deploying user, so an update restates the deployed one.
+/// resets it to the deploying user, so an update asks to keep the deployed one.
 async fn deploy_resource(ctx: &Ctx<'_>, path: &str, draft: &Value) -> Result<(), String> {
     if !item_exists(ctx, "resource", None, path).await? {
         ctx.post(&ctx.ws("resources/create"), draft.clone()).await?;
         return Ok(());
     }
-    let deployed = get_deployed(ctx, "resource", None, path).await?;
     let mut body = draft.clone();
-    let agent_obo = deployed
-        .get("value")
-        .and_then(|value| value.get("on_behalf_of"))
-        .filter(|obo| {
-            deployed.get("resource_type").and_then(Value::as_str) == Some("ai_agent")
-                && truthy(Some(obo))
-        });
-    if let (Some(obo), Some(body)) = (agent_obo, body.as_object_mut()) {
-        let mut value = body
-            .get("value")
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
-        value.insert("on_behalf_of".into(), obo.clone());
-        body.insert("value".into(), Value::Object(value));
+    if let (true, Some(body)) = (super::workspace::is_agent(draft), body.as_object_mut()) {
         body.insert("preserve_on_behalf_of".into(), json!(true));
     }
     ctx.post(
