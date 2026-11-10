@@ -83,10 +83,10 @@ USING (exists(
     WHERE SPLIT_PART(key, '/', 1) = 'g' AND key = ANY((select regexp_split_to_array(current_setting('session.pgroups'), ','))::text[])
     AND value::boolean));
 
--- Every live share keeps its link and shows exactly what it showed: shared with the whole
+-- Every share still here keeps its link and shows exactly what it showed: shared with the whole
 -- workspace, pinned to its snapshot. A second share of the same name by the same user takes a
--- suffix from its id, which no name the user types produces. Live means inside the default
--- 30-day expiry of AI_SHARED_ARTIFACT_RETENTION_SECS, which a migration cannot read.
+-- suffix from its id, which no name the user types produces. Shares past the instance's
+-- AI_SHARED_ARTIFACT_RETENTION_SECS were already deleted by the monitor.
 INSERT INTO ai_artifact (
     id, workspace_id, artifact_id, path, extra_perms, email, created_by, name, kind,
     shown_version, content, latest_version, pinned, created_at, updated_at
@@ -105,7 +105,6 @@ FROM (
         SELECT ai_shared_artifact.*,
             COALESCE(NULLIF(left(trim(BOTH '_' FROM regexp_replace(lower(name), '[^a-z0-9]+', '_', 'g')), 100), ''), 'artifact') AS slug
         FROM ai_shared_artifact
-        WHERE shared_at > now() - interval '30 days'
     ) a
 ) s
 ON CONFLICT DO NOTHING;

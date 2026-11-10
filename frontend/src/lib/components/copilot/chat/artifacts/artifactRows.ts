@@ -1,5 +1,7 @@
+import { get } from 'svelte/store'
 import type { AiArtifactListEntry } from '$lib/gen'
 import { sessionState } from '$lib/components/sessions/sessionState.svelte'
+import { userWorkspaces } from '$lib/stores'
 import { homeWorkspace } from './artifactLibrary'
 import {
 	currentVersion,
@@ -10,25 +12,27 @@ import {
 } from './artifactsDB'
 
 /**
- * The user's artifacts in this browser that belong to `home`. Until the sessions are read
- * (`hydrated`), an artifact that does not name its workspace has no way to find it: it waits
- * rather than being filed under this one.
+ * The user's artifacts in this browser that belong to `home`. An artifact that does not name its
+ * workspace finds it through its session's, so until the sessions and the user's workspaces are
+ * both read (`ready`) it waits rather than being filed under this one.
  */
 export async function workspaceArtifacts(
 	home: string,
-	hydrated: boolean
+	ready: boolean
 ): Promise<PersistedArtifact[]> {
 	const all = await listAllArtifacts()
 	return all.filter((a) =>
-		a.workspaceId ? a.workspaceId === home : hydrated && workspaceOf(a, home) === home
+		a.workspaceId ? a.workspaceId === home : ready && workspaceOf(a, home) === home
 	)
 }
 
 /** The workspace of an artifact written before artifacts recorded it: its session's, or `home`
- * when its session is gone from this browser. It keeps that one from then on. */
+ * when its session is gone from this browser. It keeps that one from then on, but only once its
+ * session's workspace is among the user's: a fork is told from its parent nowhere else. */
 function workspaceOf(a: PersistedArtifact, home: string): string {
 	const session = sessionState.sessions.find((s) => s.id === a.sessionId)
 	const ws = session?.workspace_id ?? session?.pending_workspace_id
+	if (ws && !get(userWorkspaces).some((w) => w.id === ws)) return ws
 	const found = ws ? homeWorkspace(ws) : home
 	void patchArtifact(a.id, { workspaceId: found })
 	return found
@@ -62,18 +66,23 @@ export type ArtifactRow = {
 }
 
 /**
- * The page's rows: the user's own artifacts as this browser holds them, with the sharing state of
- * their server copy, then the ones only the server holds — mine written in another browser, and
- * other people's. `local` is the user's artifacts of this workspace, `server` the server's list.
+ * The page's rows, outside Recently deleted or in it (`trash`): the user's own artifacts as this
+ * browser holds them, with the sharing state of their server copy, then the ones only the server
+ * holds — mine written in another browser, and other people's. `local` is every one of the user's
+ * artifacts of this workspace, `server` the server's list. Where this browser holds a copy, that
+ * copy decides whether the artifact is in the trash: a plan written again in its session is live
+ * here while the server copy it was shared from stays in the trash, and deleting that row for
+ * good would delete the plan in use.
  */
 export function mergeArtifactRows(
 	local: PersistedArtifact[],
-	server: AiArtifactListEntry[]
+	server: AiArtifactListEntry[],
+	trash = false
 ): ArtifactRow[] {
 	const byId = new Map(server.map((s) => [s.artifact_id, s]))
 	const rows: ArtifactRow[] = local.map((a) => {
 		const s = byId.get(a.id)
-		const copy = s?.is_owner ? s : undefined
+		const copy = s?.is_owner && !s.deleted_at ? s : undefined
 		return {
 			id: a.id,
 			name: a.name,
@@ -112,7 +121,7 @@ export function mergeArtifactRows(
 			matchLine: s.match_line
 		})
 	}
-	return rows
+	return rows.filter((r) => (r.deletedAt !== undefined) === trash && (r.mine || !trash))
 }
 
 /**

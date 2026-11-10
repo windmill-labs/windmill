@@ -1,5 +1,5 @@
 import { randomUUID } from '$lib/utils/uuid'
-import { AiService, type AiArtifactWriteResult } from '$lib/gen'
+import { AiService, type AiArtifactWithContent, type AiArtifactWriteResult } from '$lib/gen'
 import {
 	currentVersion,
 	getArtifact,
@@ -14,6 +14,7 @@ import {
 	type ArtifactEdit,
 	type ArtifactKind,
 	type ArtifactVersion,
+	type ArtifactWrite,
 	type PersistedArtifact
 } from './artifactsDB'
 import { homeWorkspace, publishArtifact, restoreArtifact, trashArtifact } from './artifactLibrary'
@@ -333,26 +334,49 @@ export class SessionArtifactsStore {
 		workspace: string,
 		latest: number
 	): Promise<boolean> {
-		let copy: Awaited<ReturnType<typeof AiService.getAiArtifact>>
+		let copy: AiArtifactWithContent
 		try {
 			copy = await AiService.getAiArtifact({ workspace, artifactId: prior.id })
 		} catch {
 			return false
 		}
 		if (copy.shown_version !== latest) return false
-		const { outcome, artifact } = await mutateArtifact(prior.id, (existing) => {
-			if (!existing || currentVersion(existing) >= latest) return undefined
+		return (await this.#adopt(prior.id, copy)).outcome === 'saved'
+	}
+
+	/**
+	 * This browser's copy of an artifact, caught up with a newer version its owner wrote in
+	 * another browser when `copy`, the server's, holds it: unless an older one is pinned there.
+	 */
+	async catchUp(local: PersistedArtifact, copy: AiArtifactWithContent): Promise<PersistedArtifact> {
+		if (
+			!isLive(local) ||
+			copy.shown_version !== copy.latest_version ||
+			copy.shown_version <= currentVersion(local)
+		) {
+			return local
+		}
+		return (await this.#adopt(local.id, copy)).artifact ?? local
+	}
+
+	async #adopt(id: string, copy: AiArtifactWithContent): Promise<ArtifactWrite> {
+		const version = copy.shown_version
+		const write = await mutateArtifact(id, (existing) => {
+			if (!existing || currentVersion(existing) >= version) return undefined
 			const next: PersistedArtifact = {
 				...existing,
 				name: copy.name,
 				content: copy.content,
-				version: latest,
+				version,
 				updatedAt: Date.now()
 			}
-			return { artifact: next, snapshots: [snapshotOf(next, latest, 'Written in another browser')] }
+			return {
+				artifact: next,
+				snapshots: [snapshotOf(next, version, 'Written in another browser')]
+			}
 		})
-		if (artifact) this.#reflect(artifact)
-		return outcome === 'saved'
+		if (write.artifact) this.#reflect(write.artifact)
+		return write
 	}
 
 	/** Give the server a version this browser stored without it, which its owner's writes from

@@ -28,7 +28,6 @@
 	import {
 		artifactOpens,
 		deleteArtifactForever,
-		homeWorkspace,
 		restoreArtifact,
 		sweepTrash
 	} from '$lib/components/copilot/chat/artifacts/artifactLibrary'
@@ -40,6 +39,7 @@
 	} from '$lib/components/copilot/chat/artifacts/artifactRows'
 	import {
 		artifactPath,
+		shareWorkspaceId,
 		whoCanSee,
 		type Audience
 	} from '$lib/components/copilot/chat/artifacts/artifactSharing'
@@ -47,7 +47,7 @@
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { openNewSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { AiService, type AiArtifactListEntry } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { apiErrorMessage, displayDate } from '$lib/utils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -55,9 +55,13 @@
 	type Sort = 'updated' | 'opened' | 'name'
 	type KindFilter = 'md' | 'html' | 'plan'
 
-	// The link carries its workspace; the store only catches up once the layout applies it.
+	// The link carries its workspace; the store only catches up once the layout applies it. A fork
+	// is told from its parent only through the user's workspaces, so nothing loads before they do.
 	const current = $derived(page.url.searchParams.get('workspace') ?? $workspaceStore)
-	const home = $derived(current ? homeWorkspace(current) : undefined)
+	const workspacesRead = $derived($usersWorkspaceStore !== undefined)
+	const home = $derived(
+		current && workspacesRead ? shareWorkspaceId(current, $userWorkspaces) : undefined
+	)
 	const workspaceName = $derived($userWorkspaces.find((w) => w.id === home)?.name ?? home ?? '')
 	const trashView = $derived(page.url.searchParams.get('view') === 'trash')
 	/** The session the page was opened from, whose artifacts come first. */
@@ -88,15 +92,16 @@
 		logFeatureUsage('ai_artifacts', 'search')
 	}
 
+	// Undefined while `home` is, so the page shows it loading rather than empty.
 	const local = resource(
-		() => ({ home, hydrated: sessionState.hydrated, reloads }),
-		async ({ home, hydrated }) => (home ? await workspaceArtifacts(home, hydrated) : [])
+		() => ({ home, ready: sessionState.hydrated && workspacesRead, reloads }),
+		async ({ home, ready }) => (home ? await workspaceArtifacts(home, ready) : undefined)
 	)
 
 	const server = resource(
 		() => ({ home, trash: trashView, reloads }),
-		async ({ home, trash }): Promise<AiArtifactListEntry[]> => {
-			if (!home) return []
+		async ({ home, trash }): Promise<AiArtifactListEntry[] | undefined> => {
+			if (!home) return undefined
 			try {
 				return await AiService.listAiArtifacts({ workspace: home, includeDeleted: trash })
 			} catch (err) {
@@ -135,11 +140,7 @@
 	const loading = $derived(local.current === undefined || server.current === undefined)
 
 	const rows = $derived.by(() => {
-		const mine = (local.current ?? []).filter((a) => (a.deletedAt !== undefined) === trashView)
-		const listed = (server.current ?? []).filter((s) =>
-			trashView ? s.is_owner && s.deleted_at : !s.deleted_at
-		)
-		let all = mergeArtifactRows(mine, listed)
+		let all = mergeArtifactRows(local.current ?? [], server.current ?? [], trashView)
 		if (query) {
 			const q = query.toLowerCase()
 			const hits = found.current?.query === query ? found.current.hits : undefined

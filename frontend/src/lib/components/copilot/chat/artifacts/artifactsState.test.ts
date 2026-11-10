@@ -576,6 +576,17 @@ describe('SessionArtifactsStore with a server copy', () => {
 		)
 	})
 
+	it('catches up with a version written in another browser, unless an older one is pinned', async () => {
+		const { shared, doc } = await sharedDoc()
+		const copy = { name: 'Doc', content: 'v3 from elsewhere', latest_version: 3 }
+		expect(await shared.catchUp(doc, { ...copy, shown_version: 2 } as never)).toBe(doc)
+		expect(await shared.catchUp(doc, { ...copy, shown_version: 3 } as never)).toMatchObject({
+			version: 3,
+			content: 'v3 from elsewhere'
+		})
+		expect(await shared.getVersion(doc.id, 3)).toMatchObject({ note: 'Written in another browser' })
+	})
+
 	it('stores an edit the server missed, and brings the server up to date on the next one', async () => {
 		const { AiService, shared, doc } = await sharedDoc()
 		AiService.writeAiArtifact.mockRejectedValueOnce(new TypeError('Failed to fetch'))

@@ -32,7 +32,6 @@
 	import MermaidCodeBlock from '$lib/components/copilot/chat/artifacts/MermaidCodeBlock.svelte'
 	import {
 		deleteArtifactForever,
-		homeWorkspace,
 		markArtifactOpened,
 		restoreArtifact,
 		showVersion,
@@ -42,7 +41,11 @@
 		mergeArtifactRows,
 		workspaceArtifacts
 	} from '$lib/components/copilot/chat/artifacts/artifactRows'
-	import { artifactPath, whoCanSee } from '$lib/components/copilot/chat/artifacts/artifactSharing'
+	import {
+		artifactPath,
+		shareWorkspaceId,
+		whoCanSee
+	} from '$lib/components/copilot/chat/artifacts/artifactSharing'
 	import {
 		currentVersion,
 		getArtifact,
@@ -56,20 +59,28 @@
 	import { sessionPageHref, sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { AiService, type AiArtifactWithContent } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { apiErrorMessage, type Item } from '$lib/utils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	const id = $derived(page.params.id ?? '')
-	// The link names the artifact's workspace; the store only catches up once the layout applies it.
+	// The link names the artifact's workspace; the store only catches up once the layout applies it,
+	// and tells a fork from its parent only once the user's workspaces are read.
+	const workspacesRead = $derived($usersWorkspaceStore !== undefined)
 	const workspace = $derived(
 		page.url.searchParams.get('workspace') ??
-			($workspaceStore ? homeWorkspace($workspaceStore) : undefined)
+			($workspaceStore && workspacesRead
+				? shareWorkspaceId($workspaceStore, $userWorkspaces)
+				: undefined)
 	)
 	const workspaceName = $derived(
 		$userWorkspaces.find((w) => w.id === workspace)?.name ?? workspace ?? ''
 	)
+
+	// The page restores versions through the store the chat writes with, so a restored version
+	// reaches the server the way an AI write does.
+	const store = new SessionArtifactsStore(() => workspace)
 
 	type Found = {
 		state: 'found'
@@ -94,12 +105,14 @@
 				}
 			)
 		])
-		const local =
+		const held =
 			stored && (stored.workspaceId === undefined || stored.workspaceId === workspace)
 				? stored
 				: undefined
-		if (!local && server.error) return { state: 'error', message: server.error }
-		if (!local && !server.found) return { state: 'gone' }
+		if (!held && server.error) return { state: 'error', message: server.error }
+		if (!held && !server.found) return { state: 'gone' }
+		// A version its owner wrote in another browser reaches this one through the server's copy.
+		const local = held && server.found ? await store.catchUp(held, server.found) : held
 		return { state: 'found', local, server: server.found }
 	}
 
@@ -126,8 +139,10 @@
 	const local = $derived(found?.local)
 	const server = $derived(found?.server)
 	const mine = $derived(local !== undefined || server?.is_owner === true)
+	// This browser's copy decides, as on the artifacts page: a plan written again in its session is
+	// live here while the server copy it was shared from stays in the trash.
 	const deletedAt = $derived(
-		local?.deletedAt ?? (server?.deleted_at ? Date.parse(server.deleted_at) : undefined)
+		local ? local.deletedAt : server?.deleted_at ? Date.parse(server.deleted_at) : undefined
 	)
 	/** The owner's copy while it is out of the trash: versions are read and written through it. */
 	const liveLocal = $derived(local?.deletedAt === undefined ? local : undefined)
@@ -135,10 +150,6 @@
 	const canShare = $derived(
 		deletedAt === undefined && (mine || (server !== undefined && !!$userStore?.is_admin))
 	)
-
-	// The page restores versions through the store the chat writes with, so a restored version
-	// reaches the server the way an AI write does.
-	const store = new SessionArtifactsStore(() => workspace)
 
 	/** An older version the owner picked, shown in place of the latest. */
 	let picked: { id: string; version: ArtifactVersion } | undefined = $state()
@@ -150,10 +161,10 @@
 	const shared = $derived(
 		server !== undefined && !server.deleted_at && Object.keys(server.extra_perms).length > 0
 	)
-	// Nobody else opens an artifact in the trash, whoever its access list names.
+	// Nobody else opens an artifact whose server copy is in the trash, whoever its access list names.
 	const who = $derived(
 		whoCanSee(
-			deletedAt === undefined ? server?.extra_perms : undefined,
+			server && !server.deleted_at ? server.extra_perms : undefined,
 			workspaceName,
 			mine ? undefined : server?.owner
 		)
@@ -166,17 +177,14 @@
 
 	// The header's switcher lists what the artifacts page does, outside Recently deleted.
 	const siblings = resource(
-		() => ({ workspace, hydrated: sessionState.hydrated, reloads }),
-		async ({ workspace, hydrated }) => {
+		() => ({ workspace, ready: sessionState.hydrated && workspacesRead, reloads }),
+		async ({ workspace, ready }) => {
 			if (!workspace) return []
 			const [mineHere, listed] = await Promise.all([
-				workspaceArtifacts(workspace, hydrated).catch(() => []),
+				workspaceArtifacts(workspace, ready).catch(() => []),
 				AiService.listAiArtifacts({ workspace }).catch(() => [])
 			])
-			return mergeArtifactRows(
-				mineHere.filter((a) => a.deletedAt === undefined),
-				listed.filter((s) => !s.deleted_at)
-			).sort((a, b) => b.updatedAt - a.updatedAt)
+			return mergeArtifactRows(mineHere, listed).sort((a, b) => b.updatedAt - a.updatedAt)
 		}
 	)
 	const navItems = $derived.by(() => {
@@ -230,7 +238,8 @@
 		if (version !== undefined && version !== shownVersion(before)) newer = fresh
 	}
 
-	// Phase 1 has no push: a version written elsewhere is found on focus and once a minute.
+	// Nothing pushes new versions to this page: one written elsewhere is found on focus and once a
+	// minute.
 	onMount(() => {
 		const check = () => void checkForNewer()
 		window.addEventListener('focus', check)
