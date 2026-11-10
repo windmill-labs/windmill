@@ -1357,7 +1357,7 @@ async fn archiving_a_workspace_makes_its_public_apps_private(
         modes,
         [
             ("u/test-user/members".to_string(), "publisher".to_string()),
-            ("u/test-user/public".to_string(), "viewer".to_string()),
+            ("u/test-user/public".to_string(), "publisher".to_string()),
         ]
     );
     Ok(())
