@@ -155,19 +155,25 @@ pub async fn restore_flow_versions(
 
 /// SQL deleting the trash rows matching `cond` and selecting how many there were, along with
 /// the versions their flows set aside, except those a queued job still references: those
-/// are kept for good.
+/// are kept for good. `v2_job.runnable_id` has no index, so the queue is read once against
+/// the set-aside ids: a check correlated per version scans `v2_job` once per version.
 fn remove_trash_sql(cond: &str) -> String {
     format!(
         "WITH removed AS (
             DELETE FROM trashbin WHERE {cond} RETURNING id, workspace_id, item_kind
-        ), _versions AS (
-            DELETE FROM flow_version v USING removed r
-            WHERE r.item_kind = 'flow' AND v.workspace_id = r.workspace_id
+        ), aside AS MATERIALIZED (
+            SELECT v.workspace_id, v.id FROM flow_version v JOIN removed r
+            ON r.item_kind = 'flow' AND v.workspace_id = r.workspace_id
             AND v.path = '__deleted/' || r.id
-            AND NOT EXISTS (
-                SELECT 1 FROM v2_job_queue q JOIN v2_job j ON j.id = q.id
-                WHERE q.workspace_id = v.workspace_id AND j.runnable_id = v.id
-            )
+        ), in_use AS MATERIALIZED (
+            SELECT DISTINCT j.runnable_id AS id
+            FROM v2_job_queue q JOIN v2_job j ON j.id = q.id
+            WHERE q.workspace_id IN (SELECT workspace_id FROM aside)
+            AND j.runnable_id IN (SELECT id FROM aside)
+        ), _versions AS (
+            DELETE FROM flow_version v USING aside a
+            WHERE v.workspace_id = a.workspace_id AND v.id = a.id
+            AND NOT EXISTS (SELECT 1 FROM in_use u WHERE u.id = v.id)
         )
         SELECT count(*) FROM removed"
     )
