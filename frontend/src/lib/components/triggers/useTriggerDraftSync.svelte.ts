@@ -51,6 +51,9 @@ export interface TriggerDraftSyncOptions {
 	 * open stays stale and the "unsaved changes" banner never shows.
 	 */
 	deployed: () => Cfg | undefined
+	/** Subject autosaves to the auto-save toggle, as the full-page editors are. Only for an editor
+	 *  that shows the toggle and saves on Ctrl/Cmd+S: anywhere else an edit would park unseen. */
+	canBeDisabled?: boolean
 }
 
 export interface TriggerDraftSync {
@@ -118,7 +121,9 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 	const handles = UserDraft.useMany<Cfg>(() => {
 		const p = opts.path()
 		const ws = opts.workspace()
-		return p && ws ? [{ itemKind: opts.itemKind, path: p, workspace: ws }] : []
+		return p && ws
+			? [{ itemKind: opts.itemKind, path: p, workspace: ws, canBeDisabled: opts.canBeDisabled }]
+			: []
 	})
 	const handle = $derived(handles[0])
 

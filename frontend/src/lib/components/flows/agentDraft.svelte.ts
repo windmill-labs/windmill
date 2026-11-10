@@ -14,6 +14,10 @@ import { DEFAULT_AGENT_MEMORY } from './agentFormFields'
 import { getUsernameForNamespace } from '$lib/userNamespace'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
+import type { UserDraftOverlay } from '$lib/gen'
+import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
+
+type OtherDraftUser = NonNullable<UserDraftOverlay['other_drafts_users']>[number]
 import { logReusableAgentUsage } from './agentTelemetry'
 import {
 	AGENT_BRAIN_LABELS,
@@ -232,9 +236,19 @@ export interface AgentDraftHandle {
 	/** Who the deployed agent runs as when run from its page; undefined when nothing is deployed
 	 *  or it runs as whoever runs it. */
 	readonly onBehalfOf: string | undefined
+	/** The load opened on this user's own draft. */
+	readonly loadedFromDraft: boolean
+	/** Other users' drafts of this agent, as the load found them. */
+	readonly otherDraftsUsers: OtherDraftUser[]
+	/** When the draft the load found was saved, and when the agent was last deployed: a draft older
+	 *  than that deploy is stale. */
+	readonly draftSavedAt: string | undefined
+	readonly deployedAt: string | undefined
 	/** Write the current state to the resource and drop the draft. Resolves to the path written,
 	 *  which differs from the one loaded when the draft renames the agent, or undefined on failure. */
 	deploy: (runAs?: AgentRunAs) => Promise<string | undefined>
+	/** Load the agent again, taking the server's draft over the one this tab holds. */
+	reload: () => Promise<void>
 }
 
 /**
@@ -255,9 +269,14 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	 *  path stays, so a resource this editor refuses can neither restore its draft into the form nor
 	 *  have one autosaved from it. Set it through `refuse`, which also clears what was loaded. */
 	let refusal = $state<string | undefined>(undefined)
+	let loadedFromDraft = $state(false)
+	let otherDraftsUsers = $state<OtherDraftUser[]>([])
+	let draftSavedAt = $state<string | undefined>(undefined)
+	let deployedAt = $state<string | undefined>(undefined)
 
 	const sync = useTriggerDraftSync({
 		itemKind: 'agent',
+		canBeDisabled: true,
 		// An empty path holds no draft handle, which is what keeps a deployed-only view off the draft.
 		path: () => (opts.deployedOnly?.() ? '' : (opts.path() ?? '')),
 		workspace: () => opts.workspace(),
@@ -307,16 +326,24 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 				refusal = undefined
 				return
 			}
-			const key = `${ws}:${path}`
-			if (loadedFor === key) return
-			loadedFor = key
-			loading = true
-			refusal = undefined
-			seedNewUntilInput = undefined
-			// The user alongside the resource, as the generic resource editor loads it: a session or
-			// fork editor operates on a workspace that is not the one being navigated, and groups,
-			// folders and the admin flag are all per workspace, so the nav user would answer for the
-			// wrong membership in both directions.
+			if (loadedFor === `${ws}:${path}`) return
+			void load(path, ws)
+		})
+	})
+
+	/** `replaceLocal` takes the server's draft over the one this tab holds, as a reload does: the
+	 *  restore otherwise puts this tab's back over what was just read. */
+	function load(path: string, ws: string, replaceLocal = false): Promise<void> {
+		const key = `${ws}:${path}`
+		loadedFor = key
+		loading = true
+		refusal = undefined
+		seedNewUntilInput = undefined
+		// The user alongside the resource, as the generic resource editor loads it: a session or
+		// fork editor operates on a workspace that is not the one being navigated, and groups,
+		// folders and the admin flag are all per workspace, so the nav user would answer for the
+		// wrong membership in both directions.
+		return (
 			Promise.all([
 				ResourceService.getResource({ workspace: ws, path, getDraft: !opts.deployedOnly?.() }),
 				getUserExt(ws).catch(() => undefined)
@@ -371,21 +398,55 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// `useTriggerDraftSync` intends: its Discard would otherwise reset to that synthetic
 						// value and delete the one row the agent lives in.
 						deployed = noDeployed ? undefined : deployedState
+						const overlay = r as {
+							draft?: AgentResourceState
+							draft_saved_at?: string
+							edited_at?: string
+							other_drafts_users?: OtherDraftUser[]
+						}
+						// Another user's draft the reader chose to load, from the drafts popover or Home.
+						const theirs = opts.deployedOnly?.()
+							? undefined
+							: OtherUserDraftLoad.takePending(ws, 'agent', path)
+						// Revisiting a path whose overlay was never confirmed or reset: drop its stale
+						// lock, or this reader's own edits could never save again.
+						if (!theirs && OtherUserDraftLoad.isActive(ws, 'agent', path)) {
+							OtherUserDraftLoad.clear(ws, 'agent', path)
+						}
 						// Open on the draft when there is one, so the editor never flashes the deployed
 						// config before the autosave lands.
 						state =
-							((r as any).draft as AgentResourceState | undefined) ?? structuredClone(deployedState)
+							(theirs?.value as AgentResourceState | undefined) ??
+							overlay.draft ??
+							structuredClone(deployedState)
+						loadedFromDraft = !!overlay.draft
+						otherDraftsUsers = overlay.other_drafts_users ?? []
+						draftSavedAt = overlay.draft_saved_at
+						deployedAt = noDeployed ? undefined : overlay.edited_at
 						// Adopt the row's timestamp as this tab's baseline. Without it the first save from
 						// each tab goes out with no `last_sync`, which the backend treats as unconditional
 						// and so silently overwrites another tab's newer draft. It also clears any parked
 						// conflict or failure for the key: a conflict is deliberately sticky (the retry
-						// keeps the same baseline), and nothing else mounts a resolver for `agent`
-						// drafts, so re-opening the agent is the only place it can be resolved.
+						// keeps the same baseline), so a load is what settles one.
 						if (!opts.deployedOnly?.()) {
-							UserDraftDbSyncer.recordRemoteSync(
-								{ workspace: ws, itemKind: 'agent', path },
-								(r as { draft_saved_at?: string }).draft_saved_at
-							)
+							const query = { workspace: ws, itemKind: 'agent' as const, path }
+							UserDraftDbSyncer.recordRemoteSync(query, overlay.draft_saved_at)
+							// With a draft of its own, the reader views theirs without saving over it until
+							// an edit is confirmed as overwriting it.
+							if (theirs && overlay.draft) {
+								OtherUserDraftLoad.beginOverlay({
+									workspace: ws,
+									itemKind: 'agent',
+									path,
+									ownerLabel: theirs.ownerLabel,
+									loadedValue: $state.snapshot(state),
+									onResetToOwnDraft: reload
+								})
+							}
+							if (replaceLocal || theirs) {
+								UserDraftDbSyncer.dropPending(query)
+								UserDraft.seed('agent', path, $state.snapshot(state), { workspace: ws })
+							}
 						}
 						loading = false
 						await sync.maybeRestore()
@@ -442,8 +503,14 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						refuse(`Could not load agent ${path}: ${err}`)
 					}
 				)
-		})
-	})
+		)
+	}
+
+	async function reload(): Promise<void> {
+		const path = opts.path()
+		const ws = opts.workspace()
+		if (path && ws) await load(path, ws, true)
+	}
 
 	async function deploy(runAs?: AgentRunAs): Promise<string | undefined> {
 		const ws = opts.workspace()
@@ -528,7 +595,20 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		get onBehalfOf() {
 			return onBehalfOf
 		},
+		get loadedFromDraft() {
+			return loadedFromDraft
+		},
+		get otherDraftsUsers() {
+			return otherDraftsUsers
+		},
+		get draftSavedAt() {
+			return draftSavedAt
+		},
+		get deployedAt() {
+			return deployedAt
+		},
 		sync,
-		deploy
+		deploy,
+		reload
 	}
 }

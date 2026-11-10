@@ -151,7 +151,9 @@
 				? 'app'
 				: itemKind === 'data_pipeline'
 					? 'pipeline'
-					: 'script'
+					: itemKind === 'agent'
+						? 'agent'
+						: 'script'
 	)
 
 	// Each false → true transition fires a hint (others > loaded). Seeded to
