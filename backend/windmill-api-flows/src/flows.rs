@@ -1366,7 +1366,9 @@ async fn update_flow(
         windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
     }
 
-    sqlx::query!(
+    // A version is inserted at the path below and nothing else ties it to a live flow: one
+    // written for a flow deleted meanwhile would surface in a flow recreated there.
+    let updated = sqlx::query!(
         "
         UPDATE
             flow
@@ -1412,7 +1414,11 @@ async fn update_flow(
     .await
     .map_err(|e| {
         error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}"))
-    })?;
+    })?
+    .rows_affected();
+    if updated == 0 {
+        return Err(Error::NotFound(format!("Flow {flow_path} not found")));
+    }
     if set_job_token_scopes {
         windmill_common::scopes::log_job_token_scopes_deploy("flow", job_token_scopes.as_deref());
     }
@@ -1446,6 +1452,26 @@ async fn update_flow(
         .map_err(|e| {
             error::Error::internal_err(format!(
                 "Error updating flow due to updating flow history path: {e:#}"
+            ))
+        })?;
+
+        // Nodes are referenced by id, so moving them only keeps them deduplicated at the new
+        // path. One a deleted flow left there with the same content stays where it is.
+        sqlx::query!(
+            "UPDATE flow_node n SET path = $1 WHERE path = $2 AND workspace_id = $3
+            AND NOT EXISTS (
+                SELECT 1 FROM flow_node d
+                WHERE d.path = $1 AND d.workspace_id = $3 AND d.hash_v2 = n.hash_v2
+            )",
+            nf.path,
+            flow_path,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            error::Error::internal_err(format!(
+                "Error updating flow due to updating flow nodes path: {e:#}"
             ))
         })?;
 
@@ -2136,7 +2162,6 @@ async fn delete_flow_by_path(
     }
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture all related data for trashbin before deleting (CASCADE will remove flow_version, flow_node)
     let trash_flow: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT to_jsonb(t) FROM flow t WHERE path = $1 AND workspace_id = $2")
             .bind(path)
@@ -2176,15 +2201,18 @@ async fn delete_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
+    let deleted = sqlx::query!(
         "DELETE FROM flow WHERE path = $1 AND workspace_id = $2",
         path,
         &w_id
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
 
-    if let Some(flow_data) = trash_flow {
+    // Row-level security can let a caller read a flow it may not delete; its versions must
+    // then stay where they are.
+    if let Some(flow_data) = trash_flow.filter(|_| deleted > 0) {
         let mut trash_data = serde_json::json!({"row": flow_data});
         if !trash_flow_versions.is_empty() {
             trash_data["flow_versions"] = serde_json::Value::Array(trash_flow_versions);
@@ -2195,7 +2223,7 @@ async fn delete_flow_by_path(
         if !trash_drafts.is_empty() {
             trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
         }
-        windmill_common::trashbin::move_to_trash(
+        let trash_id = windmill_common::trashbin::move_to_trash(
             &mut *tx,
             &w_id,
             "flow",
@@ -2204,6 +2232,7 @@ async fn delete_flow_by_path(
             &authed.username,
         )
         .await?;
+        windmill_common::trashbin::set_aside_flow_versions(&mut *tx, &w_id, path, trash_id).await?;
     }
 
     if !query.keep_captures.unwrap_or(false) {

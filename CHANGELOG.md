@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.866.0](https://github.com/windmill-labs/windmill/compare/v1.865.0...v1.866.0) (2026-11-10)
+
+
+### Features
+
+* configurable columns and csv/json/xlsx export on the runs page ([#12302](https://github.com/windmill-labs/windmill/issues/12302)) ([47005d5](https://github.com/windmill-labs/windmill/commit/47005d5fcfe43251b2b184fbe625e7790b9a2adc))
+* show when each job started in the ai session jobs popover ([#12301](https://github.com/windmill-labs/windmill/issues/12301)) ([8b40416](https://github.com/windmill-labs/windmill/commit/8b404164e3487aead898d439de39993e313125be))
+
+
+### Bug Fixes
+
+* keep flow nodes on rename and stop masking flow load errors ([#12303](https://github.com/windmill-labs/windmill/issues/12303)) ([3bf4864](https://github.com/windmill-labs/windmill/commit/3bf486415bd88ffea9787f004874d15bbd433265))
+* never break running flows when their flow is deleted ([#12306](https://github.com/windmill-labs/windmill/issues/12306)) ([e3ff8be](https://github.com/windmill-labs/windmill/commit/e3ff8bee3d1e36c5ed1ea4982e8c6e02e24f7b50))
+* pin rsa to 0.9 so the lock refresh stops pulling 0.10 ([#12299](https://github.com/windmill-labs/windmill/issues/12299)) ([188b6cc](https://github.com/windmill-labs/windmill/commit/188b6ccf151e13aeef6d6a25c565ce59f7f02550))
+* read the git sync callback script with the runnable parser ([#12304](https://github.com/windmill-labs/windmill/issues/12304)) ([2e422b4](https://github.com/windmill-labs/windmill/commit/2e422b497ee6f9691fe14812af1cb3646f928b34))
+
+
+### Performance Improvements
+
+* list audit logs by timestamp so only recent partitions are read ([#12309](https://github.com/windmill-labs/windmill/issues/12309)) ([a6ec7d0](https://github.com/windmill-labs/windmill/commit/a6ec7d0c18c0168bcda1ba6ccc9216b2bd5077a6))
+
 ## [1.865.0](https://github.com/windmill-labs/windmill/compare/v1.864.1...v1.865.0) (2026-11-09)
 
 

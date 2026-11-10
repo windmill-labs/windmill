@@ -61,6 +61,9 @@
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
 	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
+	import SidebarShowOlder, {
+		SIDEBAR_RECENT_MS
+	} from '$lib/components/sidebar/SidebarShowOlder.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
@@ -175,10 +178,9 @@
 		)
 	}
 
-	// Flat list passing the archive + scope filters. Grouping for display happens
-	// in `sessionGroups`; this flat view drives the runtime effect, the unread
-	// total, and keyboard navigation.
-	const visibleSessions = $derived(
+	// Every session passing the archive + scope filters, the ones folded under "Show older"
+	// included.
+	const filteredSessions = $derived(
 		sessionState.sessions.filter((s) => {
 			// A draft Home's composer holds becomes a session when its first send starts, typed
 			// or not. Unsent drafts opened onto an item stay listed: the row is their only way
@@ -196,6 +198,25 @@
 			if (currentRoot && sessionRootOf(s) !== currentRoot) return false
 			return true
 		})
+	)
+
+	// With no activity cutoff picked, sessions inactive for over a week fold under a "Show older"
+	// row, except the one on screen. A picked cutoff is the reader's own choice and folds nothing.
+	const showOlder = useLocalStorageValue('windmill_sessions_show_older', false, 'boolean')
+	const olderIds = $derived.by(() => {
+		if (lastActivityDays.val > 0) return new Set<string>()
+		const cutoff = clock - SIDEBAR_RECENT_MS
+		return new Set(
+			filteredSessions
+				.filter((s) => s.id !== activeRowId && sessionLastActivityAt(s) < cutoff)
+				.map((s) => s.id)
+		)
+	})
+
+	// The rows listed. Grouping for display happens in `sessionGroups`; this flat view drives
+	// the runtime effect, the unread total, and keyboard navigation.
+	const visibleSessions = $derived(
+		showOlder.val ? filteredSessions : filteredSessions.filter((s) => !olderIds.has(s.id))
 	)
 
 	// Sessions grouped by workspace family for display, each group by its last turn
@@ -384,7 +405,7 @@
 	// sessions load, the list is empty for every reader, and the fold is a
 	// layout they chose to keep.
 	$effect(() => {
-		if (sessionState.hydrated && visibleSessions.length === 0 && sectionCollapsed.val) {
+		if (sessionState.hydrated && filteredSessions.length === 0 && sectionCollapsed.val) {
 			sectionCollapsed.val = false
 		}
 	})
@@ -785,7 +806,7 @@
 				icon={MessageSquare}
 				folded={sectionCollapsed.val}
 				onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-				disabled={visibleSessions.length === 0}
+				disabled={filteredSessions.length === 0}
 				notify={totalUnread > 0}
 				actions={sectionOptions}
 				{isCollapsed}
@@ -1132,6 +1153,15 @@
 				{/each}
 			{/if}
 		</div>
+		<!-- Outside the listbox, so arrow keys move through sessions only. -->
+		{#if olderIds.size > 0}
+			<SidebarShowOlder
+				count={olderIds.size}
+				expanded={showOlder.val}
+				onToggle={() => (showOlder.val = !showOlder.val)}
+				{rail}
+			/>
+		{/if}
 		{#if selecting}
 			<!-- Pinned to the bottom edge of whatever scrolls the list, the sidebar or the folded
 				     section's menu, while the rows scroll under it; z-10 keeps it above the sidebar's

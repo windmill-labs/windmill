@@ -23,7 +23,6 @@ use windmill_common::variables::{build_crypt_with_key_suffix, encrypt, Workspace
 use anyhow::Context;
 use async_once_cell::Lazy;
 use backon::{BackoffBuilder, ConstantBuilder, Retryable};
-use futures::TryFutureExt;
 use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -515,9 +514,8 @@ pub async fn update_flow_status_after_job_completion_internal(
              ))
          })?;
 
-        let flow_data = cache::job::fetch_flow(db, &job_kind, script_hash)
-            .or_else(|_| cache::job::fetch_preview_flow(db, &flow, raw_flow))
-            .await?;
+        let flow_data =
+            cache::job::fetch_flow_or_preview(db, &job_kind, script_hash, &flow, raw_flow).await?;
         let flow_value = flow_data.value();
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
@@ -2946,13 +2944,15 @@ async fn fetch_root_flow_env(
     flow_job_id: Uuid,
     workspace_id: &str,
 ) -> Result<Option<HashMap<String, Box<RawValue>>>, sqlx::Error> {
+    // Versions are matched by id alone (a deleted flow's are set aside off its path); only
+    // these kinds hold a flow version in `runnable_id`.
     sqlx::query_scalar!(
-        r#"WITH RECURSIVE chain(id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, depth) AS (
-            SELECT id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, 0
+        r#"WITH RECURSIVE chain(id, parent_job, flow_innermost_root_job, runnable_id, kind, raw_flow, depth) AS (
+            SELECT id, parent_job, flow_innermost_root_job, runnable_id, kind, raw_flow, 0
             FROM v2_job
             WHERE id = $1 AND workspace_id = $2
             UNION ALL
-            SELECT j.id, j.parent_job, j.flow_innermost_root_job, j.runnable_id, j.runnable_path, j.raw_flow, c.depth + 1
+            SELECT j.id, j.parent_job, j.flow_innermost_root_job, j.runnable_id, j.kind, j.raw_flow, c.depth + 1
             FROM v2_job j
             JOIN chain c
                 ON j.id = COALESCE(c.flow_innermost_root_job, c.parent_job)
@@ -2968,7 +2968,7 @@ async fn fetch_root_flow_env(
          FROM chain
          LEFT JOIN flow_version
              ON flow_version.id = chain.runnable_id
-            AND flow_version.path = chain.runnable_path
+            AND chain.kind IN ('flow', 'unassigned_flow')
             AND flow_version.workspace_id = $2
          WHERE (CASE
                 WHEN flow_version.id IS NOT NULL THEN flow_version.value -> 'flow_env'

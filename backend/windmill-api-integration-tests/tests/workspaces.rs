@@ -1324,3 +1324,41 @@ async fn test_create_workspace_validates_chosen_username(db: Pool<Postgres>) -> 
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn archiving_a_workspace_makes_its_public_apps_private(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions) VALUES
+             ('test-workspace', 'u/test-user/public', '', '{\"execution_mode\": \"anonymous\"}', '{}'),
+             ('test-workspace', 'u/test-user/members', '', '{\"execution_mode\": \"publisher\"}', '{}')",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/workspaces/archive"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let modes: Vec<(String, String)> = sqlx::query_as(
+        "SELECT path, policy->>'execution_mode' FROM app
+         WHERE workspace_id = 'test-workspace' ORDER BY path",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        modes,
+        [
+            ("u/test-user/members".to_string(), "publisher".to_string()),
+            ("u/test-user/public".to_string(), "publisher".to_string()),
+        ]
+    );
+    Ok(())
+}

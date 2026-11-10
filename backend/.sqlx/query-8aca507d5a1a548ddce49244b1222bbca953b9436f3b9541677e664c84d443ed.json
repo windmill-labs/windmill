@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app SET policy = jsonb_set(policy, '{execution_mode}', '\"publisher\"')\n         WHERE workspace_id = $1 AND policy->>'execution_mode' = 'anonymous'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8aca507d5a1a548ddce49244b1222bbca953b9436f3b9541677e664c84d443ed"
+}
