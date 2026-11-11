@@ -21,7 +21,8 @@ use windmill_mcp::server::{
 use crate::auth::AuthCache;
 use crate::db::ApiAuthed;
 use crate::jobs::{
-    run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
+    result_to_response, run_wait_result_flow_by_path_internal,
+    run_wait_result_script_by_path_internal, RunJobQuery,
 };
 
 use super::auto_generated_endpoints::all_tools;
@@ -110,29 +111,17 @@ impl WindmillBackend {
     }
 }
 
-/// The wait-result response carries a failed job's error with an error status, but a job can
-/// also return its own status code, so a non-2xx response is checked against the job.
+/// A successful result goes through the same response shaping as the wait-result endpoint, so a
+/// `windmill_status_code`/`result` wrapper is unwrapped exactly as it is there.
 async fn run_outcome(
-    db: &DB,
     workspace_id: &str,
     job_id: uuid::Uuid,
-    response: axum::response::Response,
+    (result, success): (Box<serde_json::value::RawValue>, bool),
 ) -> BackendResult<RunOutcome> {
-    let status_ok = response.status().is_success();
-    let result = parse_response_body(response).await?;
-    let succeeded = status_ok
-        || sqlx::query_scalar!(
-            "SELECT status IN ('success', 'skipped') AS \"success!\" FROM v2_job_completed
-             WHERE id = $1 AND workspace_id = $2",
-            job_id,
-            workspace_id
-        )
-        .fetch_optional(db)
-        .await
-        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
-        .unwrap_or(false);
-    if succeeded {
-        return Ok(RunOutcome::Success(result));
+    if success {
+        let response = result_to_response(result, true)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        return Ok(RunOutcome::Success(parse_response_body(response).await?));
     }
     Ok(RunOutcome::Failed {
         job_id: job_id.to_string(),
@@ -140,7 +129,7 @@ async fn run_outcome(
             "{}/run/{job_id}?workspace={workspace_id}",
             windmill_common::BASE_URL.load()
         ),
-        result,
+        result: serde_json::from_str(result.get()).unwrap_or(Value::Null),
     })
 }
 
@@ -346,7 +335,7 @@ impl McpBackend for WindmillBackend {
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        run_outcome(&self.db, workspace_id, job_id, result).await
+        run_outcome(workspace_id, job_id, result).await
     }
 
     async fn run_flow(
@@ -381,7 +370,7 @@ impl McpBackend for WindmillBackend {
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        run_outcome(&self.db, workspace_id, job_id, result).await
+        run_outcome(workspace_id, job_id, result).await
     }
 
     async fn call_endpoint(

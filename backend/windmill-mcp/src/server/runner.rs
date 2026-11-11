@@ -116,11 +116,11 @@ fn failed_run_result(
             }
         }
     }
-    let mut text = match headline {
-        Some(h) => format!("The {tool_type} failed with {h}"),
-        None => format!("The {tool_type} failed"),
-    };
-    text.push_str(&format!("\nRun id: {job_id} ({run_url})"));
+    // The run id comes first so that truncating a huge message never cuts it off.
+    let mut text = format!("The {tool_type} failed. Run id: {job_id} ({run_url})");
+    if let Some(h) = headline {
+        text.push_str(&format!("\n{h}"));
+    }
     if !matches!(&result, Value::Object(o) if o.is_empty()) && !result.is_null() {
         let mut rest = result.to_string();
         if rest.len() > MAX_PARTIAL_RESULT_BYTES {
@@ -133,7 +133,7 @@ fn failed_run_result(
         }
         text.push_str(&format!("\nPartial result: {rest}"));
     }
-    CallToolResult::error(vec![ContentBlock::text(text)])
+    CallToolResult::error(vec![ContentBlock::text(truncate_tool_result(text))])
 }
 
 /// MCP Server Runner - generic over the backend implementation
@@ -1677,5 +1677,11 @@ mod tests {
         assert!(text.contains("0192-id"), "{text}");
         assert!(text.contains(r#"{"error":{"step_id":"a"}}"#), "{text}");
         assert!(!text.contains("main.ts"), "{text}");
+
+        let huge = json!({ "error": { "name": "Error", "message": "x".repeat(200_000) } });
+        let res = failed_run_result("script", "0192-id", "http://wm/run/0192-id", huge);
+        let text = &res.content[0].as_text().unwrap().text;
+        assert!(text.len() < MAX_TOOL_RESULT_BYTES + 100, "{}", text.len());
+        assert!(text.contains("0192-id"));
     }
 }
