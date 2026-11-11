@@ -349,13 +349,68 @@ export interface ArtifactWrite<R = never> {
  */
 export async function mutateArtifact<R = never>(
 	id: string,
-	mutate: (
-		existing: PersistedArtifact | undefined,
-		/** The snapshot `opts.readVersion` named, when it was asked for and is still stored. */
-		snapshot?: ArtifactVersion
-	) => Mutation<R> | undefined,
+	mutate: Mutator<R>,
 	opts?: { readVersion?: number }
 ): Promise<ArtifactWrite<R>> {
+	// Asked again on the retry, so the version check runs against what the store holds then.
+	const { full, ...first } = await mutateOnce(id, mutate, opts)
+	if (!full || !(await makeRoom())) return first
+	const { full: _, ...retried } = await mutateOnce(id, mutate, opts)
+	return retried
+}
+
+type Mutator<R> = (
+	existing: PersistedArtifact | undefined,
+	/** The snapshot `opts.readVersion` named, when it was asked for and is still stored. */
+	snapshot?: ArtifactVersion
+) => Mutation<R> | undefined
+
+/** Whether the browser refused a write for want of space. */
+export function isQuotaError(err: unknown): boolean {
+	return (err as { name?: unknown } | null | undefined)?.name === 'QuotaExceededError'
+}
+
+/**
+ * Free space after the browser refused a write for want of it: delete for good what is in
+ * Recently deleted, then cut each artifact's history to its latest MIN_VERSIONS_PER_ARTIFACT
+ * snapshots, keeping a plan's approved one. Resolves to whether anything was deleted, so only
+ * a write that might now fit is tried again.
+ */
+export async function makeRoom(): Promise<boolean> {
+	const db = await getDB()
+	if (!db) return false
+	try {
+		const tx = db.transaction(['items', 'versions'], 'readwrite')
+		const items = tx.objectStore('items')
+		const versions = tx.objectStore('versions')
+		const touched = new Set<string>()
+		for (const a of await items.getAll()) {
+			if (a.deletedAt !== undefined) {
+				await items.delete(a.id)
+				await deleteVersionsIn(versions, a.id)
+				touched.add(a.sessionId)
+			} else if (
+				(await dropOldestIn(versions, a.id, MIN_VERSIONS_PER_ARTIFACT, a.approvedVersion)) > 0
+			) {
+				touched.add(a.sessionId)
+			}
+		}
+		await tx.done
+		const email = emailOfScopedKey(ARTIFACTS_DB, db.name)
+		for (const sessionId of touched) markSessionDirty(sessionId, undefined, email)
+		return touched.size > 0
+	} catch (err) {
+		console.error('Could not free space for artifacts', err)
+		return false
+	}
+}
+
+async function mutateOnce<R>(
+	id: string,
+	mutate: Mutator<R>,
+	opts?: { readVersion?: number }
+): Promise<ArtifactWrite<R> & { full?: boolean }> {
+	let full = false
 	const db = await getDB()
 	// `transaction()` throws on a connection closed since `getDB()` answered — another tab
 	// upgrading the schema, or a user switch releasing the handle.
@@ -375,6 +430,7 @@ export async function mutateArtifact<R = never>(
 		() => 'saved',
 		(err) => {
 			if (reportFailure) console.error('Could not persist artifact', err)
+			full ||= isQuotaError(err)
 			return 'rejected'
 		}
 	)
@@ -428,11 +484,12 @@ export async function mutateArtifact<R = never>(
 		// a request (DataCloneError) would otherwise commit the row without its snapshot.
 		// Logged here because `settled` sees only a cause-less AbortError.
 		console.error('Could not persist artifact', err)
+		full = isQuotaError(err)
 		reportFailure = false
 		abort()
 	}
 	const outcome = await settled
-	if (outcome !== 'saved') return { outcome }
+	if (outcome !== 'saved') return { outcome, full }
 	if (db) {
 		markSessionDirty(edit.artifact.sessionId, undefined, emailOfScopedKey(ARTIFACTS_DB, db.name))
 	}
@@ -452,9 +509,19 @@ async function pruneVersionsIn(
 	newestChars: number,
 	protect?: number
 ): Promise<void> {
+	await dropOldestIn(store, artifactId, versionsToKeep(newestChars), protect)
+}
+
+/** Delete all but the `keep` newest snapshots, never the one `protect` names. Resolves to how
+ * many were deleted. */
+async function dropOldestIn(
+	store: VersionsStore,
+	artifactId: string,
+	keep: number,
+	protect?: number
+): Promise<number> {
 	const keys = await store.index('by-artifact').getAllKeys(artifactId)
-	const keep = versionsToKeep(newestChars)
-	if (keys.length <= keep) return
+	if (keys.length <= keep) return 0
 	const protectedKey = protect === undefined ? undefined : versionKey(artifactId, protect)
 	// Keys sort lexicographically, which puts ":10" before ":2" — order by the parsed
 	// number so pruning drops the genuinely oldest snapshots.
@@ -463,6 +530,7 @@ async function pruneVersionsIn(
 		.filter((key) => key !== protectedKey)
 		.slice(0, keys.length - keep)
 	for (const key of oldest) await store.delete(key)
+	return oldest.length
 }
 
 function versionOf(key: string): number {

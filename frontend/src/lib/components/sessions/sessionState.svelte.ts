@@ -20,7 +20,11 @@ import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
-import { deleteArtifactsForWorkspace } from '../copilot/chat/artifacts/artifactsDB'
+import {
+	deleteArtifactsForWorkspace,
+	isQuotaError,
+	makeRoom
+} from '../copilot/chat/artifacts/artifactsDB'
 import { deleteSessionHandEdits } from './sessionHandEdits.svelte'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
@@ -589,10 +593,15 @@ export async function putSession(s: Session): Promise<void> {
 	ensureSessionRootId(s)
 	const db = await sessionsDb.whenReady()
 	if (!db) return
+	const row = $state.snapshot(s)
 	try {
-		await putSessionRow(db, $state.snapshot(s))
+		await putSessionRow(db, row)
 	} catch (e) {
-		console.error('Failed to persist session', e)
+		if (isQuotaError(e) && (await makeRoom())) {
+			await putSessionRow(db, row).catch((err) => console.error('Failed to persist session', err))
+		} else {
+			console.error('Failed to persist session', e)
+		}
 	}
 }
 
