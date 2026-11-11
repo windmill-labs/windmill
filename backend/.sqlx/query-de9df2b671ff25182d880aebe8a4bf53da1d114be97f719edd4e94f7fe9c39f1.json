@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_pr_check_head SET failed = true\n         WHERE workspace_id = $1 AND repo_resource_path = $2 AND pr_number = $3 AND head_sha = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "de9df2b671ff25182d880aebe8a4bf53da1d114be97f719edd4e94f7fe9c39f1"
+}

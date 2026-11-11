@@ -7,6 +7,8 @@ CREATE TABLE git_sync_pr_check_head (
     pr_number BIGINT NOT NULL,
     head_sha VARCHAR(64) NOT NULL,
     checked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- The check could not be started; the head may be claimed again after a delay.
+    failed BOOLEAN NOT NULL DEFAULT false,
     PRIMARY KEY (workspace_id, repo_resource_path, pr_number)
 );
 
