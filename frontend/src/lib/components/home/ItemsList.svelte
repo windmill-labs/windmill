@@ -963,7 +963,7 @@
 		{
 			displayName: 'Hide empty folders',
 			description:
-				'Folders with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
+				'Folders and your user space with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
 			toggle: hideEmptyFolders,
 			// Only the unfiltered tree lists folders it holds no rows of.
 			hide: !treeLazyMode || archived || !keepEmptyFolders,
@@ -2452,6 +2452,7 @@
 							: undefined}
 						keepEmptyFolders={keepEmptyFolders && !hideEmptyFolders}
 						{keptFolders}
+						hideEmptySelf={keepEmptyFolders && hideEmptyFolders}
 					/>
 				{/key}
 			{/if}
