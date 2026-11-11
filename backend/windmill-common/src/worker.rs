@@ -33,6 +33,7 @@ use crate::{
     external_ip::UNKNOWN_IP,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
+    runnable_ref::RunnableRef,
     server::Smtp,
     utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array},
     KillpillSender, DB,
@@ -2713,12 +2714,7 @@ pub async fn load_worker_config(
                     "Invalid dedicated_worker format. Got {x}, expects <workspace_id>:<path>"
                 ));
             } else {
-                let workspace = splitted[0];
-                let script_path = splitted[1];
-                Ok(WorkspacedPath {
-                    workspace_id: workspace.to_string(),
-                    path: script_path.to_string(),
-                })
+                Ok(WorkspacedPath::dedicated(splitted[0], splitted[1]))
             }
         })
         .transpose()?;
@@ -2736,12 +2732,7 @@ pub async fn load_worker_config(
                             "Invalid dedicated_workers format. Got {x}, expects <workspace_id>:<path>"
                         ));
                     }
-                    let workspace = splitted[0];
-                    let script_path = splitted[1];
-                    Ok(WorkspacedPath {
-                        workspace_id: workspace.to_string(),
-                        path: script_path.to_string(),
-                    })
+                    Ok(WorkspacedPath::dedicated(splitted[0], splitted[1]))
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
@@ -3103,6 +3094,26 @@ pub struct WorkspacedPath {
     pub path: String,
 }
 
+impl WorkspacedPath {
+    /// A dedicated worker setting's `<path>`, a flow written `flow/<path>`, read the way job
+    /// resolution reads it: the result is the path its jobs' dedicated tag is built from. A path
+    /// that does not parse is kept as written: its tag matches no job, and refusing it would stop
+    /// the worker serving the other entries of its group.
+    pub fn dedicated(workspace_id: &str, path: &str) -> Self {
+        let runnable = if path.starts_with("flow/") {
+            RunnableRef::from_prefixed(path)
+        } else {
+            RunnableRef::from_path(path, false)
+        };
+        let path = match runnable {
+            Ok(r) if r.is_flow() => format!("flow/{}", r.path()),
+            Ok(r) => r.path().to_string(),
+            Err(_) => path.to_string(),
+        };
+        Self { workspace_id: workspace_id.to_string(), path }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
@@ -3371,6 +3382,16 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn dedicated_path_is_read_like_a_job_path() {
+        let path = |p: &str| WorkspacedPath::dedicated("ws", p).path;
+        assert_eq!(path("/u/me/x"), "u/me/x");
+        assert_eq!(path("flow//f/a/b"), "flow/f/a/b");
+        assert_eq!(path("u/me/x"), "u/me/x");
+        assert_eq!(path("//u/me/x"), "//u/me/x");
+        assert_eq!(path("/f/dw/*"), "f/dw/*");
+    }
 
     #[test]
     fn whitelist_env_secret_heuristic() {

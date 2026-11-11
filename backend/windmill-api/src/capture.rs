@@ -1250,8 +1250,8 @@ async fn http_payload(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    let headers = build_headers(&args.0.metadata.headers, None, true);
-    let query = build_query(args.0.metadata.query.as_deref(), None, true);
+    let headers = build_headers(&args.0.metadata.headers, None, true, false);
+    let query = build_query(args.0.metadata.query.as_deref(), None, true, false);
 
     let preprocessor_args = args
         .clone()

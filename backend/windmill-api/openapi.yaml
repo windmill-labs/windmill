@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.866.0
+  version: 1.867.0
   title: Windmill API
 
   contact:
@@ -13144,6 +13144,11 @@ paths:
           description: restrict to paths under this prefix
           schema:
             type: string
+        - name: paths
+          in: query
+          description: comma-separated exact paths, to list only the rows at one of them
+          schema:
+            type: string
         - name: label
           in: query
           schema:
@@ -24567,6 +24572,9 @@ paths:
               properties:
                 name:
                   type: string
+                display_name:
+                  type: string
+                  description: Defaults to the name.
                 summary:
                   type: string
                 owners:
@@ -24610,6 +24618,8 @@ paths:
               type: object
               properties:
                 summary:
+                  type: string
+                display_name:
                   type: string
                 owners:
                   type: array
@@ -37857,6 +37867,8 @@ components:
       type: object
       properties:
         name:
+          type: string
+        display_name:
           type: string
         owners:
           type: array

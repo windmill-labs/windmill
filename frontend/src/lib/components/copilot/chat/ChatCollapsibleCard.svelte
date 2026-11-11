@@ -17,6 +17,8 @@
 		labelMore?: string[]
 		expanded: boolean
 		onToggle: () => void
+		/** Called once the body has finished opening, when its contents have their final position. */
+		onContentShown?: () => void
 		// A card with nothing to reveal keeps the header inert (no chevron, no
 		// hover affordance implying a toggle).
 		toggleable?: boolean
@@ -49,6 +51,7 @@
 		labelMore,
 		expanded,
 		onToggle,
+		onContentShown,
 		toggleable = true,
 		shimmer = false,
 		settleLabel = false,
@@ -161,6 +164,7 @@
 	{#if expanded && children}
 		<div
 			transition:slide={{ duration: 150 }}
+			onintroend={onContentShown}
 			class={twMerge('border border-border-light rounded-md bg-surface p-3', contentClass)}
 		>
 			{@render children()}

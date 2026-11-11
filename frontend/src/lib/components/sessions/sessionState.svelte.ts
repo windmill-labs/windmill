@@ -59,9 +59,15 @@ export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app' | 'pipeline'; 
 // Sessions whose committed workspace is no longer in the user's list are
 // still treated as forks (the "unavailable" terminal state) so we don't
 // flip them back to Building once access is lost.
-export function isForkSession(session: Session, allWorkspaces: UserWorkspace[]): boolean {
+// `allWorkspaces` is undefined until the workspace list has loaded: a workspace absent
+// from it then says nothing, so only the stored root can tell a fork from a root.
+export function isForkSession(
+	session: Session,
+	allWorkspaces: UserWorkspace[] | undefined
+): boolean {
 	const wsId = session.workspace_id ?? session.pending_workspace_id
 	if (!wsId) return false
+	if (!allWorkspaces) return !!session.workspace_root_id && wsId !== session.workspace_root_id
 	const ws = allWorkspaces.find((w) => w.id === wsId)
 	if (!ws) return !!session.workspace_id
 	return !!ws.parent_workspace_id
@@ -315,7 +321,9 @@ export function sessionInCurrentFamily(s: Session): boolean {
 function ensureSessionRootId(s: Session): boolean {
 	if (s.workspace_root_id || s.transient) return false
 	const workspaceId = s.workspace_id ?? s.pending_workspace_id
-	if (workspaceId && get(userWorkspaces).length === 0) return false
+	// `userWorkspaces` holds `admins` for a superadmin before the list loads, so its
+	// length alone would stamp a fork's own id as its root.
+	if (workspaceId && (!get(usersWorkspaceStore) || get(userWorkspaces).length === 0)) return false
 	const root = sessionRootId(s)
 	if (!root) return false
 	s.workspace_root_id = root

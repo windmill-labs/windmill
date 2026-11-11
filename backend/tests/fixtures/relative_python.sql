@@ -38,3 +38,24 @@ def main():
 '',
 '',
 'f/system_relative/nested_script', 12348, 'python3', '');
+
+-- Named after files in the job dir (loader.py) and after the running script's folder (f/system/).
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'test-user',
+'from .different_folder_script import main
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
+'',
+'',
+'f/system_relative/loader', 12349, 'python3', '');
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'test-user',
+'from .different_folder_script import main
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
+'',
+'',
+'f/system_relative/system', 12350, 'python3', '');

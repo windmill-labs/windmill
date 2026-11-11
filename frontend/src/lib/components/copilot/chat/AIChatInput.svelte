@@ -44,7 +44,6 @@
 		type AttachedImage
 	} from './imageUtils'
 	import { modelSupportsVision } from '../modelConfig'
-	import { tryGetCurrentModel } from '$lib/aiStore'
 	import { createLongHash } from '$lib/editorLangUtils'
 	import {
 		fileToAttachedTextFile,
@@ -334,11 +333,9 @@
 		if (imageFiles.length === 0) return
 		// The vision check is about the model this composer's own turn will hit, so it
 		// only applies to a host that picks that model. Elsewhere the model is chosen
-		// in the flow and tryGetCurrentModel would answer for the wrong one.
+		// in the flow and the host's model would answer for the wrong one.
 		if (chatHost.supportsModelSettings) {
-			// tryGetCurrentModel returns undefined instead of throwing: this runs from a
-			// drop/paste handler that can't surface a rejection.
-			const model = tryGetCurrentModel()
+			const model = chatHost.currentModel
 			// Only known text-only models fail this, so attaching would certainly 400 the
 			// next turn — refuse rather than warn and send it anyway.
 			if (model && !modelSupportsVision(model.provider, model.model)) {
