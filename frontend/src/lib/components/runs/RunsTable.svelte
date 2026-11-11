@@ -445,7 +445,7 @@
 				{/if}
 			</div>
 			{#each RUNS_COLUMNS.filter((c) => shownColumns.includes(c.id)) as column (column.id)}
-				<div class="text-xs font-semibold leading-3 truncate">
+				<div class="text-xs font-semibold leading-4 truncate">
 					{column.id === 'started' ? '' : column.label}
 				</div>
 			{/each}
