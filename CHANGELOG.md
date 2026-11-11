@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.868.0](https://github.com/windmill-labs/windmill/compare/v1.867.0...v1.868.0) (2026-11-11)
+
+
+### Features
+
+* compile tailwind css v4 in raw app bundles ([#12346](https://github.com/windmill-labs/windmill/issues/12346)) ([18556fd](https://github.com/windmill-labs/windmill/commit/18556fd9b897e2de6cd95f060d630bc41d7230aa))
+
+
+### Bug Fixes
+
+* back off job polling to 2s after 100 polls ([#12344](https://github.com/windmill-labs/windmill/issues/12344)) ([abede3a](https://github.com/windmill-labs/windmill/commit/abede3a02978f4c65c9c018b27a4167fd31feac2))
+* bump cli bundled minimatch, yaml and fast-uri past advisories ([#12337](https://github.com/windmill-labs/windmill/issues/12337)) ([f7f2eee](https://github.com/windmill-labs/windmill/commit/f7f2eeedfd16a64a462a58b51b81119eb102735c))
+* carry every compared field through fork deploy and diff ([#12348](https://github.com/windmill-labs/windmill/issues/12348)) ([f9cf596](https://github.com/windmill-labs/windmill/commit/f9cf596b3cee77e0070e2decda5cbab259b10471))
+* force the structured output tool on claude 3 and 4 again ([#12349](https://github.com/windmill-labs/windmill/issues/12349)) ([9c76c79](https://github.com/windmill-labs/windmill/commit/9c76c79789dbb7093aa18c4a84404da4cdde967c))
+* hide your own empty user space with the hide empty folders option ([#12345](https://github.com/windmill-labs/windmill/issues/12345)) ([d37dcca](https://github.com/windmill-labs/windmill/commit/d37dcca4c6d8dfdfb52cf96e2b36fbab32896e5a))
+* keep the runs list scrollbar and column labels unclipped ([#12347](https://github.com/windmill-labs/windmill/issues/12347)) ([d1e97ef](https://github.com/windmill-labs/windmill/commit/d1e97ef0206fd013a2576223401bf2a907f72290))
+* treat skipped jobs as successful in result and wait paths ([#12340](https://github.com/windmill-labs/windmill/issues/12340)) ([9d9875c](https://github.com/windmill-labs/windmill/commit/9d9875cf0e7bc85f62d1084529012e92c192a253))
+
+
+### Performance Improvements
+
+* build the ee debug file in the same depot build as the image ([#12339](https://github.com/windmill-labs/windmill/issues/12339)) ([2688493](https://github.com/windmill-labs/windmill/commit/2688493736dc5359857db7bc229749fdda676b60))
+
 ## [1.867.0](https://github.com/windmill-labs/windmill/compare/v1.866.0...v1.867.0) (2026-11-10)
 
 
