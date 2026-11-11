@@ -63,7 +63,8 @@
 		font-display: swap;
 	}
 	/* Without it the browser fakes italic by slanting the roman. Fetched only once a page sets
-	   italic text. */
+	   italic text. Public apps load this file on the public app domain, which serves only the
+	   paths `public_app_layer.rs` lists: a font added here is added there too. */
 	@font-face {
 		font-family: 'Inter';
 		font-style: italic;
