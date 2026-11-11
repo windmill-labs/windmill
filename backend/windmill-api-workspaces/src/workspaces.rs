@@ -7656,6 +7656,14 @@ async fn clone_workspace_data(
     // drafts would belong to someone the fork holds no membership for.
     clone_drafts(tx, source_workspace_id, target_workspace_id, &authed.email).await?;
 
+    clone_favorites(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        &authed.username,
+    )
+    .await?;
+
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -9314,6 +9322,32 @@ async fn clone_drafts(
         None,
     )
     .await?;
+    Ok(())
+}
+
+/// Favorites of the fork's members, read after the membership is copied. The forker is named
+/// apart: a superadmin can fork a workspace without having a `usr` row in it.
+async fn clone_favorites(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    forker_username: &str,
+) -> Result<()> {
+    // Deleting a workspace leaves its favorites, so a re-used fork id can already hold some.
+    sqlx::query!(
+        "INSERT INTO favorite (usr, workspace_id, path, favorite_kind)
+         SELECT f.usr, $2::varchar, f.path, f.favorite_kind
+         FROM favorite f
+         WHERE f.workspace_id = $1
+           AND (f.usr = $3 OR f.usr IN (SELECT username FROM usr WHERE workspace_id = $2))
+         ON CONFLICT DO NOTHING",
+        source_workspace_id,
+        target_workspace_id,
+        forker_username,
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(())
 }
 
