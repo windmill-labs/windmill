@@ -491,6 +491,7 @@ export class AIChatManager implements ChatViewHost {
 	// affordances apply here. See ChatViewHost for hosts where they don't.
 	supportsModelSettings = true
 	supportsMessageEditing = true
+	readonly stopSendsQueuedMessage = true
 	// The copilot turn is the attachments themselves when there is no text.
 	requiresMessageText = false
 	// Attachments and linked folders are GLOBAL-mode affordances. Declared as

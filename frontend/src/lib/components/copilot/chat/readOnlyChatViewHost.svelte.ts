@@ -51,6 +51,7 @@ export function readOnlyChatViewHost(options: {
 		queuedBlobs: [],
 		queueMessage: noop,
 		dequeueMessage: noop,
+		stopSendsQueuedMessage: false,
 		setComposerStaged: noop,
 		setComposerHasDraft: noop,
 		clearComposerStaged: noop,

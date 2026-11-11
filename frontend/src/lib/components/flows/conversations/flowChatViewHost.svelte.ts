@@ -734,6 +734,7 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	dequeueMessage = () => {
 		this.#turns.dequeue()
 	}
+	readonly stopSendsQueuedMessage = false
 	setComposerStaged = () => {}
 	/** Plain, not `$state`: read by the pool deciding what to release, never rendered. */
 	readonly #composersWithDraft = new Set<string>()

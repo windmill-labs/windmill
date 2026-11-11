@@ -92,6 +92,10 @@ export interface ChatViewHost {
 		blobs?: AttachedBlob[]
 	) => void
 	dequeueMessage: () => void
+	/** Whether a user stop (Esc, Stop) sends the queued message right away. Where it is
+	 * false the stop hands the queue back to the composer, and the queued chip must not
+	 * advertise Esc as "send now". */
+	readonly stopSendsQueuedMessage: boolean
 	setComposerStaged: (key: string, editingIndex: number | null, bytes: number) => void
 	/** Whether this composer holds anything unsent (text, pastes, attachments, reads in flight). */
 	setComposerHasDraft: (key: string, hasDraft: boolean) => void

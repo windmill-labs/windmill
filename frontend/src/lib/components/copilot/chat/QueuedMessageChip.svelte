@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Button, Kbd } from '$lib/components/common'
 	import { FileText, X } from 'lucide-svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import { contextElementKey } from './context'
@@ -23,81 +23,91 @@
 {#if chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedFiles.length > 0 || chatHost.queuedBlobs.length > 0 || (chatHost.queuedContext?.length ?? 0) > 0}
 	<!-- The body and the X are sibling buttons for the same action (an X inside a
 	     clickable chip would be a nested interactive control, invalid ARIA). -->
-	<div
-		class="mb-1 flex flex-row items-start gap-1 rounded-md bg-surface-input px-3 py-2 opacity-60 hover:opacity-100"
-	>
-		{#if chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedFiles.length > 0 || chatHost.queuedBlobs.length > 0}
-			<button
-				type="button"
-				class="min-w-0 grow text-left cursor-pointer"
-				title={chatHost.queuedMessage}
-				aria-label="Remove queued message and put it back in the input"
-				onclick={() => chatHost.dequeueMessage()}
-			>
-				{#if chatHost.queuedImages.length > 0}
-					<div class="flex flex-row flex-wrap gap-1 {chatHost.queuedMessage ? 'mb-1' : ''}">
-						{#each chatHost.queuedImages as image, i (i)}
-							<img
-								src={image.dataUrl}
-								alt={image.name ?? 'queued image'}
-								class="h-6 w-6 object-cover rounded border border-border-light"
-							/>
-						{/each}
-					</div>
-				{/if}
-				{#if chatHost.queuedFiles.length > 0}
-					<div class="flex flex-row flex-wrap gap-1 {chatHost.queuedMessage ? 'mb-1' : ''}">
-						{#each chatHost.queuedFiles as file, i (i)}
-							<span
-								class="flex flex-row items-center gap-1 px-1.5 rounded border border-border-light text-2xs text-secondary max-w-36"
-								title={file.name}
-							>
-								<FileText size={10} class="shrink-0" />
-								<span class="truncate min-w-0">{file.name}</span>
-							</span>
-						{/each}
-					</div>
-				{/if}
-				{#if chatHost.queuedBlobs.length > 0}
-					<!-- Blobs are the same chip as files: a host that forwards bytes verbatim
+	<div class="mb-1 rounded-md bg-surface-input px-3 py-2 opacity-60 hover:opacity-100">
+		<div class="flex flex-row items-start gap-1">
+			{#if chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedFiles.length > 0 || chatHost.queuedBlobs.length > 0}
+				<button
+					type="button"
+					class="min-w-0 grow text-left cursor-pointer"
+					title={chatHost.queuedMessage}
+					aria-label="Remove queued message and put it back in the input"
+					onclick={() => chatHost.dequeueMessage()}
+				>
+					{#if chatHost.queuedImages.length > 0}
+						<div class="flex flex-row flex-wrap gap-1 {chatHost.queuedMessage ? 'mb-1' : ''}">
+							{#each chatHost.queuedImages as image, i (i)}
+								<img
+									src={image.dataUrl}
+									alt={image.name ?? 'queued image'}
+									class="h-6 w-6 object-cover rounded border border-border-light"
+								/>
+							{/each}
+						</div>
+					{/if}
+					{#if chatHost.queuedFiles.length > 0}
+						<div class="flex flex-row flex-wrap gap-1 {chatHost.queuedMessage ? 'mb-1' : ''}">
+							{#each chatHost.queuedFiles as file, i (i)}
+								<span
+									class="flex flex-row items-center gap-1 px-1.5 rounded border border-border-light text-2xs text-secondary max-w-36"
+									title={file.name}
+								>
+									<FileText size={10} class="shrink-0" />
+									<span class="truncate min-w-0">{file.name}</span>
+								</span>
+							{/each}
+						</div>
+					{/if}
+					{#if chatHost.queuedBlobs.length > 0}
+						<!-- Blobs are the same chip as files: a host that forwards bytes verbatim
 					     queues them here instead, and a queue of them alone must still show. -->
-					<div class="flex flex-row flex-wrap gap-1 {chatHost.queuedMessage ? 'mb-1' : ''}">
-						{#each chatHost.queuedBlobs as blob, i (i)}
-							<span
-								class="flex flex-row items-center gap-1 px-1.5 rounded border border-border-light text-2xs text-secondary max-w-36"
-								title={blob.name}
-							>
-								<FileText size={10} class="shrink-0" />
-								<span class="truncate min-w-0">{blob.name}</span>
-							</span>
-						{/each}
-					</div>
-				{/if}
-				{#if chatHost.queuedMessage}
-					<p class="text-xs text-secondary whitespace-pre-wrap line-clamp-2">
-						{chatHost.queuedMessage}
-					</p>
-				{/if}
-			</button>
-		{:else if chatHost.queuedContext?.length}
-			<!-- Context badges are interactive themselves (popover preview), so a
+						<div class="flex flex-row flex-wrap gap-1 {chatHost.queuedMessage ? 'mb-1' : ''}">
+							{#each chatHost.queuedBlobs as blob, i (i)}
+								<span
+									class="flex flex-row items-center gap-1 px-1.5 rounded border border-border-light text-2xs text-secondary max-w-36"
+									title={blob.name}
+								>
+									<FileText size={10} class="shrink-0" />
+									<span class="truncate min-w-0">{blob.name}</span>
+								</span>
+							{/each}
+						</div>
+					{/if}
+					{#if chatHost.queuedMessage}
+						<p class="text-xs text-secondary whitespace-pre-wrap line-clamp-2">
+							{chatHost.queuedMessage}
+						</p>
+					{/if}
+				</button>
+			{:else if chatHost.queuedContext?.length}
+				<!-- Context badges are interactive themselves (popover preview), so a
 			     context-only queue gets a plain row instead of the clickable body —
 			     nesting the badges in it would be invalid ARIA and a badge click
 			     would dequeue out from under the opening popover. The X (and
 			     ArrowUp in the empty input) still restores the queue. -->
-			<div class="min-w-0 grow flex flex-row flex-wrap gap-1">
-				{#each chatHost.queuedContext as element (contextElementKey(element))}
-					<ContextElementBadge contextElement={element} compact />
-				{/each}
+				<div class="min-w-0 grow flex flex-row flex-wrap gap-1">
+					{#each chatHost.queuedContext as element (contextElementKey(element))}
+						<ContextElementBadge contextElement={element} compact />
+					{/each}
+				</div>
+			{/if}
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				iconOnly
+				title="Remove queued message and put it back in the input"
+				startIcon={{ icon: X }}
+				on:click={() => chatHost.dequeueMessage()}
+			/>
+		</div>
+		<!-- Only while a turn runs: Esc does nothing once it has finished, and the queue
+		     is about to auto-send anyway. -->
+		{#if chatHost.loading}
+			<div class="mt-1 flex flex-row items-center gap-1 text-2xs text-hint">
+				{#if chatHost.stopSendsQueuedMessage}
+					<Kbd small>Esc</Kbd> to send now ·
+				{/if}
+				<Kbd small>↑</Kbd> to edit
 			</div>
 		{/if}
-		<Button
-			variant="subtle"
-			unifiedSize="xs"
-			iconOnly
-			title="Remove queued message and put it back in the input"
-			startIcon={{ icon: X }}
-			on:click={() => chatHost.dequeueMessage()}
-		/>
 	</div>
 {/if}
