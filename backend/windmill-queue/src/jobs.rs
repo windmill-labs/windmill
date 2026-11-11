@@ -798,7 +798,7 @@ async fn restart_perpetual_runs_at_path(
     // run, below.
     let script = RunnableRef::from_path(script_path, false)?;
     let (mut payload, tag, _, _, timeout, on_behalf_of) =
-        script_path_to_payload(&script, RunOrigin::SavedItem, None, db.clone(), w_id, None).await?;
+        script_path_to_payload(&script, RunOrigin::Deployed, None, db.clone(), w_id, None).await?;
     // A replacement continues a loop rather than answering a trigger, and every perpetual restart
     // is pushed without debouncing for that reason. Deployed settings here would debounce the
     // loops at this path against each other and collapse those that share arguments into one.
@@ -3572,7 +3572,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         w_id
     };
     let (payload, tag, on_behalf_of) =
-        runnable_ref_to_payload(on_failure, RunOrigin::SavedItem, db, handler_w_id).await?;
+        runnable_ref_to_payload(on_failure, RunOrigin::Deployed, db, handler_w_id).await?;
 
     let mut extra = HashMap::new();
     if let Some(schedule_path) = schedule_path {
@@ -3767,7 +3767,7 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     priority: Option<i16>,
 ) -> windmill_common::error::Result<Uuid> {
     let (payload, tag, on_behalf_of) =
-        runnable_ref_to_payload(on_success, RunOrigin::SavedItem, db, w_id).await?;
+        runnable_ref_to_payload(on_success, RunOrigin::Deployed, db, w_id).await?;
 
     let mut extra = HashMap::new();
     if let Some(schedule_path) = schedule_path {

@@ -148,14 +148,15 @@ pub fn resolve_delete_after_secs(
     }
 }
 
-/// Who chose the path a job is resolved from. A path a person named is held to that person's
-/// rights; one stored in something a builder saved (a flow step, a handler) is not re-checked here.
-/// Deliberately has no default: every caller must say which it is.
+/// Who chose the path a job is resolved from. Deliberately has no default: every caller must say
+/// which it is.
 pub enum RunOrigin<'a> {
     /// The person who chose the path, whose rights it is held to; usually, not always, the
     /// identity the job runs as (a preview on behalf of another user, a run-as script).
     NamedBy(AuthedRef<'a>),
-    SavedItem,
+    /// The path is read from a row whose write was checked when it was saved, so it is not
+    /// re-checked here. Choose it only when that save-time check exists.
+    Deployed,
 }
 
 pub async fn script_path_to_payload<'e>(

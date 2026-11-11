@@ -5176,7 +5176,7 @@ async fn execute_component(
                             "Required to be authed in viewer mode".to_string(),
                         ))
                     }
-                    _ => RunOrigin::SavedItem,
+                    _ => RunOrigin::Deployed,
                 };
                 runnable_ref_to_payload(&runnable, origin, &db, &w_id).await?
             }

@@ -3797,7 +3797,7 @@ pub async fn handle_wac_v2_output(
                         // Resolve script path to job payload (handles hash, lang, etc.)
                         let (payload, _, _, _, _, on_behalf_of) = script_path_to_payload(
                             &script,
-                            RunOrigin::SavedItem,
+                            RunOrigin::Deployed,
                             None, // no authed db for background workers
                             db.clone(),
                             &job.workspace_id,

@@ -124,7 +124,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
             (Some(error), _) => Err(error.clone()),
             (None, Err(e)) => Err(format!("{e:#}")),
             (None, Ok(handler)) => {
-                runnable_ref_to_payload(&handler, RunOrigin::SavedItem, db, &row.workspace_id)
+                runnable_ref_to_payload(&handler, RunOrigin::Deployed, db, &row.workspace_id)
                     .await
                     .map_err(|e| {
                         let error = format!("{e:#}");

@@ -7005,7 +7005,7 @@ pub async fn script_to_payload(
             let (jp, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
                 script_path_to_payload(
                     &script,
-                    RunOrigin::SavedItem,
+                    RunOrigin::Deployed,
                     None,
                     db.clone(),
                     &flow_job.workspace_id,

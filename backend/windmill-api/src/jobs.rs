@@ -7941,7 +7941,7 @@ pub async fn run_workflow_as_code(
                 let script = RunnableRef::from_path(job.script_path(), false)?;
                 script_path_to_payload(
                     &script,
-                    RunOrigin::SavedItem,
+                    RunOrigin::Deployed,
                     Some(userdb_authed),
                     db.clone(),
                     &w_id,
