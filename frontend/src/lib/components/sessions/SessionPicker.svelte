@@ -395,6 +395,13 @@
 	// AI activity in some session without expanding the sidebar.
 	const totalUnread = $derived(visibleSessions.reduce((acc, s) => acc + unreadFor(s), 0))
 
+	const anyWorking = $derived(
+		visibleSessions.some((s) => {
+			const runtime = getRuntime(s.id)
+			return !!runtime && getSessionChatStatus(runtime) === 'streaming'
+		})
+	)
+
 	// Clear any persisted collapsed state while the list is empty. The
 	// empty-state header is a plain label with no toggle, so a collapse
 	// carried over from a previous session (or another workspace) would
@@ -808,6 +815,7 @@
 				onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
 				disabled={filteredSessions.length === 0}
 				notify={totalUnread > 0}
+				working={anyWorking}
 				actions={sectionOptions}
 				{isCollapsed}
 				onClose={() => {
