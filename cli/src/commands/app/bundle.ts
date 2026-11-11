@@ -274,9 +274,10 @@ function collectTailwindCandidates(dirs: string[]): string[] {
         };
         // Class lists live in string literals, whose content is split on whitespace
         // only, so arbitrary values keep their quotes, `=` and `>`
-        // (`data-[state=open]:…`, `content-['x']`, `[&>svg]:hidden`).
-        for (const m of text.matchAll(/"([^"\n]*)"|'([^'\n]*)'|`([^`]*)`/g)) {
-          (m[1] ?? m[2] ?? m[3]).split(/\s+/).forEach(add);
+        // (`data-[state=open]:…`, `content-['x']`, `[&>svg]:hidden`). Each quote kind is
+        // matched on its own so a `class="…"` inside a template literal is still found.
+        for (const re of [/"([^"\n]*)"/g, /'([^'\n]*)'/g, /`([^`]*)`/g]) {
+          for (const m of text.matchAll(re)) m[1].split(/\s+/).forEach(add);
         }
         // Classes outside literals: Svelte directives, markup.
         text.split(/[\s"'`{}<>;=]+/).forEach(add);
