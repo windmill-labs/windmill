@@ -224,11 +224,27 @@
 		return `${principal} is a member of ${node.key}, so ${principal} can write every item under ${node.key}/, including items added later.`
 	}
 
-	/** Grants on the item itself. What its folder or space gives is said once, on that row. */
+	/** Grants on the item itself, which decide whether its level reads as its own. */
 	function itemGrants(item: AccessItem): string[] {
 		return item.reasons.flatMap((r) =>
 			r.type === 'user' ? ['Shared directly'] : r.type === 'group' ? [viaLabel(`g/${r.group}`)] : []
 		)
+	}
+
+	/** Every reason the item is held: its own grants, then its folder or space. */
+	function itemReasons(item: AccessItem): string[] {
+		const labels = item.reasons.map((r) =>
+			r.type === 'user'
+				? 'Shared directly'
+				: r.type === 'group'
+					? viaLabel(`g/${r.group}`)
+					: r.type === 'folder'
+						? `Through f/${r.folder}`
+						: r.type === 'group_path'
+							? `Through g/${r.group}`
+							: 'Own path'
+		)
+		return [...new Set(labels)]
 	}
 
 	function levelClass(item: AccessItem, grants: string[], owner: AccessOwnerNode): string {
@@ -364,7 +380,7 @@
 								{/snippet}
 								{#snippet content()}
 									{#if access}
-										<GrantNavigator {principal} {access} onGranted={reload} />
+										<GrantNavigator {principal} {access} onChange={reload} />
 									{/if}
 								{/snippet}
 							</Popover>
@@ -526,7 +542,7 @@
 														>{item.write ? 'Write' : 'Read'}</span
 													>
 												</Cell>
-												<Cell>{grants.join(', ')}</Cell>
+												<Cell>{itemReasons(item).join(', ')}</Cell>
 												<Cell last actions>
 													{@const own = ownItemGrant(item)}
 													{#if own !== undefined}

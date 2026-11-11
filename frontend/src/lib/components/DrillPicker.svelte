@@ -13,7 +13,8 @@ level *up*. Filter (internal or `externalFilter`) is global across all
 leaves and ignores the current scope.
 -->
 <script lang="ts" generics="L">
-	import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-svelte'
+	import { CheckCircle2, ChevronLeft, ChevronRight, Loader2 } from 'lucide-svelte'
+	import { fade, fly } from 'svelte/transition'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -30,6 +31,7 @@ leaves and ignores the current scope.
 		type DrillBranch,
 		type DrillIcon,
 		type DrillLeaf,
+		type DrillLeafAction,
 		type DrillNode
 	} from './drillPicker'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -39,7 +41,10 @@ leaves and ignores the current scope.
 
 	interface Props {
 		tree: DrillNode<L>[]
-		onPick: (leaf: DrillLeaf<L>) => void
+		/** Picking a leaf: a click, or Enter on its highlighted row. Without it, a click on a leaf
+		 * does nothing and Enter runs the highlighted row's selected `leafActions` button, for a
+		 * picker whose rows act only through their buttons. */
+		onPick?: (leaf: DrillLeaf<L>) => void
 		/** Drill path to land on initially. Empty = root. */
 		initialScope?: string[]
 		/** Composite key of the row to highlight initially. */
@@ -87,13 +92,22 @@ leaves and ignores the current scope.
 			leaf: DrillLeaf<L>
 		) => { icon: DrillIcon; label: string; title: string; run: () => void } | undefined
 		/** Status badge on the right of a leaf row. Returns `undefined` for a leaf with
-		 * nothing to report. The hover action, when there is one, covers it. */
+		 * nothing to report. The hover action, when there is one, covers it. With `leafActions` it
+		 * is plain text and `color` is unused. */
 		leafBadge?: (leaf: DrillLeaf<L>) => { label: string; color: BadgeColor } | undefined
 		/** Where picking a leaf navigates, for a host whose pick is a navigation. The row then
 		 * renders as a link: a plain click still goes through `onPick`, while a middle or
 		 * ⌘/Ctrl-click opens it in a new tab — taking ⌘/Ctrl-click from `leafAction`, which
 		 * keeps ⌘/Ctrl-Enter. */
 		leafHref?: (leaf: DrillLeaf<L>) => string | undefined
+		/** What a leaf row offers, laid over its end while the row is highlighted (hovered or reached
+		 * with the arrow keys), so the row does not reflow: the `preferred` one (else the first) as a
+		 * button, which Enter runs when there is no `onPick`, and the others in its dropdown. In
+		 * place of `leafAction`, not with it. */
+		leafActions?: (leaf: DrillLeaf<L>) => DrillLeafAction[] | undefined
+		/** What a `leafActions` button just did on a leaf ("Read granted"), shown over the row's
+		 * end, highlighted or not, while it returns a text. */
+		leafDone?: (leaf: DrillLeaf<L>) => string | undefined
 	}
 
 	let {
@@ -113,7 +127,9 @@ leaves and ignores the current scope.
 		rowTooltip,
 		leafAction,
 		leafBadge,
-		leafHref
+		leafHref,
+		leafActions,
+		leafDone
 	}: Props = $props()
 
 	let searchInput: TextInput | undefined = $state()
@@ -302,7 +318,9 @@ leaves and ignores the current scope.
 		// Ignored until the user actually moves the mouse. Prevents the
 		// cursor (parked over a row) from clobbering keyboard-driven
 		// selection when the layout shifts beneath it.
-		if (mouseActive) highlightedKey = key
+		// A row's open menu sits over the rows below it, and the pointer crosses them to reach it:
+		// moving the highlight would take the menu's button away.
+		if (mouseActive && !actionMenuOpen) highlightedKey = key
 	}
 
 	/** `alt` picks the row's second action (see `leafAction`) rather than the row
@@ -310,6 +328,10 @@ leaves and ignores the current scope.
 	 * that only appears on hover. A leaf with no second action ignores it. */
 	function pick(leaf: DrillLeaf<L>, alt = false) {
 		if (leaf.disabled) return
+		if (!onPick) {
+			if (leaf.key === highlightedKey) runMainAction()
+			return
+		}
 		// The second action is the row's other destination (its editor, for the deployed page
 		// this tab shows), so it stays available on the current row the plain pick skips.
 		if (alt) {
@@ -321,6 +343,25 @@ leaves and ignores the current scope.
 		}
 		if (leaf.current) return
 		onPick(leaf)
+	}
+
+	function runMainAction() {
+		const action = mainAction
+		if (action && !action.disabled && !action.loading) runAction(action)
+	}
+
+	/** The button area's width when each row's action ran: its success pill keeps it, since
+	 * `actionsWidth` follows the highlighted row and would resize the pill on hover. */
+	let pillWidths: Record<string, number> = $state({})
+	function runAction(action: DrillLeafAction) {
+		if (highlightedKey) pillWidths[highlightedKey] = actionsWidth
+		action.run()
+	}
+
+	/** Fades out what lies under the highlighted row's buttons, which sit over its end. */
+	function fadeUnder(width: number): string {
+		const mask = `linear-gradient(to left, transparent ${width}px, #000 ${width + 16}px)`
+		return `mask-image: ${mask}; -webkit-mask-image: ${mask}`
 	}
 
 	// Single shared hover tooltip (opt-in via `rowTooltip`): one floating node
@@ -385,6 +426,17 @@ leaves and ignores the current scope.
 	}
 
 	function handleSearchKeydown(e: KeyboardEvent) {
+		// A row's button has focus only after a click: it keeps its own keys, and Enter must not
+		// also reach the row. ↑/↓ and Escape return to the search field.
+		if ((e.target as HTMLElement | null)?.closest?.('[data-drill-action]')) {
+			if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Escape') {
+				e.preventDefault()
+				e.stopPropagation()
+				focus()
+				if (e.key !== 'Escape') moveHighlight(e.key === 'ArrowDown' ? 1 : -1)
+			}
+			return
+		}
 		if (e.key === 'ArrowDown') {
 			e.preventDefault()
 			e.stopPropagation()
@@ -400,6 +452,8 @@ leaves and ignores the current scope.
 			// highlighted row so an unrelated Tab in an empty picker still
 			// falls through to natural focus movement.
 			if (e.key === 'Tab' && !highlightedKey) return
+			// Without `onPick`, Enter on a leaf runs its selected button, which Tab must not do.
+			if (e.key === 'Tab' && !onPick && leafForKey(highlightedKey!)) return
 			e.preventDefault()
 			e.stopPropagation()
 			mouseActive = false
@@ -484,6 +538,22 @@ leaves and ignores the current scope.
 	})
 
 	const branchLoading = $derived(currentBranch ? (currentBranch.loading ?? false) : rootLoading)
+
+	const highlightedNode = $derived.by<DrillNode<L> | undefined>(() => {
+		if (!highlightedKey) return undefined
+		if (isSearching) return (searchedItems ?? []).find((r) => r.leaf.key === highlightedKey)?.leaf
+		return entryList.find((e) => e.key === highlightedKey)?.node
+	})
+
+	const highlightedActions = $derived(
+		highlightedNode?.type === 'leaf' && !highlightedNode.disabled
+			? (leafActions?.(highlightedNode) ?? [])
+			: []
+	)
+	const mainAction = $derived(highlightedActions.find((a) => a.preferred) ?? highlightedActions[0])
+	const otherActions = $derived(highlightedActions.filter((a) => a !== mainAction))
+	let actionMenuOpen = $state(false)
+	let actionsWidth = $state(0)
 </script>
 
 <SearchItems
@@ -525,6 +595,9 @@ leaves and ignores the current scope.
 	{@const action = leaf.disabled ? undefined : leafAction?.(leaf)}
 	{@const badge = leafBadge?.(leaf)}
 	{@const href = leaf.disabled ? undefined : leafHref?.(leaf)}
+	{@const inert = !onPick}
+	{@const actions = isHl ? highlightedActions : []}
+	{@const done = leafDone?.(leaf)}
 	<!-- The row's action sits BESIDE the option rather than inside it: a button nested in
 	     a button is invalid markup. The wrapper carries the row's padding, highlight and
 	     hover group so the two still read as one row. -->
@@ -534,99 +607,166 @@ leaves and ignores the current scope.
 	<!-- A disabled option dims through `disabled:opacity-50` and shows its cursor on this wrapper:
 	     the base `button:disabled` rule in tailwind.config.cjs outranks a plain `opacity-50` and
 	     turns pointer events off on the button itself. -->
+	<!-- `leafActions` show only on the highlighted row, so a pointer that comes back after the
+	     arrow keys moved the highlight takes it on its first move, not on the next row it enters. -->
 	<div
-		class="group flex items-center transition-colors pr-3 {baseClass} {isHl
+		class="group relative flex items-center transition-colors pr-3 {baseClass} {isHl
 			? 'bg-surface-hover'
 			: ''} {leaf.disabled ? 'cursor-not-allowed' : ''}"
 		onmouseenter={(e) => {
 			setHoverHighlight(key)
 			tooltipEnter(e.currentTarget as HTMLElement, leaf)
 		}}
+		onmousemove={leafActions && !isHl ? () => setHoverHighlight(key) : undefined}
 		onmouseleave={tooltipLeave}
 	>
-		<svelte:element
-			this={href ? 'a' : 'button'}
-			type={href ? undefined : 'button'}
-			{href}
-			id={idFor(key)}
-			role="option"
-			aria-selected={isHl}
-			data-nav-key={key}
-			aria-current={isCur ? 'true' : undefined}
-			aria-label={tip ? `${leaf.label} — ${tip}` : undefined}
-			class="min-w-0 flex-1 text-left flex items-center gap-2 pl-3 {isCur
-				? 'cursor-default text-emphasis font-medium'
-				: 'text-[color:inherit]'} disabled:opacity-50"
-			disabled={href ? undefined : leaf.disabled}
-			tabindex={0}
-			onmousedown={(e: MouseEvent) => e.preventDefault()}
-			onclickcapture={(e: MouseEvent) => {
-				// Capture, not a delegated onclick: the picker is portalled outside the app root,
-				// where a delegated handler runs after SvelteKit's link handler has already
-				// followed the href, too late for preventDefault to keep a plain click on `pick`.
-				if (href && isNewTabClick(e)) return
-				e.preventDefault()
-				pick(leaf, e.metaKey || e.ctrlKey)
-			}}
+		<!-- With `leafActions`, what fades out under the row's buttons; `contents` otherwise. -->
+		<div
+			class={leafActions ? 'min-w-0 flex-1 flex items-center' : 'contents'}
+			style={actions.length ? fadeUnder(actionsWidth) : undefined}
 		>
-			{@render defaultLeafIcon(leaf)}
-			<!-- Centred in a two-line row's height so a one-line leaf sits where a two-line
-			     one's pair does, rather than riding high against the top. A list with no
-			     second line anywhere (a picker's pages) keeps its rows one line tall. -->
-			<div
-				class="min-w-0 flex-1 flex flex-col justify-center {twoLineHeight ? 'min-h-[2.25rem]' : ''}"
+			<svelte:element
+				this={href ? 'a' : inert ? 'div' : 'button'}
+				type={href || inert ? undefined : 'button'}
+				{href}
+				id={idFor(key)}
+				role="option"
+				aria-selected={isHl}
+				aria-disabled={inert && leaf.disabled ? 'true' : undefined}
+				data-nav-key={key}
+				aria-current={isCur ? 'true' : undefined}
+				aria-label={tip ? `${leaf.label} — ${tip}` : undefined}
+				class="min-w-0 flex-1 text-left flex items-center gap-2 pl-3 {isCur
+					? 'cursor-default text-emphasis font-medium'
+					: 'text-[color:inherit]'} {inert
+					? leaf.disabled
+						? 'opacity-50'
+						: 'cursor-default'
+					: 'disabled:opacity-50'}"
+				disabled={href || inert ? undefined : leaf.disabled}
+				tabindex={inert ? -1 : 0}
+				onmousedown={(e: MouseEvent) => e.preventDefault()}
+				onclickcapture={inert
+					? undefined
+					: (e: MouseEvent) => {
+							// Capture, not a delegated onclick: the picker is portalled outside the app root,
+							// where a delegated handler runs after SvelteKit's link handler has already
+							// followed the href, too late for preventDefault to keep a plain click on `pick`.
+							if (href && isNewTabClick(e)) return
+							e.preventDefault()
+							pick(leaf, e.metaKey || e.ctrlKey)
+						}}
 			>
-				{#if leaf.secondary}
-					<div class="text-xs text-primary font-normal truncate">{leaf.label}</div>
-					<div class="text-2xs text-hint font-normal font-mono truncate">
-						{secondary ?? leaf.secondary}
-					</div>
-				{:else}
-					<div class="text-xs text-primary font-normal font-mono truncate">
-						{secondary ?? leaf.label}
-					</div>
+				{@render defaultLeafIcon(leaf)}
+				<!-- Centred in a two-line row's height so a one-line leaf sits where a two-line
+				     one's pair does, rather than riding high against the top. A list with no
+				     second line anywhere (a picker's pages) keeps its rows one line tall. -->
+				<div
+					class="min-w-0 flex-1 flex flex-col justify-center {twoLineHeight
+						? 'min-h-[2.25rem]'
+						: ''}"
+				>
+					{#if leaf.secondary}
+						<div class="text-xs text-primary font-normal truncate">{leaf.label}</div>
+						<div class="text-2xs text-hint font-normal font-mono truncate">
+							{secondary ?? leaf.secondary}
+						</div>
+					{:else}
+						<div class="text-xs text-primary font-normal font-mono truncate">
+							{secondary ?? leaf.label}
+						</div>
+					{/if}
+				</div>
+			</svelte:element>
+			{#if leafActions}
+				<!-- Plain text beside the row's buttons, which sit over it while the row is
+				     highlighted: a filled badge reads as one more button. -->
+				{#if badge}
+					<span class="shrink-0 pl-2 text-xs text-secondary">{badge.label}</span>
+				{/if}
+				<!-- Keyed on the props rather than on this leaf's own badge or action, so a picker
+				     that has either holds the column open on every row: paths then truncate at one
+				     column and the button lands in the same place down the list. -->
+			{:else if leafBadge || leafAction}
+				<!-- Both sit in one grid cell so they cross-fade in place rather than sitting
+				     side by side or shifting the row as one replaces the other. -->
+				<div class="shrink-0 w-[4.5rem] grid justify-items-end items-center pl-2">
+					{#if action}
+						<!-- `invisible`, not `hidden`: display cannot be transitioned, while
+						     visibility both fades with opacity and keeps the button out of the tab
+						     order while it is out of sight — the picker's focus belongs to its
+						     search field, and rows are reached with the arrow keys.
+						     The classes sit on this wrapper, not on the Button: `wrapperClasses` is
+						     twMerged with the button's own `flex`, which drops a conflicting
+						     display and leaves it showing beside the badge. -->
+						<div
+							class="col-start-1 row-start-1 invisible opacity-0 transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100"
+						>
+							<Button
+								unifiedSize="xs"
+								variant="default"
+								title={action.title}
+								startIcon={{ icon: action.icon }}
+								onClick={action.run}
+								wrapperClasses="shrink-0"
+							>
+								{action.label}
+							</Button>
+						</div>
+					{/if}
+					{#if badge}
+						<div
+							class="col-start-1 row-start-1 transition-[opacity,visibility] duration-150 {action
+								? 'group-hover:invisible group-hover:opacity-0'
+								: ''}"
+						>
+							<Badge small color={badge.color}>{badge.label}</Badge>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
+		{#if actions.length}
+			<!-- Over the row's end, so a row keeps its layout whether or not it shows them. -->
+			<div
+				class="absolute inset-y-0 right-3 flex items-center gap-1"
+				bind:clientWidth={actionsWidth}
+			>
+				{#if mainAction && !done}
+					<!-- Local, so it waits for the pill to leave but not for a hover. -->
+					<span data-drill-action in:fade={{ delay: 150, duration: 100 }}>
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={mainAction.icon ? { icon: mainAction.icon } : undefined}
+							loading={mainAction.loading}
+							disabled={mainAction.disabled}
+							onClick={() => mainAction && runAction(mainAction)}
+							dropdownItems={otherActions.map((a) => ({
+								label: a.label,
+								description: a.hint,
+								icon: a.icon,
+								disabled: a.disabled || a.loading,
+								onClick: () => runAction(a)
+							}))}
+							bind:dropdownOpen={actionMenuOpen}
+						>
+							{mainAction.label}
+						</Button>
+					</span>
 				{/if}
 			</div>
-		</svelte:element>
-		<!-- Keyed on the props rather than on this leaf's own badge or action, so a picker
-		     that has either holds the column open on every row: paths then truncate at one
-		     column and the button lands in the same place down the list. -->
-		{#if leafBadge || leafAction}
-			<!-- Both sit in one grid cell so they cross-fade in place rather than sitting
-			     side by side or shifting the row as one replaces the other. -->
-			<div class="shrink-0 w-[4.5rem] grid justify-items-end items-center pl-2">
-				{#if action}
-					<!-- `invisible`, not `hidden`: display cannot be transitioned, while
-					     visibility both fades with opacity and keeps the button out of the tab
-					     order while it is out of sight — the picker's focus belongs to its
-					     search field, and rows are reached with the arrow keys.
-					     The classes sit on this wrapper, not on the Button: `wrapperClasses` is
-					     twMerged with the button's own `flex`, which drops a conflicting
-					     display and leaves it showing beside the badge. -->
-					<div
-						class="col-start-1 row-start-1 invisible opacity-0 transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100"
-					>
-						<Button
-							unifiedSize="xs"
-							variant="default"
-							title={action.title}
-							startIcon={{ icon: action.icon }}
-							onClick={action.run}
-							wrapperClasses="shrink-0"
-						>
-							{action.label}
-						</Button>
-					</div>
-				{/if}
-				{#if badge}
-					<div
-						class="col-start-1 row-start-1 transition-[opacity,visibility] duration-150 {action
-							? 'group-hover:invisible group-hover:opacity-0'
-							: ''}"
-					>
-						<Badge small color={badge.color}>{badge.label}</Badge>
-					</div>
-				{/if}
+		{/if}
+		{#if done}
+			<!-- SaveButton's success pill, over the row's button and its dropdown chevron. -->
+			<div
+				class="absolute inset-y-0 my-auto h-7 right-3 z-10 flex items-center justify-center gap-1.5 px-2 rounded-md text-xs font-medium whitespace-nowrap overflow-hidden bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200"
+				style={pillWidths[leaf.key] ? `width: ${pillWidths[leaf.key]}px` : undefined}
+				role="status"
+				transition:fly={{ y: -10, duration: 150 }}
+			>
+				<CheckCircle2 size={14} class="shrink-0" />
+				{done}
 			</div>
 		{/if}
 	</div>

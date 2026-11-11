@@ -32,6 +32,19 @@ export type DrillLeaf<L> = {
 	disabled?: boolean
 }
 
+/** Something a leaf row offers (see the picker's `leafActions`). */
+export type DrillLeafAction = {
+	label: string
+	icon?: DrillIcon
+	/** What running it does, shown under its label in the row's dropdown. */
+	hint?: string
+	/** The row's button, with the others in its dropdown; the first one is otherwise. */
+	preferred?: boolean
+	loading?: boolean
+	disabled?: boolean
+	run: () => void
+}
+
 /** Branch node — interior entry the user drills into. */
 export type DrillBranch<L> = {
 	type: 'branch'
