@@ -878,10 +878,9 @@ impl<B: McpBackend> Runner<B> {
             }
         }
 
-        // Add endpoint tools from the generated MCP tools, filtered by scope.
-        // Uses the same run-by-path-aware gate as multi-workspace mode so a
-        // granular token only sees runScriptByPath / runFlowByPath when it can
-        // actually run scripts / flows.
+        // Add endpoint tools from the generated MCP tools, filtered by scope with
+        // the same run-by-path-aware gate as multi-workspace mode. The run endpoints
+        // are also left out for a role the jobs router's run gate would refuse.
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
             if !endpoint_tool_in_scope(scope_config, &endpoint_tool) {
@@ -892,8 +891,8 @@ impl<B: McpBackend> Runner<B> {
             }
             if !can_run
                 && matches!(
-                    endpoint_path_policy(&endpoint_tool.name),
-                    Some(EndpointPathPolicy::RunByPath(_))
+                    endpoint_tool.name.as_ref(),
+                    "runScriptByPath" | "runFlowByPath" | "runScriptPreviewAndWaitResult"
                 )
             {
                 continue;

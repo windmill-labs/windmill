@@ -6,12 +6,12 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
-async fn mcp(port: u16, method: &str, params: Value) -> anyhow::Result<Value> {
+async fn mcp(port: u16, token: &str, method: &str, params: Value) -> anyhow::Result<Value> {
     let body = reqwest::Client::new()
         .post(format!(
             "http://localhost:{port}/api/mcp/w/test-workspace/mcp"
         ))
-        .bearer_auth("SCOPED_MCP_TOKEN")
+        .bearer_auth(token)
         .header("accept", "application/json, text/event-stream")
         .header("mcp-protocol-version", "2025-06-18")
         .json(&json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}))
@@ -34,6 +34,8 @@ async fn test_view_only_role_lists_no_runnable_tools(db: Pool<Postgres>) -> anyh
          VALUES ('test-workspace', 'test-user-3', 'export function main() { return 1 }', '{}', '', '', 'u/test-user-3/hello', 7788201, 'bun', '');
          INSERT INTO token (token_hash, token_prefix, email, label, super_admin, scopes, workspace_id)
          VALUES (encode(sha256('SCOPED_MCP_TOKEN'::bytea), 'hex'), 'SCOPED_MCP', 'test3@windmill.dev', 'mcp', false,
+                 ARRAY['mcp:scripts:u/test-user-3/hello'], 'test-workspace'),
+                (encode(sha256('ADMIN_MCP_TOKEN'::bytea), 'hex'), 'ADMIN_MCP_', 'test@windmill.dev', 'mcp', false,
                  ARRAY['mcp:scripts:u/test-user-3/hello'], 'test-workspace');
          UPDATE workspace_settings SET role_overrides = '{\"developer\": {\"capabilities\": {\"run\": false}}}'
          WHERE workspace_id = 'test-workspace';",
@@ -45,7 +47,15 @@ async fn test_view_only_role_lists_no_runnable_tools(db: Pool<Postgres>) -> anyh
     let server = ApiServer::start_mcp(db.clone()).await?;
     let port = server.addr.port();
 
-    let list = mcp(port, "tools/list", json!({})).await?;
+    let admin = mcp(port, "ADMIN_MCP_TOKEN", "tools/list", json!({})).await?;
+    assert!(
+        admin["result"]["tools"]
+            .as_array()
+            .is_some_and(|t| t.iter().any(|t| t["name"] == "hello")),
+        "a role that can run must still list the tool: {admin}"
+    );
+
+    let list = mcp(port, "SCOPED_MCP_TOKEN", "tools/list", json!({})).await?;
     let tools = list["result"]["tools"]
         .as_array()
         .unwrap_or_else(|| panic!("no tools in {list}"));
@@ -56,6 +66,7 @@ async fn test_view_only_role_lists_no_runnable_tools(db: Pool<Postgres>) -> anyh
 
     let call = mcp(
         port,
+        "SCOPED_MCP_TOKEN",
         "tools/call",
         json!({"name": "hello", "arguments": {}}),
     )
