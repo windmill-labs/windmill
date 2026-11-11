@@ -37,7 +37,7 @@ use windmill_common::{
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
-        JobPayload, RunOrigin,
+        ChosenBy, JobPayload,
     },
     runnable_ref::RunnableRef,
     triggers::TriggerMetadata,
@@ -1242,6 +1242,7 @@ pub async fn push_flow_job_by_path_into_queue<'c>(
 
 pub async fn push_script_job_by_path_into_queue<'c>(
     authed: ApiAuthed,
+    chosen_by: ChosenBy,
     db: DB,
     tx_o: Option<sqlx::Transaction<'c, sqlx::Postgres>>,
     user_db: UserDB,
@@ -1264,11 +1265,10 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-    // Every caller is a person (or a trigger acting as `authed`) naming this path.
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
         script_path_to_payload(
             script,
-            RunOrigin::NamedBy(authed.to_authed_ref()),
+            chosen_by.origin(authed.to_authed_ref()),
             Some(userdb_authed),
             db.clone(),
             &w_id,

@@ -159,6 +159,24 @@ pub enum RunOrigin<'a> {
     Deployed,
 }
 
+/// [`RunOrigin`] for a function that is handed the identity of the person who would have named
+/// the path: `Caller` resolves to `NamedBy` that identity. Never pass `Caller` with an identity
+/// other than that person's (a trigger's run-as user).
+#[derive(Clone, Copy)]
+pub enum ChosenBy {
+    Caller,
+    Deployed,
+}
+
+impl ChosenBy {
+    pub fn origin<'a>(self, caller: AuthedRef<'a>) -> RunOrigin<'a> {
+        match self {
+            ChosenBy::Caller => RunOrigin::NamedBy(caller),
+            ChosenBy::Deployed => RunOrigin::Deployed,
+        }
+    }
+}
+
 pub async fn script_path_to_payload<'e>(
     script: &RunnableRef,
     _origin: RunOrigin<'_>,

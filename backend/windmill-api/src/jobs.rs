@@ -117,8 +117,8 @@ use windmill_common::{
         Suspend,
     },
     jobs::{
-        script_path_to_payload, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob, RawCode,
-        RunOrigin,
+        script_path_to_payload, ChosenBy, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob,
+        RawCode, RunOrigin,
     },
     oauth2::HmacSha256,
     query_builders,
@@ -7139,6 +7139,7 @@ async fn batch_rerun_handle_job(
                 match RunnableRef::from_path(&job.script_path, false) {
                     Ok(script) => push_script_job_by_path_into_queue(
                         authed.clone(),
+                        ChosenBy::Caller,
                         db.clone(),
                         None,
                         user_db.clone(),
@@ -7726,6 +7727,7 @@ pub async fn run_script_by_path(
 
     let (uuid, _, _) = push_script_job_by_path_into_queue(
         authed,
+        ChosenBy::Caller,
         db,
         None,
         user_db,
@@ -8794,6 +8796,7 @@ pub async fn stream_job(
         RunnableId::ScriptId(ScriptId::ScriptPath(script)) | RunnableId::HubScript(script) => {
             let (uuid, _, _) = push_script_job_by_path_into_queue(
                 authed.clone(),
+                ChosenBy::Caller,
                 db.clone(),
                 None,
                 user_db,
@@ -10643,6 +10646,7 @@ async fn run_dynamic_select(
 
                 let (uuid, _, _) = push_script_job_by_path_into_queue(
                     authed.clone(),
+                    ChosenBy::Caller,
                     db.clone(),
                     None,
                     user_db.clone(),
