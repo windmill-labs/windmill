@@ -14,6 +14,7 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
+import { ciTestBatchDeploy } from "../../core/ci_test_batch.ts";
 import { sep as SEP } from "node:path";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
@@ -151,6 +152,7 @@ export async function pushResource(
     await wmill.updateResource({
       workspace: workspace,
       path: remotePath.replaceAll(SEP, "/"),
+      ...ciTestBatchDeploy("resource", remotePath.replaceAll(SEP, "/")),
       requestBody: {
         ...localResource,
         ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
@@ -177,6 +179,7 @@ export async function pushResource(
     log.info(colors.yellow.bold("Creating new resource..."));
     await wmill.createResource({
       workspace: workspace,
+      ...ciTestBatchDeploy("resource", remotePath.replaceAll(SEP, "/")),
       requestBody: {
         path: remotePath.replaceAll(SEP, "/"),
         ...localResource,

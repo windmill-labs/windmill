@@ -14,6 +14,11 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
+import {
+  ciTestBatchDeploy,
+  closeCiTestBatch,
+  openCiTestBatch,
+} from "../../core/ci_test_batch.ts";
 import { RETIRED_SETTINGS, SETTINGS_MANAGED_ONLY_WHEN_PRESENT } from "../../core/settings.ts";
 import * as path from "node:path";
 import { sep as SEP } from "node:path";
@@ -5983,6 +5988,7 @@ export async function push(
     // push. Reported at the end, and the push exits non-zero for them.
     const failedChanges: { path: string; error: string }[] = [];
 
+    openCiTestBatch();
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
     // Process folder.meta groups first (sequentially), then items in parallel.
@@ -6805,6 +6811,7 @@ export async function push(
                 await wmill.updateResource({
                   workspace: workspace.workspaceId,
                   path: removeType(target, "resource"),
+                  ...ciTestBatchDeploy("resource", removeType(target, "resource")),
                   requestBody: { ws_specific: change.wsSpecific },
                 });
               } else if (change.kind === "variable") {
@@ -6860,6 +6867,7 @@ export async function push(
       pushStartedAt,
       changes.map((c) => c.path.replaceAll(SEP, "/")),
     );
+    await closeCiTestBatch(workspace.workspaceId);
     if (!opts.jsonOutput) {
       for (const f of lockJobs.failed) {
         log.warn(

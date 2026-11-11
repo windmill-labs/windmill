@@ -4,6 +4,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
+import { ciTestBatchDeploy } from "../../core/ci_test_batch.ts";
 import { dirname, sep as SEP, resolve as pathResolve } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
@@ -296,6 +297,7 @@ export async function pushFlow(
       await wmill.updateFlow({
         workspace: workspace,
         path: remotePath.replaceAll(SEP, "/"),
+        ...ciTestBatchDeploy("flow", remotePath.replaceAll(SEP, "/")),
         requestBody: {
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
@@ -312,6 +314,7 @@ export async function pushFlow(
     try {
       await wmill.createFlow({
         workspace: workspace,
+        ...ciTestBatchDeploy("flow", remotePath.replaceAll(SEP, "/")),
         requestBody: {
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,

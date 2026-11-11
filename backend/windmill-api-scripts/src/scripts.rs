@@ -40,7 +40,11 @@ use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
-use windmill_dep_map::{lock_hash::record_lock_hashes, process_relative_imports};
+use windmill_dep_map::{
+    ci_tests::{CiTestBatchItem, CiTestBatchOutcome},
+    lock_hash::record_lock_hashes,
+    process_relative_imports,
+};
 
 use windmill_common::{
     assets::{
@@ -144,6 +148,7 @@ pub fn workspaced_service() -> Router {
         // CI test results
         .route("/ci_test_results/{kind}/{*path}", get(get_ci_test_results))
         .route("/ci_test_results_batch", post(get_ci_test_results_batch))
+        .route("/trigger_ci_tests_batch", post(trigger_ci_tests_batch))
         // Save-time schema-contract check (pipelines gap #2b)
         .route("/check_schema_contracts", post(check_schema_contracts))
 }
@@ -575,6 +580,7 @@ async fn create_snapshot_script(
                 user_db.clone(),
                 webhook.clone(),
                 query.skip_if_noop,
+                query.skip_ci_tests,
                 None,
             )
             .await?;
@@ -668,6 +674,9 @@ struct CreateScriptQuery {
     /// sync / promotion callbacks are suppressed.
     #[serde(default)]
     skip_if_noop: bool,
+    /// See `windmill_dep_map::ci_tests::SkipCiTestsQuery`; also carried to the dependency job.
+    #[serde(default)]
+    skip_ci_tests: bool,
 }
 
 async fn create_script(
@@ -686,6 +695,7 @@ async fn create_script(
         db,
         w_id,
         query.skip_if_noop,
+        query.skip_ci_tests,
         ns,
         None,
     )
@@ -727,6 +737,7 @@ async fn update_script(
         db,
         w_id,
         query.skip_if_noop,
+        query.skip_ci_tests,
         ns,
         Some(path.to_string()),
     )
@@ -740,6 +751,7 @@ async fn deploy_script(
     db: DB,
     w_id: String,
     skip_if_noop: bool,
+    skip_ci_tests: bool,
     ns: NewScript,
     supersede_head_at: Option<String>,
 ) -> Result<(StatusCode, String)> {
@@ -769,6 +781,7 @@ async fn deploy_script(
         user_db,
         webhook,
         skip_if_noop,
+        skip_ci_tests,
         supersede_head_at,
     )
     .await?;
@@ -796,7 +809,7 @@ async fn deploy_script(
         }
         hdm.handle(&db).await?;
         let db2 = db.clone();
-        if ready_to_test {
+        if ready_to_test && !skip_ci_tests {
             tokio::spawn(async move {
                 if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
                     &db2,
@@ -1347,6 +1360,7 @@ async fn create_script_internal<'c>(
     user_db: UserDB,
     webhook: WebhookShared,
     skip_if_noop: bool,
+    skip_ci_tests: bool,
     // When set, the parent is the live head at this path rather than anything the body
     // named, resolved against the deploying transaction.
     supersede_head_at: Option<String>,
@@ -3088,6 +3102,9 @@ async fn create_script_internal<'c>(
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));
         }
+        if skip_ci_tests {
+            args.insert("skip_ci_tests".to_string(), to_raw_value(&true));
+        }
 
         let tx = PushIsolationLevel::Transaction(tx);
         let (job_id, mut new_tx) = windmill_queue::push(
@@ -3168,12 +3185,18 @@ async fn create_script_internal<'c>(
             let deployment_message = ns.deployment_message.clone();
             let content = ns.content.clone();
             let language = ns.language.clone();
+            let relock_args = skip_ci_tests.then(|| {
+                sqlx::types::Json(HashMap::from([(
+                    "skip_ci_tests".to_string(),
+                    to_raw_value(&true),
+                )]))
+            });
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 if let Err(e) = process_relative_imports(
                     &db2,
                     None,
-                    None,
+                    relock_args.as_ref(),
                     &w_id2,
                     &script_path2,
                     parent_path,
@@ -5044,14 +5067,92 @@ async fn get_ci_test_results(
 }
 
 #[derive(Deserialize)]
-struct CiTestBatchItem {
-    path: String,
-    kind: String,
+struct CiTestBatchRequest {
+    items: Vec<CiTestBatchItem>,
 }
 
 #[derive(Deserialize)]
-struct CiTestBatchRequest {
+struct TriggerCiTestsBatchRequest {
     items: Vec<CiTestBatchItem>,
+    #[serde(default)]
+    ignore_pending: bool,
+}
+
+async fn trigger_ci_tests_batch(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<TriggerCiTestsBatchRequest>,
+) -> JsonResult<CiTestBatchOutcome> {
+    if req.items.len() > 5000 {
+        return Err(Error::BadRequest(
+            "too many items in batch request (max 5000)".to_string(),
+        ));
+    }
+    // The tests run as the caller, the way a deploy runs them as the deployer: each item
+    // must be one the caller can see.
+    let mut tx = user_db.begin(&authed).await?;
+    for item in &req.items {
+        let visible = match item.kind.as_str() {
+            "script" => {
+                check_scopes(&authed, || format!("scripts:read:{}", item.path))?;
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 \
+                     AND archived = false AND deleted = false)",
+                    &w_id,
+                    &item.path
+                )
+                .fetch_one(&mut *tx)
+                .await?
+            }
+            "flow" => {
+                check_scopes(&authed, || format!("flows:read:{}", item.path))?;
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 \
+                     AND archived = false)",
+                    &w_id,
+                    &item.path
+                )
+                .fetch_one(&mut *tx)
+                .await?
+            }
+            "resource" => {
+                check_scopes(&authed, || format!("resources:read:{}", item.path))?;
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)",
+                    &w_id,
+                    &item.path
+                )
+                .fetch_one(&mut *tx)
+                .await?
+            }
+            other => {
+                return Err(Error::BadRequest(format!(
+                    "CI tests cannot target an item of kind {other}"
+                )))
+            }
+        };
+        if !visible.unwrap_or(false) {
+            return Err(Error::NotFound(format!(
+                "{} {} not found",
+                item.kind, item.path
+            )));
+        }
+    }
+    tx.commit().await?;
+
+    Ok(Json(
+        windmill_dep_map::ci_tests::trigger_ci_tests_for_batch(
+            &db,
+            &w_id,
+            req.items,
+            req.ignore_pending,
+            &authed.email,
+            &authed.username,
+        )
+        .await?,
+    ))
 }
 
 async fn get_ci_test_results_batch(
