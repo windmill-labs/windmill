@@ -20,7 +20,7 @@ import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
-import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import { deleteArtifactsForWorkspace } from '../copilot/chat/artifacts/artifactsDB'
 import { deleteSessionHandEdits } from './sessionHandEdits.svelte'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
@@ -719,7 +719,6 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 				// GC linked files too, matching deleteSession — a record-only delete
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
-				void deleteArtifactsForSession(s.id)
 				deleteSessionHandEdits(s.id)
 				deletedIds.add(s.id)
 				continue
@@ -736,6 +735,9 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 		// DB); this pass is best-effort — the next reconcile trigger retries.
 		console.error('Failed to reconcile session lifecycle', e)
 		return
+	}
+	for (const ws of wsIds) {
+		if (status[ws] === 'deleted') void deleteArtifactsForWorkspace(ws)
 	}
 	await hydrateSessions()
 	// If the session the user was on lived in a now-deleted workspace, it was just
@@ -914,13 +916,12 @@ async function sweepSession(
 	if (await deleteSessionPieces(id, email)) forgetRetentionPending(email, id)
 }
 
-// Chats with their images, artifacts and attached files. False when any of them could not
-// be deleted.
+// Chats with their images, and attached files; its artifacts outlive it. False when any of
+// them could not be deleted.
 async function deleteSessionPieces(id: string, email: string): Promise<boolean> {
 	const chats = await deleteSessionChats(id, email)
-	const artifacts = await deleteArtifactsForSession(id, email)
 	const files = await deleteItemsForSession(id)
-	return chats && artifacts && files
+	return chats && files
 }
 
 // The workspace a session's retention comes from: persisted unsent drafts count by the one
@@ -1048,8 +1049,10 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 		// GC linked files too (matches deleteSession) so a workspace teardown
 		// doesn't leave the sessions' attached-file blobs/handles orphaned.
 		void deleteItemsForSession(id)
-		void deleteArtifactsForSession(id)
 	}
+	// A fork's artifacts belong to the workspace above it, so only a deleted workspace of their
+	// own takes them along.
+	void deleteArtifactsForWorkspace(workspaceId)
 	sessionState.sessions = sessionState.sessions.filter((s) => !ids.has(s.id))
 	if (sessionState.currentSessionId && ids.has(sessionState.currentSessionId)) {
 		sessionState.currentSessionId = undefined
@@ -1651,9 +1654,8 @@ export function deleteSession(id: string) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
 	}
 	void deleteSessionRecord(id)
-	// GC any linked files and artifacts persisted for this session.
+	// GC any linked files persisted for this session; its artifacts outlive it.
 	void deleteItemsForSession(id)
-	void deleteArtifactsForSession(id)
 	deleteSessionHandEdits(id)
 	// Only a delete the user asked for takes the backup with it: the workspace-lifecycle
 	// removals above keep theirs, so a session dropped by a wrong reconcile can be restored.

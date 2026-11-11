@@ -13,8 +13,8 @@
 		/**
 		 * The fenced-code renderer. Defaults to the shared chain's, which keeps mermaid off for
 		 * text that can reach readers outside the workspace (a public shared session). The
-		 * members-only shared artifact page passes MermaidCodeBlock; the session viewer passes
-		 * the chat's, which also needs the chat context the shared pages do not have.
+		 * members-only artifact page passes MermaidCodeBlock; the session viewer passes the
+		 * chat's, which also needs the chat context the other pages do not have.
 		 */
 		pre?: Component<any>
 	}

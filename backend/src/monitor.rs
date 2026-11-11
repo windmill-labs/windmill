@@ -2123,15 +2123,12 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::info!("deleted {} expired otel trace spans", deleted_spans);
     }
 
-    if let Err(e) = sqlx::query!(
-        "DELETE FROM ai_shared_artifact
-         WHERE shared_at <= now() - ($1::bigint::text || ' s')::interval",
-        windmill_common::ai_shared_artifact_retention_secs(),
-    )
-    .execute(db)
-    .await
+    if let Err(e) =
+        sqlx::query!("DELETE FROM ai_artifact WHERE deleted_at <= now() - interval '30 days'")
+            .execute(db)
+            .await
     {
-        tracing::error!("Error deleting expired shared AI artifacts: {:?}", e);
+        tracing::error!("Error purging AI artifacts deleted 30 days ago: {:?}", e);
     }
 
     if let Err(e) = sqlx::query_scalar!(

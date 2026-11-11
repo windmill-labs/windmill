@@ -1,0 +1,126 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.artifact_id, a.path, a.extra_perms, a.email, a.created_by, a.session_id,\n                  a.name, a.kind, a.role, a.shown_version, a.latest_version, a.pinned,\n                  a.created_at, a.updated_at, a.deleted_at,\n                  EXISTS (\n                      SELECT 1 FROM usr u WHERE u.workspace_id = a.workspace_id AND u.email = a.email\n                  ) AS \"owner_is_member!\",\n                  -- Enough around the first hit for match_line to cut its line from, rather\n                  -- than up to MAX_LISTED whole documents.\n                  CASE WHEN $9::text IS NULL THEN NULL\n                       ELSE substring(a.content,\n                                      greatest(strpos(lower(a.content), lower($9::text)) - 500, 1),\n                                      1000 + length($9::text))\n                  END AS excerpt\n           FROM ai_artifact a\n           WHERE a.workspace_id = $1\n             AND (a.email = $2\n                  OR (a.deleted_at IS NULL\n                      AND ($8::bool\n                           OR a.extra_perms ?| $3::text[]\n                           OR (SPLIT_PART(a.path, '/', 1) = 'f'\n                               AND SPLIT_PART(a.path, '/', 2) = ANY($5::text[])))))\n             AND ($4::text IS NULL\n                  OR a.name ILIKE $4 ESCAPE '\\'\n                  OR a.content ILIKE $4 ESCAPE '\\')\n             AND ($6::bool OR a.deleted_at IS NULL)\n           ORDER BY a.email = $2 DESC, a.updated_at DESC\n           LIMIT $7",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artifact_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "session_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "shown_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "latest_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "pinned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "owner_is_member!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 16,
+        "name": "excerpt",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "Text",
+        "TextArray",
+        "Bool",
+        "Int8",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "6214dccc2313b30f980e54f0020c09a04e9bf367294a683463019baa9e1797c7"
+}

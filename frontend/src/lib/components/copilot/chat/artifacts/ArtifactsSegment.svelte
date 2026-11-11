@@ -3,7 +3,8 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import SessionStatusPopover from '$lib/components/sessions/SessionStatusPopover.svelte'
 	import { ClipboardList, Code2, FileText, Trash2 } from 'lucide-svelte'
-	import { displayDate } from '$lib/utils'
+	import { apiErrorMessage, displayDate } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
 	import { getAiChatManager } from '../aiChatManagerContext'
 	import { planBadge, listBadge, listOpenTarget, PLAN_MODE_TEXT_COLOR } from '../planMode'
@@ -73,7 +74,21 @@
 			startIcon={{ icon: Trash2 }}
 			onClick={() => {
 				aiChatManager.closeArtifact?.(a.id)
-				void aiChatManager.artifacts.remove(a.id)
+				aiChatManager.artifacts.trash(a.id).then(
+					() =>
+						sendUserToast(`Moved "${a.name}" to Recently deleted`, 'success', [
+							{
+								label: 'Undo',
+								callback: () =>
+									void aiChatManager.artifacts
+										.restore(a.id)
+										.catch((err) =>
+											sendUserToast(`Could not restore "${a.name}"`, true, [], apiErrorMessage(err))
+										)
+							}
+						]),
+					(err) => sendUserToast(`Could not delete "${a.name}"`, true, [], apiErrorMessage(err))
+				)
 			}}
 		/>
 	{/snippet}

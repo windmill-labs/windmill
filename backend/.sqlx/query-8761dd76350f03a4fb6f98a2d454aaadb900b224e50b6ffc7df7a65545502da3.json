@@ -1,0 +1,114 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ai_artifact SET\n             latest_version = GREATEST(latest_version + 1, $4),\n             latest_hash = $9,\n             content = CASE WHEN pinned THEN content ELSE $5 END,\n             name = CASE WHEN pinned THEN name ELSE $6 END,\n             shown_version = CASE WHEN pinned THEN shown_version ELSE GREATEST(latest_version + 1, $4) END,\n             updated_at = CASE WHEN pinned THEN updated_at ELSE now() END,\n             session_id = COALESCE(session_id, $8)\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND latest_hash = $7\n           AND deleted_at IS NULL\n         RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                   role, shown_version, latest_version, pinned, created_at, updated_at,\n                   deleted_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artifact_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "session_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "shown_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "latest_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "pinned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Varchar",
+        "Text",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "8761dd76350f03a4fb6f98a2d454aaadb900b224e50b6ffc7df7a65545502da3"
+}

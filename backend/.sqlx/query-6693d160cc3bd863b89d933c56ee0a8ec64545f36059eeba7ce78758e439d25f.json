@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ai_artifact SET\n             pinned = $4,\n             shown_version = CASE WHEN $4 THEN $5 ELSE latest_version END,\n             content = $6, name = $7, updated_at = now()\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND deleted_at IS NULL\n           AND latest_hash = $8 AND (NOT $4 OR $5 <= latest_version)\n         RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                   role, shown_version, latest_version, pinned, created_at, updated_at,\n                   deleted_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artifact_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "extra_perms",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "session_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "shown_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "latest_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "pinned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Int4",
+        "Text",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "6693d160cc3bd863b89d933c56ee0a8ec64545f36059eeba7ce78758e439d25f"
+}
