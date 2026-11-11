@@ -668,7 +668,7 @@
 					// resets it to the writer for anyone not allowed to keep it.
 					const agentObo =
 						fetched?.resource_type === 'ai_agent'
-							? (s.args?.on_behalf_of ?? fetched.value?.on_behalf_of)
+							? (s.args?.on_behalf_of ?? (fetched.value as any)?.on_behalf_of)
 							: undefined
 					await ResourceService.updateResource({
 						workspace: ws,
