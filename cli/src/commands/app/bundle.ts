@@ -267,17 +267,20 @@ function collectTailwindCandidates(dirs: string[]): string[] {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) walk(full);
       else if (TAILWIND_SCAN_EXTS.has(path.extname(e.name))) {
-        // Each split keeps a different set of characters that candidates may contain
-        // (`content-['x']` or `content-["x"]` inside the other quote, `[&>svg]:hidden`,
-        // classes next to markup); the compiler drops tokens that are not utilities,
-        // so the union is safe.
         const text = fs.readFileSync(full, "utf-8");
-        for (const re of [/[\s"`{};]+/, /[\s'`{};=]+/, /[\s"'`{};=]+/, /[\s"'`{}<>;=]+/]) {
-          for (const tok of text.split(re)) {
-            // Svelte's `class:hidden={x}` names the utility after the directive.
-            if (tok) candidates.add(tok.startsWith("class:") ? tok.slice(6) : tok);
-          }
+        const add = (tok: string) => {
+          // Svelte's `class:hidden={x}` names the utility after the directive.
+          if (tok) candidates.add(tok.startsWith("class:") ? tok.slice(6) : tok);
+        };
+        // Class lists live in string literals, whose content is split on whitespace
+        // only, so arbitrary values keep their quotes, `=` and `>`
+        // (`data-[state=open]:…`, `content-['x']`, `[&>svg]:hidden`).
+        for (const m of text.matchAll(/"([^"\n]*)"|'([^'\n]*)'|`([^`]*)`/g)) {
+          (m[1] ?? m[2] ?? m[3]).split(/\s+/).forEach(add);
         }
+        // Classes outside literals: Svelte directives, markup.
+        text.split(/[\s"'`{}<>;=]+/).forEach(add);
+        // The compiler drops tokens that are not utilities, so over-collecting is safe.
       }
     }
   };
@@ -415,17 +418,25 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
                 : compiler.root
                   ? [compiler.root]
                   : dirs.map((base) => ({ base, pattern: "**/*" }));
+            // Tailwind 4.0 names the `@source` entries `globs` and has no negation.
+            const legacy = !compiler.sources;
             const scanner = new kit.Scanner({
               sources: [
                 ...roots.map((r: any) => ({ ...r, negated: false })),
                 // `app dev` writes the previous bundle there; scanning it would
                 // generate a rule for every word in the bundled dependencies.
-                { base: appDir, pattern: "dist/**", negated: true },
-                ...(compiler.sources ?? []),
+                ...(legacy ? [] : [{ base: appDir, pattern: "dist/**", negated: true }]),
+                ...(legacy
+                  ? (compiler.globs ?? []).map((g: any) => ({ ...g, negated: false }))
+                  : compiler.sources),
               ],
             });
             previousDeps.set(args.path, [...watchFiles]);
-            return result(compiler.build(scanner.scan()));
+            const css = compiler.build(scanner.scan());
+            // Files only an `@source` reaches are not in esbuild's graph; watching them
+            // makes `app dev` rebuild when their classes change.
+            for (const f of scanner.files ?? []) watchFiles.add(f);
+            return result(css);
           }
 
           const compiler = await kit.compile(source, {
@@ -446,6 +457,9 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
                 platform: "node",
                 format: "cjs",
                 packages: "external",
+                // CJS output has no import.meta; configs reading files beside them use
+                // its url. Modules the entry imports see the entry's url too.
+                define: { "import.meta.url": JSON.stringify(pathToFileURL(p).href) },
                 write: false,
                 metafile: true,
                 logLevel: "silent",
