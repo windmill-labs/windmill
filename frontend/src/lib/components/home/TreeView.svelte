@@ -19,7 +19,7 @@
 		type ItemType,
 		type UserItem
 	} from './treeViewUtils'
-	import { pluralize } from '$lib/utils'
+	import { pluralize, type Item as MenuItem } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import { inUnruledList, rowRule } from '../common/table/unruledList'
 	import type { TreeOpenMemory } from './treeViewState.svelte'
@@ -123,6 +123,33 @@
 				: undefined
 	)
 	const mentionRoot = $derived(homeComposerContext.available ? badgeRoot : undefined)
+
+	const ownerMenuItems = $derived.by(() => {
+		const items: MenuItem[] = []
+		if (mentionRoot) {
+			const path = mentionRoot
+			items.push({
+				displayName: 'Add to AI session context',
+				icon: AtSign,
+				type: 'ai',
+				action: () => homeComposerContext.attach(folderContextElement(path))
+			})
+		}
+		if (onManageFolder && isFolder(item) && depth === 0) {
+			const folderName = item.folderName
+			// The Folders page's write rule. A non-owner's drawer opens read-only.
+			const canWrite =
+				$userStore?.is_admin ||
+				$userStore?.is_super_admin ||
+				$userStore?.folders_owners.includes(folderName)
+			items.push({
+				displayName: canWrite ? 'Manage folder' : 'View folder',
+				icon: canWrite ? Pen : Eye,
+				action: () => onManageFolder?.(folderName)
+			})
+		}
+		return items
+	})
 
 	// Hidden while searching: pipelines aren't part of the text filter (the list
 	// view hides their rows on a query too), so a folder matching the search
@@ -344,37 +371,25 @@
 				</Button>
 			</span>
 		{/if}
+		{#if badgeRoot}
+			<!-- Every owner row keeps this place, menu or not, so the badges line up down the tree.
+			     The menu shows on the hovered or tabbed-into row, or the one whose menu is open. -->
+			{#if ownerMenuItems.length > 0}
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<span
+					class="inline-flex opacity-0 transition-opacity duration-100 group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 has-[[aria-expanded=true]]:opacity-100"
+					onclick={(e) => e.stopPropagation()}
+				>
+					<Dropdown size="sm" fixedHeight={false} placement="bottom-end" items={ownerMenuItems} />
+				</span>
+			{:else}
+				<span class="invisible inline-flex" aria-hidden="true" inert>
+					<Dropdown size="sm" fixedHeight={false} items={[]} />
+				</span>
+			{/if}
+		{/if}
 	</span>
-{/snippet}
-
-{#snippet manageFolderMenu()}
-	{#if isFolder(item)}
-		{@const folderName = item.folderName}
-		<!-- The Folders page's write rule. A non-owner's drawer opens read-only. -->
-		{@const canWrite =
-			$userStore?.is_admin ||
-			$userStore?.is_super_admin ||
-			$userStore?.folders_owners.includes(folderName)}
-		<Dropdown
-			size="xs"
-			fixedHeight={false}
-			placement="bottom-start"
-			items={[
-				{
-					displayName: 'Add to AI session context',
-					icon: AtSign,
-					type: 'ai',
-					action: () => homeComposerContext.attach(folderContextElement(`f/${folderName}`)),
-					hide: !homeComposerContext.available
-				},
-				{
-					displayName: canWrite ? 'Manage folder' : 'View folder',
-					icon: canWrite ? Pen : Eye,
-					action: () => onManageFolder?.(folderName)
-				}
-			]}
-		/>
-	{/if}
 {/snippet}
 
 {#snippet ownerLeadForNode()}
@@ -392,7 +407,6 @@
 			onToggle={toggleOwner}
 			expandable={!empty || opened}
 			indent={visualDepth * 16}
-			actions={onManageFolder && depth === 0 && isFolder(item) ? manageFolderMenu : undefined}
 			lead={ownerLead && nodePrefix != undefined ? ownerLeadForNode : undefined}
 			trailing={badgeRoot ? folderTrailing : undefined}
 		>
