@@ -120,7 +120,7 @@ jobs:
     runs-on: ubicloud
     if: (github.event_name != 'workflow_dispatch') || github.event.inputs.ee
     outputs:
-      digest: ${{ steps.docker_build.outputs.digest }}
+      digest: ${{ steps.digest.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -154,8 +154,11 @@ jobs:
           flavor: |
             latest=false
           tags: |
+            type=raw,value=${{ env.DEV_SHA }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.licenses=Windmill-Enterprise-License
 
       - name: Login to registry
         uses: docker/login-action@v3
@@ -170,28 +173,49 @@ jobs:
 
       - name: Build and push publicly ee
         id: docker_build
-        uses: depot/build-push-action@v1
+        uses: depot/bake-action@v1
+        env:
+          WM_BUILD_VERSION: ${{ github.sha }}
+          SBOM: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
         with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
-          build-args: |
-            features=ee
-            WM_BUILD_VERSION=${{ github.sha }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
-            ${{ steps.meta-ee-public.outputs.tags }}
-          labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.licenses=Windmill-Enterprise-License
+          files: |
+            ./.github/docker-bake-ee.hcl
+            ${{ steps.meta-ee-public.outputs.bake-file-tags }}
+            ${{ steps.meta-ee-public.outputs.bake-file-labels }}
+          targets: ${{ (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && 'image,debuginfo' || 'image' }}
+
+      - name: Read image digest
+        id: digest
+        env:
+          METADATA: ${{ steps.docker_build.outputs.metadata }}
+        run: |
+          digest=$(jq -er '.image["containerimage.digest"]' <<<"$METADATA")
+          echo "digest=$digest" | tee -a "$GITHUB_OUTPUT"
+
+      # The debug file names every EE function with its source file and line, so it
+      # goes to a private bucket, never to the public release.
+      - name: Upload debug files to private bucket
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          aws configure set default.s3.multipart_chunksize 64MB
+          for arch in amd64 arm64; do
+            aws s3 cp "./debuginfo/linux_$arch/windmill.debug" \
+              "s3://windmill-ee-debuginfo/$TAG/windmill-ee-$arch.debug" \
+              --storage-class GLACIER_IR --only-show-errors
+          done
 
       - name: Sign and attest release image
         if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
         uses: ./.github/actions/sign-attest-image
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
-          digest: ${{ steps.docker_build.outputs.digest }}
+          digest: ${{ steps.digest.outputs.digest }}
 
   attach_amd64_binary_to_release:
     needs: [build, build_ee]
@@ -236,67 +260,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
-
-  upload_ee_debug_to_s3:
-    needs: [build_ee]
-    runs-on: ubicloud
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-    strategy:
-      matrix:
-        platform: [linux/amd64, linux/arm64]
-        include:
-          - platform: linux/amd64
-            arch: amd64
-          - platform: linux/arm64
-            arch: arm64
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-
-      - name: Read EE repo commit hash
-        run: |
-          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
-
-      - uses: actions/checkout@v4
-        with:
-          repository: windmill-labs/windmill-ee-private
-          path: ./windmill-ee-private
-          ref: ${{ env.ee_repo_ref }}
-          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
-
-      - name: Substitute EE code
-        run: |
-          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
-
-      - uses: depot/setup-action@v1
-
-      - name: Extract EE debug info from builder stage (depot cache hit)
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          platforms: ${{ matrix.platform }}
-          target: debuginfo
-          build-args: |
-            features=ee
-            WM_BUILD_VERSION=${{ github.sha }}
-          outputs: type=local,dest=./debuginfo
-
-      # The debug file names every EE function with its source file and line, so it
-      # goes to a private bucket, never to the public release.
-      - name: Upload debug file to private bucket
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-          TAG: ${{ github.ref_name }}
-          ARCH: ${{ matrix.arch }}
-        run: |
-          aws --version
-          aws configure set default.s3.multipart_chunksize 64MB
-          aws s3 cp ./debuginfo/windmill.debug \
-            "s3://windmill-ee-debuginfo/$TAG/windmill-ee-$ARCH.debug" \
-            --storage-class GLACIER_IR --only-show-errors
 
   # attach_arm64_binary_to_release:
   #   needs: [build, build_ee]
