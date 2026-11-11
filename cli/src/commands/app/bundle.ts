@@ -418,7 +418,10 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
             const scanner = new kit.Scanner({
               sources: [
                 ...roots.map((r: any) => ({ ...r, negated: false })),
-                ...compiler.sources,
+                // `app dev` writes the previous bundle there; scanning it would
+                // generate a rule for every word in the bundled dependencies.
+                { base: appDir, pattern: "dist/**", negated: true },
+                ...(compiler.sources ?? []),
               ],
             });
             previousDeps.set(args.path, [...watchFiles]);
