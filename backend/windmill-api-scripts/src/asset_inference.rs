@@ -19,6 +19,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::body_parse::parse_body;
 use windmill_common::{
     assets::{
         asset_access_type_from_parser, asset_kind_from_parser, AssetKind, AssetUsageAccessType,
@@ -34,34 +35,34 @@ fn parse_assets_for_lang(
     lang: &ScriptLang,
     content: &str,
 ) -> Option<Vec<windmill_parser::asset_parser::ParseAssetsResult>> {
-    let parsed = match lang {
-        ScriptLang::DuckDb => windmill_parser_sql_asset::parse_assets(content),
-        ScriptLang::Bun | ScriptLang::Deno | ScriptLang::Nativets => {
-            windmill_parser_ts_asset::parse_assets(content)
-        }
+    // dbt is left out because its assets are not a function of the script
+    // content: they come from `manifest.json`, which needs a clone of the
+    // project's repo and a dbt invocation. The deploy-time dependency job
+    // does that parse and writes the `asset` rows itself
+    // (`dbt_executor::dbt_dep`), so returning None here is what keeps this
+    // path from clobbering them with an empty list.
+    let has_parser = match lang {
+        ScriptLang::DuckDb
+        | ScriptLang::Bun
+        | ScriptLang::Deno
+        | ScriptLang::Nativets
+        | ScriptLang::Ansible => true,
         #[cfg(feature = "python")]
-        ScriptLang::Python3 => windmill_parser_py_asset::parse_assets(content),
-        ScriptLang::Ansible => windmill_parser_yaml::parse_assets(content),
-        // dbt is the one language whose assets are not a function of the script
-        // content: they come from `manifest.json`, which needs a clone of the
-        // project's repo and a dbt invocation. The deploy-time dependency job
-        // does that parse and writes the `asset` rows itself
-        // (`dbt_executor::dbt_dep`), so returning None here is what keeps this
-        // path from clobbering them with an empty list.
-        ScriptLang::Dbt => return None,
-        _ => return None,
+        ScriptLang::Python3 => true,
+        _ => false,
     };
-    match parsed {
-        Ok(out) => Some(out.assets),
-        Err(e) => {
-            tracing::warn!(
-                "server-side asset inference failed for a {} script; falling back to \
-                 client-supplied assets: {e:#}",
-                lang.as_str()
-            );
-            None
-        }
+    if !has_parser {
+        return None;
     }
+    let body = parse_body(lang, content);
+    if let Some(e) = body.error {
+        tracing::warn!(
+            "server-side asset inference failed for a {} script; falling back to \
+             client-supplied assets: {e:#}",
+            lang.as_str()
+        );
+    }
+    body.parsed.then_some(body.output.assets)
 }
 
 /// Mirror of the frontend `getCommentPrefix` (infer.ts) — the languages whose
