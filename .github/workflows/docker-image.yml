@@ -203,6 +203,20 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         run: ls -l ./debuginfo/linux_amd64/windmill.debug ./debuginfo/linux_arm64/windmill.debug
 
+      - name: TEMP verify debuglink crc
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ steps.digest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            cid=$(docker create --platform linux/$arch "$IMG")
+            docker cp "$cid:/usr/src/app/windmill" /tmp/windmill-$arch
+            docker rm "$cid" >/dev/null
+            objcopy --dump-section .gnu_debuglink=/tmp/dl-$arch /tmp/windmill-$arch /tmp/discard-$arch 2>/dev/null || objcopy -O binary --only-section=.gnu_debuglink /tmp/windmill-$arch /tmp/dl-$arch
+            python3 -c "import sys,zlib,struct; d=open(sys.argv[1],'rb').read(); want=struct.unpack('<I',d[-4:])[0]; got=zlib.crc32(open(sys.argv[2],'rb').read()); print(sys.argv[3], hex(want), hex(got)); sys.exit(want!=got)" /tmp/dl-$arch ./debuginfo/linux_$arch/windmill.debug $arch
+          done
+
       # The debug file names every EE function with its source file and line, so it
       # goes to a private bucket, never to the public release.
       - name: Upload debug files to private bucket
