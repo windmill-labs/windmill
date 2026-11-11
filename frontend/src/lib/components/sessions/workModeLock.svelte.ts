@@ -65,6 +65,14 @@ export function useWorkModeLock(session: () => Session | undefined, switchesWork
 						}
 			}
 		}
+		// A role that cannot run is held to reading, as its chat access is (`capabilitiesForRole`).
+		if (!rights.capabilities.run) {
+			return {
+				reason:
+					"Your role can't run anything in this workspace, so sessions here only read. A workspace admin can change that.",
+				readsOnly: true
+			}
+		}
 		if (!buildsAnything(rights.capabilities)) {
 			return {
 				reason: "Your role can't build in this workspace. A workspace admin can change that."
