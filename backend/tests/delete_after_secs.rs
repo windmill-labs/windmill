@@ -90,3 +90,184 @@ async fn test_schedule_job_deletion_is_idempotent(db: Pool<Postgres>) -> anyhow:
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Integration: a flow's own delete_after_secs = 0
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "enterprise")]
+const FLOW_PATH: &str = "u/test-user/delete_after_use_flow";
+#[cfg(feature = "enterprise")]
+const FLOW_VERSION: i64 = 8_812_004;
+#[cfg(feature = "enterprise")]
+const EARLY_RETURN_FLOW_PATH: &str = "u/test-user/delete_after_use_early_return_flow";
+#[cfg(feature = "enterprise")]
+const EARLY_RETURN_FLOW_VERSION: i64 = 8_812_005;
+
+/// A sequential loop: its iterations are stored with a NULL root_job, so only a walk down
+/// parent_job reaches them.
+#[cfg(feature = "enterprise")]
+async fn deploy_loop_flow(
+    db: &Pool<Postgres>,
+    path: &str,
+    version: i64,
+    early_return: Option<&str>,
+) -> anyhow::Result<()> {
+    let value = serde_json::json!({
+        "delete_after_secs": 0,
+        "early_return": early_return,
+        "modules": [{
+            "id": "loop",
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "static", "value": [1, 2] },
+                "skip_failures": false,
+                "parallel": false,
+                "modules": [{ "id": "inner", "value": { "type": "identity" } }]
+            }
+        }]
+    });
+    sqlx::query(
+        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at,
+            schema, extra_perms, versions)
+        VALUES ('test-workspace', $1, '', '', $2, 'test-user', now(), '{}', '{}', ARRAY[$3])",
+    )
+    .bind(path)
+    .bind(&value)
+    .bind(version)
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO flow_version (id, workspace_id, path, value, schema, created_by)
+        VALUES ($1, 'test-workspace', $2, $3, '{}', 'test-user')",
+    )
+    .bind(version)
+    .bind(path)
+    .bind(&value)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// `(flow_step_id, args, result)` of every job of the run, the flow job included as "flow".
+#[cfg(feature = "enterprise")]
+async fn run_data(
+    db: &Pool<Postgres>,
+    flow_id: uuid::Uuid,
+) -> anyhow::Result<Vec<(String, serde_json::Value, serde_json::Value)>> {
+    Ok(sqlx::query_as(
+        "WITH RECURSIVE run AS (
+            SELECT id FROM v2_job WHERE id = $1
+            UNION ALL
+            SELECT j.id FROM v2_job j JOIN run r ON j.parent_job = r.id
+        )
+        SELECT COALESCE(j.flow_step_id, 'flow'), j.args, c.result
+        FROM run JOIN v2_job j USING (id) JOIN v2_job_completed c USING (id)",
+    )
+    .bind(flow_id)
+    .fetch_all(db)
+    .await?)
+}
+
+#[cfg(feature = "enterprise")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_level_delete_clears_steps_and_keeps_flow_result(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::jobs::JobPayload;
+
+    initialize_tracing().await;
+    deploy_loop_flow(&db, FLOW_PATH, FLOW_VERSION, None).await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let flow_job = RunJob::from(JobPayload::Flow {
+        path: FLOW_PATH.to_string(),
+        dedicated_worker: None,
+        apply_preprocessor: false,
+        version: FLOW_VERSION,
+        labels: None,
+        job_token_scopes: None,
+    })
+    .arg("x", serde_json::json!("secret"))
+    .run_until_complete(&db, false, server.addr.port())
+    .await;
+
+    let jobs = run_data(&db, flow_job.id).await?;
+    assert!(jobs.len() > 1, "the flow should have run steps: {jobs:?}");
+    for (step, args, result) in &jobs {
+        assert_eq!(args, &serde_json::json!({}), "{step} kept its args");
+        if step == "flow" {
+            // An async run has no caller to read the result, so the flow keeps it.
+            assert_ne!(
+                result,
+                &serde_json::json!({}),
+                "the flow's result was cleared"
+            );
+        } else {
+            assert_eq!(result, &serde_json::json!({}), "{step} kept its result");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_level_delete_clears_flow_result_after_sync_read(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    deploy_loop_flow(&db, FLOW_PATH, FLOW_VERSION, None).await?;
+    // Identity steps are fast, so the flow is usually complete by the time the caller polls the
+    // early-return node's result, which it must still get.
+    deploy_loop_flow(
+        &db,
+        EARLY_RETURN_FLOW_PATH,
+        EARLY_RETURN_FLOW_VERSION,
+        Some("loop"),
+    )
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let run_wait_result = |path: &str| {
+        reqwest::Client::new()
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/jobs/run_wait_result/f/{path}"
+            ))
+            .bearer_auth("SECRET_TOKEN")
+            .json(&serde_json::json!({ "x": "secret" }))
+            .send()
+    };
+    let (response, early_return_response) = in_test_worker(
+        windmill_common::worker::Connection::Sql(db.clone()),
+        async {
+            (
+                run_wait_result(FLOW_PATH).await,
+                run_wait_result(EARLY_RETURN_FLOW_PATH).await,
+            )
+        },
+        port,
+    )
+    .await;
+
+    for response in [response?, early_return_response?] {
+        let response = response
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        assert_eq!(response[1]["x"], "secret", "{response}");
+    }
+    // Only without early return is the flow sure to be complete when its caller reads it.
+    let flow_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM v2_job WHERE runnable_path = $1 AND parent_job IS NULL")
+            .bind(FLOW_PATH)
+            .fetch_one(&db)
+            .await?;
+    let kept: Vec<_> = run_data(&db, flow_id)
+        .await?
+        .into_iter()
+        .filter(|(_, args, result)| {
+            args != &serde_json::json!({}) || result != &serde_json::json!({})
+        })
+        .collect();
+    assert!(kept.is_empty(), "jobs that kept args or result: {kept:?}");
+    Ok(())
+}
