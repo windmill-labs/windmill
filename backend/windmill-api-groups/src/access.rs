@@ -322,19 +322,19 @@ async fn get_access(
         .iter()
         .map(|f| f.0.clone())
         .collect::<Vec<_>>();
-    let mut via = sqlx::query_as::<_, (String, Vec<String>, Option<bool>)>(
-        "SELECT name, ARRAY(SELECT k FROM jsonb_object_keys(extra_perms) k WHERE k = ANY($3) ORDER BY k),
-            (extra_perms ->> $4)::boolean
+    let mut via = sqlx::query!(
+        "SELECT name, ARRAY(SELECT k FROM jsonb_object_keys(extra_perms) k WHERE k = ANY($3) ORDER BY k) AS \"via!\",
+            (extra_perms ->> $4)::boolean AS \"grant\"
          FROM folder WHERE workspace_id = $1 AND name = ANY($2)",
+        &w_id,
+        &folder_names,
+        &perms,
+        &principal
     )
-    .bind(&w_id)
-    .bind(&folder_names)
-    .bind(&perms)
-    .bind(&principal)
     .fetch_all(&db)
     .await?
     .into_iter()
-    .map(|(name, via, grant)| (name, (via, grant)))
+    .map(|r| (r.name, (r.via, r.grant)))
     .collect::<std::collections::HashMap<_, _>>();
     let mut folders = target
         .folders
@@ -381,14 +381,13 @@ async fn get_access(
     }))
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize)]
 struct BrowseFolder {
     name: String,
     /// The principal's own entry in the folder's `extra_perms`: absent, read (false) or write.
     grant: Option<bool>,
     /// Owners always keep write; `acls/add` refuses to lower it.
     target_owner: bool,
-    #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     blocked: Option<String>,
 }
@@ -457,12 +456,14 @@ async fn browse_folders(
         .map(|(name, ..)| name.as_str())
         .collect::<std::collections::HashSet<_>>();
     let mut tx = user_db.begin(&authed).await?;
-    let mut folders = sqlx::query_as::<_, BrowseFolder>(
-        "SELECT name, (extra_perms ->> $2)::boolean AS \"grant\", $2 = ANY(owners) AS target_owner
+    let mut folders = sqlx::query_as!(
+        BrowseFolder,
+        "SELECT name, (extra_perms ->> $2)::boolean AS \"grant\",
+            $2 = ANY(owners) AS \"target_owner!\", NULL::text AS blocked
          FROM folder WHERE workspace_id = $1 ORDER BY name",
+        &w_id,
+        &principal
     )
-    .bind(&w_id)
-    .bind(&principal)
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
