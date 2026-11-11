@@ -20,11 +20,12 @@ function app(name: string, dependencies: Record<string, string>) {
     fs.writeFileSync(path.join(dir, rel), content);
   };
   write("package.json", JSON.stringify({ dependencies }));
-  write("index.css", `@import "tailwindcss";\n@import "/ui/theme.css";\n`);
+  write("index.css", `@import "tailwindcss";\n@import "/ui/theme.css";\n@source "../lib";\n`);
   write(
     "index.ts",
     `import "./index.css";\nimport { card } from "/ui/card";\nconsole.log(card, "flex data-[state=open]:p-3");\n` +
-      "console.log(`<div className=\"after:content-['hello']\"></div><div class=\"bg-[url('https://x.test/hero.png')]\"></div>`);\n",
+      "console.log(`<div className=\"after:content-['hello']\"></div><div class=\"bg-[url('https://x.test/hero.png')]\"></div>`);\n" +
+      "const open = true;\nconsole.log({ hidden: open, grid: !open }, {italic:open});\n",
   );
   // The app's own install, as `bun install` would leave it.
   fs.symlinkSync(cliNodeModules, path.join(dir, "node_modules"));
@@ -39,6 +40,9 @@ beforeAll(() => {
     `@theme { --color-brand: #123456; }\n@utility glow { box-shadow: 0 0 2px red; }\n`,
   );
   fs.writeFileSync(path.join(root, "ui/card.ts"), `export const card = "bg-brand glow";\n`);
+  // A component library built to dist/, scanned through an explicit @source.
+  fs.mkdirSync(path.join(root, "lib/dist"), { recursive: true });
+  fs.writeFileSync(path.join(root, "lib/dist/button.js"), `export const button = "tracking-widest";\n`);
 });
 
 afterAll(() => {
@@ -59,6 +63,10 @@ test("an app declaring tailwindcss gets the utilities it and ui/ use", async () 
   const { css } = await bundle(app("with", { tailwindcss: "^4.1.0" }));
   expect(css).not.toContain("@tailwind");
   for (const selector of [
+    ".hidden",
+    ".grid",
+    ".italic",
+    ".tracking-widest",
     ".bg-brand",
     "#123456",
     ".glow",

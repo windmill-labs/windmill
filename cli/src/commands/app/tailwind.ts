@@ -17,13 +17,31 @@ import {
   type TailwindSource,
 } from "./tailwind_core.ts";
 
-const SKIPPED_DIRS = new Set(["node_modules", "dist", ".git"]);
 const MAX_SOURCE_BYTES = 1024 * 1024;
 
 /** `src/**\/*.vue` scans `.vue` files; a pattern naming no extension scans the default set. */
 function sourceExtensions(pattern: string): string[] {
   const ext = pattern.match(/\*(\.[\w-]+)$/);
   return ext ? [ext[1]] : TAILWIND_SOURCE_EXTENSIONS;
+}
+
+/**
+ * `app dev` recompiles in this process, so an edited `@config` or `@plugin`
+ * must not come back from the module cache. Node keys that cache by URL, query
+ * included; Bun ignores the query but honours `require.cache` deletion.
+ */
+async function freshImport(file: string): Promise<unknown> {
+  let mod: any;
+  if ((process.versions as Record<string, string | undefined>).bun) {
+    const req = createRequire(file);
+    delete req.cache[file];
+    mod = req(file);
+  } else {
+    const url = pathToFileURL(file);
+    url.searchParams.set("mtime", String(fs.statSync(file).mtimeMs));
+    mod = await import(url.href);
+  }
+  return mod.default ?? mod;
 }
 
 function readJson(file: string): string | undefined {
@@ -35,16 +53,17 @@ function readJson(file: string): string | undefined {
 }
 
 /**
- * Walks `dir` for scannable files. `insideNodeModules` lets an explicit
- * `@source "../node_modules/some-ui-lib"` be scanned while the default walk
- * never descends into a package.
+ * Walks `dir` for scannable files. The default walk skips build output
+ * (`dist`); an explicit `@source` keeps it, since a component library
+ * (`@source "../node_modules/some-ui-lib"`) ships its classes only there.
+ * Neither descends into a nested `node_modules`.
  */
 function walk(
   dir: string,
-  extensions: string[] | undefined,
+  extensions: string[],
   skipTop: Set<string>,
   out: { files: Map<string, string>; dirs: Set<string> },
-  insideNodeModules: boolean,
+  explicit: boolean,
 ) {
   let entries: fs.Dirent[];
   try {
@@ -57,12 +76,10 @@ function walk(
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name.startsWith(".") || skipTop.has(entry.name)) continue;
-      if (SKIPPED_DIRS.has(entry.name) && !(insideNodeModules && entry.name === "node_modules")) {
-        continue;
-      }
-      walk(full, extensions, new Set(), out, insideNodeModules);
+      if (entry.name === "node_modules" || (!explicit && entry.name === "dist")) continue;
+      walk(full, extensions, new Set(), out, explicit);
     } else if (entry.isFile()) {
-      if (extensions && !extensions.includes(path.extname(entry.name))) continue;
+      if (!extensions.includes(path.extname(entry.name))) continue;
       addFile(full, out);
     }
   }
@@ -170,8 +187,7 @@ export function createTailwindPlugin(appDir: string, sharedUiDir?: string): any 
           } catch {
             resolved = requireFromApp.resolve(id);
           }
-          const mod = await import(pathToFileURL(resolved).href);
-          return { path: resolved, base: path.dirname(resolved), module: mod.default ?? mod };
+          return { path: resolved, base: path.dirname(resolved), module: await freshImport(resolved) };
         },
         async scan(sources: TailwindSource[], includeDefault: boolean) {
           const out = { files: new Map<string, string>(), dirs: new Set<string>() };
@@ -188,7 +204,7 @@ export function createTailwindPlugin(appDir: string, sharedUiDir?: string): any 
               continue;
             }
             if (stat.isFile()) addFile(target, out);
-            else walk(target, sourceExtensions(source.pattern), new Set(), out, target.split(path.sep).includes("node_modules"));
+            else walk(target, sourceExtensions(source.pattern), new Set(), out, true);
           }
           return {
             files: [...out.files].map(([p, content]) => ({ path: p, content })),

@@ -112,7 +112,12 @@ const TRIM_END = /[\s"'`{}()<>;,=]+$/;
 function addCandidate(token: string, out: Set<string>) {
   let t = token.replace(TRIM_START, "").replace(TRIM_END, "");
   if (t.startsWith("class:")) t = t.slice("class:".length);
-  if (t.length > 0 && t.length <= 300) out.add(t);
+  if (t.length === 0 || t.length > 300) return;
+  out.add(t);
+  // An object key (`clsx({ hidden: open })`, `{hidden:open}`) carries the
+  // colon, or the value, of the key/value pair it belongs to.
+  const key = t.match(/^([\w-]+):(?:[A-Za-z_$!][\w$.!]*)?$/);
+  if (key) out.add(key[1]);
 }
 
 /** `className="after:content-['x']"` -> `className=`, `after:content-['x']`. */
