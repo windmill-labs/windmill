@@ -27,14 +27,15 @@ function sourceExtensions(pattern: string): string[] {
 
 /**
  * `app dev` recompiles in this process, so an edited `@config` or `@plugin`
- * must not come back from the module cache. Node keys that cache by URL, query
- * included; Bun ignores the query but honours `require.cache` deletion.
+ * must not come back from the module cache. Node keys its ES module cache by
+ * URL, query included, but a CommonJS file imported that way is still served
+ * from `require.cache`; Bun ignores the query and honours only that deletion.
  */
 async function freshImport(file: string): Promise<unknown> {
   let mod: any;
+  const req = createRequire(file);
+  delete req.cache[file];
   if ((process.versions as Record<string, string | undefined>).bun) {
-    const req = createRequire(file);
-    delete req.cache[file];
     mod = req(file);
   } else {
     const url = pathToFileURL(file);
