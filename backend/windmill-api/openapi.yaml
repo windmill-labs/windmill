@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.866.0
+  version: 1.867.0
   title: Windmill API
 
   contact:
@@ -13142,6 +13142,11 @@ paths:
         - name: path_start
           in: query
           description: restrict to paths under this prefix
+          schema:
+            type: string
+        - name: paths
+          in: query
+          description: comma-separated exact paths, to list only the rows at one of them
           schema:
             type: string
         - name: label

@@ -13,14 +13,6 @@ use serde::Serialize;
 use serde_json;
 use windmill_common::{client::AuthedClient, error::Error};
 
-#[derive(Serialize, Debug, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum ToolChoice {
-    #[allow(dead_code)]
-    Auto,
-    Required,
-}
-
 /// Stream options for OpenAI API to include usage in streaming responses
 #[derive(Serialize)]
 pub struct StreamOptions {
@@ -45,8 +37,6 @@ pub struct OpenAICompletionRequest<'a> {
     pub max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<ToolChoice>,
     pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<StreamOptions>,
@@ -135,13 +125,6 @@ impl OtherQueryBuilder {
             None
         };
 
-        // Force usage of structured output tool for Claude models when structured output is provided
-        let tool_choice = if should_use_structured_output_tool && has_output_properties {
-            Some(ToolChoice::Required)
-        } else {
-            None
-        };
-
         let (reasoning_effort, thinking, temperature) =
             provider_reasoning_fields(&self.provider_kind, args.reasoning_effort, args.temperature);
         // With tools, gpt-5.5+ only run here with reasoning off: turn it off where the model
@@ -164,7 +147,6 @@ impl OtherQueryBuilder {
             thinking: thinking.clone(),
             max_completion_tokens: args.max_tokens,
             response_format: response_format.clone(),
-            tool_choice: tool_choice.clone(),
             stream: true,
             stream_options: Some(StreamOptions { include_usage: true }),
         };
@@ -179,7 +161,6 @@ impl OtherQueryBuilder {
             thinking,
             max_completion_tokens: args.max_tokens,
             response_format,
-            tool_choice,
             stream: true,
             stream_options: None,
         };

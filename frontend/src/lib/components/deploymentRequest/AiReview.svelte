@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { Alert, Badge, Button } from '$lib/components/common'
 	import type { AIProviderModel } from '$lib/gen'
-	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
+	import {
+		copilotInfo,
+		copilotSessionModel,
+		tryResolveModelFor,
+		type CopilotInfo
+	} from '$lib/aiStore'
 	import Select from '$lib/components/select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -37,9 +42,11 @@
 			| 'session_edits'
 		/** Absent before the request exists: findings are then only shown, for the author to act on. */
 		onPost?: (finding: AiReviewFinding) => Promise<void>
+		/** The reviewed workspace's AI config, when it is not the tab's (an AI session's). */
+		info?: CopilotInfo
 	}
 
-	let { scope, source, onPost }: Props = $props()
+	let { scope, source, onPost, info }: Props = $props()
 
 	let items = $derived(scopeItems(scope))
 	let workspaceId = $derived(scopeWorkspace(scope))
@@ -65,9 +72,11 @@
 	// Local to this review: picking a model here must not change the chat's own selection,
 	// which is only the default until something is picked.
 	let pickedModelKey = $state<string | undefined>(undefined)
-	let chatModel = $derived(
-		$copilotSessionModel ?? $copilotInfo.defaultModel ?? $copilotInfo.aiModels[0]
-	)
+	let aiModels = $derived((info ?? $copilotInfo).aiModels)
+	let chatModel = $derived.by(() => {
+		void $copilotSessionModel
+		return tryResolveModelFor(info ?? $copilotInfo)
+	})
 	let selectedModelKey = $derived(pickedModelKey ?? (chatModel && modelKey(chatModel)))
 
 	async function run() {
@@ -81,7 +90,8 @@
 		logFeatureUsage('deployment_request', 'ai_review', { key: source })
 		try {
 			const review = await reviewChanges(scope, controller, {
-				model: $copilotInfo.aiModels.find((m) => modelKey(m) === selectedModelKey)
+				model: aiModels.find((m) => modelKey(m) === selectedModelKey),
+				info
 			})
 			if (!controller.signal.aborted) result = review
 		} catch (e: any) {
@@ -206,11 +216,11 @@
 			>
 				{result ? 'Review again with AI' : 'Review with AI'}
 			</Button>
-			{#if $copilotInfo.aiModels.length > 1}
+			{#if aiModels.length > 1}
 				<div class="w-56">
 					<Select
 						size="sm"
-						items={$copilotInfo.aiModels.map((m) => ({ label: m.model, value: modelKey(m) }))}
+						items={aiModels.map((m) => ({ label: m.model, value: modelKey(m) }))}
 						bind:value={() => selectedModelKey, (v) => (pickedModelKey = v)}
 					/>
 				</div>

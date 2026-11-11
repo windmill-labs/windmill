@@ -75,6 +75,8 @@
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { bulkKey, HomeSelection, setHomeSelection } from './homeSelection.svelte'
 	import HomeQuickAccess from './HomeQuickAccess.svelte'
+	import { recentItems } from './recentItems.svelte'
+	import { cacheIdentity } from '$lib/persistedCache.svelte'
 
 	const editRights = shareEditRights(useEditRights())
 
@@ -846,7 +848,15 @@
 		await reloadItems()
 		await tick()
 		homeSelection.dropVanished(renderedBefore)
+		void recentItems.prune($workspaceStore ?? '')
 	}
+
+	// Once per visit and workspace, here rather than in the Recent section, which unmounts
+	// while searching. `cacheIdentity` makes it wait for a user whose session is confirmed.
+	$effect(() => {
+		const workspace = $workspaceStore
+		if (workspace && cacheIdentity()) untrack(() => void recentItems.prune(workspace))
+	})
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TableScript | TableFlow | TableApp | TableRawApp | TableAgent,

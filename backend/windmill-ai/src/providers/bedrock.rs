@@ -1004,10 +1004,11 @@ impl BedrockQueryBuilder {
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
 
-        // Build tool configuration with optional ToolChoice
+        // Claude rejects a forced tool alongside thinking, and the newest models reject it
+        // outright, so there the structured output tool is only described as the last call.
         let tool_config = build_tool_config(
             tools,
-            structured_output_tool_name.is_some(),
+            structured_output_tool_name.is_some() && !model.to_lowercase().contains("claude"),
             enable_prompt_caching,
         )?;
 
