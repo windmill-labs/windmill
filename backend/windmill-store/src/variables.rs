@@ -1364,6 +1364,10 @@ struct EditVariable {
         deserialize_with = "windmill_common::more_serde::double_option"
     )]
     value_valid_until: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    /// Detaches the OAuth account the variable refreshes through, for a token that no longer
+    /// comes from it.
+    #[serde(default)]
+    unlink_account: bool,
 }
 
 #[derive(Deserialize)]
@@ -1656,6 +1660,30 @@ async fn update_variable(
                 "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'variable' AND path = $2",
                 w_id,
                 &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    if ns.unlink_account {
+        let old_account = sqlx::query_scalar!(
+            "UPDATE variable v SET account = NULL FROM variable o
+             WHERE o.workspace_id = v.workspace_id AND o.path = v.path
+               AND v.workspace_id = $1 AND v.path = $2 AND v.account IS NOT NULL
+             RETURNING o.account",
+            w_id,
+            &npath,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+        if let Some(old_account) = old_account {
+            sqlx::query!(
+                "DELETE FROM account WHERE workspace_id = $1 AND id = $2
+                 AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
+                w_id,
+                old_account,
             )
             .execute(&mut *tx)
             .await?;

@@ -1071,7 +1071,7 @@
 						await VariableService.updateVariable({
 							workspace: effectiveWorkspace,
 							path,
-							requestBody: { value }
+							requestBody: { value, unlink_account: true }
 						})
 					} else {
 						await VariableService.createVariable({

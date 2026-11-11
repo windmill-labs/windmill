@@ -916,18 +916,12 @@ pub async fn cleanup_service_connections(
     .fetch_all(&mut *tx)
     .await?;
 
-    let paths = sqlx::query_scalar!(
-        "DELETE FROM variable WHERE workspace_id = $1 AND account = ANY($2) RETURNING path",
+    // Scripts and flows may use these resources too, so they stay, with a token that no longer
+    // refreshes, until someone reconnects them.
+    sqlx::query!(
+        "UPDATE variable SET account = NULL WHERE workspace_id = $1 AND account = ANY($2)",
         workspace_id,
         &account_ids,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "DELETE FROM resource WHERE workspace_id = $1 AND path = ANY($2)",
-        workspace_id,
-        &paths,
     )
     .execute(&mut *tx)
     .await?;

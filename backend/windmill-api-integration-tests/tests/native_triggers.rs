@@ -5,7 +5,7 @@
  * 1. Resource path change — cleanup old path, recreate at new path
  * 2. Config loading — workspace-level, instance-level, token update
  * 3. Channel expiration renewal — should_renew_channel pure logic
- * 4. Delete workspace integration — full cascade, cleanup preserves triggers, parse_stop_channel_params
+ * 4. Delete workspace integration — unlinks connections, cleanup preserves triggers, parse_stop_channel_params
  */
 
 use serde_json::json;
@@ -594,7 +594,7 @@ fn test_should_renew_channel_missing_fields() {
 // ============================================================================
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_delete_integration_unlinks_connections(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resource_path = "u/test-user/native_gworkspace";
     let account_id = setup_oauth_integration(
         &db,
@@ -648,15 +648,15 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
     tx.commit().await?;
     assert!(deleted);
 
-    // Verify everything is gone
-    let var_count: i64 = sqlx::query_scalar!(
-        "SELECT count(*) FROM variable WHERE workspace_id = 'test-workspace' AND path = $1",
+    // Scripts and flows may use the resource, so it and its variable stay, unlinked from the
+    // account that refreshed through the removed app.
+    let var_account = sqlx::query_scalar!(
+        "SELECT account FROM variable WHERE workspace_id = 'test-workspace' AND path = $1",
         resource_path,
     )
     .fetch_one(&db)
-    .await?
-    .unwrap_or(0);
-    assert_eq!(var_count, 0);
+    .await?;
+    assert_eq!(var_account, None);
 
     let acc_count: i64 = sqlx::query_scalar!(
         "SELECT count(*) FROM account WHERE workspace_id = 'test-workspace' AND id = $1",
@@ -674,7 +674,7 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
     .fetch_one(&db)
     .await?
     .unwrap_or(0);
-    assert_eq!(res_count, 0);
+    assert_eq!(res_count, 1);
 
     assert!(
         get_workspace_integration(&db, "test-workspace", ServiceName::Google)

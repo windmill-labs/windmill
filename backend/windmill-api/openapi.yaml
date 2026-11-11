@@ -33430,6 +33430,9 @@ components:
             it unchanged; send null to clear it. Changing it re-arms the
             workspace's variable expiration handler.
           format: date-time
+        unlink_account:
+          type: boolean
+          description: Detach the OAuth account the variable refreshes through, deleting it when no other variable uses it.
         labels:
           type: array
           items:
