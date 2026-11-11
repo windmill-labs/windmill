@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value::text AS \"value!\", account FROM variable WHERE path = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "account",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      true
+    ]
+  },
+  "hash": "f3ce582cc792ccbfc37ecdd1e31b91f91b9ec0bbeafc5de5982f7dc204ca9818"
+}

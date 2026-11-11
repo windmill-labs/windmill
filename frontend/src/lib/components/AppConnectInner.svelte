@@ -18,6 +18,7 @@
 		ResourceService,
 		WorkspaceService,
 		VariableService,
+		WorkspaceIntegrationService,
 		type TokenResponse,
 		type ResourceType
 	} from '$lib/gen'
@@ -53,7 +54,7 @@
 	import ResourcePathHint from './ResourcePathHint.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import type { NativeConnect } from './triggers/native/utils'
+	import { NATIVE_TRIGGER_SERVICES, serviceForResourceType } from './triggers/native/utils'
 	import { AI_RESOURCE_TYPE_ALTERNATIVES } from './copilot/aiResourceProvider'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -75,11 +76,8 @@
 		 * Opt-in: without it this flow still refuses to write over anything.
 		 */
 		fillPath?: string
-		/**
-		 * Connect a native trigger account: only the path is asked, and `connect` runs the
-		 * popup through the trigger service's OAuth app, whose callback saves the connection.
-		 */
-		native?: NativeConnect
+		/** Scopes the caller needs, requested on top of the provider's defaults. */
+		requiredScopes?: string[]
 	}
 
 	let {
@@ -91,7 +89,7 @@
 		express = false,
 		workspace = undefined,
 		fillPath = undefined,
-		native = undefined
+		requiredScopes = []
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
@@ -115,6 +113,9 @@
 	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
 	let connects: string[] | undefined = $state(undefined)
+	/** Resource types this workspace connects through its own OAuth app, which takes precedence
+	 * over the instance's for them. */
+	let workspaceApps: string[] = $state([])
 	/** Per-provider instance-entry metadata, keyed by provider name. */
 	let connectsInfo: Record<
 		string,
@@ -133,6 +134,10 @@
 	// (e.g. `docusign_sandbox`) used to look up credentials/URLs at runtime
 	// and stored on `account.client` so token refresh hits the right endpoint.
 	let connectClient: string = $state('')
+	/** The workspace app's service when the current connection goes through it. */
+	let workspaceAppService = $derived(
+		workspaceApps.includes(connectClient) ? serviceForResourceType(connectClient) : undefined
+	)
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
 	let resourceTypeDescriptions: Record<string, string> = $state({})
@@ -436,13 +441,6 @@
 	let pathError = $state('')
 
 	export async function open(rt?: string) {
-		if (native) {
-			resourceType = rt ?? ''
-			manual = false
-			path = ''
-			step = 4
-			return
-		}
 		if (!rt) {
 			loadResourceTypes()
 			loadPopularity()
@@ -511,6 +509,12 @@
 
 	async function loadConnects() {
 		if (!connects) {
+			const apps = WorkspaceIntegrationService.listNativeTriggerWorkspaceApps({
+				workspace: effectiveWorkspace
+			})
+				.then((services) => services.map((s) => NATIVE_TRIGGER_SERVICES[s].resourceType))
+				// Absent from builds without integration triggers.
+				.catch(() => [] as string[])
 			try {
 				const list = (await OauthService.listOauthConnects()).filter(
 					(x) => x.name != 'supabase_wizard'
@@ -522,6 +526,8 @@
 				connectsInfo = {}
 				console.error('Error loading OAuth connects', e)
 			}
+			workspaceApps = await apps
+			connects = [...new Set([...connects, ...workspaceApps])]
 		}
 	}
 
@@ -531,7 +537,7 @@
 	// authorize endpoint counts; `google` itself is a login provider, not a registry entry.
 	run(() => {
 		isGoogleSignin =
-			(step == 2 || (!!native && step == 4)) &&
+			step == 2 &&
 			!manual &&
 			(resourceType == 'google' ||
 				(registryEntryFor(resourceType)?.auth_url?.startsWith('https://accounts.google.com/') ??
@@ -556,7 +562,7 @@
 							clientSecret.trim() == '' ||
 							(!!ccInstanceMeta && ccInstance.trim() == '')))) ||
 			step == 3 ||
-			(step == 4 && (pathError != '' || (!!native && !path))) ||
+			(step == 4 && pathError != '') ||
 			!isValid
 	})
 
@@ -694,7 +700,21 @@
 	}
 
 	async function getScopesAndParams() {
+		await loadScopesAndParams()
+		if (!useClientCredentials) {
+			scopes = [...new Set([...scopes, ...requiredScopes])]
+		}
+	}
+
+	async function loadScopesAndParams() {
 		useUserToken = false
+		if (workspaceAppService) {
+			instanceScopes = registryEntry()?.scopes ?? []
+			scopes = instanceScopes
+			extra_params = []
+			supportsClientCredentials = false
+			return
+		}
 		if (!connects?.includes(connectClient)) {
 			// No instance OAuth client (registry-declared CC-only provider):
 			// defaults come from the static registry instead.
@@ -753,16 +773,6 @@
 		}
 	}
 	export async function next() {
-		if (native) {
-			step = 3
-			try {
-				await native.connect(path)
-				dispatch('close')
-			} catch {
-				step = 4
-			}
-			return
-		}
 		if (step == 1) {
 			linkedSecrets = []
 			// Both branches: the OAuth one fills `resourceFields` into the same map, and fields
@@ -853,19 +863,31 @@
 				 * Requires user interaction and consent
 				 * Opens popup for user to authenticate with OAuth provider
 				 */
-				const url = new URL(`/api/oauth/connect/${connectClient}`, window.location.origin)
-				// An empty `scopes` still overrides the instance's bot scopes.
-				url.searchParams.append('scopes', useUserToken ? '' : scopes.join('+'))
-				if (useUserToken) {
-					url.searchParams.append('user_scope', scopes.join(','))
-				}
-				if (extra_params.length > 0) {
-					extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
+				let url: string
+				if (workspaceAppService) {
+					try {
+						url = await WorkspaceIntegrationService.generateNativeTriggerServiceConnectUrl({
+							workspace: effectiveWorkspace,
+							serviceName: workspaceAppService,
+							requestBody: { scopes }
+						})
+					} catch (e: any) {
+						sendUserToast(`Could not start the connection: ${e.body ?? e.message}`, true)
+						return
+					}
+				} else {
+					const instanceUrl = new URL(`/api/oauth/connect/${connectClient}`, window.location.origin)
+					// An empty `scopes` still overrides the instance's bot scopes.
+					instanceUrl.searchParams.append('scopes', useUserToken ? '' : scopes.join('+'))
+					if (useUserToken) {
+						instanceUrl.searchParams.append('user_scope', scopes.join(','))
+					}
+					extra_params.forEach(([key, value]) => instanceUrl.searchParams.append(key, value))
+					url = instanceUrl.toString()
 				}
 				window.addEventListener('message', popupListener)
 				window.addEventListener('storage', handleStorageEvent)
-				console.log('opening popup', url.toString())
-				window.open(url.toString(), '_blank', 'popup=true')
+				window.open(url, '_blank', 'popup=true')
 				step += 1
 			}
 		} else {
@@ -874,12 +896,17 @@
 				throw Error('Path is not set')
 			}
 			// Check if variable paths already exist
+			// Reconnecting an OAuth resource fills it at its own path, and its token variable takes
+			// the new token and account in place, keeping its sharing.
+			let reconnecting = false
 			if (!manual || linkedSecrets.length <= 1) {
 				const exists = await VariableService.existsVariable({
 					workspace: effectiveWorkspace,
 					path
 				})
-				if (exists) {
+				if (exists && !manual && !!valueToken && !!fillPath && path === fillPath) {
+					reconnecting = true
+				} else if (exists) {
 					throw Error(`Variable at path ${path} already exists. Delete it or pick another path`)
 				}
 			} else {
@@ -910,6 +937,7 @@
 			// its value replaced with credentials for a different provider, while keeping its
 			// own type — destroying a working resource that has nothing to do with the import.
 			const filling = exists && !!fillPath && path === fillPath
+			let occupantValue: Record<string, any> | undefined
 			if (filling) {
 				// Fails closed. Only a read that succeeds and answers with exactly this type
 				// permits the write — a failed read, a missing type, or any other type all
@@ -918,9 +946,12 @@
 				// and could not run.
 				let occupantType: string | undefined
 				try {
-					occupantType = (
-						await ResourceService.getResource({ workspace: effectiveWorkspace, path })
-					)?.resource_type
+					const occupant = await ResourceService.getResource({
+						workspace: effectiveWorkspace,
+						path
+					})
+					occupantType = occupant?.resource_type
+					occupantValue = occupant?.value as Record<string, any> | undefined
 				} catch (e: any) {
 					throw Error(
 						`Could not read what is already at ${path} (${e?.body ?? e?.message ?? e}), ` +
@@ -975,7 +1006,9 @@
 				accountData = {
 					refresh_token: valueToken.refresh_token ?? '',
 					expires_in: valueToken.expires_in,
-					client: connectClient,
+					// A workspace app's token refreshes through the app, found by its service.
+					client: workspaceAppService ?? connectClient,
+					is_workspace_integration: !!workspaceAppService,
 					grant_type: valueToken.grant_type || 'authorization_code'
 				}
 
@@ -1028,10 +1061,17 @@
 						ws_specific: wsSpecific
 					}
 					if (accountData) {
-						// Creates the variable with the account it refreshes through, in one transaction.
+						// Creates the variable with the account it refreshes through, in one transaction,
+						// or on reconnect swaps both into the existing variable.
 						await OauthService.createAccount({
 							workspace: effectiveWorkspace,
-							requestBody: { ...accountData, variable: tokenVariable }
+							requestBody: { ...accountData, variable: tokenVariable, replace: reconnecting }
+						})
+					} else if (reconnecting) {
+						await VariableService.updateVariable({
+							workspace: effectiveWorkspace,
+							path,
+							requestBody: { value }
 						})
 					} else {
 						await VariableService.createVariable({
@@ -1091,7 +1131,11 @@
 				await ResourceService.updateResource({
 					workspace: effectiveWorkspace,
 					path,
-					requestBody: { value: resourceValue, description }
+					// A reconnected resource keeps its fields and description; the import's stub has
+					// neither.
+					requestBody: reconnecting
+						? { value: { ...occupantValue, ...resourceValue } }
+						: { value: resourceValue, description }
 				})
 			} else {
 				await ResourceService.createResource({
@@ -1692,56 +1736,47 @@
 		<Label label="Path">
 			<Path
 				initialPath=""
-				namePlaceholder={native?.defaultName ?? defaultName}
-				fullNamePlaceholder={native?.defaultName}
+				namePlaceholder={defaultName}
 				bind:error={pathError}
 				bind:path
 				kind="resource"
 			/>
 		</Label>
-		{#if native}
-			<p class="text-xs text-secondary">
-				The account is saved as a resource and its token as a variable at this path. Anyone who can
-				read them can create triggers that act as this account.
-			</p>
-		{:else}
-			<LabelsInput bind:labels class="-mt-5" />
-			{#if deployTo}
-				<Label
-					label="Workspace specific"
-					tooltip="Prevents this resource from being deployed to prod/staging"
-				>
-					<Toggle bind:checked={wsSpecific} />
-				</Label>
-			{/if}
-			<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
+		<LabelsInput bind:labels class="-mt-5" />
+		{#if deployTo}
+			<Label
+				label="Workspace specific"
+				tooltip="Prevents this resource from being deployed to prod/staging"
+			>
+				<Toggle bind:checked={wsSpecific} />
+			</Label>
+		{/if}
+		<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
 		     are then filled by editing the resource. -->
-			{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
-				<Label
-					label="Connection details"
-					tooltip="Saved on the resource with the token, and editable later"
-					class="mt-6"
-				>
-					<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
-				</Label>
-			{/if}
-			{#if apiTokenApps[resourceType] || !manual}
-				<ul class="mt-6">
-					<li class="text-xs text-primary font-normal">
-						1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ??
-							'token'}
-						<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
-						will be stored a
-						<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
-					</li>
-					<li class="mt-2 text-xs text-primary font-normal">
-						2. The resource containing that token will be stored at the same path <span
-							class="font-mono whitespace-nowrap text-emphasis">{path}</span
-						>. The Variable and Resource will be "linked together", they will be deleted and renamed
-						together.
-					</li></ul
-				>
-			{/if}
+		{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
+			<Label
+				label="Connection details"
+				tooltip="Saved on the resource with the token, and editable later"
+				class="mt-6"
+			>
+				<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
+			</Label>
+		{/if}
+		{#if apiTokenApps[resourceType] || !manual}
+			<ul class="mt-6">
+				<li class="text-xs text-primary font-normal">
+					1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ?? 'token'}
+					<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
+					will be stored a
+					<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
+				</li>
+				<li class="mt-2 text-xs text-primary font-normal">
+					2. The resource containing that token will be stored at the same path <span
+						class="font-mono whitespace-nowrap text-emphasis">{path}</span
+					>. The Variable and Resource will be "linked together", they will be deleted and renamed
+					together.
+				</li></ul
+			>
 		{/if}
 	{/if}
 {/if}

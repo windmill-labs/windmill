@@ -590,8 +590,6 @@ pub struct OAuthClient {
     pub login_config: Option<OAuthConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub share_with_workspaces: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grant_types: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3161,7 +3159,6 @@ mod tests {
                         connect_config: None,
                         login_config: None,
                         tenant: None,
-                        share_with_workspaces: None,
                         grant_types: vec![],
                         pkce: None,
                         extra: BTreeMap::new(),

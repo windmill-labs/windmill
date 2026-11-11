@@ -68,6 +68,7 @@
 		Link,
 		Palette,
 		Pen,
+		Plug,
 		Plus,
 		RotateCw,
 		Save,
@@ -1487,6 +1488,17 @@
 																	}
 																}
 															},
+															...(is_oauth
+																? [
+																		{
+																			displayName: 'Reconnect',
+																			icon: Plug,
+																			disabled: !canWrite || !showCreateButtons,
+																			action: () =>
+																				appConnect?.open?.(resource_type, path, scopes ?? [])
+																		}
+																	]
+																: []),
 															...(account != undefined
 																? [
 																		{

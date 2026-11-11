@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM account WHERE workspace_id = $1 AND id = $2\n             AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "85838ec8b29daab0943dc627eb20885191bd0133f470d80f9cb98781dd921d42"
+}

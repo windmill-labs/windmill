@@ -724,6 +724,143 @@ pub struct NewOAuthAccount {
     pub cc_token_url: Option<String>,
     pub mcp_server_url: Option<String>,
     pub scopes: Option<Vec<String>>,
+    /// Issued by the workspace's own OAuth app for the service named by `client`, which is then
+    /// what refreshes it. A wrong flag only breaks this account's refresh: a refresh token works
+    /// with the client that issued it alone.
+    pub is_workspace_integration: bool,
+}
+
+async fn insert_account(
+    tx: &mut sqlx::PgConnection,
+    w_id: &str,
+    a: NewOAuthAccount,
+) -> Result<i32> {
+    Ok(sqlx::query_scalar!(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, mcp_server_url, scopes, is_workspace_integration) VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id",
+        w_id,
+        a.client,
+        a.expires_in.to_string(),
+        a.refresh_token,
+        a.grant_type,
+        a.cc_client_id,
+        a.cc_client_secret,
+        a.cc_token_url,
+        a.mcp_server_url,
+        a.scopes.as_deref(),
+        a.is_workspace_integration
+    )
+    .fetch_one(&mut *tx)
+    .await?)
+}
+
+/// Swaps the token and account of the OAuth variable at `path` in place: its sharing and
+/// description, and the resources and triggers pointing at it, stay as they are. The account it
+/// held is deleted unless another variable still uses it. Returns the new account's id.
+pub async fn replace_variable_account(
+    authed: ApiAuthed,
+    db: &DB,
+    user_db: UserDB,
+    webhook: &WebhookShared,
+    w_id: String,
+    path: String,
+    value: String,
+    account: NewOAuthAccount,
+) -> Result<i32> {
+    check_scopes(&authed, || format!("variables:write:{path}"))?;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    let authed = maybe_refresh_folders(&path, &w_id, authed, db).await;
+
+    let old = sqlx::query!(
+        "SELECT value::text AS \"value!\", account FROM variable WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Variable {path} not found")))?;
+    let old_ref = is_external_ref_value(&old.value).then_some(old.value.as_str());
+    let value = secret_value_to_store(
+        db,
+        &w_id,
+        &path,
+        value,
+        false,
+        "update",
+        authed.is_admin,
+        old_ref,
+        true,
+    )
+    .await?;
+
+    let mut tx = user_db.begin(&authed).await?;
+    let account_id = insert_account(&mut tx, &w_id, account).await?;
+    // Row-level security decides whether the caller may write the variable.
+    let updated = sqlx::query!(
+        "UPDATE variable SET value = $3, account = $4, edited_by = $5, edited_at = now()
+         WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path,
+        value,
+        account_id,
+        authed.username,
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(Error::NotAuthorized(format!(
+            "You cannot write the variable at {path}"
+        )));
+    }
+    if let Some(old_account) = old.account {
+        sqlx::query!(
+            "DELETE FROM account WHERE workspace_id = $1 AND id = $2
+             AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
+            w_id,
+            old_account,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "variables.update",
+        ActionKind::Update,
+        &w_id,
+        Some(&path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        db,
+        &w_id,
+        DeployedObject::Variable { path: path.clone(), parent_path: None },
+        Some(format!("Variable '{path}' reconnected")),
+        true,
+        None,
+    )
+    .await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateVariable { workspace: w_id, old_path: path.clone(), new_path: path },
+    );
+
+    Ok(account_id)
 }
 
 /// Creates a variable and, given `account`, the OAuth account it refreshes through, linked in the
@@ -793,23 +930,7 @@ pub async fn create_variable_with_account(
     let mut tx = user_db.begin(&authed).await?;
 
     let account_id = match account {
-        Some(a) => Some(
-            sqlx::query_scalar!(
-                "INSERT INTO account (workspace_id, client, expires_at, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, mcp_server_url, scopes) VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
-                &w_id,
-                a.client,
-                a.expires_in.to_string(),
-                a.refresh_token,
-                a.grant_type,
-                a.cc_client_id,
-                a.cc_client_secret,
-                a.cc_token_url,
-                a.mcp_server_url,
-                a.scopes.as_deref()
-            )
-            .fetch_one(&mut *tx)
-            .await?,
-        ),
+        Some(a) => Some(insert_account(&mut tx, &w_id, a).await?),
         None => None,
     };
 
