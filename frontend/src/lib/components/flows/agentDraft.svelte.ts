@@ -390,7 +390,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// autosave a draft on every keystroke against a resource the reader cannot deploy.
 						const writer = user ?? get(userStore) ?? undefined
 						canWriteResource = canEditItem(
-							'resource',
+							'agent',
 							r.path,
 							r.extra_perms,
 							writer,
@@ -472,7 +472,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							noDeployed = true
 							deployed = undefined
 							canWriteResource = roleCanAuthor(
-								'resource',
+								'agent',
 								// Only superadmin carries over: the nav user's admin flag belongs to another workspace.
 								capabilitiesIn(
 									{ is_super_admin: get(userStore)?.is_super_admin },

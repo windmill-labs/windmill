@@ -930,7 +930,7 @@
 	{#if draftQuery && draft && layout !== 'pane'}
 		<DraftEditorModals
 			workspace={draftQuery.workspace}
-			itemKind="agent"
+			itemKind="resource"
 			path={draftQuery.path}
 			otherDraftsUsers={draft.otherDraftsUsers}
 			{draftOnly}
