@@ -1480,11 +1480,12 @@ async function restoreWorkspace(
 				],
 				email
 			)
-			// Written over whatever is there: the session is absent locally, so its pieces
-			// can only be what an earlier restore staged before it was cut short, and the
-			// backup may have moved on since.
+			// The chats are written over whatever is there: the session is absent locally, so
+			// they can only be what an earlier restore staged before it was cut short, and the
+			// backup may have moved on since. Artifacts outlive their session, so one here can
+			// be further along than the backup, which importArtifacts leaves alone.
 			try {
-				if (!(await importArtifacts(u.artifacts.items, u.artifacts.versions, email, true))) continue
+				if (!(await importArtifacts(u.artifacts.items, u.artifacts.versions, email))) continue
 				if (!(await importStoredChats(u.chats, u.images, email, true))) continue
 			} catch (e) {
 				console.error(`Could not restore session ${u.session.id}`, e)

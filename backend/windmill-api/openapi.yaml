@@ -15310,7 +15310,8 @@ paths:
     post:
       summary: save a new version of one of the caller's shared AI session artifacts
       description: >
-        Refused, with outcome stale, unless base_hash is the SHA-256 of the latest version's text.
+        Refused, with outcome stale, unless base_hash is the latest version's fingerprint: the
+        SHA-256, in lowercase hex, of its name and content joined by a NUL character.
         People with access see the new version at once unless the owner pinned one.
       operationId: writeAiArtifact
       tags:
@@ -15332,7 +15333,7 @@ paths:
               properties:
                 base_hash:
                   type: string
-                  description: the SHA-256, in lowercase hex, of the text the edit was made on
+                  description: the fingerprint of the version the edit was made on
                 version:
                   type: integer
                   minimum: 1
@@ -15391,8 +15392,8 @@ paths:
                 base_hash:
                   type: string
                   description: >
-                    the SHA-256, in lowercase hex, of the latest version's text in the owner's
-                    browser; refused, with outcome stale, unless it is the server's latest
+                    the fingerprint of the latest version in the owner's browser; refused, with
+                    outcome stale, unless it is the server's latest
       responses:
         "200":
           description: what the change did
@@ -31682,6 +31683,11 @@ components:
         latest_version:
           type: integer
           description: the newest version the owner wrote, above shown_version only while pinned
+        latest_hash:
+          type: string
+          description: >
+            the latest version's fingerprint, the SHA-256, in lowercase hex, of its name and
+            content joined by a NUL character; sent to its owner only
         pinned:
           type: boolean
         created_at:
@@ -31753,7 +31759,7 @@ components:
             saved: the number the latest version is stored under; stale: the latest version's
         latest_hash:
           type: string
-          description: "stale: the SHA-256, in lowercase hex, of the latest version's text"
+          description: "stale: the latest version's fingerprint"
         artifact:
           $ref: "#/components/schemas/AiArtifact"
       required:

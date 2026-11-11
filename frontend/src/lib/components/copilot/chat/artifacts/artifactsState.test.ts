@@ -1,8 +1,10 @@
-import { createHash } from 'node:crypto'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
-import { planFirst, SessionArtifactsStore } from './artifactsState.svelte'
-import * as db from './artifactsDB'
+import { planFirst, type SessionArtifactsStore } from './artifactsState.svelte'
+import type * as db from './artifactsDB'
+import type { WriteResult } from './artifactWriter'
+import { fingerprint } from './artifactServer'
+import { MemoryArtifactServer } from './memoryArtifactServer'
 
 // The user-scoping subscription is BROWSER-gated; the node test env reports false.
 vi.mock('esm-env', async (orig) => ({
@@ -17,15 +19,6 @@ vi.mock('$lib/stores', async () => {
 	return { userStore: writable(undefined), userWorkspaces: writable([]) }
 })
 vi.mock('$lib/utils', () => ({ getLocalSetting: () => undefined, storeLocalSetting: () => {} }))
-vi.mock('$lib/gen', () => ({
-	AiService: {
-		writeAiArtifact: vi.fn(),
-		getAiArtifact: vi.fn(),
-		publishAiArtifact: vi.fn(),
-		trashAiArtifact: vi.fn(),
-		restoreAiArtifact: vi.fn()
-	}
-}))
 
 // The DB module memoises its handle at module scope. A fresh IDBFactory per test only
 // isolates data once the handle is reset, so reset modules and re-import both together.
@@ -35,18 +28,34 @@ async function fresh() {
 	;(globalThis as any).indexedDB = new IDBFactory()
 	;(await import('$lib/stores')).userStore.set({ email: 'a@x.com' } as never)
 	const dbMod = await import('./artifactsDB')
-	// The re-imported module, not the file's static import: resetModules gives the store a fresh
-	// copy, and an error class from the stale one would never match what it throws.
 	const stateMod = await import('./artifactsState.svelte')
-	return { dbMod, stateMod, store: new stateMod.SessionArtifactsStore() }
+	const writerMod = await import('./artifactWriter')
+	return { dbMod, stateMod, writerMod, store: new stateMod.SessionArtifactsStore() }
 }
 
 let store: SessionArtifactsStore
 let dbMod: typeof db
 let stateMod: typeof import('./artifactsState.svelte')
+let writerMod: typeof import('./artifactWriter')
 beforeEach(async () => {
-	;({ store, dbMod, stateMod } = await fresh())
+	;({ store, dbMod, stateMod, writerMod } = await fresh())
 })
+afterEach(() => {
+	vi.restoreAllMocks()
+})
+
+function saved(result: WriteResult): db.PersistedArtifact {
+	if (result.outcome !== 'saved') throw new Error(`not saved: ${result.outcome}`)
+	return result.artifact
+}
+
+/** Fail this browser's next write the way a full storage does. */
+function refuseNextWrite() {
+	vi.spyOn(console, 'error').mockImplementation(() => {})
+	vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementationOnce(() => {
+		throw new DOMException('quota', 'QuotaExceededError')
+	})
+}
 
 describe('SessionArtifactsStore', () => {
 	it('loads the current session, newest-updated first', async () => {
@@ -83,13 +92,12 @@ describe('SessionArtifactsStore', () => {
 		// Hold the load open with a stale (empty) snapshot until after the create lands.
 		let releaseLoad!: (items: db.PersistedArtifact[]) => void
 		const held = new Promise<db.PersistedArtifact[]>((r) => (releaseLoad = r))
-		const spy = vi.spyOn(dbMod, 'listArtifactsForSession').mockReturnValueOnce(held)
+		vi.spyOn(dbMod, 'listArtifactsForSession').mockReturnValueOnce(held)
 
 		const loading = store.setSession('s1') // #load starts, hangs on `held`
-		const created = await store.create('s1', { name: 'X', content: 'x' })
+		const created = saved(await store.create('s1', { name: 'X', content: 'x' }))
 		releaseLoad([]) // the load resolves late, snapshot predates the create
 		await loading
-		spy.mockRestore()
 
 		expect(store.artifacts.map((a) => a.id)).toEqual([created.id])
 		// The superseded load early-returns; the create must have cleared `loading`.
@@ -98,7 +106,7 @@ describe('SessionArtifactsStore', () => {
 
 	it('create persists and prepends when the session is loaded', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Plan', content: '# hi' })
+		const created = saved(await store.create('s1', { name: 'Plan', content: '# hi' }))
 
 		expect(created.kind).toBe('md')
 		expect(store.artifacts.map((a) => a.id)).toEqual([created.id])
@@ -108,125 +116,123 @@ describe('SessionArtifactsStore', () => {
 		expect(store.artifacts.map((a) => a.name)).toEqual(['Plan'])
 	})
 
-	it('a same-session resync keeps an artifact whose persist failed', async () => {
-		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'A', content: 'x' })
-		// Simulate a persist that never landed: drop it from the DB, keep it in memory.
-		await dbMod.deleteArtifact(created.id)
-		// A routine resync (chat rotation / global-mode reconfig) must not reload it away.
-		await store.setSession('s1')
-		expect(store.artifacts.map((a) => a.id)).toEqual([created.id])
-	})
-
 	it('create stamps the provenance chatId when supplied', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Plan', content: 'x', chatId: 'c9' })
+		const created = saved(await store.create('s1', { name: 'Plan', content: 'x', chatId: 'c9' }))
 		expect(created.chatId).toBe('c9')
 	})
 
 	it('create persists to another session without touching the loaded list', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s2', { name: 'Elsewhere', content: 'x' })
+		const created = saved(await store.create('s2', { name: 'Elsewhere', content: 'x' }))
 		expect(store.artifacts).toEqual([])
 		expect((await dbMod.listArtifactsForSession('s2')).map((a) => a.id)).toEqual([created.id])
 	})
 
-	it('update merges changes, bumps updatedAt, and persists', async () => {
+	it('stores an edit as the next version, keeping what it does not change', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Plan', content: 'v1' })
+		const created = saved(await store.create('s1', { name: 'Plan', content: 'v1' }))
 
-		const updated = await store.update(created.id, { content: 'v2' })
-		expect(updated?.content).toBe('v2')
-		expect(updated?.name).toBe('Plan')
-		expect(updated!.updatedAt).toBeGreaterThanOrEqual(created.updatedAt)
+		const result = await store.edit(created.id, { content: 'v2' })
+		expect(result).toMatchObject({ outcome: 'saved', version: 2 })
+		const edited = saved(result)
+		expect(edited).toMatchObject({ name: 'Plan', content: 'v2' })
+		expect(edited.updatedAt).toBeGreaterThanOrEqual(created.updatedAt)
 		expect((await dbMod.getArtifact(created.id))?.content).toBe('v2')
 	})
 
-	it('update falls back to the DB when the target is not in the loaded list', async () => {
-		const created = await store.create('s2', { name: 'Off', content: 'v1' })
-		await store.setSession('s1') // s2 is not loaded
+	it('edits an artifact of a session that is not loaded', async () => {
+		const created = saved(await store.create('s2', { name: 'Off', content: 'v1' }))
+		await store.setSession('s1')
 
-		const updated = await store.update(created.id, { name: 'Renamed' })
-		expect(updated?.name).toBe('Renamed')
-		expect(updated?.content).toBe('v1')
+		expect(saved(await store.edit(created.id, { name: 'Renamed' }))).toMatchObject({
+			name: 'Renamed',
+			content: 'v1'
+		})
 	})
 
-	it('update returns undefined for an unknown id', async () => {
+	it('answers missing for an unknown id', async () => {
 		await store.setSession('s1')
-		expect(await store.update('nope', { content: 'x' })).toBeUndefined()
+		expect(await store.edit('nope', { content: 'x' })).toEqual({ outcome: 'missing' })
 	})
 
 	it('stores only the first of two edits two tabs make at once on one version', async () => {
 		// The second, stored over the first, would replace a version it never saw, and with it
 		// one the other tab may have shared since.
-		const other = new (await import('./artifactsState.svelte')).SessionArtifactsStore()
+		const other = new stateMod.SessionArtifactsStore()
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Doc', content: 'v1' })
+		const created = saved(await store.create('s1', { name: 'Doc', content: 'v1' }))
 		await other.setSession('s1')
 
-		const results = await Promise.allSettled([
-			store.update(created.id, { content: 'from A', note: 'A' }),
-			other.update(created.id, { content: 'from B', note: 'B' })
+		const results = await Promise.all([
+			store.edit(created.id, { content: 'from A', note: 'A' }),
+			other.edit(created.id, { content: 'from B', note: 'B' })
 		])
 
-		expect(results.filter((r) => r.status === 'rejected')).toMatchObject([
-			{ reason: { name: 'ArtifactStaleError', latest: 2, caughtUp: true } }
-		])
+		expect(results.map((r) => r.outcome).sort()).toEqual(['saved', 'stale'])
+		expect(results.find((r) => r.outcome === 'stale')).toMatchObject({ latest: 2 })
 		expect((await dbMod.listArtifactVersions(created.id)).map((v) => v.version)).toEqual([2, 1])
 	})
 
-	it('keeps an edit the store refused when the next update lands', async () => {
+	it("keeps a chat's edit refused until it reads the version another tab stored", async () => {
+		const other = new stateMod.SessionArtifactsStore()
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Doc', content: 'v1' })
+		// Written by another chat, so the one editing it has read no version of it.
+		const created = saved(await store.create('s1', { name: 'Doc', content: 'v1' }))
+		await other.setSession('s1')
+		saved(await other.edit(created.id, { content: 'v2 from the other tab' }))
 
-		// Refused, so v2 lives only in memory while the stored row stays behind at v1.
-		const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-		const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementationOnce(() => {
-			throw new DOMException('quota', 'QuotaExceededError')
+		const edit = () => store.edit(created.id, { content: 'from the chat' }, { chatId: 'c1' })
+		expect(await edit()).toMatchObject({ outcome: 'stale', latest: 2 })
+		// Shown in this tab now, the latest version is still not one the chat has read.
+		expect(store.artifacts[0]).toMatchObject({ version: 2 })
+		expect(await edit()).toMatchObject({ outcome: 'stale', latest: 2 })
+
+		store.markRead('c1', store.artifacts[0])
+		expect(await edit()).toMatchObject({ outcome: 'saved', version: 3 })
+	})
+
+	it('says an edit the browser could not store was not stored, and keeps the version it holds', async () => {
+		await store.setSession('s1')
+		const created = saved(await store.create('s1', { name: 'Doc', content: 'v1' }))
+
+		refuseNextWrite()
+		expect(await store.edit(created.id, { content: 'v2' })).toEqual({
+			outcome: 'unstored',
+			shared: false
 		})
-		await store.update(created.id, { content: 'v2' })
-		put.mockRestore()
-		quiet.mockRestore()
-		expect((await dbMod.getArtifact(created.id))?.content).toBe('v1')
-
-		// Computed from the stored row, this rename would put v1's text back under the new name.
-		expect(await store.update(created.id, { name: 'Renamed' })).toMatchObject({
+		expect(store.artifacts[0]).toMatchObject({ content: 'v1', version: 1 })
+		// The next change is made on the version stored, not on the one refused.
+		expect(saved(await store.edit(created.id, { name: 'Renamed' }))).toMatchObject({
 			name: 'Renamed',
-			content: 'v2'
+			content: 'v1',
+			version: 2
 		})
 	})
 
-	it('creates and then revises an artifact when there is no store to write to', async () => {
-		// No scoped user, so the database never opens. `create` hands the id out either way, so
-		// the document it named has to stay revisable rather than come back as an unknown one.
+	it('refuses to create an artifact when there is no store to write to', async () => {
+		// No scoped user, so the database never opens.
 		;(await import('$lib/stores')).userStore.set(undefined as never)
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'A', content: 'x' })
 
-		expect((await store.update(created.id, { content: 'y' }))?.content).toBe('y')
-		expect(store.artifacts.map((a) => a.content)).toEqual(['y'])
+		expect(await store.create('s1', { name: 'A', content: 'x' })).toEqual({
+			outcome: 'unstored',
+			shared: false
+		})
+		expect(store.artifacts).toEqual([])
 	})
 
-	it('get resolves from the in-memory list even when the DB lacks the record', async () => {
-		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'A', content: 'x' })
-		// Simulate a persist that never landed: drop it from the DB, keep it in memory.
-		await dbMod.deleteArtifact(created.id)
-		expect((await store.get(created.id))?.id).toBe(created.id)
+	it('get serves an artifact the list holds that this browser never stored', async () => {
+		// A read-only view of a shared session fills the list itself.
+		store.artifacts = [mk({ id: 'shown' })]
+		expect((await store.get('shown'))?.id).toBe('shown')
 	})
 
 	it('get falls back to the DB for an artifact outside the loaded list', async () => {
-		const created = await store.create('s2', { name: 'B', content: 'y' })
+		const created = saved(await store.create('s2', { name: 'B', content: 'y' }))
 		await store.setSession('s1') // s2 not loaded
 		expect((await store.get(created.id))?.id).toBe(created.id)
 		expect(await store.get('nope')).toBeUndefined()
-	})
-
-	it('listForSession returns the in-memory list for the loaded session, even when the DB lacks it', async () => {
-		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'A', content: 'x' })
-		await dbMod.deleteArtifact(created.id) // persist "failed": gone from DB, kept in memory
-		expect((await store.listForSession('s1')).map((a) => a.id)).toEqual([created.id])
 	})
 
 	it('listForSession reads the DB for a session that is not loaded', async () => {
@@ -236,56 +242,59 @@ describe('SessionArtifactsStore', () => {
 		expect(await store.listForSession('s1')).toEqual([])
 	})
 
-	it('update refuses an artifact from a different session when scoped by sessionId', async () => {
-		const created = await store.create('s2', { name: 'Off', content: 'v1' })
-		expect(await store.update(created.id, { content: 'v2' }, { sessionId: 's1' })).toBeUndefined()
-		// Unchanged in the DB.
+	it('refuses an edit of another session when scoped to one', async () => {
+		const created = saved(await store.create('s2', { name: 'Off', content: 'v1' }))
+		expect(await store.edit(created.id, { content: 'v2' }, { sessionId: 's1' })).toEqual({
+			outcome: 'missing'
+		})
 		expect((await dbMod.getArtifact(created.id))?.content).toBe('v1')
-		// Correct scope still updates.
-		expect(await store.update(created.id, { content: 'v2' }, { sessionId: 's2' })).toBeDefined()
+		expect(await store.edit(created.id, { content: 'v2' }, { sessionId: 's2' })).toMatchObject({
+			outcome: 'saved'
+		})
 	})
 
-	it('update distinguishes an omitted field from an explicit empty string', async () => {
+	it('tells an omitted field from an explicit empty string', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Plan', content: 'body' })
+		const created = saved(await store.create('s1', { name: 'Plan', content: 'body' }))
 
 		// Omitting content leaves it untouched...
-		expect((await store.update(created.id, { name: 'Renamed' }))?.content).toBe('body')
+		expect(saved(await store.edit(created.id, { name: 'Renamed' })).content).toBe('body')
 		// ...but an explicit empty string blanks it.
-		expect((await store.update(created.id, { content: '' }))?.content).toBe('')
+		expect(saved(await store.edit(created.id, { content: '' })).content).toBe('')
 	})
 
-	it('snapshots a version per content change, and none for a rename', async () => {
+	it('stores a version per change of the text or the name, and none for a write that changes neither', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Plan', content: 'v1' })
+		const created = saved(await store.create('s1', { name: 'Plan', content: 'v1' }))
 
-		await store.update(created.id, { content: 'v2', note: 'Added a rollback step' })
-		// Neither a rename nor a rewrite to the identical content is a new version.
-		await store.update(created.id, { name: 'Renamed', note: 'ignored' })
-		await store.update(created.id, { content: 'v2', note: 'ignored' })
+		await store.edit(created.id, { content: 'v2', note: 'Added a rollback step' })
+		// A rename is a version: it is what people the artifact is shared with see it called.
+		await store.edit(created.id, { name: 'Renamed' })
+		expect(
+			await store.edit(created.id, { name: ' Renamed ', content: 'v2', note: 'ignored' })
+		).toMatchObject({ outcome: 'unchanged' })
 
 		const versions = await store.listVersions(created.id)
-		expect(versions.map((v) => [v.version, v.content, v.note])).toEqual([
-			[2, 'v2', 'Added a rollback step'],
-			[1, 'v1', undefined]
+		expect(versions.map((v) => [v.version, v.name, v.content, v.note])).toEqual([
+			[3, 'Renamed', 'v2', 'Renamed'],
+			[2, 'Plan', 'v2', 'Added a rollback step'],
+			[1, 'Plan', 'v1', undefined]
 		])
-		expect((await store.get(created.id))?.version).toBe(2)
 		expect((await store.getVersion(created.id, 1))?.content).toBe('v1')
 	})
 
 	it('persists a row and the snapshots it produced in one write', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Doc', content: 'c1' })
+		const created = saved(await store.create('s1', { name: 'Doc', content: 'c1' }))
 
 		const spy = vi.spyOn(dbMod, 'mutateArtifact')
-		await store.update(created.id, { content: 'c2', note: 'second' })
+		await store.edit(created.id, { content: 'c2', note: 'second' })
 
 		// Split into two writes, a stamped version can outlive the snapshot that failed to
 		// land beside it. That state still reads as complete, because listVersions
 		// synthesizes the current version from the row — right up until the next edit
 		// overwrites the row, which is the only copy of that content left.
 		expect(spy).toHaveBeenCalledTimes(1)
-		spy.mockRestore()
 		expect((await store.listVersions(created.id)).map((v) => v.version)).toEqual([2, 1])
 
 		const row = await dbMod.getArtifact(created.id)
@@ -295,27 +304,30 @@ describe('SessionArtifactsStore', () => {
 
 	it('serves the live version from memory when the store is unreadable, but not an older one', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Plan', content: 'v1' })
-		await store.update(created.id, { content: 'v2', note: 'second' })
+		const created = saved(await store.create('s1', { name: 'Plan', content: 'v1' }))
+		await store.edit(created.id, { content: 'v2', note: 'second' })
 		vi.spyOn(dbMod, 'getArtifactVersion').mockRejectedValue(new Error('read failed'))
 
 		expect((await store.getVersion(created.id, 2))?.content).toBe('v2')
 		await expect(store.getVersion(created.id, 1)).rejects.toThrow('read failed')
 	})
 
-	it('keeps a legacy v1 when a rename lands before the first content edit', async () => {
+	it('keeps a legacy v1 when a rename lands before the first edit of the text', async () => {
 		await dbMod.putArtifact(mk({ id: 'legacy', content: 'original' }))
 		await store.setSession('s1')
 
 		// The rename stamps `version`, after which nothing else would recognise this as a
 		// pre-history artifact — so its v1 has to be captured here or it is lost for good.
-		await store.update('legacy', { name: 'Renamed' })
-		await store.update('legacy', { content: 'edited', note: 'Rewrote it' })
+		await store.edit('legacy', { name: 'Renamed' })
+		await store.edit('legacy', { content: 'edited', note: 'Rewrote it' })
 
-		expect((await store.listVersions('legacy')).map((v) => [v.version, v.content])).toEqual([
-			[2, 'edited'],
-			[1, 'original']
-		])
+		expect((await store.listVersions('legacy')).map((v) => [v.version, v.name, v.content])).toEqual(
+			[
+				[3, 'Renamed', 'edited'],
+				[2, 'Renamed', 'original'],
+				[1, 'Doc', 'original']
+			]
+		)
 	})
 
 	it('reads an artifact stored before history existed as its own version 1', async () => {
@@ -325,11 +337,11 @@ describe('SessionArtifactsStore', () => {
 		expect(await store.listVersions('legacy')).toMatchObject([{ version: 1, content: 'only' }])
 		expect((await store.getVersion('legacy', 1))?.content).toBe('only')
 		// Its first edit still lands as v2, so version numbers stay monotonic.
-		await store.update('legacy', { content: 'edited' })
+		await store.edit('legacy', { content: 'edited' })
 		expect((await store.listVersions('legacy')).map((v) => v.version)).toEqual([2, 1])
 	})
 
-	it('a plan another tab created joins the loaded list when this one revises it', async () => {
+	it('refuses a first proposal over a plan another tab created, until the chat reads it', async () => {
 		await store.setSession('s1')
 		// Written straight to the DB under the id the session derives: this store loaded s1
 		// before the plan existed, which is the cross-tab case.
@@ -344,63 +356,59 @@ describe('SessionArtifactsStore', () => {
 			updatedAt: 1,
 			version: 1
 		})
+		const propose = () =>
+			store.proposePlan('s1', { name: 'Mine', content: 'mine', note: 'proposed' }, 'c1')
 
-		await store.savePlan('s1', { name: 'Theirs', content: 'v2', note: 'revised' }, undefined)
+		expect(await propose()).toMatchObject({ outcome: 'stale', latest: 1 })
+		// Absent from here, it would stay out of the preview, the transcript's plan card and
+		// list_artifacts until a reload.
+		expect(store.artifacts.map((a) => [a.id, a.content])).toEqual([
+			[dbMod.planArtifactId('s1'), 'v1']
+		])
+		expect(await propose()).toMatchObject({ outcome: 'stale', latest: 1 })
 
-		// Persisted but absent from here would leave it out of the preview, the transcript's
-		// plan card and list_artifacts until a reload.
-		expect(store.artifacts.map((a) => a.id)).toEqual([dbMod.planArtifactId('s1')])
-		expect(store.artifacts[0].content).toBe('v2')
+		store.markRead('c1', store.artifacts[0])
+		expect(await propose()).toMatchObject({ outcome: 'saved', version: 2 })
 	})
 
-	it('refuses a plan, and an approval, the store would not keep', async () => {
+	it('says a plan, or an approval, the browser could not store was not stored', async () => {
+		// Approving a plan that is gone on reload would leave the user agreeing to a document
+		// nothing can show them.
 		await store.setSession('s1')
-		const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
-		const refuseOnce = () =>
-			vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementationOnce(() => {
-				throw new DOMException('quota', 'QuotaExceededError')
-			})
+		const first = { name: 'Plan', content: '# p', note: 'first' }
+		refuseNextWrite()
+		expect(await store.proposePlan('s1', first, undefined)).toEqual({
+			outcome: 'unstored',
+			shared: false
+		})
 
-		// An ordinary artifact degrades unpersisted; a plan cannot, because approving one that
-		// is gone on reload leaves the user agreeing to a document nothing can show them.
-		let put = refuseOnce()
-		await expect(
-			store.savePlan('s1', { name: 'Plan', content: '# p', note: 'first' }, undefined)
-		).rejects.toThrow(/could not be saved/)
-		put.mockRestore()
-
-		const plan = await store.savePlan(
-			's1',
-			{ name: 'Plan', content: '# p', note: 'first' },
-			undefined
-		)
-		put = refuseOnce()
+		const plan = saved(await store.proposePlan('s1', first, undefined))
+		refuseNextWrite()
 		expect(await store.approve(plan.id, 1)).toBe(false)
-		put.mockRestore()
-		// And the refusal is not merely reported: an approval reflected in memory anyway would
-		// show the `plan` pill, and tell the model the user signed off, until the next reload.
+		// An approval reflected in memory anyway would show the `plan` pill, and tell the model
+		// the user signed off, until the next reload.
 		expect(store.artifacts.find((a) => a.id === plan.id)?.approvedVersion).toBeUndefined()
 		expect((await store.get(plan.id))?.approvedVersion).toBeUndefined()
 
 		expect(await store.approve(plan.id, 1)).toBe(true)
 		expect(store.artifacts.find((a) => a.id === plan.id)?.approvedVersion).toBe(1)
-		quiet.mockRestore()
 	})
 
 	it('holds one plan per session, and gives a deleted plan its slot back', async () => {
 		await store.setSession('s1')
-		const plan = await store.create('s1', { name: 'Plan', content: 'x', role: 'plan' })
+		const plan = saved(await store.create('s1', { name: 'Plan', content: 'x', role: 'plan' }))
 		await store.approve(plan.id, 1)
-		await expect(store.create('s1', { name: 'Other', content: 'y', role: 'plan' })).rejects.toThrow(
-			/already has a plan/
-		)
+		expect(await store.create('s1', { name: 'Other', content: 'y', role: 'plan' })).toMatchObject({
+			outcome: 'plan-taken',
+			plan: { id: plan.id }
+		})
 		// Another session's slot is its own.
-		await expect(
-			store.create('s2', { name: 'Elsewhere', content: 'z', role: 'plan' })
-		).resolves.toBeDefined()
+		expect(
+			await store.create('s2', { name: 'Elsewhere', content: 'z', role: 'plan' })
+		).toMatchObject({ outcome: 'saved' })
 
 		await store.trash(plan.id)
-		const next = await store.create('s1', { name: 'Next', content: 'w', role: 'plan' })
+		const next = saved(await store.create('s1', { name: 'Next', content: 'w', role: 'plan' }))
 		// Its versions carry on, and the approval of the deleted plan is not the new one's.
 		expect(next).toMatchObject({ id: plan.id, name: 'Next', version: 2, role: 'plan' })
 		expect(next.approvedVersion).toBeUndefined()
@@ -408,37 +416,34 @@ describe('SessionArtifactsStore', () => {
 	})
 
 	it('stores only the first of two proposals two tabs make at once on one plan', async () => {
-		// The hazard the transaction exists for: read outside it and both tabs stamp the same
-		// next version, so one proposal and its snapshot vanish under the other.
-		const other = new (await import('./artifactsState.svelte')).SessionArtifactsStore()
+		const other = new stateMod.SessionArtifactsStore()
 		await store.setSession('s1')
-		await store.savePlan('s1', { name: 'Plan', content: 'v1', note: 'first' }, undefined)
+		saved(await store.proposePlan('s1', { name: 'Plan', content: 'v1', note: 'first' }, undefined))
+		await other.setSession('s1')
 
-		const results = await Promise.allSettled([
-			store.savePlan('s1', { name: 'Plan', content: 'from A', note: 'A' }, undefined),
-			other.savePlan('s1', { name: 'Plan', content: 'from B', note: 'B' }, undefined)
+		const results = await Promise.all([
+			store.proposePlan('s1', { name: 'Plan', content: 'from A', note: 'A' }, undefined),
+			other.proposePlan('s1', { name: 'Plan', content: 'from B', note: 'B' }, undefined)
 		])
 
-		expect(results.filter((r) => r.status === 'rejected')).toMatchObject([
-			{ reason: { name: 'ArtifactStaleError', latest: 2 } }
-		])
+		expect(results.map((r) => r.outcome).sort()).toEqual(['saved', 'stale'])
 		const versions = (await store.listVersions(dbMod.planArtifactId('s1'))).map((v) => v.version)
 		expect(versions).toEqual([2, 1])
 	})
 
 	it('stores only the first of two first proposals two tabs make at once', async () => {
 		// The second never read the plan the first created.
-		const other = new (await import('./artifactsState.svelte')).SessionArtifactsStore()
+		const other = new stateMod.SessionArtifactsStore()
 		await store.setSession('s1')
+		await other.setSession('s1')
 
-		const results = await Promise.allSettled([
-			store.savePlan('s1', { name: 'Plan', content: 'from A', note: 'A' }, undefined),
-			other.savePlan('s1', { name: 'Plan', content: 'from B', note: 'B' }, undefined)
+		const results = await Promise.all([
+			store.proposePlan('s1', { name: 'Plan', content: 'from A', note: 'A' }, undefined),
+			other.proposePlan('s1', { name: 'Plan', content: 'from B', note: 'B' }, undefined)
 		])
 
-		expect(results.filter((r) => r.status === 'rejected')).toMatchObject([
-			{ reason: { name: 'ArtifactStaleError', latest: 1, caughtUp: true } }
-		])
+		expect(results.map((r) => r.outcome).sort()).toEqual(['saved', 'stale'])
+		expect(results.find((r) => r.outcome === 'stale')).toMatchObject({ latest: 1 })
 		const versions = (await store.listVersions(dbMod.planArtifactId('s1'))).map((v) => v.version)
 		expect(versions).toEqual([1])
 	})
@@ -446,18 +451,19 @@ describe('SessionArtifactsStore', () => {
 	it('an approval racing a newer proposal moves the pointer without reverting content', async () => {
 		// approve() must patch, never rewrite: an approval computed while another tab was
 		// revising would otherwise carry this tab's older text back over the newer one.
-		const other = new (await import('./artifactsState.svelte')).SessionArtifactsStore()
+		const other = new stateMod.SessionArtifactsStore()
 		await store.setSession('s1')
-		const plan = await store.savePlan(
-			's1',
-			{ name: 'Plan', content: 'v1', note: 'first' },
-			undefined
+		const plan = saved(
+			await store.proposePlan('s1', { name: 'Plan', content: 'v1', note: 'first' }, undefined)
 		)
+		await other.setSession('s1')
 
-		await other.savePlan(
-			's1',
-			{ name: 'Plan', content: 'v2 from the other tab', note: 'B' },
-			undefined
+		saved(
+			await other.proposePlan(
+				's1',
+				{ name: 'Plan', content: 'v2 from the other tab', note: 'B' },
+				undefined
+			)
 		)
 		await store.approve(plan.id, 1)
 
@@ -467,37 +473,34 @@ describe('SessionArtifactsStore', () => {
 
 	it('leaves the plan alone for a caller whose policy refuses it, and only that caller', async () => {
 		await store.setSession('s1')
-		const plan = await store.savePlan(
-			's1',
-			{ name: 'Plan', content: 'v1', note: 'first' },
-			undefined
+		const plan = saved(
+			await store.proposePlan('s1', { name: 'Plan', content: 'v1', note: 'first' }, undefined)
 		)
-		const doc = await store.create('s1', { name: 'Doc', content: 'x' })
+		const doc = saved(await store.create('s1', { name: 'Doc', content: 'x' }))
 		const no = { canWritePlan: () => false }
 
-		await expect(store.update(plan.id, { content: 'rewritten' }, no)).rejects.toThrow(
-			stateMod.PlanWriteRefusedError
-		)
-		await expect(
-			store.create('s2', { name: 'Plan', content: 'x', role: 'plan' }, no)
-		).rejects.toThrow(stateMod.PlanWriteRefusedError)
-		// The policy is about the plan, not about writing: everything else is untouched by it.
-		await expect(store.update(doc.id, { content: 'y' }, no)).resolves.toMatchObject({
-			content: 'y'
+		expect(await store.edit(plan.id, { content: 'rewritten' }, no)).toEqual({
+			outcome: 'plan-locked'
 		})
+		expect(await store.create('s2', { name: 'Plan', content: 'x', role: 'plan' }, no)).toEqual({
+			outcome: 'plan-locked'
+		})
+		// The policy is about the plan, not about writing: everything else is untouched by it.
+		expect(saved(await store.edit(doc.id, { content: 'y' }, no)).content).toBe('y')
 		// And a caller that states no policy keeps every posture's plan writes exactly as they were.
-		await expect(store.update(plan.id, { content: 'v2' })).resolves.toMatchObject({ version: 2 })
+		expect(await store.edit(plan.id, { content: 'v2' })).toMatchObject({
+			outcome: 'saved',
+			version: 2
+		})
 		expect((await dbMod.getArtifact(plan.id))?.content).toBe('v2')
 	})
 
 	it('refuses an approval naming no readable version, or no plan at all', async () => {
 		await store.setSession('s1')
-		const plan = await store.savePlan(
-			's1',
-			{ name: 'Plan', content: 'v1', note: 'first' },
-			undefined
+		const plan = saved(
+			await store.proposePlan('s1', { name: 'Plan', content: 'v1', note: 'first' }, undefined)
 		)
-		const doc = await store.create('s1', { name: 'Doc', content: 'x' })
+		const doc = saved(await store.create('s1', { name: 'Doc', content: 'x' }))
 
 		await expect(store.approve(plan.id, 2)).resolves.toBe(false)
 		await expect(store.approve(plan.id, 0)).resolves.toBe(false)
@@ -513,49 +516,50 @@ describe('SessionArtifactsStore', () => {
 		// The approval a card proposed lands late, and the versions between it and the head are
 		// still stored — the pointer belongs on the version the user read, not on the newest.
 		await store.setSession('s1')
-		const plan = await store.savePlan(
-			's1',
-			{ name: 'Plan', content: 'v1', note: 'first' },
-			undefined
+		const plan = saved(
+			await store.proposePlan('s1', { name: 'Plan', content: 'v1', note: 'first' }, undefined)
 		)
-		await store.savePlan('s1', { name: 'Plan', content: 'v2', note: 'second' }, undefined)
-		await store.savePlan('s1', { name: 'Plan', content: 'v3', note: 'third' }, undefined)
+		await store.proposePlan('s1', { name: 'Plan', content: 'v2', note: 'second' }, undefined)
+		await store.proposePlan('s1', { name: 'Plan', content: 'v3', note: 'third' }, undefined)
 
 		await expect(store.approve(plan.id, 1)).resolves.toBe(true)
 		expect(await dbMod.getArtifact(plan.id)).toMatchObject({ version: 3, approvedVersion: 1 })
 	})
 
-	it('does not move the approval when a write produces no new version', async () => {
-		// A plan approved at v1 and revised into a proposal the user turned down. Renaming it,
-		// or rewriting it with the text already there, adds no version — so there is nothing
-		// for the approval to move onto, and the refused text must stay refused.
+	it('carries an approval only onto a new text, and only when asked', async () => {
+		// A plan approved at v1 and revised into a proposal the user turned down: a rename, or a
+		// rewrite with the text already there, would otherwise promote the refused text.
 		await store.setSession('s1')
-		const plan = await store.create('s1', { name: 'Plan', content: 'v1', role: 'plan' })
-		await store.update(plan.id, { approvedVersion: 1 })
-		const refused = await store.update(plan.id, { content: 'v2 the user rejected' })
-		expect(refused).toMatchObject({ version: 2, approvedVersion: 1 })
-
-		const renamed = await store.update(plan.id, {
-			name: 'Plan, renamed',
-			content: 'v2 the user rejected',
-			keepApproved: true
+		const plan = saved(await store.create('s1', { name: 'Plan', content: 'v1', role: 'plan' }))
+		await store.approve(plan.id, 1)
+		expect(saved(await store.edit(plan.id, { content: 'v2 the user rejected' }))).toMatchObject({
+			version: 2,
+			approvedVersion: 1
 		})
-		expect(renamed).toMatchObject({ version: 2, approvedVersion: 1 })
 
-		// A write that does add a version still carries it: an edit outside plan mode is one
-		// the user's posture already trusts.
-		const revised = await store.update(plan.id, { content: 'v3', keepApproved: true })
-		expect(revised).toMatchObject({ version: 3, approvedVersion: 3 })
+		expect(
+			saved(await store.edit(plan.id, { name: 'Plan, renamed', keepApproved: true }))
+		).toMatchObject({ version: 3, approvedVersion: 1 })
+		expect(
+			await store.edit(plan.id, { content: 'v2 the user rejected', keepApproved: true })
+		).toMatchObject({ outcome: 'unchanged' })
+
+		// A new text still carries it: an edit outside plan mode is one the user's posture
+		// already trusts.
+		expect(saved(await store.edit(plan.id, { content: 'v4', keepApproved: true }))).toMatchObject({
+			version: 4,
+			approvedVersion: 4
+		})
 	})
 
 	it('trash puts an artifact out of reach of the chat until it is restored', async () => {
 		await store.setSession('s1')
-		const created = await store.create('s1', { name: 'Doc', content: 'x' })
+		const created = saved(await store.create('s1', { name: 'Doc', content: 'x' }))
 
 		await store.trash(created.id)
 		expect(store.artifacts).toEqual([])
 		expect(await store.get(created.id)).toBeUndefined()
-		expect(await store.update(created.id, { content: 'y' })).toBeUndefined()
+		expect(await store.edit(created.id, { content: 'y' })).toEqual({ outcome: 'missing' })
 		expect(await new stateMod.SessionArtifactsStore().listForSession('s1')).toEqual([])
 
 		await store.restore(created.id)
@@ -565,205 +569,205 @@ describe('SessionArtifactsStore', () => {
 })
 
 describe('SessionArtifactsStore with a server copy', () => {
-	async function sharedDoc() {
-		const AiService = vi.mocked((await import('$lib/gen')).AiService)
-		const shared = new stateMod.SessionArtifactsStore(() => 'ws')
-		await shared.setSession('s1')
-		const doc = await shared.create('s1', { name: 'Doc', content: 'v1' })
-		return { AiService, shared, doc }
-	}
+	let server: MemoryArtifactServer
+	let owner: SessionArtifactsStore
+	let doc: db.PersistedArtifact
 
-	it('refuses an edit the owner overtook from another browser, and takes that version', async () => {
-		const { AiService, shared, doc } = await sharedDoc()
-		AiService.writeAiArtifact.mockResolvedValue({
-			outcome: 'stale',
-			latest_version: 3,
-			latest_hash: sha256('v3 from elsewhere')
-		})
-		AiService.getAiArtifact.mockResolvedValue({
-			shown_version: 3,
-			latest_version: 3,
+	beforeEach(async () => {
+		server = new MemoryArtifactServer()
+		owner = new stateMod.SessionArtifactsStore(() => 'ws', server)
+		await owner.setSession('s1')
+		doc = saved(await owner.create('s1', { name: 'Doc', content: 'v1' }))
+	})
+
+	/** Put the doc on the server, as the share dialog does. */
+	const share = () => new writerMod.ArtifactWriter(server).publish(doc.id, 'ws')
+
+	/** The copy another of the owner's browsers shares: it holds the doc from a session backup. */
+	const sharedElsewhere = (version: number, content: string) =>
+		server.publish('ws', {
+			artifact_id: doc.id,
 			name: 'Doc',
-			content: 'v3 from elsewhere'
-		} as never)
-
-		await expect(shared.update(doc.id, { content: 'v2 from here' })).rejects.toMatchObject({
-			name: 'ArtifactStaleError',
-			latest: 3,
-			caughtUp: true
+			kind: 'md',
+			session_id: 's1',
+			version,
+			content
 		})
-		expect(await shared.get(doc.id)).toMatchObject({ version: 3, content: 'v3 from elsewhere' })
-		// The edit is redone on that version, and lands.
-		AiService.writeAiArtifact.mockResolvedValue({ outcome: 'saved', latest_version: 4 })
-		expect(await shared.update(doc.id, { content: 'v4 from here' })).toMatchObject({ version: 4 })
-		expect(AiService.writeAiArtifact).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				requestBody: expect.objectContaining({ base_hash: sha256('v3 from elsewhere'), version: 4 })
-			})
-		)
+
+	/** A version another of the owner's browsers writes, made on the text `base`. */
+	const writtenElsewhere = async (base: string, version: number, content: string) =>
+		server.write('ws', doc.id, {
+			base_hash: await fingerprint('Doc', base),
+			version,
+			name: 'Doc',
+			content,
+			session_id: 's1'
+		})
+
+	const copy = async () => (await server.get('ws', doc.id))!
+
+	it('refuses an edit made on a version another browser has since replaced, and takes that one', async () => {
+		await share()
+		await writtenElsewhere('v1', 2, 'v2 elsewhere')
+
+		expect(await owner.edit(doc.id, { content: 'v2 here' })).toMatchObject({
+			outcome: 'stale',
+			latest: 2
+		})
+		expect(await owner.get(doc.id)).toMatchObject({ version: 2, content: 'v2 elsewhere' })
+		expect(await owner.getVersion(doc.id, 2)).toMatchObject({ note: 'Written in another browser' })
+		// Redone on that version, the edit lands on top of it.
+		expect(await owner.edit(doc.id, { content: 'v3 here' })).toMatchObject({
+			outcome: 'saved',
+			version: 3
+		})
+		expect(await copy()).toMatchObject({ latest_version: 3, content: 'v3 here' })
 	})
 
 	it('refuses an edit made on another text than the server holds under that number', async () => {
-		// Another of the owner's browsers wrote its own v1 and shared it: the numbers match, and
-		// the edit must still not replace what people see.
-		const { AiService, shared, doc } = await sharedDoc()
-		const theirs = { name: 'Doc', content: 'v1 elsewhere', shown_version: 1, latest_version: 1 }
-		AiService.writeAiArtifact.mockResolvedValueOnce({
-			outcome: 'stale',
-			latest_version: 1,
-			latest_hash: sha256('v1 elsewhere')
-		})
-		AiService.getAiArtifact.mockResolvedValue(theirs as never)
-		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'saved', latest_version: 2 })
+		// Stored before the doc was shared, so the server never weighed it.
+		saved(await owner.edit(doc.id, { content: 'v2 here' }))
+		await sharedElsewhere(2, 'v2 elsewhere')
 
-		await expect(shared.update(doc.id, { content: 'v2 from here' })).rejects.toMatchObject({
-			name: 'ArtifactStaleError',
-			latest: 2,
-			caughtUp: true
+		expect(await owner.edit(doc.id, { content: 'v3 here' })).toMatchObject({
+			outcome: 'stale',
+			latest: 3
 		})
-		expect(await shared.get(doc.id)).toMatchObject({ version: 2, content: 'v1 elsewhere' })
-		// The server's copy takes the number this browser gave that text.
-		expect(AiService.writeAiArtifact).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				requestBody: expect.objectContaining({
-					base_hash: sha256('v1 elsewhere'),
-					version: 2,
-					content: 'v1 elsewhere'
-				})
-			})
-		)
+		// Taken as the version after this browser's own v2, and the server copy renumbered to
+		// match: a version has one number everywhere, which pinning names it by.
+		expect(await owner.get(doc.id)).toMatchObject({ version: 3, content: 'v2 elsewhere' })
+		expect(await owner.getVersion(doc.id, 2)).toMatchObject({ content: 'v2 here' })
+		expect(await copy()).toMatchObject({ latest_version: 3, content: 'v2 elsewhere' })
 	})
 
 	it('stores a version under the number the server gave it', async () => {
-		const { AiService, shared, doc } = await sharedDoc()
-		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'saved', latest_version: 5 })
-		expect(await shared.update(doc.id, { content: 'v2' })).toMatchObject({ version: 5 })
-		expect(await shared.getVersion(doc.id, 5)).toMatchObject({ content: 'v2' })
+		// The copy holds this browser's text under a later number, given in another browser.
+		await sharedElsewhere(4, 'v1')
+
+		expect(await owner.edit(doc.id, { content: 'v2' })).toMatchObject({
+			outcome: 'saved',
+			version: 5
+		})
+		expect(await owner.getVersion(doc.id, 5)).toMatchObject({ content: 'v2' })
+	})
+
+	it('brings a server copy that holds one of its older versions up to an edit', async () => {
+		// Stored before the doc was shared, from a copy published from version 1.
+		saved(await owner.edit(doc.id, { content: 'v2' }))
+		await sharedElsewhere(1, 'v1')
+
+		expect(await owner.edit(doc.id, { content: 'v3' })).toMatchObject({
+			outcome: 'saved',
+			version: 3
+		})
+		expect(await copy()).toMatchObject({ latest_version: 3, content: 'v3' })
 	})
 
 	it('catches up with a version written in another browser, unless an older one is pinned', async () => {
-		const { shared, doc } = await sharedDoc()
-		const copy = { name: 'Doc', content: 'v3 from elsewhere', latest_version: 3 }
-		expect(await shared.catchUp(doc, { ...copy, shown_version: 2 } as never)).toBe(doc)
-		expect(await shared.catchUp(doc, { ...copy, shown_version: 3 } as never)).toMatchObject({
-			version: 3,
-			content: 'v3 from elsewhere'
-		})
-		expect(await shared.getVersion(doc.id, 3)).toMatchObject({ note: 'Written in another browser' })
-	})
+		await share()
+		await owner.show(doc.id, 'ws', { pinned: true, version: 1 })
+		await writtenElsewhere('v1', 2, 'v2 elsewhere')
+		expect(await owner.catchUp(doc, await copy())).toBe(doc)
 
-	it('takes the version another tab of this browser stored, which the chat has not read', async () => {
-		const { AiService, shared, doc } = await sharedDoc()
-		const copy = { name: 'Doc', content: 'v3 from elsewhere', shown_version: 3, latest_version: 3 }
-		await new stateMod.SessionArtifactsStore(() => 'ws').catchUp(doc, copy as never)
-		AiService.writeAiArtifact.mockResolvedValueOnce({
-			outcome: 'stale',
-			latest_version: 3,
-			latest_hash: sha256('v3 from elsewhere')
-		})
-		AiService.getAiArtifact.mockResolvedValue(copy as never)
-
-		await expect(shared.update(doc.id, { content: 'v2 from here' })).rejects.toMatchObject({
-			name: 'ArtifactStaleError',
-			caughtUp: true
-		})
-		expect(await shared.get(doc.id)).toMatchObject({ version: 3, content: 'v3 from elsewhere' })
-	})
-
-	it('takes the latest version another tab stored while an older one is pinned', async () => {
-		const { AiService, shared, doc } = await sharedDoc()
-		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'saved' } as never)
-		await new stateMod.SessionArtifactsStore(() => 'ws').update(doc.id, { content: 'v2 elsewhere' })
-		AiService.writeAiArtifact.mockResolvedValueOnce({
-			outcome: 'stale',
-			latest_version: 2,
-			latest_hash: sha256('v2 elsewhere')
-		})
-		AiService.getAiArtifact.mockResolvedValue({
+		await server.show('ws', doc.id, {
+			pinned: false,
+			version: 2,
 			name: 'Doc',
-			content: 'v1',
-			shown_version: 1,
-			latest_version: 2
-		} as never)
-
-		await expect(shared.update(doc.id, { content: 'v2 from here' })).rejects.toMatchObject({
-			name: 'ArtifactStaleError',
-			caughtUp: true
+			content: 'v2 elsewhere',
+			base_hash: await fingerprint('Doc', 'v2 elsewhere')
 		})
-		expect(await shared.get(doc.id)).toMatchObject({ version: 2, content: 'v2 elsewhere' })
+		expect(await owner.catchUp(doc, await copy())).toMatchObject({
+			version: 2,
+			content: 'v2 elsewhere'
+		})
+		expect(owner.artifacts[0]).toMatchObject({ version: 2, content: 'v2 elsewhere' })
 	})
 
-	it('stores no edit the server took once another tab stored a later version', async () => {
-		const { AiService, shared, doc } = await sharedDoc()
-		let answer!: (result: unknown) => void
-		AiService.writeAiArtifact.mockReturnValueOnce(new Promise((r) => (answer = r)) as never)
-		const edit = shared.update(doc.id, { content: 'v2 from here' })
-		const copy = { name: 'Doc', content: 'v3 elsewhere', shown_version: 3, latest_version: 3 }
-		await new stateMod.SessionArtifactsStore(() => 'ws').catchUp(doc, copy as never)
-		answer({ outcome: 'saved' })
+	it('refuses an edit made while another browser wrote past a pinned version', async () => {
+		// The pinned version is all the server copy shows, so this browser cannot take the latest.
+		await share()
+		await owner.show(doc.id, 'ws', { pinned: true, version: 1 })
+		await writtenElsewhere('v1', 2, 'v2 elsewhere')
 
-		await expect(edit).rejects.toMatchObject({
-			name: 'ArtifactStaleError',
-			latest: 3,
-			savedAs: 2
+		expect(await owner.edit(doc.id, { content: 'v2 here' })).toMatchObject({
+			outcome: 'behind',
+			latest: 2
 		})
-		expect(await shared.get(doc.id)).toMatchObject({ version: 3, content: 'v3 elsewhere' })
+		expect(await owner.get(doc.id)).toMatchObject({ version: 1, content: 'v1' })
 	})
 
-	it('stores no unchanged text from a chat another tab has moved past', async () => {
-		const { AiService, shared, doc } = await sharedDoc()
-		const other = new stateMod.SessionArtifactsStore(() => 'ws')
-		AiService.writeAiArtifact.mockResolvedValue({ outcome: 'saved' } as never)
-		await other.update(doc.id, { content: 'v2 elsewhere' })
-		const plan = await shared.savePlan('s1', { name: 'Plan', content: 'p1', note: 'a' }, undefined)
-		await other.savePlan('s1', { name: 'Plan', content: 'p2 elsewhere', note: 'b' }, undefined)
-		AiService.writeAiArtifact.mockClear()
+	it('shows people with access a rename, unless an older version is pinned', async () => {
+		await share()
+		saved(await owner.edit(doc.id, { name: 'Launch plan' }))
+		expect(await copy()).toMatchObject({ name: 'Launch plan', latest_version: 2, shown_version: 2 })
 
-		// A rename and a repeated proposal carry the chat's own text, so the server is not asked.
-		await expect(shared.update(doc.id, { name: 'Renamed', content: 'v1' })).rejects.toMatchObject({
-			name: 'ArtifactStaleError',
-			latest: 2,
-			caughtUp: true
+		await owner.show(doc.id, 'ws', { pinned: true, version: 2 })
+		saved(await owner.edit(doc.id, { name: 'Renamed' }))
+		expect(await copy()).toMatchObject({ name: 'Launch plan', latest_version: 3, shown_version: 2 })
+
+		expect(await owner.show(doc.id, 'ws', { pinned: false, version: 3 })).toMatchObject({
+			outcome: 'saved'
 		})
-		await expect(
-			shared.savePlan('s1', { name: 'Plan', content: 'p1', note: 'c' }, undefined)
-		).rejects.toMatchObject({ name: 'ArtifactStaleError', latest: 2 })
-		expect(AiService.writeAiArtifact).not.toHaveBeenCalled()
-		expect(await dbMod.getArtifact(doc.id)).toMatchObject({ version: 2, content: 'v2 elsewhere' })
-		expect(await dbMod.getArtifact(plan.id)).toMatchObject({ version: 2, content: 'p2 elsewhere' })
+		expect(await copy()).toMatchObject({ name: 'Renamed', shown_version: 3, pinned: false })
+	})
+
+	it('pins a version once a server copy behind this browser is brought up to its latest', async () => {
+		saved(await owner.edit(doc.id, { content: 'v2' }))
+		await sharedElsewhere(1, 'v1')
+
+		expect(await owner.show(doc.id, 'ws', { pinned: true, version: 1 })).toMatchObject({
+			outcome: 'saved',
+			item: { pinned: true, shown_version: 1, latest_version: 2 }
+		})
+	})
+
+	it('stores no edit over a later version another tab stored while the server was taking it', async () => {
+		await share()
+		const write = server.write.bind(server)
+		let taken!: () => void
+		let release!: () => void
+		const tookIt = new Promise<void>((r) => (taken = r))
+		const held = new Promise<void>((r) => (release = r))
+		vi.spyOn(server, 'write').mockImplementationOnce(async (...args) => {
+			const answer = await write(...args)
+			taken()
+			await held
+			return answer
+		})
+
+		const edit = owner.edit(doc.id, { content: 'v2 from this tab' })
+		await tookIt
+		// Another tab takes that version from the server, and writes the next one.
+		const other = new stateMod.SessionArtifactsStore(() => 'ws', server)
+		await other.catchUp(doc, await copy())
+		saved(await other.edit(doc.id, { content: 'v3 from the other tab' }))
+		release()
+
+		expect(await edit).toMatchObject({ outcome: 'saved', version: 2 })
+		expect(await dbMod.getArtifact(doc.id)).toMatchObject({
+			version: 3,
+			content: 'v3 from the other tab'
+		})
 	})
 
 	it('stores no edit the server did not take', async () => {
-		const { AiService, shared, doc } = await sharedDoc()
-		AiService.writeAiArtifact.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-		await expect(shared.update(doc.id, { content: 'v2' })).rejects.toThrow('Failed to fetch')
-		expect(await shared.get(doc.id)).toMatchObject({ version: 1, content: 'v1' })
+		vi.spyOn(server, 'write').mockRejectedValueOnce(new TypeError('Failed to fetch'))
+		await expect(owner.edit(doc.id, { content: 'v2' })).rejects.toThrow('Failed to fetch')
+		expect(await owner.get(doc.id)).toMatchObject({ version: 1, content: 'v1' })
 	})
 
-	it('writes an edit over a server copy that holds one of its older versions', async () => {
-		const { AiService, shared, doc } = await sharedDoc()
-		// Stored while the server held no copy, so the copy shared since holds v1.
-		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'not_shared' })
-		await shared.update(doc.id, { content: 'v2' })
-		AiService.writeAiArtifact.mockResolvedValueOnce({
-			outcome: 'stale',
-			latest_version: 1,
-			latest_hash: sha256('v1')
-		})
-		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'saved', latest_version: 3 })
+	it('says an edit people with access see could not be stored in this browser', async () => {
+		await share()
+		refuseNextWrite()
 
-		expect(await shared.update(doc.id, { content: 'v3' })).toMatchObject({ version: 3 })
-		expect(AiService.writeAiArtifact).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				requestBody: expect.objectContaining({ base_hash: sha256('v1'), version: 3, content: 'v3' })
-			})
-		)
+		expect(await owner.edit(doc.id, { content: 'v2' })).toEqual({
+			outcome: 'unstored',
+			shared: true
+		})
+		expect(await copy()).toMatchObject({ latest_version: 2, content: 'v2' })
+		expect(await dbMod.getArtifact(doc.id)).toMatchObject({ version: 1, content: 'v1' })
 	})
 })
-
-function sha256(text: string): string {
-	return createHash('sha256').update(text, 'utf8').digest('hex')
-}
 
 function mk(over: Partial<db.PersistedArtifact> = {}): db.PersistedArtifact {
 	return {

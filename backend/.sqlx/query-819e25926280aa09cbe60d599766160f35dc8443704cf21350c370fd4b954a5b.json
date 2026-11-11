@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE ai_artifact SET\n             pinned = $4,\n             shown_version = CASE WHEN $4 THEN $5 ELSE latest_version END,\n             content = $6, name = $7, updated_at = now()\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND deleted_at IS NULL\n           AND latest_hash = $8 AND (NOT $4 OR $5 <= latest_version)\n         RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                   role, shown_version, latest_version, pinned, created_at, updated_at,\n                   deleted_at",
+  "query": "UPDATE ai_artifact SET\n             pinned = $4,\n             shown_version = CASE WHEN $4 THEN $5 ELSE latest_version END,\n             content = $6, name = $7, updated_at = now()\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND deleted_at IS NULL\n           AND latest_hash = $8 AND (NOT $4 OR $5 <= latest_version)\n         RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                   role, shown_version, latest_version, latest_hash, pinned, created_at,\n                   updated_at, deleted_at",
   "describe": {
     "columns": [
       {
@@ -60,21 +60,26 @@
       },
       {
         "ordinal": 11,
+        "name": "latest_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
         "name": "pinned",
         "type_info": "Bool"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "deleted_at",
         "type_info": "Timestamptz"
       }
@@ -106,8 +111,9 @@
       false,
       false,
       false,
+      false,
       true
     ]
   },
-  "hash": "6693d160cc3bd863b89d933c56ee0a8ec64545f36059eeba7ce78758e439d25f"
+  "hash": "819e25926280aa09cbe60d599766160f35dc8443704cf21350c370fd4b954a5b"
 }

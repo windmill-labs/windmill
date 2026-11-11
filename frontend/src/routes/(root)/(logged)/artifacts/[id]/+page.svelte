@@ -35,7 +35,6 @@
 		deleteArtifactForever,
 		markArtifactOpened,
 		restoreArtifact,
-		showVersion,
 		trashArtifact
 	} from '$lib/components/copilot/chat/artifacts/artifactLibrary'
 	import {
@@ -54,10 +53,7 @@
 		type ArtifactVersion,
 		type PersistedArtifact
 	} from '$lib/components/copilot/chat/artifacts/artifactsDB'
-	import {
-		ArtifactStaleError,
-		SessionArtifactsStore
-	} from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
+	import { SessionArtifactsStore } from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
 	import { sessionPageHref, sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { AiService, type AiArtifactWithContent } from '$lib/gen'
@@ -303,32 +299,35 @@
 		const artifact = liveLocal
 		if (!from || !artifact) return
 		return run(async () => {
-			try {
-				const saved = await store.update(artifact.id, {
-					content: from.content,
-					note: `Restored v${from.version}`
-				})
-				if (!saved) {
-					sendUserToast('This artifact is no longer in this browser', true)
-				} else if (currentVersion(saved) === currentVersion(artifact)) {
-					sendUserToast(`v${from.version} is the same as the latest version`)
-				} else {
-					logFeatureUsage('ai_artifacts', 'restore', { key: 'version' })
-					sendUserToast(`Restored v${from.version} as v${currentVersion(saved)}`)
-				}
-			} catch (err) {
-				if (!(err instanceof ArtifactStaleError)) throw err
-				if (err.savedAs !== undefined) {
-					logFeatureUsage('ai_artifacts', 'restore', { key: 'version' })
-					sendUserToast(
-						`Restored v${from.version} as v${err.savedAs}, and another tab has since saved v${err.latest}`
-					)
-				} else {
-					sendUserToast(
-						`This artifact changed in another tab or browser (now v${err.latest}), so nothing was restored`,
-						true
-					)
-				}
+			const result = await store.edit(
+				artifact.id,
+				{ content: from.content, note: `Restored v${from.version}` },
+				{ madeOn: currentVersion(artifact) }
+			)
+			if (result.outcome === 'saved') {
+				logFeatureUsage('ai_artifacts', 'restore', { key: 'version' })
+				const latest = currentVersion(result.artifact)
+				sendUserToast(
+					latest > result.version
+						? `Restored v${from.version} as v${result.version}, and another tab has since saved v${latest}`
+						: `Restored v${from.version} as v${result.version}`
+				)
+			} else if (result.outcome === 'unchanged') {
+				sendUserToast(`v${from.version} is the same as the latest version`)
+			} else if (result.outcome === 'stale' || result.outcome === 'behind') {
+				sendUserToast(
+					`This artifact changed in another tab or browser (now v${result.latest}), so nothing was restored`,
+					true
+				)
+			} else if (result.outcome === 'unstored') {
+				sendUserToast(
+					result.shared
+						? `v${from.version} reached the people this artifact is shared with, but this browser's storage is full, so it could not keep it`
+						: `Nothing was restored: this browser's storage is full`,
+					true
+				)
+			} else {
+				sendUserToast('This artifact is no longer in this browser', true)
 			}
 			picked = undefined
 			reloads++
@@ -338,20 +337,26 @@
 	function showLatestToEveryone() {
 		const artifact = liveLocal
 		if (!artifact || !server || !workspace) return
+		const ws = workspace
 		return run(async () => {
-			const result = await showVersion(artifact, workspace, {
+			const result = await store.show(artifact.id, ws, {
 				pinned: false,
-				version: currentVersion(artifact),
-				name: artifact.name,
-				content: artifact.content
+				version: currentVersion(artifact)
 			})
 			if (result.outcome === 'saved') {
 				logFeatureUsage('ai_artifacts', 'pin', { key: 'latest' })
 			} else if (result.outcome === 'stale') {
 				sendUserToast(
-					`Version ${result.latest_version} was written in another browser, and is not in this one yet`,
+					`Version ${result.latest} was written in another browser and is now in this one: check it, then show it again`,
 					true
 				)
+			} else if (result.outcome === 'behind') {
+				sendUserToast(
+					`Version ${result.latest} was written in another browser, and is not in this one yet`,
+					true
+				)
+			} else if (result.outcome === 'missing') {
+				sendUserToast('This artifact is in Recently deleted', true)
 			}
 			reloads++
 		}, 'Could not change the version people see')

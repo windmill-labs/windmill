@@ -5,7 +5,8 @@
 		setReadOnlyWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	import type { PersistedArtifact } from './artifactsDB'
-	import { publishArtifact } from './artifactLibrary'
+	import { ArtifactWriter } from './artifactWriter'
+	import { httpArtifactServer } from './httpArtifactServer'
 
 	interface Props {
 		/** The artifacts' home workspace, where their server copies are. */
@@ -22,6 +23,7 @@
 	setReadOnlyWorkspace(() => false)
 
 	let dialog: ShareDialog | undefined = $state()
+	const writer = new ArtifactWriter(httpArtifactServer)
 
 	/** Open the share dialog for an artifact, putting this browser's copy on the server first:
 	 * the access list belongs to the server copy. Rejects when that copy could not be made. */
@@ -33,7 +35,7 @@
 		path?: string
 	}): Promise<void> {
 		if (!workspace) return
-		const path = a.local ? (await publishArtifact(a.local, workspace)).path : a.path
+		const path = a.local ? ((await writer.publish(a.id, workspace))?.path ?? a.path) : a.path
 		if (!path) return
 		dialog?.openDialog('ai_artifact', path, { source: 'artifact', artifactId: a.id, title: a.name })
 	}

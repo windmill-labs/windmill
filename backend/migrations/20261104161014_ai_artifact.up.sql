@@ -99,7 +99,9 @@ SELECT
     'u/' || s.created_by || '/' || s.slug
         || CASE WHEN s.rn > 1 THEN '_' || left(replace(s.id::text, '-', ''), 8) ELSE '' END,
     '{"g/all": false}'::jsonb, s.email, s.created_by, s.name, s.kind,
-    s.version, s.content, s.version, encode(sha256(convert_to(s.content, 'UTF8')), 'hex'), true,
+    s.version, s.content, s.version,
+    encode(sha256(convert_to(s.name, 'UTF8') || '\x00'::bytea || convert_to(s.content, 'UTF8')), 'hex'),
+    true,
     s.shared_at, s.shared_at
 FROM (
     SELECT a.*, row_number() OVER (

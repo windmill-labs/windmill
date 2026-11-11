@@ -1,0 +1,191 @@
+{
+	"//": "How the server takes, refuses and numbers the versions of an artifact its owner writes. Both suites read this file: ai_artifacts.rs runs each step against the API, and the browser's tests run it against the in-memory server copy they write through (frontend/src/lib/components/copilot/chat/artifacts/memoryArtifactServer.ts), so a rule changed on one side only fails. In `base` and `latest_hash` a version stands for its fingerprint, and is written as its text, named \"Plan\", or as [name, text]; `name` is \"Plan\" unless given; `expect` checks only the fields it names, on the artifact when the answer carries one.",
+	"cases": [
+		{
+			"name": "a write made on the latest version is taken under the next number",
+			"steps": [
+				{
+					"publish": { "version": 1, "content": "draft" },
+					"expect": { "latest_version": 1, "shown_version": 1, "latest_hash": "draft" }
+				},
+				{
+					"write": { "base": "draft", "version": 2, "content": "first" },
+					"expect": { "outcome": "saved", "latest_version": 2 }
+				},
+				{
+					"get": {},
+					"expect": { "content": "first", "shown_version": 2, "latest_hash": "first" }
+				}
+			]
+		},
+		{
+			"name": "a write made on another version is refused with the latest's number and fingerprint",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{ "write": { "base": "draft", "version": 2, "content": "first" } },
+				{
+					"write": { "base": "draft", "version": 2, "content": "second" },
+					"expect": { "outcome": "stale", "latest_version": 2, "latest_hash": "first" }
+				},
+				{
+					"write": { "base": "theirs", "version": 3, "content": "second" },
+					"expect": { "outcome": "stale", "latest_version": 2, "latest_hash": "first" }
+				},
+				{ "get": {}, "expect": { "content": "first", "latest_version": 2 } }
+			]
+		},
+		{
+			"name": "a browser numbering below the latest gets the next number above it",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{ "write": { "base": "draft", "version": 2, "content": "first" } },
+				{
+					"write": { "base": "first", "version": 2, "content": "third" },
+					"expect": { "outcome": "saved", "latest_version": 3 }
+				}
+			]
+		},
+		{
+			"name": "a browser numbering above the latest keeps its number",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{
+					"write": { "base": "draft", "version": 5, "content": "first" },
+					"expect": { "outcome": "saved", "latest_version": 5, "shown_version": 5 }
+				}
+			]
+		},
+		{
+			"name": "a rename is a new version, which people with access see",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{
+					"write": { "base": "draft", "version": 2, "name": "Launch plan", "content": "draft" },
+					"expect": { "outcome": "saved", "latest_version": 2, "latest_hash": ["Launch plan", "draft"] }
+				},
+				{ "get": {}, "expect": { "name": "Launch plan", "content": "draft", "shown_version": 2 } }
+			]
+		},
+		{
+			"name": "a write made on the version before a rename is refused",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{ "write": { "base": "draft", "version": 2, "name": "Launch plan", "content": "draft" } },
+				{
+					"write": { "base": "draft", "version": 2, "content": "edited" },
+					"expect": { "outcome": "stale", "latest_version": 2, "latest_hash": ["Launch plan", "draft"] }
+				},
+				{ "get": {}, "expect": { "name": "Launch plan", "content": "draft" } }
+			]
+		},
+		{
+			"name": "while a version is pinned, writes move the latest but not what people see",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{ "write": { "base": "draft", "version": 2, "content": "second" } },
+				{
+					"show": { "base": "second", "pinned": true, "version": 1, "content": "draft" },
+					"expect": { "outcome": "saved", "shown_version": 1, "pinned": true }
+				},
+				{
+					"write": { "base": "second", "version": 3, "name": "Renamed", "content": "third" },
+					"expect": { "outcome": "saved", "latest_version": 3 }
+				},
+				{
+					"get": {},
+					"expect": {
+						"content": "draft",
+						"name": "Plan",
+						"shown_version": 1,
+						"latest_version": 3,
+						"latest_hash": ["Renamed", "third"],
+						"pinned": true
+					}
+				},
+				{
+					"show": {
+						"base": ["Renamed", "third"],
+						"pinned": false,
+						"version": 3,
+						"name": "Renamed",
+						"content": "third"
+					},
+					"expect": { "outcome": "saved", "shown_version": 3, "pinned": false }
+				},
+				{ "get": {}, "expect": { "content": "third", "name": "Renamed" } }
+			]
+		},
+		{
+			"name": "a change of the version people see is refused unless made on the latest version",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{ "write": { "base": "draft", "version": 2, "content": "first" } },
+				{
+					"show": { "base": "draft", "pinned": true, "version": 1, "content": "draft" },
+					"expect": { "outcome": "stale", "latest_version": 2, "latest_hash": "first" }
+				},
+				{
+					"show": { "base": "first", "pinned": true, "version": 3, "content": "later" },
+					"expect": { "outcome": "stale", "latest_version": 2, "latest_hash": "first" }
+				},
+				{ "get": {}, "expect": { "content": "first", "shown_version": 2, "pinned": false } }
+			]
+		},
+		{
+			"name": "the server holds no copy of an artifact never shared",
+			"steps": [
+				{
+					"write": { "base": "draft", "version": 2, "content": "first" },
+					"expect": { "outcome": "not_shared" }
+				}
+			]
+		},
+		{
+			"name": "a copy in the trash takes no version until it is restored",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{ "trash": {} },
+				{
+					"write": { "base": "draft", "version": 2, "content": "first" },
+					"expect": { "outcome": "not_shared" }
+				},
+				{
+					"show": { "base": "draft", "pinned": true, "version": 1, "content": "draft" },
+					"expect": { "outcome": "not_shared" }
+				},
+				{ "restore": {} },
+				{
+					"write": { "base": "draft", "version": 2, "content": "first" },
+					"expect": { "outcome": "saved", "latest_version": 2 }
+				}
+			]
+		},
+		{
+			"name": "publishing a copy already there keeps its versions",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{ "write": { "base": "draft", "version": 2, "content": "first" } },
+				{
+					"publish": { "version": 7, "content": "other" },
+					"expect": { "latest_version": 2, "shown_version": 2, "latest_hash": "first" }
+				},
+				{ "get": {}, "expect": { "content": "first" } }
+			]
+		},
+		{
+			"name": "publishing a copy in the trash brings it back",
+			"steps": [
+				{ "publish": { "version": 1, "content": "draft" } },
+				{ "trash": {} },
+				{
+					"publish": { "version": 4, "content": "other" },
+					"expect": { "latest_version": 1, "latest_hash": "draft" }
+				},
+				{
+					"write": { "base": "draft", "version": 2, "content": "first" },
+					"expect": { "outcome": "saved", "latest_version": 2 }
+				}
+			]
+		}
+	]
+}

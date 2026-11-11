@@ -8,12 +8,12 @@
 	import {
 		currentVersion,
 		getArtifact,
-		getArtifactVersion,
 		listArtifactVersions,
 		type ArtifactVersion,
 		type PersistedArtifact
 	} from './artifactsDB'
-	import { showVersion } from './artifactLibrary'
+	import { ArtifactWriter } from './artifactWriter'
+	import { httpArtifactServer } from './httpArtifactServer'
 
 	interface Props {
 		/** The artifact's home workspace, where its server copy is. */
@@ -67,34 +67,32 @@
 		return `v${n} · ${note} · ${displayDate(new Date(v.savedAt))}`
 	}
 
+	const writer = new ArtifactWriter(httpArtifactServer)
+
 	async function choose(value: string) {
 		if (value === selected || !local || !server) return
 		const pinned = value !== 'latest'
-		const latest = currentVersion(local)
-		const version = pinned ? Number(value) : latest
-		const snapshot =
-			version === latest
-				? { name: local.name, content: local.content }
-				: await getArtifactVersion(artifactId, version).catch(() => undefined)
-		if (!snapshot) {
+		const version = pinned ? Number(value) : currentVersion(local)
+		if (version !== currentVersion(local) && !versions.some((v) => v.version === version)) {
 			sendUserToast(`Version ${version} is no longer in this browser`, true)
 			return
 		}
 		saving = true
 		try {
-			const result = await showVersion(local, workspace, {
-				pinned,
-				version,
-				name: snapshot.name,
-				content: snapshot.content
-			})
-			if (result.outcome === 'saved' && result.artifact) {
-				server = result.artifact
+			const result = await writer.show(artifactId, workspace, { pinned, version })
+			if (result.outcome === 'saved' && result.item) {
+				server = result.item
 				logFeatureUsage('ai_artifacts', 'pin', { key: pinned ? 'version' : 'latest' })
 				onChange?.()
 			} else if (result.outcome === 'stale') {
 				sendUserToast(
-					`Version ${result.latest_version} was written in another browser, and is not in this one yet`,
+					`Version ${result.latest} was written in another browser and is now in this one: check it, then choose again`,
+					true
+				)
+				await reload()
+			} else if (result.outcome === 'behind') {
+				sendUserToast(
+					`Version ${result.latest} was written in another browser, and is not in this one yet`,
 					true
 				)
 			} else {

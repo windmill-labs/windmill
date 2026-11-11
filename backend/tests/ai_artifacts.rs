@@ -9,8 +9,23 @@ use windmill_test_utils::*;
 const OWNER: &str = "Bearer SECRET_TOKEN_2";
 const VIEWER: &str = "Bearer SECRET_TOKEN_3";
 
-fn sha256(text: &str) -> String {
-    hex::encode(Sha256::digest(text.as_bytes()))
+fn fingerprint(name: &str, text: &str) -> String {
+    hex::encode(
+        Sha256::new()
+            .chain_update(name)
+            .chain_update([0u8])
+            .chain_update(text)
+            .finalize(),
+    )
+}
+
+/// A version as ai_artifacts_cases.json names it: its text under the name "Plan", or
+/// `[name, text]`.
+fn version_hash(version: &Value) -> String {
+    match version {
+        Value::Array(pair) => fingerprint(pair[0].as_str().unwrap(), pair[1].as_str().unwrap()),
+        text => fingerprint("Plan", text.as_str().unwrap()),
+    }
 }
 
 struct Api {
@@ -106,11 +121,15 @@ async fn an_artifact_reaches_its_access_list_until_it_is_trashed(
     let (status, body) = api.get("ai/artifacts/get/a1", VIEWER).await?;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["content"], "draft");
+    assert!(
+        body.get("latest_hash").is_none(),
+        "a viewer read the fingerprint of the owner's latest version"
+    );
     let (_, body) = api
         .post(
             "ai/artifacts/write/a1",
             VIEWER,
-            json!({ "base_hash": sha256("draft"), "version": 2, "name": "Plan", "content": "vandalized" }),
+            json!({ "base_hash": fingerprint("Plan", "draft"), "version": 2, "name": "Plan", "content": "vandalized" }),
         )
         .await?;
     assert_eq!(body["outcome"], "not_shared", "a viewer wrote the artifact");
@@ -140,47 +159,59 @@ async fn an_artifact_reaches_its_access_list_until_it_is_trashed(
     Ok(())
 }
 
+/// The rules in ai_artifacts_cases.json, which the browser's in-memory server copy is tested
+/// against too.
 #[sqlx::test(fixtures("base"))]
-async fn a_change_made_on_another_text_is_refused(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn versions_follow_the_shared_cases(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let api = Api::new(&server);
-    api.publish("draft").await?;
-
-    let write = |base: &str, version: i32, content: &str| json!({ "base_hash": sha256(base), "version": version, "name": "Plan", "content": content });
-    let (_, body) = api
-        .post("ai/artifacts/write/a1", OWNER, write("draft", 2, "first"))
-        .await?;
-    assert_eq!(body["outcome"], "saved", "{body}");
-    // Made on the text the first write replaced, and on another browser's own version 2.
-    for stale in [write("draft", 2, "second"), write("theirs", 3, "second")] {
-        let (_, body) = api.post("ai/artifacts/write/a1", OWNER, stale).await?;
-        assert_eq!(body["outcome"], "stale", "{body}");
-        assert_eq!(body["latest_version"], 2);
-        assert_eq!(body["latest_hash"], sha256("first"));
+    let cases: Value = serde_json::from_str(include_str!("ai_artifacts_cases.json"))?;
+    for (n, case) in cases["cases"].as_array().unwrap().iter().enumerate() {
+        let case_name = case["name"].as_str().unwrap();
+        let id = format!("case{n}");
+        for (s, step) in case["steps"].as_array().unwrap().iter().enumerate() {
+            let (op, args) = step
+                .as_object()
+                .unwrap()
+                .iter()
+                .find(|(key, _)| *key != "expect")
+                .unwrap();
+            let name = args.get("name").and_then(Value::as_str).unwrap_or("Plan");
+            let base = args.get("base").map(version_hash).unwrap_or_default();
+            let (status, body) = match op.as_str() {
+                "publish" => {
+                    let body = json!({ "artifact_id": id, "name": name, "kind": "md", "version": args["version"], "content": args["content"] });
+                    api.post("ai/artifacts/publish", OWNER, body).await?
+                }
+                "write" => {
+                    let body = json!({ "base_hash": base, "version": args["version"], "name": name, "content": args["content"] });
+                    api.post(&format!("ai/artifacts/write/{id}"), OWNER, body)
+                        .await?
+                }
+                "show" => {
+                    let body = json!({ "base_hash": base, "pinned": args["pinned"], "version": args["version"], "name": name, "content": args["content"] });
+                    api.post(&format!("ai/artifacts/show/{id}"), OWNER, body)
+                        .await?
+                }
+                "get" => api.get(&format!("ai/artifacts/get/{id}"), OWNER).await?,
+                "trash" | "restore" => {
+                    api.post(&format!("ai/artifacts/{op}/{id}"), OWNER, json!({}))
+                        .await?
+                }
+                other => panic!("{case_name}: unknown step {other}"),
+            };
+            assert_eq!(status, 200, "{case_name}, step {s}: {body}");
+            for (key, want) in step["expect"].as_object().into_iter().flatten() {
+                let got = body.get(key).unwrap_or(&body["artifact"][key]);
+                let want = match key.as_str() {
+                    "latest_hash" => json!(version_hash(want)),
+                    _ => want.clone(),
+                };
+                assert_eq!(got, &want, "{case_name}, step {s}, {key}: {body}");
+            }
+        }
     }
-    let (_, body) = api.get("ai/artifacts/get/a1", OWNER).await?;
-    assert_eq!(
-        body["content"], "first",
-        "a stale write overwrote a newer version"
-    );
-
-    // A browser numbering below the latest gets the next number above it.
-    let (_, body) = api
-        .post("ai/artifacts/write/a1", OWNER, write("first", 2, "third"))
-        .await?;
-    assert_eq!(body["latest_version"], 3, "{body}");
-
-    let pin = |base: &str| json!({ "pinned": true, "version": 1, "name": "Plan", "content": "draft", "base_hash": sha256(base) });
-    let (_, body) = api
-        .post("ai/artifacts/show/a1", OWNER, pin("first"))
-        .await?;
-    assert_eq!(body["outcome"], "stale", "{body}");
-    let (_, body) = api
-        .post("ai/artifacts/show/a1", OWNER, pin("third"))
-        .await?;
-    assert_eq!(body["artifact"]["shown_version"], 1, "{body}");
-
     Ok(())
 }
 
@@ -191,7 +222,7 @@ async fn only_a_shared_copy_is_held_to_the_name_limit(db: Pool<Postgres>) -> any
     let api = Api::new(&server);
     api.publish("draft").await?;
 
-    let write = json!({ "base_hash": sha256("draft"), "version": 2, "name": "n".repeat(300), "content": "x" });
+    let write = json!({ "base_hash": fingerprint("Plan", "draft"), "version": 2, "name": "n".repeat(300), "content": "x" });
     let (_, body) = api
         .post("ai/artifacts/write/never-shared", OWNER, write.clone())
         .await?;

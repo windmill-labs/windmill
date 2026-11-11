@@ -19,7 +19,7 @@ import {
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { normalizeChangeNote } from './artifacts/artifactLimits'
 import { currentVersion } from './artifacts/artifactsDB'
-import { ArtifactStaleError, type SessionArtifactsStore } from './artifacts/artifactsState.svelte'
+import type { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 
 /** What plan mode needs from the chat it runs in: it reads the work mode and the autonomy
  * state and asks for the two changes it can cause, rather than owning any of it. */
@@ -207,7 +207,7 @@ export class PlanModeController {
 			// No approval field: the write bumps the version and leaves `approvedVersion` where
 			// it was, which is what makes the new text read as an undecided proposal. The note
 			// keeps the picker a sequence of decisions rather than a stack of dates.
-			const plan = await host.artifacts.savePlan(
+			const result = await host.artifacts.proposePlan(
 				sessionId,
 				{
 					name: derivePlanTitle(summary),
@@ -216,6 +216,19 @@ export class PlanModeController {
 				},
 				chatId
 			)
+			if (result.outcome === 'stale' || result.outcome === 'behind') {
+				return {
+					error: PLAN_MODE_MESSAGES.stalePlan(result.latest, result.outcome === 'stale')
+				}
+			}
+			if (result.outcome === 'unstored') return { error: PLAN_MODE_MESSAGES.planNotStored }
+			if (result.outcome !== 'saved' && result.outcome !== 'unchanged') return unsaved
+			const plan = result.artifact
+			if (result.outcome === 'saved' && result.version < currentVersion(plan)) {
+				return {
+					error: PLAN_MODE_MESSAGES.stalePlan(currentVersion(plan), true, result.version)
+				}
+			}
 			const version = currentVersion(plan)
 			// The write stands either way; only what the user would *see* is held back, so a
 			// session swapped in mid-save gets neither another session's plan nor a dead card.
@@ -228,9 +241,6 @@ export class PlanModeController {
 			}
 			return { plan: { id: plan.id, name: plan.name, version } }
 		} catch (e) {
-			if (e instanceof ArtifactStaleError) {
-				return { error: PLAN_MODE_MESSAGES.stalePlan(e.latest, e.caughtUp, e.savedAs) }
-			}
 			console.error('Failed to persist plan artifact', e)
 			return unsaved
 		}

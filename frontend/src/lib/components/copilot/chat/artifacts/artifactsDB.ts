@@ -32,6 +32,10 @@ export interface PersistedArtifact {
 	/** When its owner moved it to Recently deleted, which it leaves for good after
 	 * TRASH_RETENTION_MS. */
 	deletedAt?: number
+	/** The fingerprint (see artifactServer) of each of its latest versions, kept past their
+	 * snapshots: a server copy behind this browser is told apart by it from one another browser
+	 * wrote. */
+	fingerprints?: Record<number, string>
 }
 
 /** How long an artifact stays in Recently deleted. */
@@ -159,33 +163,34 @@ export async function readSessionArtifacts(
 	}
 }
 
-/** Write restored artifacts and snapshots, leaving any that already exist alone. Reports
- * whether they are all in the store now: unlike the other writes here, a caller records the
- * restore as done on the strength of this answer. */
+/** Write restored artifacts with their snapshots. One this browser holds is replaced, history
+ * included, by a backup at least as far along, and kept with its own history otherwise: two
+ * browsers can each hold a different version under one number, so a history taken partly from
+ * each would show versions that never followed one another. Reports whether they are all in the
+ * store now: unlike the other writes here, a caller records the restore as done on the strength
+ * of this answer. */
 export async function importArtifacts(
 	items: PersistedArtifact[],
 	versions: ArtifactVersion[],
-	email: string,
-	overwrite = false
+	email: string
 ): Promise<boolean> {
-	if (items.length === 0 && versions.length === 0) return true
+	if (items.length === 0) return true
 	const db = await getDB()
 	if (!db || db.name !== scopedKeyFor(ARTIFACTS_DB, email)) return false
 	try {
 		const tx = db.transaction(['items', 'versions'], 'readwrite')
 		const itemStore = tx.objectStore('items')
 		const versionStore = tx.objectStore('versions')
-		// An overwrite never puts an older record over a newer one: without a cross-tab lock,
-		// another restore may have landed a newer backup's copy meanwhile.
 		for (const item of items) {
 			const existing = await itemStore.get(item.id)
-			if (existing === undefined || (overwrite && existing.updatedAt <= item.updatedAt)) {
-				await itemStore.put(item)
+			if (existing) {
+				const ahead = currentVersion(existing) - currentVersion(item)
+				if (ahead > 0 || (ahead === 0 && existing.updatedAt > item.updatedAt)) continue
+				await deleteVersionsIn(versionStore, item.id)
 			}
-		}
-		for (const version of versions) {
-			if (overwrite || (await versionStore.getKey(version.key)) === undefined) {
-				await versionStore.put(version)
+			await itemStore.put(item)
+			for (const version of versions) {
+				if (version.artifactId === item.id) await versionStore.put(version)
 			}
 		}
 		await tx.done
@@ -325,31 +330,32 @@ async function writeEdit(
  * distinct from `rejected`, the database turning this write down. */
 export type WriteOutcome = 'saved' | 'rejected' | 'unavailable'
 
-export interface ArtifactWrite {
+/** What a mutator decided: the edit to write, or why it wrote none. */
+export type Mutation<R> = { edit: ArtifactEdit } | { refused: R }
+
+export interface ArtifactWrite<R = never> {
+	/** `saved` too when the mutator wrote nothing. */
 	outcome: WriteOutcome
-	/** The edited row, persisted or not; absent only when the mutator wrote nothing. */
+	/** The row the edit wrote; absent when there was none, and when the store refused it. */
 	artifact?: PersistedArtifact
+	/** The mutator's answer when it wrote no edit. */
+	refused?: R
 }
 
 /**
- * Read an artifact and write it back in one transaction. `mutate` returns the edit to
- * write, or undefined to leave the artifact alone and resolve to no artifact. A store that
- * fails is reported rather than thrown, so the edited row resolves either way — persisted
- * where it could be, and usable for the session where it could not.
- *
- * Most callers read only `artifact` and degrade as the reads do. A caller whose write
- * carries a *constraint* reads `outcome` instead: the plan cannot be approved on the
- * strength of a row that would be gone on reload.
+ * Read an artifact and write it back in one transaction. `mutate` returns the edit to write, a
+ * refusal to hand back, or undefined to leave the artifact alone. A store that fails is reported
+ * in `outcome` rather than thrown, and the mutator is not asked when there is no store to read.
  */
-export async function mutateArtifact(
+export async function mutateArtifact<R = never>(
 	id: string,
 	mutate: (
 		existing: PersistedArtifact | undefined,
 		/** The snapshot `opts.readVersion` named, when it was asked for and is still stored. */
 		snapshot?: ArtifactVersion
-	) => ArtifactEdit | undefined,
+	) => Mutation<R> | undefined,
 	opts?: { readVersion?: number }
-): Promise<ArtifactWrite> {
+): Promise<ArtifactWrite<R>> {
 	const db = await getDB()
 	// `transaction()` throws on a connection closed since `getDB()` answered — another tab
 	// upgrading the schema, or a user switch releasing the handle.
@@ -359,9 +365,7 @@ export async function mutateArtifact(
 	} catch (err) {
 		console.error('Could not open an artifact write transaction', err)
 	}
-	// Not `return undefined`: `create` can hand out an artifact the store never took, and it
-	// stays revisable only if the edit is computed anyway.
-	if (!opened) return { outcome: 'unavailable', artifact: mutate(undefined)?.artifact }
+	if (!opened) return { outcome: 'unavailable' }
 	const tx = opened
 	// Attached before the first await: idb builds `done` eagerly and rejects it on abort, so
 	// attaching later would leave an unhandled rejection. Cleared before each deliberate
@@ -396,13 +400,13 @@ export async function mutateArtifact(
 		console.error('Could not read the artifact being written', err)
 		reportFailure = false
 		abort()
-		return { outcome: await settled, artifact: mutate(undefined)?.artifact }
+		return { outcome: await settled }
 	}
 	// Kept out of the store's own error handling: a mutator that fails is not the store
 	// failing, so its error is neither reported as one nor swallowed.
-	let edit: ArtifactEdit | undefined
+	let decided: Mutation<R> | undefined
 	try {
-		edit = mutate(existing, snapshot)
+		decided = mutate(existing, snapshot)
 	} catch (err) {
 		reportFailure = false
 		abort()
@@ -410,12 +414,13 @@ export async function mutateArtifact(
 		throw err
 	}
 	// Nothing to write, so nothing was refused either.
-	if (!edit) {
+	if (!decided || !('edit' in decided)) {
 		reportFailure = false
 		abort()
 		await settled
-		return { outcome: 'saved' }
+		return { outcome: 'saved', refused: decided?.refused }
 	}
+	const edit = decided.edit
 	try {
 		await writeEdit(items, versions, edit)
 	} catch (err) {
@@ -427,7 +432,8 @@ export async function mutateArtifact(
 		abort()
 	}
 	const outcome = await settled
-	if (outcome === 'saved' && db) {
+	if (outcome !== 'saved') return { outcome }
+	if (db) {
 		markSessionDirty(edit.artifact.sessionId, undefined, emailOfScopedKey(ARTIFACTS_DB, db.name))
 	}
 	return { outcome, artifact: edit.artifact }

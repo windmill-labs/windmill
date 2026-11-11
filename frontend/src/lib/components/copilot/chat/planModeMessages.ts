@@ -24,6 +24,8 @@ export const PLAN_MODE_MESSAGES = {
 	approvedWithDoc: 'Plan approved and saved as a document. You may now execute it.',
 	persistenceFailed:
 		'Plan approval could not be saved. Plan mode remains active. Retry after artifact persistence is available.',
+	planNotStored:
+		"The plan was not put up for approval: this browser could not store the plan document, because its storage is full or unavailable. Plan mode remains active. Tell the user, so they can free up space in this browser's storage, then call exit_plan_mode again.",
 	// The plan document was revised in another tab or browser: proposing the same text again
 	// would overwrite that revision.
 	stalePlan: (latest: number, caughtUp: boolean, savedAs?: number) =>

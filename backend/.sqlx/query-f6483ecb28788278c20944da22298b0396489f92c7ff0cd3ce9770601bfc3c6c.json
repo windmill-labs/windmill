@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT a.artifact_id, a.path, a.extra_perms, a.email, a.created_by, a.session_id,\n                  a.name, a.kind, a.role, a.shown_version, a.latest_version, a.pinned,\n                  a.created_at, a.updated_at, a.deleted_at, a.content,\n                  EXISTS (\n                      SELECT 1 FROM usr u WHERE u.workspace_id = a.workspace_id AND u.email = a.email\n                  ) AS \"owner_is_member!\"\n           FROM ai_artifact a WHERE a.workspace_id = $1 AND a.artifact_id = $2",
+  "query": "INSERT INTO ai_artifact\n                     (workspace_id, artifact_id, path, email, created_by, session_id, name, kind,\n                      role, shown_version, content, latest_version, latest_hash)\n                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $10, $12)\n                 RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                           role, shown_version, latest_version, latest_hash, pinned, created_at,\n                           updated_at, deleted_at",
   "describe": {
     "columns": [
       {
@@ -60,39 +60,44 @@
       },
       {
         "ordinal": 11,
+        "name": "latest_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
         "name": "pinned",
         "type_info": "Bool"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "deleted_at",
         "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 15,
-        "name": "content",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 16,
-        "name": "owner_is_member!",
-        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int4",
         "Text",
-        "Text"
+        "Varchar"
       ]
     },
     "nullable": [
@@ -110,10 +115,9 @@
       false,
       false,
       false,
-      true,
       false,
-      null
+      true
     ]
   },
-  "hash": "8fef899bc6531b996c3cdd16f283fdc5da9f66746ecadfb13b789004f53a2587"
+  "hash": "f6483ecb28788278c20944da22298b0396489f92c7ff0cd3ce9770601bfc3c6c"
 }

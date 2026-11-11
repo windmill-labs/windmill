@@ -2,19 +2,9 @@ import { z } from 'zod'
 import { createToolDef, type ToolCallbacks } from '../shared'
 import { NONE, type SessionTool } from '../sessionCapabilities'
 import { artifactOverflowBytes, MAX_ARTIFACT_BYTES, normalizeChangeNote } from './artifactLimits'
-import {
-	currentVersion,
-	isPlanArtifact,
-	type ArtifactVersion,
-	type PersistedArtifact
-} from './artifactsDB'
+import { currentVersion, isPlanArtifact, type ArtifactVersion } from './artifactsDB'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
-import {
-	ArtifactStaleError,
-	PlanSlotTakenError,
-	PlanWriteRefusedError,
-	type SessionArtifactsStore
-} from './artifactsState.svelte'
+import type { SessionArtifactsStore } from './artifactsState.svelte'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 
 // The subset of GlobalToolHelpers these tools read. Kept local (not imported from
@@ -89,6 +79,14 @@ function reportPlanWriteRefused(toolCallbacks: ToolCallbacks, toolId: string): s
 	return JSON.stringify({ success: false, error: PLAN_WRITE_REFUSED.result })
 }
 
+function fail(toolCallbacks: ToolCallbacks, toolId: string, error: string): string {
+	toolCallbacks.setToolStatus(toolId, { content: error, error })
+	return JSON.stringify({ success: false, error })
+}
+
+const STORAGE_FULL =
+	"this browser could not store it: its storage is full or unavailable. Tell the user, so they can free up space in this browser's storage."
+
 /** Whether this call would write the session's plan. Synchronous because the gate is: it answers
  * from the arguments and the store's already-loaded list, never an awaited read of the database. */
 function targetsPlan(args: unknown, h: ArtifactToolHelpers): boolean {
@@ -125,34 +123,34 @@ export const artifactTools: SessionTool<{}>[] = [
 				return JSON.stringify({ success: false, error: UNAVAILABLE })
 			}
 			const sizeError = tooLarge(parsed.content)
-			if (sizeError) {
-				toolCallbacks.setToolStatus(toolId, { content: sizeError, error: sizeError })
-				return JSON.stringify({ success: false, error: sizeError })
-			}
-			let artifact: PersistedArtifact
-			try {
-				artifact = await h.artifacts.create(
-					sessionId,
-					{
-						name: parsed.name,
-						content: parsed.content,
-						kind: 'md',
-						chatId: h.getChatId?.(),
-						role: parsed.role
-						// No approvedVersion: this tool asks for no confirmation, so a plan written here
-						// stands as a draft until a card decides it. exit_plan_mode alone confers it.
-					},
-					{ canWritePlan: () => toolCallbacks.isPlanModeActive?.() !== true }
+			if (sizeError) return fail(toolCallbacks, toolId, sizeError)
+			// No approval: this tool asks for no confirmation, so a plan written here stands as a
+			// draft until a card decides it. exit_plan_mode alone confers it.
+			const result = await h.artifacts.create(
+				sessionId,
+				{
+					name: parsed.name,
+					content: parsed.content,
+					kind: 'md',
+					chatId: h.getChatId?.(),
+					role: parsed.role
+				},
+				{ canWritePlan: () => toolCallbacks.isPlanModeActive?.() !== true }
+			)
+			// The store checks the posture and the plan slot inside the write transaction, so
+			// neither a posture entered mid-write nor another tab taking the slot slips past.
+			if (result.outcome === 'plan-locked') return reportPlanWriteRefused(toolCallbacks, toolId)
+			if (result.outcome === 'plan-taken') {
+				return fail(
+					toolCallbacks,
+					toolId,
+					`This session's plan is already "${result.plan.name}" (id ${result.plan.id}). Rewrite that document with update_artifact — a session holds one plan.`
 				)
-			} catch (e) {
-				// The store checks both inside the write transaction, so neither a posture entered
-				// mid-write nor another tab taking the slot can slip past in between.
-				if (e instanceof PlanWriteRefusedError) return reportPlanWriteRefused(toolCallbacks, toolId)
-				if (!(e instanceof PlanSlotTakenError)) throw e
-				const error = `This session's plan is already "${e.plan.name}" (id ${e.plan.id}). Rewrite that document with update_artifact — a session holds one plan.`
-				toolCallbacks.setToolStatus(toolId, { content: error, error })
-				return JSON.stringify({ success: false, error })
 			}
+			if (result.outcome !== 'saved') {
+				return fail(toolCallbacks, toolId, `"${parsed.name}" was not created: ${STORAGE_FULL}`)
+			}
+			const artifact = result.artifact
 			h.openArtifact?.(artifact.id, artifact.name, 'latest')
 			toolCallbacks.setToolStatus(toolId, { content: `Created artifact "${artifact.name}"` })
 			return JSON.stringify({ success: true, id: artifact.id, name: artifact.name })
@@ -178,45 +176,70 @@ export const artifactTools: SessionTool<{}>[] = [
 				return JSON.stringify({ success: false, error: UNAVAILABLE })
 			}
 			const sizeError = tooLarge(parsed.content)
-			if (sizeError) {
-				toolCallbacks.setToolStatus(toolId, { content: sizeError, error: sizeError })
-				return JSON.stringify({ success: false, error: sizeError })
+			if (sizeError) return fail(toolCallbacks, toolId, sizeError)
+			const result = await h.artifacts.edit(
+				parsed.id,
+				{
+					content: parsed.content,
+					name: parsed.name,
+					note: normalizeChangeNote(parsed.change_note),
+					// An agreed plan revised here is still agreed: this tool cannot reach the plan
+					// document while plan mode is active, so any call that reaches it is one the
+					// user's posture already trusts. A draft stays a draft.
+					keepApproved: true
+				},
+				{
+					sessionId,
+					chatId: h.getChatId?.(),
+					canWritePlan: () => toolCallbacks.isPlanModeActive?.() !== true
+				}
+			)
+			switch (result.outcome) {
+				case 'plan-locked':
+					return reportPlanWriteRefused(toolCallbacks, toolId)
+				case 'missing':
+				case 'plan-taken':
+					return fail(toolCallbacks, toolId, `No artifact found with id "${parsed.id}".`)
+				case 'stale':
+					return fail(
+						toolCallbacks,
+						toolId,
+						`"${result.artifact.name}" was changed in another tab or browser since you read it (now version ${result.latest}), so your edit was not saved. Read it again with read_artifact and redo your edit on that version.`
+					)
+				case 'behind':
+					return fail(
+						toolCallbacks,
+						toolId,
+						`"${result.artifact.name}" was changed in another browser (now version ${result.latest}), and that version has not reached this browser, so your edit was not saved. Tell the user to continue editing it from the other browser.`
+					)
+				case 'unstored': {
+					const name = h.artifacts.artifacts.find((a) => a.id === parsed.id)?.name ?? parsed.id
+					return fail(
+						toolCallbacks,
+						toolId,
+						result.shared
+							? `Your edit to "${name}" reached the people it is shared with, but ${STORAGE_FULL}`
+							: `Your edit to "${name}" was not saved: ${STORAGE_FULL}`
+					)
+				}
 			}
-			let updated: PersistedArtifact | undefined
-			try {
-				updated = await h.artifacts.update(
-					parsed.id,
-					{
-						content: parsed.content,
-						name: parsed.name,
-						note: normalizeChangeNote(parsed.change_note),
-						// An agreed plan revised here is still agreed: this tool cannot reach the plan
-						// document while plan mode is active, so any call that reaches it is one the
-						// user's posture already trusts. A draft stays a draft.
-						keepApproved: true
-					},
-					{ sessionId, canWritePlan: () => toolCallbacks.isPlanModeActive?.() !== true }
+			const { artifact } = result
+			// Another tab stored a later version on top of this one before it reached the store.
+			if (result.outcome === 'saved' && result.version < currentVersion(artifact)) {
+				return fail(
+					toolCallbacks,
+					toolId,
+					`Your edit to "${artifact.name}" was saved as version ${result.version}, and another tab has since saved version ${currentVersion(artifact)} on top of it. Read it with read_artifact and check that your change is there before editing it again.`
 				)
-			} catch (e) {
-				if (e instanceof PlanWriteRefusedError) return reportPlanWriteRefused(toolCallbacks, toolId)
-				if (!(e instanceof ArtifactStaleError)) throw e
-				const error =
-					e.savedAs !== undefined
-						? `Your edit to "${e.artifact.name}" was saved as version ${e.savedAs}, and another tab has since saved version ${e.latest} on top of it. Read it with read_artifact and check that your change is there before editing it again.`
-						: e.caughtUp
-							? `"${e.artifact.name}" was changed in another tab or browser since you read it (now version ${e.latest}), so your edit was not saved. Read it again with read_artifact and redo your edit on that version.`
-							: `"${e.artifact.name}" was changed in another browser (now version ${e.latest}), and that version has not reached this browser, so your edit was not saved. Tell the user to continue editing it from the other browser.`
-				toolCallbacks.setToolStatus(toolId, { content: error, error })
-				return JSON.stringify({ success: false, error })
 			}
-			if (!updated) {
-				const error = `No artifact found with id "${parsed.id}".`
-				toolCallbacks.setToolStatus(toolId, { content: error, error })
-				return JSON.stringify({ success: false, error })
-			}
-			h.openArtifact?.(updated.id, updated.name)
-			toolCallbacks.setToolStatus(toolId, { content: `Updated artifact "${updated.name}"` })
-			return JSON.stringify({ success: true, id: updated.id, name: updated.name })
+			h.openArtifact?.(artifact.id, artifact.name)
+			toolCallbacks.setToolStatus(toolId, {
+				content:
+					result.outcome === 'unchanged'
+						? `Artifact "${artifact.name}" is unchanged`
+						: `Updated artifact "${artifact.name}"`
+			})
+			return JSON.stringify({ success: true, id: artifact.id, name: artifact.name })
 		}
 	},
 	{
@@ -306,6 +329,8 @@ export const artifactTools: SessionTool<{}>[] = [
 					content: snapshot.content
 				})
 			}
+			// The version this chat's next edit of it is made on.
+			h.artifacts.markRead(h.getChatId?.(), artifact)
 			toolCallbacks.setToolStatus(toolId, { content: `Read artifact "${artifact.name}"` })
 			return JSON.stringify({
 				id: artifact.id,

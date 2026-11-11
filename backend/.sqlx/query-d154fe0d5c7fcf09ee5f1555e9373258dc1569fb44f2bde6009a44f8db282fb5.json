@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO ai_artifact\n                     (workspace_id, artifact_id, path, email, created_by, session_id, name, kind,\n                      role, shown_version, content, latest_version, latest_hash)\n                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $10, $12)\n                 RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                           role, shown_version, latest_version, pinned, created_at, updated_at,\n                           deleted_at",
+  "query": "UPDATE ai_artifact SET\n             latest_version = GREATEST(latest_version + 1, $4),\n             latest_hash = $9,\n             content = CASE WHEN pinned THEN content ELSE $5 END,\n             name = CASE WHEN pinned THEN name ELSE $6 END,\n             shown_version = CASE WHEN pinned THEN shown_version ELSE GREATEST(latest_version + 1, $4) END,\n             updated_at = CASE WHEN pinned THEN updated_at ELSE now() END,\n             session_id = COALESCE(session_id, $8)\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND latest_hash = $7\n           AND deleted_at IS NULL\n         RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                   role, shown_version, latest_version, latest_hash, pinned, created_at,\n                   updated_at, deleted_at",
   "describe": {
     "columns": [
       {
@@ -60,38 +60,40 @@
       },
       {
         "ordinal": 11,
+        "name": "latest_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
         "name": "pinned",
         "type_info": "Bool"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "deleted_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
+        "Text",
+        "Text",
+        "Text",
         "Int4",
         "Text",
+        "Varchar",
+        "Text",
+        "Varchar",
         "Varchar"
       ]
     },
@@ -110,8 +112,9 @@
       false,
       false,
       false,
+      false,
       true
     ]
   },
-  "hash": "5834cf8b95eb586c6202f1c36a9f40fb6e1fbab37d67637f967b25afe90bbb67"
+  "hash": "d154fe0d5c7fcf09ee5f1555e9373258dc1569fb44f2bde6009a44f8db282fb5"
 }

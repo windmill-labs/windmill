@@ -60,7 +60,7 @@ function version(v: number, artifactId = 'a1'): ArtifactVersion {
 
 // mutateArtifact takes a mutator, not a row: these tests only need "write exactly this".
 const put = (m: any, a: any, snapshots: any[]) =>
-	m.mutateArtifact(a.id, () => ({ artifact: a, snapshots }))
+	m.mutateArtifact(a.id, () => ({ edit: { artifact: a, snapshots } }))
 
 describe('artifactsDB', () => {
 	it('derives filename and mime type from the artifact kind', () => {
@@ -203,6 +203,24 @@ describe('artifactsDB', () => {
 
 		await db.deleteArtifactsForWorkspace('w1')
 		expect(await db.listArtifactVersions('a2')).toEqual([])
+	})
+
+	it('restores a backup over an artifact only when it is as far along, history and all', async () => {
+		// Two browsers can each hold a different text under one number, so a history taken partly
+		// from each would show versions that never followed one another.
+		await put(db, artifact({ id: 'a1', version: 2, content: 'mine' }), [version(1), version(2)])
+		const behind = artifact({ id: 'a1', version: 1, content: 'backup v1' })
+		expect(await db.importArtifacts([behind], [version(1)], 'a@x.com')).toBe(true)
+		expect(await db.getArtifact('a1')).toMatchObject({ version: 2, content: 'mine' })
+
+		const ahead = artifact({ id: 'a1', version: 3, content: 'backup v3' })
+		const theirs = [{ ...version(1), content: 'their v1' }, version(3)]
+		expect(await db.importArtifacts([ahead], theirs, 'a@x.com')).toBe(true)
+		expect(await db.getArtifact('a1')).toMatchObject({ version: 3, content: 'backup v3' })
+		expect((await db.listArtifactVersions('a1')).map((v) => [v.version, v.content])).toEqual([
+			[3, 'body 3'],
+			[1, 'their v1']
+		])
 	})
 
 	it('isolates artifacts between users on the same browser', async () => {
