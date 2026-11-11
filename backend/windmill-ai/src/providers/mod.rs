@@ -173,6 +173,27 @@ pub(crate) fn anthropic_model_rejects_sampling_params(model: &str) -> bool {
         || model.contains("claude-mythos")
 }
 
+/// Whether to force the structured output tool on a Claude model. Unforced, Claude 3 and 4
+/// often write prose before calling it, and a small `max_tokens` then cuts the call off.
+/// Every Claude model rejects a forced tool while thinking, and Sonnet/Opus 5.5 and Fable 5.x
+/// reject it outright, so newer models are only told to call it.
+pub(crate) fn force_claude_structured_output_tool(
+    model: &str,
+    reasoning_effort: Option<&str>,
+) -> bool {
+    let thinking = reasoning_effort.is_some_and(|effort| effort != REASONING_OFF_SENTINEL);
+    let model = model.to_lowercase().replace('.', "-");
+    !thinking
+        && [
+            "claude-3",
+            "claude-opus-4",
+            "claude-sonnet-4",
+            "claude-haiku-4",
+        ]
+        .iter()
+        .any(|generation| model.contains(generation))
+}
+
 use windmill_common::cache::Cache;
 
 use crate::{
@@ -267,6 +288,36 @@ pub fn remember_chat_completions_only(base_url: &str, model: &str) {
 #[cfg(test)]
 mod reasoning_rule_tests {
     use super::*;
+
+    /// Probed against the Messages API: forcing 400s on Sonnet/Opus 5.5 and Fable 5.x.
+    #[test]
+    fn forces_the_structured_output_tool_only_on_claude_3_and_4_without_thinking() {
+        for model in [
+            "claude-haiku-4-5-20251001",
+            "claude-3-7-sonnet-latest",
+            "anthropic/claude-sonnet-4.5",
+            "us.anthropic.claude-opus-4-1-20250805-v1:0",
+            "claude-sonnet-4-5@20250929",
+        ] {
+            assert!(force_claude_structured_output_tool(model, None), "{model}");
+            assert!(
+                force_claude_structured_output_tool(model, Some(REASONING_OFF_SENTINEL)),
+                "{model}"
+            );
+            assert!(
+                !force_claude_structured_output_tool(model, Some("high")),
+                "{model}"
+            );
+        }
+        for model in [
+            "claude-sonnet-5-5",
+            "claude-opus-5-5",
+            "claude-fable-5-2",
+            "anthropic/claude-sonnet-5.5",
+        ] {
+            assert!(!force_claude_structured_output_tool(model, None), "{model}");
+        }
+    }
 
     /// The frontend registry's test reads the same file. These rules see the model id
     /// alone, so it holds only rows whose answer doesn't depend on the provider.

@@ -1,4 +1,7 @@
-use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
+use super::{
+    anthropic_model_rejects_sampling_params, force_claude_structured_output_tool,
+    REASONING_OFF_SENTINEL,
+};
 use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider, DISABLE_ANTHROPIC_PROMPT_CACHING},
@@ -10,7 +13,7 @@ use crate::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{collect_system_prompt, extract_text_content},
+    utils::{collect_system_prompt, extract_text_content, should_use_structured_output_tool},
 };
 use async_trait::async_trait;
 use http::Method;
@@ -71,6 +74,19 @@ pub struct AnthropicWebSearchTool {
 pub enum AnthropicTool {
     Custom(AnthropicCustomTool),
     WebSearch(AnthropicWebSearchTool),
+}
+
+/// Tool choice for Anthropic API to force tool usage
+#[derive(Serialize, Debug)]
+pub struct AnthropicToolChoice {
+    pub r#type: String,
+}
+
+impl AnthropicToolChoice {
+    /// Create a tool_choice that forces the model to use any tool
+    pub fn any() -> Self {
+        Self { r#type: "any".to_string() }
+    }
 }
 
 /// Content block for Anthropic messages (for serialization to API)
@@ -193,6 +209,8 @@ pub struct AnthropicRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<AnthropicTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<AnthropicToolChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<AnthropicThinking>,
@@ -215,6 +233,8 @@ pub struct AnthropicVertexRequest {
     pub messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<AnthropicTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<AnthropicToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -626,6 +646,25 @@ impl AnthropicQueryBuilder {
             }]
         });
 
+        // Check if we need to force tool usage for structured output
+        let has_output_properties = args
+            .output_schema
+            .and_then(|schema| schema.properties.as_ref())
+            .map(|props| !props.is_empty())
+            .unwrap_or(false);
+
+        let should_use_structured_output =
+            should_use_structured_output_tool(&self.provider_kind, args.model);
+
+        let tool_choice = if should_use_structured_output
+            && has_output_properties
+            && force_claude_structured_output_tool(args.model, args.reasoning_effort)
+        {
+            Some(AnthropicToolChoice::any())
+        } else {
+            None
+        };
+
         let mut tools_option = if tools.is_empty() { None } else { Some(tools) };
         let max_tokens = Some(args.max_tokens.unwrap_or(64000));
 
@@ -666,6 +705,7 @@ impl AnthropicQueryBuilder {
                 system,
                 messages: anthropic_messages,
                 tools: tools_option,
+                tool_choice,
                 temperature,
                 thinking,
                 output_config,
@@ -681,6 +721,7 @@ impl AnthropicQueryBuilder {
                 system,
                 messages: anthropic_messages,
                 tools: tools_option,
+                tool_choice,
                 temperature,
                 thinking,
                 output_config,
@@ -1278,6 +1319,7 @@ mod tests {
             system: None,
             messages: vec![],
             tools: None,
+            tool_choice: None,
             temperature: None,
             thinking: Some(AnthropicThinking::adaptive()),
             output_config: Some(AnthropicOutputConfig { effort: "high".to_string() }),
@@ -1353,6 +1395,7 @@ mod tests {
             system: None,
             messages: vec![],
             tools: None,
+            tool_choice: None,
             temperature,
             thinking,
             output_config,
@@ -1377,6 +1420,7 @@ mod tests {
             system: None,
             messages: vec![],
             tools: None,
+            tool_choice: None,
             temperature: Some(0.5),
             thinking: None,
             output_config: None,
