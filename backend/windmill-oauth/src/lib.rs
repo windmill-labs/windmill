@@ -318,10 +318,13 @@ fn validate_oauth_entry(
             .connect_config
             .as_ref()
             .is_some_and(|c| !c.token_url.is_empty() && !c.token_url.contains('{'));
-        let missing = match instance {
-            Some(v) => v.is_empty(),
-            None => !explicit_urls,
-        };
+        // Teams keeps its tenant at the top level and the backend builds its URLs from it.
+        let has_tenant = entry.tenant.as_deref().is_some_and(|t| !t.is_empty());
+        let missing = !has_tenant
+            && match instance {
+                Some(v) => v.is_empty(),
+                None => !explicit_urls,
+            };
         if !entry.id.is_empty() && missing {
             return Err(format!("{} is required", tmpl.label));
         }
@@ -1705,7 +1708,10 @@ mod tests {
                         "token_url": "https://github.com/login/oauth/access_token" },
             "coupa": { "grant_types": ["client_credentials"],
                        "connect_config_template": { "label": "Coupa instance", "placeholder": "x",
-                           "token_url": "https://{instance}.coupahost.com/oauth2/token" } }
+                           "token_url": "https://{instance}.coupahost.com/oauth2/token" } },
+            "ms_teams": { "connect_config_template": { "label": "Microsoft Entra tenant",
+                "placeholder": "x", "extra_params_key": "tenant",
+                "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token" } }
         }"#;
         let ok = |v: serde_json::Value| validate_oauths_setting(&v, registry);
         assert!(ok(serde_json::Value::Null).is_ok());
@@ -1715,7 +1721,8 @@ mod tests {
                        "connect_config": { "token_url": "https://acme.coupahost.com/oauth2/token",
                                            "extra_params": { "instance": "acme" } } },
             "custom": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
-                        "connect_config": { "token_url": "https://idp.example.com/token" } }
+                        "connect_config": { "token_url": "https://idp.example.com/token" } },
+            "ms_teams": { "id": "a", "secret": "b", "tenant": "contoso" }
         }))
         .is_ok());
         assert!(ok(serde_json::json!({
