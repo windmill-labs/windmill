@@ -10,8 +10,6 @@ use windmill_parser::asset_parser::{
 };
 use AssetUsageAccessType::*;
 
-mod references;
-
 pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     let ast = parse_module(input)
         .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?
@@ -34,10 +32,11 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     }
 
     let pipeline = parse_pipeline_annotations(input);
-    let mut output =
-        ParseAssetsOutput::new(merge_assets(assets_finder.assets), Vec::new(), pipeline);
-    output.references = references::find_references(&ast);
-    Ok(output)
+    Ok(ParseAssetsOutput::new(
+        merge_assets(assets_finder.assets),
+        Vec::new(),
+        pipeline,
+    ))
 }
 
 type VarAssetName = String;
@@ -893,38 +892,6 @@ def main():
                 (AssetKind::DataTable, "dt/sch.t".to_string()),
                 (AssetKind::Ducklake, "other".to_string()),
             ])
-        );
-    }
-
-    #[test]
-    fn test_py_references_follow_renamed_imports_and_argument_positions() {
-        use windmill_parser::item_reference::{ItemKind::*, ItemReference, ReferenceAccess::*};
-        let input = r#"
-import wmill
-from wmill import get_variable as secret, task_script
-
-def main():
-    # wmill.get_variable("u/admin/commented_out")
-    key = secret("f/ops/api_key")
-    wmill.set_resource("f/ops/state", {"a": 1})
-    wmill.Windmill().set_resource({"a": 1}, "f/ops/client_state")
-    wmill.load_s3_file("s3:///a.csv", s3_resource_path="f/ops/bucket")
-    wmill.run_script_async("8e5d6c4f1a2b3c4d")
-    wmill.run_flow_async(path="f/ops/sync")
-    task_script("f/ops/step")
-"#;
-        let reference =
-            |kind, path: &str, access| ItemReference { kind, path: path.to_string(), access };
-        assert_eq!(
-            parse_assets(input).unwrap().references,
-            vec![
-                reference(Resource, "f/ops/bucket", Read),
-                reference(Resource, "f/ops/client_state", Write),
-                reference(Resource, "f/ops/state", Write),
-                reference(Variable, "f/ops/api_key", Read),
-                reference(Script, "f/ops/step", Task),
-                reference(Flow, "f/ops/sync", Run),
-            ]
         );
     }
 }

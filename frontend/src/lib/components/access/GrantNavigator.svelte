@@ -27,9 +27,8 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	} from '$lib/components/operatingWorkspace.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { debounce } from '$lib/utils'
-	import { Folder, ScanSearch, User, Users } from 'lucide-svelte'
+	import { Folder, User, Users } from 'lucide-svelte'
 	import { setGrant } from './access'
-	import type { RunnableKind } from './detectNeeds'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -41,13 +40,11 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	let {
 		principal,
 		access,
-		onGranted,
-		onFindReads
+		onGranted
 	}: {
 		principal: string
 		access: PrincipalAccess
 		onGranted: () => void
-		onFindReads: (kind: RunnableKind, path: string) => void
 	} = $props()
 
 	const own = $derived(`u/${operatingUser.current?.username}`)
@@ -242,12 +239,6 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 			? `${already} through f/${folder}: picking it adds a direct grant, which stays even if f/${folder} is no longer shared`
 			: `${already}: picking it adds a direct grant, which stays even if that access is removed`
 	}
-
-	/** The kind detectNeeds reads it as: a full-code app is read like any app. */
-	function runnableKind(kind: string): RunnableKind | undefined {
-		if (kind === 'raw_app') return 'app'
-		return kind === 'flow' || kind === 'script' || kind === 'app' ? kind : undefined
-	}
 </script>
 
 {#snippet leafIcon(leaf: DrillLeaf<Leaf>)}
@@ -268,17 +259,6 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 			return write === undefined
 				? undefined
 				: { label: write ? 'Writes' : 'Reads', color: write ? 'blue' : 'gray' }
-		}}
-		leafAction={(leaf) => {
-			const kind = runnableKind(leaf.data.kind)
-			return kind
-				? {
-						icon: ScanSearch,
-						label: 'What it reads',
-						title: `Grant what ${leaf.data.path} reads when it runs`,
-						run: () => onFindReads(kind, leaf.data.path)
-					}
-				: undefined
 		}}
 	/>
 </div>

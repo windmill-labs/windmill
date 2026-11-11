@@ -16,10 +16,8 @@
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { pluralize, type Item } from '$lib/utils'
 	import { itemHref } from './offboarding-utils'
-	import AddNeededAccess from './access/AddNeededAccess.svelte'
 	import GrantNavigator, { navigatorMaxHeight } from './access/GrantNavigator.svelte'
 	import { KIND_LABELS, setGrant, type GrantLevel } from './access/access'
-	import type { RunnableKind } from './access/detectNeeds'
 	import {
 		buildAccessTree,
 		flattenAccessTree,
@@ -63,7 +61,6 @@
 	let openMenu: string | undefined = $state()
 	let grantPopover: Popover | undefined = $state()
 	let grantAnchor: HTMLElement | undefined = $state()
-	let needsOf: { kind: RunnableKind; path: string } | undefined = $state()
 	// Responses are not ordered: a slow answer for the previous principal must not land on this one.
 	let requestId = 0
 
@@ -77,7 +74,6 @@
 		openState = {}
 		expandAll = undefined
 		grantOpen = false
-		needsOf = undefined
 		drawer?.openDrawer()
 		logFeatureUsage('access_view', 'opened', { key: target })
 		await reload()
@@ -122,11 +118,6 @@
 		})
 	}
 
-	function findReads(kind: RunnableKind, path: string) {
-		grantOpen = false
-		needsOf = { kind, path }
-	}
-
 	/** The principal's own entry on an item: `true` for write, `false` for read. */
 	function ownItemGrant(item: AccessItem): boolean | undefined {
 		const reason = item.reasons.find((r) =>
@@ -162,7 +153,6 @@
 		]
 	}
 
-	const held = $derived(new Map((access?.items ?? []).map((i) => [`${i.kind}:${i.path}`, i.write])))
 	// The tree's folder rows carry no grant of their own, so the menu reads it from here.
 	const foldersByName = $derived(new Map((access?.folders ?? []).map((f) => [f.name, f])))
 
@@ -374,30 +364,13 @@
 								{/snippet}
 								{#snippet content()}
 									{#if access}
-										<GrantNavigator
-											{principal}
-											{access}
-											onGranted={reload}
-											onFindReads={findReads}
-										/>
+										<GrantNavigator {principal} {access} onGranted={reload} />
 									{/if}
 								{/snippet}
 							</Popover>
 						</div>
 					{/snippet}
 					<div class="flex flex-col gap-2">
-						{#if needsOf}
-							{#key `${needsOf.kind}:${needsOf.path}`}
-								<AddNeededAccess
-									{principal}
-									kind={needsOf.kind}
-									path={needsOf.path}
-									{held}
-									onGranted={reload}
-									onClose={() => (needsOf = undefined)}
-								/>
-							{/key}
-						{/if}
 						<div class="flex gap-2 items-center">
 							<TextInput
 								bind:value={search}

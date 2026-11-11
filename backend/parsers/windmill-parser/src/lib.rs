@@ -15,7 +15,6 @@ use serde_json::Value;
 pub mod asset_parser;
 pub mod duckdb_builtins;
 pub mod duckdb_macros;
-pub mod item_reference;
 pub mod json_schema;
 pub mod sql_materialize;
 

@@ -8,28 +8,14 @@ use windmill_parser::asset_parser::{
     asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
     AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult, SqlQueryDetails,
 };
-use windmill_parser::item_reference::{scan_sdk_calls, ItemReference};
 use AssetUsageAccessType::*;
 
-mod references;
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum TsDialect {
-    Ts,
-    /// TypeScript with JSX, for `.tsx` and `.jsx` files.
-    Tsx,
-}
-
 pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
-    parse_assets_as(code, TsDialect::Ts)
-}
-
-pub fn parse_assets_as(code: &str, dialect: TsDialect) -> anyhow::Result<ParseAssetsOutput> {
     let cm: Lrc<SourceMap> = Default::default();
     let fm = cm.new_source_file(FileName::Custom("main.ts".into()).into(), code.to_string());
     let lexer = Lexer::new(
         // We want to parse ecmascript
-        Syntax::Typescript(TsSyntax { tsx: dialect == TsDialect::Tsx, ..Default::default() }),
+        Syntax::Typescript(TsSyntax::default()),
         // EsVersion defaults to es5
         Default::default(),
         StringInput::from(&*fm),
@@ -53,73 +39,11 @@ pub fn parse_assets_as(code: &str, dialect: TsDialect) -> anyhow::Result<ParseAs
         AssetsFinder { assets: vec![], sql_queries: vec![], var_identifiers: HashMap::new() };
     assets_finder.visit_module_items(&ast);
     let pipeline = parse_pipeline_annotations(code);
-    let mut output = ParseAssetsOutput::new(
+    Ok(ParseAssetsOutput::new(
         merge_assets(assets_finder.assets),
         assets_finder.sql_queries,
         pipeline,
-    );
-    output.references = references::find_references(&ast);
-    Ok(output)
-}
-
-/// What a full-code app's frontend file reads, by its extension: TypeScript and JavaScript are
-/// parsed, a Svelte or Vue component has its `<script>` blocks parsed and its markup scanned,
-/// and any other file is `None`. Code that fails to parse is scanned instead.
-pub fn parse_app_file(file_name: &str, content: &str) -> Option<ParseAssetsOutput> {
-    let extension = file_name.rsplit_once('.')?.1.to_ascii_lowercase();
-    match extension.as_str() {
-        "ts" | "js" | "mjs" | "cjs" | "mts" | "cts" => Some(parse_or_scan(content, TsDialect::Ts)),
-        "tsx" | "jsx" => Some(parse_or_scan(content, TsDialect::Tsx)),
-        "svelte" | "vue" => Some(parse_component(content)),
-        _ => None,
-    }
-}
-
-/// An app file this large is a bundle, not source: its AST would cost memory in proportion,
-/// and the lexical scan finds the same SDK calls.
-const MAX_PARSED_FILE: usize = 1 << 20;
-
-fn parse_or_scan(code: &str, dialect: TsDialect) -> ParseAssetsOutput {
-    let parsed = if code.len() > MAX_PARSED_FILE {
-        None
-    } else {
-        parse_assets_as(code, dialect).ok()
-    };
-    parsed.unwrap_or_else(|| ParseAssetsOutput {
-        references: scan_sdk_calls(code),
-        ..Default::default()
-    })
-}
-
-fn parse_component(content: &str) -> ParseAssetsOutput {
-    let lower = content.to_ascii_lowercase();
-    let mut output = ParseAssetsOutput::default();
-    let mut references: Vec<ItemReference> = vec![];
-    let mut markup = String::new();
-    let mut at = 0;
-    while let Some(open) = lower[at..].find("<script").map(|i| at + i) {
-        markup.push_str(&content[at..open]);
-        let Some(body) = lower[open..].find('>').map(|i| open + i + 1) else {
-            at = open;
-            break;
-        };
-        let close = lower[body..]
-            .find("</script")
-            .map_or(content.len(), |i| body + i);
-        let block = parse_or_scan(&content[body..close], TsDialect::Ts);
-        output.assets.extend(block.assets);
-        references.extend(block.references);
-        at = lower[close..]
-            .find('>')
-            .map_or(content.len(), |i| close + i + 1);
-    }
-    markup.push_str(&content[at..]);
-    references.extend(scan_sdk_calls(&markup));
-    references.sort();
-    references.dedup();
-    output.assets = merge_assets(output.assets);
-    output.references = references;
-    output
+    ))
 }
 
 type VarAssetName = String;
@@ -1143,88 +1067,5 @@ mod tests {
         );
         assert_eq!(result.assets.len(), 1);
         assert_eq!(result.assets[0].path, "dt/friends");
-    }
-
-    use windmill_parser::item_reference::{ItemKind, ReferenceAccess};
-
-    fn reference(kind: ItemKind, path: &str, access: ReferenceAccess) -> ItemReference {
-        ItemReference { kind, path: path.to_string(), access }
-    }
-
-    #[test]
-    fn test_ts_references_follow_renamed_imports_and_argument_positions() {
-        use windmill_parser::item_reference::{ItemKind::*, ReferenceAccess::*};
-        let input = r#"
-            import * as wmill from "windmill-client"
-            import { getVariable as secret, taskScript } from "windmill-client"
-            export async function main(name: string) {
-                // wmill.getVariable("u/admin/commented_out")
-                const key = await secret(`f/ops/api_key`)
-                await wmill.setVariable("f/ops/counter", "1")
-                await wmill.setResource({ token: key }, "f/ops/state")
-                await wmill.getResource(`f/ops/${name}`)
-                await wmill.loadS3File({ s3: "a.csv" }, "f/ops/bucket")
-                await wmill.runScriptByPath("f/ops/cleanup", {})
-                await taskScript("f/ops/step")({})
-                return "$res:f/ops/db"
-            }
-        "#;
-        let output = parse_assets(input).unwrap();
-        assert_eq!(
-            output.references,
-            vec![
-                reference(Resource, "f/ops/bucket", Read),
-                reference(Resource, "f/ops/db", Read),
-                reference(Resource, "f/ops/state", Write),
-                reference(Variable, "f/ops/api_key", Read),
-                reference(Variable, "f/ops/counter", Write),
-                reference(Script, "f/ops/cleanup", Run),
-                reference(Script, "f/ops/step", Task),
-            ]
-        );
-        assert_eq!(
-            output
-                .assets
-                .iter()
-                .map(|a| (a.kind, a.path.as_str(), a.access_type))
-                .collect::<Vec<_>>(),
-            vec![
-                (AssetKind::S3Object, "/a.csv", Some(R)),
-                (AssetKind::Resource, "f/ops/db", None),
-                (AssetKind::Resource, "f/ops/state", Some(W)),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_ts_app_files_by_extension() {
-        use windmill_parser::item_reference::{ItemKind::*, ReferenceAccess::*};
-        let tsx = r#"
-            import { getVariable } from "windmill-client"
-            export function App<T,>({ rows }: { rows: T[] }) {
-                return <div onClick={() => getVariable("f/app/tsx_secret")}>{rows.length}</div>
-            }
-        "#;
-        let svelte = r#"
-<script lang="ts">
-    import * as wmill from "windmill-client"
-    let db = $state(wmill.getResource("f/app/script_db"))
-</script>
-
-<p>{#await wmill.getVariable('f/app/markup_secret') then v}{v}{/await}</p>
-"#;
-        let refs = |name, content| parse_app_file(name, content).map(|o| o.references);
-        assert_eq!(
-            refs("/App.tsx", tsx),
-            Some(vec![reference(Variable, "f/app/tsx_secret", Read)])
-        );
-        assert_eq!(
-            refs("/App.svelte", svelte),
-            Some(vec![
-                reference(Resource, "f/app/script_db", Read),
-                reference(Variable, "f/app/markup_secret", Read),
-            ])
-        );
-        assert_eq!(refs("/notes.md", "getVariable('f/app/not_code')"), None);
     }
 }
