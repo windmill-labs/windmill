@@ -18994,6 +18994,9 @@ paths:
                     type: boolean
                   started:
                     type: boolean
+                  is_skipped:
+                    type: boolean
+                    description: set when the job is completed; true if it ended as skipped (also counted as success)
                 required:
                   - completed
                   - result

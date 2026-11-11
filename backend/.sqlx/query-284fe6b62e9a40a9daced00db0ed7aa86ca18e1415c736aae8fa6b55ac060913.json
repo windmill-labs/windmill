@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                result AS \"result: sqlx::types::Json<Box<RawValue>>\",\n                result_columns,\n                status = 'success' AS \"success!\",\n                created_by AS \"created_by!\"\n            FROM v2_job_completed c\n                JOIN v2_job j USING (id)\n            WHERE c.id = $1 AND c.workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+  "query": "SELECT\n                result AS \"result: sqlx::types::Json<Box<RawValue>>\",\n                result_columns,\n                status IN ('success', 'skipped') AS \"success!\",\n                status = 'skipped' AS \"is_skipped!\",\n                created_by AS \"created_by!\"\n            FROM v2_job_completed c\n                JOIN v2_job j USING (id)\n            WHERE c.id = $1 AND c.workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
   "describe": {
     "columns": [
       {
@@ -20,6 +20,11 @@
       },
       {
         "ordinal": 3,
+        "name": "is_skipped!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
         "name": "created_by!",
         "type_info": "Varchar"
       }
@@ -35,8 +40,9 @@
       true,
       true,
       null,
+      null,
       false
     ]
   },
-  "hash": "e0ddd0ca6c3f94a26345d34a6b04c2e240bb90075bba33a91402655c9e764b30"
+  "hash": "284fe6b62e9a40a9daced00db0ed7aa86ca18e1415c736aae8fa6b55ac060913"
 }
