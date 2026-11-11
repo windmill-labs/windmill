@@ -27,12 +27,14 @@ describe('artifact HTML export', () => {
 	})
 
 	it('leaves the section numbers to a document whose headings carry their own', () => {
-		expect(renderArtifactHtml('## Gaul\n\n## 19th century\n\n## 2024')).not.toContain(
-			'wm-unnumbered'
-		)
-		expect(renderArtifactHtml('## Summary\n\n## 1. Goals\n\n## 2. Plan')).toContain(
-			'<h2 class="wm-unnumbered">Summary</h2>'
-		)
+		for (const heading of ['19th century', '2024', '1.5 release', '1,000 users']) {
+			expect(renderArtifactHtml(`## Gaul\n\n## ${heading}`)).not.toContain('wm-unnumbered')
+		}
+		for (const heading of ['1. Goals', '1 Goals', '1️⃣ Goals']) {
+			expect(renderArtifactHtml(`## Summary\n\n## ${heading}`)).toContain(
+				'<h2 class="wm-unnumbered">Summary</h2>'
+			)
+		}
 	})
 
 	it('escapes the name it writes into the page title', () => {
