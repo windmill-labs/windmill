@@ -124,6 +124,14 @@ impl McpBackend for WindmillBackend {
         super::external_idp::audit_tool_call(&self.db, auth, workspace_id, tool, refusal).await;
     }
 
+    async fn can_run(&self, auth: &ApiAuthed, workspace_id: &str) -> BackendResult<bool> {
+        match windmill_common::workspaces::check_role_can_run(&self.db, workspace_id, auth).await {
+            Ok(()) => Ok(true),
+            Err(windmill_common::error::Error::PermissionDenied(_)) => Ok(false),
+            Err(e) => Err(ErrorData::internal_error(e.to_string(), None)),
+        }
+    }
+
     async fn list_scripts(
         &self,
         auth: &ApiAuthed,
