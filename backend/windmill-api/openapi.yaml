@@ -34034,6 +34034,9 @@ components:
           items:
             type: string
           description: OAuth scopes the linked account was connected with
+        client:
+          type: string
+          description: OAuth client the linked account refreshes through
         created_by:
           type: string
         edited_at:
