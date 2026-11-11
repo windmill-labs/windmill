@@ -19,6 +19,7 @@ test("deployItem: carries labels for variables, resources and folders", async ()
       }),
       getFolder: async () => ({
         name: "x",
+        display_name: "X folder",
         owners: [],
         extra_perms: {},
         labels,
@@ -64,6 +65,44 @@ test("deployItem: carries labels for variables, resources and folders", async ()
     "updateVariable",
   ]);
   for (const [, body] of writes) expect(body.labels).toEqual(labels);
+  // The compare page flags a folder whose display name differs, so dropping it leaves a
+  // conflict no deploy can clear.
+  for (const [fn, body] of writes) {
+    if (fn.endsWith("Folder")) expect(body.display_name).toEqual("X folder");
+    if (fn.endsWith("Resource")) expect(body.resource_type).toEqual("postgresql");
+  }
+});
+
+test("deployItem: carries a resource type's file settings and clears unset ones", async () => {
+  const bodies: Record<string, any> = {};
+  const deploy = (exists: boolean, rt: any) =>
+    deployItem(
+      {
+        existsResourceType: async () => exists,
+        getResourceType: async () => rt,
+        createResourceType: async (p: any) => void (bodies.create = p.requestBody),
+        updateResourceType: async (p: any) => void (bodies.update = p.requestBody),
+      } as any,
+      "resource_type",
+      "csv_file",
+      "src",
+      "dst",
+    );
+  for (const rt of [
+    { name: "csv_file", schema: {}, format_extension: "csv" },
+    { name: "csv_file", schema: {}, is_fileset: true },
+  ]) {
+    await deploy(false, rt);
+    await deploy(true, rt);
+    for (const body of [bodies.create, bodies.update]) {
+      expect(body.format_extension ?? undefined).toEqual(rt.format_extension);
+      expect(body.is_fileset ?? false).toEqual(rt.is_fileset ?? false);
+    }
+  }
+  // A type that stopped being a file type reads back without the fields.
+  await deploy(true, { name: "csv_file", schema: {} });
+  expect(bodies.update.format_extension).toBeNull();
+  expect(bodies.update.is_fileset).toEqual(false);
 });
 
 test("deployItem: clears a folder's labels when the source has none", async () => {
