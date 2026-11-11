@@ -97,6 +97,15 @@ impl WindmillBackend {
             }
             other => other,
         };
+        // A role without `run` reads only, whatever the token grants. The in-app chat applies the
+        // same rule (`resolveSessionAccess` in `chat/global/sessionAccess.ts`): change both.
+        let access = if access != SessionAccess::ReadOnly
+            && !self.can_run(auth, w_id).await.unwrap_or(true)
+        {
+            SessionAccess::ReadOnly
+        } else {
+            access
+        };
         session::Ctx::new(auth, w_id, &self.base_internal_url, session::access(access))
     }
 

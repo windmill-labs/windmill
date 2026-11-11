@@ -401,6 +401,8 @@ describe('MCP session server generated definitions', () => {
 	// role the prompt of whatever value `profiles()` fixed it at.
 	it('key every role capability that changes the prompt', () => {
 		const keyed = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers']
+		// Not keyed: the server holds a role without `run` to the `read_only` profile.
+		const held = ['run']
 		const render = (capabilities: typeof FULL_CAPABILITIES) => {
 			const access = capabilitiesForRole({ isAdmin: false, deployRulesPass: true, capabilities })
 			const { flags, vars } = externalPromptProfile(access, true)
@@ -417,7 +419,7 @@ describe('MCP session server generated definitions', () => {
 		]
 		for (const role of roles)
 			for (const [field, value] of Object.entries(role)) {
-				if (keyed.includes(field)) continue
+				if (keyed.includes(field) || held.includes(field)) continue
 				const others =
 					typeof value === 'boolean'
 						? [!value]
