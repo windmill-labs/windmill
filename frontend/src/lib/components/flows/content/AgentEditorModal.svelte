@@ -665,6 +665,8 @@
 				v{version}
 			</Badge>
 		{/if}
+		<!-- Where the script and flow editors carry it in a bar of their own: beside the name. -->
+		{#if layout !== 'page'}{@render draftStatus()}{/if}
 	{/snippet}
 	{#snippet levelBadge()}
 		<!-- Marks evals, not the agent, so it sits against that level's own name. Dropped a
@@ -676,9 +678,48 @@
 	{/snippet}
 	<!-- Evals carries none of the editor's actions: nothing there edits the agent, and the run
 			     dialog states for itself whether a run is against the deployed version or the edits. -->
+	{#snippet draftStatus()}
+		{#if draftQuery && draft && !inEvals}
+			<AutosaveIndicator
+				workspace={draftQuery.workspace}
+				itemKind="resource"
+				path={draftQuery.path}
+				{draftOnly}
+				onResetToDeployed={resetToDeployed}
+				loadedFromDraft={draft.loadedFromDraft}
+				othersDraftsCount={layout === 'pane' ? 0 : draft.otherDraftsUsers.length}
+				onOpenOthersDrafts={() => (othersModalOpen = true)}
+				alwaysSaves={layout === 'pane'}
+				compact={layout !== 'page'}
+			/>
+		{/if}
+	{/snippet}
 	{#snippet settings()}
 		<div class="flex flex-row items-center gap-2 shrink-0">
 			{#if !inEvals && !refused}
+				<!-- On its own page, first among the actions and followed by Diff, as on the script and
+				     flow pages. -->
+				{#if layout === 'page'}{@render draftStatus()}{/if}
+				{#if draftQuery && draft}
+					<!-- A disabled button fires no pointer events, so the title sits on a wrapper. -->
+					<div
+						title={draftOnly
+							? 'Deploy this agent once to compare against the deployed version'
+							: 'Diff'}
+						class={draftOnly ? 'flex cursor-not-allowed' : 'flex'}
+					>
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: DiffIcon }}
+							iconOnly
+							title="Diff"
+							disabled={draftOnly}
+							btnClasses={draftOnly ? 'pointer-events-none' : undefined}
+							on:click={openDiff}
+						/>
+					</div>
+				{/if}
 				<!-- Switches the editor's right-hand pane, and is drawn only once the agent has
 						     loaded and the pane has picked its first mode. -->
 				{#if testPane?.mode && !inSettings}
@@ -715,38 +756,6 @@
 					<Badge color="gray" class="shrink-0" title="You do not have write access to this agent">
 						Read only
 					</Badge>
-				{/if}
-				{#if draftQuery && draft}
-					<AutosaveIndicator
-						workspace={draftQuery.workspace}
-						itemKind="resource"
-						path={draftQuery.path}
-						{draftOnly}
-						onResetToDeployed={resetToDeployed}
-						loadedFromDraft={draft.loadedFromDraft}
-						othersDraftsCount={layout === 'pane' ? 0 : draft.otherDraftsUsers.length}
-						onOpenOthersDrafts={() => (othersModalOpen = true)}
-						alwaysSaves={layout === 'pane'}
-						compact={layout !== 'page'}
-					/>
-					<!-- A disabled button fires no pointer events, so the title sits on a wrapper. -->
-					<div
-						title={draftOnly
-							? 'Deploy this agent once to compare against the deployed version'
-							: 'Diff'}
-						class={draftOnly ? 'flex cursor-not-allowed' : 'flex'}
-					>
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							startIcon={{ icon: DiffIcon }}
-							iconOnly
-							title="Diff"
-							disabled={draftOnly}
-							btnClasses={draftOnly ? 'pointer-events-none' : undefined}
-							on:click={openDiff}
-						/>
-					</div>
 				{/if}
 				{#if !inSettings}
 					<Button
