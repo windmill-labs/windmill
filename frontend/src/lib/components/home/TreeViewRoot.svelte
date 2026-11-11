@@ -34,7 +34,7 @@
 		// when it doesn't apply, in which case every owner is injected as before.
 		ownerCounts?: Record<string, number>
 		// The viewer's own username: their personal space is a fixture of the tree and
-		// stays even when empty, so they have somewhere to create into.
+		// stays even when empty, so they have somewhere to create into, unless `hideEmptySelf`.
 		selfUsername?: string
 		ownerLoad?: Record<
 			string,
