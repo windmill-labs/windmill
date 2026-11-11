@@ -102,7 +102,8 @@ const EMBEDDED_FACES: EmbeddedFace[] = [
 		style: 'italic',
 		weight: '200 800',
 		url: newsreaderItalicUrl,
-		needed: (html) => /<blockquote\b/.test(html)
+		// Quotes are set in it, and so is emphasis inside an h1 to h3.
+		needed: (html) => /<blockquote\b|<h([1-3])\b[^>]*>(?:(?!<\/h\1>)[\s\S])*?<(?:em|i)\b/.test(html)
 	},
 	{
 		family: 'JetBrains Mono Variable',
