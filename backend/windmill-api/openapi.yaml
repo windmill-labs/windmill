@@ -24445,6 +24445,9 @@ paths:
               properties:
                 name:
                   type: string
+                display_name:
+                  type: string
+                  description: Defaults to the name.
                 summary:
                   type: string
                 owners:
@@ -24488,6 +24491,8 @@ paths:
               type: object
               properties:
                 summary:
+                  type: string
+                display_name:
                   type: string
                 owners:
                   type: array
@@ -37644,6 +37649,8 @@ components:
       type: object
       properties:
         name:
+          type: string
+        display_name:
           type: string
         owners:
           type: array
