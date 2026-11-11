@@ -459,10 +459,11 @@
 		{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
 			<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
 		{:else}
+			<!-- The track margin must match -mt-3, which clips the top of the scrollbar too. -->
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="absolute inset-0 -mt-3"
+				class="absolute inset-0 -mt-3 [&>.virtual-list-wrapper::-webkit-scrollbar-track]:mt-3"
 				oncontextmenu={(e) => {
 					e.preventDefault()
 					rightClickPopover?.open(e)
