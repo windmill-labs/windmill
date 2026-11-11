@@ -9,8 +9,8 @@
 //! What a workspace member or group can reach, and why.
 
 use axum::{
-    extract::{Extension, Path, Query},
-    routing::get,
+    extract::{DefaultBodyLimit, Extension, Path, Query},
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,11 @@ pub fn workspaced_service() -> Router {
         .route("/get", get(get_access))
         .route("/browse_folders", get(browse_folders))
         .route("/browse_items", get(browse_items))
+        // The body can carry a full-code app's files.
+        .route(
+            "/reads",
+            post(crate::access_reads::get_reads).layer(DefaultBodyLimit::max(16 << 20)),
+        )
 }
 
 const BROWSE_PAGE: i64 = 100;

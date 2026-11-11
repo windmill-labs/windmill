@@ -2,6 +2,8 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
+use crate::item_reference::ItemReference;
+
 // Token recognized inside declared asset URIs that the runtime substitutes
 // with the current partition value (e.g. `s3://lake/{partition}.parquet`
 // becomes `s3://lake/2024-04-29.parquet` when materialized for that day).
@@ -21,7 +23,7 @@ pub enum AssetUsageAccessType {
 
 use AssetUsageAccessType::*;
 
-#[derive(Serialize, PartialEq, Clone, Copy, Debug)]
+#[derive(Serialize, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum AssetKind {
     S3Object,
@@ -62,6 +64,11 @@ pub struct SqlQueryDetails {
 pub struct ParseAssetsOutput {
     pub assets: Vec<ParseAssetsResult>,
     pub sql_queries: Vec<SqlQueryDetails>,
+    // The workspace items the code names by path, which the access views turn into grants.
+    // Kept off `ParseAssetsResult` on purpose: `asset` rows store those, and a reference is not
+    // an asset.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub references: Vec<ItemReference>,
     // Bare `// pipeline` (or `#` / `--`) on its own line — opt-in marker
     // that sets auto_kind='pipeline' and includes the script in its
     // folder's pipeline. Pipeline membership is broader than
@@ -655,6 +662,7 @@ impl ParseAssetsOutput {
         ParseAssetsOutput {
             assets,
             sql_queries,
+            references: Vec::new(),
             in_pipeline: pipeline.in_pipeline,
             triggers: pipeline.triggers,
             partition: pipeline.partition,
