@@ -75,7 +75,9 @@ changes the grant on the whole folder.
 	const data = $derived(source ?? api)
 	const own = $derived(data.ownSpace)
 
-	let picker: { focus: () => void } | undefined = $state()
+	let picker:
+		| { focus: () => void; escape: (target: EventTarget | null) => boolean }
+		| undefined = $state()
 	let folders: BrowseAccessFoldersResponse | undefined = $state()
 	/** Rows by top-level branch (`u/alice`, `f/billing`), then by `kind:path`. */
 	let rows: Record<string, Record<string, Row>> = $state({})
@@ -404,10 +406,23 @@ changes the grant on the whole folder.
 	 * the access drawer shows this list. */
 	function dialogKeys(e: KeyboardEvent) {
 		if (!confirming || e.key === 'Tab') return
-		e.preventDefault()
 		e.stopPropagation()
+		// A focused dialog button activates itself, so Enter on Cancel cancels.
+		const onButton = !!(e.target as HTMLElement | null)?.closest?.('button')
+		if (onButton && (e.key === 'Enter' || e.key === ' ')) return
+		e.preventDefault()
 		if (e.key === 'Enter') confirmFolder()
 		else if (e.key === 'Escape') cancelFolder()
+	}
+
+	/** Answers an Escape a host takes before the navigator can: cancels the folder dialog, or
+	 * passes it to the picker. False when nothing here was open, so the host closes instead. */
+	export function escape(target: EventTarget | null): boolean {
+		if (confirming) {
+			cancelFolder()
+			return true
+		}
+		return !!picker?.escape(target)
 	}
 
 	let root: HTMLElement | undefined = $state()

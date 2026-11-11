@@ -57,6 +57,7 @@
 	let openState: Record<string, boolean> = $state({})
 	let expandAll: boolean | undefined = $state()
 	let grantOpen = $state(false)
+	let navigator: GrantNavigator | undefined = $state()
 	/** The row menu that is open, as `kind:path`. */
 	let openMenu: string | undefined = $state()
 	let grantPopover: Popover | undefined = $state()
@@ -308,12 +309,13 @@
 
 <!-- The drawer answers Escape on window too, and `preventEscape` is read after a popover or menu
      has already closed, so with the Grant popover or a row menu open its Escape is taken here
-     before either sees it. -->
+     before either sees it. The navigator's own dialog or row dropdown closes first. -->
 <svelte:window
 	onkeydowncapture={(e) => {
 		if (e.key !== 'Escape' || (!grantOpen && !openMenu)) return
 		e.stopPropagation()
 		e.preventDefault()
+		if (grantOpen && navigator?.escape(e.target)) return
 		grantOpen = false
 		openMenu = undefined
 	}}
@@ -380,7 +382,7 @@
 								{/snippet}
 								{#snippet content()}
 									{#if access}
-										<GrantNavigator {principal} {access} onChange={reload} />
+										<GrantNavigator bind:this={navigator} {principal} {access} onChange={reload} />
 									{/if}
 								{/snippet}
 							</Popover>

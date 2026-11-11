@@ -553,6 +553,19 @@ leaves and ignores the current scope.
 	const mainAction = $derived(highlightedActions.find((a) => a.preferred) ?? highlightedActions[0])
 	const otherActions = $derived(highlightedActions.filter((a) => a !== mainAction))
 	let actionMenuOpen = $state(false)
+
+	/** Answers an Escape a host takes before the picker can: closes a row's dropdown, which hands
+	 * focus back to its chevron, or leaves a row's button for the search field. False when neither
+	 * applies, so the host closes instead. */
+	export function escape(target: EventTarget | null): boolean {
+		if (actionMenuOpen) {
+			actionMenuOpen = false
+			return true
+		}
+		if (!(target as HTMLElement | null)?.closest?.('[data-drill-action]')) return false
+		focus()
+		return true
+	}
 	let actionsWidth = $state(0)
 </script>
 
