@@ -243,10 +243,12 @@ function createSveltePlugin(appDir: string): any {
   };
 }
 
-// `tailwindcss/…` covers the split imports (theme.css, utilities.css) used to drop
-// preflight; `@reference`/`@apply` cover component stylesheets imported from JS.
+// The Tailwind import (split ones such as `tailwindcss/theme.css` included) or any
+// directive only Tailwind defines: a stylesheet that imports the theme from ui/ and
+// adds its own `@theme`/`@source` must be compiled as the root, with the import
+// inlined into it, or its additions reach the browser raw.
 const TAILWIND_ENTRY =
-  /@import\s+(?:url\(\s*)?["']tailwindcss["'/]|@tailwind\s|@reference\s|@apply\s/;
+  /@import\s+(?:url\(\s*)?["']tailwindcss["'/]|@(?:tailwind|theme|utility|variant|custom-variant|source|plugin|config|reference|apply)\b/;
 const TAILWIND_SCAN_EXTS = new Set([
   ".html", ".js", ".jsx", ".ts", ".tsx", ".svelte", ".vue",
 ]);
@@ -283,34 +285,66 @@ function collectTailwindCandidates(dirs: string[]): string[] {
   return [...candidates];
 }
 
+type TailwindKit =
+  // The official toolchain, as @tailwindcss/vite uses it: Tailwind's own module
+  // loading, URL rewriting and oxide scanner (`@source` included).
+  | { kind: "node"; compile: any; Scanner: any; clearRequireCache: (files: string[]) => void }
+  // Only the `tailwindcss` package: its compile() with our module loading and scan.
+  | { kind: "core"; compile: any };
+
 /**
  * Compiles stylesheets that pull in Tailwind v4 (`@import "tailwindcss"`) with the
- * app's own `tailwindcss` package, generating the utilities used in the app and the
+ * app's own Tailwind packages, generating the utilities used in the app and the
  * shared `ui/` folder. esbuild alone would inline Tailwind's sources verbatim and
  * ship `@theme`/`@tailwind utilities` to the browser, which ignores them.
- * Imports inside the stylesheet are resolved through esbuild, so `/ui/...` and the
- * "style" export condition work as they do for plain CSS.
+ * Stylesheet imports are resolved through esbuild, so `/ui/...` and the "style"
+ * export condition work as they do for plain CSS.
  */
 function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
-  let compilePromise: Promise<any> | undefined;
-  const loadCompile = () =>
-    (compilePromise ??= (async () => {
-      let entry: string;
+  const requireFromApp = createRequire(path.join(path.resolve(appDir), "package.json"));
+  const importFromApp = async (id: string) => {
+    const mod: any = await import(pathToFileURL(requireFromApp.resolve(id)).href);
+    return mod.default && !mod.compile && !mod.Scanner ? mod.default : mod;
+  };
+  let kitPromise: Promise<TailwindKit | undefined> | undefined;
+  const loadKit = () =>
+    (kitPromise ??= (async () => {
       try {
-        entry = createRequire(path.join(path.resolve(appDir), "package.json")).resolve("tailwindcss");
+        const [node, oxide, cache] = await Promise.all([
+          importFromApp("@tailwindcss/node"),
+          importFromApp("@tailwindcss/oxide"),
+          importFromApp("@tailwindcss/node/require-cache"),
+        ]);
+        if (typeof node.compile === "function" && typeof oxide.Scanner === "function") {
+          return {
+            kind: "node" as const,
+            compile: node.compile,
+            Scanner: oxide.Scanner,
+            clearRequireCache: cache.clearRequireCache,
+          };
+        }
+      } catch {
+        // Not installed: fall back to the core package.
+      }
+      try {
+        requireFromApp.resolve("tailwindcss");
       } catch {
         return undefined;
       }
       try {
-        const mod: any = await import(pathToFileURL(entry).href);
-        const compile = mod.compile ?? mod.default?.compile;
+        const { compile } = await importFromApp("tailwindcss");
         // Tailwind v3 has no compile(); its CSS keeps going through esbuild as before.
-        return typeof compile === "function" ? compile : undefined;
+        return typeof compile === "function" ? { kind: "core" as const, compile } : undefined;
       } catch (e: any) {
-        log.warn(`Could not load ${entry}, Tailwind CSS is bundled uncompiled: ${e?.message ?? e}`);
+        log.warn(`Could not load tailwindcss, Tailwind CSS is bundled uncompiled: ${e?.message ?? e}`);
         return undefined;
       }
     })());
+
+  const dirs = [appDir, ...(sharedUiDir ? [sharedUiDir] : [])];
+  // What the previous compile of each stylesheet loaded, dropped from Node's require
+  // cache before the next one so an edited CommonJS config or plugin is re-read.
+  const previousDeps = new Map<string, string[]>();
 
   return {
     name: "wmill-tailwind",
@@ -323,38 +357,82 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
         }
         const source = await readTextFile(args.path);
         if (!TAILWIND_ENTRY.test(source)) return undefined;
-        const compile = await loadCompile();
-        if (!compile) return undefined;
+        const kit = await loadKit();
+        if (!kit) return undefined;
 
         const watchFiles = new Set<string>();
-        const resolveFrom = async (id: string, base: string, kind: string) => {
+        const resolveStylesheet = async (id: string, base: string) => {
           // The importer lets the shared-ui plugin send bare imports made from ui/
           // to the app's node_modules; esbuild only reads it as a path prefix.
           const r = await build.resolve(id, {
             resolveDir: base,
             importer: path.join(base, "_"),
-            kind,
+            kind: "import-rule",
           });
           if (r.errors.length > 0) throw new Error(r.errors[0].text);
           watchFiles.add(r.path);
-          return r.path;
+          return r.path as string;
         };
+        // Plugins and configs run in Node, so they resolve with Node's rules rather
+        // than esbuild's browser ones; ui/ falls back to the app's packages.
+        const resolveModule = (id: string, base: string) => {
+          try {
+            return createRequire(path.join(base, "_")).resolve(id);
+          } catch {
+            return requireFromApp.resolve(id);
+          }
+        };
+        const result = (contents: string) => ({
+          contents,
+          loader: "css",
+          resolveDir: path.dirname(args.path),
+          watchFiles: [...watchFiles],
+        });
+
         try {
-          const compiler = await compile(source, {
+          if (kit.kind === "node") {
+            kit.clearRequireCache(previousDeps.get(args.path) ?? []);
+            const compiler = await kit.compile(source, {
+              base: path.dirname(args.path),
+              from: args.path,
+              shouldRewriteUrls: true,
+              onDependency: (p: string) => watchFiles.add(p),
+              customCssResolver: (id: string, base: string) =>
+                resolveStylesheet(id, base).catch(() => undefined),
+              customJsResolver: async (id: string, base: string) => {
+                try {
+                  return resolveModule(id, base);
+                } catch {
+                  return undefined;
+                }
+              },
+            });
+            // `source(none)` scans nothing, `source("dir")` replaces the default
+            // roots; `@source` entries add to either.
+            const roots =
+              compiler.root === "none"
+                ? []
+                : compiler.root
+                  ? [compiler.root]
+                  : dirs.map((base) => ({ base, pattern: "**/*" }));
+            const scanner = new kit.Scanner({
+              sources: [
+                ...roots.map((r: any) => ({ ...r, negated: false })),
+                ...compiler.sources,
+              ],
+            });
+            previousDeps.set(args.path, [...watchFiles]);
+            return result(compiler.build(scanner.scan()));
+          }
+
+          const compiler = await kit.compile(source, {
             base: path.dirname(args.path),
             loadStylesheet: async (id: string, base: string) => {
-              const p = await resolveFrom(id, base, "import-rule");
+              const p = await resolveStylesheet(id, base);
               return { path: p, base: path.dirname(p), content: await readTextFile(p) };
             },
-            // Plugins and configs run in Node, so they resolve with Node's rules rather
-            // than esbuild's browser ones; ui/ falls back to the app's packages.
             loadModule: async (id: string, base: string) => {
-              let p: string;
-              try {
-                p = createRequire(path.join(base, "_")).resolve(id);
-              } catch {
-                p = createRequire(path.join(path.resolve(appDir), "_")).resolve(id);
-              }
+              const p = resolveModule(id, base);
               // Bundled and evaluated afresh on every build rather than import()ed: TS, ESM
               // and CJS configs all load under Node, and an edit to the module or a local
               // file it imports applies on the next `app dev` rebuild instead of hitting
@@ -379,13 +457,7 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
               return { path: p, base: path.dirname(p), module: mod?.default ?? mod };
             },
           });
-          const dirs = [appDir, ...(sharedUiDir ? [sharedUiDir] : [])];
-          return {
-            contents: compiler.build(collectTailwindCandidates(dirs)),
-            loader: "css",
-            resolveDir: path.dirname(args.path),
-            watchFiles: [...watchFiles],
-          };
+          return result(compiler.build(collectTailwindCandidates(dirs)));
         } catch (e: any) {
           return { errors: [{ text: `Tailwind CSS: ${e?.message ?? e}` }] };
         }
