@@ -199,14 +199,12 @@ jobs:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
           digest: ${{ steps.digest.outputs.digest }}
 
-      - name: Check debug files
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-        run: ls -l ./debuginfo/linux_amd64/windmill.debug ./debuginfo/linux_arm64/windmill.debug
-
       # The debug file names every EE function with its source file and line, so it
-      # goes to a private bucket, never to the public release.
+      # goes to a private bucket, never to the public release. A failed upload must
+      # not fail build_ee: every EE image and the release binary wait on it.
       - name: Upload debug files to private bucket
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -214,6 +212,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          trap 'echo "::error::EE debug files were not uploaded for $TAG"' ERR
+          ls -l ./debuginfo/linux_amd64/windmill.debug ./debuginfo/linux_arm64/windmill.debug
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || exit 0
           aws configure set default.s3.multipart_chunksize 64MB
           for arch in amd64 arm64; do
             aws s3 cp "./debuginfo/linux_$arch/windmill.debug" \
