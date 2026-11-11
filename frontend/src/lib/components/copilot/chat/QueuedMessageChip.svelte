@@ -59,7 +59,7 @@
 					{/if}
 					{#if chatHost.queuedBlobs.length > 0}
 						<!-- Blobs are the same chip as files: a host that forwards bytes verbatim
-					     queues them here instead, and a queue of them alone must still show. -->
+						     queues them here instead, and a queue of them alone must still show. -->
 						<div class="flex flex-row flex-wrap gap-1 {chatHost.queuedMessage ? 'mb-1' : ''}">
 							{#each chatHost.queuedBlobs as blob, i (i)}
 								<span
@@ -80,10 +80,10 @@
 				</button>
 			{:else if chatHost.queuedContext?.length}
 				<!-- Context badges are interactive themselves (popover preview), so a
-			     context-only queue gets a plain row instead of the clickable body —
-			     nesting the badges in it would be invalid ARIA and a badge click
-			     would dequeue out from under the opening popover. The X (and
-			     ArrowUp in the empty input) still restores the queue. -->
+				     context-only queue gets a plain row instead of the clickable body —
+				     nesting the badges in it would be invalid ARIA and a badge click
+				     would dequeue out from under the opening popover. The X (and
+				     ArrowUp in the empty input) still restores the queue. -->
 				<div class="min-w-0 grow flex flex-row flex-wrap gap-1">
 					{#each chatHost.queuedContext as element (contextElementKey(element))}
 						<ContextElementBadge contextElement={element} compact />
