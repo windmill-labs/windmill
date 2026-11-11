@@ -27,7 +27,7 @@
 	import { Popover } from './meltComponents'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import oauthConnectRegistry from '$oauth_connect_registry'
-	import { normalizeInstanceInput, templatedConnectConfig } from './oauthRegistry'
+	import { hasExplicitUrls, normalizeInstanceInput, templatedConnectConfig } from './oauthRegistry'
 	import { OauthService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
@@ -201,12 +201,10 @@
 	/** Run the client-credentials exchange with the entry as it stands, saved or not. */
 	async function testClientCredentials(name: string) {
 		const tmpl = connectConfigTemplates[name]
-		const entry = $state.snapshot(oauths?.[name])
-		if (tmpl) {
-			entry.connect_config = templatedConnectConfig(
-				tmpl,
-				normalizeInstanceInput(tmpl, instanceInputs[name] ?? '')
-			)
+		const entry = { ...$state.snapshot(oauths?.[name]) }
+		const instance = tmpl ? normalizeInstanceInput(tmpl, instanceInputs[name] ?? '') : ''
+		if (tmpl && !hasExplicitUrls(tmpl, instance, entry.connect_config)) {
+			entry.connect_config = templatedConnectConfig(tmpl, instance)
 		}
 		testingCc[name] = true
 		try {

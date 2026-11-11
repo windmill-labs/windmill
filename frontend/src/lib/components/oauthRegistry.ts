@@ -52,6 +52,17 @@ export function normalizeInstanceInput(tmpl: any, raw: string): string {
 	return v
 }
 
+/** URLs written out by hand, with no instance name: kept as they are, as the server does. */
+export function hasExplicitUrls(tmpl: any, instance: string, cc: any): boolean {
+	const key = tmpl.extra_params_key ?? 'instance'
+	return (
+		!instance &&
+		!(key in (cc?.extra_params ?? {})) &&
+		!!cc?.token_url &&
+		!cc.token_url.includes('{')
+	)
+}
+
 /**
  * The `connect_config` of a per-instance provider (Snowflake, ServiceNow, Coupa, …), its
  * registry `connect_config_template` with `{instance}` filled in. The instance name is kept

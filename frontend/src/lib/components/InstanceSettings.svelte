@@ -27,7 +27,7 @@
 	import { setLicense } from '$lib/enterpriseUtils'
 	import AuthSettings from './AuthSettings.svelte'
 	import oauthConnectRegistry from '$oauth_connect_registry'
-	import { normalizeInstanceInput, templatedConnectConfig } from './oauthRegistry'
+	import { hasExplicitUrls, normalizeInstanceInput, templatedConnectConfig } from './oauthRegistry'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
@@ -337,10 +337,7 @@
 			instanceInputs[name] = v
 			const cc = oauths[name].connect_config
 			if (cc?.extra_params?.[key] === v) continue
-			// URLs written out by hand, with no instance name: keep them, as the server does.
-			const explicitUrls =
-				!v && !(key in (cc?.extra_params ?? {})) && cc?.token_url && !cc.token_url.includes('{')
-			if (explicitUrls) continue
+			if (hasExplicitUrls(tmpl, v, cc)) continue
 			oauths[name].connect_config = templatedConnectConfig(tmpl, v)
 		}
 	}
