@@ -31,6 +31,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	import { sidebarClasses } from './MenuButton.svelte'
 	import SessionStatusDot from '$lib/components/sessions/SessionStatusDot.svelte'
 	import type { SessionChatStatus } from '$lib/components/sessions/sessionRuntimeRegistry.svelte'
+	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
 
 	interface Props {
 		title: string
@@ -40,6 +41,9 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		isCollapsed: boolean
 		/** A dot on the icon: something inside wants attention. */
 		notify?: boolean
+		/** How many unread messages `notify` stands for: shown beside the title in the open
+		 * sidebar instead of the dot. The rail keeps the dot, which leaves its status mark room. */
+		unreadCount?: number
 		/** A live session status the folded section shows for the items it hides. */
 		status?: SessionChatStatus
 		/** A section with nothing to fold: the row stays, without its chevron. */
@@ -65,6 +69,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		onToggle,
 		isCollapsed,
 		notify = false,
+		unreadCount = 0,
 		status,
 		disabled = false,
 		actions,
@@ -107,7 +112,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		{#if status && isFolded}
 			<!-- The typing dots are wider than the icon: moved off the rail's chevron. -->
 			<span class="flex -translate-x-0.5">
-				<SessionStatusDot {status} isFork={false} />
+				<SessionStatusDot {status} isFork={false} dot />
 			</span>
 		{:else}
 			<Icon size={12} class="text-hint" />
@@ -259,7 +264,11 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 							<SessionStatusDot {status} isFork={false} />
 						{/if}
 						{#if notify && (isFolded || disabled)}
-							{@render notifyDot('flex-shrink-0')}
+							{#if unreadCount > 0}
+								<UnreadCountBadge count={unreadCount} class="flex-shrink-0" />
+							{:else}
+								{@render notifyDot('flex-shrink-0')}
+							{/if}
 						{/if}
 					</span>
 				{/if}

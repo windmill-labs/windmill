@@ -835,6 +835,7 @@
 				onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
 				disabled={filteredSessions.length === 0}
 				notify={totalUnread > 0}
+				unreadCount={totalUnread}
 				status={sectionStatus}
 				actions={sectionOptions}
 				{isCollapsed}
