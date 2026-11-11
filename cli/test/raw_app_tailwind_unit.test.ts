@@ -7,8 +7,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import * as esbuild from "esbuild";
-import { createBundle, createFrameworkPlugins, getDevBuildOptions } from "../src/commands/app/bundle.ts";
+import { createBundle } from "../src/commands/app/bundle.ts";
 
 let root: string;
 const originalCwd = process.cwd();
@@ -86,50 +85,22 @@ test("an app without the dependency builds as before", async () => {
   expect(css).not.toContain(".bg-brand");
 });
 
-// `app dev` recompiles in one process: an edit to a file the `@config`
-// imports must not come back from the module cache.
-test("app dev rebuilds with the edited dependency of an @config", async () => {
+// A config is the app's own Node module: it must run from where it lives.
+test("an @config runs with its own __dirname and imports", async () => {
   const dir = path.join(root, "config");
   fs.mkdirSync(dir);
   fs.symlinkSync(cliNodeModules, path.join(dir, "node_modules"));
   fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ dependencies: { tailwindcss: "^4.1.0" } }));
   fs.writeFileSync(path.join(dir, "index.css"), `@import "tailwindcss";\n@config "./tw.config.cjs";\n`);
   fs.writeFileSync(path.join(dir, "index.ts"), `import "./index.css";\nconsole.log("text-brand");\n`);
+  fs.writeFileSync(path.join(dir, "tokens.json"), JSON.stringify({ brand: "#123456" }));
   fs.writeFileSync(
     path.join(dir, "tw.config.cjs"),
-    `module.exports = { theme: { extend: { colors: { brand: require("./tokens.cjs").brand } } } };\n`,
+    `const path = require("node:path");\n` +
+      `const { brand } = require(path.join(__dirname, "tokens.json"));\n` +
+      `module.exports = { theme: { extend: { colors: { brand } } } };\n`,
   );
-  const tokens = (color: string) =>
-    fs.writeFileSync(path.join(dir, "tokens.cjs"), `module.exports = { brand: "${color}" };\n`);
-  tokens("#123456");
   process.chdir(dir);
-
-  let built: (css: string) => void = () => {};
-  const nextBuild = () => new Promise<string>((resolve) => (built = resolve));
-  const ctx = await esbuild.context({
-    ...getDevBuildOptions(path.join(dir, "index.ts")),
-    outfile: path.join(dir, "dist/bundle.js"),
-    logLevel: "silent",
-    plugins: [
-      ...(await createFrameworkPlugins(dir)),
-      {
-        name: "built",
-        setup(build: any) {
-          build.onEnd(() => built(fs.readFileSync(path.join(dir, "dist/bundle.css"), "utf-8")));
-        },
-      },
-    ],
-  });
-  try {
-    let next = nextBuild();
-    await ctx.watch();
-    expect(await next).toContain("#123456");
-    next = nextBuild();
-    tokens("#abcdef");
-    const css = await next;
-    expect(css).toContain("#abcdef");
-    expect(css).not.toContain("#123456");
-  } finally {
-    await ctx.dispose();
-  }
+  const { css } = await createBundle({ entryPoint: path.join(dir, "index.ts"), minify: false });
+  expect(css).toContain("#123456");
 });

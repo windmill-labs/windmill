@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import * as log from "../../core/log.ts";
@@ -26,63 +25,11 @@ function sourceExtensions(pattern: string): string[] {
   return ext ? [ext[1]] : TAILWIND_SOURCE_EXTENSIONS;
 }
 
-let freshImports = 0;
-
-/**
- * Loads an `@config` / `@plugin` module of the app. `app dev` recompiles in
- * this process, and neither Node nor Bun can evict a module's whole import
- * graph from its cache, so an edit to the config, or to a file it imports,
- * would not show. The app's own files are therefore bundled into a new module
- * on every load, with packages left external at their absolute paths.
- * A module inside `node_modules` does not change between rebuilds: imported as is.
- */
-async function freshImport(file: string, esbuild: any): Promise<unknown> {
-  if (file.split(path.sep).includes("node_modules")) {
-    const mod = await import(pathToFileURL(file).href);
-    return mod.default ?? mod;
-  }
-  const result = await esbuild.build({
-    entryPoints: [file],
-    bundle: true,
-    write: false,
-    platform: "node",
-    format: "esm",
-    logLevel: "silent",
-    // esbuild's ESM output calls `require` for an external `require()`.
-    banner: {
-      js: 'import { createRequire as __wmCreateRequire } from "node:module"; const require = __wmCreateRequire(import.meta.url);',
-    },
-    plugins: [
-      {
-        name: "wmill-tailwind-externals",
-        setup(build: any) {
-          build.onResolve({ filter: /^[^./]/ }, (args: any) => {
-            let resolved: string;
-            try {
-              resolved = createRequire(args.importer).resolve(args.path);
-            } catch {
-              return undefined;
-            }
-            // A builtin resolves to its own name.
-            if (!path.isAbsolute(resolved)) return { path: args.path, external: true };
-            return {
-              path: args.kind === "require-call" ? resolved : pathToFileURL(resolved).href,
-              external: true,
-            };
-          });
-        },
-      },
-    ],
-  });
-  // Every relative import is bundled in, so the module can live in the temp
-  // dir, outside the folders watch mode reacts to.
-  const out = path.join(os.tmpdir(), `wmill-tailwind-${process.pid}-${++freshImports}.mjs`);
-  fs.writeFileSync(out, result.outputFiles[0].text);
+function mtimeOf(file: string): number | undefined {
   try {
-    const mod = await import(pathToFileURL(out).href);
-    return mod.default ?? mod;
-  } finally {
-    fs.rmSync(out, { force: true });
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return undefined;
   }
 }
 
@@ -175,6 +122,7 @@ export function createTailwindPlugin(appDir: string, sharedUiDir?: string): any 
 
   const uiDir = sharedUiDir && fs.existsSync(sharedUiDir) ? fs.realpathSync(sharedUiDir) : undefined;
   let compilePromise: Promise<TailwindCompile> | undefined;
+  const moduleMtimes = new Map<string, number | undefined>();
   const loadCompile = () => {
     compilePromise ??= (async () => {
       const exportsMap = JSON.parse(pkgJson!)?.exports?.["."];
@@ -221,7 +169,11 @@ export function createTailwindPlugin(appDir: string, sharedUiDir?: string): any 
           return (rel.startsWith("../") ? rel : "./" + rel) + suffix;
         },
         // `@plugin` / `@config` run in this process, as they would under the
-        // Tailwind CLI: resolved from the stylesheet, then from the app.
+        // Tailwind CLI: resolved from the stylesheet, then from the app, and
+        // imported as is so the module keeps its own location and globals.
+        // The module cache keeps them for the life of the process, which
+        // neither Node nor Bun can reset for a whole import graph: in `app dev`
+        // an edit to one is reported rather than silently built from the old copy.
         async loadModule(id, base) {
           let resolved: string;
           try {
@@ -229,11 +181,20 @@ export function createTailwindPlugin(appDir: string, sharedUiDir?: string): any 
           } catch {
             resolved = requireFromApp.resolve(id);
           }
-          return {
-            path: resolved,
-            base: path.dirname(resolved),
-            module: await freshImport(resolved, build.esbuild),
-          };
+          const mtime = mtimeOf(resolved);
+          const loadedAt = moduleMtimes.get(resolved);
+          if (loadedAt === undefined) {
+            moduleMtimes.set(resolved, mtime);
+          } else if (loadedAt !== mtime) {
+            moduleMtimes.set(resolved, mtime);
+            log.warn(
+              colors.yellow(
+                `⚠️  ${path.relative(resolvedApp, resolved)} changed: restart to apply Tailwind \`@config\` / \`@plugin\` changes`,
+              ),
+            );
+          }
+          const mod = await import(pathToFileURL(resolved).href);
+          return { path: resolved, base: path.dirname(resolved), module: mod.default ?? mod };
         },
         async scan(sources: TailwindSource[], includeDefault: boolean) {
           const out = { files: new Map<string, string>(), dirs: new Set<string>() };
