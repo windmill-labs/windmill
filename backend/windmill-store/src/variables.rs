@@ -753,6 +753,26 @@ async fn insert_account(
     .await?)
 }
 
+/// Delete an account once no variable links it any more. Any variable can link any account, so
+/// another one may still hold it; the check needs `db`, since a caller's own transaction does not
+/// see variables it cannot read.
+pub async fn delete_unlinked_account(db: &DB, workspace_id: &str, account_id: Option<i32>) {
+    let Some(account_id) = account_id else {
+        return;
+    };
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM account WHERE workspace_id = $1 AND id = $2
+         AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
+        workspace_id,
+        account_id,
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Failed to delete account {account_id} in {workspace_id}: {e}");
+    }
+}
+
 /// Swaps the token and account of the OAuth variable at `path` in place: its sharing and
 /// description, and the resources and triggers pointing at it, stay as they are. The account it
 /// held is deleted unless another variable still uses it. Returns the new account's id.
@@ -822,16 +842,6 @@ pub async fn replace_variable_account(
             "You cannot write the variable at {path}"
         )));
     }
-    if let Some(old_account) = old.account {
-        sqlx::query!(
-            "DELETE FROM account WHERE workspace_id = $1 AND id = $2
-             AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
-            w_id,
-            old_account,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
     audit_log(
         &mut *tx,
         &authed,
@@ -843,6 +853,7 @@ pub async fn replace_variable_account(
     )
     .await?;
     tx.commit().await?;
+    delete_unlinked_account(db, &w_id, old.account).await;
 
     handle_deployment_metadata(
         &authed.email,
@@ -1666,8 +1677,9 @@ async fn update_variable(
         }
     }
 
+    let mut unlinked_account = None;
     if ns.unlink_account {
-        let old_account = sqlx::query_scalar!(
+        unlinked_account = sqlx::query_scalar!(
             "UPDATE variable v SET account = NULL FROM variable o
              WHERE o.workspace_id = v.workspace_id AND o.path = v.path
                AND v.workspace_id = $1 AND v.path = $2 AND v.account IS NOT NULL
@@ -1678,16 +1690,6 @@ async fn update_variable(
         .fetch_optional(&mut *tx)
         .await?
         .flatten();
-        if let Some(old_account) = old_account {
-            sqlx::query!(
-                "DELETE FROM account WHERE workspace_id = $1 AND id = $2
-                 AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
-                w_id,
-                old_account,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
     }
 
     audit_log(
@@ -1702,6 +1704,7 @@ async fn update_variable(
     .await?;
 
     tx.commit().await?;
+    delete_unlinked_account(&db, &w_id, unlinked_account).await;
 
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };

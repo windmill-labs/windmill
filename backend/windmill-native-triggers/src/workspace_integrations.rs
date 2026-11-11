@@ -880,26 +880,8 @@ pub async fn cleanup_connection(
     Ok(account_id)
 }
 
-/// Delete a connection's account once no variable links it any more. Any variable can link any
-/// account, so another one may still hold it; the check needs `db`, since the caller's own
-/// transaction does not see variables it cannot read.
 #[cfg(feature = "native_trigger")]
-pub async fn delete_unlinked_account(db: &DB, workspace_id: &str, account_id: Option<i32>) {
-    let Some(account_id) = account_id else {
-        return;
-    };
-    if let Err(e) = sqlx::query!(
-        "DELETE FROM account WHERE workspace_id = $1 AND id = $2
-         AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
-        workspace_id,
-        account_id,
-    )
-    .execute(db)
-    .await
-    {
-        tracing::error!("Failed to delete account {account_id} in {workspace_id}: {e}");
-    }
-}
+use windmill_store::variables::delete_unlinked_account;
 
 /// Remove every connection of a service in the workspace.
 #[cfg(feature = "native_trigger")]

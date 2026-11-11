@@ -149,6 +149,7 @@ where
     )
     .fetch_all(db)
     .await?;
+    let mut moved = false;
     if !paths.iter().any(|p| p == path) {
         let still_linked = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2 AND account = $3)",
@@ -160,11 +161,12 @@ where
         .await?
         .unwrap_or(false);
         // A reconnect moved the variable to another account during the exchange: writing this
-        // token would put the previous identity back.
-        if !still_linked {
-            return current_token(db, w_id, path).await;
+        // token there would put the previous identity back. The account's other variables and
+        // its rotated refresh token are still saved below.
+        moved = !still_linked;
+        if !moved {
+            paths.push(path.to_string());
         }
-        paths.push(path.to_string());
     }
     let mut stored = Ok(());
     for p in &paths {
@@ -191,6 +193,9 @@ where
     .await?;
     stored?;
 
+    if moved {
+        return current_token(db, w_id, path).await;
+    }
     Ok(token.access_token)
 }
 
