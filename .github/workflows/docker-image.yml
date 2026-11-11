@@ -192,6 +192,17 @@ jobs:
           digest=$(jq -er '.image["containerimage.digest"]' <<<"$METADATA")
           echo "digest=$digest" | tee -a "$GITHUB_OUTPUT"
 
+      - name: Sign and attest release image
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: ./.github/actions/sign-attest-image
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
+          digest: ${{ steps.digest.outputs.digest }}
+
+      - name: Check debug files
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: ls -l ./debuginfo/linux_amd64/windmill.debug ./debuginfo/linux_arm64/windmill.debug
+
       # The debug file names every EE function with its source file and line, so it
       # goes to a private bucket, never to the public release.
       - name: Upload debug files to private bucket
@@ -209,13 +220,6 @@ jobs:
               "s3://windmill-ee-debuginfo/$TAG/windmill-ee-$arch.debug" \
               --storage-class GLACIER_IR --only-show-errors
           done
-
-      - name: Sign and attest release image
-        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: ./.github/actions/sign-attest-image
-        with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
-          digest: ${{ steps.digest.outputs.digest }}
 
   attach_amd64_binary_to_release:
     needs: [build, build_ee]
