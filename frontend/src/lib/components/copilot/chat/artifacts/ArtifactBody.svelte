@@ -2,9 +2,12 @@
 	import type { Component } from 'svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { markdownProse } from '$lib/components/markdownProse'
 	import { markdownPlugins } from '$lib/components/markdownPlugins'
 	import LinkRenderer from '../LinkRenderer.svelte'
+	import '@fontsource-variable/newsreader/opsz.css'
+	import '@fontsource-variable/newsreader/opsz-italic.css'
+	import '@fontsource-variable/jetbrains-mono/wght.css'
+	import './artifactDocument.css'
 
 	interface Props {
 		content: string
@@ -40,7 +43,7 @@
 	     The negative margin cancels its flow height so it overlays instead of pushing. -->
 	<div class="sticky top-0 z-10 h-4 -mb-4 bg-gradient-to-b from-surface-tertiary to-transparent"
 	></div>
-	<div class="pb-4 pt-2 {markdownProse.doc}">
+	<div class="wm-doc pb-16 pt-8">
 		<Markdown md={content} {plugins} />
 	</div>
 {/if}
