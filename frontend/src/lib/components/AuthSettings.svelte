@@ -167,7 +167,10 @@
 
 	function setGrant(name: string, grant: string, on: boolean) {
 		if (!oauths?.[name]) return
-		oauths[name]['grant_types'] = [...grants(name).filter((g) => g !== grant), ...(on ? [grant] : [])]
+		oauths[name]['grant_types'] = [
+			...grants(name).filter((g) => g !== grant),
+			...(on ? [grant] : [])
+		]
 	}
 
 	/** Client-credentials connections use this entry's id and secret. An entry saved
@@ -207,9 +210,7 @@
 		}
 		testingCc[name] = true
 		try {
-			sendUserToast(
-				await OauthService.testOauthClientCredentials({ requestBody: { name, entry } })
-			)
+			sendUserToast(await OauthService.testOauthClientCredentials({ requestBody: { name, entry } }))
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		} finally {
@@ -604,14 +605,13 @@
 										<div class="flex flex-col gap-1">
 											<Toggle
 												size="xs"
-												options={{ right: 'Sign-in for users' }}
+												options={{ right: 'Authorization code' }}
 												checked={grants(k).includes('authorization_code')}
 												disabled={lastGrant === 'authorization_code'}
 												on:change={(e) => setGrant(k, 'authorization_code', e.detail)}
 											/>
 											<span class="text-2xs text-hint"
-												>Users sign in to {k} through this app. Each connection acts as the user who
-												signed in.</span
+												>Each user authorizes {k} with their own account. The connection acts as them.</span
 											>
 										</div>
 									{/if}
@@ -619,13 +619,14 @@
 										<div class="flex flex-col gap-1">
 											<Toggle
 												size="xs"
-												options={{ right: 'Server-to-server connections' }}
+												options={{ right: 'Client credentials' }}
 												checked={grants(k).includes('client_credentials')}
 												disabled={lastGrant === 'client_credentials'}
 												on:change={(e) => setServerToServer(k, e.detail)}
 											/>
 											<span class="text-2xs text-hint"
-												>Users connect with a client ID and secret through the token URL below.</span
+												>The connection authenticates with a client ID and secret at the token URL
+												below and acts as the app's service account.</span
 											>
 										</div>
 									{/if}
@@ -643,12 +644,12 @@
 												>
 											{:else if sharesCc(k)}
 												<Alert type="warning" title="Anyone can act as this app" size="xs">
-													Any user with write access in any workspace can create a resource that acts
-													as this app's client ID, without seeing its secret.
+													Any user with write access in any workspace can create a resource that
+													acts as this app's client ID, without seeing its secret.
 												</Alert>
 											{:else}
 												<span class="text-2xs text-hint"
-													>Server-to-server connections use the user's own client ID and secret.</span
+													>Client credentials connections use the user's own client ID and secret.</span
 												>
 											{/if}
 										</div>
