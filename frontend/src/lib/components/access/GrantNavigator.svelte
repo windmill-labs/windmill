@@ -408,7 +408,7 @@ changes the grant on the whole folder.
 		if (!confirming || e.key === 'Tab') return
 		e.stopPropagation()
 		// A focused dialog button activates itself, so Enter on Cancel cancels.
-		const onButton = !!(e.target as HTMLElement | null)?.closest?.('button')
+		const onButton = !!(e.target as HTMLElement | null)?.closest?.('[role="dialog"] button')
 		if (onButton && (e.key === 'Enter' || e.key === ' ')) return
 		e.preventDefault()
 		if (e.key === 'Enter') confirmFolder()
