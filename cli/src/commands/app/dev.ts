@@ -26,6 +26,7 @@ import {
   getDevBuildOptions,
 } from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
+import { createTailwindPlugin } from "./tailwind.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { logQueueStatus } from "../../utils/job_polling.ts";
 import { resolveWorkspace } from "../../core/context.ts";
@@ -651,6 +652,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
   const ctx = await esbuild.context({
     ...buildOptions,
     plugins: [
+      createTailwindPlugin(appDir, sharedUiDir),
       ...frameworkPlugins,
       {
         name: "notify-on-rebuild",

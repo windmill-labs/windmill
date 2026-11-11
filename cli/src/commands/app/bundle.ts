@@ -9,6 +9,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { readTextFile, readTextFileSync } from "../../utils/utils.ts";
 import { withEsbuild } from "../../utils/esbuild_loader.ts";
+import { createTailwindPlugin } from "./tailwind.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
@@ -458,7 +459,12 @@ export async function createBundle(
     define: {
       "process.env.NODE_ENV": production ? '"production"' : '"development"',
     },
-    plugins: [...frameworkPlugins, wmillPlugin, ...sharedUiPlugins],
+    plugins: [
+      createTailwindPlugin(appDir, options.sharedUiDir),
+      ...frameworkPlugins,
+      wmillPlugin,
+      ...sharedUiPlugins,
+    ],
   };
 
   log.info(colors.blue("📦 Building bundle..."));

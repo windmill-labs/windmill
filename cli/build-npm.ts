@@ -24,6 +24,7 @@ rmSync(outDir, { recursive: true, force: true });
 // Build with bun — bundle everything except esbuild (platform-specific binary),
 // svelte (optional, only needed for `wmill app bundle/dev`), and parser packages
 // (loaded at runtime via init() with readFileSync for the .wasm binary).
+// Tailwind's node compiler and scanner also load native binaries and package assets.
 // esbuild-wasm is not a dependency at all: the host/binary-mismatch fallback in
 // esbuild_loader.ts downloads and caches the whole esbuild-wasm package at
 // runtime, so it stays out of the bundle and the published dependencies.
@@ -36,6 +37,8 @@ const buildResult = Bun.spawnSync([
   "--external", "esbuild",
   "--external", "svelte",
   "--external", "svelte/compiler",
+  "--external", "@tailwindcss/node",
+  "--external", "@tailwindcss/oxide",
   ...parserExternals,
 ], { cwd: import.meta.dir, stdout: "inherit", stderr: "inherit" });
 
@@ -73,6 +76,8 @@ const packageJson = {
   },
   dependencies: {
     esbuild: "0.28.2",
+    "@tailwindcss/node": cliDeps["@tailwindcss/node"],
+    "@tailwindcss/oxide": cliDeps["@tailwindcss/oxide"],
     ...Object.fromEntries(parserPackages.map(p => [p, cliDeps[p] ?? "*"])),
   },
   optionalDependencies: {
