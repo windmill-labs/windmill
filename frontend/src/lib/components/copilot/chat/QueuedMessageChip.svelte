@@ -23,7 +23,7 @@
 {#if chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedFiles.length > 0 || chatHost.queuedBlobs.length > 0 || (chatHost.queuedContext?.length ?? 0) > 0}
 	<!-- The body and the X are sibling buttons for the same action (an X inside a
 	     clickable chip would be a nested interactive control, invalid ARIA). -->
-	<div class="mb-1 rounded-md bg-surface-input px-3 py-2 opacity-60 hover:opacity-100">
+	<div class="mb-1 rounded-md bg-surface-input px-3 py-2 opacity-80 hover:opacity-100">
 		<div class="flex flex-row items-start gap-1">
 			{#if chatHost.queuedMessage || chatHost.queuedImages.length > 0 || chatHost.queuedFiles.length > 0 || chatHost.queuedBlobs.length > 0}
 				<button
@@ -73,7 +73,7 @@
 						</div>
 					{/if}
 					{#if chatHost.queuedMessage}
-						<p class="text-xs text-secondary whitespace-pre-wrap line-clamp-2">
+						<p class="text-xs !font-normal text-secondary whitespace-pre-wrap line-clamp-2">
 							{chatHost.queuedMessage}
 						</p>
 					{/if}
