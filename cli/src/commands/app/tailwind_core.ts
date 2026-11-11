@@ -115,17 +115,36 @@ function addCandidate(token: string, out: Set<string>) {
   if (t.length > 0 && t.length <= 300) out.add(t);
 }
 
+/** `className="after:content-['x']"` -> `className=`, `after:content-['x']`. */
+function splitQuotesOutsideBrackets(token: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < token.length; i++) {
+    const c = token[i];
+    if (c === "[") depth++;
+    else if (c === "]") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && (c === '"' || c === "'" || c === "`")) {
+      parts.push(token.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(token.slice(start));
+  return parts;
+}
+
 /**
  * Every token that might be a class name. Tailwind ignores the ones that are
  * not, so this over-collects rather than parse: each whitespace-separated token
- * is taken whole and also split at quotes and at markup punctuation, which
- * keeps arbitrary values (`data-[state=open]:x`, `[&>svg]:size-4`,
- * `before:content-['']`) intact in at least one of the cuts.
+ * is taken whole, split at quotes outside `[...]`, and split at every quote
+ * and markup punctuation, which keeps arbitrary values (`data-[state=open]:x`,
+ * `[&>svg]:size-4`, `className="after:content-['x']"`) intact in at least one cut.
  */
 export function extractCandidates(content: string, out: Set<string>): void {
   for (const raw of content.split(/\s+/)) {
     if (!raw) continue;
     addCandidate(raw, out);
+    for (const part of splitQuotesOutsideBrackets(raw)) addCandidate(part, out);
     for (const part of raw.split(/["'`]/)) {
       addCandidate(part, out);
       for (const sub of part.split(/[{}()<>;,]/)) addCandidate(sub, out);

@@ -21,7 +21,11 @@ function app(name: string, dependencies: Record<string, string>) {
   };
   write("package.json", JSON.stringify({ dependencies }));
   write("index.css", `@import "tailwindcss";\n@import "/ui/theme.css";\n`);
-  write("index.ts", `import "./index.css";\nimport { card } from "/ui/card";\nconsole.log(card, "flex data-[state=open]:p-3");\n`);
+  write(
+    "index.ts",
+    `import "./index.css";\nimport { card } from "/ui/card";\nconsole.log(card, "flex data-[state=open]:p-3");\n` +
+      "console.log(`<div className=\"after:content-['hello']\"></div><div class=\"bg-[url('https://x.test/hero.png')]\"></div>`);\n",
+  );
   // The app's own install, as `bun install` would leave it.
   fs.symlinkSync(cliNodeModules, path.join(dir, "node_modules"));
   return dir;
@@ -54,7 +58,15 @@ async function bundle(dir: string) {
 test("an app declaring tailwindcss gets the utilities it and ui/ use", async () => {
   const { css } = await bundle(app("with", { tailwindcss: "^4.1.0" }));
   expect(css).not.toContain("@tailwind");
-  for (const selector of [".bg-brand", "#123456", ".glow", ".flex", "data-\\[state\\=open\\]\\:p-3"]) {
+  for (const selector of [
+    ".bg-brand",
+    "#123456",
+    ".glow",
+    ".flex",
+    "data-\\[state\\=open\\]\\:p-3",
+    "after\\:content-\\[\\'hello\\'\\]",
+    "https://x.test/hero.png",
+  ]) {
     expect(css).toContain(selector);
   }
 });
