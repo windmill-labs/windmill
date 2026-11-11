@@ -12224,6 +12224,8 @@ struct CompletedJobResult {
     success: Option<bool>,
     completed: bool,
     result: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_skipped: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -12249,6 +12251,7 @@ async fn get_completed_job_result_maybe(
                 result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                 result_columns,
                 status IN ('success', 'skipped') AS \"success!\",
+                status = 'skipped' AS \"is_skipped!\",
                 created_by AS \"created_by!\"
             FROM v2_job_completed c
                 JOIN v2_job j USING (id)
@@ -12287,6 +12290,7 @@ async fn get_completed_job_result_maybe(
             success: Some(res.success),
             completed: true,
             result: res.result,
+            is_skipped: Some(res.is_skipped),
         })
         .into_response())
     } else if get_started.is_some_and(|x| x) {
@@ -12326,6 +12330,7 @@ async fn get_completed_job_result_maybe(
             completed: false,
             success: None,
             result: None,
+            is_skipped: None,
         })
         .into_response())
     } else {
@@ -12334,6 +12339,7 @@ async fn get_completed_job_result_maybe(
             completed: false,
             success: None,
             result: None,
+            is_skipped: None,
         })
         .into_response())
     }
