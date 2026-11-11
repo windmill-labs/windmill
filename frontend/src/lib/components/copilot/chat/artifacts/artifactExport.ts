@@ -5,7 +5,9 @@ import rehypeStringify from 'rehype-stringify'
 import { markdownPlugins } from '$lib/components/markdownPlugins'
 import tokensFile from '$lib/assets/tokens/tokens.json'
 import { lightModeName } from '$lib/assets/tokens/colorTokensConfig'
+import { randomUUID } from '$lib/utils/uuid'
 import { blobToDataUrl } from '../imageUtils'
+import { mermaidConfig } from '../script/mermaidConfig'
 import documentCss from './artifactDocument.css?inline'
 import interUrl from './fonts/inter-latin.woff2?url'
 import interItalicUrl from './fonts/inter-italic-latin.woff2?url'
@@ -195,8 +197,42 @@ export function artifactHtmlDocument(
 	return htmlPage(name, renderArtifactHtml(content), options)
 }
 
-/** The page a download gets: `artifactHtmlDocument` with its fonts embedded. */
+/**
+ * `html` with its ```mermaid fences drawn, light as in the PDF. Only surfaces that already draw
+ * diagrams offer the download, so this runs the same mermaid under the same settings.
+ */
+async function drawDiagrams(html: string): Promise<string> {
+	if (!html.includes('language-mermaid')) return html
+	// Parsed and built in the template's inert document: markup set on an element of the page
+	// itself loads its images and runs their handlers, even while detached.
+	const template = document.createElement('template')
+	template.innerHTML = html
+	const fences = Array.from(template.content.querySelectorAll('pre > code.language-mermaid'))
+	if (fences.length === 0) return html
+	const mermaid = (await import('mermaid')).default
+	for (const code of fences) {
+		const source = code.textContent ?? ''
+		try {
+			mermaid.initialize(mermaidConfig(false))
+			let svg = (await mermaid.render(`mermaid-${randomUUID()}`, source)).svg
+			// Labels are sized from the glyphs' metrics: a font still loading would cut them short.
+			if (document.fonts?.status === 'loading') {
+				await document.fonts.ready
+				svg = (await mermaid.render(`mermaid-${randomUUID()}`, source)).svg
+			}
+			const figure = template.content.ownerDocument.createElement('figure')
+			figure.className = 'wm-diagram'
+			figure.innerHTML = svg
+			code.parentElement!.replaceWith(figure)
+		} catch {
+			// Not a diagram mermaid can parse: the fence stays as its source.
+		}
+	}
+	return template.innerHTML
+}
+
+/** The page a download gets: `artifactHtmlDocument` with its diagrams drawn and fonts embedded. */
 export async function artifactHtmlFile(name: string, content: string): Promise<string> {
-	const html = renderArtifactHtml(content)
+	const html = await drawDiagrams(renderArtifactHtml(content))
 	return htmlPage(name, html, { fontCss: await artifactFontCss(html) })
 }

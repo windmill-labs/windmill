@@ -67,7 +67,7 @@
 
 /* `--doc-features` names the body face's features: another face reads the same tags as other
    glyphs, or as none. */
-.wm-doc :is(h1, h2, h3, blockquote, code, kbd, pre) {
+.wm-doc :is(h1, h2, h3, blockquote, code, kbd, pre, svg) {
 	font-feature-settings: normal;
 }
 
@@ -138,6 +138,12 @@
 .wm-doc p {
 	margin: 0 0 1.1em;
 	text-wrap: pretty;
+}
+/* A diagram sizes each label's box to its text laid out as mermaid wraps it (one line unless
+   too long). `text-wrap` above would reset that, and a label that renders a hair wider than
+   measured would break onto a line its box hides. */
+.wm-doc svg p {
+	text-wrap: inherit;
 }
 .wm-doc strong {
 	color: var(--doc-heading);
@@ -232,9 +238,12 @@
 	background-repeat: no-repeat;
 }
 
-/* Code reads character for character: no `=>` turning into an arrow in a font that ligates. */
+/* Code reads character for character: no `=>` turning into an arrow in a font that ligates. A
+   quote's italic and x-height sizing are for its own face, not code inside it. */
 .wm-doc :is(code, kbd, pre) {
 	font-variant-ligatures: none;
+	font-style: normal;
+	font-size-adjust: none;
 }
 .wm-doc :not(pre) > code {
 	padding: 0.12em 0.4em;
@@ -254,7 +263,7 @@
 }
 
 /* In the app and the PDF, fenced code is the code-block renderer's own panel (`.not-prose`); in
-   the HTML export it is a plain `pre`. */
+   the HTML export it is a plain `pre`, at any depth, since a list item or a quote can hold one. */
 .wm-doc > .not-prose {
 	margin: 1.5em 0;
 }
@@ -267,7 +276,7 @@
 	font-size: calc(var(--doc-size) * 0.82) !important;
 	line-height: 1.6 !important;
 }
-.wm-doc > pre {
+.wm-doc pre:not(.not-prose pre) {
 	margin: 1.5em 0;
 	padding: 1em 1.2em;
 	overflow-x: auto;
@@ -279,7 +288,7 @@
 	white-space: pre;
 }
 /* The browser's own `code { font-family: monospace }` would otherwise outrank the block's font. */
-.wm-doc > pre > code {
+.wm-doc pre:not(.not-prose pre) > code {
 	font: inherit;
 }
 
@@ -352,6 +361,17 @@
 	max-width: 100%;
 	height: auto;
 	border-radius: var(--doc-radius);
+}
+
+/* The HTML export's diagrams, on the panel the app draws them on. */
+.wm-doc .wm-diagram {
+	display: flex;
+	justify-content: center;
+	margin: 1.5em 0;
+	padding: 0.5rem;
+	overflow-x: auto;
+	border-radius: var(--doc-radius);
+	background: var(--doc-sunken);
 }
 
 .wm-doc details {
@@ -439,10 +459,10 @@
 	.wm-doc :is(h1, h2, h3, h4) {
 		break-after: avoid;
 	}
-	.wm-doc :is(pre, table, .markdown-alert, img) {
+	.wm-doc :is(pre, table, .markdown-alert, img, .wm-diagram) {
 		break-inside: avoid;
 	}
-	.wm-doc > pre {
+	.wm-doc pre:not(.not-prose pre) {
 		white-space: pre-wrap;
 	}
 }
