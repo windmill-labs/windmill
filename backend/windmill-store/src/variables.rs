@@ -800,14 +800,19 @@ pub async fn replace_variable_account(
     }
     let authed = maybe_refresh_folders(&path, &w_id, authed, db).await;
 
+    let mut tx = user_db.begin(&authed).await?;
+    // Locked before the secret is written, which an external backend does by path: a refresh of
+    // the old account writes there under the same lock, so it lands either before this token or
+    // not at all. Row-level security hides a variable the caller may not write.
     let old = sqlx::query!(
-        "SELECT value::text AS \"value!\", account FROM variable WHERE path = $1 AND workspace_id = $2",
+        "SELECT value::text AS \"value!\", account FROM variable
+         WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
         path,
         w_id
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut *tx)
     .await?
-    .ok_or_else(|| Error::NotFound(format!("Variable {path} not found")))?;
+    .ok_or_else(|| Error::NotAuthorized(format!("You cannot write the variable at {path}")))?;
     let old_ref = is_external_ref_value(&old.value).then_some(old.value.as_str());
     let value = secret_value_to_store(
         db,
@@ -822,10 +827,8 @@ pub async fn replace_variable_account(
     )
     .await?;
 
-    let mut tx = user_db.begin(&authed).await?;
     let account_id = insert_account(&mut tx, &w_id, account).await?;
-    // Row-level security decides whether the caller may write the variable.
-    let updated = sqlx::query!(
+    sqlx::query!(
         "UPDATE variable SET value = $3, account = $4, edited_by = $5, edited_at = now()
          WHERE workspace_id = $1 AND path = $2",
         w_id,
@@ -835,13 +838,7 @@ pub async fn replace_variable_account(
         authed.username,
     )
     .execute(&mut *tx)
-    .await?
-    .rows_affected();
-    if updated == 0 {
-        return Err(Error::NotAuthorized(format!(
-            "You cannot write the variable at {path}"
-        )));
-    }
+    .await?;
     audit_log(
         &mut *tx,
         &authed,
@@ -1429,6 +1426,18 @@ async fn update_variable(
         sqlb.set_str("path", npath);
         has_sql_updates = true;
     }
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
+    // A reconnect locks the row before writing the secret, so a refresh of the account it
+    // unlinks cannot land its token after this one (see `replace_variable_account`).
+    if ns.unlink_account {
+        sqlx::query_scalar!(
+            "SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+            path,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+    }
     let ns_value_is_none = ns.value.is_none();
     // Determine the target path for storing secrets (use new path if provided)
     let target_path = ns.path.as_deref().unwrap_or(path);
@@ -1502,8 +1511,6 @@ async fn update_variable(
         sqlb.set_str("is_secret", nbool);
         has_sql_updates = true;
     }
-
-    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     if let Some(npath) = ns.path.clone() {
         if npath != path {

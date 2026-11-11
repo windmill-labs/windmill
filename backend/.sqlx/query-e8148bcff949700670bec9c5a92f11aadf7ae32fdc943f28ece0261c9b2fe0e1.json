@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value::text AS \"value!\", account FROM variable WHERE path = $1 AND workspace_id = $2",
+  "query": "SELECT value::text AS \"value!\", account FROM variable\n         WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       true
     ]
   },
-  "hash": "f3ce582cc792ccbfc37ecdd1e31b91f91b9ec0bbeafc5de5982f7dc204ca9818"
+  "hash": "e8148bcff949700670bec9c5a92f11aadf7ae32fdc943f28ece0261c9b2fe0e1"
 }
