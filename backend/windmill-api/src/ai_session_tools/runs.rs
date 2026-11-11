@@ -1120,23 +1120,32 @@ fn agent_memory_id(args: &Value) -> Result<Option<&str>, String> {
 /// The agent a test runs, as `(configuration, description)`: the user's draft when there is
 /// one, else the deployed resource. Refuses a path holding some other kind of resource.
 async fn load_agent_for_test(ctx: &Ctx<'_>, path: &str) -> Result<(Value, Value), String> {
-    // Only an agent's draft is saved under the `agent` kind.
-    if let Some(draft) = get_draft(ctx, "agent", path).await? {
-        return Ok((
-            draft.value["args"].clone(),
-            draft.value["description"].clone(),
-        ));
-    }
-    let deployed = ctx
-        .get(&ctx.ws(&format!("resources/get/{}", path_enc(path))))
-        .await?;
-    let resource_type = deployed["resource_type"].as_str().unwrap_or_default();
+    let draft = get_draft(ctx, "resource", path).await?.map(|d| d.value);
+    // A draft records its type only when nothing is deployed at its path.
+    let (resource_type, config, description) = match draft {
+        Some(draft) if draft.get("resource_type").is_some() => (
+            draft["resource_type"].clone(),
+            draft["args"].clone(),
+            draft["description"].clone(),
+        ),
+        draft => {
+            let deployed = ctx
+                .get(&ctx.ws(&format!("resources/get/{}", path_enc(path))))
+                .await?;
+            let (config, description) = match draft {
+                Some(draft) => (draft["args"].clone(), draft["description"].clone()),
+                None => (deployed["value"].clone(), deployed["description"].clone()),
+            };
+            (deployed["resource_type"].clone(), config, description)
+        }
+    };
+    let resource_type = resource_type.as_str().unwrap_or_default();
     if resource_type != "ai_agent" {
         return Err(format!(
             "\"{path}\" is a {resource_type} resource, not an AI agent."
         ));
     }
-    Ok((deployed["value"].clone(), deployed["description"].clone()))
+    Ok((config, description))
 }
 
 fn agent_resolved(

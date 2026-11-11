@@ -65,8 +65,6 @@ export function foldedIntoPipelineRow(
 export function diffInMask(diff: WorkspaceItemDiff, mask: Set<string>): boolean {
 	const kind = forkDiffKindToUserDraftKind(diff.kind)
 	if (kind !== undefined && mask.has(maskKey(kind, diff.path))) return true
-	// A fork diff names an agent as the resource it is deployed as; its mask entry is `agent:`.
-	if (diff.kind === 'resource' && mask.has(maskKey('agent', diff.path))) return true
 	// Legacy drag-and-drop apps tally fork diffs under `app`, and an explicit
 	// `?items=` mask names them `app:<path>` (the same kind the drafts list uses).
 	// The bridged lookup above reads them as `raw_app` (kept for chat masks, which

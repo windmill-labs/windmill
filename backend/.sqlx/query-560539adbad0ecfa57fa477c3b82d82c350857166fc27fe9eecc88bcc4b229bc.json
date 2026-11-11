@@ -44,8 +44,7 @@
                 "trigger_google",
                 "trigger_github",
                 "data_pipeline",
-                "trigger_amqp",
-                "agent"
+                "trigger_amqp"
               ]
             }
           }

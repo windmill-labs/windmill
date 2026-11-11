@@ -69,7 +69,7 @@ export function agentDraftState(
 	path: string,
 	workspace: string | undefined
 ): AgentResourceState | undefined {
-	const live = UserDraft.get<AgentResourceState>('agent', path, { workspace })
+	const live = UserDraft.get<AgentResourceState>('resource', path, { workspace })
 	return live ?? (response.draft as AgentResourceState | undefined)
 }
 
@@ -87,7 +87,7 @@ export class AgentDraftUnavailable extends Error {}
  * reached yet. `flush` replays the parked save and is a no-op when there is none.
  */
 export async function settleAgentDraft(path: string, workspace: string): Promise<void> {
-	const query = { workspace, itemKind: 'agent' as const, path }
+	const query = { workspace, itemKind: 'resource' as const, path }
 	await UserDraftDbSyncer.flush(query)
 	// `flush` resolves whether or not the save actually landed: `postSave` catches network and
 	// server errors into its failure map, and answers a conflicting write by parking a snapshot,

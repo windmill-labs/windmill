@@ -137,13 +137,7 @@
 	)
 
 	const kindLabel = $derived(
-		itemKind === 'flow'
-			? 'flow'
-			: itemKind === 'app' || itemKind === 'raw_app'
-				? 'app'
-				: itemKind === 'agent'
-					? 'agent'
-					: 'script'
+		itemKind === 'flow' ? 'flow' : itemKind === 'app' || itemKind === 'raw_app' ? 'app' : 'script'
 	)
 
 	// "Only you can see this {kind}" — true when the authed user owns the

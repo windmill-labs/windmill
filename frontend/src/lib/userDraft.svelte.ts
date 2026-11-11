@@ -36,8 +36,7 @@ export const USER_DRAFT_ITEM_KINDS = [
 	'trigger_nextcloud',
 	'trigger_google',
 	'trigger_github',
-	'data_pipeline',
-	'agent'
+	'data_pipeline'
 ] as const satisfies readonly UserDraftItemKind[]
 
 // Reverse direction: every union member must appear in the array above.

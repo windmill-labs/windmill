@@ -155,7 +155,8 @@
 				? 'app'
 				: itemKind === 'data_pipeline'
 					? 'pipeline'
-					: itemKind === 'agent'
+					: // The agent editor is the only one showing this for a resource draft.
+						itemKind === 'resource'
 						? 'agent'
 						: 'script'
 	)

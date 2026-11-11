@@ -135,7 +135,7 @@ describe('deployDraft preserves on_behalf_of', () => {
 			draft: { path: 'f/support/triage_agent', args: { system_prompt: 'drafted' } }
 		} as any)
 
-		expect(await deployDraft('agent', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
+		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
 		expect(ResourceService.updateResource).toHaveBeenCalledWith(
 			expect.objectContaining({
 				requestBody: expect.objectContaining({

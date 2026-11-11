@@ -222,7 +222,6 @@ import {
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
 	itemKindFor,
-	itemKindsFor,
 	readLocalDraftCellByKind,
 	resolveGlobalDraftStoragePathByKind,
 	type DraftPersistResult
@@ -6237,8 +6236,7 @@ async function diffWorkspaceItem(
 	// its own storage path (live-editor mapping), and the listing resolves a
 	// friendly/renamed path to the row that owns it — a renamed classic app's
 	// cell lives at its ORIGINAL storage path, which only the listing knows.
-	const draftKinds: UserDraftItemKind[] =
-		type === 'app' ? ['raw_app', 'app'] : itemKindsFor(type, triggerKind)
+	const draftKinds: UserDraftItemKind[] = type === 'app' ? ['raw_app', 'app'] : [itemKind]
 	const flushQueries = draftKinds.map((kind) => ({
 		workspace,
 		itemKind: kind,
@@ -6335,8 +6333,7 @@ async function diffWorkspaceItem(
 			`The latest editor changes for ${type} "${path}" could not be saved and are not readable; retry once the editor saves.`
 		)
 	} else {
-		const listedKind = listedTarget?.kind ?? itemKind
-		const entry = await readWorkspaceDiffEntry(workspace, listedKind, storagePath)
+		const entry = await readWorkspaceDiffEntry(workspace, itemKind, storagePath)
 		if (entry) {
 			if (entry.status === 'error') {
 				throw new Error(`Could not diff ${type} "${path}": ${entry.errorMessage}`)
@@ -6353,7 +6350,7 @@ async function diffWorkspaceItem(
 			// nothing at the path, or a listing/overlay disagreement; ask the overlay.
 			let values: Awaited<ReturnType<typeof getDraftDiffValues>>
 			try {
-				values = await getDraftDiffValues(listedKind, storagePath, workspace)
+				values = await getDraftDiffValues(itemKind, storagePath, workspace)
 			} catch (e) {
 				if ((e as { status?: number } | null | undefined)?.status === 404) {
 					throw new Error(
@@ -7023,8 +7020,6 @@ async function deployDraft(
 	// Appended to the success message when the deploy deliberately left something alone,
 	// so "deployed" is never read as "everything in the draft was applied".
 	let deployNote: string | undefined
-	// A resource that is an agent, whose draft and mask entry are under the `agent` kind.
-	let isAgent = false
 
 	if (type === 'script' || type === 'flow') {
 		// Promote the full persisted draft via the shared deploy module — the same
@@ -7098,17 +7093,22 @@ async function deployDraft(
 				break
 			}
 			case 'resource': {
-				const requestBody = draft.value as any
-				// An agent's draft is read with its type (`resourceDraftToWorkspaceItem`).
-				isAgent = requestBody.resource_type === 'ai_agent'
+				let requestBody = draft.value as any
+				let isAgent = requestBody.resource_type === 'ai_agent'
 				if (await ResourceService.existsResource({ workspace, path })) {
-					await ResourceService.updateResource({
-						workspace,
-						path,
-						// The identity is the deployed one, never the draft's: keep it, for whoever the
-						// server lets keep it.
-						requestBody: isAgent ? { ...requestBody, preserve_on_behalf_of: true } : requestBody
-					})
+					// The server resets an agent's identity to whoever deploys, unless told to keep
+					// it: the identity is the deployed one, never the draft's.
+					const deployed = await ResourceService.getResource({ workspace, path })
+					const obo = (deployed.value as any)?.on_behalf_of
+					isAgent = deployed.resource_type === 'ai_agent'
+					if (isAgent && obo) {
+						requestBody = {
+							...requestBody,
+							value: { ...requestBody.value, on_behalf_of: obo },
+							preserve_on_behalf_of: true
+						}
+					}
+					await ResourceService.updateResource({ workspace, path, requestBody })
 				} else {
 					await ResourceService.createResource({ workspace, requestBody })
 				}
@@ -7335,7 +7335,7 @@ async function deployDraft(
 	// Move the chat's mask entry to the deployed path: a draft-only item's
 	// synthetic storage key never exists deployed, so the entry would otherwise
 	// stop matching anything after the draft is gone.
-	const deployedKind = isAgent ? 'agent' : itemKindFor(type, triggerKind)
+	const deployedKind = itemKindFor(type, triggerKind)
 	const draftStoragePath = getGlobalDraftStoragePath(workspace, type, path, triggerKind)
 	if (deployedKind) {
 		toolCallbacks.onItemDeployed?.(deployedKind, draftStoragePath, deployedPath)

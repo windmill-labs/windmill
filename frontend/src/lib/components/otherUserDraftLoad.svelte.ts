@@ -61,8 +61,6 @@ export function editRouteFor(itemKind: UserDraftItemKind, path: string): string 
 			return `/apps/edit/${path}`
 		case 'raw_app':
 			return `/apps_raw/edit/${path}`
-		case 'agent':
-			return `/agents/edit/${path}`
 		default:
 			throw new Error(`Cannot load drafts of kind ${itemKind}`)
 	}

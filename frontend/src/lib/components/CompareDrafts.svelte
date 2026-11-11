@@ -116,6 +116,7 @@
 		draft_only: boolean
 		legacy_draft: boolean
 		raw_app: boolean
+		resource_type?: string
 		key: string
 		can_write: boolean
 		draft_users?: { username?: string | null }[]
@@ -135,8 +136,6 @@
 	// Trigger kinds swap the prefix to a suffix; kinds the layout doesn't
 	// know (webhook, native triggers) borrow the generic 'trigger' icon.
 	function toLayoutKind(kind: DraftItem['kind']): LayoutKind {
-		// An agent is deployed as a resource; `isAgent` gives its row the agent icon.
-		if (kind === 'agent') return 'resource'
 		if (kind === 'trigger_schedule') return 'schedule'
 		if (kind === 'trigger_default_email') return 'email_trigger'
 		if (kind.startsWith('trigger_')) {
@@ -275,12 +274,15 @@
 		>
 	>({})
 
+	const isAgentDraft = (item: Row) =>
+		item.draftKind === 'resource' && item.resource_type === 'ai_agent'
+
 	async function fetchDraftSummary(item: Row) {
 		if (summaryCache[item.key]) return
 		summaryCache[item.key] = { loading: true }
 		try {
 			// An agent's summary is its resource's description.
-			if (item.draftKind === 'agent') {
+			if (isAgentDraft(item)) {
 				const r = await ResourceService.getResource({
 					workspace: currentWorkspaceId,
 					path: item.path,
@@ -330,7 +332,9 @@
 				if (
 					item.mine &&
 					!item.draft_only &&
-					(['script', 'flow', 'app', 'agent'].includes(item.draftKind) || item.raw_app) &&
+					(['script', 'flow', 'app'].includes(item.draftKind) ||
+						item.raw_app ||
+						isAgentDraft(item)) &&
 					!summaryCache[item.key]
 				) {
 					void fetchDraftSummary(item)
@@ -657,7 +661,7 @@
 				? `/pipeline/${encodeURIComponent(folder)}?workspace=${encodeURIComponent(currentWorkspaceId)}`
 				: undefined
 		}
-		if (d.draftKind === 'agent') {
+		if (isAgentDraft(d)) {
 			return `/agents/edit/${d.path}?workspace=${encodeURIComponent(currentWorkspaceId)}`
 		}
 		const listPage = LIST_PAGE_FOR_KIND[d.draftKind]
@@ -717,7 +721,7 @@
 			{deploymentStatus}
 			{allSelected}
 			selectablePredicate={(item) => isDiscardable(item as unknown as Row)}
-			isAgent={(item) => (item as unknown as Row).draftKind === 'agent'}
+			isAgent={(item) => isAgentDraft(item as unknown as Row)}
 			selectBlockedReason={(item) => blockedReason(item as unknown as Row)}
 			onToggleItem={toggleItem}
 			onSelectAll={selectAll}
@@ -808,7 +812,7 @@
 
 			{#snippet itemPath(item)}
 				{@const draftItem = item as unknown as Row}
-				{#if draftItem.draftKind === 'resource' || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
+				{#if (draftItem.kind === 'resource' && !isAgentDraft(draftItem)) || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
 					<!-- drawer-only items show their path as the title; keep this line empty -->
 				{:else if !draftItem.draft_only && draftItem.draft_path && draftItem.draft_path !== draftItem.path}
 					<!-- Path rename: a *deployed* item's draft moves it to a new path. Strike
@@ -827,7 +831,7 @@
 				{@const others = otherDraftUsers(draftItem)}
 				<div class="flex items-center gap-1">
 					<Badge color="gray" size="xs">
-						{kindLabel(draftItem.draftKind)}
+						{isAgentDraft(draftItem) ? 'agent' : kindLabel(draftItem.draftKind)}
 					</Badge>
 					<DraftBadge
 						is_draft={true}

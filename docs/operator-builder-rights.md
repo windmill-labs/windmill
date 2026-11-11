@@ -80,10 +80,10 @@ agent's own runs, which take only inputs and run what is stored, and in every fl
 it. So `validate_operator_agent` holds an operator's agent to the composed-flow rules by checking
 its tools as the tools of a one-step flow. It is called from `resolve_agent_on_behalf_of`, which
 every write of an agent's value passes through: create, update, retype, update-value and version
-restore. An operator's `agent` draft is checked the same way. `update_draft` saves a draft as an
-`agent` draft exactly when an agent is deployed at its path, or, with nothing deployed there, when it
-names `ai_agent`, and refuses the other kind, so no draft of an agent escapes the check. A draft
-saved before an agent is created at its path is not re-checked when someone else deploys it. A new route that writes an agent's value must go through
+restore. An operator's resource draft is checked the same way when it names `ai_agent` **or** an
+agent is deployed at its path, whatever type the draft names: deploying a draft from the resource
+editor keeps the row's type. A draft saved before an agent is created at its path is not
+re-checked when someone else deploys it. A new route that writes an agent's value must go through
 that function.
 
 The same reasoning applies to a builder-authored app, with one extra step. `execute_component`

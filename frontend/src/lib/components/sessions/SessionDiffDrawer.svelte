@@ -21,7 +21,8 @@
 		onItemDeployed,
 		onItemDiscarded,
 		deployPipeline,
-		readOnly = false
+		readOnly = false,
+		agentPaths
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
@@ -42,6 +43,8 @@
 		deployPipeline?: (folder: string) => Promise<DeployResult>
 		/** Forwarded to the deploy model: the session is in Use. */
 		readOnly?: boolean
+		/** Resource rows that are agents, which get the agent's icon and editor. */
+		agentPaths?: Set<string>
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -74,7 +77,8 @@
 		return undefined
 	}
 
-	const isAgent = (item: DeployItem) => item.draftKind === 'agent'
+	const isAgent = (item: DeployItem) =>
+		item.agent || (item.deployKind === 'resource' && (agentPaths?.has(item.path) ?? false))
 
 	const title = 'Edited during session'
 

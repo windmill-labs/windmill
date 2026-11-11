@@ -35,9 +35,7 @@ const DEPLOY_KIND_BY_DRAFT_KIND: Partial<Record<UserDraftItemKind, Kind>> = {
 	// speaks `trigger_default_email`.
 	trigger_default_email: 'email_trigger',
 	trigger_email: 'email_trigger',
-	raw_app: 'raw_app',
-	// Deployed as a resource; its draft kind is what tells the rows it is an agent.
-	agent: 'resource'
+	raw_app: 'raw_app'
 }
 
 function deployKindOf(draftKind: UserDraftItemKind, rawApp: boolean): Kind {
@@ -69,6 +67,8 @@ export interface DeployItem {
 	/** Legacy workspace-level draft (drives discard's `legacy` flag). */
 	legacy: boolean
 	rawApp: boolean
+	/** A resource draft that is an AI agent's; unknown for a row with no draft. */
+	agent?: boolean
 }
 
 export interface BuildInput {
@@ -114,7 +114,8 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 			mine: it.mine,
 			canWrite: it.can_write,
 			legacy: it.legacy_draft,
-			rawApp: it.raw_app
+			rawApp: it.raw_app,
+			agent: it.kind === 'resource' && it.resource_type === 'ai_agent'
 		})
 	}
 

@@ -157,7 +157,7 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 
 	/** An `ai_agent` gets the agent editor rather than the generic resource form, which would
-	 *  render its configuration as raw JSON. Both write the same `agent` draft, so the choice is
+	 *  render its configuration as raw JSON. Both write the same resource draft, so the choice is
 	 *  presentational and either can open a path the other left a draft at. */
 	function openResourceEditor(path: string, resourceType: string | undefined) {
 		if (hosted) {
@@ -1253,11 +1253,7 @@
 								{#if filteredItems}
 									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, scopes, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
-											getLocalDraftHint(
-												$operatingWorkspace,
-												resource_type === 'ai_agent' ? 'agent' : 'resource',
-												path
-											) ?? is_draft}
+											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
 										{@const canWrite =
 											editRights.canEditItem('resource', path, extra_perms) &&
 											workspace_id == $operatingWorkspace}

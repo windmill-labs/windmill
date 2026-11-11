@@ -9,8 +9,8 @@ use serde_json::{json, Map, Value};
 use super::flows::drop_stale_step_locks;
 use super::workspace::{
     api_message, app_source_to_draft_value, delete_draft, deployed_execution_mode,
-    deployed_item_exists, draft_kind, draft_kinds, draft_page, get_deployed, get_draft_item,
-    item_exists, item_type_arg, path_enc, service, unified_patch, ITEM_TYPES, TRIGGER_KINDS,
+    deployed_item_exists, draft_kind, draft_page, get_deployed, get_draft_item, item_exists,
+    item_type_arg, path_enc, service, unified_patch, ITEM_TYPES, TRIGGER_KINDS,
 };
 use super::{
     array, bool_arg, enc, is_not_found, js_str, matches_glob, non_null, opt_str_arg, pretty,
@@ -537,6 +537,7 @@ async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         return Err("trigger_kind is required when deploying a trigger.".to_string());
     }
     let no_draft = || format!("No draft found for {item_type} \"{path}\".");
+    let kind = draft_kind(item_type, trigger_kind).ok_or_else(no_draft)?;
     let (item, draft) = get_draft_item(ctx, item_type, path, trigger_kind)
         .await?
         .ok_or_else(no_draft)?;
@@ -590,7 +591,7 @@ async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     }
 
     // The baseline keeps a draft saved since the read above from being deleted undeployed.
-    delete_draft(ctx, &draft.kind, path, draft.created_at.as_deref(), true).await?;
+    delete_draft(ctx, &kind, path, draft.created_at.as_deref(), true).await?;
 
     let note = note.map(|note| format!(" {note}")).unwrap_or_default();
     Ok(mutation_result(
@@ -652,7 +653,7 @@ async fn delete_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         )))
         .await?;
     }
-    for kind in draft_kinds(item_type, trigger_kind) {
+    if let Some(kind) = draft_kind(item_type, trigger_kind) {
         delete_draft(ctx, &kind, path, None, false).await?;
     }
     ctx.status_after_save(format!("Deleted {item_type} \"{path}\""), Some("Deleted"));
@@ -1243,23 +1244,18 @@ fn canonical_drawer_value(kind: &str, raw: &Value, is_draft: bool) -> Value {
             out.insert("is_secret".into(), json!(is_secret));
             out.insert("description".into(), or_empty(variable.get("description")));
         }
-        "resource" | "agent" => {
+        "resource" => {
             let key = if is_draft { "args" } else { "value" };
             let mut value = non_null(raw.get(key)).cloned().unwrap_or(json!({}));
-            let agent = kind == "agent"
-                || raw.get("resource_type").and_then(Value::as_str) == Some("ai_agent");
             // An agent's identity is in its deployed value and never in a draft: not an edit.
-            if agent {
+            if raw.get("resource_type").and_then(Value::as_str) == Some("ai_agent") {
                 if let Some(value) = value.as_object_mut() {
                     value.shift_remove("on_behalf_of");
                 }
             }
             out.insert("value".into(), value);
             out.insert("description".into(), or_empty(raw.get("description")));
-            // The agent editor's draft of a deployed agent names no type.
-            if agent {
-                out.insert("resource_type".into(), json!("ai_agent"));
-            } else if let Some(resource_type) = non_null(raw.get("resource_type")) {
+            if let Some(resource_type) = non_null(raw.get("resource_type")) {
                 out.insert("resource_type".into(), resource_type.clone());
             }
         }
@@ -1288,7 +1284,7 @@ async fn draft_sides(ctx: &Ctx<'_>, kind: &str, path: &str) -> Result<DraftSides
             kind == "raw_app"
         ),
         "variable" => format!("variables/get/{path_in_url}?decrypt_secret=false&get_draft=true"),
-        "resource" | "agent" => format!("resources/get/{path_in_url}?get_draft=true"),
+        "resource" => format!("resources/get/{path_in_url}?get_draft=true"),
         "trigger_schedule" => format!("schedules/get/{path_in_url}?get_draft=true"),
         _ => {
             let trigger_kind = kind
@@ -1405,7 +1401,7 @@ fn addressing_of(kind: &str) -> Option<(&'static str, Option<&'static str>)> {
     Some(match kind {
         "script" => ("script", None),
         "flow" => ("flow", None),
-        "resource" | "agent" => ("resource", None),
+        "resource" => ("resource", None),
         "variable" => ("variable", None),
         "app" | "raw_app" => ("app", None),
         "trigger_schedule" => ("schedule", None),
@@ -1566,27 +1562,27 @@ async fn diff_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     if !ITEM_TYPES.contains(&item_type) {
         return Err(format!("Invalid type \"{item_type}\""));
     }
-    let trigger_kind = opt_str_arg(args, "trigger_kind");
-    let kind = draft_kind(item_type, trigger_kind)
+    let kind = draft_kind(item_type, opt_str_arg(args, "trigger_kind"))
         .ok_or("trigger_kind is required when type is trigger.")?;
     let file = opt_str_arg(args, "file");
     let offset = uint_arg(args, "offset").unwrap_or(0);
     let limit = uint_arg(args, "limit").unwrap_or(DIFF_READ_DEFAULT_LINES);
 
     // The listing is what knows a draft parked under a synthetic key by the name staged
-    // for it, and which of an item's draft kinds a draft at this path is.
-    let kinds = if item_type == "app" {
-        vec!["raw_app".to_string(), "app".to_string()]
+    // for it, and which of the two app kinds a draft at this path is.
+    let kinds: &[&str] = if item_type == "app" {
+        &["raw_app", "app"]
     } else {
-        draft_kinds(item_type, trigger_kind)
+        &[kind.as_str()]
     };
     let (rows, _) = list_draft_rows(ctx).await?;
     let listed = kinds
         .iter()
         .find_map(|kind| rows.iter().find(|r| r.kind == *kind && r.path == path))
         .or_else(|| {
-            rows.iter()
-                .find(|r| kinds.contains(&r.kind) && (r.display_path == path || r.path == path))
+            rows.iter().find(|r| {
+                kinds.contains(&r.kind.as_str()) && (r.display_path == path || r.path == path)
+            })
         });
 
     let mut caveat = "";

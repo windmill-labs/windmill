@@ -56,6 +56,10 @@ pub struct DraftListItem {
     /// home-page list endpoints.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_path: Option<String>,
+    /// A `resource` draft's type: the deployed row's, which a deploy keeps, else the one the
+    /// draft names. Tells an agent's draft apart without reading each one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_type: Option<String>,
     /// No deployed counterpart exists at this path — the draft is the whole
     /// item. Kinds without a per-path backing table report `true`.
     pub draft_only: bool,
@@ -64,10 +68,10 @@ pub struct DraftListItem {
     /// row exists at this (path, kind) — the DISTINCT ON prefers an owned row.
     pub legacy_draft: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    /// All draft authors at this `(path, kind)`, for the kinds that share drafts
-    /// across users (`shares_drafts_across_users`) only — feeds the
-    /// home-page-style owner circles on the review page. `None` for drawer
-    /// kinds, which keep their drafts private.
+    /// All draft authors at this `(path, kind)`, for the shared full-page-editor
+    /// kinds (script/flow/app/raw_app) only — feeds the home-page-style owner
+    /// circles on the review page. `None` for drawer kinds, which keep their
+    /// drafts private.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_users: Option<sqlx::types::Json<Vec<DraftUserRef>>>,
     /// Whether the authed user may deploy/discard this draft — the same check
@@ -224,14 +228,7 @@ fn list_drafts_query(all_users: bool) -> String {
     // A null username means the legacy row downstream, so an owner that resolves to
     // no name at all — an external JWT's subject has neither row — is dropped rather
     // than surfaced as a second legacy entry.
-    let shared_kinds = UserDraftItemKind::ALL
-        .iter()
-        .filter(|k| k.shares_drafts_across_users())
-        .map(|k| format!("'{}'", k.as_str()))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let draft_users = format!(
-        r#"CASE WHEN d.typ::text IN ({shared_kinds}) THEN (
+    let draft_users = r#"CASE WHEN d.typ::text IN ('script', 'flow', 'app', 'raw_app') THEN (
                       SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN du.email END))
                                       ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN du.email END) NULLS LAST)
                       FROM draft du
@@ -239,8 +236,7 @@ fn list_drafts_query(all_users: bool) -> String {
                       LEFT JOIN password p ON p.email = du.email AND p.super_admin = true
                       WHERE du.workspace_id = d.workspace_id AND du.path = d.path AND du.typ = d.typ
                         AND (du.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)
-                    ) ELSE NULL END"#
-    );
+                    ) ELSE NULL END"#;
     // Default lists the user's own drafts AND the legacy NULL-email rows; with
     // `all_users` the filter is dropped to list every workspace draft.
     let owner_filter = if all_users {
@@ -257,20 +253,20 @@ fn list_drafts_query(all_users: bool) -> String {
                   d.path,
                   d.typ AS kind,
                   d.created_at,
-                  -- An agent's draft carries the resource's `description`.
-                  CASE WHEN d.typ::text = 'agent'
+                  -- An agent's summary is its resource's description.
+                  CASE WHEN rt.resource_type = 'ai_agent'
                        THEN d.value ->> 'description'
                        ELSE d.value ->> 'summary' END AS summary,
+                  rt.resource_type,
                   {draft_users} AS draft_users,
                   -- Friendly typed path, by kind (mirrors the home-page list
                   -- endpoints): scripts and agents bind the Path widget to the
-                  -- item's own `path`, so it round-trips through the draft
-                  -- JSON's `path`; flows/apps/raw-apps carry a separate
-                  -- `draft_path`. NULLIF drops it when empty or equal to the
-                  -- storage path.
+                  -- item's own `path`, so it round-trips through the draft JSON's `path`;
+                  -- flows/apps/raw-apps carry a separate `draft_path`. NULLIF
+                  -- drops it when empty or equal to the storage path.
                   NULLIF(
                     NULLIF(
-                      CASE WHEN d.typ::text IN ('script', 'agent')
+                      CASE WHEN d.typ::text = 'script' OR rt.resource_type = 'ai_agent'
                            THEN d.value ->> 'path'
                            ELSE d.value ->> 'draft_path' END,
                       ''),
@@ -291,6 +287,13 @@ fn list_drafts_query(all_users: bool) -> String {
                        )
                   END AS unchanged_from_parent
            FROM draft d
+           LEFT JOIN LATERAL (
+             SELECT COALESCE(
+               (SELECT r.resource_type FROM resource r
+                WHERE r.workspace_id = d.workspace_id AND r.path = d.path),
+               d.value ->> 'resource_type') AS resource_type
+             WHERE d.typ = 'resource'
+           ) rt ON true
            WHERE d.workspace_id = $1{owner_filter}
            ORDER BY d.path, d.typ,
                     CASE WHEN d.email = $2 THEN 0 WHEN d.email IS NULL THEN 1 ELSE 2 END"#
@@ -511,7 +514,9 @@ async fn update_draft(
         }
     }
 
-    if matches!(kind, UserDraftItemKind::Resource | UserDraftItemKind::Agent) {
+    // An agent draft is held to the rules of its deploy, as a flow draft is: a developer who
+    // tests it in the agent editor runs its tools as themselves.
+    if caps.flows != AuthorLevel::Full && kind == UserDraftItemKind::Resource {
         if let Some(value) = &req.value {
             #[derive(Deserialize)]
             struct ResourceDraft {
@@ -521,29 +526,17 @@ async fn update_draft(
             }
             let draft: ResourceDraft = serde_json::from_str(&strip_json_nul(value.0.get()))
                 .map_err(|e| Error::BadRequest(format!("Invalid resource draft: {e}")))?;
-            // Whatever type the draft names, deploying it over a deployed row keeps the row's type.
-            let deployed_type = sqlx::query_scalar!(
-                "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
-                &w_id,
-                path,
-            )
-            .fetch_optional(&db)
-            .await?;
-            // Every reader of an agent's draft asks for the `agent` kind, so a draft of the other
-            // kind would be a second draft of the same item that nothing shows or deploys.
-            if let Some(rt) = deployed_type.as_deref().or(draft.resource_type.as_deref()) {
-                let expected = UserDraftItemKind::for_resource_type(rt);
-                if expected != kind {
-                    return Err(Error::BadRequest(if expected == UserDraftItemKind::Agent {
-                        format!("'{path}' is an AI agent: save its draft as an `agent` draft")
-                    } else {
-                        format!("'{path}' is a resource of type {rt}, not an AI agent: save its draft as a `resource` draft")
-                    }));
-                }
-            }
-            // An agent draft is held to the rules of its deploy, as a flow draft is: a developer
-            // who tests it in the agent editor runs its tools as themselves.
-            if kind == UserDraftItemKind::Agent && caps.flows != AuthorLevel::Full {
+            // Whatever type the draft names, deploying it over a deployed agent keeps the row's type.
+            let is_agent = draft.resource_type.as_deref() == Some("ai_agent")
+                || sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent')",
+                    &w_id,
+                    path,
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false);
+            if is_agent {
                 let mut tx = user_db.clone().begin(&authed).await?;
                 windmill_api_auth::composed::validate_operator_agent(
                     &draft.args,

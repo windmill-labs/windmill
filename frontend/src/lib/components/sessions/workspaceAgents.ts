@@ -18,7 +18,7 @@ export async function listWorkspaceAgents(workspace: string): Promise<WorkspaceA
 			return []
 		})
 	])
-	const agentDrafts = drafts.filter((d) => d.kind === 'agent')
+	const agentDrafts = drafts.filter((d) => d.kind === 'resource' && d.resource_type === 'ai_agent')
 	const drafted = new Set(agentDrafts.map((d) => d.path))
 	return [
 		...deployed.map((r) => ({

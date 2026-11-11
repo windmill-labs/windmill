@@ -55,8 +55,7 @@ const ITEM_KINDS = [
 	'trigger_nextcloud',
 	'trigger_google',
 	'trigger_github',
-	'data_pipeline',
-	'agent'
+	'data_pipeline'
 ] as const satisfies readonly UserDraftItemKind[]
 
 type _Exhaustive =

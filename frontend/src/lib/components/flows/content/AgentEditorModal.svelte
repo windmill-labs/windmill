@@ -147,10 +147,10 @@
 			page: () => `${RESOURCES_PATH}#/resource/${path}`,
 			workspaceId: workspace,
 			beforeOpen: async () => {
-				await persistDraftForSession(workspace, 'agent', path)
+				await persistDraftForSession(workspace, 'resource', path)
 				// A new agent has no draft row until an edit autosaves one, and the session reads the
 				// agent from the server. Only for one never deployed, which has no baseline to skip.
-				if (draftOnly) await UserDraft.forcePersist('agent', path, { workspace })
+				if (draftOnly) await UserDraft.forcePersist('resource', path, { workspace })
 			}
 		}
 	})
@@ -215,7 +215,7 @@
 	// on. Unset until the load answers, and for a reader who cannot write the agent.
 	let draftQuery = $derived(
 		ws && target?.path && draft && !draft.loading && !refused && !readOnly
-			? { workspace: ws, itemKind: 'agent' as const, path: target.path }
+			? { workspace: ws, itemKind: 'resource' as const, path: target.path }
 			: undefined
 	)
 	let othersModalOpen = $state(false)
@@ -719,7 +719,7 @@
 				{#if draftQuery && draft}
 					<AutosaveIndicator
 						workspace={draftQuery.workspace}
-						itemKind="agent"
+						itemKind="resource"
 						path={draftQuery.path}
 						{draftOnly}
 						onResetToDeployed={resetToDeployed}
