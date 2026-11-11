@@ -1590,7 +1590,7 @@
 									badge={authCodeBadge}
 								/>
 								{#snippet authCodeBadge()}
-									<span class="text-2xs text-hint font-normal">Authorization code</span>
+									<span class="text-2xs text-secondary font-normal">Authorization code</span>
 									{#if signInNeedsInstanceClient}
 										<Badge verySmall class="px-2">Instance setup needed</Badge>
 									{/if}
@@ -1607,7 +1607,7 @@
 									badge={clientCredentialsBadge}
 								/>
 								{#snippet clientCredentialsBadge()}
-									<span class="text-2xs text-hint font-normal">Client credentials</span>
+									<span class="text-2xs text-secondary font-normal">Client credentials</span>
 								{/snippet}
 							</div>
 						{/if}

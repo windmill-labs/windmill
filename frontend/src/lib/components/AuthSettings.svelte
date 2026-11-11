@@ -29,6 +29,7 @@
 	import oauthConnectRegistry from '$oauth_connect_registry'
 	import { hasExplicitUrls, normalizeInstanceInput, templatedConnectConfig } from './oauthRegistry'
 	import { OauthService } from '$lib/gen'
+	import { resourceTypeDisplayName } from './resourceTypeDisplay'
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
@@ -543,6 +544,7 @@
 							: k}
 						{@const custom = !windmillBuiltins.includes(k)}
 						{@const lastGrant = grants(k).length === 1 ? grants(k)[0] : undefined}
+						{@const providerName = resourceTypeDisplayName(k)}
 						<div class="flex flex-col gap-2 pb-6">
 							<div class="flex flex-row items-center gap-2">
 								<IconComponent size={24} width="24" height="24" class="shrink-0" />
@@ -608,49 +610,53 @@
 												disabled={lastGrant === 'authorization_code'}
 												on:change={(e) => setGrant(k, 'authorization_code', e.detail)}
 											/>
-											<span class="text-2xs text-hint"
-												>Each user authorizes {k} with their own account. The connection acts as them.</span
+											<span class="text-2xs text-secondary"
+												>Each user authorizes {providerName} with their own account. The connection acts
+												as them.</span
 											>
 										</div>
 									{/if}
-									{#if custom}
+									{#if custom || registryCcCapable(k)}
 										<div class="flex flex-col gap-1">
-											<Toggle
-												size="xs"
-												options={{ right: 'Client credentials' }}
-												checked={grants(k).includes('client_credentials')}
-												disabled={lastGrant === 'client_credentials'}
-												on:change={(e) => setServerToServer(k, e.detail)}
-											/>
-											<span class="text-2xs text-hint"
-												>The connection authenticates with a client ID and secret at the token URL
-												below and acts as the app's service account.</span
-											>
-										</div>
-									{/if}
-									{#if registryCcCapable(k) || (custom && grants(k).includes('client_credentials'))}
-										<div class="flex flex-col gap-1">
-											<Toggle
-												size="xs"
-												options={{ right: "Share this app's service account" }}
-												checked={sharesCc(k)}
-												on:change={(e) => setSharesCc(k, e.detail)}
-											/>
-											{#if sharesCc(k) && !(oauths[k]['id'] && oauths[k]['secret'])}
-												<span class="text-2xs text-hint"
-													>Fill the client ID and secret to share them.</span
-												>
-											{:else if sharesCc(k)}
-												<Alert type="warning" title="Anyone can act as this app" size="xs">
-													Any user with write access in any workspace can create a resource that
-													acts as this app's client ID, without seeing its secret.
-												</Alert>
+											{#if custom}
+												<Toggle
+													size="xs"
+													options={{ right: 'Client credentials' }}
+													checked={grants(k).includes('client_credentials')}
+													disabled={lastGrant === 'client_credentials'}
+													on:change={(e) => setServerToServer(k, e.detail)}
+												/>
 											{:else}
-												<span class="text-2xs text-hint"
-													>Client credentials connections use the user's own client ID and secret.</span
-												>
+												<span class="text-xs text-primary">Client credentials</span>
 											{/if}
+											<span class="text-2xs text-secondary"
+												>The connection sends a client ID and secret to {providerName}'s token URL
+												and acts as that app, not as a user. Users can always connect with their own
+												client ID and secret.</span
+											>
 										</div>
+										{#if registryCcCapable(k) || grants(k).includes('client_credentials')}
+											<div class="flex flex-col gap-1 pl-4 border-l">
+												<Toggle
+													size="xs"
+													options={{
+														right: "Let users connect with this instance's client ID and secret"
+													}}
+													checked={sharesCc(k)}
+													on:change={(e) => setSharesCc(k, e.detail)}
+												/>
+												{#if sharesCc(k) && !(oauths[k]['id'] && oauths[k]['secret'])}
+													<span class="text-2xs text-secondary"
+														>Fill the client ID and secret above to offer them.</span
+													>
+												{:else if sharesCc(k)}
+													<Alert type="warning" title="Anyone can act as this app" size="xs">
+														Any user with write access in any workspace can create a resource that
+														acts as this app's client ID, without seeing its secret.
+													</Alert>
+												{/if}
+											</div>
+										{/if}
 									{/if}
 								</div>
 								{#if k === 'azure_oauth'}
@@ -688,8 +694,8 @@
 										>
 											Test client credentials
 										</Button>
-										<span class="text-2xs text-hint"
-											>Requests a token from {k} with this client ID and secret.</span
+										<span class="text-2xs text-secondary"
+											>Requests a token from {providerName} with this client ID and secret.</span
 										>
 									</div>
 								{/if}
