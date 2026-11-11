@@ -503,9 +503,10 @@ export class SessionArtifactsStore {
 		const savedAs = sent?.outcome === 'saved' ? sent.version : undefined
 		let overtaken: PersistedArtifact | undefined
 		const { outcome, artifact } = await mutateArtifact(id, (existing) => {
-			// As in `update`. Without `prior` no plan was there to make this one on, and it
-			// revises whatever another tab put in the slot meanwhile.
-			if (prior && existing && currentVersion(existing) > base) {
+			// As in `update`. Without `prior` no plan was there to make this one on, so one another
+			// tab created since is refused too: stored over it unread, this proposal would pass for
+			// one made on it, which the server then takes it as. A deleted plan gets its slot back.
+			if (existing && (prior ? currentVersion(existing) > base : isLive(existing))) {
 				overtaken = existing
 				return undefined
 			}

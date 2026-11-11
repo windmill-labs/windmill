@@ -426,6 +426,23 @@ describe('SessionArtifactsStore', () => {
 		expect(versions).toEqual([2, 1])
 	})
 
+	it('stores only the first of two first proposals two tabs make at once', async () => {
+		// The second never read the plan the first created.
+		const other = new (await import('./artifactsState.svelte')).SessionArtifactsStore()
+		await store.setSession('s1')
+
+		const results = await Promise.allSettled([
+			store.savePlan('s1', { name: 'Plan', content: 'from A', note: 'A' }, undefined),
+			other.savePlan('s1', { name: 'Plan', content: 'from B', note: 'B' }, undefined)
+		])
+
+		expect(results.filter((r) => r.status === 'rejected')).toMatchObject([
+			{ reason: { name: 'ArtifactStaleError', latest: 1, caughtUp: true } }
+		])
+		const versions = (await store.listVersions(dbMod.planArtifactId('s1'))).map((v) => v.version)
+		expect(versions).toEqual([1])
+	})
+
 	it('an approval racing a newer proposal moves the pointer without reverting content', async () => {
 		// approve() must patch, never rewrite: an approval computed while another tab was
 		// revising would otherwise carry this tab's older text back over the newer one.
