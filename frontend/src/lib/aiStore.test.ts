@@ -1,16 +1,53 @@
 import { describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 
-// aiStore pulls in the (heavy) copilot lib for workspaceAIClients and the gen
-// client for WorkspaceService; neither is exercised by setCopilotInfo.
+let requests: { workspace: string; resolve: (config: any) => void }[] = []
+
+// aiStore pulls in the (heavy) copilot lib for workspaceAIClients; setCopilotInfo does not
+// exercise it.
 vi.mock('./components/copilot/lib', () => ({
 	workspaceAIClients: { init: () => {} }
 }))
 vi.mock('./gen', () => ({
-	WorkspaceService: { getCopilotInfo: async () => ({}) }
+	WorkspaceService: {
+		getCopilotInfo: ({ workspace }: { workspace: string }) =>
+			new Promise((resolve) => requests.push({ workspace, resolve }))
+	}
 }))
 
-import { isWebSearchEnabledForProvider, setCopilotInfo, copilotInfo } from './aiStore'
+import {
+	isWebSearchEnabledForProvider,
+	setCopilotInfo,
+	copilotInfo,
+	getWorkspaceCopilotInfo,
+	invalidateWorkspaceCopilotInfo,
+	loadWorkspaceCopilotInfo
+} from './aiStore'
+
+const withModel = (model: string) => ({
+	providers: { anthropic: { resource_path: 'u/admin/anthropic', models: [model] } }
+})
+const modelOf = (info: { aiModels: { model: string }[] } | undefined) => info?.aiModels[0]?.model
+
+// A config saved, or one every workspace inherits, while a session's load is in flight: the load
+// read the config from before the save and must not keep it.
+describe.each([
+	['its workspace', () => invalidateWorkspaceCopilotInfo('ws')],
+	['every workspace', () => invalidateWorkspaceCopilotInfo()]
+])('loadWorkspaceCopilotInfo invalidated for %s mid-fetch', (_, invalidate) => {
+	it('refetches instead of keeping the outdated config', async () => {
+		requests = []
+		invalidateWorkspaceCopilotInfo()
+		const load = loadWorkspaceCopilotInfo('ws')
+		invalidate()
+		requests[0].resolve(withModel('before-save'))
+		await vi.waitFor(() => expect(requests).toHaveLength(2))
+		requests[1].resolve(withModel('saved'))
+
+		expect(modelOf(await load)).toBe('saved')
+		expect(modelOf(getWorkspaceCopilotInfo('ws'))).toBe('saved')
+	})
+})
 
 describe('setCopilotInfo legacy /thinking migration', () => {
 	it('strips the /thinking suffix from configured model slots', () => {

@@ -38,7 +38,7 @@
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
 	import ModelPricing from './ModelPricing.svelte'
 	import AiUsagePanel from './AiUsagePanel.svelte'
-	import { setCopilotInfo } from '$lib/aiStore'
+	import { invalidateWorkspaceCopilotInfo, setCopilotInfo } from '$lib/aiStore'
 	import { backupSettingsChanged } from '$lib/components/sessions/sessionMirror.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
@@ -405,6 +405,7 @@
 				requestBody: config
 			})
 			setCopilotInfo(response.effective_ai_config)
+			invalidateWorkspaceCopilotInfo(effectiveWorkspace)
 			settingsState = {
 				has_instance_ai_config: response.has_instance_ai_config,
 				uses_instance_ai_config: response.uses_instance_ai_config,

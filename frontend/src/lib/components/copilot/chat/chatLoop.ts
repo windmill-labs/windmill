@@ -14,6 +14,7 @@ import {
 	type ReasoningProviderModel
 } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
+import type { CopilotInfo } from '$lib/aiStore'
 import { modelSupportsVision, usesAnthropicMessagesApi } from '../modelConfig'
 import { boundImagePartBytes, stripImagePartsFromMessages } from './imageUtils'
 import {
@@ -49,6 +50,8 @@ export interface ChatLoopConfig {
 	modelProvider: ReasoningProviderModel
 	clients: ChatClients
 	workspace: string
+	/** `workspace`'s AI config when it is not the tab's (an AI session). */
+	info?: CopilotInfo
 	/**
 	 * Enable provider-native web search. Defaults to true for compatible providers
 	 * and is re-read each iteration so model/provider changes take effect. Explicit
@@ -371,6 +374,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		callbacks,
 		clients,
 		workspace,
+		info,
 		maxIterations,
 		onSkipResponsesApi,
 		onReasoningSummaryUnavailable,
@@ -502,7 +506,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						webSearch: useWebSearch,
 						reasoningEffort,
 						reasoningSummary,
-						promptCacheKey: usePromptCacheKey ? promptCacheKey : undefined
+						promptCacheKey: usePromptCacheKey ? promptCacheKey : undefined,
+						info
 					}
 				)
 				const continueCompletion = await parseOpenAIResponsesCompletion(
@@ -595,7 +600,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					forceCompletions: true,
 					forceModelProvider: modelProvider,
 					openaiClient: clients.openai,
-					reasoningEffort
+					reasoningEffort,
+					info
 				})
 				const continueCompletion = await parseOpenAICompletion(
 					completion,
@@ -618,7 +624,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					forceModelProvider: modelProvider,
 					anthropicClient: clients.anthropic,
 					webSearch: useWebSearch,
-					reasoningEffort
+					reasoningEffort,
+					info
 				})
 				if (!completion) {
 					return true
@@ -657,7 +664,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				forceModelProvider: modelProvider,
 				openaiClient: clients.openai,
 				reasoningEffort,
-				promptCaching: true
+				promptCaching: true,
+				info
 			})
 			if (completion) {
 				const continueCompletion = await parseOpenAICompletion(

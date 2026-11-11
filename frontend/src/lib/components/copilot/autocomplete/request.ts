@@ -4,7 +4,7 @@ import { getLangContext } from '../chat/script/core'
 import { type ScriptLang } from '$lib/gen/types.gen'
 import type { editor } from 'monaco-editor'
 import { getCommentSymbol } from '../utils'
-import { copilotInfo } from '$lib/aiStore'
+import { copilotInfo, type AiTarget } from '$lib/aiStore'
 
 function comment(commentSymbol: string, text: string) {
 	return text
@@ -22,9 +22,10 @@ export async function autocompleteRequest(
 		libraries: string
 		workflowAsCode?: boolean
 	},
-	abortController: AbortController
+	abortController: AbortController,
+	target?: AiTarget
 ) {
-	const providerModel = get(copilotInfo).codeCompletionModel
+	const providerModel = (target?.info ?? get(copilotInfo)).codeCompletionModel
 
 	if (!providerModel) {
 		throw new Error('No code completion model selected')
@@ -56,7 +57,8 @@ export async function autocompleteRequest(
 			context.prefix,
 			context.suffix,
 			providerModel,
-			abortController
+			abortController,
+			target?.workspace
 		)
 
 		return completion

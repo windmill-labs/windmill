@@ -64,7 +64,7 @@ import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
 import { modelSupportsVision } from '../../modelConfig'
-import { tryGetCurrentModel } from '$lib/aiStore'
+import { tryGetCurrentModel, type SessionAi } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
 import { isCloudHosted } from '$lib/cloud'
 import { BROWSER } from 'esm-env'
@@ -4566,7 +4566,8 @@ export const globalTools: SessionTool<{}>[] = [
 			// A known text-only model would reject the follow-up image message and fail
 			// the turn, so refuse before capturing rather than buffer an image it can
 			// never read. The model is re-read here because it can change between turns.
-			const model = tryGetCurrentModel()
+			const sessionAi = (ctx.helpers as GlobalToolHelpers | undefined)?.sessionAi
+			const model = sessionAi ? sessionAi().model : tryGetCurrentModel()
 			if (model && !modelSupportsVision(model.provider, model.model)) {
 				const cannotSee = `${model.model} cannot read images, so a screenshot would be discarded. Ask the user to describe what looks wrong, or to switch to a model that supports images.`
 				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -4694,6 +4695,8 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// (possibly forked) workspace while $workspaceStore stays on the navigation workspace,
 	// so permission gating (open_page) must read this, not the global store.
 	operatingWorkspace?: string
+	// The session's model and its workspace's AI config, rather than the tab's.
+	sessionAi?: () => SessionAi
 	// Wired only for session chats (see AIChatManager): the artifact tools are session-gated.
 	artifacts?: SessionArtifactsStore
 	getChatId?: () => string | undefined
