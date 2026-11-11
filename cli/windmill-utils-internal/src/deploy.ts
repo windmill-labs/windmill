@@ -718,6 +718,7 @@ export async function deployItem(
           workspace: workspaceTo,
           name,
           requestBody: {
+            display_name: folder.display_name,
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
@@ -731,6 +732,7 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             name,
+            display_name: folder.display_name,
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
@@ -961,6 +963,7 @@ export async function getItemValue(
       });
       return {
         name: folder.name,
+        display_name: folder.display_name,
         owners: folder.owners,
         extra_perms: folder.extra_perms,
         summary: folder.summary,

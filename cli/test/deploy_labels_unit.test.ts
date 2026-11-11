@@ -82,3 +82,29 @@ test("deployItem: clears a folder's labels when the source has none", async () =
   );
   expect(body.labels).toEqual([]);
 });
+
+// The compare page flags a folder whose display name differs, so a deploy that drops it leaves
+// a conflict that no deploy can clear.
+test("deployItem: carries a folder's display name on create and update", async () => {
+  const bodies: any[] = [];
+  for (const exists of [false, true]) {
+    await deployItem(
+      {
+        existsFolder: async () => exists,
+        getFolder: async () => ({
+          name: "x",
+          display_name: "Services",
+          owners: [],
+          extra_perms: {},
+        }),
+        createFolder: async (p: any) => void bodies.push(p.requestBody),
+        updateFolder: async (p: any) => void bodies.push(p.requestBody),
+      } as any,
+      "folder",
+      "f/x",
+      "src",
+      "dst",
+    );
+  }
+  expect(bodies.map((b) => b.display_name)).toEqual(["Services", "Services"]);
+});
