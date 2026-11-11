@@ -1,0 +1,498 @@
+/*
+ * The artifact document look, shared by the in-app viewer, the shared page, the PDF download and
+ * the HTML export. Plain CSS rather than Tailwind because the HTML export inlines this file into a
+ * standalone page, where no Tailwind build exists. Colours come from the theme's `--color-*`
+ * tokens (rgb triplets); the HTML export defines the light ones itself (`artifactExport.ts`).
+ * Everything is scoped under `.wm-doc` and every tunable is a `--doc-*` variable, so a rule
+ * scoped the same way restyles it: /kitchen_sink/artifacts writes such rules live.
+ */
+
+.wm-doc {
+	--doc-font-body: Inter, 'Noto Color Emoji', system-ui, sans-serif;
+	--doc-font-heading: var(--doc-font-body);
+	--doc-font-mono:
+		'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	/* The body face's OpenType features. Inter's ss04 gives the I serifs and the l a tail, without
+	   the slashed zero of ss02, and cv11 sets a single-storey a. */
+	--doc-features: 'ss04', 'cv11';
+	--doc-size: 15px;
+	--doc-leading: 1.7;
+	--doc-scale: 1.2;
+	--doc-heading-weight: 600;
+	/* The heading face's x-height as a share of its font size (`font-size-adjust`). */
+	--doc-heading-adjust: 0.5;
+	/* About 93 characters of Inter, the middle of the 620 to 840px columns document tools set:
+	   wider than a book's, for the tables and code these documents carry. Not `ch`: that is the
+	   width of a zero, which in Inter is a third wider than the average letter. */
+	--doc-measure: 46em;
+
+	--doc-text: rgb(var(--color-text-primary));
+	--doc-heading: rgb(var(--color-text-emphasis));
+	--doc-muted: rgb(var(--color-text-secondary));
+	--doc-accent: rgb(var(--color-text-accent));
+	--doc-rule: rgb(var(--color-border-light));
+	--doc-rule-strong: rgb(var(--color-border-normal));
+	--doc-sunken: rgb(var(--color-surface-secondary));
+	/* Every panel: code, tables, callouts, images. */
+	--doc-radius: 0.6rem;
+	--doc-alert-note: rgb(9 105 218);
+	--doc-alert-tip: rgb(26 127 55);
+	--doc-alert-important: rgb(130 80 223);
+	--doc-alert-warning: rgb(154 103 0);
+	--doc-alert-caution: rgb(207 34 46);
+	--doc-alert-tint: 7%;
+	--doc-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+	max-width: var(--doc-measure);
+	color: var(--doc-text);
+	font-family: var(--doc-font-body);
+	font-size: var(--doc-size);
+	font-feature-settings: var(--doc-features);
+	line-height: var(--doc-leading);
+	overflow-wrap: break-word;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+:where(.dark) .wm-doc {
+	--doc-alert-note: rgb(88 166 255);
+	--doc-alert-tip: rgb(63 185 80);
+	--doc-alert-important: rgb(163 113 247);
+	--doc-alert-warning: rgb(210 153 34);
+	--doc-alert-caution: rgb(248 81 73);
+	--doc-alert-tint: 11%;
+	--doc-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%231d2430' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* The panel or page around the document, which a table wider than the column can grow into. */
+.wm-doc-frame {
+	container-type: inline-size;
+}
+
+/* `--doc-features` names the body face's features. Code, diagrams and section numbers are set in
+   other faces, which read the same tags as other glyphs, or as none. */
+.wm-doc :is(code, kbd, pre, svg),
+.wm-doc h2::before {
+	font-feature-settings: normal;
+}
+
+.wm-doc > :first-child {
+	margin-top: 0;
+}
+.wm-doc > :last-child {
+	margin-bottom: 0;
+}
+.wm-doc ::selection {
+	background: color-mix(in srgb, var(--doc-accent) 22%, transparent);
+}
+
+/* Headings: h1 to h3 in the heading face on a modular scale, h4 to h6 as body-face labels. */
+.wm-doc :is(h1, h2, h3, h4, h5, h6) {
+	color: var(--doc-heading);
+	font-family: var(--doc-font-heading);
+	font-weight: var(--doc-heading-weight);
+	line-height: 1.25;
+	letter-spacing: -0.01em;
+	text-wrap: balance;
+}
+/* The heading face is sized by its x-height, so one with a smaller lowercase than the body's, as a
+   serif has, does not set h3 below the body text. Line heights still multiply the unadjusted
+   size, so h1 to h3 take larger ones to keep the same space between lines. */
+.wm-doc :is(h1, h2, h3, blockquote) {
+	font-size-adjust: var(--doc-heading-adjust);
+}
+.wm-doc :is(h1, h2, h3) {
+	line-height: 1.3;
+}
+.wm-doc h1 {
+	margin: 0 0 0.7em;
+	font-size: calc(var(--doc-size) * var(--doc-scale) * var(--doc-scale) * var(--doc-scale));
+	line-height: 1.25;
+	letter-spacing: -0.02em;
+}
+.wm-doc h2 {
+	margin: 2.1em 0 0.55em;
+	font-size: calc(var(--doc-size) * var(--doc-scale) * var(--doc-scale));
+}
+/* Each section opens with its number. `artifactPlugins` marks the headings of a document that
+   numbers its own sections, which take none; the footnotes' heading is visually hidden. */
+.wm-doc {
+	counter-reset: doc-section;
+}
+.wm-doc h2:not(.sr-only, .wm-unnumbered) {
+	counter-increment: doc-section;
+}
+.wm-doc h2:not(.sr-only, .wm-unnumbered)::before {
+	content: counter(doc-section, decimal-leading-zero);
+	display: inline-block;
+	margin-right: 0.75em;
+	vertical-align: 0.3em;
+	color: var(--doc-accent);
+	font-family: var(--doc-font-mono);
+	font-size: 0.55em;
+	font-weight: 500;
+	letter-spacing: 0.04em;
+}
+.wm-doc h3 {
+	margin: 1.8em 0 0.45em;
+	font-size: calc(var(--doc-size) * var(--doc-scale));
+}
+.wm-doc :is(h4, h5, h6) {
+	margin: 1.6em 0 0.35em;
+	font-family: var(--doc-font-body);
+	font-size: 1em;
+	font-weight: 600;
+	letter-spacing: 0;
+}
+.wm-doc :is(h5, h6) {
+	color: var(--doc-muted);
+}
+
+.wm-doc p {
+	margin: 0 0 1.1em;
+	text-wrap: pretty;
+}
+/* A diagram sizes each label's box to its text laid out as mermaid wraps it (one line unless
+   too long). `text-wrap` above would reset that, and a label that renders a hair wider than
+   measured would break onto a line its box hides. */
+.wm-doc svg p {
+	text-wrap: inherit;
+}
+.wm-doc strong {
+	color: var(--doc-heading);
+	font-weight: 600;
+}
+.wm-doc del {
+	color: var(--doc-muted);
+}
+.wm-doc sup {
+	font-size: 0.72em;
+	line-height: 0;
+}
+
+.wm-doc a {
+	color: var(--doc-accent);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+	text-underline-offset: 0.22em;
+}
+.wm-doc a:hover {
+	text-decoration-color: currentColor;
+}
+
+.wm-doc :is(ul, ol) {
+	margin: 0 0 1.1em;
+	padding-left: 1.4em;
+}
+.wm-doc ul {
+	list-style: disc;
+}
+.wm-doc ul ul {
+	list-style: circle;
+}
+.wm-doc ol {
+	list-style: decimal;
+}
+.wm-doc li {
+	margin: 0.3em 0;
+	padding-left: 0.2em;
+}
+.wm-doc li > :is(ul, ol) {
+	margin: 0.3em 0 0;
+}
+.wm-doc li > p {
+	margin: 0.4em 0;
+}
+.wm-doc ul > li::marker {
+	color: var(--doc-rule-strong);
+}
+.wm-doc ol > li::marker {
+	color: var(--doc-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.wm-doc .contains-task-list {
+	padding-left: 0;
+	list-style: none;
+}
+.wm-doc .task-list-item {
+	position: relative;
+	padding-left: 1.7em;
+}
+.wm-doc .task-list-item:has(> input:checked) {
+	color: var(--doc-muted);
+}
+/* `:disabled` and `!important` are what outrank the app's global form styles, which give
+   every input a background; GFM checkboxes are always disabled. */
+.wm-doc .task-list-item > input[type='checkbox']:disabled {
+	appearance: none;
+	position: absolute;
+	top: calc(0.5lh - 0.45em);
+	left: 0;
+	display: block;
+	width: 0.9em;
+	height: 0.9em;
+	margin: 0;
+	padding: 0;
+	font-size: inherit;
+	line-height: inherit;
+	border: 1.5px solid var(--doc-rule-strong);
+	border-radius: 0.3em;
+	background-color: transparent !important;
+	background-image: none;
+}
+.wm-doc .task-list-item > input[type='checkbox']:checked:disabled {
+	border-color: var(--doc-accent);
+	background-color: var(--doc-accent) !important;
+	background-image: var(--doc-check);
+	background-position: center;
+	background-size: 100%;
+	background-repeat: no-repeat;
+}
+
+/* Code reads character for character: no `=>` turning into an arrow in a font that ligates. A
+   quote's italic and x-height sizing are for its own face, not code inside it. */
+.wm-doc :is(code, kbd, pre) {
+	font-variant-ligatures: none;
+	font-style: normal;
+	font-size-adjust: none;
+}
+.wm-doc :not(pre) > code {
+	padding: 0.12em 0.4em;
+	border-radius: 0.35em;
+	background: var(--doc-sunken);
+	color: var(--doc-heading);
+	font-family: var(--doc-font-mono);
+	font-size: 0.86em;
+}
+.wm-doc kbd {
+	padding: 0.1em 0.45em;
+	border: 1px solid var(--doc-rule);
+	border-bottom-width: 2px;
+	border-radius: 0.35em;
+	font-family: var(--doc-font-mono);
+	font-size: 0.8em;
+}
+
+/* In the app and the PDF, fenced code is the code-block renderer's own panel (`.not-prose`); in
+   the HTML export it is a plain `pre`, at any depth, since a list item or a quote can hold one. */
+.wm-doc > .not-prose {
+	margin: 1.5em 0;
+}
+.wm-doc > .not-prose > div {
+	border-radius: var(--doc-radius);
+}
+/* `!important`: the app's global `pre code.hljs` rule pins code to text-xs. */
+.wm-doc pre code.hljs {
+	font-family: var(--doc-font-mono);
+	font-size: calc(var(--doc-size) * 0.82) !important;
+	line-height: 1.6 !important;
+}
+.wm-doc pre:not(.not-prose pre) {
+	margin: 1.5em 0;
+	padding: 1em 1.2em;
+	overflow-x: auto;
+	border-radius: var(--doc-radius);
+	background: var(--doc-sunken);
+	font-family: var(--doc-font-mono);
+	font-size: 0.82em;
+	line-height: 1.6;
+	white-space: pre;
+}
+/* The browser's own `code { font-family: monospace }` would otherwise outrank the block's font. */
+.wm-doc pre:not(.not-prose pre) > code {
+	font: inherit;
+}
+
+.wm-doc blockquote {
+	margin: 1.5em 0;
+	padding: 0.1em 0 0.1em 1.2em;
+	border-left: 2px solid color-mix(in srgb, var(--doc-rule-strong) 55%, transparent);
+	color: var(--doc-muted);
+	font-family: var(--doc-font-heading);
+	font-size: 1.05em;
+	font-style: italic;
+}
+.wm-doc blockquote > :last-child {
+	margin-bottom: 0;
+}
+
+.wm-doc hr {
+	height: auto;
+	margin: 2.4em 0;
+	overflow: visible;
+	border: 0;
+	color: var(--doc-rule-strong);
+	text-align: center;
+}
+.wm-doc hr::after {
+	content: '\00B7\2003\00B7\2003\00B7';
+	font-size: 1.1em;
+	line-height: 1;
+}
+
+/* A rounded frame, rows separated by hairlines, the header row on the sunken surface.
+   `display: block` is what lets a wide table scroll inside its frame, and the scroll box is what
+   clips the header's corners to the radius. */
+.wm-doc table {
+	display: block;
+	width: max-content;
+	max-width: 100%;
+	margin: 1.5em 0;
+	overflow-x: auto;
+	border: 1px solid var(--doc-rule);
+	border-radius: var(--doc-radius);
+	border-collapse: collapse;
+	font-size: 0.9em;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.5;
+}
+/* A table wider than the column grows to the right, up to the width of `.wm-doc-frame`, or of
+   the viewport where no frame holds the document (the PDF's print frame, as wide as the column).
+   Only a top-level table: one indented in a list or a quote would pass the frame's edge. */
+.wm-doc > table {
+	max-width: max(100%, 100cqi);
+}
+.wm-doc :is(th, td) {
+	padding: 0.6em 1em;
+	border-bottom: 1px solid var(--doc-rule);
+	text-align: left;
+	vertical-align: top;
+}
+.wm-doc th {
+	background: var(--doc-sunken);
+	color: var(--doc-muted);
+	font-weight: 600;
+	vertical-align: bottom;
+}
+.wm-doc tbody tr:last-child > td {
+	border-bottom: 0;
+}
+.wm-doc :is(th, td)[align='right'] {
+	text-align: right;
+}
+.wm-doc :is(th, td)[align='center'] {
+	text-align: center;
+}
+/* Cells as `artifactPlugins` marks them. A short one stays on one line and a long one wraps no
+   narrower than 12em, so a table too wide for the column scrolls instead of breaking every cell
+   at its narrowest. `content-box` because the app's reset makes it border-box and the HTML export
+   has no reset. */
+.wm-doc .wm-cell-short {
+	white-space: nowrap;
+}
+.wm-doc .wm-cell-long {
+	box-sizing: content-box;
+	min-width: 12em;
+}
+
+.wm-doc img {
+	max-width: 100%;
+	height: auto;
+	border-radius: var(--doc-radius);
+}
+
+/* The HTML export's diagrams, on the panel the app draws them on. */
+.wm-doc .wm-diagram {
+	display: flex;
+	justify-content: center;
+	margin: 1.5em 0;
+	padding: 0.5rem;
+	overflow-x: auto;
+	border-radius: var(--doc-radius);
+	background: var(--doc-sunken);
+}
+
+.wm-doc details {
+	margin: 1.2em 0;
+}
+.wm-doc summary {
+	color: var(--doc-heading);
+	font-weight: 600;
+	cursor: pointer;
+}
+.wm-doc details[open] > summary {
+	margin-bottom: 0.6em;
+}
+
+/* GFM callouts. `border: 0` and the doubled class keep the chat's own callout styles, which
+   are global once a chat message has rendered, from showing through. */
+.wm-doc .markdown-alert {
+	--alert: var(--doc-muted);
+	margin: 1.5em 0;
+	padding: 0.9em 1.15em;
+	border: 0;
+	border-radius: var(--doc-radius);
+	background: color-mix(in srgb, var(--alert) var(--doc-alert-tint), transparent);
+}
+.wm-doc .markdown-alert > :last-child {
+	margin-bottom: 0;
+}
+.wm-doc .markdown-alert .markdown-alert-title {
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+	margin: 0 0 0.4em;
+	color: var(--alert);
+	font-size: 0.9em;
+	font-weight: 600;
+	line-height: 1.4;
+}
+.wm-doc .markdown-alert .markdown-alert-title > svg {
+	flex: none;
+	width: 1.25em;
+	height: 1.25em;
+	margin: 0;
+	fill: currentColor;
+}
+.wm-doc .markdown-alert-note {
+	--alert: var(--doc-alert-note);
+}
+.wm-doc .markdown-alert-tip {
+	--alert: var(--doc-alert-tip);
+}
+.wm-doc .markdown-alert-important {
+	--alert: var(--doc-alert-important);
+}
+.wm-doc .markdown-alert-warning {
+	--alert: var(--doc-alert-warning);
+}
+.wm-doc .markdown-alert-caution {
+	--alert: var(--doc-alert-caution);
+}
+
+.wm-doc .footnotes {
+	margin-top: 3em;
+	padding-top: 1.2em;
+	border-top: 1px solid var(--doc-rule);
+	color: var(--doc-muted);
+	font-size: 0.85em;
+}
+.wm-doc :is([data-footnote-ref], [data-footnote-backref]) {
+	text-decoration: none;
+}
+/* Tailwind's utility, restated for the export: GFM labels the footnotes with it. */
+.wm-doc .sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+@media print {
+	.wm-doc :is(h1, h2, h3, h4) {
+		break-after: avoid;
+	}
+	.wm-doc :is(pre, table, .markdown-alert, img, .wm-diagram) {
+		break-inside: avoid;
+	}
+	.wm-doc pre:not(.not-prose pre) {
+		white-space: pre-wrap;
+	}
+}
