@@ -57,11 +57,11 @@ export const FONTS: LabFont[] = [
 	webFont('figtree', 'Figtree', 'sans', 'Figtree:ital,wght@0,400..700;1,400..700'),
 	webFont('manrope', 'Manrope', 'sans', 'Manrope:wght@400..700'),
 	systemFont('system-sans', 'System sans-serif', 'sans'),
-	bundledFont(
+	webFont(
 		'newsreader',
 		'Newsreader',
 		'serif',
-		"'Newsreader Variable', 'Noto Color Emoji', Georgia, serif"
+		'Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800'
 	),
 	webFont(
 		'source-serif',
@@ -126,19 +126,27 @@ export interface FontPreset {
 export const PRESETS: FontPreset[] = [
 	{
 		id: 'default',
-		label: 'Newsreader + Inter (default)',
-		headingFont: 'newsreader',
+		label: 'Inter + JetBrains Mono (default)',
+		headingFont: 'inter',
 		bodyFont: 'inter',
 		monoFont: 'jetbrains-mono',
-		headingWeight: 500
+		headingWeight: 600
 	},
 	{
-		id: 'inter',
-		label: 'Inter only',
+		id: 'inter-system-mono',
+		label: 'Inter + system monospace',
 		headingFont: 'inter',
 		bodyFont: 'inter',
 		monoFont: 'system-mono',
 		headingWeight: 600
+	},
+	{
+		id: 'newsreader',
+		label: 'Newsreader + Inter',
+		headingFont: 'newsreader',
+		bodyFont: 'inter',
+		monoFont: 'jetbrains-mono',
+		headingWeight: 500
 	},
 	{
 		id: 'source',
@@ -203,13 +211,13 @@ export const INTER_STYLES: InterStyle[] = [
 	{ id: 'stock', label: 'Stock', subtitle: 'No alternates', features: 'normal' },
 	{
 		id: 'windmill',
-		label: 'Windmill candidate',
+		label: 'Windmill (default)',
 		subtitle: 'ss04 Disambiguation (no slashed zero), cv11 Single-story a',
 		features: "'ss04', 'cv11'"
 	},
 	{
 		id: 'slashed',
-		label: 'Windmill candidate, slashed zero',
+		label: 'Windmill, slashed zero',
 		subtitle: 'ss02 Disambiguation, cv11 Single-story a',
 		features: "'ss02', 'cv11'"
 	},
@@ -233,7 +241,7 @@ export const INTER_STYLES: InterStyle[] = [
 	}
 ]
 
-export type HeadingMarker = 'tick' | 'number' | 'rule' | 'none'
+export type HeadingMarker = 'number' | 'tick' | 'rule' | 'none'
 export type TableStyle = 'hairline' | 'zebra' | 'grid'
 export type DividerStyle = 'dots' | 'line' | 'mark'
 export type CalloutStyle = 'soft' | 'bar'
@@ -262,22 +270,28 @@ export interface LabSettings {
 
 const defaults = PRESETS[0]
 
+/**
+ * `artifactDocument.css` as it ships. The page stores every setting, so a browser that has
+ * opened it keeps the defaults it saw: change `SETTINGS_KEY` along with these.
+ */
 export const DEFAULT_SETTINGS: LabSettings = {
 	headingFont: defaults.headingFont,
 	bodyFont: defaults.bodyFont,
 	monoFont: defaults.monoFont,
 	headingWeight: defaults.headingWeight,
-	interStyle: 'stock',
+	interStyle: 'windmill',
 	size: 15,
 	leading: 1.7,
 	scale: 1.2,
 	headingAdjust: 0.5,
 	column: 46,
-	headingMarker: 'tick',
+	headingMarker: 'number',
 	tables: 'hairline',
 	divider: 'dots',
 	callouts: 'soft'
 }
+
+export const SETTINGS_KEY = 'wm-artifact-lab-design-v4'
 
 // The Windmill mark as a single-colour mask: the light blades of the logo at lower opacity.
 const MARK_MASK = `url("data:image/svg+xml,${encodeURIComponent(
@@ -288,28 +302,21 @@ const MARK_MASK = `url("data:image/svg+xml,${encodeURIComponent(
 // that option adds no rule. Selectors repeat the default's own where it would otherwise outrank
 // the variant inside the export, which appends these rules at equal specificity.
 const HEADING_MARKERS: Record<HeadingMarker, (s: string) => string> = {
-	tick: () => '',
-	number: (s) => `${s} { counter-reset: doc-h2; }
-${s} h2:not(.sr-only) { counter-increment: doc-h2; }
-${s} h2:not(.sr-only)::before {
-	content: counter(doc-h2, decimal-leading-zero);
-	display: inline-block;
-	width: auto;
-	height: auto;
-	margin: 0 0.75em 0 0;
-	border-radius: 0;
-	background: none;
-	opacity: 1;
-	vertical-align: 0.3em;
-	color: var(--doc-accent);
-	font-family: var(--doc-font-mono);
-	font-size: 0.55em;
-	font-weight: 500;
-	letter-spacing: 0.04em;
+	number: () => '',
+	tick: (s) => `${s} h2:not(.sr-only)::before {
+	content: '';
+	display: block;
+	width: 1.25em;
+	height: 2px;
+	margin: 0 0 0.8em;
+	border-radius: 1px;
+	background: var(--doc-accent);
+	opacity: 0.6;
+	font-size: 1em;
 }`,
-	rule: (s) => `${s} h2::before { content: none; }
+	rule: (s) => `${s} h2:not(.sr-only)::before { content: none; }
 ${s} h2 { padding-bottom: 0.4em; border-bottom: 1px solid var(--doc-rule); }`,
-	none: (s) => `${s} h2::before { content: none; }`
+	none: (s) => `${s} h2:not(.sr-only)::before { content: none; }`
 }
 
 const TABLES: Record<TableStyle, (s: string) => string> = {
@@ -362,9 +369,10 @@ export function labCss(s: LabSettings, scope: string): string {
 }`
 	return [
 		vars,
-		// The document keeps the body face's features out of the heading face's text.
-		s.headingFont === s.bodyFont
-			? `${scope} :is(h1, h2, h3, blockquote) { font-feature-settings: var(--doc-features); }`
+		// The document sets headings and quotes with the body face's features, which another face
+		// reads as other glyphs, or as none.
+		s.headingFont !== s.bodyFont
+			? `${scope} :is(h1, h2, h3, blockquote) { font-feature-settings: normal; }`
 			: '',
 		HEADING_MARKERS[s.headingMarker](scope),
 		TABLES[s.tables](scope),

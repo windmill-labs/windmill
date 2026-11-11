@@ -90,6 +90,18 @@ A fence without a language renders as plain text.
 | A longer cell that wraps when the column runs out of room |  Text  |     2 |
 | Text                                                      | `code` |  3.14 |
 
+## Wide table
+
+A table wider than the column scrolls inside its frame.
+
+| Run        | Script                      | Workspace | Trigger   | Worker      | Queued | Started  |  Duration | Memory | Status  | Retries | Tags            | Owner |
+| :--------- | :-------------------------- | :-------- | :-------- | :---------- | -----: | :------- | --------: | -----: | :------ | ------: | :-------------- | :---- |
+| `0192f3a1` | `f/billing/sync_invoices`   | finance   | Schedule  | worker-eu-1 |  0.4 s | 09:00:02 |  1 m 12 s | 212 MB | Success |       0 | python, billing | alice |
+| `0192f3a7` | `f/billing/send_reminders`  | finance   | Webhook   | worker-eu-2 |  1.2 s | 09:01:15 |      18 s |  96 MB | Success |       0 | bun             | alice |
+| `0192f3b2` | `f/ops/rotate_keys`         | ops       | Manual    | worker-us-1 |  0.1 s | 09:03:40 |       4 s |  48 MB | Failed  |       2 | bash            | bob   |
+| `0192f3c9` | `f/data/nightly_export`     | data      | Schedule  | worker-us-3 | 12.8 s | 09:05:00 | 14 m 03 s | 1.4 GB | Running |       0 | duckdb, s3      | carol |
+| `0192f3d4` | `f/data/refresh_dashboards` | data      | Flow step | worker-eu-1 |  0.6 s | 09:07:21 |  2 m 41 s | 384 MB | Success |       1 | python          | carol |
+
 ## Details
 
 <details>

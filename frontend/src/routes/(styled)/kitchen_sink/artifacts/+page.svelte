@@ -23,6 +23,7 @@
 		FONTS,
 		INTER_STYLES,
 		PRESETS,
+		SETTINGS_KEY,
 		fontLinks,
 		labCss,
 		type LabSettings
@@ -47,7 +48,7 @@
 	type Surface = 'session' | 'shared' | 'export'
 	type View = { sample: string; surface: Surface; panelWidth: number }
 
-	const design = new PersistedState<LabSettings>('wm-artifact-lab-design-v1', {
+	const design = new PersistedState<LabSettings>(SETTINGS_KEY, {
 		...DEFAULT_SETTINGS
 	})
 	// An object stored before a setting existed lacks that setting.
@@ -99,6 +100,38 @@
 		{ value: 560, label: 'Panel (560px)' },
 		{ value: 720, label: 'Wide panel (720px)' }
 	]
+	let panelWidthItems = $derived(
+		panelWidths.some((w) => w.value === v.panelWidth)
+			? panelWidths
+			: [...panelWidths, { value: v.panelWidth, label: `Dragged (${v.panelWidth}px)` }]
+	)
+
+	function startPanelResize(e: PointerEvent) {
+		e.preventDefault()
+		const handle = e.currentTarget as HTMLElement
+		const panel = handle.previousElementSibling as HTMLElement
+		const stage = getComputedStyle(handle.parentElement!)
+		const maxWidth =
+			handle.parentElement!.clientWidth -
+			parseFloat(stage.paddingLeft) -
+			parseFloat(stage.paddingRight) -
+			handle.offsetWidth
+		const startX = e.clientX
+		const startWidth = panel.getBoundingClientRect().width
+		handle.setPointerCapture(e.pointerId)
+		const onMove = (ev: PointerEvent) => {
+			const width = Math.min(maxWidth, Math.max(320, startWidth + ev.clientX - startX))
+			v.panelWidth = Math.round(width)
+		}
+		const stop = () => {
+			handle.removeEventListener('pointermove', onMove)
+			handle.removeEventListener('pointerup', stop)
+			handle.removeEventListener('pointercancel', stop)
+		}
+		handle.addEventListener('pointermove', onMove)
+		handle.addEventListener('pointerup', stop)
+		handle.addEventListener('pointercancel', stop)
+	}
 
 	let presetId = $derived(
 		PRESETS.find(
@@ -142,9 +175,8 @@
 			<div class="flex flex-col gap-1">
 				<h1 class="text-lg font-semibold text-emphasis">Artifact document</h1>
 				<p class="text-xs text-secondary">
-					The real renderer, HTML export and PDF download, restyled live. Inter, Newsreader and
-					JetBrains Mono ship with the app; the other fonts load from Google Fonts, on this page
-					only.
+					The real renderer, HTML export and PDF download, restyled live. Inter and JetBrains Mono
+					ship with the app; the other fonts load from Google Fonts, on this page only.
 				</p>
 			</div>
 
@@ -240,8 +272,8 @@
 					{@render field('Section headings')}
 					<ToggleButtonGroup bind:selected={s.headingMarker} wrap>
 						{#snippet children({ item })}
-							<ToggleButton {item} value="tick" label="Tick" size="sm" />
 							<ToggleButton {item} value="number" label="Numbered" size="sm" />
+							<ToggleButton {item} value="tick" label="Tick" size="sm" />
 							<ToggleButton {item} value="rule" label="Rule" size="sm" />
 							<ToggleButton {item} value="none" label="Plain" size="sm" />
 						{/snippet}
@@ -322,7 +354,7 @@
 				</div>
 				{#if v.surface === 'session'}
 					<div class="w-52">
-						<Select items={panelWidths} bind:value={v.panelWidth} />
+						<Select items={panelWidthItems} bind:value={v.panelWidth} />
 					</div>
 				{/if}
 				<div class="ml-auto flex items-center gap-2">
@@ -338,7 +370,7 @@
 				</div>
 			</div>
 
-			<div class="flex min-h-0 flex-1 justify-center p-6">
+			<div class="flex min-h-0 flex-1 p-6">
 				{#if v.surface === 'session'}
 					<!-- The session viewer's own chrome (ArtifactViewer.svelte), minus its buttons. -->
 					<div
@@ -353,12 +385,18 @@
 							<ArtifactBody content={sample.content} source={false} />
 						</div>
 					</div>
+					<div
+						role="separator"
+						aria-orientation="vertical"
+						aria-label="Resize the panel"
+						title="Drag to resize"
+						class="w-1.5 shrink-0 cursor-col-resize rounded-full hover:bg-surface-hover"
+						onpointerdown={startPanelResize}
+					></div>
 				{:else if v.surface === 'shared'}
 					<!-- The body of /shared_artifacts/[id], under the app's page header. -->
 					<div class="h-full w-full overflow-auto rounded-md border bg-surface-tertiary px-8">
-						<div class="mx-auto max-w-4xl">
-							<ArtifactBody content={sample.content} source={false} />
-						</div>
+						<ArtifactBody content={sample.content} source={false} />
 					</div>
 				{:else}
 					<!-- Always light, like the downloaded file. -->

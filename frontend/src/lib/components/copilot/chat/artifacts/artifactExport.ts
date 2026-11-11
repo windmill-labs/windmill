@@ -2,27 +2,25 @@ import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import rehypeStringify from 'rehype-stringify'
-import { markdownPlugins } from '$lib/components/markdownPlugins'
 import tokensFile from '$lib/assets/tokens/tokens.json'
 import { lightModeName } from '$lib/assets/tokens/colorTokensConfig'
 import { randomUUID } from '$lib/utils/uuid'
 import { blobToDataUrl } from '../imageUtils'
 import { mermaidConfig } from '../script/mermaidConfig'
+import { artifactPlugins } from './artifactPlugins'
 import documentCss from './artifactDocument.css?inline'
 import interUrl from './fonts/inter-latin.woff2?url'
 import interItalicUrl from './fonts/inter-italic-latin.woff2?url'
-import newsreaderUrl from '@fontsource-variable/newsreader/files/newsreader-latin-opsz-normal.woff2?url'
-import newsreaderItalicUrl from '@fontsource-variable/newsreader/files/newsreader-latin-opsz-italic.woff2?url'
 import jetbrainsMonoUrl from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url'
 
-// Built from `markdownPlugins` the way svelte-exmarkdown builds its own processor, so the
+// Built from `artifactPlugins` the way svelte-exmarkdown builds its own processor, so the
 // export goes through the same sanitize stage as the in-app render. Its renderers (the
 // highlighted code block, the link pill) are Svelte components and do not apply here.
 const processor = unified()
 	.use(remarkParse)
-	.use(markdownPlugins.flatMap((p) => (p.remarkPlugin ? [p.remarkPlugin] : [])))
+	.use(artifactPlugins.flatMap((p) => (p.remarkPlugin ? [p.remarkPlugin] : [])))
 	.use(remarkRehype, { allowDangerousHtml: true })
-	.use(markdownPlugins.flatMap((p) => (p.rehypePlugin ? [p.rehypePlugin] : [])))
+	.use(artifactPlugins.flatMap((p) => (p.rehypePlugin ? [p.rehypePlugin] : [])))
 	.use(rehypeStringify)
 
 /** The tokens `artifactDocument.css` reads, as the rgb triplets the app's own variables hold. */
@@ -88,22 +86,8 @@ const EMBEDDED_FACES: EmbeddedFace[] = [
 		style: 'italic',
 		weight: '100 900',
 		url: interItalicUrl,
-		needed: (html) => /<(em|i)\b/.test(html)
-	},
-	{
-		family: 'Newsreader Variable',
-		style: 'normal',
-		weight: '200 800',
-		url: newsreaderUrl,
-		needed: (html) => /<h[1-3]\b/.test(html)
-	},
-	{
-		family: 'Newsreader Variable',
-		style: 'italic',
-		weight: '200 800',
-		url: newsreaderItalicUrl,
-		// Quotes are set in it, and so is emphasis inside an h1 to h3.
-		needed: (html) => /<blockquote\b|<h([1-3])\b[^>]*>(?:(?!<\/h\1>)[\s\S])*?<(?:em|i)\b/.test(html)
+		// Quotes are set in italic too.
+		needed: (html) => /<(em|i|blockquote)\b/.test(html)
 	},
 	{
 		family: 'JetBrains Mono Variable',
@@ -179,7 +163,7 @@ ${links.join('\n')}
 ${fontCss && `<style>${fontCss}</style>`}
 </head>
 <body>
-<div class="wm-page">
+<div class="wm-page wm-doc-frame">
 <main class="wm-doc">
 ${html}
 </main>

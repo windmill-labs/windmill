@@ -9,16 +9,16 @@
 
 .wm-doc {
 	--doc-font-body: Inter, 'Noto Color Emoji', system-ui, sans-serif;
-	/* Newsreader covers Latin and Vietnamese only: Georgia sets headings in other scripts. */
-	--doc-font-heading: 'Newsreader Variable', 'Noto Color Emoji', Georgia, serif;
+	--doc-font-heading: var(--doc-font-body);
 	--doc-font-mono:
 		'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-	/* The body face's OpenType features, such as Inter's `'ss02', 'cv11'`. */
-	--doc-features: normal;
+	/* The body face's OpenType features. Inter's ss04 gives the I serifs and the l a tail, without
+	   the slashed zero of ss02, and cv11 sets a single-storey a. */
+	--doc-features: 'ss04', 'cv11';
 	--doc-size: 15px;
 	--doc-leading: 1.7;
 	--doc-scale: 1.2;
-	--doc-heading-weight: 500;
+	--doc-heading-weight: 600;
 	/* The heading face's x-height as a share of its font size (`font-size-adjust`). */
 	--doc-heading-adjust: 0.5;
 	/* About 93 characters of Inter, the middle of the 620 to 840px columns document tools set:
@@ -44,7 +44,6 @@
 	--doc-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
 	max-width: var(--doc-measure);
-	margin-inline: auto;
 	color: var(--doc-text);
 	font-family: var(--doc-font-body);
 	font-size: var(--doc-size);
@@ -65,9 +64,15 @@
 	--doc-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%231d2430' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
-/* `--doc-features` names the body face's features: another face reads the same tags as other
-   glyphs, or as none. */
-.wm-doc :is(h1, h2, h3, blockquote, code, kbd, pre, svg) {
+/* The panel or page around the document, which a table wider than the column can grow into. */
+.wm-doc-frame {
+	container-type: inline-size;
+}
+
+/* `--doc-features` names the body face's features. Code, diagrams and section numbers are set in
+   other faces, which read the same tags as other glyphs, or as none. */
+.wm-doc :is(code, kbd, pre, svg),
+.wm-doc h2::before {
 	font-feature-settings: normal;
 }
 
@@ -90,8 +95,8 @@
 	letter-spacing: -0.01em;
 	text-wrap: balance;
 }
-/* The heading face is sized by its x-height: a serif's lowercase is smaller than Inter's at the
-   same font size, which set h3 below the body text. Line heights still multiply the unadjusted
+/* The heading face is sized by its x-height, so one with a smaller lowercase than the body's, as a
+   serif has, does not set h3 below the body text. Line heights still multiply the unadjusted
    size, so h1 to h3 take larger ones to keep the same space between lines. */
 .wm-doc :is(h1, h2, h3, blockquote) {
 	font-size-adjust: var(--doc-heading-adjust);
@@ -109,16 +114,24 @@
 	margin: 2.1em 0 0.55em;
 	font-size: calc(var(--doc-size) * var(--doc-scale) * var(--doc-scale));
 }
-/* The accent tick that opens each section. */
-.wm-doc h2::before {
-	content: '';
-	display: block;
-	width: 1.25em;
-	height: 2px;
-	margin-bottom: 0.8em;
-	border-radius: 1px;
-	background: var(--doc-accent);
-	opacity: 0.6;
+/* Each section opens with its number. `artifactPlugins` marks the headings of a document that
+   numbers its own sections, which take none; the footnotes' heading is visually hidden. */
+.wm-doc {
+	counter-reset: doc-section;
+}
+.wm-doc h2:not(.sr-only, .wm-unnumbered) {
+	counter-increment: doc-section;
+}
+.wm-doc h2:not(.sr-only, .wm-unnumbered)::before {
+	content: counter(doc-section, decimal-leading-zero);
+	display: inline-block;
+	margin-right: 0.75em;
+	vertical-align: 0.3em;
+	color: var(--doc-accent);
+	font-family: var(--doc-font-mono);
+	font-size: 0.55em;
+	font-weight: 500;
+	letter-spacing: 0.04em;
 }
 .wm-doc h3 {
 	margin: 1.8em 0 0.45em;
@@ -335,6 +348,12 @@
 	font-variant-numeric: tabular-nums;
 	line-height: 1.5;
 }
+/* A table wider than the column grows to the right, up to the width of `.wm-doc-frame`, or of
+   the viewport where no frame holds the document (the PDF's print frame, as wide as the column).
+   Only a top-level table: one indented in a list or a quote would pass the frame's edge. */
+.wm-doc > table {
+	max-width: max(100%, 100cqi);
+}
 .wm-doc :is(th, td) {
 	padding: 0.6em 1em;
 	border-bottom: 1px solid var(--doc-rule);
@@ -355,6 +374,17 @@
 }
 .wm-doc :is(th, td)[align='center'] {
 	text-align: center;
+}
+/* Cells as `artifactPlugins` marks them. A short one stays on one line and a long one wraps no
+   narrower than 12em, so a table too wide for the column scrolls instead of breaking every cell
+   at its narrowest. `content-box` because the app's reset makes it border-box and the HTML export
+   has no reset. */
+.wm-doc .wm-cell-short {
+	white-space: nowrap;
+}
+.wm-doc .wm-cell-long {
+	box-sizing: content-box;
+	min-width: 12em;
 }
 
 .wm-doc img {
