@@ -31,8 +31,9 @@ function rehypeTableCells() {
 }
 
 /**
- * Marks every section heading unnumbered once one starts with a number, as in `## 1. Goals`: the
- * stylesheet numbers sections, and a document that numbers its own would show both.
+ * Marks every section heading unnumbered when one is numbered 1, as in `## 1. Goals`: the
+ * stylesheet numbers sections, and a document that numbers its own would show both. A heading
+ * that only starts with a digit, as `## 19th century` or `## 2024 roadmap` do, does not count.
  */
 function rehypeSectionNumbers() {
 	return (tree: Root) => {
@@ -40,7 +41,7 @@ function rehypeSectionNumbers() {
 		visit(tree, 'element', (node: Element) => {
 			if (node.tagName === 'h2') headings.push(node)
 		})
-		if (!headings.some((h) => /^\s*\d/.test(textOf(h)))) return
+		if (!headings.some((h) => /^\s*1(?![\p{L}\p{N}])/u.test(textOf(h)))) return
 		for (const h of headings) addClass(h, 'wm-unnumbered')
 	}
 }

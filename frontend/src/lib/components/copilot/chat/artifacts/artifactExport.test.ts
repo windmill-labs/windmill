@@ -27,9 +27,11 @@ describe('artifact HTML export', () => {
 	})
 
 	it('leaves the section numbers to a document whose headings carry their own', () => {
-		expect(renderArtifactHtml('## Goals\n\n## Plan')).not.toContain('wm-unnumbered')
-		expect(renderArtifactHtml('## Goals\n\n## 2. Plan')).toContain(
-			'<h2 class="wm-unnumbered">Goals</h2>'
+		expect(renderArtifactHtml('## Gaul\n\n## 19th century\n\n## 2024')).not.toContain(
+			'wm-unnumbered'
+		)
+		expect(renderArtifactHtml('## Summary\n\n## 1. Goals\n\n## 2. Plan')).toContain(
+			'<h2 class="wm-unnumbered">Summary</h2>'
 		)
 	})
 
