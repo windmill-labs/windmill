@@ -11,6 +11,7 @@ pub mod datatable_permissions_oss;
 pub mod datatable_replay_oss;
 pub mod deployment_requests;
 pub mod remote_deploy;
+pub mod workspace_roles;
 pub mod workspaces;
 pub mod workspaces_extra;
 pub mod workspaces_oss;

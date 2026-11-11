@@ -11,12 +11,10 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate } from '$lib/utils'
-	import { userWorkspaces, superadmin, devopsRole, enterpriseLicense } from '$lib/stores'
+	import { superadmin, devopsRole, enterpriseLicense } from '$lib/stores'
 	import { useHostedPage } from '$lib/components/hostedPage'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
@@ -33,10 +31,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
-	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { RUNS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
@@ -57,8 +57,19 @@
 		Hourglass,
 		TriangleAlertIcon,
 		ArrowLeft,
-		Loader2
+		Loader2,
+		SlidersHorizontal,
+		Columns3,
+		Download
 	} from 'lucide-svelte'
+	import {
+		RUNS_COLUMNS,
+		DEFAULT_RUNS_COLUMNS,
+		normalizeRunsColumns,
+		type RunsColumnId
+	} from '$lib/components/runs/runsColumns'
+	import { exportRuns, type RunsExportFormat } from '$lib/components/runs/runsExport'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
 		buildManualTimeframe,
@@ -70,6 +81,14 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
+	import ChartResizeHandle from './runs/ChartResizeHandle.svelte'
+	import {
+		DURATION_SCALES,
+		DURATION_UNITS,
+		type DurationScale,
+		type DurationUnit
+	} from './runs/durationAxis'
+	import { useResizeObserver } from 'runed'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -83,7 +102,7 @@
 	// the filter row renders in the page, and requests go to the workspace it names.
 	const hosted = useHostedPage()
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -99,8 +118,88 @@
 		})
 	)
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
+	let columnsStorage = useLocalStorageValue<RunsColumnId[]>(
+		'runs_table_columns',
+		DEFAULT_RUNS_COLUMNS
+	)
+	let runsColumns = $derived(normalizeRunsColumns(columnsStorage.val))
+	function setColumnShown(id: RunsColumnId, shown: boolean) {
+		columnsStorage.val = shown ? [...runsColumns, id] : runsColumns.filter((c) => c !== id)
+	}
+
+	let exporting = $state(false)
+	async function onExport(format: RunsExportFormat) {
+		exporting = true
+		try {
+			// Obscured runs of other workspaces carry placeholder fields, not their real outcome.
+			await exportRuns(jobs ?? [], format)
+		} catch (e) {
+			sendUserToast(`Could not export runs: ${e}`, true)
+		} finally {
+			exporting = false
+		}
+	}
 	let showSchedulesStorage = useLocalStorageValue('runs_show_schedules', true, 'boolean')
 	let showFutureJobsStorage = useLocalStorageValue('runs_show_future_jobs', true, 'boolean')
+
+	const CHART_DEFAULT_HEIGHT = 176
+	const CHART_MIN_HEIGHT = 120
+	// The chart grows into the runs list, which keeps at least this much height.
+	const RUNS_LIST_MIN_HEIGHT = 200
+	const DURATION_UNIT_ITEMS: { label: string; value: DurationUnit }[] = [
+		{ label: 'Auto', value: 'auto' },
+		{ label: 'ms', value: 'ms' },
+		{ label: 's', value: 's' },
+		{ label: 'min', value: 'min' },
+		{ label: 'h', value: 'h' }
+	]
+	let durationUnitStorage = useLocalStorageValue<DurationUnit>(
+		'runs_chart_duration_unit',
+		'auto',
+		'string'
+	)
+	let durationScaleStorage = useLocalStorageValue<DurationScale>(
+		'runs_chart_duration_scale',
+		'log',
+		'string'
+	)
+	let chartHeightStorage = useLocalStorageValue(
+		'runs_chart_height',
+		CHART_DEFAULT_HEIGHT,
+		'number',
+		{ debounce: 300 }
+	)
+	const durationUnit = $derived(
+		DURATION_UNITS.includes(durationUnitStorage.val) ? durationUnitStorage.val : 'auto'
+	)
+	const durationScale = $derived(
+		DURATION_SCALES.includes(durationScaleStorage.val) ? durationScaleStorage.val : 'log'
+	)
+	let chartBoxEl: HTMLDivElement | undefined = $state(undefined)
+	let runsListEl: HTMLDivElement | undefined = $state(undefined)
+	// Both heights are read in the same callback. With a `bind:clientHeight` on each, the list's
+	// height lands a frame after the chart's, and the clamp below oscillates instead of settling.
+	let chartAndListHeight: number | undefined = $state(undefined)
+	useResizeObserver(
+		() => [chartBoxEl, runsListEl].filter((el): el is HTMLDivElement => el !== undefined),
+		() => {
+			if (chartBoxEl && runsListEl) {
+				chartAndListHeight = chartBoxEl.clientHeight + runsListEl.clientHeight
+			}
+		}
+	)
+	// Unbounded until the first layout is measured.
+	const chartMaxHeight = $derived(
+		chartAndListHeight === undefined
+			? Infinity
+			: Math.max(CHART_MIN_HEIGHT, chartAndListHeight - RUNS_LIST_MIN_HEIGHT)
+	)
+	const chartHeight = $derived(
+		Math.min(
+			Math.max(chartHeightStorage.val || CHART_DEFAULT_HEIGHT, CHART_MIN_HEIGHT),
+			chartMaxHeight
+		)
+	)
 	function filterSeeds() {
 		return {
 			path: initialPath || undefined,
@@ -178,9 +277,7 @@
 	let manualTimeframe = $derived(timeframe.type === 'manual' ? timeframe : undefined)
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
-		typeOfChart(
-			(hosted ? new URLSearchParams(hosted.search) : page.url.searchParams).get('graph')
-		)
+		typeOfChart((hosted ? new URLSearchParams(hosted.search) : page.url.searchParams).get('graph'))
 	)
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
@@ -230,7 +327,9 @@
 	}
 
 	async function loadPaths() {
-		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $operatingWorkspace ?? '' })
+		const npaths_scripts = await ScriptService.listScriptPaths({
+			workspace: $operatingWorkspace ?? ''
+		})
 		const npaths_flows = await FlowService.listFlowPaths({ workspace: $operatingWorkspace ?? '' })
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
@@ -245,6 +344,8 @@
 			delete filters.val.tag
 			delete filters.val.worker
 			delete filters.val.schedule_path
+			// `!schedule` is the persisted "hide schedules" preference, not a row filter.
+			if (filters.val.job_trigger_kind !== '!schedule') delete filters.val.job_trigger_kind
 			setter(e.detail)
 		}
 	}
@@ -257,6 +358,7 @@
 	const filterByTag = resetAndFilterBy((s) => (filters.val.tag = s))
 	const filterBySchedule = resetAndFilterBy((s) => (filters.val.schedule_path = s))
 	const filterByWorker = resetAndFilterBy((s) => (filters.val.worker = s))
+	const filterByTriggerKind = resetAndFilterBy((s) => (filters.val.job_trigger_kind = s))
 
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {
@@ -452,11 +554,14 @@
 
 		// workaround because EventSource does not support POST requests
 		// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
-		const response = await fetch(`${OpenAPI.BASE}/w/${$operatingWorkspace}/jobs/run/batch_rerun_jobs`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body)
-		})
+		const response = await fetch(
+			`${OpenAPI.BASE}/w/${$operatingWorkspace}/jobs/run/batch_rerun_jobs`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			}
+		)
 		await new Promise(async (resolve) => {
 			const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
 			let reRanUuids: string[] = []
@@ -572,8 +677,8 @@
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
-			// The server skips resolution for operators, who cannot resolve.
-			description: operatingUser.current?.operator
+			// The server skips resolution for a role without `code`, which cannot resolve.
+			description: !$roleCaps.code
 				? undefined
 				: "Failed or canceled jobs among them will be marked resolved, with the new run's id as the note.",
 			type: 'reload',
@@ -650,11 +755,19 @@
 	}
 	let resolutionNote = $state('')
 	// The bar folds this row (`actionFolds` below) once its breadcrumb has given all it can: first
-	// the counters, which are a glance and repeat the chart below; then the session button; then
-	// the filter field moves to a row of its own rather than shrinking past usable. Hosted, the row
-	// is the page's own and wraps instead.
+	// the counters, which are a glance and repeat the chart below; then the filter field moves to a
+	// row of its own rather than shrinking past usable. Hosted, the row is the page's own and wraps
+	// instead.
 	const fold = $derived(hosted ? 0 : pageHeader.actionFold)
-	const filterBelow = $derived(fold >= 3)
+	const filterBelow = $derived(fold >= 2)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// The filters are shallow-routed, so the search has to come off `window.location` at click
+		// time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
+		// preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway.
+		page: () => RUNS_PATH + window.location.search,
+		workspaceId: $operatingWorkspace ?? undefined
+	})
 </script>
 
 {#snippet runsHint()}
@@ -875,19 +988,11 @@
 			items={runsTimeframes}
 			bind:value={_timeframe.val}
 		/>
-		<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
-		     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
-		     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-		<div class={fold >= 2 || hosted ? 'hidden' : 'contents'}>
-			<OpenInSessionButton
-				source={{
-					page: () => RUNS_PATH + window.location.search,
-					workspaceId: $operatingWorkspace ?? undefined
-				}}
-				btnProps={{ unifiedSize: 'sm' }}
-			/>
-		</div>
 	</div>
+	{#if !hosted}
+		<!-- No main action on this page: the session button ends the row. -->
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
 {/snippet}
 
 <ConfirmationModal
@@ -955,10 +1060,10 @@
 	}}
 />
 
-{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.runs}
+{#if $operatingWorkspace && !$roleCaps.visibility.runs}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<div class="w-full h-full flex flex-col" bind:clientWidth={innerWidth}>
@@ -970,15 +1075,16 @@
 			<PageHeaderContent
 				afterName={runsHint}
 				actions={headerActions}
-				actionFolds={3}
+				{sessionSource}
+				actionFolds={2}
 				belowBar={filterRow}
-				belowBarFold={3}
+				belowBarFold={2}
 			/>
 		{/if}
 
 		<!-- Graph -->
 		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
-			<div class="relative z-10 mb-2 flex gap-2">
+			<div class="relative z-10 mb-2 flex flex-wrap gap-2">
 				<Tabs bind:selected={graph}>
 					<Tab value="RunChart" label="Duration" id="runs-chart-duration-tab" />
 					<Tab value="ConcurrencyChart" label="Concurrency" id="runs-chart-concurrency-tab">
@@ -1014,38 +1120,111 @@
 						<Tooltip>There are more jobs to load</Tooltip>
 					</Button>
 				{/if}
+				{#if graph === 'RunChart'}
+					<Popover
+						class="ml-auto self-start -mr-2"
+						placement="bottom-end"
+						contentClasses="p-3 flex flex-col gap-3"
+					>
+						{#snippet trigger()}
+							<Button
+								id="runs-chart-settings"
+								variant="subtle"
+								unifiedSize="sm"
+								iconOnly
+								nonCaptureEvent
+								title="Chart settings"
+								startIcon={{ icon: SlidersHorizontal }}
+							/>
+						{/snippet}
+						{#snippet content()}
+							<div class="flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Unit</span>
+								<ToggleButtonGroup
+									id="runs-chart-duration-unit"
+									noWFull
+									bind:selected={
+										() => durationUnit,
+										(v) => {
+											if (DURATION_UNITS.includes(v as DurationUnit) && v !== durationUnit) {
+												durationUnitStorage.val = v
+											}
+										}
+									}
+								>
+									{#snippet children({ item })}
+										{#each DURATION_UNIT_ITEMS as unit (unit.value)}
+											<ToggleButton value={unit.value} label={unit.label} size="sm" {item} />
+										{/each}
+									{/snippet}
+								</ToggleButtonGroup>
+							</div>
+							<div class="flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Scale</span>
+								<ToggleButtonGroup
+									id="runs-chart-duration-scale"
+									noWFull
+									bind:selected={
+										() => durationScale,
+										(v) => {
+											if ((v === 'log' || v === 'linear') && v !== durationScale) {
+												durationScaleStorage.val = v
+											}
+										}
+									}
+								>
+									{#snippet children({ item })}
+										<ToggleButton value="log" label="Log" size="sm" {item} />
+										<ToggleButton value="linear" label="Linear" size="sm" {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
 			</div>
-			{#if graph === 'RunChart'}
-				{@const manualTimeframe = timeframe.type === 'manual' ? timeframe : undefined}
-				<RunChart
-					bind:selectedIds
-					canSelect
-					minTimeSet={manualTimeframe?.minTs}
-					maxTimeSet={manualTimeframe?.maxTs}
-					maxIsNow={manualTimeframe?.maxTs == undefined}
-					jobs={completedJobs}
-					onZoom={(zoom) => {
-						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-					}}
-					onPointClicked={(ids) => {
-						openedRunId = ids.length === 1 ? ids[0] : undefined
-						runsTable?.scrollToRun(ids)
-					}}
-				/>
-			{:else if graph === 'ConcurrencyChart'}
-				<ConcurrentJobsChart
-					minTimeSet={manualTimeframe?.minTs}
-					maxTimeSet={manualTimeframe?.maxTs}
-					maxIsNow={manualTimeframe?.maxTs == undefined}
-					{extendedJobs}
-					onZoom={(zoom) => {
-						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-					}}
-				/>
-			{/if}
+			<div style:height="{chartHeight}px" bind:this={chartBoxEl}>
+				{#if graph === 'RunChart'}
+					{@const manualTimeframe = timeframe.type === 'manual' ? timeframe : undefined}
+					<RunChart
+						bind:selectedIds
+						canSelect
+						minTimeSet={manualTimeframe?.minTs}
+						maxTimeSet={manualTimeframe?.maxTs}
+						maxIsNow={manualTimeframe?.maxTs == undefined}
+						jobs={completedJobs}
+						unit={durationUnit}
+						scale={durationScale}
+						onZoom={(zoom) => {
+							_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
+						}}
+						onPointClicked={(ids) => {
+							openedRunId = ids.length === 1 ? ids[0] : undefined
+							runsTable?.scrollToRun(ids)
+						}}
+					/>
+				{:else if graph === 'ConcurrencyChart'}
+					<ConcurrentJobsChart
+						minTimeSet={manualTimeframe?.minTs}
+						maxTimeSet={manualTimeframe?.maxTs}
+						maxIsNow={manualTimeframe?.maxTs == undefined}
+						{extendedJobs}
+						onZoom={(zoom) => {
+							_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
+						}}
+					/>
+				{/if}
+			</div>
+			<ChartResizeHandle
+				class="-mb-2"
+				bind:height={() => chartHeight, (v) => (chartHeightStorage.val = v)}
+				min={CHART_MIN_HEIGHT}
+				max={chartMaxHeight}
+				defaultHeight={CHART_DEFAULT_HEIGHT}
+			/>
 		</div>
 
-		<div class="grow min-h-0 bottom-splitpane-wrapper">
+		<div class="grow min-h-0 bottom-splitpane-wrapper" bind:this={runsListEl}>
 			{#if pagedLayout}
 				<!-- No `onNavigate`: its arrow keys are read at `window`, where they would take
 				     ArrowRight from the table's horizontal scroll and ArrowLeft from a modal or drawer
@@ -1130,6 +1309,8 @@
 						on:filterByTag={filterByTag}
 						on:filterBySchedule={filterBySchedule}
 						on:filterByWorker={filterByWorker}
+						on:filterByTriggerKind={filterByTriggerKind}
+						columns={runsColumns}
 						bind:this={runsTable}
 						perPage={perPage.val}
 						bind:batchRerunOptionsIsOpen
@@ -1157,19 +1338,23 @@
 								displayName: 'Cancel jobs',
 								action: () => ((manualSelectionMode = 'cancel'), (selectedIds = []))
 							},
-							{
-								displayName: 'Re-run jobs',
-								action: () => {
-									manualSelectionMode = 'rerun'
-									selectedIds = []
-									filterMatchedIds = undefined
-									batchRerunOptionsIsOpen = true
-								}
-							},
-							...(!operatingUser.current?.operator
+							...($roleCaps.run
 								? [
 										{
-											// Operators are rejected by the endpoint, so offering it would only 403.
+											displayName: 'Re-run jobs',
+											action: () => {
+												manualSelectionMode = 'rerun'
+												selectedIds = []
+												filterMatchedIds = undefined
+												batchRerunOptionsIsOpen = true
+											}
+										}
+									]
+								: []),
+							...($roleCaps.code
+								? [
+										{
+											// A role without `code` is rejected by the endpoint, so offering it would only 403.
 											displayName: 'Resolve failed or canceled jobs',
 											action: () => (
 												(manualSelectionMode = 'resolve'),
@@ -1183,10 +1368,14 @@
 								displayName: 'Cancel all jobs matching filters',
 								action: () => onCancelAllJobsMatchingFilters()
 							},
-							{
-								displayName: 'Re-run all jobs matching filters',
-								action: () => onRerunAllJobsMatchingFilters()
-							}
+							...($roleCaps.run
+								? [
+										{
+											displayName: 'Re-run all jobs matching filters',
+											action: () => onRerunAllJobsMatchingFilters()
+										}
+									]
+								: [])
 						]}
 					/>
 				{:else}
@@ -1201,6 +1390,59 @@
 						Exit selection mode
 					</Button>
 				{/if}
+				<Popover placement="top-start" contentClasses="p-3 flex flex-col gap-2 w-64">
+					{#snippet trigger()}
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							nonCaptureEvent
+							startIcon={{ icon: Columns3 }}
+						>
+							Columns
+						</Button>
+					{/snippet}
+					{#snippet content()}
+						<span class="text-xs font-semibold text-emphasis">Visible columns</span>
+						{#each RUNS_COLUMNS as column (column.id)}
+							<Toggle
+								size="xs"
+								checked={runsColumns.includes(column.id)}
+								disabled={column.required}
+								on:change={(e) => setColumnShown(column.id, e.detail)}
+								options={{ right: column.label, rightTooltip: column.description }}
+							/>
+						{/each}
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							onClick={() => (columnsStorage.val = DEFAULT_RUNS_COLUMNS)}
+						>
+							Reset to default
+						</Button>
+					{/snippet}
+				</Popover>
+				<DropdownV2
+					disabled={exporting || !jobs?.length}
+					items={[
+						{ displayName: 'Export as CSV', action: () => onExport('csv') },
+						{ displayName: 'Export as JSON', action: () => onExport('json') },
+						{ displayName: 'Export as XLSX', action: () => onExport('xlsx') }
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							nonCaptureEvent
+							disabled={exporting || !jobs?.length}
+							loading={exporting}
+							startIcon={{ icon: Download }}
+							title="Export the loaded runs"
+						>
+							Export
+						</Button>
+					{/snippet}
+				</DropdownV2>
 				<div class="flex-1"></div>
 				<Toggle
 					size="xs"

@@ -25,6 +25,10 @@ RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
     && ./dotnet-install.sh --channel 9.0 --install-dir /usr/share/dotnet \
     && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet \
     && rm dotnet-install.sh
+# PHP
+COPY --from=php:8.3.36-cli-trixie /usr/local/bin/php /usr/bin/php
+COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
+
 # Nushell
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
 
@@ -66,5 +70,7 @@ RUN apt-get install -y r-base-dev \
 
 # Fix UV cache permissions for non-root user support (uid 1000, etc.)
 # The uv tool install ansible command populates the UV cache with root-owned files
-RUN chmod -R a+rw /tmp/windmill/cache/uv && \
-    find /tmp/windmill/cache/uv -type d -exec chmod 777 {} +
+# Only paths missing the bits are touched: a chmod on a file from an earlier layer
+# copies it into this layer, so a blanket chmod -R costs minutes per arch.
+RUN find /tmp/windmill/cache/uv \( -type d ! -perm 777 -exec chmod 777 {} + \) \
+    -o \( ! -type d ! -type l ! -perm -a+rw -exec chmod a+rw {} + \)

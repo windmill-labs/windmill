@@ -2,6 +2,7 @@
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
 	import oauthConnectRegistry from '$oauth_connect_registry'
+	import { isNewTabClick } from '$lib/navigation'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, EmptyState, Skeleton, Tab, TabFade } from '$lib/components/common'
@@ -43,7 +44,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
-	import { enterpriseLicense, userWorkspaces } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import {
@@ -54,6 +55,7 @@
 		truncate,
 		validateFileExtension
 	} from '$lib/utils'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import { convert } from '@redocly/json-to-json-schema'
@@ -71,10 +73,10 @@
 		RotateCw,
 		Save,
 		SearchX,
-		Shield,
 		Trash,
 		User,
 		Bot,
+		UserPlus,
 		Zap
 	} from 'lucide-svelte'
 	import { onMount, untrack } from 'svelte'
@@ -86,7 +88,10 @@
 		openAgentEditor
 	} from '$lib/components/flows/agentEditorStore.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import { setPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -102,20 +107,23 @@
 	const editRights = useEditRights()
 	const hosted = useHostedPage()
 
-	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
-	type ResourceTypeW = ResourceType & { canWrite: boolean }
+	type ResourceW = ListableResource & { marked?: string }
 
 	let cacheResources: ResourceW[] | undefined = $state()
 	let stateResources: ResourceW[] | undefined = $state()
 	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
-	let resourceTypes: ResourceTypeW[] | undefined = $state()
-
-	// Collect unique paths, types, owners for filter autocomplete
-	let allPaths: string[] = $state([])
-	let allResourceTypes: string[] = $state([])
-	let allOwners: string[] = $state([])
-	let allLabels: string[] = $state([])
+	let resourceTypes: ResourceType[] | undefined = $state()
+	let tab = $state<'workspace' | 'types' | 'states' | 'cache' | 'theme'>('workspace')
+	let currentResources = $derived(
+		tab == 'cache'
+			? cacheResources
+			: tab == 'states'
+				? stateResources
+				: tab == 'theme'
+					? themeResources
+					: resources
+	)
 
 	let resourceTypeViewer: Drawer | undefined = $state(undefined)
 	let resourceTypeViewerObj = $state({
@@ -145,6 +153,10 @@
 		formatExtension: undefined as string | undefined,
 		isFileset: false
 	})
+	let editResourceTypeOriginalKeys: string[] = $state([])
+	let editResourceTypeRemovesKeys = $derived(
+		editResourceTypeOriginalKeys.some((k) => !(k in (editResourceType.schema?.properties ?? {})))
+	)
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 
 	/** An `ai_agent` gets the agent editor rather than the generic resource form, which would
@@ -171,6 +183,23 @@
 			resourceEditor?.initEdit?.(path)
 		}
 	}
+
+	function openResourceTypeViewer(name: string) {
+		const rt = resourceTypes?.find((rt) => rt.name === name)
+		if (!rt) {
+			sendUserToast(`Resource type ${name} not found in workspace.`, true)
+			return
+		}
+		resourceTypeViewerObj = {
+			rt: rt.name,
+			//@ts-ignore
+			schema: rt.schema,
+			description: rt.description ?? '',
+			formatExtension: rt.format_extension,
+			isFileset: rt.is_fileset ?? false
+		}
+		resourceTypeViewer?.openDrawer?.()
+	}
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let appConnect: AppConnect | undefined = $state(undefined)
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
@@ -178,9 +207,27 @@
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
 	let loading = $state({
-		resources: true,
+		workspace: true,
+		cache: false,
+		states: false,
+		theme: false,
 		types: true
 	})
+
+	// Filter suggestions describe the list on screen, not whichever list answered last.
+	let suggestedFrom = $derived(currentResources ?? [])
+	let allPaths = $derived(Array.from(new Set(suggestedFrom.map((x) => x.path))).sort())
+	let allResourceTypes = $derived(
+		Array.from(new Set(suggestedFrom.map((x) => x.resource_type))).sort()
+	)
+	let allOwners = $derived(
+		Array.from(new Set(suggestedFrom.map((x) => x.path.split('/').slice(0, 2).join('/')))).sort()
+	)
+	let allLabels = $derived(
+		Array.from(
+			new Set(suggestedFrom.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
+		).sort()
+	)
 
 	let showCreateButtons = $state(false)
 
@@ -207,8 +254,8 @@
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
 	// A link can carry the user folders filter to someone it is not offered to, where it would sit
-	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` holds for
-	// the navigation workspace even while its user is still loading.
+	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` also
+	// holds for a lookup that came back with nobody.
 	$effect(() => {
 		if (!operatingUser.resolved($operatingWorkspace) || !operatingUser.current) return
 		if (userFoldersFilterType !== undefined) return
@@ -221,7 +268,7 @@
 	let itemFolders = $derived(
 		Array.from(
 			new Set(
-				(resources ?? [])
+				suggestedFrom
 					.map((x) => x.path.split('/').slice(0, 2).join('/'))
 					.filter((x) => x.startsWith('f/'))
 			)
@@ -274,30 +321,42 @@
 			: [])
 	])
 
+	// One per list: shared, the workspace list loaded in the background would drop the reply of
+	// the tab being viewed.
+	const loads = {
+		workspace: latestRequest(),
+		cache: latestRequest(),
+		states: latestRequest(),
+		theme: latestRequest(),
+		types: latestRequest()
+	}
+
 	async function loadResources(): Promise<void> {
-		resources = await loadResourceInternal(undefined, 'cache,state,app_theme')
-		loading.resources = false
+		const result = await loadResourceInternal('workspace', undefined, 'cache,state,app_theme')
+		if (result) resources = result
 	}
 
 	async function loadCache(): Promise<void> {
-		cacheResources = await loadResourceInternal('cache', undefined)
-		loading.resources = false
+		const result = await loadResourceInternal('cache', 'cache', undefined)
+		if (result) cacheResources = result
 	}
 
 	async function loadState(): Promise<void> {
-		stateResources = await loadResourceInternal('state', undefined)
-		loading.resources = false
+		const result = await loadResourceInternal('states', 'state', undefined)
+		if (result) stateResources = result
 	}
 
 	async function loadTheme(): Promise<void> {
-		themeResources = await loadResourceInternal('app_theme', undefined)
-		loading.resources = false
+		const result = await loadResourceInternal('theme', 'app_theme', undefined)
+		if (result) themeResources = result
 	}
 
 	async function loadResourceInternal(
+		list: 'workspace' | 'cache' | 'states' | 'theme',
 		resourceType: string | undefined,
 		resourceTypeExclude: string | undefined
-	): Promise<ResourceW[]> {
+	): Promise<ResourceW[] | undefined> {
+		const isLatest = loads[list].start()
 		const currentFilters = filters.val
 
 		// Build API parameters from filters.
@@ -335,37 +394,18 @@
 			apiParams.label = currentFilters.label
 		}
 
-		const result = (await ResourceService.listResource(apiParams)).map((x) => {
-			return {
-				canWrite:
-					editRights.canEditItem('resource', x.path, x.extra_perms) &&
-					$operatingWorkspace! == x.workspace_id,
-				...x
-			}
-		})
-
-		// Extract unique values for autocomplete
-		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
-		allResourceTypes = Array.from(new Set(result.map((x) => x.resource_type))).sort()
-		allOwners = Array.from(
-			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
-		).sort()
-		allLabels = Array.from(
-			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
-		).sort()
-
+		const result = await ResourceService.listResource(apiParams)
+		if (!isLatest()) return undefined
+		loading[list] = false
 		return result
 	}
 
 	async function loadResourceTypes(): Promise<void> {
+		const isLatest = loads.types.start()
 		const rows = await ResourceService.listResourceType({ workspace: $operatingWorkspace! })
+		if (!isLatest()) return
 		setResourceTypeDisplayNames(rows)
-		resourceTypes = rows.map((x) => {
-			return {
-				canWrite: $operatingWorkspace! == x.workspace_id,
-				...x
-			}
-		})
+		resourceTypes = rows
 		loading.types = false
 	}
 
@@ -477,6 +517,7 @@
 			formatExtension: rt.format_extension,
 			isFileset: rt.is_fileset ?? false
 		}
+		editResourceTypeOriginalKeys = Object.keys((rt.schema as any)?.properties ?? {})
 		editResourceTypeDrawer?.openDrawer?.()
 	}
 
@@ -504,12 +545,6 @@
 	}
 
 	let disableCustomPrefix = $state(false)
-	let tab: 'workspace' | 'types' | 'states' | 'cache' | 'theme' = $state('workspace') as
-		| 'workspace'
-		| 'types'
-		| 'states'
-		| 'cache'
-		| 'theme'
 
 	let inferrer: Drawer | undefined = $state(undefined)
 	let inferrerJson = $state('')
@@ -530,24 +565,21 @@
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 
 	async function reload() {
-		loading = {
-			resources: true,
-			types: true
-		}
+		loading.types = true
 		if (tab == 'cache') {
+			loading.cache = true
 			await loadCache()
 		} else if (tab == 'states') {
+			loading.states = true
 			await loadState()
 		} else if (tab == 'theme') {
+			loading.theme = true
 			await loadTheme()
 		} else {
+			loading.workspace = true
 			await loadResources()
 		}
 		await loadResourceTypes()
-		loading = {
-			resources: false,
-			types: false
-		}
 	}
 
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
@@ -643,17 +675,6 @@
 	// Eagerly load the map
 	loadResourceNameToFileExtMap()
 
-	// Current resources based on tab
-	let currentResources = $derived(
-		tab == 'cache'
-			? cacheResources
-			: tab == 'states'
-				? stateResources
-				: tab == 'theme'
-					? themeResources
-					: resources
-	)
-
 	// Filter resources client-side for user folder filtering (admin feature)
 	let filteredItems = $derived.by(() => {
 		let items = currentResources
@@ -689,23 +710,45 @@
 		}
 	})
 	$effect(() => {
-		if ($operatingWorkspace && operatingUser.current) {
+		if ($operatingWorkspace) {
 			untrack(() => {
-				loadResources()
+				// The effect above loads the open tab only; no list may keep the previous
+				// workspace's rows behind another tab. The others reload when reopened, so they are
+				// emptied, and a load still in flight for them is superseded so it cannot refill them.
+				if (tab !== 'workspace') loadResources()
+				if (tab !== 'cache') {
+					loads.cache.start()
+					cacheResources = undefined
+				}
+				if (tab !== 'states') {
+					loads.states.start()
+					stateResources = undefined
+				}
+				if (tab !== 'theme') {
+					loads.theme.start()
+					themeResources = undefined
+				}
 				loadResourceTypes()
 			})
 		}
 	})
 
-	// Deep link: #/resource/<path> opens that resource's edit drawer. Reactive
-	// rather than onMount so a hash change on the already-mounted page (e.g. the
-	// AI session preview re-pointing its tab) opens the drawer too. Row links
+	// Deep link: #/resource/<path> opens that resource's edit drawer, #/resource_type/<name>
+	// that type's viewer. Reactive rather than onMount so a hash change on the already-mounted
+	// page (e.g. the AI session preview re-pointing its tab) opens the drawer too. Row links
 	// pre-set handledHash: their onclick already opens the drawer.
+	const RESOURCE_TYPE_HASH = '#/resource_type/'
 	let handledHash = ''
 	$effect(() => {
 		// A host opens rows itself, and the document's hash is not this page's.
 		if (hosted) return
 		const hash = page.url.hash
+		if (hash.startsWith(RESOURCE_TYPE_HASH)) {
+			if (hash === handledHash || !resourceTypes) return
+			handledHash = hash
+			openResourceTypeViewer(hash.slice(RESOURCE_TYPE_HASH.length))
+			return
+		}
 		if (!hash.startsWith('#/resource/')) {
 			// Navigating away from a drawer target must clear the tracker, or
 			// re-targeting the same item later would be skipped as already handled.
@@ -837,7 +880,13 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={resourceTypeViewer} size="800px">
+<Drawer
+	bind:this={resourceTypeViewer}
+	size="800px"
+	on:close={() => {
+		if (window.location.hash.startsWith(RESOURCE_TYPE_HASH)) clearPageDrawerAnchor(RESOURCES_PATH)
+	}}
+>
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
 		{#snippet titleExtra()}
 			<IconedResourceType
@@ -924,6 +973,14 @@
 					</Alert>
 				{:else}
 					<div class="mb-1 font-semibold text-emphasis text-xs">Schema</div>
+					{#if editResourceTypeRemovesKeys}
+						<Alert
+							type="warning"
+							size="xs"
+							class="mb-2"
+							title="Existing resources keep removed properties and still pass them to scripts"
+						/>
+					{/if}
 					<div class="flex flex-col gap-2">
 						<!-- Dynamic, like the one below: the schema editor reaches monaco. -->
 						{#await import('$lib/components/schema/EditableSchemaWrapper.svelte') then EditableSchemaWrapper}
@@ -1030,10 +1087,10 @@
 	</DrawerContent>
 </Drawer>
 
-{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.resources}
+{#if $operatingWorkspace && !editRights.capabilities.visibility.resources}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>
@@ -1074,13 +1131,13 @@
 				bind:selected={tab}
 				on:selected={(e) => {
 					if (e.detail == 'cache') {
-						loading.resources = true
+						loading.cache = true
 						loadCache()
 					} else if (e.detail == 'states') {
-						loading.resources = true
+						loading.states = true
 						loadState()
 					} else if (e.detail == 'theme') {
-						loading.resources = true
+						loading.theme = true
 						loadTheme()
 					}
 				}}
@@ -1131,7 +1188,7 @@
 					onClick={reload}
 					startIcon={{
 						icon: RotateCw,
-						classes: loading.resources || loading.types ? 'animate-spin' : ''
+						classes: loading[tab] || loading.types ? 'animate-spin' : ''
 					}}
 				/>
 				{#if tab == 'types'}
@@ -1155,7 +1212,7 @@
 		<TabFade key={tab}>
 			{#if showTable}
 				<div class="overflow-x-auto pb-40 mt-4">
-					{#if loading.resources}
+					{#if loading[tab]}
 						<Skeleton layout={[0.5, [2], 1]} />
 						{#each new Array(6) as _}
 							<Skeleton layout={[[4], 0.7]} />
@@ -1197,9 +1254,12 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, grant_type, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, grant_type, scopes, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
+										{@const canWrite =
+											editRights.canEditItem('resource', path, extra_perms) &&
+											workspace_id == $operatingWorkspace}
 										<Row>
 											<Cell first>
 												<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -1209,7 +1269,8 @@
 													<a
 														class="break-all"
 														href="#/resource/{path}"
-														onclick={() => {
+														onclick={(e) => {
+															if (!hosted && isNewTabClick(e)) return
 															handledHash = `#/resource/${path}`
 															openResourceEditor(path, resource_type)
 														}}
@@ -1244,25 +1305,11 @@
 											</Cell>
 											<Cell>
 												<a
-													href="#{name}"
-													onclick={() => {
-														const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
-														if (linkedRt) {
-															resourceTypeViewerObj = {
-																rt: linkedRt.name,
-																//@ts-ignore
-																schema: linkedRt.schema,
-																description: linkedRt.description ?? '',
-																formatExtension: linkedRt.format_extension,
-																isFileset: linkedRt.is_fileset ?? false
-															}
-															resourceTypeViewer?.openDrawer?.()
-														} else {
-															sendUserToast(
-																`Resource type ${resource_type} not found in workspace.`,
-																true
-															)
-														}
+													href="{RESOURCE_TYPE_HASH}{resource_type}"
+													onclick={(e) => {
+														if (!hosted && isNewTabClick(e)) return
+														handledHash = `${RESOURCE_TYPE_HASH}${resource_type}`
+														openResourceTypeViewer(resource_type)
 													}}
 												>
 													<IconedResourceType
@@ -1315,7 +1362,8 @@
 													{#if is_oauth}
 														{@const identityKnown =
 															grant_type === 'client_credentials' ||
-															!(oauthConnectRegistry as Record<string, any>)[resource_type]?.user_scopes}
+															!(oauthConnectRegistry as Record<string, any>)[resource_type]
+																?.user_scopes}
 														<!-- Slack's bot and user tokens both come from the sign-in flow, so
 														     the grant does not say whose identity the token carries. -->
 														<div class="w-10">
@@ -1347,6 +1395,7 @@
 																		<div>
 																			Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 																		</div>
+																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
 															{:else if is_expired}
@@ -1362,6 +1411,7 @@
 																			this variable is fetched or you can request is to be refreshed
 																			in the dropdown on the right.
 																		</div>
+																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
 															{:else}
@@ -1375,6 +1425,7 @@
 																			The resource was connected through OAuth and the token is not
 																			expired.
 																		</div>
+																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
 															{/if}
@@ -1384,7 +1435,7 @@
 											</Cell>
 											<Cell last actions>
 												<div class="flex justify-end items-center gap-2">
-													{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !operatingUser.current?.operator}
+													{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && editRights.capabilities.code}
 														<ExploreAssetButton
 															asset={{ kind: 'resource', path }}
 															_resourceMetadata={{ resource_type }}
@@ -1395,8 +1446,8 @@
 														class="w-fit"
 														items={[
 															{
-																displayName: 'Permissions',
-																icon: Shield,
+																displayName: 'Share',
+																icon: UserPlus,
 																action: () => {
 																	shareModal?.openDrawer?.(path, 'resource')
 																}
@@ -1519,22 +1570,16 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredResourceTypes}
-									{#each filteredResourceTypes as { name, description, schema, canWrite, format_extension, is_fileset }}
+									{#each filteredResourceTypes as { name, description, workspace_id, format_extension, is_fileset }}
+										{@const canWrite = workspace_id == $operatingWorkspace}
 										<Row>
 											<Cell first>
 												<a
-													href="#{name}"
-													onclick={() => {
-														resourceTypeViewerObj = {
-															rt: name,
-															//@ts-ignore
-															schema: schema,
-															description: description ?? '',
-															formatExtension: format_extension,
-															isFileset: is_fileset ?? false
-														}
-
-														resourceTypeViewer?.openDrawer?.()
+													href="{RESOURCE_TYPE_HASH}{name}"
+													onclick={(e) => {
+														if (!hosted && isNewTabClick(e)) return
+														handledHash = `${RESOURCE_TYPE_HASH}${name}`
+														openResourceTypeViewer(name)
 													}}
 												>
 													<IconedResourceType
@@ -1662,3 +1707,16 @@
 		/>
 	{/await}
 {/if}
+
+{#snippet oauthScopes(resourceType: string, scopes: string[] | undefined)}
+	{#if resourceType === 'nextcloud'}
+		<div class="mt-2">Scopes: full access</div>
+	{:else if scopes?.length}
+		<div class="mt-2 flex flex-col gap-0.5">
+			<span>Scopes:</span>
+			{#each scopes as scope (scope)}
+				<code class="text-2xs break-all">{scope}</code>
+			{/each}
+		</div>
+	{/if}
+{/snippet}

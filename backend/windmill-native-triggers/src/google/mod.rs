@@ -134,6 +134,7 @@ pub struct GoogleOAuthData {
     pub refresh_token: Option<String>,
     /// When the access token expires
     pub token_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub connection_path: String,
 }
 
 /// Google API endpoints

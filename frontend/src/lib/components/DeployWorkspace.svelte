@@ -283,6 +283,8 @@
 								result.push({ kind: 'script', path: runnable.path })
 							} else if (runnable.runType == 'flow') {
 								result.push({ kind: 'flow', path: runnable.path })
+							} else if (runnable.runType == 'agent') {
+								result.push({ kind: 'resource', path: runnable.path })
 							}
 						}
 					}

@@ -127,7 +127,7 @@ async fn test_mcp_preprocessor_receives_the_callers_headers(
         .and_then(|list| {
             list.iter()
                 .filter_map(|t| t["name"].as_str())
-                .find(|n| n.contains("mcp__hdr__probe"))
+                .find(|n| *n == "mcp_hdr_probe")
         })
         .ok_or_else(|| anyhow::anyhow!("the deployed script was not listed as a tool: {tools}"))?
         .to_string();

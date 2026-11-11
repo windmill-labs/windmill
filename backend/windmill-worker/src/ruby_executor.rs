@@ -825,7 +825,11 @@ mount {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("RUBYLIB", rubylib.as_str())
             .envs(&reserved_variables)
-            .envs(RUBY_PROXY_ENVS.clone())
+            .envs(if crate::passes_proxy_to_jobs() {
+                RUBY_PROXY_ENVS.clone()
+            } else {
+                vec![]
+            })
             .envs(
                 get_proxy_envs_for_lang(
                     &ScriptLang::Ruby,
@@ -900,7 +904,11 @@ mount {{
             .env("RUBYLIB", rubylib.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
-            .envs(RUBY_PROXY_ENVS.clone())
+            .envs(if crate::passes_proxy_to_jobs() {
+                RUBY_PROXY_ENVS.clone()
+            } else {
+                vec![]
+            })
             .envs(
                 get_proxy_envs_for_lang(
                     &ScriptLang::Ruby,

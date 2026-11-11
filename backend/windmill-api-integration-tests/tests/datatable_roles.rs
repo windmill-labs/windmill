@@ -1737,7 +1737,7 @@ async fn an_operator_neither_writes_nor_runs_a_migration(db: Pool<Postgres>) -> 
         let status = resp.status();
         let text = resp.text().await?;
         assert!(
-            status == 401 && text.contains("Operators cannot"),
+            status == 403 && text.contains("Your role cannot"),
             "{status}: {text}"
         );
     }

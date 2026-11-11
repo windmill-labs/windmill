@@ -63,7 +63,6 @@
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
 	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	let permsPath = $state<string | undefined>(undefined)
 	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
@@ -89,7 +88,7 @@
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
-	let base_endpoint = $derived(apiBaseUrl())
+	let base_endpoint = $derived(apiBaseUrl('push_triggers'))
 	let auto_acknowledge_msg = $state(true)
 	let ack_deadline: number | undefined = $state()
 	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')
@@ -599,7 +598,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!actingUser?.operator}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
 						promptText="Pick a script or flow to be triggered "
 					>
 						{#snippet createButton()}

@@ -681,6 +681,17 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     // ========================================================================
 
     let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/prodfolder/stale/existing"))
+    .send()
+    .await?;
+    let status = resp.status();
+    let existing_hash = resp.text().await?;
+    assert_eq!(status, 201, "script before the stale rule: {existing_hash}");
+
+    let resp = authed(
         client().post(format!("{base}/folders/update/prodfolder")),
         "SECRET_TOKEN",
     )
@@ -718,6 +729,33 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         body.contains("u/ghost") && body.contains("does not exist"),
         "error should identify the stale user: {body}"
     );
+
+    // The default applies only to a first deploy, so it cannot fail a redeploy...
+    let mut redeploy = new_script("f/prodfolder/stale/existing");
+    redeploy["content"] = json!("export async function main() { return 43; }");
+    redeploy["parent_hash"] = json!(existing_hash);
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&redeploy)
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "stale rule must not block a redeploy: {}",
+        resp.text().await?
+    );
+    // ...while a first deploy it would apply to still reports it.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/prodfolder/stale/new_script"))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400, "stale rule should refuse a new script");
 
     // Non-matching paths in the same folder still work fine.
     let resp = authed(

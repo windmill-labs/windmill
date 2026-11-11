@@ -54,6 +54,7 @@ use windmill_common::{
     jwt::JWT_SECRET,
     scripts::ScriptLang,
     users::username_to_permissioned_as,
+    workspaces::check_role_can_code,
     DB,
 };
 
@@ -138,6 +139,7 @@ pub fn workspaced_service() -> Router {
         .route("/sign", post(sign_debug_request))
         .route("/sign_expression", post(sign_expression))
         .route("/sign_multiplayer", post(sign_multiplayer))
+        .route("/sign_lsp", post(sign_lsp))
 }
 
 /// JWKS response containing the public key for debug token verification
@@ -308,11 +310,7 @@ async fn get_registry_config(
     let mut config = DebugRegistryConfig {
         npm_config_registry: resolve(npm, NPM_CONFIG_REGISTRY_SETTING, "NPM_CONFIG_REGISTRY"),
         npmrc: resolve(npm, NPMRC_SETTING, "NPMRC"),
-        bunfig_install_scopes: resolve(
-            npm,
-            BUNFIG_INSTALL_SCOPES_SETTING,
-            "BUNFIG_INSTALL_SCOPES",
-        ),
+        bunfig_install_scopes: resolve(npm, BUNFIG_INSTALL_SCOPES_SETTING, "BUNFIG_INSTALL_SCOPES"),
         pip_index_url: resolve(python, PIP_INDEX_URL_SETTING, "PIP_INDEX_URL"),
         pip_extra_index_url: resolve(python, EXTRA_PIP_INDEX_URL_SETTING, "PIP_EXTRA_INDEX_URL"),
         // Not a private-registry setting: a worker reads it on any edition, so it is
@@ -453,10 +451,13 @@ pub struct SignedDebugPayload {
 /// - An audit log entry identical to "jobs.run.preview"
 async fn sign_debug_request(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(request): Json<SignDebugRequest>,
 ) -> JsonResult<SignedDebugPayload> {
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "run the debugger")
+        .await?;
     let key_guard = DEBUG_SIGNING_KEY.read().await;
     let signing_key = key_guard.as_ref().ok_or_else(|| {
         windmill_common::error::Error::InternalErr("Debug signing key not initialized".to_string())
@@ -490,12 +491,12 @@ async fn sign_debug_request(
         job_id: job_id.to_string(),
         // The registry settings embed credentials, and the token reaches the browser, so they
         // are only served for a session whose author can already install with them: someone
-        // who can run a preview job. For npm that discloses nothing new, since a worker leaves
-        // the same `.npmrc` / `bunfig.toml` in the directory the previewed script runs in; the
-        // Python index URL only ever appears as uv's argv, so serving it here does widen what
-        // a member of the workspace can read. Operators cannot run previews at all, so their
-        // sessions install from the public registries.
-        registry_config: !authed.is_operator,
+        // who can run a preview job, which the `check_role_can_code` gate above guarantees.
+        // For npm that discloses nothing new, since a worker leaves the same `.npmrc` /
+        // `bunfig.toml` in the directory the previewed script runs in; the Python index URL
+        // only ever appears as uv's argv, so serving it here does widen what a member of the
+        // workspace can read.
+        registry_config: true,
     };
 
     // Create JWT manually with Ed25519 signature
@@ -627,10 +628,13 @@ pub struct SignedExpressionPayload {
 /// Creates an audit log entry with the full expression for traceability.
 async fn sign_expression(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(request): Json<SignExpressionRequest>,
 ) -> JsonResult<SignedExpressionPayload> {
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "run the debugger")
+        .await?;
     let key_guard = DEBUG_SIGNING_KEY.read().await;
     let signing_key = key_guard.as_ref().ok_or_else(|| {
         windmill_common::error::Error::InternalErr("Debug signing key not initialized".to_string())
@@ -696,7 +700,7 @@ async fn sign_expression(
     Ok(Json(SignedExpressionPayload { token }))
 }
 
-/// JWT claims for multiplayer session tokens
+/// JWT claims for multiplayer and language server session tokens
 #[derive(Serialize, Deserialize)]
 pub struct MultiplayerTokenClaims {
     /// Workspace ID
@@ -707,7 +711,7 @@ pub struct MultiplayerTokenClaims {
     pub iat: i64,
     /// Expiration (Unix timestamp)
     pub exp: i64,
-    /// Token purpose (always "multiplayer")
+    /// Token purpose ("multiplayer" or "lsp")
     pub purpose: String,
 }
 
@@ -723,6 +727,28 @@ async fn sign_multiplayer(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
 ) -> JsonResult<SignedMultiplayerPayload> {
+    sign_session_token(w_id, authed.email, "multiplayer").await
+}
+
+/// Sign a language server session request, verified by the windmill_extra gateway against
+/// /api/debug/jwks before it forwards the connection to the language servers.
+///
+/// Gated on the role's `code` capability, not `is_operator`: the language servers only analyse
+/// backend script languages, and a restricted role may still hold `code`.
+async fn sign_lsp(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<SignedMultiplayerPayload> {
+    check_role_can_code(&db, &w_id, &authed, "use the editor language servers").await?;
+    sign_session_token(w_id, authed.email, "lsp").await
+}
+
+async fn sign_session_token(
+    w_id: String,
+    email: String,
+    purpose: &str,
+) -> JsonResult<SignedMultiplayerPayload> {
     let key_guard = DEBUG_SIGNING_KEY.read().await;
     let signing_key = key_guard.as_ref().ok_or_else(|| {
         windmill_common::error::Error::InternalErr("Debug signing key not initialized".to_string())
@@ -733,10 +759,10 @@ async fn sign_multiplayer(
 
     let claims = MultiplayerTokenClaims {
         workspace_id: w_id,
-        email: authed.email,
+        email,
         iat: now_ts,
         exp,
-        purpose: "multiplayer".to_string(),
+        purpose: purpose.to_string(),
     };
 
     let header = serde_json::json!({

@@ -21,6 +21,7 @@
 		Code2Icon,
 		Database,
 		DollarSignIcon,
+		FolderOpenIcon,
 		HomeIcon,
 		LayoutDashboardIcon,
 		MailIcon,
@@ -29,6 +30,7 @@
 		Search,
 		SearchCode,
 		Unplug,
+		UsersIcon,
 		WandSparkles
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -39,7 +41,7 @@
 	import ContentSearchInner from '../ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
-	import { devopsRole, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { devopsRole, enterpriseLicense, roleCapabilities, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { Alert } from '../common'
@@ -76,9 +78,14 @@
 		search_id: string
 		label: string
 		action: () => void
+		href?: string
 		icon?: any
 		shortcutKey?: string
 		disabled?: boolean
+	}
+
+	function navTo(path: string) {
+		return { href: path, action: (newtab: boolean = false) => gotoPage(path, newtab) }
 	}
 	let switchModeItems: quickMenuItem[] = [
 		{
@@ -104,79 +111,79 @@
 		{
 			search_id: 'nav:http_routes',
 			label: 'Go to HTTP routes',
-			action: (newtab: boolean = false) => gotoPage('/routes', newtab),
+			...navTo('/routes'),
 			icon: Route,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:web_sockets',
 			label: 'Go to WebSockets',
-			action: (newtab: boolean = false) => gotoPage('/websocket_triggers', newtab),
+			...navTo('/websocket_triggers'),
 			icon: Unplug,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:postgres_triggers',
 			label: 'Go to Postgres triggers',
-			action: (newtab: boolean = false) => gotoPage('/postgres_triggers', newtab),
+			...navTo('/postgres_triggers'),
 			icon: Database,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:kafka_triggers',
 			label: 'Go to Kafka triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
-			action: (newtab: boolean = false) => gotoPage('/kafka_triggers', newtab),
+			...navTo('/kafka_triggers'),
 			icon: KafkaIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:nats_triggers',
 			label: 'Go to NATS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
-			action: (newtab: boolean = false) => gotoPage('/nats_triggers', newtab),
+			...navTo('/nats_triggers'),
 			icon: NatsIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:sqs_triggers',
 			label: 'Go to SQS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
-			action: (newtab: boolean = false) => gotoPage('/sqs_triggers', newtab),
+			...navTo('/sqs_triggers'),
 			icon: AwsIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:gcp_pub_sub',
 			label: 'Go to GCP Pub/Sub' + (!$enterpriseLicense ? '' : ' (EE)'),
-			action: (newtab: boolean = false) => gotoPage('/gcp_triggers', newtab),
+			...navTo('/gcp_triggers'),
 			icon: GoogleCloudIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:azure_event_grid',
 			label: 'Go to Azure Event Grid' + (!$enterpriseLicense ? '' : ' (EE)'),
-			action: (newtab: boolean = false) => gotoPage('/azure_triggers', newtab),
+			...navTo('/azure_triggers'),
 			icon: AzureIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:mqtt_triggers',
 			label: 'Go to MQTT triggers',
-			action: (newtab: boolean = false) => gotoPage('/mqtt_triggers', newtab),
+			...navTo('/mqtt_triggers'),
 			icon: MqttIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:amqp_triggers',
 			label: 'Go to AMQP triggers',
-			action: (newtab: boolean = false) => gotoPage('/amqp_triggers', newtab),
+			...navTo('/amqp_triggers'),
 			icon: AmqpIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:email_triggers',
 			label: 'Go to Email triggers',
-			action: (newtab: boolean = false) => gotoPage('/email_triggers', newtab),
+			...navTo('/email_triggers'),
 			icon: MailIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		}
 	]
 
@@ -184,43 +191,57 @@
 		{
 			search_id: 'nav:home',
 			label: 'Go to Home',
-			action: (newtab: boolean = false) => gotoPage('/', newtab),
+			...navTo('/'),
 			icon: HomeIcon,
 			disabled: false
 		},
 		{
 			search_id: 'nav:runs',
 			label: 'Go to Runs',
-			action: (newtab: boolean = false) => gotoPage('/runs', newtab),
+			...navTo('/runs'),
 			icon: PlayIcon,
 			disabled: false
 		},
 		{
 			search_id: 'nav:variables',
 			label: 'Go to Variables',
-			action: (newtab: boolean = false) => gotoPage('/variables', newtab),
+			...navTo('/variables'),
 			icon: DollarSignIcon,
 			disabled: false
 		},
 		{
 			search_id: 'nav:resources',
 			label: 'Go to Resources',
-			action: (newtab: boolean = false) => gotoPage('/resources', newtab),
+			...navTo('/resources'),
 			icon: BoxesIcon,
 			disabled: false
 		},
 		{
 			search_id: 'nav:schedules_triggers',
 			label: 'Go to Schedules',
-			action: (newtab: boolean = false) => gotoPage('/schedules', newtab),
+			...navTo('/schedules'),
 			icon: CalendarIcon,
 			disabled: false
+		},
+		{
+			search_id: 'nav:folders',
+			label: 'Go to Folders',
+			...navTo('/folders'),
+			icon: FolderOpenIcon,
+			disabled: !$roleCapabilities.visibility.folders
+		},
+		{
+			search_id: 'nav:groups',
+			label: 'Go to Groups',
+			...navTo('/groups'),
+			icon: UsersIcon,
+			disabled: !$roleCapabilities.visibility.groups
 		},
 		...switchModeItems,
 		{
 			search_id: 'nav:service_logs',
 			label: 'Explore windmill service logs',
-			action: (newtab: boolean = false) => gotoPage('/service_logs', newtab),
+			...navTo('/service_logs'),
 			shortcutKey: LOGS_PREFIX,
 			icon: Logs,
 			disabled: !$devopsRole
@@ -420,28 +441,21 @@
 		textInput?.focus()
 	}
 
-	function gotoWindmillItemPage(e: TableAny, newtab: boolean = false) {
-		let path: string
+	function windmillItemPagePath(e: TableAny): string {
 		switch (e.type) {
 			case 'flow':
-				path = `/flows/get/${e.path}`
-				break
+				return `/flows/get/${e.path}`
 			case 'script':
-				path = `/scripts/get/${e.path}`
-				break
+				return `/scripts/get/${e.path}`
 			case 'app':
-				path = `/apps/get/${e.path}`
-				break
+				return `/apps/get/${e.path}`
 			case 'raw_app':
-				path = `/apps_raw/get/${e.path}`
-				break
+				return `/apps_raw/get/${e.path}`
 			case 'agent':
-				path = `/agents/get/${e.path}`
-				break
+				return `/agents/get/${e.path}`
 			default:
-				path = '/'
+				return '/'
 		}
-		gotoPage(path, newtab)
 	}
 
 	function gotoPage(path: string, newtab: boolean = false) {
@@ -742,6 +756,7 @@
 							>
 								{#each items as el}
 									<QuickMenuItem
+										href={el?.href}
 										onselect={(shift) => el?.action(shift)}
 										onhover={() => (selectedItem = el)}
 										id={el?.search_id}
@@ -764,8 +779,9 @@
 								>
 								{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
 									<QuickMenuItem
+										href={windmillItemPagePath(el)}
 										onselect={(shift) => {
-											gotoWindmillItemPage(el, shift)
+											gotoPage(windmillItemPagePath(el), shift)
 										}}
 										onhover={() => (selectedItem = el)}
 										id={el?.search_id}
@@ -816,11 +832,10 @@
 									Service logs are only available to superadmins
 								</Alert>
 							{:else}
+								{@const serviceLogsHref = `/service_logs?query=${encodeURIComponent(removePrefix(searchTerm, '!'))}`}
 								<QuickMenuItem
-									onselect={() =>
-										gotoPage(
-											`/service_logs?query=${encodeURIComponent(removePrefix(searchTerm, '!'))}`
-										)}
+									href={serviceLogsHref}
+									onselect={(shift) => gotoPage(serviceLogsHref, shift)}
 									id="goto_service_logs_search"
 									hovered={true}
 									label={searchTerm === '!'

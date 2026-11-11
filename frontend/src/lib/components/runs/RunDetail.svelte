@@ -23,6 +23,7 @@
 		isScriptPreview,
 		type Item
 	} from '$lib/utils'
+	import { isNewTabClick } from '$lib/navigation'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
@@ -42,7 +43,8 @@
 		Users,
 		Play,
 		SearchX,
-		ArrowRight
+		ArrowRight,
+		Eye
 	} from 'lucide-svelte'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import { forLater } from '$lib/forLater'
@@ -57,7 +59,13 @@
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
 	import UpstreamSnapshotsPanel from '$lib/components/runs/UpstreamSnapshotsPanel.svelte'
-	import { enterpriseLicense, initialArgsStore, superadmin, userWorkspaces } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		initialArgsStore,
+		roleCapabilities,
+		superadmin,
+		userWorkspaces
+	} from '$lib/stores'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import JobLoader from '$lib/components/JobLoader.svelte'
@@ -90,7 +98,9 @@
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
-	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { getJobStatusKind, resetFavicon, setStatusFavicon } from '$lib/favicon'
 
@@ -122,7 +132,7 @@
 		useOperatingUser
 	} from '$lib/components/operatingWorkspace.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { useEditRights } from '$lib/operatorWriteRights'
+	import { useEditRights, useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { AGENT_STEP_ID } from '$lib/components/flows/conversations/agentEditorChat'
 
 	let {
@@ -154,6 +164,8 @@
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	const editRights = useEditRights()
+	// A role without `run` is refused by every run route; `Run now` only advances a queued job.
+	const roleCaps = useRoleCapabilities()
 
 	// Protection rules are only kept loaded for the navigation workspace.
 	const foreignRulesets = resource(
@@ -231,6 +243,7 @@
 	const restart = $derived(selectionRestartable ? selectedRestart : failedRestart)
 	function canRestart(state: ReturnType<typeof useNestedRestartState>) {
 		return (
+			$roleCaps.run &&
 			job?.type === 'CompletedJob' &&
 			job.job_kind === 'flow' &&
 			(state.topLevelRestartable || state.nestedRestartSupported)
@@ -609,7 +622,7 @@
 				// Offer to resolve this failure once the re-run succeeds. Captured here because the
 				// new job carries no back-pointer to the run it supersedes. An already-resolved
 				// failure needs no offer, and its note must not be restated as a supersession.
-				if (job && isJobResolvable(job) && !job.resolved && !actingUser?.operator) {
+				if (job && isJobResolvable(job) && !job.resolved && editRights.capabilities.code) {
 					rememberRerunOrigin({ originalId: job.id, rerunId: id, workspace: workspaceId! })
 				}
 				await onNavigate('/run/' + id + '?workspace=' + workspaceId)
@@ -636,7 +649,8 @@
 		const id = job?.id
 		const failed = job?.language === 'dbt' && job?.type === 'CompletedJob' && !job?.success
 		dbtResumable = false
-		if (!ws || !id || !failed) return
+		// Resuming starts a run, so every resume control keys off this.
+		if (!ws || !id || !failed || !$roleCaps.run) return
 		JobService.getDbtResumable({ workspace: ws, id })
 			.then((held) => {
 				// The page may have moved on, or the workspace changed, in flight.
@@ -715,11 +729,10 @@
 		onDestroy(resetFavicon)
 	}
 
-	// The bar folds these (`actionFolds` below) once its breadcrumb has given all it can: first the
-	// buttons drop their labels, then the plain actions go into one menu. Embedded, the buttons
-	// have a row of their own that wraps.
-	const compactBar = $derived(!embedded && pageHeader.actionFold >= 1)
-	const actionsInMenu = $derived(!embedded && pageHeader.actionFold >= 2)
+	// The bar folds these (`actionFolds` below) once its breadcrumb has given all it can: the plain
+	// actions go into one menu rather than losing their labels. Embedded, the buttons have a row
+	// of their own that wraps.
+	const actionsInMenu = $derived(!embedded && pageHeader.actionFold >= 1)
 
 	const isScriptJob = $derived(job?.job_kind === 'script')
 	const isRunnableJob = $derived(
@@ -736,6 +749,13 @@
 			: `${stem}/get/${isScriptJob ? job?.script_hash : job?.script_path}`
 	)
 	const editHref = $derived(`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`)
+	// The run's args reach the editor through the in-memory store, never the URL: they can hold
+	// secrets that must not land in history or access logs. A new tab can't read the store, so
+	// it opens the editor without them, and the store is left alone for this tab's next editor.
+	function seedEditArgs(e?: Event) {
+		if (e instanceof MouseEvent && isNewTabClick(e)) return
+		$initialArgsStore = job?.args
+	}
 	const forkPreviewLabel = $derived(
 		isHubFlowPreview
 			? 'Fork flow into workspace'
@@ -755,12 +775,22 @@
 	)
 	const canEdit = $derived(
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
-			!actingUser?.operator &&
 			editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})
+	)
+	// Opens the deployed runnable at this job's path, like Edit — unlike "View script", which pins
+	// the hash this run executed. Not gated on edit rights: a session also reads and explains, and
+	// the server still refuses a deploy the user has no right to.
+	const sessionOpen: OpenInSessionSource | undefined = $derived(
+		(job?.job_kind === 'script' || job?.job_kind === 'flow') && job?.script_path
+			? {
+					target: { kind: isScriptJob ? 'script' : 'flow', path: job?.script_path ?? '' },
+					workspaceId: workspaceId ?? undefined
+				}
+			: undefined
 	)
 	const canEditInFork = $derived(
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
-			!actingUser?.operator &&
+			editRights.capabilities.code &&
 			!showEditButton &&
 			!isCloudHosted() &&
 			editInForkAllowed(workspaceId, $userWorkspaces)
@@ -805,6 +835,36 @@
 		if (!forceCancel) setTimeout(() => (forceCancel = true), 3001)
 	}
 
+	// The run's life and a day after it: the audit filter on a run id has no index, so its cost
+	// grows with the time range it covers. Later entries are a widened range away on that page.
+	const auditLogsHref = $derived.by(() => {
+		if (!job) return undefined
+		const params = new URLSearchParams({ job_id: job.id })
+		if (job.created_at) {
+			params.set('after', new Date(new Date(job.created_at).getTime() - 1000).toISOString())
+		}
+		if (job.type === 'CompletedJob') {
+			const end = job.completed_at
+				? new Date(job.completed_at).getTime()
+				: new Date(job.started_at).getTime() + job.duration_ms
+			params.set('before', new Date(end + 24 * 3600 * 1000).toISOString())
+		}
+		return `/audit_logs?${params}`
+	})
+	const moreItems = $derived<Item[]>([
+		{
+			displayName: 'Audit logs',
+			icon: Eye,
+			href: auditLogsHref,
+			hide: !job || !$roleCapabilities.visibility.audit_logs
+		},
+		{
+			displayName: 'Show flow debug info',
+			icon: EllipsisVertical,
+			action: debugInfo,
+			hide: !canDebug
+		}
+	])
 	// The same actions as the row, most used first; the restart and session controls stay beside
 	// the menu, since each opens a popover of its own that a menu row cannot hold.
 	const menuItems = $derived.by((): Item[] => {
@@ -812,7 +872,12 @@
 		const kind = isScriptJob ? 'script' : 'flow'
 		return [
 			{ displayName: viewLabel, icon: Code2, href: viewHref, hide: !isRunnableJob },
-			{ displayName: 'Run again', icon: RefreshCw, action: runAgain, hide: !isRunnableJob },
+			{
+				displayName: 'Run again',
+				icon: RefreshCw,
+				action: runAgain,
+				hide: !isRunnableJob || !$roleCaps.run
+			},
 			{
 				displayName: 'dbt retry with same args',
 				icon: RefreshCw,
@@ -823,13 +888,13 @@
 				displayName: 'Run immediately with same args',
 				icon: RefreshCw,
 				action: () => runImmediately(),
-				hide: !isRunnableJob
+				hide: !isRunnableJob || !$roleCaps.run
 			},
 			{
 				displayName: 'Edit',
 				icon: Pen,
 				href: editHref,
-				action: () => ($initialArgsStore = job?.args),
+				action: seedEditArgs,
 				disabled: !showEditButton,
 				hide: !canEdit
 			},
@@ -870,6 +935,12 @@
 				icon: List,
 				href: runsHref,
 				hide: !canDelete || !(job.job_kind === 'script' || job.job_kind === 'flow')
+			},
+			{
+				displayName: 'Audit logs',
+				icon: Eye,
+				href: auditLogsHref,
+				hide: !$roleCapabilities.visibility.audit_logs
 			},
 			{
 				displayName: 'Copy link for members',
@@ -1081,7 +1152,8 @@
 		<PageHeaderContent
 			section={{ label: `run/${runId}` }}
 			actions={runActions}
-			actionFolds={2}
+			sessionSource={sessionOpen}
+			actionFolds={1}
 			{actionsVersion}
 		/>
 	{/if}
@@ -1090,15 +1162,6 @@
 		{#if actionsInMenu}
 			{#if restartStep !== undefined && canRestart(restart)}
 				{@render flowRestartButton(restart, restartStep, 'button')}
-			{/if}
-			{#if canEdit && showEditButton}
-				<OpenInSessionButton
-					source={{
-						target: { kind: isScriptJob ? 'script' : 'flow', path: job?.script_path ?? '' },
-						workspaceId: workspaceId ?? undefined
-					}}
-					btnProps={{ unifiedSize: 'sm' }}
-				/>
 			{/if}
 			<Dropdown items={menuItems} customWidth={260}>
 				{#snippet buttonReplacement()}
@@ -1112,12 +1175,16 @@
 					/>
 				{/snippet}
 			</Dropdown>
+			<OpenInSessionButton source={sessionOpen} />
 		{:else}
 			{@render runActionsRow()}
 		{/if}
 	{/snippet}
 
 	{#snippet runActionsRow()}
+		{#if moreItems.some((i) => !i.hide)}
+			<Dropdown items={moreItems} size="sm" />
+		{/if}
 		{#if canDelete}
 			<Dropdown
 				items={[
@@ -1139,7 +1206,6 @@
 					href={runsHref}
 					variant="default"
 					unifiedSize="sm"
-					iconOnly={compactBar}
 					title="View runs"
 					startIcon={{ icon: List }}
 				>
@@ -1174,7 +1240,6 @@
 						nonCaptureEvent
 						variant="default"
 						unifiedSize="sm"
-						iconOnly={compactBar}
 						title="Share"
 						startIcon={{ icon: Share2 }}
 					>
@@ -1183,34 +1248,10 @@
 				{/snippet}
 			</Dropdown>
 		{/if}
-		{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
-			<div class="inline">
-				<Dropdown
-					items={[
-						{
-							displayName: 'Show Flow Debug Info',
-							action: () => {
-								debugInfo()
-							}
-						}
-					]}
-					class="h-auto"
-				>
-					{#snippet buttonReplacement()}
-						<Button nonCaptureEvent unifiedSize="sm" variant="subtle">
-							<div class="flex flex-row items-center">
-								<EllipsisVertical size={14} />
-							</div>
-						</Button>
-					{/snippet}
-				</Dropdown>
-			</div>
-		{/if}
 		{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
 			<Button
 				unifiedSize="sm"
 				variant="default"
-				iconOnly={compactBar}
 				title={isHubFlowPreview
 					? 'Fork flow into workspace'
 					: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
@@ -1226,7 +1267,6 @@
 			<Button
 				unifiedSize="sm"
 				variant="default"
-				iconOnly={compactBar}
 				title="Current runs"
 				startIcon={{ icon: Activity }}
 				on:click={() => {
@@ -1298,12 +1338,11 @@
 		{#if restartStep !== undefined && canRestart(restart)}
 			{@render flowRestartButton(restart, restartStep, 'button')}
 		{/if}
-		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
+		{#if $roleCaps.run && (job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow')}
 			<Button
 				on:click={runAgain}
 				unifiedSize="sm"
 				variant="default"
-				iconOnly={compactBar}
 				title="Run again"
 				startIcon={{ icon: RefreshCw }}
 				loading={runImmediatelyLoading}
@@ -1323,34 +1362,19 @@
 			</Button>
 		{/if}
 		{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-			{#if !actingUser?.operator}
+			{#if canEdit || canEditInFork}
 				{#if editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})}
 					<Button
-						href={`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`}
-						on:click={() => {
-							$initialArgsStore = job?.args
-						}}
+						href={editHref}
+						onClick={seedEditArgs}
 						unifiedSize="sm"
 						variant="default"
 						disabled={!showEditButton}
-						iconOnly={compactBar}
 						title="Edit"
 						startIcon={{ icon: Pen }}>Edit</Button
 					>
-					{#if showEditButton}
-						<!-- Opens the deployed runnable at this job's path, like Edit — unlike
-							     "View script", which pins the hash this run executed. Same gate as
-							     Edit: where direct deployment is off, the way in is "Edit in fork". -->
-						<OpenInSessionButton
-							source={{
-								target: { kind: isScriptJob ? 'script' : 'flow', path: job?.script_path ?? '' },
-								workspaceId: workspaceId ?? undefined
-							}}
-							btnProps={{ unifiedSize: 'sm' }}
-						/>
-					{/if}
 				{/if}
-				{#if !showEditButton && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
+				{#if canEditInFork}
 					<Button
 						href={buildForkEditUrl(
 							isScriptJob ? 'script' : 'flow',
@@ -1360,19 +1384,21 @@
 						onClick={(e) => editInFork(e, isScriptJob ? 'script' : 'flow', job?.script_path ?? '')}
 						unifiedSize="sm"
 						variant="default"
-						iconOnly={compactBar}
 						title={editInForkLabel(workspaceId, $userWorkspaces)}
 						startIcon={{ icon: Pen }}>{editInForkLabel(workspaceId, $userWorkspaces)}</Button
 					>
 				{/if}
 			{/if}
 		{/if}
+		<OpenInSessionButton
+			source={sessionOpen}
+			btnProps={embedded ? { unifiedSize: 'sm' } : undefined}
+		/>
 		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 			<Button
 				href={viewHref}
 				unifiedSize="sm"
 				variant="accent"
-				iconOnly={compactBar}
 				title="View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}"
 				startIcon={{
 					icon:

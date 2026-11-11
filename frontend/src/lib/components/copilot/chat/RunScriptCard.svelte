@@ -12,6 +12,7 @@
 	import { JobService, type CompletedJob, type Job } from '$lib/gen'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
+	import { formatElapsed } from './liveElapsed'
 	import RunArgsFormDisplay from './RunArgsFormDisplay.svelte'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
@@ -75,6 +76,7 @@
 				? 'flow'
 				: 'script')
 	)
+	const runnableNoun = $derived(runForm?.cardNoun ?? runnableKind)
 	// Declining the form, stopping the turn and cancelling the job all land here, and none
 	// of them is a failure: the run stopped because someone said so.
 	const canceled = $derived(
@@ -198,8 +200,8 @@
 	)
 	const cancelReason = $derived(
 		ran
-			? `This run was cancelled while the ${runnableKind} was running.`
-			: `This run was cancelled before the ${runnableKind} started.`
+			? `This run was cancelled while the ${runnableNoun} was running.`
+			: `This run was cancelled before the ${runnableNoun} started.`
 	)
 	// Streaming opens the tab early: the result is already arriving, and one that appeared
 	// only at the end would hide the thing the user is waiting to read.
@@ -356,14 +358,23 @@
 
 	// Ticks only while this card has a job in flight, so a transcript of settled runs
 	// keeps no timers at all.
+	// Each tick is scheduled just past the next whole second since the run started, so the label
+	// advances once per second at an even pace instead of drifting against a free-running interval.
 	let now = $state(Date.now())
 	$effect(() => {
-		if (!running || unseen || waiting || !chatJob) return
-		// `now` last moved whenever the card mounted or a previous run stopped ticking, so the
-		// job's first frame would otherwise read as a negative elapsed time.
-		now = Date.now()
-		const timer = setInterval(() => (now = Date.now()), 500)
-		return () => clearInterval(timer)
+		const start = runStartedAt
+		if (!running || unseen || waiting || start === undefined) return
+		let timer: ReturnType<typeof setTimeout>
+		const tick = () => {
+			// Never read `now` here: `tick` first runs inside the effect, so reading it would
+			// subscribe the effect to its own writes and restart it on every tick.
+			const t = Date.now()
+			now = t
+			const intoSecond = (((t - start) % 1000) + 1000) % 1000
+			timer = setTimeout(tick, 1000 - intoSecond + 10)
+		}
+		tick()
+		return () => clearTimeout(timer)
 	})
 
 	// The clock counts from when a worker took the job, as `duration_ms` does, so the time in the
@@ -377,9 +388,7 @@
 			j?.started_at && j.created_at ? Date.parse(j.started_at) - Date.parse(j.created_at) : NaN
 		return chatJob.createdAt + (Number.isFinite(queuedMs) ? Math.max(0, queuedMs) : 0)
 	})
-	const elapsed = $derived(
-		runStartedAt !== undefined ? msToReadableTime(Math.max(0, now - runStartedAt), 2) : ''
-	)
+	const elapsed = $derived(runStartedAt !== undefined ? formatElapsed(now - runStartedAt) : '')
 	const duration = $derived(
 		chatJob?.durationMs !== undefined ? msToReadableTime(chatJob.durationMs, 2) : ''
 	)
@@ -449,13 +458,16 @@
 	// A conversational flow's page has no run form, so opening it is all it can offer: the
 	// run stays on this card, where there is one to confirm.
 	const carries = $derived(asDeployedPage && !runForm?.conversational)
+	const deployedNoun = $derived(
+		runForm?.agentPage ? 'agent' : runnableKind === 'flow' ? 'flow' : 'script'
+	)
 	const previewTitle = $derived(
 		previewTarget === 'form'
 			? `Open this form in the preview panel: ${path}`
 			: previewTarget === 'deployed'
 				? carries
-					? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and confirm this run there: ${path}`
-					: `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'}: ${path}`
+					? `Open the deployed ${deployedNoun} and confirm this run there: ${path}`
+					: `Open the deployed ${deployedNoun}: ${path}`
 				: aiChatManager.openRunInPreview
 					? `Open this run in the preview panel: ${path || runnableName}`
 					: `Open this run in a new tab: ${path || runnableName}`
@@ -470,7 +482,7 @@
 		if (previewTarget === 'deployed') {
 			aiChatManager.openRunOnDeployedPage?.({
 				toolCallId: message.tool_call_id,
-				kind: runnableKind === 'flow' ? 'flow' : 'script',
+				kind: deployedNoun,
 				path,
 				summary: label,
 				carries
@@ -482,8 +494,12 @@
 		if (aiChatManager.openRunInPreview) {
 			aiChatManager.openRunInPreview({ jobId: job.jobId, workspace: job.workspace, label })
 		} else {
-			window.open(`/run/${job.jobId}?workspace=${job.workspace}`, '_blank', 'noreferrer')
+			window.open(runHref(job), '_blank', 'noreferrer')
 		}
+	}
+
+	function runHref(j: { jobId: string; workspace: string }): string {
+		return `/run/${j.jobId}?workspace=${j.workspace}`
 	}
 </script>
 
@@ -509,6 +525,7 @@
 		card={{ kind: runnableKind, path }}
 		title={previewTitle}
 		onOpen={openPreview}
+		href={previewTarget === 'run' && job ? runHref(job) : undefined}
 		kindIcon={false}
 		mode={previewTarget === 'deployed' ? 'view' : 'edit'}
 	/>
@@ -758,7 +775,7 @@
 					unifiedSize="sm"
 					destructive
 					startIcon={{ icon: TimerOff }}
-					title={`Cancel the ${runnableKind}`}
+					title={`Cancel the ${runnableNoun}`}
 					onClick={() => aiChatManager.cancelJob(chatJob.jobId)}
 				>
 					Cancel

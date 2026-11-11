@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET role_overrides =\n            (SELECT role_overrides FROM workspace_settings WHERE workspace_id = $2)\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0d73210f3ce58d0dd8fd850c1df8d16414daad90ad8b0ea35a769d78626039aa"
+}

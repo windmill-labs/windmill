@@ -55,7 +55,8 @@ use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::secret_backend::{
-    AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
+    AwsSecretsManagerSettings, AzureKeyVaultSettings, HttpStoreSettings, SecretMigrationReport,
+    VaultSettings,
 };
 use windmill_common::{
     ee_oss::{get_license_plan, LicensePlan},
@@ -63,8 +64,8 @@ use windmill_common::{
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
-        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_SETTING,
-        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_APPLIES_TO_SETTING,
+        API_BASE_URL_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
@@ -74,7 +75,7 @@ use windmill_common::{
         RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING, UNIQUE_ID_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WS_BASE_URL_SETTING,
+        WORKSPACE_ROLES_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -260,6 +261,11 @@ pub fn global_service() -> Router {
         .route(
             "/migrate_secrets_from_aws_sm",
             post(migrate_secrets_from_aws_sm),
+        )
+        .route("/test_http_store_backend", post(test_http_store_backend))
+        .route(
+            "/migrate_secrets_from_http_store",
+            post(migrate_secrets_from_http_store),
         );
 
     #[cfg(feature = "parquet")]
@@ -916,6 +922,7 @@ pub async fn set_global_setting_internal(
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 
+    let turns_on = value.as_bool() == Some(true);
     match value {
         serde_json::Value::Null => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
@@ -949,9 +956,26 @@ pub async fn set_global_setting_internal(
         }
     };
 
+    if key == windmill_common::global_settings::DEV_WORKSPACE_ISOLATION_SETTING {
+        windmill_common::feature_usage::log_feature_usage(
+            "dev_workspace_isolation",
+            "toggle",
+            if turns_on { "on" } else { "off" },
+        );
+    }
+    if key == windmill_common::global_settings::DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING {
+        windmill_common::feature_usage::log_feature_usage(
+            "dev_workspace_isolation",
+            "skip_non_dev_forks_toggle",
+            if turns_on { "on" } else { "off" },
+        );
+    }
+
     if should_bump_instance_ai_revision {
         bump_instance_ai_config_revision();
     }
+
+    run_setting_post_write_hook(db, &key).await?;
 
     // Tag reads are served from an in-memory cache that this process otherwise only
     // refreshes on the next global-settings poll, so without this a refetch right after
@@ -964,6 +988,14 @@ pub async fn set_global_setting_internal(
         }
     }
 
+    Ok(())
+}
+
+/// Side effects a setting needs once it is stored, for both the per-key and the bulk endpoint.
+async fn run_setting_post_write_hook(db: &DB, key: &str) -> error::Result<()> {
+    if key == WORKSPACE_ROLES_SETTING {
+        windmill_common::roles::after_instance_roles_write(db).await?;
+    }
     Ok(())
 }
 
@@ -982,6 +1014,26 @@ async fn run_setting_pre_write_hook(
                 include_str!("../../oauth_connect.json"),
             )
             .map_err(|e| error::Error::BadRequest(format!("OAuth settings: {e}")))?;
+        }
+        windmill_common::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING => match value {
+            serde_json::Value::Null => {}
+            serde_json::Value::String(s) if s.trim().is_empty() => {}
+            suffix => windmill_common::global_settings::validate_dev_workspace_tag_suffix(suffix)
+                .map_err(|e| {
+                error::Error::BadRequest(format!("The dev workspace tag suffix {e}"))
+            })?,
+        },
+        WORKSPACE_ROLES_SETTING => {
+            windmill_common::roles::validate_instance_roles_write(db, Some(value)).await?;
+        }
+        // Settings that fail validation would only surface on the next secret read, as an error
+        // on every secret of every workspace.
+        windmill_common::global_settings::SECRET_BACKEND_SETTING => {
+            if let Ok(windmill_common::secret_backend::SecretBackendConfig::HttpStore(settings)) =
+                serde_json::from_value(value.clone())
+            {
+                windmill_common::secret_backend::validate_http_store_settings(&settings)?;
+            }
         }
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
@@ -1238,6 +1290,14 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        API_BASE_URL_APPLIES_TO_SETTING if !value.is_null() => {
+            windmill_common::global_settings::validate_api_base_url_applies_to(value)
+                .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
+        }
+        windmill_common::global_settings::MCP_EXTERNAL_IDP_SETTING => {
+            windmill_common::global_settings::parse_mcp_external_idp(Some(value))
+                .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
+        }
         MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
             windmill_common::global_settings::parse_max_token_expiration_days(Some(value))
                 .map_err(|e| {
@@ -1262,6 +1322,13 @@ async fn run_setting_pre_write_hook(
             v => windmill_common::global_settings::validate_accent_color(v)
                 .map_err(|e| error::Error::BadRequest(format!("{ACCENT_COLOR_SETTING}: {e}")))?,
         },
+        windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING => {
+            if !value.is_null() {
+                let key = windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
+                windmill_common::agent_workload_identity::validate_issuers_value(value)
+                    .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1346,6 +1413,14 @@ async fn set_instance_config(
                 run_setting_pre_write_hook(&db, key, value).await?;
             }
         }
+        if settings_diff
+            .deletes
+            .iter()
+            .any(|k| k == WORKSPACE_ROLES_SETTING)
+        {
+            run_setting_pre_write_hook(&db, WORKSPACE_ROLES_SETTING, &serde_json::Value::Null)
+                .await?;
+        }
         let auditor = InstanceConfigAuditor { db: &db, author: &authed, source: None };
         // The external-instance write removes its own key from the diff.
         windmill_common::external_instance_pg::write_external_instance_pg_from_diff(
@@ -1360,6 +1435,14 @@ async fn set_instance_config(
 
         if ai_config_changed {
             bump_instance_ai_config_revision();
+        }
+        for key in settings_diff
+            .upserts
+            .iter()
+            .map(|(k, _)| k)
+            .chain(settings_diff.deletes.iter())
+        {
+            run_setting_post_write_hook(&db, key).await?;
         }
     }
 
@@ -2458,6 +2541,56 @@ pub async fn migrate_secrets_from_aws_sm(
         &db,
         &authed,
         "settings.migrate_secrets_from_aws_sm",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
+    Ok(Json(report))
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+#[derive(Deserialize)]
+pub struct TestHttpStoreBackend {
+    settings: HttpStoreSettings,
+    /// Workspace and variable path of a secret that exists in the store, read as the probe
+    workspace_id: String,
+    path: String,
+}
+
+/// Test the HTTP secret store by reading one secret, without returning its value
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_http_store_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(req): Json<TestHttpStoreBackend>,
+) -> Result<String> {
+    require_super_admin(&db, &authed).await?;
+    windmill_common::secret_backend::test_http_store_connection(
+        &req.settings,
+        &req.workspace_id,
+        &req.path,
+    )
+    .await?;
+    Ok(format!(
+        "Successfully read {} in workspace {} from the HTTP secret store",
+        req.path, req.workspace_id
+    ))
+}
+
+/// Copy the values of HTTP secret store references into the database
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_from_http_store(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<HttpStoreSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed).await?;
+    let report =
+        windmill_common::secret_backend::migrate_secrets_from_http_store(&db, &settings).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_from_http_store",
         ActionKind::Update,
         None,
     )

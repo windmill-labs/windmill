@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO slack_answered_message (slack_team_id, channel_id, ts)\n         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c5697a48239f96add86676e2776582da9d9b3e33fdec630f4beac214e98c0cbc"
+}

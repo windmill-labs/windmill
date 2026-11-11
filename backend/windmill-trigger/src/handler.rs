@@ -557,6 +557,7 @@ async fn create_trigger<T: TriggerCrud>(
     }
 
     new_trigger.error_handling.validate()?;
+    new_trigger.base.normalize_script_path()?;
 
     handler
         .validate_new(&db, &workspace_id, &new_trigger.config)
@@ -700,13 +701,13 @@ async fn list_triggers<T: TriggerCrud>(
         && query.is_flow.is_none()
         && query.path_start.is_none()
         && query.label.is_none()
-        && (!authed.is_operator
-            || windmill_common::workspaces::operator_can_draft(
-                &db,
-                &workspace_id,
-                T::user_draft_item_kind(),
-            )
-            .await?)
+        && windmill_common::workspaces::operator_can_draft(
+            &db,
+            &workspace_id,
+            &authed,
+            T::user_draft_item_kind(),
+        )
+        .await?
     {
         let draft_only_rows = fetch_draft_only_list_rows(
             &db,
@@ -829,6 +830,7 @@ async fn update_trigger<T: TriggerCrud>(
     }
 
     edit_trigger.error_handling.validate()?;
+    edit_trigger.base.normalize_script_path()?;
 
     handler
         .validate_edit(&db, &workspace_id, &edit_trigger.config, path)

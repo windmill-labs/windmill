@@ -65,6 +65,7 @@ mod schedule_push {
             folders: vec![],
             scopes: None,
             token_prefix: None,
+            mcp_client: None,
         }
     }
 
@@ -141,6 +142,26 @@ mod schedule_push {
         assert_eq!(path.as_deref(), Some("f/system/test_script"));
         assert_eq!(trigger.as_deref(), Some("f/system/test_schedule"));
         assert_eq!(trigger_kind.as_deref(), Some("schedule"));
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_parses_target(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let authed = make_authed();
+        let schedule = make_schedule(|s| s.script_path = "/f/system/test_script".to_string());
+        let tx = db.begin().await?;
+        push_scheduled_job(&db, tx, &schedule, Some(&authed), None)
+            .await?
+            .commit()
+            .await?;
+        let (_, path, _, _) = get_queued_job(&db).await.unwrap();
+        assert_eq!(path.as_deref(), Some("f/system/test_script"));
+
+        let schedule = make_schedule(|s| s.script_path = "//f/system/test_script".to_string());
+        let tx = db.begin().await?;
+        assert!(push_scheduled_job(&db, tx, &schedule, Some(&authed), None)
+            .await
+            .is_err());
         Ok(())
     }
 
@@ -222,6 +243,43 @@ mod schedule_push {
         Ok(())
     }
 
+    // Callers hold `tx` on the pool they pass in, so a burst of schedules the size of the pool
+    // starves it if a push checks out a second connection. On a one-connection pool any such
+    // checkout hangs until the acquire timeout.
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_holds_one_connection(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let one = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .connect_with((*db.connect_options()).clone())
+            .await?;
+
+        let schedules = [
+            make_schedule(|s| {
+                s.script_path = "f/system/tagged_script".to_string();
+                s.path = "f/system/tagged_schedule".to_string();
+            }),
+            make_schedule(|s| {
+                s.script_path = "f/system/obo_script".to_string();
+                s.path = "f/system/obo_schedule".to_string();
+            }),
+            make_schedule(|s| {
+                s.is_flow = true;
+                s.script_path = "f/system/obo_flow".to_string();
+                s.path = "f/system/obo_flow_schedule".to_string();
+            }),
+        ];
+        for schedule in &schedules {
+            let tx = one.begin().await?;
+            let push = push_scheduled_job(&one, tx, schedule, None, None);
+            let tx = tokio::time::timeout(std::time::Duration::from_secs(15), push).await??;
+            tx.commit().await?;
+        }
+
+        assert_eq!(count_queued_jobs(&db).await, 3);
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // push_scheduled_job: with retry wraps in SingleStepFlow
     // -----------------------------------------------------------------------
@@ -267,6 +325,7 @@ mod schedule_push {
             concurrency_key: Some("f/system/test_script".to_string()),
             concurrent_limit: Some(1),
             concurrency_time_window_s: Some(60),
+            ..Default::default()
         };
         let script_handle = insert_rs(
             RunnableSettings {

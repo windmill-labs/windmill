@@ -32,6 +32,7 @@ import type { UserExt } from '$lib/stores'
 import type { ScheduleTrigger } from '../triggers'
 import { formatCron, generateRandomString } from '$lib/utils'
 import { canEditItem } from '$lib/editRights'
+import { capabilitiesIn } from '$lib/roleCapabilities'
 
 export class Triggers {
 	#triggers = $state<Trigger[]>([])
@@ -135,9 +136,10 @@ export class Triggers {
 		user: UserExt | undefined = undefined
 	): number {
 		const currentTriggers = this.#triggers
-		const operatorSettings = get(userWorkspaces).find(
-			(w) => w.id === workspaceId
-		)?.operator_settings
+		const caps = capabilitiesIn(
+			user,
+			get(userWorkspaces).find((w) => w.id === workspaceId)
+		)
 		const kind = type === 'schedule' ? 'schedule' : 'trigger'
 		// Identify triggers with draftConfig to preserve
 		const configuredTriggers = currentTriggers.filter(
@@ -157,7 +159,7 @@ export class Triggers {
 				path: trigger.path,
 				isPrimary: type === 'schedule' && trigger.path === trigger.script_path,
 				isDraft: false,
-				canWrite: canEditItem(kind, trigger.path, trigger.extra_perms, user, operatorSettings),
+				canWrite: canEditItem(kind, trigger.path, trigger.extra_perms, user, caps),
 				draftConfig: draftConfig,
 				lightConfig: getLightConfig(type, trigger)
 			}

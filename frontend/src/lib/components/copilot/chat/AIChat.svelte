@@ -7,9 +7,9 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
-	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo } from '$lib/aiStore'
+	import type { ComposerSelection } from './composerBox'
 
 	let {
 		hideHeader = false,
@@ -18,9 +18,15 @@
 		forceDisabledMessage = '',
 		wideLayout = false,
 		emptyHint,
+		starter = undefined,
+		onSent = undefined,
 		inputPreface,
+		workModeLock = undefined,
 		initialInstructions = undefined,
-		onDraftChange = undefined
+		onDraftChange = undefined,
+		initialAttachments = undefined,
+		onAttachmentsChange = undefined,
+		placeholder = undefined
 	}: {
 		hideHeader?: boolean
 		hideModeSelector?: boolean
@@ -35,10 +41,17 @@
 		// in; the narrow global-chat panel leaves it off.
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
+		starter?: import('./starter/starterPrompts.svelte').ChatStarter
+		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
-		// Seed / observe the composer's draft text (forwarded to AIChatDisplay).
+		workModeLock?: import('./workMode').WorkModeLock
+		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
+		initialAttachments?: import('./messageDraft.svelte').DraftAttachments
+		onAttachmentsChange?: (attachments: import('./messageDraft.svelte').DraftAttachments) => void
+		/** Composer placeholder for the first message. Falls back to the per-AI-mode wording. */
+		placeholder?: string
 	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
@@ -73,7 +86,7 @@
 							: $aiUserDisabled
 								? 'Windmill AI is disabled in your account settings'
 								: isAdmin
-									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat'
+									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat, or hide AI sessions there'
 									: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
 						: aiChatManager.mode === AIMode.SCRIPT &&
 							  aiChatManager.scriptEditorOptions?.lang &&
@@ -89,10 +102,6 @@
 		'How do I schedule a recurring job?'
 	]
 
-	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
-		aiChatManager.generateStep(moduleId, lang, instructions)
-	}
-
 	export async function sendRequest(
 		options: {
 			removeDiff?: boolean
@@ -106,8 +115,27 @@
 		aiChatManager.sendRequest(options)
 	}
 
-	export function focusInput() {
-		aiChatDisplay?.focusInput()
+	export function focusInput(selection?: ComposerSelection) {
+		aiChatDisplay?.focusInput(selection)
+	}
+
+	export function flashComposer() {
+		aiChatDisplay?.flashComposer()
+	}
+
+	export function openAssistantSettings(
+		section: import('./AssistantSettingsModal.svelte').AssistantSettingsSection,
+		root?: string
+	) {
+		aiChatDisplay?.openAssistantSettings(section, root)
+	}
+
+	export function prefill(text: string) {
+		aiChatDisplay?.prefill(text)
+	}
+
+	export async function attachContext(element: import('./context').ContextElement) {
+		await aiChatDisplay?.attachContext(element)
 	}
 
 	const historyManager = aiChatManager.historyManager
@@ -131,22 +159,10 @@
 	onkeydown={(e) => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
 			e.preventDefault()
-			aiChatManager.toggleOpen()
 			aiChatDisplay?.focusInput()
 		}
 	}}
 />
-
-{#snippet headerLeft()}
-	<HideButton
-		hidden={false}
-		direction="right"
-		panelName="AI"
-		shortcut="L"
-		size="md"
-		on:click={() => aiChatManager.toggleOpen()}
-	/>
-{/snippet}
 
 <AIChatDisplay
 	bind:this={aiChatDisplay}
@@ -185,7 +201,6 @@
 		aiChatManager.loadPastChat(id)
 	}}
 	askAi={aiChatManager.askAi}
-	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&
 		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
 		aiChatManager.scriptEditorOptions.lastDeployedCode !==
@@ -198,7 +213,13 @@
 	{hideModeSelector}
 	{wideLayout}
 	{emptyHint}
+	{starter}
+	{onSent}
 	{inputPreface}
+	{workModeLock}
 	{initialInstructions}
 	{onDraftChange}
+	{initialAttachments}
+	{onAttachmentsChange}
+	{placeholder}
 ></AIChatDisplay>

@@ -711,7 +711,6 @@
 		currentEditor: writable(undefined),
 		modulesTestStates,
 		outputPickerOpenFns,
-		preserveOnBehalfOf: writable(false),
 		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
 		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined),
 		devTempScriptRefs: () => flowTempScriptRefs
@@ -986,7 +985,7 @@
 				{#if $userStore}
 					{$userStore?.username} on {$workspaceStore}
 				{:else}
-					<span class="text-red-600">Unable to login on {$workspaceStore}</span>
+					<span class="text-red-600">Unable to log in on {$workspaceStore}</span>
 				{/if}
 			</div>
 			<div class="max-w-3xl mx-auto pt-8">
@@ -1083,7 +1082,7 @@
 				{#if $userStore != undefined}
 					As {$userStore?.username} in {$workspaceStore}
 				{:else}
-					<span class="text-red-600">Unable to login</span>
+					<span class="text-red-600">Unable to log in</span>
 				{/if}
 			</div>
 
@@ -1218,7 +1217,7 @@
 					{#if $userStore}
 						As {$userStore?.username} in {$workspaceStore}
 					{:else}
-						<span class="text-red-600">Unable to login on {$workspaceStore}</span>
+						<span class="text-red-600">Unable to log in on {$workspaceStore}</span>
 					{/if}
 				</div>
 

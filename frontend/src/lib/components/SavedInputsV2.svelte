@@ -158,9 +158,8 @@
 						<Button
 							unifiedSize="sm"
 							endIcon={{ icon: ExternalLink }}
-							on:click={() => {
-								window.open(`/runs/${runnableId}`, '_blank')
-							}}
+							href={`/runs/${runnableId}`}
+							target="_blank"
 						>
 							All runs
 						</Button>

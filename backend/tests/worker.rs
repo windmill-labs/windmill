@@ -305,6 +305,173 @@ async fn test_bun_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_timeout_runs_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Parked at an approval past its timeout, the flow holds no worker: only the sweep ends it.
+    let flow: FlowValue = serde_json::from_value(json!({
+        "timeout": 1,
+        "modules": [
+            {"id": "a", "value": {"type": "identity"},
+             "suspend": {"required_events": 1, "timeout": 600, "continue_on_disapprove_timeout": true}},
+            {"id": "b", "value": {"type": "identity"}},
+        ],
+        "failure_module": {"id": "failure", "value": {"type": "identity"}},
+    }))
+    .unwrap();
+
+    let sweep_db = db.clone();
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete_with(&db, false, server.addr.port(), |id| {
+            sweep_while_suspended(sweep_db.clone(), id)
+        })
+        .await;
+
+    assert_eq!(job.canceled_by.as_deref(), Some("timeout"));
+    let ran: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT j.flow_step_id, c.result FROM v2_job j JOIN v2_job_completed c USING (id)
+         WHERE j.parent_job = $1 ORDER BY j.created_at",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        ran.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>(),
+        vec!["a", "failure"]
+    );
+    assert_eq!(
+        ran[1].1["error"]["message"],
+        json!("flow terminated due to timeout: the flow exceeded its 1s timeout")
+    );
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_subflow_timeout_fails_the_calling_step(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // A subflow's own 1s holds when it runs as a step. Its expiry is a failed step to the caller,
+    // which goes on, not a cancel of the caller, and the caller sees the timeout error whether or
+    // not the subflow has a failure module.
+    let deploy = |path: &'static str, version: i64, value: serde_json::Value| {
+        let db = db.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO flow (workspace_id, summary, description, path, versions, schema, value, edited_by)
+                 VALUES ('test-workspace', '', '', $1, ARRAY[$2]::bigint[], '{}'::jsonb, $3, 'system')",
+            )
+            .bind(path)
+            .bind(version)
+            .bind(&value)
+            .execute(&db)
+            .await?;
+            sqlx::query(
+                "INSERT INTO flow_version (id, workspace_id, path, schema, value, created_by)
+                 VALUES ($1, 'test-workspace', $2, '{}'::jsonb, $3, 'system')",
+            )
+            .bind(version)
+            .bind(path)
+            .bind(&value)
+            .execute(&db)
+            .await?;
+            anyhow::Ok(())
+        }
+    };
+    let parked = json!([
+        {"id": "a", "value": {"type": "identity"},
+         "suspend": {"required_events": 1, "timeout": 600}},
+        {"id": "b", "value": {"type": "identity"}},
+    ]);
+    deploy(
+        "f/system/handled",
+        1,
+        json!({"timeout": 1, "modules": parked,
+               "failure_module": {"id": "failure", "value": {"type": "identity"}}}),
+    )
+    .await?;
+    deploy("f/system/bare", 2, json!({"timeout": 1, "modules": parked})).await?;
+    let call = |id: &str, path: &str| {
+        json!({"id": id, "continue_on_error": true,
+               "value": {"type": "flow", "path": path, "input_transforms": {}}})
+    };
+    // An identity step returns its input: the error its caller saw from the step before.
+    let seen = |id: &str| json!({"id": id, "value": {"type": "identity"}});
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            call("handled", "f/system/handled"), seen("seen_handled"),
+            call("bare", "f/system/bare"), seen("seen_bare"),
+        ],
+    }))
+    .unwrap();
+
+    let sweep_db = db.clone();
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete_with(&db, false, server.addr.port(), |id| {
+            sweep_while_suspended(sweep_db.clone(), id)
+        })
+        .await;
+
+    assert!(
+        job.success,
+        "the caller must go on: {:?}",
+        job.json_result()
+    );
+    assert_eq!(job.canceled_by, None);
+    let steps: Vec<(String, Option<String>, serde_json::Value)> = sqlx::query_as(
+        "SELECT j.flow_step_id, c.canceled_by, c.result FROM v2_job j JOIN v2_job_completed c USING (id)
+         WHERE j.parent_job = $1 ORDER BY j.created_at",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    let timed_out = json!({"name": "ExecutionErr",
+        "message": "flow terminated due to timeout: the flow exceeded its 1s timeout"});
+    for (i, step) in ["handled", "bare"].iter().enumerate() {
+        assert_eq!(steps[2 * i].0, *step);
+        assert_eq!(steps[2 * i].1.as_deref(), Some("timeout"));
+        assert_eq!(steps[2 * i + 1].2["error"], timed_out, "seen after {step}");
+    }
+    let sub_steps: Vec<String> = sqlx::query_scalar(
+        "SELECT flow_step_id FROM v2_job WHERE parent_job =
+           (SELECT id FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'handled')
+         ORDER BY created_at",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(sub_steps, vec!["a", "failure"]);
+    Ok(())
+}
+
+/// Runs the timeout sweep each time a flow of `root`'s tree is parked at an approval, a second
+/// later so its 1s timeout has passed: parked, it holds no worker and only the sweep ends it.
+async fn sweep_while_suspended(db: Pool<Postgres>, root: uuid::Uuid) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let (running, suspended): (bool, bool) = sqlx::query_as(
+                "SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1),
+                        EXISTS (SELECT 1 FROM v2_job_queue q JOIN v2_job j USING (id)
+                                WHERE (j.id = $1 OR j.parent_job = $1) AND q.suspend > 0)",
+            )
+            .bind(root)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            if !running {
+                break;
+            }
+            if suspended {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                windmill_queue::cancel_timed_out_flows(&db).await.unwrap();
+            }
+        }
+    });
+}
+
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_identity(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -2123,7 +2290,6 @@ async fn test_postgresql_single_worker_session_isolation(db: Pool<Postgres>) -> 
 #[serial(pg_cache)]
 async fn test_postgresql_100_jobs_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
     use std::sync::atomic::Ordering;
-    use windmill_common::worker::Connection;
     use windmill_worker::pg_executor::{clear_pg_cache, CACHE_HITS};
 
     initialize_tracing().await;
@@ -2176,27 +2342,7 @@ async fn test_postgresql_100_jobs_cached(db: Pool<Postgres>) -> anyhow::Result<(
         ids.push(make_pg_job(content).push(&db).await);
     }
 
-    // Run ONE worker for all 100 jobs.
-    let listener = listen_for_completed_jobs(&db).await;
-    let id_set = ids
-        .iter()
-        .copied()
-        .collect::<std::collections::HashSet<_>>();
-    in_test_worker(
-        Connection::Sql(db.clone()),
-        async {
-            use futures::StreamExt;
-            let mut remaining = id_set;
-            let mut listener = listener;
-            while !remaining.is_empty() {
-                if let Some(id) = listener.next().await {
-                    remaining.remove(&id);
-                }
-            }
-        },
-        port,
-    )
-    .await;
+    run_on_one_worker(&db, port, &ids).await;
 
     // Verify all 100 jobs succeeded.
     for (i, id) in ids.iter().enumerate() {
@@ -2259,6 +2405,26 @@ async fn test_postgresql_arg_type_combinations(db: Pool<Postgres>) -> anyhow::Re
 
     let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
 
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+            tag: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
     // Build a fresh schema for this test so we don't trip over prior runs.
     let setup = r#"
 DROP SCHEMA IF EXISTS wm_pg_arg_combo_test CASCADE;
@@ -2289,26 +2455,7 @@ CREATE TABLE wm_pg_arg_combo_test.allcols (
 CREATE TYPE wm_pg_arg_combo_test.color AS ENUM ('red','green','blue');
 CREATE TABLE wm_pg_arg_combo_test.enumtbl (c wm_pg_arg_combo_test.color);
 "#;
-    RunJob::from(JobPayload::Code(RawCode {
-        hash: None,
-        content: setup.to_owned(),
-        path: None,
-        lock: None,
-        language: ScriptLang::Postgresql,
-        cache_ttl: None,
-        cache_ignore_s3_path: None,
-        dedicated_worker: None,
-        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
-            .into(),
-        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
-        modules: None,
-        tag: None,
-    }))
-    .arg("database", db_arg.clone())
-    .run_until_complete(&db, false, port)
-    .await
-    .json_result()
-    .unwrap();
+    let setup_id = make_pg_job(setup.to_owned()).push(&db).await;
 
     // Each case: (name, content, args, expected_result)
     let cases: Vec<(&str, String, serde_json::Value, serde_json::Value)> = vec![
@@ -2742,29 +2889,22 @@ SELECT 'price: $5' AS lbl, $5::int + $50::int AS sum"#
         ),
     ];
 
-    for (name, content, args, expected) in cases {
-        let mut job = RunJob::from(JobPayload::Code(RawCode {
-            hash: None,
-            content,
-            path: None,
-            lock: None,
-            language: ScriptLang::Postgresql,
-            cache_ttl: None,
-            cache_ignore_s3_path: None,
-            dedicated_worker: None,
-            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
-            )
-            .into(),
-            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
-            modules: None,
-            tag: None,
-        }))
-        .arg("database", db_arg.clone());
+    let mut ids = vec![setup_id];
+    for (_, content, args, _) in &cases {
+        let mut job = make_pg_job(content.clone());
         for (k, v) in args.as_object().unwrap() {
             job = job.arg(k, v.clone());
         }
-        let result = job
-            .run_until_complete(&db, false, port)
+        ids.push(job.push(&db).await);
+    }
+    run_on_one_worker(&db, port, &ids).await;
+
+    completed_job(setup_id, &db)
+        .await
+        .json_result()
+        .expect("setup: no json result");
+    for ((name, _, _, expected), id) in cases.into_iter().zip(&ids[1..]) {
+        let result = completed_job(*id, &db)
             .await
             .json_result()
             .unwrap_or_else(|| panic!("case '{name}': no json result"));
@@ -2772,6 +2912,32 @@ SELECT 'price: $5' AS lbl, $5::int + $50::int AS sum"#
     }
 
     Ok(())
+}
+
+/// Runs the already pushed `ids` on a single worker and returns once all completed. One worker
+/// takes them one at a time in push order, so a setup job pushed first runs before the rest,
+/// and they all share the process-wide PG connection cache as consecutive jobs would.
+async fn run_on_one_worker(db: &Pool<Postgres>, port: u16, ids: &[Uuid]) {
+    use futures::StreamExt;
+    use windmill_common::worker::Connection;
+
+    let mut listener = listen_for_completed_jobs(db).await;
+    let mut remaining = ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async {
+            while !remaining.is_empty() {
+                if let Some(id) = listener.next().await {
+                    remaining.remove(&id);
+                }
+            }
+        },
+        port,
+    )
+    .await;
 }
 
 /// Pooler-safety regression test for #8988: when every arg has a resolvable
@@ -3010,11 +3176,7 @@ CREATE SCHEMA wm_pg_cached_test;
 CREATE TYPE wm_pg_cached_test.color AS ENUM ('red', 'green', 'blue');
 CREATE DOMAIN wm_pg_cached_test.short_name AS TEXT CHECK (length(VALUE) BETWEEN 1 AND 10);
 "#;
-    make_pg_job(setup.to_owned())
-        .run_until_complete(&db, false, port)
-        .await
-        .json_result()
-        .unwrap();
+    let setup_id = make_pg_job(setup.to_owned()).push(&db).await;
 
     // Run a long alternating sequence of enum + domain queries on the same
     // cached connection. Each query goes through the prepare-fallback path
@@ -3022,21 +3184,36 @@ CREATE DOMAIN wm_pg_cached_test.short_name AS TEXT CHECK (length(VALUE) BETWEEN 
     // tokio_postgres' typeinfo cache to resolve the Oids server-side. Pre-fix
     // this would fail intermittently with `prepared statement "sN" does not
     // exist` after the first cached-conn reuse.
+    let mut pairs = Vec::with_capacity(10);
     for i in 0..10 {
-        let r = make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.color AS c".to_owned())
+        let enum_id = make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.color AS c".to_owned())
             .arg("arg1", json!(if i % 2 == 0 { "red" } else { "blue" }))
-            .run_until_complete(&db, false, port)
+            .push(&db)
             .await;
+        let domain_id =
+            make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.short_name AS s".to_owned())
+                .arg("arg1", json!(format!("v{i}")))
+                .push(&db)
+                .await;
+        pairs.push((enum_id, domain_id));
+    }
+    let mut ids = vec![setup_id];
+    ids.extend(pairs.iter().flat_map(|(e, d)| [*e, *d]));
+    run_on_one_worker(&db, port, &ids).await;
+
+    completed_job(setup_id, &db)
+        .await
+        .json_result()
+        .expect("setup: no json result");
+    for (i, (enum_id, domain_id)) in pairs.into_iter().enumerate() {
+        let r = completed_job(enum_id, &db).await;
         assert!(
             r.success,
             "iter {i} enum query failed (was the DISCARD ALL bug); result: {:?}",
             r.result
         );
 
-        let r = make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.short_name AS s".to_owned())
-            .arg("arg1", json!(format!("v{i}")))
-            .run_until_complete(&db, false, port)
-            .await;
+        let r = completed_job(domain_id, &db).await;
         assert!(
             r.success,
             "iter {i} domain query failed (was the DISCARD ALL bug); result: {:?}",
@@ -5313,6 +5490,130 @@ async fn test_saved_flow_preserves_nested_step_tags(db: Pool<Postgres>) -> anyho
     Ok(())
 }
 
+/// An untagged subflow runs on its caller's tag, so its steps follow the caller's
+/// `preserve_step_tags` even though the subflow's own setting is off. A subflow that declares
+/// the same tag itself keeps its own setting.
+#[sqlx::test(fixtures("base"))]
+async fn test_subflow_steps_follow_caller_preserve_step_tags(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use futures::StreamExt;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = reqwest::Client::new();
+    let subflow = |path: &str, tag: Option<&str>, tagged_step: &str| {
+        json!({
+            "path": path, "summary": "", "description": "", "tag": tag,
+            "schema": { "type": "object", "properties": {}, "required": [] },
+            "value": {
+                "modules": [{
+                    "id": tagged_step,
+                    "value": {
+                        "type": "rawscript", "language": "bun", "lock": "", "tag": "bun",
+                        "content": "export function main() { return 1; }",
+                        "input_transforms": {}
+                    }
+                }, {
+                    "id": format!("{tagged_step}_untagged"),
+                    "value": {
+                        "type": "rawscript", "language": "bun", "lock": "",
+                        "content": "export function main() { return 2; }",
+                        "input_transforms": {}
+                    }
+                }]
+            }
+        })
+    };
+    let caller = json!({
+        "path": "g/all/preserving_caller", "summary": "", "description": "", "tag": "python3",
+        "schema": { "type": "object", "properties": {}, "required": [] },
+        "value": {
+            "preserve_step_tags": true,
+            "modules": [{
+                "id": "sub",
+                "value": { "type": "flow", "path": "g/all/untagged_subflow", "input_transforms": {} }
+            }, {
+                "id": "tagged_sub",
+                "value": { "type": "flow", "path": "g/all/tagged_subflow", "input_transforms": {} }
+            }]
+        }
+    });
+    // The flow cache is process-wide and keyed by version and node ids, which every test database
+    // numbers from the same start: move ours out of the way of flows deployed by concurrent tests.
+    for table in ["flow_version", "flow_node"] {
+        sqlx::query(&format!(
+            "SELECT setval(pg_get_serial_sequence('{table}', 'id'), 7316000)"
+        ))
+        .execute(&db)
+        .await?;
+    }
+    let mut completed = listen_for_completed_jobs(&db).await;
+    for flow in [
+        subflow("g/all/untagged_subflow", None, "own_tag"),
+        subflow("g/all/tagged_subflow", Some("python3"), "pinned"),
+        caller,
+    ] {
+        client
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/flows/create"
+            ))
+            .bearer_auth("SECRET_TOKEN")
+            .json(&flow)
+            .send()
+            .await?
+            .error_for_status()?;
+        let deployment = in_test_worker(&db, completed.next(), port).await.unwrap();
+        let deployed = completed_job(deployment, &db).await;
+        assert!(deployed.success, "{:?}", deployed.result);
+    }
+
+    let job_id = client
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/jobs/run/f/g/all/preserving_caller"
+        ))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&json!({}))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?
+        .parse::<Uuid>()?;
+    in_test_worker(&db, completed.find(&job_id), port).await;
+    let job = completed_job(job_id, &db).await;
+    assert!(job.success, "{:?}", job.result);
+    let tags = sqlx::query_as::<_, (String, String)>(
+        "WITH RECURSIVE descendants AS (
+            SELECT id FROM v2_job WHERE id = $1
+            UNION ALL
+            SELECT child.id FROM v2_job child JOIN descendants ON child.parent_job = descendants.id
+        )
+        SELECT DISTINCT flow_step_id, tag FROM v2_job
+        WHERE id IN (SELECT id FROM descendants)
+        AND flow_step_id <> ''
+        ORDER BY flow_step_id, tag",
+    )
+    .bind(job_id)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        tags,
+        [
+            ("own_tag", "bun"),
+            ("own_tag_untagged", "python3"),
+            ("pinned", "python3"),
+            ("pinned_untagged", "python3"),
+            ("sub", "python3"),
+            ("tagged_sub", "python3"),
+        ]
+        .map(|(step, tag)| (step.to_owned(), tag.to_owned()))
+        .to_vec()
+    );
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 
@@ -5849,42 +6150,6 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .await;
 
-    Ok(())
-}
-
-#[sqlx::test(fixtures("base", "relative_bun"))]
-async fn test_relative_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-import { main as test1 } from "/f/system/same_folder_script.ts";
-import { main as test2 } from "./same_folder_script.ts";
-import { main as test3 } from "/f/system_relative/different_folder_script.ts";
-import { main as test4 } from "../system_relative/different_folder_script.ts";
-
-export async function main() {
-  return [test1(), test2(), test3(), test4()];
-}
-"#
-    .to_string();
-
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
-    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
-    Ok(())
-}
-
-#[cfg(feature = "deno_core")]
-#[sqlx::test(fixtures("base", "relative_bun"))]
-async fn test_nested_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-import { main as test } from "/f/system_relative/nested_script.ts";
-
-export async function main() {
-  return test();
-}
-"#
-    .to_string();
-
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
-    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
     Ok(())
 }
 
@@ -6979,5 +7244,41 @@ async fn test_results_length_in_input_transform(db: Pool<Postgres>) -> anyhow::R
         "results.a.length should resolve to 3, not null"
     );
 
+    Ok(())
+}
+
+#[cfg(feature = "quickjs")]
+#[sqlx::test(fixtures("base"))]
+async fn test_whileloop_max_iterations_fails_with_loop_exhausted(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "id": "loop",
+            "value": {
+                "type": "whileloopflow",
+                // skip_failures absorbs failed iterations, never the loop's own exhaustion
+                "skip_failures": true,
+                "max_iterations": 3,
+                "modules": [{ "id": "inner", "value": { "type": "identity" } }],
+            },
+        }],
+    }))
+    .unwrap();
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+
+    assert!(!job.success);
+    let error = job.json_result().unwrap()["error"].clone();
+    assert_eq!(error["name"], "LoopExhausted", "{error}");
+    let iterations = job.flow_status.unwrap()["modules"][0]["flow_jobs"]
+        .as_array()
+        .map(|a| a.len());
+    assert_eq!(iterations, Some(3));
     Ok(())
 }

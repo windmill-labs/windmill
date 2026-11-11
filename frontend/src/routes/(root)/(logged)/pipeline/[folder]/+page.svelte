@@ -1,8 +1,9 @@
 <script lang="ts">
 	import pLimit from 'p-limit'
-	import { workspaceStore, userStore } from '$lib/stores'
+	import { roleCapabilities, workspaceStore, userStore } from '$lib/stores'
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -77,10 +78,7 @@
 		type PipelineOutputKind,
 		type DraftTriggerSource
 	} from '$lib/components/assets/AssetGraph/pipelineTemplates'
-	import {
-		createPipelineAiHelpers,
-		type PipelineDraft
-	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
+	import { type PipelineDraft } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import {
 		PipelineEditorState
 	} from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
@@ -122,7 +120,6 @@
 		type OpenInSessionSource
 	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import {
 		AlertTriangle,
 		ChevronDown,
@@ -189,11 +186,6 @@
 					pe.reset()
 					// The set-aside edit pane belongs to the folder being left.
 					editPane = undefined
-					// Re-scope the Global chat's pipeline prompt to the new folder. The
-					// helper methods already read the reactive folder, but the system
-					// message string was built for the old one and is only rebuilt when
-					// Global mode is reconfigured — so rebuild it here.
-					aiChatManager.rebuildGlobalSystemMessage()
 				}
 				pe.folder = f
 			}
@@ -202,11 +194,11 @@
 
 	// Page mode, URL-addressable via `?mode=`. No param = view (the
 	// default): deployed-only graph focused on past/live executions.
-	// Operators are clamped to view — the derived ignores a hand-typed
-	// `?mode=edit` rather than redirecting.
-	let isOperator = $derived($userStore?.operator ?? false)
+	// A role without `code` (pipeline steps are scripts) is clamped to view: the
+	// derived ignores a hand-typed `?mode=edit` rather than redirecting.
+	let viewOnly = $derived(!$roleCapabilities.code)
 	let urlMode = $derived(page.url.searchParams.get('mode'))
-	let mode = $derived<PipelineMode>(isOperator ? 'view' : urlMode === 'edit' ? 'edit' : 'view')
+	let mode = $derived<PipelineMode>(viewOnly ? 'view' : urlMode === 'edit' ? 'edit' : 'view')
 	// The edit-mode pane, set aside while View shows the activity feed, so coming
 	// back to Edit reopens it.
 	let editPane:
@@ -407,7 +399,6 @@
 		triggers: DraftTriggerSource[],
 		outputKind: PipelineOutputKind,
 		input?: { kind: AssetKind; path: string },
-		aiPrompt?: string,
 		options?: PipelineInsertOptions
 	) {
 		const out = options?.outputAsset ?? autoOutputAsset(outputKind, folder, language)
@@ -442,97 +433,14 @@
 		// Follow the new node with a smooth pan. The id matches the runnable
 		// node the canvas builds for a draft script (`script:<path>`).
 		focusPipelineNode(`script:${scriptPath}`)
-
-		// User filled the optional prompt on the path stage — fire off a
-		// chat request so the AI bootstraps the body. The seeded template
-		// (already in `script.content`) acts as scaffolding the AI
-		// rewrites; language + chosen output + upstream input go in as
-		// context so the model knows what to read from / write to.
-		if (aiPrompt && aiPrompt.trim().length > 0) {
-			void triggerAiBootstrap({ scriptPath, language, outputKind, input, out, prompt: aiPrompt })
-		}
 	}
-
-	async function triggerAiBootstrap(args: {
-		scriptPath: string
-		language: ScriptLang
-		outputKind: PipelineOutputKind
-		input?: { kind: AssetKind; path: string }
-		out?: { kind: AssetKind; path: string }
-		prompt: string
-	}) {
-		// Wait one tick for AssetGraphDetailsPane to mount the ScriptEditor
-		// and register itself with aiChatManager (scriptEditorApplyCode etc.).
-		// Without this, openChat fires before the chat has a target editor.
-		await tick()
-		const lines: string[] = [args.prompt]
-		lines.push('')
-		lines.push(`Language: ${args.language}.`)
-		if (args.input) {
-			lines.push(`Read input from ${args.input.kind} \`${args.input.path}\`.`)
-		}
-		if (args.out) {
-			lines.push(`Write output to ${args.out.kind} \`${args.out.path}\`.`)
-		} else if (args.outputKind === 'none') {
-			lines.push('No output asset is expected.')
-		}
-		const instructions = lines.join('\n')
-		// Still the docked chat, which AI Sessions leaves unmounted — sendRequest
-		// refuses rather than running the turn off-screen. Handing this off to a
-		// session needs the just-staged draft flushed to its DB bundle first (the
-		// preview hydrates from there), and PipelineGraphEditor exposes no flush.
-		aiChatManager.openChat()
-		aiChatManager.sendRequest({ instructions })
-	}
-
-	// ===================== AI chat pipeline integration =====================
-	// The global AI chat (dev-gated) gains pipeline-building tools while this
-	// editor is mounted, via the helpers registered below. AI mutations don't
-	// deploy — they apply directly as unsaved drafts on the canvas (the same way
-	// the flow/script editor applies AI edits), which the user then deploys. The
-	// build/edit logic is shared verbatim with the in-session preview
-	// (PipelineEditorView) via createPipelineAiHelpers.
-
-	const pipelineAiHelpers = createPipelineAiHelpers({
-		getFolder: () => folder,
-		getWorkspace: () => $workspaceStore,
-		getResolvedGraph: () => graphWithDraft,
-		hasTriggerDrafts: () => pe.triggerDrafts.size > 0,
-		getTriggerDrafts: () => pe.triggerDrafts,
-		setTriggerDraft: pe.setTriggerDraft,
-		getDrafts: () => pe.drafts,
-		setDrafts: (next) => (pe.drafts = next),
-		newDraftLocalId: pe.newDraftLocalId,
-		onForgetPath: (path) => {
-			forgetPath(path)
-			pe.discardTriggerDraftsFor(path)
-		},
-		onShowDrafts: () => (includeDrafts = true),
-		onProposeNode: (path) => focusPipelineNode(`script:${path}`),
-		ensureEditable: () => {
-			// Auto-enter edit so AI changes are visible/actionable, unless the user
-			// is an operator (no edit permission) — then refuse with a clear error.
-			if (isOperator) {
-				throw new Error('This pipeline is read-only for your role; AI edits are disabled.')
-			}
-			if (mode !== 'edit') setMode('edit')
-		},
-		onRunStarted: (jobId, path) => {
-			activeRunnables.arm(`script:${path}`)
-			runsPendingJobId = jobId
-			runsRefreshKey++
-			activeRunnable = { kind: 'script', path }
-			activeRunnableJobId = jobId
-		}
-	})
-
-	onMount(() => aiChatManager.setPipelineHelpers(pipelineAiHelpers))
 
 	// The session's preview hydrates this folder's drafts from its DB bundle, so the
 	// autosave still inside its debounce has to land first.
 	async function persistDraftsForSession(): Promise<void> {
 		const workspace = $workspaceStore
-		if (!workspace) return
+		// A role that cannot code only views the pipeline, so there is no draft of theirs to save.
+		if (!workspace || viewOnly) return
 		await tick()
 		const draft = { workspace, itemKind: PIPELINE_DRAFT_KIND, path: pipelineDraftPath }
 		await UserDraftDbSyncer.flush(draft)
@@ -552,15 +460,11 @@
 		bypassNavigationGuard = true
 	}
 
-	const sessionOpen: OpenInSessionSource | undefined = $derived(
-		isOperator
-			? undefined
-			: {
-					target: { kind: 'pipeline', path: folder },
-					workspaceId: $workspaceStore ?? undefined,
-					beforeOpen: persistDraftsForSession
-				}
-	)
+	const sessionOpen: OpenInSessionSource = $derived({
+		target: { kind: 'pipeline', path: folder },
+		workspaceId: $workspaceStore ?? undefined,
+		beforeOpen: persistDraftsForSession
+	})
 	// Lets the navigation rail's session switch open this pipeline, with its drafts.
 	setOpenInSessionHandoff({ source: () => sessionOpen })
 
@@ -1029,7 +933,6 @@
 		language: ScriptLang,
 		scriptPath: string,
 		outputKind: PipelineOutputKind,
-		aiPrompt?: string,
 		options?: PipelineInsertOptions
 	) {
 		const ref = assetRef(asset)
@@ -1042,7 +945,6 @@
 				kind: asset.kind,
 				path: asset.path
 			},
-			aiPrompt,
 			options
 		)
 	}
@@ -1051,10 +953,9 @@
 		scriptPath: string,
 		source: { kind: NativeTriggerKind; path: string | undefined },
 		outputKind: PipelineOutputKind,
-		aiPrompt?: string,
 		options?: PipelineInsertOptions
 	) {
-		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, aiPrompt, options)
+		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, options)
 		// A schedule was configured by the wizard itself; other row-backed kinds
 		// are configured in their own editor, as a draft of the new script.
 		if (source.kind !== 'schedule' && isDraftableTriggerKind(source.kind)) {
@@ -1212,7 +1113,7 @@
 
 	let nodeFixes = $derived.by(() => {
 		const fixes = new Map<string, NodeFixSpec>()
-		if (isOperator) return fixes
+		if (viewOnly) return fixes
 		for (const [path, asset] of nodeErrors.waitsOn) {
 			fixes.set(`script:${path}`, {
 				explainer: [
@@ -1887,9 +1788,45 @@
 	// overflow (⋮) menu so the bar stays legible on small screens; only primary
 	// actions stay inline. Recording lives here rather than on the bar at all
 	// times — while armed it surfaces a compact inline pill (below) instead.
+	// The bar folds the actions (`actionFolds` below) once its breadcrumb has given all it can,
+	// moving them into the ⋮ menu rather than dropping their labels: first the view helpers, then
+	// the run and the drafts overlay. The mode toggle and Save all stay on the bar.
+	const viewHelpersInMenu = $derived(pageHeader.actionFold >= 1)
+	const runInMenu = $derived(pageHeader.actionFold >= 2)
+
 	let overflowMenuItems = $derived.by<Item[]>(() => {
 		const items: Item[] = []
-		if (!isOperator && allPipelineScripts.length > 0) {
+		if (runInMenu && !viewOnly && allPipelineScripts.length > 0) {
+			items.push({
+				displayName: cascadeRunningRoot ? 'Running…' : 'Run pipeline',
+				icon: Play,
+				disabled: !!cascadeRunningRoot,
+				action: () => runWholePipeline()
+			})
+		}
+		if (runInMenu && !viewOnly && mode === 'view' && pendingCount > 0) {
+			items.push({
+				displayName: `${includeDrafts ? 'Hide' : 'Show'} ${pendingCount} draft${pendingCount === 1 ? '' : 's'}`,
+				icon: Telescope,
+				action: () => (includeDrafts = !includeDrafts)
+			})
+		}
+		if (viewHelpersInMenu) {
+			if (mode === 'view') {
+				items.push({
+					displayName: activityShowing ? 'Hide activity' : 'Activity',
+					icon: History,
+					action: () => toggleActivity()
+				})
+			}
+			items.push({
+				displayName: 'Refresh',
+				icon: RefreshCw,
+				disabled: graphRes.loading,
+				action: () => graphRes.refetch()
+			})
+		}
+		if (!viewOnly && allPipelineScripts.length > 0) {
 			items.push({
 				displayName: recordingMode ? 'Disarm recorder' : 'Record next run',
 				icon: Circle,
@@ -2300,6 +2237,10 @@
 			.filter((r) => r.usage_kind === 'script' && r.in_pipeline)
 			.map((r) => r.path)
 	)
+	// What the bar shows of the page's main actions: the session button goes right before them.
+	const saveAllShown = $derived(mode === 'edit' && pendingCount > 0)
+	const runPipelineShown = $derived(!viewOnly && allPipelineScripts.length > 0 && !runInMenu)
+
 	// Run the whole pipeline: hand every script to the bounded-cascade engine,
 	// which topo-orders them (roots first) and fans downstream — i.e. run + all
 	// downstream from every source at once. Reuses the same per-hop launch/poll
@@ -2682,11 +2623,11 @@
 		// Keep the current mode across folder switches (view is the
 		// param-less default).
 		const modeQuery = mode !== 'view' ? `?mode=${mode}` : ''
-		const items = otherPipelineFolders.map((p) => ({
+		const items: Item[] = otherPipelineFolders.map((p) => ({
 			displayName: `f/${p.folder}`,
 			icon: Folder,
 			disabled: false,
-			action: () => goto(`/pipeline/${encodeURIComponent(p.folder)}${modeQuery}`)
+			href: `/pipeline/${encodeURIComponent(p.folder)}${modeQuery}`
 		}))
 		items.push({
 			displayName: 'Choose another folder…',
@@ -2709,7 +2650,7 @@
 		const f = folder
 		if (!g || graphRes.loading || autoEditCheckedFolder === f) return
 		autoEditCheckedFolder = f
-		if (untrack(() => urlMode) != null || untrack(() => isOperator)) return
+		if (untrack(() => urlMode) != null || untrack(() => viewOnly)) return
 		if (g.runnables.length === 0 && g.assets.length === 0) {
 			setMode('edit', { replace: true })
 		}
@@ -2816,7 +2757,8 @@
 <PageHeaderContent
 	section={{ label: 'Pipelines', content: pipelineCrumb }}
 	actions={pipelineActions}
-	actionsFlexible
+	sessionSource={sessionOpen}
+	actionFolds={2}
 />
 
 {#snippet pipelineCrumb()}
@@ -2866,19 +2808,16 @@
 {/snippet}
 
 {#snippet pipelineActions()}
-	<!-- This page carries more actions than any other in the band, so the set scrolls rather than
-	     being pushed off the end. `actionsFlexible` on the registration is what lets this box
-	     shrink far enough for that to matter. -->
-	<div
-		class="flex flex-row items-center gap-2 min-w-0 overflow-x-auto scrollbar-hidden whitespace-nowrap"
-	>
-		{#if !isOperator}
+	<!-- This page carries more actions than any other in the band; what does not fit folds into
+	     the ⋮ menu (see `viewHelpersInMenu`). -->
+	<div class="flex flex-row items-center gap-2 whitespace-nowrap">
+		{#if !viewOnly}
 			<!-- Center group: the mode toggle is the page's primary control —
 			     anchored between the two flex-1 side groups so it stays
 			     centered, with breathing room on both sides. -->
 			<div class="flex flex-row items-center gap-2 shrink-0">
 				<PipelineModeToggle {mode} draftCount={pendingCount} onModeChange={(m) => setMode(m)} />
-				{#if mode === 'view' && pendingCount > 0}
+				{#if mode === 'view' && pendingCount > 0 && !runInMenu}
 					<!-- View variant: overlay the unsaved drafts onto the deployed
 					     graph — "what View will show once they're deployed". -->
 					<Button
@@ -2899,7 +2838,7 @@
 				{/if}
 			</div>
 		{/if}
-			{#if !isOperator && allPipelineScripts.length > 0}
+			{#if !viewOnly && allPipelineScripts.length > 0}
 				<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
 				     menu) — a compact disarm pill. -->
 				{#if recordingMode}
@@ -2914,33 +2853,39 @@
 						Recording
 					</button>
 				{/if}
-				<!-- Pipeline-level run: always visible in both View and Edit so a
+				<!-- Pipeline-level run: in both View and Edit, on the bar or in the ⋮ menu, so a
 				     run never requires hunting for a specific node's play button
 				     (dbt `build` / Dagster "Materialize all"). Runs every script in
 				     dependency order (roots first, cascading downstream) over the
 				     displayed graph — deployed in View, draft-overlaid in Edit. -->
-				<Button
-					variant="accent-secondary"
-					unifiedSize="sm"
-					startIcon={{
-						icon: cascadeRunningRoot ? Loader2 : Play,
-						classes: cascadeRunningRoot ? 'animate-spin' : undefined
-					}}
-					onclick={runWholePipeline}
-					disabled={!!cascadeRunningRoot}
-					title={cascadeRunningRoot
-						? 'A pipeline run is already in progress'
-						: `Run all ${allPipelineScripts.length} script${
-								allPipelineScripts.length === 1 ? '' : 's'
-							} in dependency order (roots first, cascading downstream)`}
-				>
-					{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
-				</Button>
+				{#if !runInMenu}
+					{#if !saveAllShown}
+						{@render sessionButton()}
+					{/if}
+					<Button
+						variant="accent-secondary"
+						unifiedSize="sm"
+						startIcon={{
+							icon: cascadeRunningRoot ? Loader2 : Play,
+							classes: cascadeRunningRoot ? 'animate-spin' : undefined
+						}}
+						onclick={runWholePipeline}
+						disabled={!!cascadeRunningRoot}
+						title={cascadeRunningRoot
+							? 'A pipeline run is already in progress'
+							: `Run all ${allPipelineScripts.length} script${
+									allPipelineScripts.length === 1 ? '' : 's'
+								} in dependency order (roots first, cascading downstream)`}
+					>
+						{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
+					</Button>
+				{/if}
 			{/if}
 			{#if mode === 'edit' && saveErrors.size > 0}
 				<PipelineDeployErrors errors={saveErrors} bind:open={saveErrorsOpen} />
 			{/if}
-			{#if mode === 'edit' && pendingCount > 0}
+			{#if saveAllShown}
+				{@render sessionButton()}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
@@ -2952,7 +2897,7 @@
 					{savingAll ? 'Saving…' : `Save all (${pendingCount})`}
 				</Button>
 			{/if}
-			{#if mode === 'view'}
+			{#if mode === 'view' && !viewHelpersInMenu}
 				<Button
 					variant={activityShowing ? 'accent-secondary' : 'subtle'}
 					unifiedSize="sm"
@@ -2965,18 +2910,27 @@
 					Activity
 				</Button>
 			{/if}
-			<OpenInSessionButton source={sessionOpen} />
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				startIcon={{ icon: RefreshCw }}
-				onclick={() => graphRes.refetch()}
-				disabled={graphRes.loading}
-				iconOnly
-				title="Refresh"
-			/>
+			{#if !viewHelpersInMenu}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: RefreshCw }}
+					onclick={() => graphRes.refetch()}
+					disabled={graphRes.loading}
+					iconOnly
+					title="Refresh"
+				/>
+			{/if}
 			<DropdownV2 size="sm" items={overflowMenuItems} />
+			{#if !saveAllShown && !runPipelineShown}
+				{@render sessionButton()}
+			{/if}
 	</div>
+{/snippet}
+
+{#snippet sessionButton()}
+	<!-- Right before the page's main action: Save all while there are drafts, else Run pipeline. -->
+	<OpenInSessionButton source={sessionOpen} />
 {/snippet}
 
 <div class="flex flex-col h-full">
@@ -3013,8 +2967,8 @@
 				{runsRefreshKey}
 				{runsPendingJobId}
 				{boundPick}
-				validStartPaths={isOperator ? undefined : validStartPaths}
-				onStartBoundedRun={isOperator ? undefined : startBoundedRun}
+				validStartPaths={viewOnly ? undefined : validStartPaths}
+				onStartBoundedRun={viewOnly ? undefined : startBoundedRun}
 				onPickEnd={pickBoundEnd}
 				{panToNodeId}
 				onCreateMissingTrigger={mode === 'edit' ? openMissingTriggerDrawer : undefined}
@@ -3033,10 +2987,10 @@
 				onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
 				onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
 				onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
-				onDeleteAssetUpstream={isOperator ? undefined : (t) => (assetDeleteTarget = t)}
+				onDeleteAssetUpstream={viewOnly ? undefined : (t) => (assetDeleteTarget = t)}
 				{nodeFixes}
 				assetDeleteVerb={canHardDeleteScripts ? 'Delete' : 'Archive'}
-				onEdgeAction={isOperator
+				onEdgeAction={viewOnly
 					? undefined
 					: ({
 							action,
@@ -3061,7 +3015,7 @@
 								}
 							)
 						}}
-				onAddAssetTrigger={isOperator || mode !== 'edit'
+				onAddAssetTrigger={viewOnly || mode !== 'edit'
 					? undefined
 					: ({
 							scripts,
@@ -3076,7 +3030,7 @@
 							)
 						}}
 				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
-				onRequestEdit={isOperator ? undefined : () => setMode('edit')}
+				onRequestEdit={viewOnly ? undefined : () => setMode('edit')}
 				canRunByPath={openScriptHasDataUpload}
 				onRunByPath={runByPathLegit}
 				{selectionProducers}

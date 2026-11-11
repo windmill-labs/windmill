@@ -13,7 +13,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { resource } from 'runed'
 	import Select from '../select/Select.svelte'
-	import Label from '../Label.svelte'
+	import { TriangleAlert } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 
@@ -21,11 +21,20 @@
 		// Workspace whose datatables are cloned into the fork (the fork's base). Falls back to the
 		// current workspace so existing callers keep working.
 		sourceWorkspace?: string
+		// A protection rule on the base forbids `keep_original` for the base's own datatables.
+		requireIsolation?: boolean
+		itemCount?: number
 		onAllDone?: () => void
 		onCanceled?: () => void
 	}
 
-	let { sourceWorkspace, onAllDone, onCanceled }: Props = $props()
+	let {
+		sourceWorkspace,
+		requireIsolation = false,
+		itemCount = $bindable(),
+		onAllDone,
+		onCanceled
+	}: Props = $props()
 
 	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
 
@@ -34,8 +43,27 @@
 		async (ws) => (ws ? WorkspaceService.listDataTables({ workspace: ws }) : undefined)
 	)
 
-	let datatableBehaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> =
-		$state({})
+	$effect(() => {
+		itemCount = allDatatables.current?.length ?? 0
+	})
+
+	type Behavior = 'schema_only' | 'schema_and_data' | 'keep_original'
+	let datatableBehaviors: Record<string, Behavior> = $state({})
+
+	// An entry whose database another workspace owns is not the base's data: the rule leaves it
+	// alone, as the server does.
+	function mustClone(dt: { database_workspace_id?: string }): boolean {
+		return requireIsolation && !dt.database_workspace_id
+	}
+
+	function behaviorOf(dt: { name: string; database_workspace_id?: string }): Behavior {
+		const chosen = datatableBehaviors[dt.name] ?? 'keep_original'
+		return mustClone(dt) && chosen === 'keep_original' ? 'schema_only' : chosen
+	}
+
+	let anyShared = $derived(
+		(allDatatables.current ?? []).some((dt) => behaviorOf(dt) === 'keep_original')
+	)
 
 	let cloneModalOpen = $state(false)
 	let currentCloneJob: DatatableCloneJob | undefined = $state(undefined)
@@ -49,14 +77,11 @@
 		// A fork attempt starts here: what an earlier attempt confirmed is not this one's to send.
 		confirmedJobs = []
 		return (allDatatables.current ?? [])
-			.filter((dt) => {
-				const behavior = datatableBehaviors[dt.name] ?? 'keep_original'
-				return behavior !== 'keep_original'
-			})
+			.filter((dt) => behaviorOf(dt) !== 'keep_original')
 			.map((dt) => ({
 				name: dt.name,
 				resourceType: dt.resource_type,
-				behavior: datatableBehaviors[dt.name] as 'schema_only' | 'schema_and_data',
+				behavior: behaviorOf(dt) as 'schema_only' | 'schema_and_data',
 				// A dev workspace's id has no `wm-fork-` prefix; its copies are named like a fork's
 				_newDbName: `wm_fork_${targetWorkspaceId.replace(/^wm-fork-/, '').replace(/-/g, '_')}__${dt.name}`
 			}))
@@ -94,10 +119,10 @@
 </script>
 
 {#if allDatatables.current && allDatatables.current.length > 0}
-	<Label label="Data table behavior">
-		<span class="text-xs text-secondary"> Choose how to handle each datatable when forking </span>
+	<div class="flex flex-col gap-1">
+		<span class="text-xs font-medium text-secondary">Data tables</span>
 		<div class="border rounded-md divide-y">
-			{#each allDatatables.current as dt}
+			{#each allDatatables.current as dt (dt.name)}
 				<div class="flex items-center gap-2 justify-between px-4 py-1.5">
 					<div class="flex flex-col">
 						<span class="text-xs font-medium">{dt.name}</span>
@@ -107,15 +132,18 @@
 					</div>
 					<Select
 						dropdownClass="max-w-96"
-						bind:value={
-							() => datatableBehaviors[dt.name] ?? 'keep_original',
-							(v) => (datatableBehaviors[dt.name] = v)
-						}
+						bind:value={() => behaviorOf(dt), (v) => (datatableBehaviors[dt.name] = v)}
 						items={[
-							{
-								value: 'keep_original',
-								label: dt.permissioned ? 'Keep original (under roles)' : 'Keep original'
-							},
+							...(mustClone(dt)
+								? []
+								: [
+										{
+											value: 'keep_original' as const,
+											label: dt.permissioned
+												? 'Shared with parent (under roles)'
+												: 'Shared with parent'
+										}
+									]),
 							// A copy of a data table under roles carries the source's owners and grants,
 							// which only the Enterprise Edition replays: elsewhere the server refuses it.
 							...(dt.permissioned && !$enterpriseLicense
@@ -131,7 +159,13 @@
 				</div>
 			{/each}
 		</div>
-	</Label>
+		{#if anyShared}
+			<span class="flex items-center gap-1 text-2xs text-amber-700 dark:text-amber-300">
+				<TriangleAlert size={12} class="shrink-0" />
+				Scripts in the fork will read and write this workspace's rows.
+			</span>
+		{/if}
+	</div>
 {/if}
 
 {#if cloneModalOpen && currentCloneJob}

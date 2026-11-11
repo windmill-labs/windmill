@@ -17,6 +17,7 @@ use windmill_api_auth::{
 };
 use windmill_common::db::DB;
 use windmill_common::per_minute_counter::PerMinuteCounter;
+use windmill_common::scopes::ScopeDefinition;
 use windmill_common::ssrf::{
     is_private_ip, private_git_host_allowed, private_git_host_hint, GitRemoteCaller,
 };
@@ -24,6 +25,7 @@ use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCh
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
+use crate::variables::{describe_authed, describe_extra_perms};
 use windmill_common::utils::{
     check_proper_path, check_proper_type_name, escape_ilike_pattern, sanitize_db_error,
     BulkDeleteRequest,
@@ -189,6 +191,9 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
+    /// The OAuth scopes the linked account was connected with.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time.
@@ -373,6 +378,7 @@ async fn list_resources(
             "variable.account",
             "account.refresh_error",
             "account.grant_type",
+            "account.scopes",
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
@@ -444,9 +450,10 @@ async fn list_resources(
 
     if let Some(broad_filter) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(resource.path ILIKE ? OR resource.description ILIKE ? OR resource_type ILIKE ? OR resource.value::text ILIKE ?)"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
 
@@ -460,10 +467,10 @@ async fn list_resources(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(resource.labels @> ARRAY[?] OR folder_labels(resource.workspace_id, resource.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -493,8 +500,7 @@ async fn list_resources(
         && lq.broad_filter.is_none()
         && lq.label.is_none()
         && !lq.starred_only.unwrap_or(false)
-        && (!authed.is_operator
-            || operator_can_draft(&db, &w_id, UserDraftItemKind::Resource).await?)
+        && operator_can_draft(&db, &w_id, &authed, UserDraftItemKind::Resource).await?
     {
         let rt_filter: Option<Vec<&str>> = lq
             .resource_type
@@ -575,6 +581,7 @@ async fn list_resources(
                 is_expired: None,
                 refresh_error: None,
                 account: None,
+                scopes: None,
                 labels,
                 // No deployed row to inherit folder labels from.
                 inherited_labels: None,
@@ -609,7 +616,7 @@ async fn get_resource(
         resource.labels,
         folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",
         (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
-        account.refresh_error,
+        account.refresh_error, account.scopes as \"scopes?\",
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
         variable.account,
@@ -700,6 +707,9 @@ async fn get_resource_value(
     Ok(Json(value))
 }
 
+/// Including the resource's and its folder's `extra_perms` in the error is intended, not a
+/// leak: who holds access to an item is not secret within a workspace, and it tells the
+/// denied caller whom to ask. Keep the maps in the message.
 pub async fn explain_resource_perm_error(
     path: &str,
     w_id: &str,
@@ -729,13 +739,16 @@ pub async fn explain_resource_perm_error(
         .fetch_optional(db)
         .await?;
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_extra_perms(folder_extra_perms.as_ref()),
+            describe_authed(Some(authed))
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_authed(Some(authed))
         )));
     }
 }
@@ -913,18 +926,61 @@ pub async fn transform_json_value(
 /// RLS resolves a reference as the token's user, not as the token: a token scoped to one
 /// resource would otherwise read, through that resource, every variable or resource its
 /// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
-/// `resource_path` is the resource being expanded: its own linked secrets
-/// ([`is_owned_linked_var`]) are covered by the read of it.
+/// `resource_path` is the resource being expanded: see [`check_resource_var_ref_scope`].
 fn check_interpolation_scope(
     db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     domain: &str,
     path: &str,
     resource_path: Option<&str>,
 ) -> Result<()> {
-    match db_with_opt_authed.authed() {
-        Some(_) if resource_path.is_some_and(|r| is_owned_linked_var(r, path)) => Ok(()),
-        Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
-        None => Ok(()),
+    match (db_with_opt_authed.authed(), resource_path) {
+        (Some(authed), Some(r)) if domain == "variables" => {
+            check_resource_var_ref_scope(authed, r, path)
+        }
+        (Some(authed), _) => check_scopes(authed, || format!("{domain}:read:{path}")),
+        (None, _) => Ok(()),
+    }
+}
+
+/// The scope a token needs to resolve variable `var_path` referenced by resource
+/// `resource_path`: `variables:read` on it, unless it is the resource's own linked secret
+/// ([`is_owned_linked_var`]) or a wildcard pattern of the token's `resources:` scopes
+/// matches it. An exact path, or a scope naming no path at all, grants no variable: RLS
+/// lets the token resolve any variable its user can read.
+pub fn check_resource_var_ref_scope(
+    authed: &ApiAuthed,
+    resource_path: &str,
+    var_path: &str,
+) -> Result<()> {
+    if is_owned_linked_var(resource_path, var_path) {
+        return Ok(());
+    }
+    let denied = match check_scopes(authed, || format!("variables:read:{var_path}")) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let required = ScopeDefinition::new("variables", "read", None, Some(vec![var_path.into()]));
+    let covered = authed.scopes.iter().flatten().any(|scope| {
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            return false;
+        };
+        if scope.domain != "resources" {
+            return false;
+        }
+        let patterns = scope
+            .resource
+            .into_iter()
+            .flatten()
+            .filter(|r| r.contains('*'))
+            .collect::<Vec<_>>();
+        !patterns.is_empty()
+            && ScopeDefinition::new("variables", &scope.action, None, Some(patterns))
+                .includes(&required)
+    });
+    if covered {
+        Ok(())
+    } else {
+        Err(denied)
     }
 }
 
@@ -2152,7 +2208,7 @@ async fn update_resource(
 
             // Handle Vault secret rename if the linked variable is a Vault-stored secret
             let linked_var = sqlx::query!(
-                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
                 path,
                 w_id
             )
@@ -2183,6 +2239,15 @@ async fn update_resource(
                 npath,
                 path,
                 w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE native_trigger SET connection_path = $1 WHERE workspace_id = $2 AND connection_path = $3",
+                npath,
+                w_id,
+                path
             )
             .execute(&mut *tx)
             .await?;
@@ -2443,6 +2508,9 @@ async fn update_resource_value(
 /// `run_on_behalf_of` is set: then the writer's own, unless one allowed to keep the one the value
 /// names asks to, and a folder's default for a new agent. The value is written by anyone who can
 /// write the agent, so the key it arrives with is only a request.
+///
+/// Every write of an agent passes here, so this is also where an operator's is held to the
+/// composed-flow rules: a flow step linking the agent runs its tools unchecked.
 async fn resolve_agent_on_behalf_of(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
@@ -2453,6 +2521,9 @@ async fn resolve_agent_on_behalf_of(
     preserve: bool,
     created: bool,
 ) -> Result<()> {
+    if authed.is_operator {
+        windmill_api_auth::composed::validate_operator_agent(value, authed, db, tx, w_id).await?;
+    }
     let Some(obj) = value.as_object_mut() else {
         return Ok(());
     };

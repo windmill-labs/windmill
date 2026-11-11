@@ -210,10 +210,9 @@
 	import { deepEqual } from 'fast-equals'
 	import { slide } from 'svelte/transition'
 	import AssetColumnBadges from '$lib/components/assets/AssetColumnBadges.svelte'
-	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
-	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		data: AssetN['data']
@@ -282,7 +281,7 @@
 							Could not find resource
 						{/snippet}
 					</Tooltip>
-				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata) && !actingUser?.operator}
+				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata) && $roleCaps.code}
 					<div transition:slide={{ axis: 'x', duration: 100 }}>
 						<ExploreAssetButton
 							btnClasses="rounded-none"

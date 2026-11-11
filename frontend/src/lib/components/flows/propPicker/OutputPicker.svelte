@@ -197,7 +197,7 @@
 					flip: false
 				}}
 				usePointerDownOutside
-				excludeSelectors={`[data-run-button="${id}"]`}
+				excludeSelectors={`[data-run-button="${id}"], [data-menu]`}
 				closeOnOutsideClick={false}
 				on:click={(e) => {
 					e.preventDefault()

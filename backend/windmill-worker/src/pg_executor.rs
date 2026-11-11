@@ -19,16 +19,16 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
-use windmill_common::azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{
     to_raw_value, Connection, SqlAnnotations, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db, parse_datatable_ref, parse_datatable_ref_for, DatatableAccess, DatatableConnectAs,
+    get_datatable_resource_from_db, parse_datatable_ref, parse_datatable_ref_for, DatatableAccess,
+    DatatableConnectAs,
 };
-use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
+use windmill_common::{PgAuthMode, PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_positions, parse_pgsql_sig_with_typed_schema,
@@ -38,7 +38,7 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::agent_workers::get_datatable_resource_from_agent_http;
 use crate::common::{
-    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data,
+    build_args_values, get_reserved_variables, narrow_sql_int, s3_mode_args_to_worker_data,
     s3_stream_and_upload_with_logs, sizeof_val, OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
@@ -502,95 +502,11 @@ pub async fn clear_pg_cache() {
     close_idle_pg_connections();
 }
 
-/// How the connection authenticates, which also keys the connection cache: a
-/// connection established under one mode must never be handed to a request asking
-/// for another.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum PgAuthMode {
-    Password,
-    /// AWS RDS IAM.
-    Iam,
-    /// Azure Entra ID, via the worker's federated identity.
-    WorkloadIdentity,
-}
-
-impl PgAuthMode {
-    fn of(database: &PgDatabase) -> error::Result<Self> {
-        let workload_identity =
-            database.password.as_deref().map(str::trim) == Some(WORKLOAD_IDENTITY_PASSWORD);
-        match (database.use_iam_auth == Some(true), workload_identity) {
-            (true, true) => Err(Error::BadRequest(
-                "IAM RDS authentication cannot use the Azure workload identity password"
-                    .to_string(),
-            )),
-            (true, false) => Ok(PgAuthMode::Iam),
-            (false, true) => Ok(PgAuthMode::WorkloadIdentity),
-            (false, false) => Ok(PgAuthMode::Password),
-        }
-    }
-
-    /// What to announce in the job log. Password auth is the default and stays silent.
-    /// The token modes name the login they present, which is the one thing the token
-    /// itself does not carry.
-    fn log_name(&self, database: &PgDatabase) -> Option<String> {
-        match self {
-            PgAuthMode::Password => None,
-            PgAuthMode::Iam => Some(format!(
-                "IAM RDS authentication (login {})",
-                database.login_name()
-            )),
-            PgAuthMode::WorkloadIdentity => Some(match database.entra_login() {
-                Ok(login) => format!("Azure Workload Identity (login {login})"),
-                // Connecting rejects a missing login; do not invent one here.
-                Err(_) => "Azure Workload Identity".to_string(),
-            }),
-        }
-    }
-
-    fn cache_key_segment(&self) -> &'static str {
-        match self {
-            // Workload identity needs no segment of its own: to_uri() carries the raw
-            // password and the mode is a pure function of it, so two modes can never
-            // share a key even though the mode is selected on the trimmed value.
-            PgAuthMode::Password | PgAuthMode::WorkloadIdentity => "",
-            PgAuthMode::Iam => "&iam=true",
-        }
-    }
-}
-
 async fn new_pg_connection(
     database: &PgDatabase,
-    auth_mode: PgAuthMode,
     main_db: Option<&DB>,
 ) -> error::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
-    let (client, connection) = match auth_mode {
-        PgAuthMode::Iam => {
-            #[cfg(all(feature = "enterprise", feature = "private"))]
-            {
-                database.connect_with_iam().await?
-            }
-            #[cfg(not(all(feature = "enterprise", feature = "private")))]
-            {
-                return Err(Error::ExecutionErr(
-                    "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
-                ));
-            }
-        }
-        PgAuthMode::WorkloadIdentity => {
-            #[cfg(feature = "enterprise")]
-            {
-                database.connect_with_workload_identity().await?
-            }
-            #[cfg(not(feature = "enterprise"))]
-            {
-                return Err(Error::ExecutionErr(
-                    "Azure workload identity authentication requires Windmill Enterprise Edition"
-                        .to_string(),
-                ));
-            }
-        }
-        PgAuthMode::Password => database.connect(main_db).await?,
-    };
+    let (client, connection) = database.connect_for_job(main_db).await?;
     let handle = tokio::spawn(async move {
         if let Err(e) = connection.await {
             tracing::error!("connection error: {}", e);
@@ -1376,20 +1292,19 @@ pub async fn do_postgresql(
         }
     }
     if lease.conn.is_none() {
-        let (client, connection_task) =
-            match new_pg_connection(&database, auth_mode, conn.as_sql()).await {
-                Ok(connected) => connected,
-                // A server or pooler can also refuse outright past a per-login or
-                // total connection cap, which pool scopes do not capture. Free the
-                // idle connections of every scope and try once more.
-                Err(e) => {
-                    if !is_connection_cap_refusal(&e) || close_idle_pg_connections() == 0 {
-                        return Err(e);
-                    }
-                    tokio::time::sleep(Duration::from_millis(250)).await;
-                    new_pg_connection(&database, auth_mode, conn.as_sql()).await?
+        let (client, connection_task) = match new_pg_connection(&database, conn.as_sql()).await {
+            Ok(connected) => connected,
+            // A server or pooler can also refuse outright past a per-login or
+            // total connection cap, which pool scopes do not capture. Free the
+            // idle connections of every scope and try once more.
+            Err(e) => {
+                if !is_connection_cap_refusal(&e) || close_idle_pg_connections() == 0 {
+                    return Err(e);
                 }
-            };
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                new_pg_connection(&database, conn.as_sql()).await?
+            }
+        };
         lease.conn = Some(PgConnection {
             key: database_string.clone(),
             scope: lease.scope.clone(),
@@ -1769,22 +1684,29 @@ fn map_as_single_type<T>(
     vec: Option<&Vec<Value>>,
     f: impl Fn(&Value) -> Option<T>,
 ) -> anyhow::Result<Option<Vec<Option<T>>>> {
+    try_map_as_single_type(vec, |v| Ok(f(v)))
+}
+
+/// Like `map_as_single_type`, but `f` can reject an element of the right type
+/// (e.g. an out-of-range integer) with its own error.
+fn try_map_as_single_type<T>(
+    vec: Option<&Vec<Value>>,
+    f: impl Fn(&Value) -> anyhow::Result<Option<T>>,
+) -> anyhow::Result<Option<Vec<Option<T>>>> {
     if let Some(vec) = vec {
-        Ok(Some(
-            vec.into_iter()
-                .map(|v| {
-                    // first option is if the value is of the right type (if none, will stop the collection and throw error)
-                    // second option is if the value is null
-                    // allow nulls in arrays
-                    if matches!(v, Value::Null) {
-                        Some(None)
-                    } else {
-                        f(v).map(Some)
-                    }
-                })
-                .collect::<Option<Vec<Option<T>>>>()
-                .ok_or_else(|| anyhow::anyhow!("Mixed types in array"))?,
-        ))
+        let mut out = Vec::with_capacity(vec.len());
+        for v in vec {
+            // allow nulls in arrays
+            if matches!(v, Value::Null) {
+                out.push(None);
+            } else {
+                match f(v)? {
+                    Some(x) => out.push(Some(x)),
+                    None => return Err(anyhow::anyhow!("Mixed types in array")),
+                }
+            }
+        }
+        Ok(Some(out))
     } else {
         Ok(None)
     }
@@ -1819,26 +1741,23 @@ fn convert_vec_val(
             Type::BOOL_ARRAY,
         )),
         "char" | "character" => Ok((
-            Box::new(map_as_single_type(vec, |v| {
-                v.as_i64()
-                    .map(|x| x as i8)
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<i8>().ok()))
+            Box::new(try_map_as_single_type(vec, |v| match v.as_i64() {
+                Some(x) => narrow_sql_int::<i8, _>(x, "\"char\"").map(Some),
+                None => Ok(v.as_str().and_then(|s| s.parse::<i8>().ok())),
             })?),
             Type::CHAR_ARRAY,
         )),
         "smallint" | "smallserial" | "int2" | "serial2" => Ok((
-            Box::new(map_as_single_type(vec, |v| {
-                v.as_i64()
-                    .map(|x| x as i16)
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<i16>().ok()))
+            Box::new(try_map_as_single_type(vec, |v| match v.as_i64() {
+                Some(x) => narrow_sql_int::<i16, _>(x, "smallint").map(Some),
+                None => Ok(v.as_str().and_then(|s| s.parse::<i16>().ok())),
             })?),
             Type::INT2_ARRAY,
         )),
         "int" | "integer" | "int4" | "serial" => Ok((
-            Box::new(map_as_single_type(vec, |v| {
-                v.as_i64()
-                    .map(|x| x as i32)
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<i32>().ok()))
+            Box::new(try_map_as_single_type(vec, |v| match v.as_i64() {
+                Some(x) => narrow_sql_int::<i32, _>(x, "integer").map(Some),
+                None => Ok(v.as_str().and_then(|s| s.parse::<i32>().ok())),
             })?),
             Type::INT4_ARRAY,
         )),
@@ -1859,18 +1778,18 @@ fn convert_vec_val(
             Type::NUMERIC_ARRAY,
         )),
         "oid" => Ok((
-            Box::new(map_as_single_type(vec, |v| {
-                v.as_u64()
-                    .map(|x| x as u32)
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<u32>().ok()))
+            Box::new(try_map_as_single_type(vec, |v| match v.as_u64() {
+                Some(x) => narrow_sql_int::<u32, _>(x, "oid").map(Some),
+                None => Ok(v.as_str().and_then(|s| s.parse::<u32>().ok())),
             })?),
             Type::OID_ARRAY,
         )),
         "bigint" | "bigserial" | "int8" | "serial8" => Ok((
-            Box::new(map_as_single_type(vec, |v| {
-                v.as_i64()
-                    .or_else(|| v.as_u64().map(|x| x as i64))
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+            Box::new(try_map_as_single_type(vec, |v| match v.as_u64() {
+                Some(x) => narrow_sql_int::<i64, _>(x, "bigint").map(Some),
+                None => Ok(v
+                    .as_i64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))),
             })?),
             Type::INT8_ARRAY,
         )),
@@ -2074,7 +1993,8 @@ fn convert_val(
             Ok((Box::new(n.to_string()), t))
         }
         Value::Number(n) if arg_t == "char" && n.is_i64() => {
-            Ok((Box::new(n.as_i64().unwrap() as i8), Type::CHAR))
+            let n = narrow_sql_int::<i8, _>(n.as_i64().unwrap(), "\"char\"")?;
+            Ok((Box::new(n), Type::CHAR))
         }
         Value::Number(n)
             if (arg_t == "smallint"
@@ -2083,13 +2003,15 @@ fn convert_val(
                 || arg_t == "serial2")
                 && n.is_i64() =>
         {
-            Ok((Box::new(n.as_i64().unwrap() as i16), Type::INT2))
+            let n = narrow_sql_int::<i16, _>(n.as_i64().unwrap(), "smallint")?;
+            Ok((Box::new(n), Type::INT2))
         }
         Value::Number(n)
             if (arg_t == "int" || arg_t == "integer" || arg_t == "int4" || arg_t == "serial")
                 && n.is_i64() =>
         {
-            Ok((Box::new(n.as_i64().unwrap() as i32), Type::INT4))
+            let n = narrow_sql_int::<i32, _>(n.as_i64().unwrap(), "integer")?;
+            Ok((Box::new(n), Type::INT4))
         }
         Value::Number(n) if (arg_t == "real" || arg_t == "float4") && n.as_f64().is_some() => {
             Ok((Box::new(n.as_f64().unwrap() as f32), Type::FLOAT4))
@@ -2109,7 +2031,8 @@ fn convert_val(
             Type::NUMERIC,
         )),
         Value::Number(n) if arg_t == "oid" && n.is_u64() => {
-            Ok((Box::new(n.as_u64().unwrap() as u32), Type::OID))
+            let n = narrow_sql_int::<u32, _>(n.as_u64().unwrap(), "oid")?;
+            Ok((Box::new(n), Type::OID))
         }
         Value::Number(n)
             if (arg_t == "bigint"
@@ -2118,7 +2041,8 @@ fn convert_val(
                 || arg_t == "serial8")
                 && n.is_u64() =>
         {
-            Ok((Box::new(n.as_u64().unwrap() as i64), Type::INT8))
+            let n = narrow_sql_int::<i64, _>(n.as_u64().unwrap(), "bigint")?;
+            Ok((Box::new(n), Type::INT8))
         }
         Value::Number(n) if n.is_i64() => Ok((Box::new(n.as_i64().unwrap()), Type::INT8)),
         Value::Number(n) => Ok((Box::new(n.as_f64().unwrap()), Type::FLOAT8)),
@@ -2729,59 +2653,6 @@ impl FromSql<'_> for StringCollector {
 mod tests {
     use super::*;
 
-    /// The sentinel password is the whole opt-in: nothing else marks the resource, so a
-    /// resource carrying it must not fall through to password auth.
-    #[test]
-    fn test_workload_identity_password_selects_the_auth_mode() {
-        let db = |password: &str| {
-            PgDatabase::parse_uri(&format!("postgres://someuser:{password}@host:5432/db")).unwrap()
-        };
-        assert_eq!(
-            PgAuthMode::of(&db(WORKLOAD_IDENTITY_PASSWORD)).unwrap(),
-            PgAuthMode::WorkloadIdentity
-        );
-        assert_eq!(
-            PgAuthMode::of(&db("hunter2")).unwrap(),
-            PgAuthMode::Password
-        );
-        // A pasted sentinel keeps its surrounding whitespace, and an unrecognized one is
-        // forwarded to the server as a real password instead of selecting the mode.
-        assert_eq!(
-            PgAuthMode::of(&db("%20ms_entraid%0A")).unwrap(),
-            PgAuthMode::WorkloadIdentity
-        );
-    }
-
-    /// The job log is the only place the presented login is visible, and the two token
-    /// modes differ on whether a missing one has a default at all.
-    #[test]
-    fn test_log_name_reports_the_presented_login() {
-        let db = |user: &str| {
-            PgDatabase::parse_uri(&format!("postgres://{user}:pw@host:5432/db")).unwrap()
-        };
-
-        assert_eq!(PgAuthMode::Password.log_name(&db("someuser")), None);
-        assert_eq!(
-            PgAuthMode::Iam.log_name(&db("someuser")).unwrap(),
-            "IAM RDS authentication (login someuser)"
-        );
-        assert_eq!(
-            PgAuthMode::Iam.log_name(&db("")).unwrap(),
-            "IAM RDS authentication (login postgres)"
-        );
-        assert_eq!(
-            PgAuthMode::WorkloadIdentity
-                .log_name(&db("someuser"))
-                .unwrap(),
-            "Azure Workload Identity (login someuser)"
-        );
-        // Entra has no default login, so none is named rather than implying `postgres`.
-        assert_eq!(
-            PgAuthMode::WorkloadIdentity.log_name(&db("")).unwrap(),
-            "Azure Workload Identity"
-        );
-    }
-
     #[test]
     fn test_map_s3object_jsonb_overflow() {
         let pg_err = Error::ExecutionErr(
@@ -3311,6 +3182,47 @@ mod tests {
             Type::INT8,
         );
         assert_convert_val_consistent("Number(0)/oid", json!(0), "oid", typ_for("oid"), Type::OID);
+    }
+
+    #[test]
+    fn convert_val_rejects_out_of_range_integers() {
+        let convert = |value: Value, arg_t: &str| {
+            convert_val(&value, &arg_t.to_string(), &typ_for(arg_t), false)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        };
+        for (value, arg_t, sql_type) in [
+            (json!(200), "char", "\"char\""),
+            (json!(70000), "smallint", "smallint"),
+            (json!(-40000), "int2", "smallint"),
+            (json!(4294967297u64), "int4", "integer"),
+            (json!(4294967296u64), "oid", "oid"),
+            (json!(u64::MAX), "bigint", "bigint"),
+            (json!([1, 70000]), "smallint[]", "smallint"),
+            (json!([u64::MAX]), "int8[]", "bigint"),
+        ] {
+            let err = convert(value.clone(), arg_t).expect_err(&format!("{value}/{arg_t}"));
+            let n = value.as_array().map_or(&value, |a| a.last().unwrap());
+            assert!(
+                err.contains(&format!(
+                    "value \"{n}\" is out of range for type {sql_type}"
+                )),
+                "{value}/{arg_t}: {err}"
+            );
+        }
+        for (value, arg_t) in [
+            (json!(127), "char"),
+            (json!(-128), "char"),
+            (json!(32767), "smallint"),
+            (json!(-32768), "smallint"),
+            (json!(2147483647), "int"),
+            (json!(-2147483648i64), "int"),
+            (json!(4294967295u64), "oid"),
+            (json!(i64::MAX), "bigint"),
+            (json!([null, -32768, 32767]), "smallint[]"),
+        ] {
+            convert(value.clone(), arg_t).unwrap_or_else(|e| panic!("{value}/{arg_t}: {e}"));
+        }
     }
 
     #[test]

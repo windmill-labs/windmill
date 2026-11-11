@@ -153,6 +153,10 @@ async fn test_agent_run_identity_and_needs_read(db: Pool<Postgres>) -> anyhow::R
     for raw in [
         r#"{"user_message":"$var:u/test-user-3/secret"}"#,
         r#"{"user_message":"\u0024var:u/test-user-3/secret"}"#,
+        // Resolved once a step combines it with an argument holding a reference.
+        r#"{"user_message":"$WM_TOKEN"}"#,
+        // jsonb drops the undecodable duplicate and keeps the reference.
+        r#"{"user_message":{"n":1e400,"n":0,"r":"\u0024var:u/test-user-3/secret"}}"#,
     ] {
         let resp = reqwest::Client::new()
             .post(format!("{base_url}/w/test-workspace/{run}"))
@@ -163,6 +167,14 @@ async fn test_agent_run_identity_and_needs_read(db: Pool<Postgres>) -> anyhow::R
             .await?;
         assert_eq!(resp.status().as_u16(), 400, "a reference in {raw}");
     }
+    let (status, body) = post(
+        &base_url,
+        "SECRET_TOKEN_2",
+        &run,
+        json!({ "user_message": {"$match": {"currency": "$USD", "_id": "$category"}} }),
+    )
+    .await?;
+    assert_eq!(status, 201, "nothing the worker resolves: {body}");
 
     // The run takes its conversation outside the caller's row policy, so a reader must not
     // continue another user's conversation; an admin still may, as the policy allows.

@@ -25,3 +25,13 @@ rustflags = [
 
 [net]
 git-fetch-with-cli = true
+
+[env]
+# `#[sqlx::test]` clones each test database from a template migrated once, instead of running
+# every migration per test. The `_sqlx_tmpl_*` databases it leaves on the server are reused.
+SQLX_TEST_TEMPLATE = "true"
+# All `#[sqlx::test]` pools of a test binary share this many connections, and each keeps the
+# ones it took until it ends: below 5 per test thread, concurrent tests can split them all and
+# wait on each other until their acquire times out. 50 covers CI's `--test-threads=10`; a run
+# with more threads over a binary of more than 10 tests needs 5 per thread.
+SQLX_TEST_MAX_CONNECTIONS = "50"

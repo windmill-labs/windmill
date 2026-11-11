@@ -29,6 +29,9 @@ export interface DraftSnapshot {
 	blobs: AttachedBlob[]
 }
 
+/** Everything a draft carries besides its text. */
+export type DraftAttachments = Omit<DraftSnapshot, 'text'>
+
 export class MessageDraft {
 	text = $state('')
 	pastes = $state<PasteAttachment[]>([])

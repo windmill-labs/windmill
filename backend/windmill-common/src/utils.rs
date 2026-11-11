@@ -12,6 +12,7 @@ use crate::ee_oss::LICENSE_KEY_ID;
 use crate::ee_oss::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
+use crate::tz::Tz;
 use crate::worker::{EXIT_AFTER_N_JOBS, WORKER_SUFFIX};
 use crate::DB;
 use anyhow::Context;
@@ -124,8 +125,10 @@ lazy_static::lazy_static! {
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
-                if std::env::var("AGENT_TOKEN").is_err() {
-                    println!("AGENT_TOKEN is not passed. This is required for the agent to work and contains the JWT to authenticate with the server.")
+                if std::env::var("AGENT_TOKEN").is_err()
+                    && std::env::var(crate::agent_workers::AGENT_IDENTITY_TOKEN_FILE_ENV).is_err()
+                {
+                    println!("Neither AGENT_TOKEN nor AGENT_IDENTITY_TOKEN_FILE is passed. One is required for the agent to authenticate with the server.")
                 }
 
                 #[cfg(not(feature = "enterprise"))]
@@ -214,6 +217,21 @@ impl StripPath {
     }
 }
 
+/// The Hub serves scripts and flows by their numeric id alone and ignores the rest of the
+/// path, so URLs and cache keys must be built from the parsed id: passing the path through
+/// lets dot segments make the URL name one item while the cache key names another.
+pub(crate) fn parse_hub_id(path: &str, prefix: &str) -> Result<i32> {
+    path.strip_prefix(prefix)
+        .and_then(|p| p.split('/').next())
+        .and_then(|id| id.parse::<i32>().ok())
+        .filter(|id| *id > 0)
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "expected a positive numeric id after {prefix} (got {path})"
+            ))
+        })
+}
+
 /// Escape ILIKE special characters (`%`, `_`, `\`) so user input is matched
 /// literally. Use this when building `ILIKE '%…%'` patterns from user-supplied
 /// strings to prevent wildcard injection.
@@ -283,6 +301,13 @@ pub fn sanitize_db_error(e: sqlx::Error) -> Error {
     match db_err.code().as_deref() {
         Some("23514") if db_err.constraint() == Some("variable_value_length") => {
             Error::BadRequest("A field exceeds its maximum length".to_string())
+        }
+        Some("23514") if db_err.constraint() == Some("variable_oauth_no_value_expiry") => {
+            Error::BadRequest(
+                "A variable linked to an OAuth account cannot have a value expiry: Windmill \
+                 refreshes its token"
+                    .to_string(),
+            )
         }
         // check_violation — `proper_id` / `proper_name` and friends
         Some("23514") => Error::BadRequest(
@@ -1008,10 +1033,7 @@ impl ScheduleType {
     /// date), and schedule pushes disable the schedule on it. Every other error must stay
     /// transient: croner fails across a DST jump longer than an hour (Antarctica/Troll)
     /// and succeeds again once the jump has passed.
-    pub fn find_next(
-        &self,
-        starting_from: &chrono::DateTime<chrono_tz::Tz>,
-    ) -> Result<chrono::DateTime<chrono_tz::Tz>> {
+    pub fn find_next(&self, starting_from: &chrono::DateTime<Tz>) -> Result<chrono::DateTime<Tz>> {
         let no_run_left = || {
             Error::NotFound(format!(
                 "cron: the schedule has no run left after {}",
@@ -1092,7 +1114,7 @@ impl ScheduleType {
 
                 // Additional check to make sure the provided schedule can generate a next event
                 if let Ok(ScheduleType::Croner(croner_schedule)) = &schedule_type_result {
-                    let test_time = chrono::Utc::now().with_timezone(&chrono_tz::UTC);
+                    let test_time = chrono::Utc::now().with_timezone(&Tz::UTC);
                     let result = panic::catch_unwind(AssertUnwindSafe(|| {
                         croner_schedule
                             .find_next_occurrence(&test_time, false)
@@ -1124,7 +1146,7 @@ impl ScheduleType {
 
     pub fn upcoming(
         &self,
-        tz: chrono_tz::Tz,
+        tz: Tz,
         count: usize, // Number of upcoming events to take
     ) -> Result<Vec<chrono::DateTime<Utc>>> {
         let start_time = Utc::now().with_timezone(&tz);
@@ -1780,7 +1802,7 @@ mod tests {
     #[test]
     fn find_next_reports_only_a_cron_with_no_run_left_as_not_found() {
         use chrono::TimeZone;
-        let troll: chrono_tz::Tz = "Antarctica/Troll".parse().unwrap();
+        let troll: Tz = "Antarctica/Troll".parse().unwrap();
         // Troll's clocks jump from 01:00 to 03:00 on the last Sunday of March.
         let before_jump = troll.with_ymd_and_hms(2027, 3, 28, 0, 30, 0).unwrap();
 

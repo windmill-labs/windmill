@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT slack_oauth_client_id IS NOT NULL AS \"own_app!\",\n                slack_signing_secret IS NOT NULL AS \"own_secret!\"\n         FROM workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "own_app!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "own_secret!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "68d95ce32653dece237bbf21459b571b8b67d26ffb60dd21e558dfa10612a0ed"
+}

@@ -16,7 +16,7 @@
 	import MSSqlServerIcon from '$lib/components/icons/MSSqlServerIcon.svelte'
 	import BunIcon from '$lib/components/icons/BunIcon.svelte'
 	import DenoIcon from '$lib/components/icons/DenoIcon.svelte'
-	import type { Script } from '$lib/gen'
+	import { languageLabel } from './languageLabels'
 	import PHPIcon from '$lib/components/icons/PHPIcon.svelte'
 	import RustIcon from '$lib/components/icons/RustIcon.svelte'
 	import AnsibleIcon from '$lib/components/icons/AnsibleIcon.svelte'
@@ -51,40 +51,6 @@
 	}
 
 	let { lang, width = 30, height = 30, scale = 1, size = undefined, ...rest }: Props = $props()
-
-	const languageLabel: Record<
-		Script['language'] | 'bunnative' | 'claudesandbox' | 'pisandbox',
-		String
-	> = {
-		python3: 'Python',
-		deno: 'TypeScript',
-		go: 'Go',
-		bash: 'Bash',
-		powershell: 'PowerShell',
-		nativets: 'HTTP',
-		bunnative: 'HTTP',
-		graphql: 'GraphQL',
-		postgresql: 'Postgresql',
-		bigquery: 'BigQuery',
-		oracledb: 'Oracle Database',
-		duckdb: 'DuckDB',
-		snowflake: 'Snowflake',
-		mysql: 'MySQL',
-		mssql: 'MS SQL Server',
-		bun: 'TypeScript',
-		php: 'PHP',
-		rust: 'Rust',
-		ansible: 'Ansible',
-		csharp: 'C#',
-		nu: 'Nu',
-		java: 'Java',
-		ruby: 'Ruby',
-		rlang: 'R',
-		dbt: 'dbt',
-		claudesandbox: 'Claude Sandbox',
-		pisandbox: 'Pi Sandbox'
-		// for related places search: ADD_NEW_LANG
-	}
 
 	const langToComponent: Record<
 		| SupportedLanguage

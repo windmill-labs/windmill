@@ -23,11 +23,12 @@
 //!    - Trust the emulator's certificate, or
 //!    - Set `AZURE_KV_ALLOW_INSECURE=true` to skip TLS verification (test only)
 //!
-//! 3. Run the tests:
+//! 3. Run the tests (they are `#[ignore]`d, so a plain `cargo test` skips them;
+//!    `AZURE_KV_URL` overrides the default https://localhost:4997):
 //!
 //!    ```bash
-//!    RUN_AZURE_KV_TESTS=1 cargo test -p windmill-common --features private,enterprise \
-//!      azure_kv_integration -- --nocapture
+//!    cargo test -p windmill-common --features private,enterprise \
+//!      --test azure_kv_integration -- --ignored --nocapture
 //!    ```
 //!
 //! ## Emulator authentication
@@ -40,22 +41,6 @@ mod tests {
     use windmill_common::secret_backend::{
         test_azure_kv_connection, AzureKeyVaultBackend, AzureKeyVaultSettings, SecretBackend,
     };
-
-    fn should_run_azure_kv_tests() -> bool {
-        std::env::var("RUN_AZURE_KV_TESTS")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(false)
-    }
-
-    macro_rules! skip_if_no_azure_kv {
-        () => {
-            if !should_run_azure_kv_tests() {
-                println!("Skipping test: RUN_AZURE_KV_TESTS=1 not set");
-                println!("To run Azure KV tests: RUN_AZURE_KV_TESTS=1 cargo test ...");
-                return;
-            }
-        };
-    }
 
     /// A minimal valid JWT token (the emulator doesn't verify signatures).
     /// Format: base64(header).base64(payload).base64(signature)
@@ -82,9 +67,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires an Azure Key Vault emulator at AZURE_KV_URL"]
     async fn test_azure_kv_connection_with_token() {
-        skip_if_no_azure_kv!();
-
         let settings = azure_kv_settings();
         println!("Testing Azure KV connection...");
         println!("  URL: {}", settings.vault_url);
@@ -99,9 +83,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires an Azure Key Vault emulator at AZURE_KV_URL"]
     async fn test_azure_kv_crud() {
-        skip_if_no_azure_kv!();
-
         let backend = create_backend();
         let workspace_id = "test-crud";
         let path = "test-secret";
@@ -160,9 +143,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires an Azure Key Vault emulator at AZURE_KV_URL"]
     async fn test_azure_kv_not_found() {
-        skip_if_no_azure_kv!();
-
         let backend = create_backend();
 
         let result = backend
@@ -173,9 +155,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires an Azure Key Vault emulator at AZURE_KV_URL"]
     async fn test_azure_kv_secret_name_encoding() {
-        skip_if_no_azure_kv!();
-
         let backend = create_backend();
         let workspace_id = "demo";
         let path = "u/admin/my_secret_key";

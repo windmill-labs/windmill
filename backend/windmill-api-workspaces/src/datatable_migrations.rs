@@ -157,15 +157,17 @@ async fn ensure_may_edit_migration(
     Ok(())
 }
 
-/// Operators run deployed code only, and a migration is SQL written or run by hand. Checked before
-/// anything else, including the role checks: on a data table not under roles those pass everyone.
-fn ensure_not_operator(authed: &ApiAuthed) -> Result<()> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot manage or run data table migrations".to_string(),
-        ));
-    }
-    Ok(())
+/// A migration is SQL written or run by hand, so it needs a role that may run code of its own.
+/// Checked before anything else, including the data table role checks: on a data table not under
+/// roles those pass everyone.
+async fn ensure_not_operator(db: &DB, w_id: &str, authed: &ApiAuthed) -> Result<()> {
+    windmill_common::workspaces::check_role_can_code(
+        db,
+        w_id,
+        authed,
+        "manage or run data table migrations",
+    )
+    .await
 }
 
 /// Whether new migrations declare a scope, which the editors push for but do not require.
@@ -691,7 +693,7 @@ async fn run_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RunDatatableMigrationsQuery>,
 ) -> JsonResult<RunDatatableMigrationsResult> {
-    ensure_not_operator(&authed)?;
+    ensure_not_operator(&db, &w_id, &authed).await?;
     // Before the admin connection is opened at all: the bookkeeping below is created and read
     // through it, so a caller no role covers must be refused here rather than after the fact.
     crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
@@ -827,7 +829,7 @@ async fn rollback_datatable_migrations(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<RollbackDatatableMigrationsQuery>,
 ) -> JsonResult<RollbackDatatableMigrationsResult> {
-    ensure_not_operator(&authed)?;
+    ensure_not_operator(&db, &w_id, &authed).await?;
     // Before the admin connection is opened at all: the bookkeeping below is created and read
     // through it, so a caller no role covers must be refused here rather than after the fact.
     crate::datatable_permissions::ensure_reaches_datatable(&db, &w_id, &datatable_name, &authed)
@@ -1488,7 +1490,7 @@ async fn create_datatable_migration(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(payload): Json<CreateDatatableMigration>,
 ) -> JsonResult<DatatableMigration> {
-    ensure_not_operator(&authed)?;
+    ensure_not_operator(&db, &w_id, &authed).await?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
     let scope = parse_migration_schemas(&payload.code_up)?;
@@ -1555,7 +1557,7 @@ async fn delete_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name, timestamp)): Path<(String, String, i64)>,
 ) -> Result<String> {
-    ensure_not_operator(&authed)?;
+    ensure_not_operator(&db, &w_id, &authed).await?;
     let deleted_message = format!("Deleted migration {} from {}", timestamp, datatable_name);
 
     // A definition already gone is not an error: `wmill sync push` deletes whatever the repo
@@ -1692,7 +1694,7 @@ async fn upsert_datatable_migration(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(payload): Json<UpsertDatatableMigration>,
 ) -> Result<String> {
-    ensure_not_operator(&authed)?;
+    ensure_not_operator(&db, &w_id, &authed).await?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
@@ -1896,7 +1898,7 @@ async fn generate_initial_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
 ) -> JsonResult<DatatableMigration> {
-    ensure_not_operator(&authed)?;
+    ensure_not_operator(&db, &w_id, &authed).await?;
     // Returns a `pg_dump` of the whole schema and writes into the data table's own bookkeeping, so
     // it answers to the workspace that governs it rather than to whoever is asking.
     ensure_datatable_admin_access(

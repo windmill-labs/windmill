@@ -8,7 +8,7 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { Globe, Loader2, Save } from 'lucide-svelte'
 	import { deployRawAppValue } from '$lib/rawAppDeploy'
@@ -83,8 +83,7 @@
 				path,
 				value: parsed,
 				summary: app?.summary,
-				policy: app?.policy,
-				customPath: app?.custom_path
+				policy: app?.policy
 			})
 			dispatch('change')
 			UserDraft.remove('raw_app', path)
@@ -111,7 +110,7 @@
 		{/if}
 
 		{#snippet actions()}
-			{#if !$userStore?.operator}
+			{#if $roleCapabilities.apps === 'full'}
 				<Button
 					on:click={saveApp}
 					startIcon={{ icon: isDraftOnly ? Save : Globe }}

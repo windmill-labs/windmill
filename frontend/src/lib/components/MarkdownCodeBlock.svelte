@@ -28,12 +28,15 @@
 		applyButtonIcon = undefined,
 		// Render ```mermaid blocks as diagrams. Off by default so untrusted
 		// markdown surfaces don't execute mermaid — the chat opts in.
-		renderMermaid = false
+		renderMermaid = false,
+		// Draw diagrams in the light theme whatever the app's theme (printing).
+		lightMermaid = false
 	}: {
 		showApplyButton?: boolean
 		onApplyCode?: () => void
 		applyButtonIcon?: typeof ClipboardCopy
 		renderMermaid?: boolean
+		lightMermaid?: boolean
 	} = $props()
 
 	const astNode = getAstNode()
@@ -131,7 +134,7 @@
 <div class="flex flex-col gap-0.5 rounded-md relative not-prose !text-xs">
 	<div class="relative w-full bg-surface-secondary rounded-md overflow-hidden">
 		{#if renderMermaid && language === 'mermaid'}
-			<MermaidDisplay code={code ?? ''} />
+			<MermaidDisplay code={code ?? ''} forceLight={lightMermaid} />
 		{:else}
 			<HighlightCode
 				className="px-3 py-2.5 !text-xs"

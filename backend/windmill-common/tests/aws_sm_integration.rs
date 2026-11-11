@@ -12,42 +12,23 @@
 //!      localstack/localstack:3.8
 //!    ```
 //!
-//! 2. Run the tests:
+//! 2. Run the tests (they are `#[ignore]`d, so a plain `cargo test` skips them):
 //!
 //!    ```bash
-//!    RUN_AWS_SM_TESTS=1 cargo test -p windmill-common --features private,enterprise \
-//!      aws_sm_integration -- --nocapture
+//!    cargo test -p windmill-common --features private,enterprise \
+//!      --test aws_sm_integration -- --ignored --nocapture
 //!    ```
 //!
 //! ## Environment variables
 //!
-//! - `RUN_AWS_SM_TESTS=1`     - Required to run the tests
 //! - `AWS_SM_ENDPOINT`        - LocalStack endpoint (default: http://localhost:4566)
 //! - `AWS_SM_REGION`          - AWS region (default: us-east-1)
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 mod tests {
     use windmill_common::secret_backend::{
-        test_aws_sm_connection, AwsSecretsManagerBackend, AwsSecretsManagerSettings,
-        SecretBackend,
+        test_aws_sm_connection, AwsSecretsManagerBackend, AwsSecretsManagerSettings, SecretBackend,
     };
-
-    fn should_run_aws_sm_tests() -> bool {
-        std::env::var("RUN_AWS_SM_TESTS")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(false)
-    }
-
-    macro_rules! skip_if_no_aws_sm {
-        () => {
-            if !should_run_aws_sm_tests() {
-                println!("Skipping test: RUN_AWS_SM_TESTS=1 not set");
-                println!("To run: RUN_AWS_SM_TESTS=1 cargo test -p windmill-common --features private,enterprise aws_sm_integration -- --nocapture");
-                println!("Requires: docker run -d -p 4566:4566 -e SERVICES=secretsmanager localstack/localstack:3.8");
-                return;
-            }
-        };
-    }
 
     fn test_settings() -> AwsSecretsManagerSettings {
         AwsSecretsManagerSettings {
@@ -63,16 +44,16 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires LocalStack secretsmanager at AWS_SM_ENDPOINT"]
     async fn test_connection() {
-        skip_if_no_aws_sm!();
         let result = test_aws_sm_connection(&test_settings()).await;
         assert!(result.is_ok(), "Connection test failed: {:?}", result.err());
         println!("  ✓ Connection test passed");
     }
 
     #[tokio::test]
+    #[ignore = "requires LocalStack secretsmanager at AWS_SM_ENDPOINT"]
     async fn test_create_and_get_secret() {
-        skip_if_no_aws_sm!();
         let backend = AwsSecretsManagerBackend::new_with_client(test_settings())
             .await
             .unwrap();
@@ -81,16 +62,22 @@ mod tests {
             .set_secret("test-ws", "u/admin/my_secret", "super-secret-value")
             .await
             .unwrap();
-        let value = backend.get_secret("test-ws", "u/admin/my_secret").await.unwrap();
+        let value = backend
+            .get_secret("test-ws", "u/admin/my_secret")
+            .await
+            .unwrap();
         assert_eq!(value, "super-secret-value");
 
-        backend.delete_secret("test-ws", "u/admin/my_secret").await.unwrap();
+        backend
+            .delete_secret("test-ws", "u/admin/my_secret")
+            .await
+            .unwrap();
         println!("  ✓ Create + Get + Delete roundtrip passed");
     }
 
     #[tokio::test]
+    #[ignore = "requires LocalStack secretsmanager at AWS_SM_ENDPOINT"]
     async fn test_update_secret() {
-        skip_if_no_aws_sm!();
         let backend = AwsSecretsManagerBackend::new_with_client(test_settings())
             .await
             .unwrap();
@@ -117,8 +104,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires LocalStack secretsmanager at AWS_SM_ENDPOINT"]
     async fn test_delete_and_verify_gone() {
-        skip_if_no_aws_sm!();
         let backend = AwsSecretsManagerBackend::new_with_client(test_settings())
             .await
             .unwrap();
@@ -142,8 +129,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires LocalStack secretsmanager at AWS_SM_ENDPOINT"]
     async fn test_delete_nonexistent_is_ok() {
-        skip_if_no_aws_sm!();
         let backend = AwsSecretsManagerBackend::new_with_client(test_settings())
             .await
             .unwrap();
@@ -160,8 +147,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires LocalStack secretsmanager at AWS_SM_ENDPOINT"]
     async fn test_get_nonexistent_returns_not_found() {
-        skip_if_no_aws_sm!();
         let backend = AwsSecretsManagerBackend::new_with_client(test_settings())
             .await
             .unwrap();
@@ -178,8 +165,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires LocalStack secretsmanager at AWS_SM_ENDPOINT"]
     async fn test_unicode_and_special_chars() {
-        skip_if_no_aws_sm!();
         let backend = AwsSecretsManagerBackend::new_with_client(test_settings())
             .await
             .unwrap();
@@ -203,8 +190,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires LocalStack secretsmanager at AWS_SM_ENDPOINT"]
     async fn test_workspace_isolation() {
-        skip_if_no_aws_sm!();
         let backend = AwsSecretsManagerBackend::new_with_client(test_settings())
             .await
             .unwrap();
@@ -244,8 +231,8 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires LocalStack secretsmanager at AWS_SM_ENDPOINT"]
     async fn test_backend_name() {
-        skip_if_no_aws_sm!();
         let backend = AwsSecretsManagerBackend::new_with_client(test_settings())
             .await
             .unwrap();

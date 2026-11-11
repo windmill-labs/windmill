@@ -4,6 +4,7 @@
 	import type { BadgeColor } from '$lib/components/common'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import DenyReason from './DenyReason.svelte'
 	import Login from '$lib/components/Login.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
@@ -27,7 +28,7 @@
 		runDetailsHref: string
 		rd: string
 		onApprove: () => void
-		onReject: () => void
+		onReject: (reason: string | undefined) => void
 	}
 
 	let {
@@ -129,15 +130,19 @@
 		{#if approvalInfo.can_approve}
 			<div class="flex flex-row flex-wrap justify-between gap-4">
 				{#if approvalInfo.hide_cancel !== true}
-					<Button
-						unifiedSize="lg"
-						variant="default"
-						destructive
-						onclick={onReject}
-						disabled={loading}
-					>
-						Reject
-					</Button>
+					<DenyReason confirmLabel="Reject" disabled={loading} onDeny={onReject}>
+						{#snippet button()}
+							<Button
+								unifiedSize="lg"
+								variant="default"
+								destructive
+								disabled={loading}
+								nonCaptureEvent
+							>
+								Reject
+							</Button>
+						{/snippet}
+					</DenyReason>
 				{:else}
 					<div></div>
 				{/if}

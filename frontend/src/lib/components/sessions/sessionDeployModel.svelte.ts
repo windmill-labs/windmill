@@ -1,7 +1,6 @@
 import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
-import { get } from 'svelte/store'
-import { userWorkspaces } from '$lib/stores'
 import { roleCanAuthor } from '$lib/editRights'
+import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
 import {
 	checkDeployPermission,
 	checkDeployRules,
@@ -61,6 +60,13 @@ export interface SessionDeployModelArgs {
 	/** Deploys a pipeline folder's draft bundle, which no per-item deploy can: it
 	 *  expands into the folder's scripts and triggers. */
 	deployPipeline?: (folder: string) => Promise<DeployResult>
+	/** The session is in Use: its edits still show, but nothing deploys or discards. */
+	readOnly?: boolean
+}
+
+const USE_MODE_REFUSAL: DeployPermission = {
+	ok: false,
+	reason: 'A session in Use mode deploys nothing. Switch it to Use & build to deploy.'
 }
 
 export interface DiffValues {
@@ -232,8 +238,8 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	// button disables with a reason instead of failing on click. `ok` defaults
 	// true while resolving (fail-open).
 	let deployPerm = $state<DeployPermission>({ ok: true })
-	// `checkDeployPermission` refuses every operator, but flows.rs and apps.rs let one with the
-	// workspace's matching builder right deploy that kind, under the rules alone.
+	// `checkDeployPermission` refuses every role that cannot code, but flows.rs and apps.rs let one
+	// that composes that kind deploy it, under the rules alone.
 	let builder = $state<{ perm: DeployPermission; kinds: Kind[] } | undefined>(undefined)
 	let deployPermFetchedFor = ''
 	$effect(() => {
@@ -248,10 +254,8 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			void checkDeployPermission(ws).then(async (perm) => {
 				if (deployPermFetchedFor !== ws) return
 				deployPerm = perm
-				const settings = get(userWorkspaces).find((w) => w.id === ws)?.operator_settings
-				const kinds = (['flow', 'raw_app'] as const).filter((k) =>
-					roleCanAuthor(k, { operator: true }, settings)
-				)
+				const caps = capabilitiesInWorkspace(ws)
+				const kinds = (['flow', 'raw_app'] as const).filter((k) => roleCanAuthor(k, caps))
 				if (perm.refusedBy === 'operator' && kinds.length) {
 					const rules = await checkDeployRules(ws)
 					if (deployPermFetchedFor === ws) builder = { perm: rules, kinds }
@@ -261,8 +265,10 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	})
 
 	function permissionFor(kind: Kind): DeployPermission {
-		if (builder?.kinds.includes(kind)) return deployPermissionForKind(builder.perm, kind)
-		return deployPermissionForKind(deployPerm, kind)
+		if (getArgs().readOnly) return USE_MODE_REFUSAL
+		const caps = capabilitiesInWorkspace(getArgs().workspaceId)
+		if (builder?.kinds.includes(kind)) return deployPermissionForKind(builder.perm, kind, caps)
+		return deployPermissionForKind(deployPerm, kind, caps)
 	}
 
 	// ── Deploy execution ─────────────────────────────────────────────────────
@@ -307,7 +313,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	/** Deploy (or discard) a single item; returns whether it succeeded. */
 	async function deployOne(item: DeployItem, discard = false): Promise<boolean> {
 		const plan = discard ? discardPlanFor(item) : deployPlanFor(item)
-		if (!plan) return false
+		if (!plan || getArgs().readOnly) return false
 		// Snapshot before the await: the user may switch sessions while the
 		// deploy runs, and the event belongs to the initiating session.
 		const initiatingSessionId = sessionState.currentSessionId
@@ -411,6 +417,10 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		 */
 		deployPermissionForKind(kind: Kind): DeployPermission {
 			return permissionFor(kind)
+		},
+		/** The session is in Use, so discarding is refused as deploying is. */
+		get readOnly() {
+			return !!getArgs().readOnly
 		},
 		deployRow,
 		discardRow

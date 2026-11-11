@@ -131,11 +131,25 @@ impl External for NextCloud {
                 &url,
                 Method::POST,
                 w_id,
+                &oauth_data.connection_path,
                 db,
                 Some(headers),
                 Some(&full_nextcloud_payload),
             )
-            .await?;
+            .await
+            .map_err(|e| {
+                // Nextcloud lets only its admins register webhooks.
+                if http_error_status(&e) == Some(StatusCode::FORBIDDEN) {
+                    Error::BadRequest(
+                        "This Nextcloud account isn't a Nextcloud admin, so it can't register \
+                         webhooks. Use the shared account, or ask a workspace admin to share a \
+                         Nextcloud admin account."
+                            .to_string(),
+                    )
+                } else {
+                    e
+                }
+            })?;
 
         Ok(ocs_response.ocs.data)
     }
@@ -167,6 +181,7 @@ impl External for NextCloud {
                 &url,
                 Method::POST,
                 w_id,
+                &oauth_data.connection_path,
                 db,
                 Some(headers),
                 Some(&full_nextcloud_payload),
@@ -214,7 +229,15 @@ impl External for NextCloud {
         headers.insert("OCS-APIRequest".to_string(), "true".to_string());
 
         let ocs_response: OcsResponse<NextCloudTriggerData> = self
-            .http_client_request::<_, ()>(&url, Method::GET, w_id, db, Some(headers), None)
+            .http_client_request::<_, ()>(
+                &url,
+                Method::GET,
+                w_id,
+                &oauth_data.connection_path,
+                db,
+                Some(headers),
+                None,
+            )
             .await?;
 
         Ok(Some(ocs_response.ocs.data))
@@ -239,7 +262,15 @@ impl External for NextCloud {
         // A webhook already removed in Nextcloud is the outcome this call wants, so only 404 is
         // swallowed; anything else would leave a live webhook behind while Windmill forgets it.
         let _: serde_json::Value = self
-            .http_client_request::<_, ()>(&url, Method::DELETE, w_id, db, Some(headers), None)
+            .http_client_request::<_, ()>(
+                &url,
+                Method::DELETE,
+                w_id,
+                &oauth_data.connection_path,
+                db,
+                Some(headers),
+                None,
+            )
             .await
             .or_else(|e| match http_error_status(&e) {
                 Some(StatusCode::NOT_FOUND) => Ok(serde_json::Value::Null),
@@ -320,13 +351,13 @@ impl External for NextCloud {
     fn error_hint(&self, status: StatusCode) -> Option<&'static str> {
         match status {
             StatusCode::UNAUTHORIZED => {
-                Some("reconnect the Nextcloud integration from Workspace settings > Integrations.")
+                Some("reconnect the Nextcloud account this uses with Reconnect next to it, or ask its owner or an admin to.")
             }
             StatusCode::FORBIDDEN => Some(
                 "Nextcloud grants webhook management to administrators only, and a Windmill \
                  admin is a different thing. If the connected Nextcloud account is not an admin \
-                 there and holds no delegated admin rights for the Webhooks setting, reconnect \
-                 the integration from Workspace settings > Integrations with one that does.",
+                 there and holds no delegated admin rights for the Webhooks setting, use one that \
+                 does, such as the workspace's shared account.",
             ),
             _ => None,
         }
@@ -353,6 +384,7 @@ impl NextCloud {
                 &url,
                 Method::GET,
                 w_id,
+                &oauth_data.connection_path,
                 db,
                 Some(headers),
                 None,

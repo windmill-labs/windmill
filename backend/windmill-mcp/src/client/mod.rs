@@ -88,8 +88,9 @@ impl McpClient {
             // and does not legitimately rely on redirects.
             .redirect(reqwest::redirect::Policy::none());
         // Pin DNS to the address validated above so the connect cannot rebind to
-        // an internal IP between the check and the request. Empty addrs (IP literal
-        // or ALLOW_PRIVATE_MCP_SERVER_URLS) leave resolution untouched.
+        // an internal IP between the check and the request. Empty addrs (IP literal,
+        // or a host ALLOW_PRIVATE_MCP_SERVER_URLS allows by name or by `true`) leave
+        // resolution untouched.
         if !validated.addrs.is_empty() {
             client_builder = client_builder.resolve_to_addrs(&validated.host, &validated.addrs);
         }

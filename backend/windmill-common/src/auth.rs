@@ -83,6 +83,24 @@ pub const CLI_LOGIN_TOKEN_LABEL_PREFIX: &str = "cli-login:";
 /// through `/users/tokens/create`.
 pub const REMOTE_DEPLOY_TOKEN_LABEL_PREFIX: &str = "remote-deploy:";
 
+/// Shared while issuing an MCP OAuth grant, exclusive while revoking: no grant outlives a revoke.
+/// The lock is the user's `password` row because every path that changes a user locks that row
+/// before their tokens, the order a refresh takes them in (this row, then its access-token row,
+/// then its grant). A separate lock taken anywhere in that sequence would deadlock with some path.
+pub async fn lock_mcp_oauth_grants(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    exclusive: bool,
+) -> std::result::Result<(), sqlx::Error> {
+    let q = if exclusive {
+        "SELECT 1 FROM password WHERE email = $1 FOR UPDATE"
+    } else {
+        "SELECT 1 FROM password WHERE email = $1 FOR SHARE"
+    };
+    sqlx::query(q).bind(email).execute(conn).await?;
+    Ok(())
+}
+
 /// Whether `label` belongs to a namespace only the server mints, and which therefore must be
 /// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
 /// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`,
@@ -324,6 +342,10 @@ pub struct JWTAuthClaims {
     pub job_id: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub audit_span: Option<String>,
+    /// [`Authed::mcp_client`], so a request the caller's tools make on its behalf still
+    /// records the client on the runs it starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_client: Option<String>,
 }
 
 impl JWTAuthClaims {
@@ -370,6 +392,9 @@ pub struct JobPerms {
     /// role, and the object storage advanced permission rules it is checked against.
     #[serde(default)]
     pub viewer_data_access: bool,
+    /// The OAuth client of an external issuer the root run was started through.
+    #[serde(default)]
+    pub mcp_client: Option<String>,
 }
 
 impl From<JobPerms> for Authed {
@@ -387,6 +412,7 @@ impl From<JobPerms> for Authed {
                 .collect(),
             scopes: None,
             token_prefix: None,
+            mcp_client: value.mcp_client,
         }
     }
 }
@@ -509,7 +535,7 @@ async fn fetch_authed_from_permissioned_as_inner(
     let member = match permissioned_as.split_once('/') {
         Some(("u", name)) => {
             sqlx::query!(
-                "SELECT is_admin, operator, email FROM usr where username = $1 AND \
+                "SELECT is_admin, operator, workspace_role, email FROM usr where username = $1 AND \
                                          workspace_id = $2 AND disabled = false",
                 name,
                 &w_id
@@ -552,7 +578,14 @@ async fn fetch_authed_from_permissioned_as_inner(
             let (is_admin, is_operator) = if is_super_admin {
                 (true, false)
             } else if let Some(m) = member.as_ref() {
-                (m.is_admin, m.operator)
+                let restricted = crate::roles::member_is_restricted(
+                    &mut *conn,
+                    w_id,
+                    m.workspace_role.clone(),
+                    m.operator,
+                )
+                .await?;
+                (m.is_admin, restricted && !m.is_admin)
             } else {
                 return Err(Error::NotFound(format!(
                     "user {name} not found in workspace {w_id}"
@@ -572,6 +605,7 @@ async fn fetch_authed_from_permissioned_as_inner(
                 folders,
                 scopes: None,
                 token_prefix: None,
+                mcp_client: None,
             })
         } else {
             let groups = vec![name.to_string()];
@@ -585,6 +619,7 @@ async fn fetch_authed_from_permissioned_as_inner(
                 folders,
                 scopes: None,
                 token_prefix: None,
+                mcp_client: None,
             })
         }
     } else {
@@ -606,6 +641,7 @@ async fn fetch_authed_from_permissioned_as_inner(
             folders: vec![],
             scopes: None,
             token_prefix: None,
+            mcp_client: None,
         })
     }
 }
@@ -663,7 +699,7 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
     sqlx::query_as!(
         JobPerms,
         "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,
-            job_token_scopes, viewer_data_access
+            job_token_scopes, viewer_data_access, mcp_client
         FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id
@@ -817,6 +853,7 @@ pub async fn create_jwt_token(
         job_id: job_id.map(|id| id.to_string()),
         scopes,
         audit_span,
+        mcp_client: authed.mcp_client.clone(),
     };
 
     let token = jwt::encode_with_internal_secret(&payload)
@@ -955,6 +992,7 @@ mod tests {
             job_id: None,
             scopes: None,
             audit_span: None,
+            mcp_client: None,
         };
         // Signature is irrelevant — the gate decodes without verifying — so any key works.
         let token = jsonwebtoken::encode(

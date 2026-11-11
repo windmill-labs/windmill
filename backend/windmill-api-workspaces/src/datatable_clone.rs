@@ -104,14 +104,14 @@ pub(crate) async fn connection_snapshot(
                     continue;
                 }
                 let row: Option<(String, bool)> = sqlx::query_as(
-                    "SELECT value, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
+                    "SELECT value::text, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
                 )
                 .bind(w_id)
                 .bind(var)
                 .fetch_optional(&mut *conn)
                 .await?;
                 if let Some((stored, true)) = &row {
-                    if windmill_common::secret_backend::is_external_stored_value(stored) {
+                    if windmill_common::secret_backend::resolves_externally(stored) {
                         let secret = windmill_common::secret_backend::get_secret_value(
                             db, w_id, var, stored,
                         )

@@ -144,12 +144,10 @@
 				{ version_id: item.version_id, app: item.app, summary: item.hubSummary },
 				'picker'
 			)
-			try {
-				await ScriptService.pickHubScriptByPath({ path: item.path })
-			} catch (error) {
+			// Not awaited: a hub that cannot be reached would hold the pick until the request times out.
+			ScriptService.pickHubScriptByPath({ path: item.path }).catch((error) =>
 				console.error('Failed to track hub script pick:', error)
-				// Don't block the flow if tracking fails
-			}
+			)
 		}
 
 		// Dispatch the event to continue with the selection
@@ -174,7 +172,7 @@
 		<div class="relative w-full">
 			<TextInput
 				inputProps={{
-					placeholder: 'Search Hub Scripts'
+					placeholder: 'Search Hub scripts'
 				}}
 				bind:value={filter}
 				class="grow !pr-9"

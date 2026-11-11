@@ -379,44 +379,54 @@ async fn get_email_from_permissioned_as_inner<'c>(
     }
 }
 
-/// Compute the highest-precedence workspace role for a user across all their instance groups.
+/// The highest-precedence workspace role a user holds across their instance groups.
 ///
-/// Precedence: admin (3) > developer (2) > operator (1).
-/// Returns `(best_group_name, is_admin, is_operator)`.
+/// `admin` ranks first, then the workspace's roles in `role_order` (earlier is higher). A group
+/// with no mapped role grants `roles::default_role_name`; a role name not in `role_order` ranks
+/// last. Returns `(best_group_name, is_admin, role)`, where `role` is the role the membership
+/// holds and, for an admin, the one it keeps under the admin flag.
 pub fn compute_highest_workspace_role(
     user_igroups: &[String],
     ws_configured_groups: &[String],
     ws_roles: &std::collections::HashMap<String, String>,
-) -> (String, bool, bool) {
-    let mut best_group = String::new();
-    let mut best_precedence = 0u8;
+    role_order: &[String],
+) -> (String, bool, String) {
+    let rank = |role: &str| -> usize {
+        if role == "admin" {
+            0
+        } else {
+            1 + role_order
+                .iter()
+                .position(|r| r == role)
+                .unwrap_or(role_order.len())
+        }
+    };
+    let default_role = crate::roles::default_role_name(role_order.iter().map(String::as_str));
+    let role_of = |group: &str| -> String {
+        ws_roles
+            .get(group)
+            .cloned()
+            .unwrap_or_else(|| default_role.clone())
+    };
 
+    let mut best: Option<(usize, String)> = None;
     for group in user_igroups {
         if !ws_configured_groups.contains(group) {
             continue;
         }
-        let default_role = "developer".to_string();
-        let role = ws_roles.get(group).unwrap_or(&default_role);
-        let precedence = match role.as_str() {
-            "admin" => 3u8,
-            "operator" => 1,
-            _ => 2,
-        };
-        if precedence > best_precedence {
-            best_precedence = precedence;
-            best_group = group.clone();
+        let r = rank(&role_of(group));
+        if best.as_ref().map_or(true, |(b, _)| r < *b) {
+            best = Some((r, group.clone()));
         }
     }
 
-    let default_role = "developer".to_string();
-    let best_role_str = ws_roles.get(&best_group).unwrap_or(&default_role);
-    let (is_admin, is_operator) = match best_role_str.as_str() {
-        "admin" => (true, false),
-        "operator" => (false, true),
-        _ => (false, false),
-    };
-
-    (best_group, is_admin, is_operator)
+    let best_group = best.map(|(_, g)| g).unwrap_or_default();
+    let role = role_of(&best_group);
+    if role == "admin" {
+        (best_group, true, default_role)
+    } else {
+        (best_group, false, role)
+    }
 }
 
 pub fn truncate_token(token: &str) -> String {
@@ -478,62 +488,46 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_compute_highest_workspace_role_admin_wins() {
-        let user_groups = vec!["ops".to_string(), "admins".to_string()];
-        let ws_groups = vec!["ops".to_string(), "admins".to_string()];
-        let mut roles = std::collections::HashMap::new();
-        roles.insert("ops".to_string(), "operator".to_string());
-        roles.insert("admins".to_string(), "admin".to_string());
-
-        let (group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
-        assert_eq!(group, "admins");
-        assert!(is_admin);
-        assert!(!is_operator);
+    fn order() -> Vec<String> {
+        vec![
+            "developer".to_string(),
+            "builder".to_string(),
+            "operator".to_string(),
+        ]
     }
 
     #[test]
-    fn test_compute_highest_workspace_role_developer_over_operator() {
-        let user_groups = vec!["devs".to_string(), "ops".to_string()];
-        let ws_groups = vec!["devs".to_string(), "ops".to_string()];
+    fn test_compute_highest_workspace_role_follows_role_order() {
+        let user_groups = vec!["ops".to_string(), "builders".to_string()];
+        let ws_groups = user_groups.clone();
         let mut roles = std::collections::HashMap::new();
-        roles.insert("devs".to_string(), "developer".to_string());
         roles.insert("ops".to_string(), "operator".to_string());
+        roles.insert("builders".to_string(), "builder".to_string());
+        assert_eq!(
+            compute_highest_workspace_role(&user_groups, &ws_groups, &roles, &order()),
+            ("builders".to_string(), false, "builder".to_string())
+        );
 
-        let (group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
-        assert_eq!(group, "devs");
-        assert!(!is_admin);
-        assert!(!is_operator);
+        roles.insert("ops".to_string(), "admin".to_string());
+        assert_eq!(
+            compute_highest_workspace_role(&user_groups, &ws_groups, &roles, &order()),
+            ("ops".to_string(), true, "developer".to_string())
+        );
     }
 
     #[test]
-    fn test_compute_highest_workspace_role_skips_unconfigured_groups() {
-        let user_groups = vec!["admins".to_string(), "other".to_string()];
-        let ws_groups = vec!["ops".to_string()]; // admins not configured for this workspace
-        let mut roles = std::collections::HashMap::new();
-        roles.insert("admins".to_string(), "admin".to_string());
-        roles.insert("ops".to_string(), "operator".to_string());
-
-        let (group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
-        // No user groups match ws_configured_groups, so best_group stays empty
-        assert_eq!(group, "");
-        assert!(!is_admin);
-        assert!(!is_operator);
-    }
-
-    #[test]
-    fn test_compute_highest_workspace_role_defaults_to_developer() {
-        let user_groups = vec!["team".to_string()];
+    fn test_compute_highest_workspace_role_unmapped_group_is_developer() {
+        let user_groups = vec!["team".to_string(), "other".to_string()];
         let ws_groups = vec!["team".to_string()];
-        let roles = std::collections::HashMap::new(); // no role configured → developer
-
-        let (group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
-        assert_eq!(group, "team");
-        assert!(!is_admin);
-        assert!(!is_operator);
+        assert_eq!(
+            compute_highest_workspace_role(&user_groups, &ws_groups, &Default::default(), &order()),
+            ("team".to_string(), false, "developer".to_string())
+        );
+        // An instance that dropped `developer` falls back to its first role.
+        let no_dev = vec!["builder".to_string(), "operator".to_string()];
+        assert_eq!(
+            compute_highest_workspace_role(&user_groups, &ws_groups, &Default::default(), &no_dev),
+            ("team".to_string(), false, "builder".to_string())
+        );
     }
 }

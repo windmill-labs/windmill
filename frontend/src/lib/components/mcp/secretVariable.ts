@@ -1,4 +1,4 @@
-import { ResourceService, VariableService } from '$lib/gen'
+import { OauthService, ResourceService, VariableService } from '$lib/gen'
 
 /**
  * What this connection writes in its token variable's description, and the only
@@ -33,7 +33,14 @@ export async function upsertSecretVariable(args: {
 	/** The MCP resource this token belongs to; stamped into the description. */
 	resourcePath: string
 	isOauth?: boolean
-	account?: number
+	/** The account an expiring token refreshes through, created with the variable and linked to it. */
+	account?: {
+		refresh_token: string
+		expires_in: number
+		client: string
+		scopes?: string[]
+		mcp_server_url?: string
+	}
 }): Promise<void> {
 	const { workspace, path, value, resourcePath, isOauth, account } = args
 	const description = mcpTokenDescription(resourcePath)
@@ -64,8 +71,10 @@ export async function upsertSecretVariable(args: {
 		await VariableService.deleteVariable({ workspace, path })
 	}
 
-	await VariableService.createVariable({
-		workspace,
-		requestBody: { path, value, is_secret: true, is_oauth: isOauth, account, description }
-	})
+	const variable = { path, value, is_secret: true, is_oauth: isOauth, description }
+	if (account) {
+		await OauthService.createAccount({ workspace, requestBody: { ...account, variable } })
+	} else {
+		await VariableService.createVariable({ workspace, requestBody: variable })
+	}
 }

@@ -19,6 +19,7 @@
 	import { onDestroy, onMount } from 'svelte'
 
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { isInstanceRoute } from '$lib/instanceRoutes'
 	// import EditorTheme from '$lib/components/EditorTheme.svelte'
 	import { computeDrift } from '$lib/forLater'
 	import { setLicense } from '$lib/enterpriseUtils'
@@ -155,7 +156,8 @@
 			// The hub import wizard asks for the destination itself, and may end in a
 			// workspace that does not exist yet — bouncing it to the picker would
 			// force the very choice it exists to make.
-			!page.url.pathname.startsWith('/projects/import')
+			!page.url.pathname.startsWith('/projects/import') &&
+			!((user.devops || user.super_admin) && isInstanceRoute(page.url.pathname))
 		) {
 			goto(`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`)
 		}

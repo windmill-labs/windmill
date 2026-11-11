@@ -22,6 +22,7 @@
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import RunFormPreviewSlot from './RunFormPreviewSlot.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
+	import { setReadOnlyWorkspace } from '../operatingWorkspace.svelte'
 
 	let {
 		tab,
@@ -34,7 +35,6 @@
 		darkMode,
 		fullscreen = false,
 		onNavigate,
-		onSeeDetails,
 		onLoad
 	}: {
 		tab: SessionPreviewTab
@@ -59,9 +59,6 @@
 		darkMode: boolean
 		/** A link click inside a live editor re-points the active preview tab. */
 		onNavigate: (item: WorkspaceItem) => void
-		/** An editor's `Exit & see details` — re-points this tab at the item's deployed
-		 * view instead of navigating out of the session. */
-		onSeeDetails: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
 		onLoad: (frame: HTMLIFrameElement) => void
 	} = $props()
@@ -80,7 +77,11 @@
 	const workspaceId = $derived(
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
-	const permissions = useSessionPermissions(() => workspaceId || undefined)
+	const permissions = useSessionPermissions(
+		() => workspaceId || undefined,
+		() => runtime?.manager
+	)
+	setReadOnlyWorkspace((ws) => !!ws && ws === workspaceId && permissions.readOnly)
 	// Every route into an editor ends here, the breadcrumb and the chat's openers included, so
 	// this is where an editor the user cannot save is turned into the deployed page.
 	const mode = $derived(
@@ -105,16 +106,6 @@
 	// another version — stops carrying the call rather than answering it from a page it was
 	// never confirmed against.
 	const pendingRunId = $derived(viewerUrl?.searchParams.get('pending_run') ?? undefined)
-
-	// The path an editor reports is its deployed one, which a staged rename can make
-	// differ from this tab's — so the view opens on what actually exists.
-	const seeDetails = (e: { path: string }) =>
-		onSeeDetails({
-			path: e.path,
-			summary: '',
-			kind: itemKind === 'raw_app' ? 'app' : (itemKind as 'script' | 'flow'),
-			raw_app: itemKind === 'raw_app'
-		})
 
 	// Where inside the editor the tab was opened on ("open this flow step in a
 	// session"). Only the in-process editors need it handed over — an iframe tab
@@ -348,7 +339,6 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
-							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							initialSelectedId={selectedId}
@@ -363,7 +353,6 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
-							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							{fullscreen}
@@ -387,10 +376,10 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
-							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							{newRawApp}
+							{fullscreen}
 						/>
 					{/await}
 				{/if}
@@ -419,7 +408,9 @@
 		{:else}
 			<!-- A pipeline has no deployed page, only its editor. -->
 			<div class="flex-1 flex items-center justify-center p-8 text-center text-sm text-secondary">
-				The pipeline editor saves drafts, which your role cannot do in this workspace.
+				{permissions.readOnly
+					? 'The pipeline editor saves drafts, which a session in Use mode cannot do.'
+					: 'The pipeline editor saves drafts, which your role cannot do in this workspace.'}
 			</div>
 		{/if}
 	</div>

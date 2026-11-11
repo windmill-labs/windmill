@@ -8,10 +8,10 @@ import { getWorkspaceRole, type RoleLookup } from '$lib/user'
  * The user acting in a workspace that is not necessarily the one the top nav points at — an AI
  * session or a workspace-specific variant acts on a workspace the nav deliberately is not on.
  *
- * `$userStore` answers for the navigation workspace at no cost, exactly as every permission check
- * in the app did before this hook existed — including when it holds nobody, which reads as unknown
- * and refuses. Every other workspace is looked up, and an unresolved user there is `undefined`: it
- * must never fall back to the navigation user, whose rights belong to another workspace.
+ * `$userStore` answers for the navigation workspace at no cost once it was fetched for it —
+ * including when it holds nobody, which reads as unknown and refuses. Every other workspace is
+ * looked up, and an unresolved user there is `undefined`: it must never fall back to the
+ * navigation user, whose rights belong to another workspace.
  * `canWrite`/`isOwner` refuse for an unknown user, which is the only safe answer. A caller that
  * must not render that refusal as a denial asks `resolved` first.
  */
@@ -43,9 +43,13 @@ export function useActingUser(workspace: () => string | undefined) {
 		})
 	})
 
+	// Right after a switch, `$userStore` still holds the previous workspace's membership until
+	// the new `whoami` lands: that is unknown, not an answer.
+	const navStale = () => !!navUser.current && navUser.current.workspace_id !== navWorkspace.current
+
 	function userIn(ws: string | undefined): UserExt | undefined {
 		if (!ws) return undefined
-		if (ws === navWorkspace.current) return navUser.current
+		if (ws === navWorkspace.current) return navStale() ? undefined : navUser.current
 		const lookup = looked.get(ws)
 		return lookup?.kind === 'resolved' ? lookup.user : undefined
 	}
@@ -55,9 +59,12 @@ export function useActingUser(workspace: () => string | undefined) {
 		 *  hook has been pointed at are looked up; the rest read as unknown. */
 		in: userIn,
 		/** Whether `ws` has an answer at all — a user, or a lookup that came back without one.
-		 *  The navigation workspace always has one: `$userStore`, "nobody" included. */
+		 *  The navigation workspace has one once `$userStore` was fetched for it, "nobody"
+		 *  included. */
 		resolved: (ws: string | undefined): boolean =>
-			!!ws && (ws === navWorkspace.current || looked.has(ws)),
+			!!ws && (ws === navWorkspace.current ? !navStale() : looked.has(ws)),
+		/** Unknown right after a workspace switch: load lists without waiting for it, as it only
+		 *  gates their controls, or they keep the previous workspace's rows. */
 		get current(): UserExt | undefined {
 			return userIn(workspace())
 		},

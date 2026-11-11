@@ -46,7 +46,9 @@ use tracing::Instrument;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
+use windmill_common::auth::{
+    hash_token, lock_mcp_oauth_grants, safe_token_prefix, TOKEN_PREFIX_LEN,
+};
 use windmill_common::global_settings::{
     load_value_from_global_settings, parse_max_token_expiration_days,
     AUTOMATE_USERNAME_CREATION_SETTING, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
@@ -262,6 +264,7 @@ pub struct WorkspaceInvite {
     pub email: String,
     pub is_admin: bool,
     pub operator: bool,
+    pub role: String,
     pub parent_workspace_id: Option<String>,
 }
 
@@ -301,7 +304,10 @@ pub struct EditUser {
 #[derive(Deserialize)]
 pub struct EditWorkspaceUser {
     pub is_admin: Option<bool>,
+    /// Legacy role selector: `true` is the `operator` role, `false` `developer`. `role` wins.
     pub operator: Option<bool>,
+    /// The member's role, one of the workspace's roles.
+    pub role: Option<String>,
     pub disabled: Option<bool>,
 }
 
@@ -414,7 +420,9 @@ async fn list_users(
     let rows = sqlx::query_as!(
         User,
         "
-        SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account
+        SELECT workspace_id, username, email, is_admin, created_at, operator, disabled,
+               COALESCE(workspace_role, CASE WHEN operator THEN 'operator' ELSE 'developer' END) AS role,
+               added_via, is_service_account
           FROM usr
          WHERE workspace_id = $1
          ORDER BY email
@@ -636,6 +644,7 @@ async fn list_invites(
             workspace_invite.email,
             workspace_invite.is_admin,
             workspace_invite.operator,
+            COALESCE(workspace_invite.workspace_role, CASE WHEN workspace_invite.operator THEN 'operator' ELSE 'developer' END) AS \"role!\",
             workspace.parent_workspace_id
         FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id WHERE email = $1",
         authed.email
@@ -765,7 +774,8 @@ async fn whoami(
     authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
-    let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
+    let ApiAuthed { username, email, is_admin, is_operator, groups, folders, mcp_client, .. } =
+        authed;
     // A guest would otherwise fall through to the non-member branch below and be
     // handed a `superadmin` role. Answer it here, as the operator-shaped identity it is.
     if is_guest {
@@ -794,6 +804,25 @@ async fn whoami(
     // never happen, but guard against it so a non-member superadmin is never
     // shown another member's identity/role.
     if let Some(user) = user.filter(|u| u.email == email) {
+        // The frontend gates pages on `operator`, so it reports what `caller_capabilities`
+        // decides rather than the raw column: an admin (or superadmin) whose row still carries
+        // `operator` holds everything.
+        let user = UserInfo { operator: is_operator && !is_admin, ..user };
+        // An external MCP token brings its own groups, which the request and the jobs it starts
+        // act with, so report those rather than the stored memberships.
+        if mcp_client.is_some() {
+            return Ok(Json(UserInfo {
+                groups,
+                folders_read: folders.iter().map(|x| x.0.clone()).collect(),
+                folders_owners: folders
+                    .iter()
+                    .filter(|x| x.2)
+                    .map(|x| x.0.clone())
+                    .collect(),
+                folders: folders.into_iter().filter(|x| x.1).map(|x| x.0).collect(),
+                ..user
+            }));
+        }
         Ok(Json(user))
     } else {
         Ok(Json(UserInfo {
@@ -937,12 +966,13 @@ pub struct User2 {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_via: Option<serde_json::Value>,
     pub is_service_account: bool,
+    pub workspace_role: Option<String>,
 }
 
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
     let user = sqlx::query_as!(
         User2,
-        "SELECT usr.*, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
+        "SELECT usr.workspace_id, usr.email, usr.username, usr.is_admin, usr.created_at, usr.operator, usr.disabled, usr.role, usr.added_via, usr.is_service_account, usr.workspace_role, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
         ",
         username,
         w_id
@@ -972,7 +1002,10 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         created_at: usr.created_at,
         operator: usr.operator,
         disabled: usr.disabled,
-        role: usr.role,
+        role: Some(windmill_common::roles::resolve_role_name(
+            usr.workspace_role,
+            usr.operator,
+        )),
         folders_read: folders.clone().into_iter().map(|x| x.0).collect(),
         folders: folders
             .clone()
@@ -1082,8 +1115,6 @@ async fn decline_invite(
     }
 }
 
-pub use windmill_common::usernames::VALID_USERNAME;
-
 async fn accept_invite(
     authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
@@ -1093,7 +1124,7 @@ async fn accept_invite(
     let mut tx = db.begin().await?;
 
     let r = sqlx::query!(
-        "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator",
+        "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator, workspace_role",
         nu.workspace_id,
         authed.email,
     )
@@ -1130,6 +1161,16 @@ async fn accept_invite(
             tx,
         )
         .await?;
+        if let Some(role) = &r.workspace_role {
+            sqlx::query!(
+                "UPDATE usr SET workspace_role = $1 WHERE workspace_id = $2 AND username = $3",
+                role,
+                &nu.workspace_id,
+                &username
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
 
         audit_log(
             &mut *tx,
@@ -1217,11 +1258,7 @@ async fn join_workspace<'c>(
             )));
         }
 
-        if !VALID_USERNAME.is_match(&username) {
-            return Err(windmill_common::error::Error::BadRequest(format!(
-                "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-            )));
-        }
+        windmill_common::usernames::validate_username(&username)?;
         username.to_string()
     };
 
@@ -1307,7 +1344,10 @@ async fn get_workspace_user(
 
     let user = sqlx::query_as!(
         User,
-        "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account FROM usr WHERE username = $1 AND workspace_id = $2",
+        "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled,
+                COALESCE(workspace_role, CASE WHEN operator THEN 'operator' ELSE 'developer' END) AS role,
+                added_via, is_service_account
+         FROM usr WHERE username = $1 AND workspace_id = $2",
         &username_to_update,
         &w_id
     )
@@ -1325,20 +1365,30 @@ async fn update_workspace_user(
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
-
     require_admin(authed.is_admin, &authed.username)?;
+
+    #[cfg(feature = "enterprise")]
+    let seat_baseline = windmill_common::ee_oss::seat_cap_baseline(&db).await?;
+    let mut tx = db.begin().await?;
 
     update_workspace_user_internal(
         &w_id,
         &username_to_update,
         eu.is_admin,
         eu.operator,
+        eu.role,
         eu.disabled,
         &mut tx,
         Some(&authed),
     )
     .await?;
+
+    #[cfg(feature = "enterprise")]
+    if let Some(msg) =
+        windmill_common::ee_oss::check_seat_cap_for_role_change(&seat_baseline, &mut tx).await?
+    {
+        return Err(Error::BadRequest(msg));
+    }
 
     let user_email = sqlx::query_scalar!(
         "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
@@ -1417,65 +1467,44 @@ async fn convert_user_to_group(
         ));
     }
 
-    // Determine the group with highest precedence (same logic as reconcile_workspace_instance_groups)
-    let roles: std::collections::HashMap<String, String> =
-        if let Some(roles_json) = &eligible_groups[0].instance_groups_roles {
-            serde_json::from_value(roles_json.clone()).unwrap_or_default()
-        } else {
-            std::collections::HashMap::new()
-        };
+    let roles: std::collections::HashMap<String, String> = eligible_groups[0]
+        .instance_groups_roles
+        .clone()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    let group_names: Vec<String> = eligible_groups
+        .iter()
+        .map(|g| g.group_name.clone())
+        .collect();
+    let role_order: Vec<String> = windmill_common::roles::workspace_roles_on(&mut *tx, &w_id)
+        .await?
+        .iter()
+        .map(|r| r.name.clone())
+        .collect();
+    let (primary_group_name, is_admin, role) =
+        windmill_common::users::compute_highest_workspace_role(
+            &group_names,
+            &group_names,
+            &roles,
+            &role_order,
+        );
 
-    let mut best_group = &eligible_groups[0].group_name;
-    let mut best_precedence = 0u8;
-
-    for group in &eligible_groups {
-        let default_role = "developer".to_string();
-        let role = roles.get(&group.group_name).unwrap_or(&default_role);
-
-        let precedence = match role.as_str() {
-            "admin" => 3,
-            "developer" => 2,
-            "operator" => 1,
-            _ => 2,
-        };
-
-        if precedence > best_precedence {
-            best_precedence = precedence;
-            best_group = &group.group_name;
-        }
-    }
-
-    let primary_group_name = best_group;
-
-    // Determine role from group configuration using the selected primary group
-    let default_role = "developer".to_string();
-    let role = roles
-        .get(primary_group_name)
-        .unwrap_or(&default_role)
-        .as_str();
-
-    let (is_admin, is_operator) = match role {
-        "admin" => (true, false),
-        "operator" => (false, true),
-        _ => (false, false),
-    };
-
-    // Update user with instance group information
     let instance_group_source = serde_json::json!({
         "source": "instance_group",
         "group": primary_group_name
     });
 
     sqlx::query!(
-        "UPDATE usr SET added_via = $1, is_admin = $2, operator = $3 WHERE username = $4 AND workspace_id = $5",
+        "UPDATE usr SET added_via = $1, is_admin = $2 WHERE username = $3 AND workspace_id = $4",
         instance_group_source,
         is_admin,
-        is_operator,
         username_to_convert,
         &w_id
     )
     .execute(&mut *tx)
     .await?;
+    set_workspace_role(&mut tx, &w_id, &username_to_convert, &role).await?;
+    let role = if is_admin { "admin" } else { role.as_str() };
 
     audit_log(
         &mut *tx,
@@ -1563,7 +1592,8 @@ async fn update_user(
         .await?;
         // Update super_admin flag on non-session tokens (webhooks, API tokens, etc.)
         sqlx::query!(
-            "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+            "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
+                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
             sa,
             &email_to_update
         )
@@ -1628,7 +1658,8 @@ async fn update_user(
                     .execute(&mut *tx)
                     .await?;
                     sqlx::query!(
-                        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+                        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
+                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
                         sa,
                         &email_to_update
                     )
@@ -1667,6 +1698,7 @@ async fn update_user(
         .execute(&mut *tx)
         .await?;
         if d {
+            revoke_mcp_oauth_grants(&mut *tx, &email_to_update, None).await?;
             // Delete all tokens for immediate session revocation
             sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_update)
                 .execute(&mut *tx)
@@ -1698,6 +1730,7 @@ async fn delete_user(
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
+    revoke_mcp_oauth_grants(&mut *tx, &email_to_delete, None).await?;
     sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;
@@ -1729,9 +1762,13 @@ async fn delete_user(
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
+            &username,
+            &row.workspace_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query!(
             "DELETE FROM workspace_invite WHERE email = $1",
@@ -2414,26 +2451,28 @@ lazy_static::lazy_static! {
 }
 
 /// Internal helper for updating workspace user permissions - used by both API and system operations
+///
+/// `role` names one of the workspace's roles; without it, the legacy `operator` flag selects the
+/// `operator` or `developer` role. Admin is a flag on top of the role, so it is set independently.
 pub async fn update_workspace_user_internal(
     w_id: &str,
     username_to_update: &str,
     is_admin: Option<bool>,
     operator: Option<bool>,
+    role: Option<String>,
     disabled: Option<bool>,
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
-    // The role is one choice stored as two flags. Granting one clears the other, or a request
-    // setting only `is_admin` leaves a user shown as admin but refused as an operator.
-    let (is_admin, operator) = match (is_admin, operator) {
-        (Some(true), Some(true)) => {
-            return Err(Error::BadRequest(
-                "A user cannot be both admin and operator".to_string(),
-            ))
-        }
-        (Some(true), _) => (Some(true), Some(false)),
-        (_, Some(true)) => (Some(false), Some(true)),
-        flags => flags,
+    if role.is_none() && is_admin == Some(true) && operator == Some(true) {
+        return Err(Error::BadRequest(
+            "A user cannot be both admin and operator".to_string(),
+        ));
+    }
+    // The legacy selector made admin and operator one choice: granting operator demoted.
+    let is_admin = match (&role, is_admin, operator) {
+        (None, None, Some(true)) => Some(false),
+        _ => is_admin,
     };
     if let Some(a) = is_admin {
         sqlx::query_scalar!(
@@ -2445,15 +2484,20 @@ pub async fn update_workspace_user_internal(
         .execute(&mut **tx)
         .await?;
     }
-    if let Some(a) = operator {
-        sqlx::query_scalar!(
-            "UPDATE usr SET operator = $1 WHERE username = $2 AND workspace_id = $3",
-            a,
-            username_to_update,
-            w_id
-        )
-        .execute(&mut **tx)
-        .await?;
+    // A legacy payload granting admin also cleared `operator`; keep that, as the default role.
+    let role = match (role, is_admin, operator) {
+        (Some(role), _, _) => Some(role),
+        (None, _, Some(true)) => Some(windmill_common::roles::OPERATOR_ROLE.to_string()),
+        (None, Some(true), _) | (None, _, Some(false)) => {
+            let roles = windmill_common::roles::workspace_roles_on(&mut **tx, w_id).await?;
+            Some(windmill_common::roles::default_role_name(
+                roles.iter().map(|r| r.name.as_str()),
+            ))
+        }
+        _ => None,
+    };
+    if let Some(role) = role {
+        set_workspace_role(tx, w_id, username_to_update, &role).await?;
     }
     if let Some(a) = disabled {
         sqlx::query_scalar!(
@@ -2483,6 +2527,39 @@ pub async fn update_workspace_user_internal(
     Ok(())
 }
 
+/// Gives a member role `role`, which must be one of the workspace's roles. `usr.operator` is
+/// kept as "this role cannot write code", the reading clients that predate roles give it.
+///
+/// AUTHORIZATION: changes what the member may do and checks nothing. Callers MUST have verified
+/// that the caller is an admin of `w_id`, or run as trusted server-side code (instance group sync,
+/// invite acceptance).
+pub async fn set_workspace_role(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    username: &str,
+    role: &str,
+) -> Result<()> {
+    let caps = windmill_common::roles::workspace_roles_on(&mut **tx, w_id)
+        .await?
+        .iter()
+        .find(|r| r.name == role)
+        .map(|r| r.capabilities)
+        .ok_or_else(|| {
+            Error::BadRequest(format!("role `{role}` is not defined in workspace {w_id}"))
+        })?;
+    sqlx::query!(
+        "UPDATE usr SET workspace_role = $1, operator = $2 WHERE username = $3 AND workspace_id = $4",
+        role,
+        !caps.code,
+        username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    windmill_common::roles::invalidate_member_role_cache(w_id, username);
+    Ok(())
+}
+
 /// Internal helper for deleting workspace users - used by both API and system operations
 pub async fn delete_workspace_user_internal(
     w_id: &str,
@@ -2491,6 +2568,7 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    revoke_mcp_oauth_grants(&mut **tx, email_to_delete, Some(w_id)).await?;
     // Same reasoning as the `extra_perms` sweep below: a freed username must not stay named
     // anywhere that grants access, tenant lists included.
     windmill_common::workspaces::remove_datatable_tenant_in_workspace(
@@ -2664,6 +2742,19 @@ async fn delete_workspace_user(
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
+
+    // The account row before the membership row, the order `delete_user` takes them in, since
+    // the revoke in `delete_workspace_user_internal` locks it (`lock_mcp_oauth_grants`).
+    if let Some(email) = sqlx::query_scalar!(
+        "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+        username_to_delete,
+        &w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        lock_mcp_oauth_grants(&mut *tx, &email, true).await?;
+    }
 
     // Locked so that the authorization below and the delete it guards see the same row.
     let target = sqlx::query!(
@@ -3224,6 +3315,17 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
+    // Mirrors the MCP OAuth approve: a scoped token cannot mint superadmin access it may lack.
+    if token_config.super_admin == Some(true)
+        && authed
+            .scopes
+            .as_deref()
+            .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")))
+    {
+        return Err(Error::NotAuthorized(
+            "Only an unscoped token can grant superadmin access".to_string(),
+        ));
+    }
 
     token_config.expiration = cap_token_expiration(
         &db,
@@ -3908,6 +4010,44 @@ async fn list_tokens(
     Ok(Json(rows))
 }
 
+/// Ends a user's MCP OAuth connections (only those bound to `workspace_id` when given),
+/// including idle ones whose access token is already gone and codes not yet exchanged.
+/// Lock the user's `password` row before writing their tokens (see `lock_mcp_oauth_grants`).
+pub async fn revoke_mcp_oauth_grants(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    workspace_id: Option<&str>,
+) -> Result<()> {
+    lock_mcp_oauth_grants(&mut *conn, email, true).await?;
+    // Separate statements, tokens first: a token delete's trigger locks its token row, then its
+    // grant, and the sibling CTEs of a single statement run in no fixed order.
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%'
+             AND ($2::varchar IS NULL OR workspace_id = $2)",
+        email,
+        workspace_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
+             AND ($2::varchar IS NULL OR workspace_id = $2)",
+        email,
+        workspace_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM mcp_oauth_server_code WHERE user_email = $1
+             AND ($2::varchar IS NULL OR workspace_id = $2)",
+        email,
+        workspace_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 async fn delete_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -3938,6 +4078,9 @@ async fn delete_token(
     )
     .await?;
     tx.commit().await?;
+    if !tokens_deleted.is_empty() {
+        windmill_api_auth::invalidate_token_from_cache(&token_prefix);
+    }
 
     Ok(format!(
         "deleted {} tokens {:?} with prefix {}",

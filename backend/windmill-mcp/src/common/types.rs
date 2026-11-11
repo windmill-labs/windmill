@@ -22,6 +22,11 @@ pub struct WorkspaceId(pub String);
 #[derive(Clone, Debug)]
 pub struct MultiWorkspaceMcp;
 
+/// Marker extension: the tools server lists a token's scripts and flows and no endpoint
+/// tools. Set on `/api/mcp`, where the full toolset is what reaches the API.
+#[derive(Clone, Debug)]
+pub struct NoEndpointTools;
+
 /// Raw bearer token wrapper for Axum extensions. In multi-workspace mode the
 /// runner needs the raw token to re-resolve auth for each requested workspace.
 #[derive(Clone, Debug)]
@@ -145,7 +150,8 @@ pub struct ItemSchema {
 
 /// Trait for objects that can be converted to MCP tools
 pub trait ToolableItem {
-    /// Get the MCP-compatible tool name (path transformed with escaping/hashing)
+    /// Get the `s-`/`f-`/`hs-` encoded tool name (path transformed with escaping/hashing).
+    /// Scripts and flows are listed under `assign_tool_names` instead.
     fn get_transformed_path(&self) -> String;
     /// Get the original full path of this item (for display in tool title)
     fn get_full_path(&self) -> &str;

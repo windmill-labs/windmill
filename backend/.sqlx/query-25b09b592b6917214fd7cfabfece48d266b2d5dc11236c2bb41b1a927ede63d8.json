@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, workspace_role) SELECT $1, username, email, is_admin, created_at, operator, disabled, role, workspace_role FROM usr WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "25b09b592b6917214fd7cfabfece48d266b2d5dc11236c2bb41b1a927ede63d8"
+}

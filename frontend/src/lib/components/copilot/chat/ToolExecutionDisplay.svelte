@@ -3,7 +3,6 @@
 		Loader2,
 		ChevronRight,
 		XCircle,
-		Play,
 		ClipboardList,
 		Check,
 		CircleMinus,
@@ -22,6 +21,12 @@
 		PLAN_CARD_COPY,
 		PLAN_MODE_TEXT_COLOR
 	} from './planMode'
+	import {
+		isWorkModeSwitchTool,
+		WORK_MODE_SWITCH_CARD_COPY,
+		WORK_MODE_SWITCH_TARGET
+	} from './workMode'
+	import { workModeOption } from './autonomyModes'
 	import { Button } from '$lib/components/common'
 	import { markdownProse } from '$lib/components/markdownProse'
 	import { getChatViewHost } from './chatViewHost'
@@ -43,9 +48,11 @@
 	import RunScriptCard from './RunScriptCard.svelte'
 	import ToolDiffCard from './ToolDiffCard.svelte'
 	import { hasToolCodeDiff } from './toolCodeDiff'
+	import { TOOL_CONFIRM_ACTIONS } from './toolConfirmAction'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
+	import OutOfScopeFooter from './OutOfScopeFooter.svelte'
 	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
 
 	interface Props {
@@ -61,9 +68,17 @@
 	const mcpServer = $derived(message.mcpServer)
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
-	const isPlanCard = $derived(isPlanCardTool(message.toolName))
+	// A switch between Use and Use & build renders as enter_plan_mode's card, with its own copy
+	// and the icon of the mode it leads to.
+	const switchTool = $derived(isWorkModeSwitchTool(message.toolName) ? message.toolName : undefined)
+	const isPlanCard = $derived(isPlanCardTool(message.toolName) || switchTool !== undefined)
 	const planCopy = $derived(
-		isPlanCardTool(message.toolName) ? PLAN_CARD_COPY[message.toolName] : undefined
+		isPlanCardTool(message.toolName)
+			? PLAN_CARD_COPY[message.toolName]
+			: switchTool && WORK_MODE_SWITCH_CARD_COPY[switchTool]
+	)
+	const CardIcon = $derived(
+		switchTool ? workModeOption(WORK_MODE_SWITCH_TARGET[switchTool]).icon : ClipboardList
 	)
 	// exit_plan_mode carries the plan, enter_plan_mode the one-line justification.
 	const planBody = $derived(isPlanReview ? message.parameters?.summary : message.parameters?.reason)
@@ -92,6 +107,8 @@
 	// The preview pane's renderers, so a model-written link opens in a new tab either way.
 	const planPlugins = [gfmPlugin(), { renderer: { pre: CodeDisplay, a: LinkRenderer } }]
 
+	const confirmAction = $derived(TOOL_CONFIRM_ACTIONS[message.confirmAction ?? 'confirm'])
+
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
 	)
@@ -107,7 +124,14 @@
 
 	// Executing right now, as opposed to queued behind another tool or waiting on
 	// the user — the only state that gets the shimmer.
-	const isRunning = $derived(Boolean(message.isLoading && !message.needsConfirmation))
+	const pendingOutOfScope = $derived(
+		message.isLoading && message.outOfScope && !message.outOfScope.decision
+			? message.outOfScope
+			: undefined
+	)
+	const isRunning = $derived(
+		Boolean(message.isLoading && !message.needsConfirmation && !pendingOutOfScope)
+	)
 
 	// An errored tool must be expandable even if it never opted into details,
 	// otherwise the error set on its status would be invisible.
@@ -118,10 +142,11 @@
 	// stream, while it waits on the user, and once it has an error or details to keep in view.
 	// The user's toggle lives in state keyed by call id: the `message` prop is replaced on every
 	// chat update, so an override written onto a derived would be recomputed away. A pending
-	// confirmation wins over it, since the Run/Reject footer renders inside the card.
+	// confirmation wins over it, since the confirm/reject footer renders inside the card.
 	let toggled = $state<{ id: string | undefined; open: boolean } | undefined>(undefined)
 	const isExpanded = $derived(
 		Boolean(message.isLoading && message.needsConfirmation) ||
+			!!pendingOutOfScope ||
 			(toggled?.id === message.tool_call_id
 				? toggled.open
 				: Boolean(
@@ -223,13 +248,18 @@
 					{#if message.isLoading && !message.needsConfirmation}
 						<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
 					{:else if planState === 'settled'}
-						<Check class={twMerge('w-3.5 h-3.5 shrink-0', PLAN_MODE_TEXT_COLOR)} />
+						<Check
+							class={twMerge(
+								'w-3.5 h-3.5 shrink-0',
+								switchTool ? 'text-secondary' : PLAN_MODE_TEXT_COLOR
+							)}
+						/>
 					{:else if planState === 'declined'}
 						<!-- Muted and not red: declining a plan is an outcome, not a failure, and
 						     this state also covers a card resolved by leaving plan mode. -->
 						<CircleMinus class="w-3.5 h-3.5 text-tertiary shrink-0" />
 					{:else}
-						<ClipboardList class="w-3.5 h-3.5 text-secondary shrink-0" />
+						<CardIcon class="w-3.5 h-3.5 text-secondary shrink-0" />
 					{/if}
 					<span class="text-primary font-medium text-2xs">{planLabel}</span>
 					{#if planBodyText}
@@ -262,7 +292,7 @@
 				toolCallId={message.tool_call_id}
 				rejectLabel={planCopy?.reject}
 				confirmLabel={planCopy?.confirm ?? ''}
-				confirmIcon={isPlanReview ? undefined : ClipboardList}
+				confirmIcon={isPlanReview ? undefined : CardIcon}
 				class={extraClass}
 			/>
 		{/snippet}
@@ -285,7 +315,7 @@
 			</div>
 			<!-- Collapsed: the buttons stand on their own rather than boxing empty space. -->
 		{:else if message.needsConfirmation}
-			{@render confirmFooter('py-1 font-main')}
+			{@render confirmFooter('py-1')}
 		{/if}
 	</div>
 {:else}
@@ -335,8 +365,8 @@
 		class={message.isQueued && !message.error
 			? 'opacity-60 hover:opacity-100 transition-opacity'
 			: ''}
-		headerClass={message.needsConfirmation ? 'opacity-80' : ''}
-		labelClass={showPreviewChip ? 'truncate' : ''}
+		headerClass={message.needsConfirmation || pendingOutOfScope ? 'opacity-80' : ''}
+		labelClass="truncate"
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : message.jobId ? jobLink : undefined}
 		headerLeft={mcpServer?.workspace ? serverMark : undefined}
@@ -355,8 +385,8 @@
 		{/snippet}
 
 		<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
-		{#if hasParameters || message.needsConfirmation}
-			<div class={message.needsConfirmation ? 'opacity-80' : ''}>
+		{#if hasParameters || message.needsConfirmation || pendingOutOfScope}
+			<div class={message.needsConfirmation || pendingOutOfScope ? 'opacity-80' : ''}>
 				<ToolContentDisplay
 					title="Parameters"
 					content={message.parameters}
@@ -373,8 +403,17 @@
 				toolCallId={message.tool_call_id}
 				rejectIcon={XCircle}
 				rejectDestructive
-				confirmLabel="Run"
-				confirmIcon={Play}
+				confirmLabel={confirmAction.label}
+				confirmIcon={confirmAction.icon}
+				confirmDestructive={confirmAction.destructive}
+			/>
+		{:else if pendingOutOfScope}
+			<OutOfScopeFooter
+				toolCallId={message.tool_call_id}
+				path={pendingOutOfScope.path}
+				root={pendingOutOfScope.root}
+				scope={pendingOutOfScope.scope}
+				verb={pendingOutOfScope.verb}
 			/>
 
 			<!-- Logs and Result - hide while streaming -->
@@ -402,4 +441,13 @@
 			{/if}
 		{/if}
 	</ChatCollapsibleCard>
+{/if}
+
+<!-- An exception the user made stays on the record: the card itself is gone once answered. -->
+{#if message.outOfScope?.decision}
+	<p class="font-main text-2xs text-tertiary pl-1 pb-1">
+		{message.outOfScope.decision === 'once'
+			? `You allowed this ${message.outOfScope.verb} outside ${message.outOfScope.scope}.`
+			: `You allowed writes in ${message.outOfScope.root} for this session.`}
+	</p>
 {/if}

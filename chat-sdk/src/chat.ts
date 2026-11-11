@@ -11,11 +11,13 @@ import { resolveConfig, type ResolvedConfig } from './config'
 import { followJob } from './follow'
 import { createLocalHistory, type LocalHistory } from './history'
 import { uploadAttachments } from './attachments'
-import type { AgentStreamEvent } from './stream'
+import { createStreamEventParser, type AgentStreamEvent } from './stream'
 import type {
   Chat,
   ChatMessage,
   ChatOptions,
+  RawAppWmill,
+  TypedChatOptions,
   ChatState,
   Conversation,
   SendMessageOptions,
@@ -62,7 +64,7 @@ interface Turn {
   streamedText: boolean
 }
 
-export function createChat(options: ChatOptions): Chat {
+export function createChat<W extends RawAppWmill>(options: TypedChatOptions<W>): Chat {
   return new ChatImpl(options)
 }
 
@@ -102,7 +104,9 @@ class ChatImpl implements Chat {
       messages: [],
       status: 'idle',
       error: undefined,
-      conversations: [],
+      // Browser history is read synchronously, so a chat starts with its list as server history
+      // cannot: an app that never calls `loadConversations` still shows its conversations.
+      conversations: this.#config.history === 'local' ? this.#local.listConversations() : [],
       history: this.#config.history,
       loadingMessages: false,
       hasMoreMessages: false
@@ -133,6 +137,9 @@ class ChatImpl implements Chat {
     const attachmentsInput = options.attachmentsInput
     if (attachments.length > 0 && !attachmentsInput) {
       throw new Error('windmill-chat: attachments need `attachmentsInput`, the flow input that takes them')
+    }
+    if (attachments.length > 0 && this.#config.follow) {
+      throw new Error('windmill-chat: attachments upload with the SDK\'s own requests, which `follow` replaces')
     }
     if (attachmentsInput && !attachmentsInput.multiple && attachments.length > 1) {
       // Uploading all of them would run with the first and leave the rest stranded in storage.
@@ -298,6 +305,7 @@ class ChatImpl implements Chat {
 
   async #followTurn(turn: Turn, isNew: boolean): Promise<void> {
     let nextTurn: RunningTurn | undefined
+    this.#set({ runningJobId: turn.jobId })
     try {
       const stopPolling = this.#state.history === 'server' ? this.#startPolling(turn) : () => {}
       let result: unknown
@@ -320,6 +328,7 @@ class ChatImpl implements Chat {
       this.#failTurn(turn, e)
     } finally {
       if (this.#turn === turn) this.#turn = undefined
+      if (this.#state.runningJobId === turn.jobId) this.#set({ runningJobId: undefined })
     }
     if (nextTurn) await this.resumeTurn(nextTurn)
   }
@@ -338,7 +347,7 @@ class ChatImpl implements Chat {
       this.#set({ messages: finalized(this.#state.messages), status: 'idle' })
       this.#persistLocal()
     }
-    if (turn.jobId) {
+    if (turn.jobId && !this.#config.follow) {
       // Needs `jobs:write` on a token; the stream is closed either way.
       await this.#api.cancelJob(turn.jobId).catch(() => {})
     }
@@ -577,6 +586,27 @@ class ChatImpl implements Chat {
 
   async #follow(turn: Turn, onStreamStart: () => void): Promise<unknown> {
     let started = false
+    const { follow } = this.#config
+    if (follow) {
+      const { signal } = turn.controller
+      const parser = createStreamEventParser()
+      const onStream = (chunk: string) => {
+        if (signal.aborted) return
+        if (!started) {
+          started = true
+          onStreamStart()
+        }
+        this.#applyEvents(turn, parser.push(chunk))
+      }
+      // A caller's follow may not honor the signal; the turn stops waiting on it either way.
+      const aborted = new Promise<never>((_, reject) => {
+        if (signal.aborted) reject(abortError())
+        signal.addEventListener('abort', () => reject(abortError()), { once: true })
+      })
+      const result = await Promise.race([follow(turn.jobId!, onStream, { signal }), aborted])
+      this.#applyEvents(turn, parser.flush())
+      return result
+    }
     for await (const event of followJob(this.#api, turn.jobId!, { signal: turn.controller.signal })) {
       if (event.type === 'completed') {
         if (event.streamLost) this.#dropCutRound(turn)
@@ -722,8 +752,9 @@ class ChatImpl implements Chat {
     let messages = this.#state.messages
     let failed = false
     if (isErrorResult(result)) {
-      // The envelope is also a legitimate result shape; the job's own status decides.
-      failed = await this.#api
+      // The envelope is also a legitimate result shape; the job's own status decides, when it
+      // can be read.
+      failed = this.#config.follow ? true : await this.#api
         .getCompletedResult(turn.jobId!, turn.controller.signal)
         .then((r) => r.success === false)
         .catch(() => true)

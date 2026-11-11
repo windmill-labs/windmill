@@ -2,7 +2,12 @@
 	import { untrack } from 'svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import { Loader2, X } from 'lucide-svelte'
-	import { ContextIconMap, formatAppDatatableContextTitle, type ContextElement } from './context'
+	import {
+		ContextIconMap,
+		formatAppDatatableContextTitle,
+		runContextLabel,
+		type ContextElement
+	} from './context'
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { twMerge } from 'tailwind-merge'
@@ -48,7 +53,9 @@
 		{@const label =
 			contextElement.type === 'diff'
 				? contextElement.title.replace(/_/g, ' ')
-				: contextElement.title}
+				: contextElement.type === 'workspace_run'
+					? runContextLabel(contextElement)
+					: contextElement.title}
 		{@const small = compact && COMPACT_TYPES.has(contextElement.type)}
 		{@const iconSize = small ? 12 : 16}
 		<div

@@ -1,4 +1,5 @@
 import { AIAutonomyMode } from './AIChatManager.svelte'
+import { AIWorkMode } from './workMode'
 import type { ChatViewHost } from './chatViewHost'
 import type { DisplayMessage } from './shared'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
@@ -42,6 +43,7 @@ export function readOnlyChatViewHost(options: {
 		sendRequest: async () => false,
 		cancel: noop,
 		setAiChatInput: noop,
+		releaseAiChatInput: noop,
 		queuedMessage: '',
 		queuedContext: undefined,
 		queuedImages: [],
@@ -59,6 +61,7 @@ export function readOnlyChatViewHost(options: {
 		restartGeneration: noop,
 		handleUserQuestionAnswer: () => false,
 		handleToolConfirmation: noop,
+		handleScopeDecision: noop,
 		hasPendingRunForm: false,
 		isRunFormPending: () => false,
 
@@ -74,6 +77,9 @@ export function readOnlyChatViewHost(options: {
 		tools: [],
 		autonomyMode: AIAutonomyMode.DEFAULT,
 		setAutonomyMode: noop,
+		workModesAvailable: false,
+		workMode: AIWorkMode.BUILD,
+		setWorkMode: noop,
 		autoAcceptEditsActive: false,
 		autoAcceptEditsAvailable: false,
 		autoAcceptToolConfirmationsAvailable: false,

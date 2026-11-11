@@ -190,7 +190,7 @@ export async function replacePathScriptsWithLocal(
         }
         const localScript = await scriptReader(toolValue.path);
         if (localScript) {
-          (tool as AiAgent["tools"][number]).value = {
+          (tool as NonNullable<AiAgent["tools"]>[number]).value = {
             tool_type: "flowmodule",
             type: "rawscript",
             content: localScript.content,

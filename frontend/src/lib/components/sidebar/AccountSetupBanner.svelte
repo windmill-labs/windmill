@@ -30,7 +30,9 @@
 		icon={KeyRound}
 		iconClasses="text-accent"
 		labelClass="text-accent font-semibold"
-		buttonClass="border border-border-selected/50 bg-surface-accent-selected hover:bg-surface-accent-selected hover:border-border-selected"
+		buttonClass="border border-border-selected/50 bg-surface-accent-selected hover:bg-surface-accent-selected hover:border-border-selected {isCollapsed
+			? 'h-10'
+			: ''}"
 		{isCollapsed}
 		stopPropagationOnClick
 		on:click={() => (accountSetup.open = true)}

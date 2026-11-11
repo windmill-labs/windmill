@@ -7,6 +7,8 @@ edition.workspace = true
 [lib]
 name = "windmill_api"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
@@ -102,7 +104,6 @@ tracing.workspace = true
 sql-builder.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
-chrono-tz.workspace = true
 hex.workspace = true
 base64.workspace = true
 base32.workspace = true

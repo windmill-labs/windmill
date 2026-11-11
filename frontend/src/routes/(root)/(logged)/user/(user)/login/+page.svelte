@@ -8,7 +8,8 @@
 		workspaceStore,
 		userStore,
 		enterpriseLicense,
-		whitelabelNameStore
+		whitelabelNameStore,
+		roleCapabilities
 	} from '$lib/stores'
 	import { emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
@@ -96,7 +97,7 @@
 				workspaceStore.set(allWorkspaces[0].id)
 				$userStore = await getUserExt($workspaceStore!)
 
-				if (!$userStore?.is_super_admin && $userStore?.operator) {
+				if (!$roleCapabilities.code) {
 					let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
 						workspace: $workspaceStore!
 					})

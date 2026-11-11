@@ -120,6 +120,9 @@ export interface AIAgentConfig {
 	tools?: AgentTool[]
 	/** Runs from the agent's page take its `on_behalf_of` rather than the caller's identity. */
 	run_on_behalf_of?: boolean
+	/** Anyone in the Slack channels it is shared in can ask it, not only workspace members. Kept
+	 *  only with `run_on_behalf_of`: everyone there runs it as that identity. */
+	slack_anyone?: boolean
 }
 
 /** Extract the static brain values from a step's input_transforms into a flat agent config. */

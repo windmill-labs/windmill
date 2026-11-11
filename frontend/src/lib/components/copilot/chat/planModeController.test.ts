@@ -26,7 +26,7 @@ describe('PlanModeController', () => {
 	let sessionId: string
 	let docs: Doc[]
 	let openArtifact: ReturnType<typeof vi.fn>
-	let restore: ReturnType<typeof vi.fn>
+	let build: ReturnType<typeof vi.fn>
 	let artifacts: any
 	let controller: PlanModeController
 
@@ -36,7 +36,7 @@ describe('PlanModeController', () => {
 		sessionId = 'session-1'
 		docs = []
 		openArtifact = vi.fn()
-		restore = vi.fn(() => {
+		build = vi.fn(() => {
 			active = false
 		})
 		artifacts = {
@@ -89,7 +89,7 @@ describe('PlanModeController', () => {
 			enter: () => {
 				active = true
 			},
-			restore
+			build
 		}
 		controller = new PlanModeController(host)
 		controller.startRound()
@@ -140,7 +140,7 @@ describe('PlanModeController', () => {
 		expect(docs[0]).toMatchObject({ version: 2, approvedVersion: 1 })
 	})
 
-	it('restores posture only after proposal and approval pointer are durable', async () => {
+	it('moves to Build only after proposal and approval pointer are durable', async () => {
 		await propose('# Durable\n\nBuild it.')
 		const result = await controller.exitTool.fn({
 			args: { summary: '# Durable\n\nBuild it.' },
@@ -151,7 +151,7 @@ describe('PlanModeController', () => {
 		})
 
 		expect(docs[0].approvedVersion).toBe(1)
-		expect(restore).toHaveBeenCalledOnce()
+		expect(build).toHaveBeenCalledOnce()
 		expect(result).toBe(PLAN_MODE_MESSAGES.approvedWithDoc)
 	})
 
@@ -167,7 +167,7 @@ describe('PlanModeController', () => {
 		})
 
 		expect(active).toBe(true)
-		expect(restore).not.toHaveBeenCalled()
+		expect(build).not.toHaveBeenCalled()
 		expect(result).toBe(PLAN_MODE_MESSAGES.persistenceFailed)
 	})
 
@@ -214,7 +214,7 @@ describe('PlanModeController', () => {
 
 	it('refuses a second hand-over from the batch that already ended plan mode', async () => {
 		// One response can carry two exit_plan_mode calls, and the tool list they run against is
-		// snapshotted before the first one restores the posture. Under YOLO nothing asks, so the
+		// snapshotted before the first one moves the session to Build. Under YOLO nothing asks, so the
 		// stale call would write its own summary and stamp the user's approval on a plan no card
 		// ever showed them.
 		const frozenTools = [controller.exitTool]
@@ -294,6 +294,6 @@ describe('PlanModeController', () => {
 		controller.startRound()
 		await approval
 		expect(active).toBe(true)
-		expect(restore).not.toHaveBeenCalled()
+		expect(build).not.toHaveBeenCalled()
 	})
 })

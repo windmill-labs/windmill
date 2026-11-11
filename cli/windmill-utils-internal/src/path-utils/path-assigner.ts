@@ -5,7 +5,7 @@ const INLINE_SCRIPT_PREFIX = "inline_script";
 /**
  * Union type of all supported programming languages in Windmill
  */
-export type SupportedLanguage = RawScript["language"] | "frontend" | "bunnative" | "oracledb" | "rust" | "csharp" | "nu" | "ansible" | "java" | "duckdb";
+export type SupportedLanguage = RawScript["language"] | "frontend" | "bunnative" | "oracledb" | "rust" | "csharp" | "nu" | "ansible" | "java" | "duckdb" | "dbt";
 
 /**
  * Mapping of supported languages to their file extensions

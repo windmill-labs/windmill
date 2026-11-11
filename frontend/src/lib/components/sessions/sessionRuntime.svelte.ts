@@ -1,9 +1,9 @@
-import { SvelteMap } from 'svelte/reactivity'
 import type { PendingRun } from '$lib/components/details/pendingRun'
 import { get } from 'svelte/store'
 import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { PIPELINE_DRAFT_KIND, pipelineBundlePath, pipelineLocalMirrorKey } from '$lib/pipelinePaths'
 import type { DeployResult } from '$lib/utils_workspace_deploy'
@@ -29,28 +29,28 @@ import {
 type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
-import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+import {
+	type RawAppData,
+	DEFAULT_DATA,
+	extractDataConfig
+} from '$lib/components/raw_apps/dataTableRefUtils'
 import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 import {
 	BUILDER_FRAMEWORK_TEMPLATES,
 	react19Template,
 	STARTER_RUNNABLES
 } from '$lib/components/raw_apps/templates'
-import { operatorBuilderAppsIn, workspaceListLoaded } from '$lib/operatorWriteRights'
+import { capabilitiesInWorkspace, workspaceListLoaded } from '$lib/operatorWriteRights'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, userPathPrefix, type StateStore } from '$lib/utils'
-import {
-	localRunEnded,
-	localRunStarted,
-	onRemoteTurnEnd,
-	runHeldElsewhere
-} from './sessionSync.svelte'
+import { localRunEnded, localRunStarted, runHeldElsewhere } from './sessionSync.svelte'
 import {
 	commitSessionWorkspace,
-	deleteSession as deleteSessionState,
 	getEffectiveWorkspaceId,
+	markSessionStateChanged,
 	materializeTransient,
 	sessionState,
 	setGeneratedSessionSummary,
@@ -58,6 +58,8 @@ import {
 	setSessionPreviewCollapsed,
 	setSessionPreviewSize,
 	setSessionTabs,
+	setSessionWorkMode,
+	setSessionWorkingIn,
 	type Session
 } from './sessionState.svelte'
 import {
@@ -80,7 +82,8 @@ import {
 	resolvePreviewTab,
 	pendingRunIdOf,
 	slotShowsPage,
-	type PreviewSlot
+	type PreviewSlot,
+	type PreviewTarget
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -117,15 +120,25 @@ import type {
 	RawAppDomRequester,
 	RawAppDomResult
 } from '$lib/components/raw_apps/rawAppDom'
-import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
+import { generateSessionSummary } from './sessionTitle'
+import { pendingUserAction } from '$lib/components/copilot/chat/shared'
 import {
-	pendingUserAction,
-	type ChatJob,
-	type DisplayMessage
-} from '$lib/components/copilot/chat/shared'
-import { readStoredChat } from '$lib/components/copilot/chat/HistoryManager.svelte'
-import { getCurrentUserEmail } from '$lib/userScopedStorage'
-import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+	getRuntime,
+	runtimeRoots,
+	runtimes,
+	setPendingUserActionResolver
+} from './sessionRuntimeRegistry.svelte'
+export {
+	disposeRuntime,
+	ensureSessionChatPeek,
+	getRuntime,
+	getSessionChatPeek,
+	getSessionChatStatus,
+	listRuntimes,
+	removeSession,
+	type SessionChatPeek,
+	type SessionChatStatus
+} from './sessionRuntimeRegistry.svelte'
 
 // Per-kind load state for a session's editor target. Pure state container the
 // load methods write into; the editor-target gate reads it to decide between
@@ -161,6 +174,7 @@ export interface RawAppRuntimeValue {
 	summary: string
 	path: string
 	custom_path?: string
+	labels?: string[]
 	draft_path?: string
 	/** The app_version this cell's content forked from, carried so the editor's deploy
 	 *  guard and diff drawer compare the same pair the full-page editor does. */
@@ -264,6 +278,10 @@ export interface SessionRuntime {
 		 * setup has not been confirmed. Held in the cell only, nothing is saved. */
 		seedIfMissing?: boolean
 	): Promise<void>
+	/** Keep a new item's draft in this tab, unsaved, until the session's first send saves it:
+	 * an AI start the user never sends leaves nothing behind. */
+	holdDraftUntilSend(workspace: string, kind: SessionTargetKind, path: string): void
+	holdsDraft(workspace: string, kind: SessionTargetKind, path: string): boolean
 	/** Register a mounted raw-app preview's log requester, keyed by app path, like
 	 * `registerDomRequester`: build state is per editor, so reads route to the app edited. */
 	registerRuntimeLogRequester(appPath: string, requester: RawAppRuntimeLogRequester): void
@@ -305,7 +323,7 @@ export interface SessionRuntime {
 	): void
 }
 
-const runtimes = new SvelteMap<string, SessionRuntime>()
+setPendingUserActionResolver(pendingUserAction)
 
 function emptyFlow(): Flow {
 	return {
@@ -346,70 +364,12 @@ function makeRawAppCell(): RawAppCell {
 	return { slot, store, saved }
 }
 
-const GENERATED_SUMMARY_TIMEOUT_MS = 15000
-const GENERATED_SUMMARY_MAX_TRANSCRIPT_CHARS = 4000
-const GENERATED_SUMMARY_MAX_LENGTH = 60
-
-function buildSummaryTranscript(displayMessages: DisplayMessage[]): string {
-	return displayMessages
-		.filter((message) => message.role === 'user' || message.role === 'assistant')
-		.slice(0, 6)
-		.map((message) => `${message.role}: ${message.content}`)
-		.join('\n\n')
-		.slice(0, GENERATED_SUMMARY_MAX_TRANSCRIPT_CHARS)
-}
-
-function normalizeGeneratedSummary(summary: string | undefined): string | undefined {
-	const firstLine = summary
-		?.split('\n')
-		.map((line) => line.trim())
-		.find((line) => line.length > 0)
-	if (!firstLine) return undefined
-	const title = firstLine
-		.replace(/^title:\s*/i, '')
-		.replace(/^[-*]\s*/, '')
-		.replace(/^["'`]+|["'`]+$/g, '')
-		.replace(/[.!?]+$/g, '')
-		.replace(/\s+/g, ' ')
-		.trim()
-	if (!/[A-Za-z0-9]/.test(title)) return undefined
-	if (title.length <= GENERATED_SUMMARY_MAX_LENGTH) return title
-	return title.slice(0, GENERATED_SUMMARY_MAX_LENGTH).trim()
-}
-
-async function generateSessionSummary(
-	displayMessages: DisplayMessage[]
-): Promise<string | undefined> {
-	const transcript = buildSummaryTranscript(displayMessages)
-	if (!transcript) return undefined
-	const abortController = new AbortController()
-	const timeout = setTimeout(() => abortController.abort(), GENERATED_SUMMARY_TIMEOUT_MS)
-	const messages: ChatCompletionMessageParam[] = [
-		{
-			role: 'system',
-			content:
-				'Name this AI chat session. Return only a concise title, 2 to 6 words, no quotes, no period.'
-		},
-		{
-			role: 'user',
-			content: `Conversation:\n${transcript}`
-		}
-	]
-	try {
-		return normalizeGeneratedSummary(
-			await getNonStreamingMetadataCompletion(messages, abortController)
-		)
-	} finally {
-		clearTimeout(timeout)
-	}
-}
-
 async function generateAndApplySessionSummary(sessionId: string, manager: AIChatManager) {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session || session.summarySource !== 'placeholder') return
 	const chatId = session.chatId
 	if (!chatId) return
-	const title = await generateSessionSummary([...manager.displayMessages])
+	const title = await generateSessionSummary(manager)
 	if (!title) return
 	setGeneratedSessionSummary(sessionId, title, chatId)
 }
@@ -429,12 +389,22 @@ function createRuntime(session: Session): SessionRuntime {
 	// Carried into the tool helpers so this session's preview/deploy tool calls
 	// dispatch to THIS session even when another session is the UI-active one.
 	manager.sessionId = session.id
+	manager.workMode = session.workMode ?? AIWorkMode.BUILD
+	manager.onWorkModeChanged = (mode) => setSessionWorkMode(session.id, mode)
+	manager.workingInResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		// Read from the browser's store, so only a list counts.
+		const roots = Array.isArray(s?.workingIn) ? s.workingIn : undefined
+		return { roots, source: roots ? (s?.workingInSource ?? 'default') : 'default' }
+	}
+	manager.onWorkingInChanged = (roots, source) => setSessionWorkingIn(session.id, roots, source)
 	// Cross-tab awareness: heartbeat while this tab runs a turn, composer lock
 	// (and send refusal) while another tab does. The chat id is read at turn
 	// end, not captured at start — the turn may have rotated it, and the other
 	// tabs re-read whichever record it ended on.
 	manager.runHeldElsewhereResolver = () => runHeldElsewhere(session.id)
 	manager.onRunningChanged = (running) => {
+		markSessionStateChanged(session.id)
 		if (running) localRunStarted(session.id, manager.historyManager.getCurrentChatId())
 		else localRunEnded(session.id, manager.historyManager.getCurrentChatId())
 	}
@@ -453,6 +423,7 @@ function createRuntime(session: Session): SessionRuntime {
 		if (!s) return undefined
 		const wsId = getEffectiveWorkspaceId(s)
 		const ws = get(userWorkspaces).find((w) => w.id === wsId)
+		const dev = findCanonicalDevWorkspace(wsId, get(userWorkspaces))
 		return {
 			workspaceId: wsId,
 			parentWorkspaceId: ws?.parent_workspace_id ?? undefined,
@@ -460,7 +431,8 @@ function createRuntime(session: Session): SessionRuntime {
 			// Committed workspace missing from the list: still a fork (mirrors
 			// isForkSession) — the prompt must not call it the live workspace.
 			forkParentUnknown: !ws && !!s.workspace_id,
-			pendingForkOf: s.pending_fork?.parent_workspace_id
+			pendingForkOf: s.pending_fork?.parent_workspace_id,
+			devWorkspace: dev && { id: dev.id, name: dev.name }
 		}
 	}
 	// What the side panel is showing, stamped on each user message so the chat
@@ -475,15 +447,61 @@ function createRuntime(session: Session): SessionRuntime {
 		// to resolve "this page" and "it" against this block, and a collapsed panel would
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
-		if (!tab) return undefined
+		if (!tab || tab.agentEditor) return undefined
 		if (!slotShowsPage(resolvePreviewTab(tab.url).kind)) return undefined
 		return previewLocationContext(whereIs(tab))
+	}
+	// An agent's editor is a resource tab rather than one of the live editors the draft registry
+	// reports, so the tab model says when one is on screen.
+	manager.activeEditorResolver = () => {
+		const tab = getRuntime(session.id)?.previewTabs?.displayedTab
+		if (!tab?.agentEditor) return undefined
+		const slot = resolvePreviewTab(tab.url)
+		if (slot.kind !== 'pageitem') return undefined
+		return { type: 'agent', path: slot.ref.path, storagePath: slot.ref.path, isLiveDraft: true }
+	}
+	// Drafts held by holdDraftUntilSend. Their sync is suspended, so an edit made meanwhile is
+	// in the cell only, so the save sends the current value whatever the mirror last saw.
+	let heldDrafts: { workspace: string; kind: SessionTargetKind; path: string }[] = []
+	// The live editor's value, else the runtime cell's: a collapsed or remounting preview has
+	// released its UserDraft entry, but the cell lives as long as a tab shows the app.
+	function heldDraftValue(workspace: string, kind: SessionTargetKind, path: string) {
+		const live = UserDraft.get(kind, path, { workspace })
+		if (live !== undefined || kind !== 'raw_app') return live
+		const val = rawAppCells.get(path)?.store.val
+		return val ? runtimeRawAppToDraft(val) : undefined
+	}
+	// A draft leaves the list only once saved: a failed send keeps it held, so its retry saves it.
+	async function persistHeldDrafts(): Promise<void> {
+		while (heldDrafts.length > 0) {
+			const { workspace, kind, path } = heldDrafts[0]
+			const value = heldDraftValue(workspace, kind, path)
+			if (value === undefined) throw new Error('the app to save is no longer open')
+			UserDraft.restartSync(kind, path, { workspace })
+			await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value, immediate: true })
+			const saved = UserDraftDbSyncer.getState({ workspace, itemKind: kind, path })
+			if (saved.state === 'failed') {
+				UserDraft.stopSync(kind, path, { workspace })
+				throw new Error(`the app could not be saved: ${saved.failureMessage ?? 'unknown error'}`)
+			}
+			heldDrafts.shift()
+		}
+	}
+	function isHeldDraft(workspace: string, kind: SessionTargetKind, path: string): boolean {
+		return heldDrafts.some((d) => d.workspace === workspace && d.kind === kind && d.path === path)
+	}
+	function releaseHeldDraft(workspace: string, kind: SessionTargetKind, path: string): void {
+		heldDrafts = heldDrafts.filter(
+			(d) => !(d.workspace === workspace && d.kind === kind && d.path === path)
+		)
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
 	// session targeting the right workspace. Both calls are idempotent.
 	manager.beforeSend = async () => {
+		// Drafts first: a session stored before its app is saved would reopen onto nothing.
+		await persistHeldDrafts()
 		materializeTransient(session.id)
 		// Session is now persisted → flush any linked files buffered while it was transient.
 		await manager.attachedFiles.flushPending()
@@ -579,6 +597,11 @@ function createRuntime(session: Session): SessionRuntime {
 		for (const p of [...flowCells.keys()]) if (!keep.flow.has(p)) flowCells.delete(p)
 		for (const p of [...scriptCells.keys()]) if (!keep.script.has(p)) scriptCells.delete(p)
 		for (const p of [...rawAppCells.keys()]) if (!keep.raw_app.has(p)) rawAppCells.delete(p)
+		// A held app whose tab is gone was dropped before anything was sent: it is not saved.
+		for (const d of heldDrafts.filter((d) => d.kind === 'raw_app' && !keep.raw_app.has(d.path))) {
+			UserDraft.restartSync(d.kind, d.path, { workspace: d.workspace })
+			releaseHeldDraft(d.workspace, d.kind, d.path)
+		}
 	}
 
 	// Hydrate the preview-tab owner from the session record (the durable backing);
@@ -643,16 +666,28 @@ function createRuntime(session: Session): SessionRuntime {
 		carries,
 		onlyIfAlreadyOpen
 	}) => {
-		// Through the shared adapter: a session target spells a code-based app `raw_app` and a
-		// workspace item spells it `app` with a flag, and one place should know that.
-		const target = previewTargetForSessionTarget(kind, path)
-		if (target?.type !== 'item') return false
-		const viewTarget = {
-			...target,
-			item: { ...target.item, summary },
-			mode: 'view' as const,
-			pendingRunId: carries ? toolCallId : undefined
-		}
+		// An agent's deployed page is a page route, which the panel hosts in process; the call
+		// rides in its query, as an item viewer's does.
+		const viewTarget: PreviewTarget | undefined =
+			kind === 'agent'
+				? {
+						type: 'page',
+						href: `/agents/get/${path}${carries ? `?pending_run=${encodeURIComponent(toolCallId)}` : ''}`,
+						label: summary
+					}
+				: (() => {
+						// Through the shared adapter: a session target spells a code-based app `raw_app`
+						// and a workspace item spells it `app` with a flag, and one place should know that.
+						const target = previewTargetForSessionTarget(kind, path)
+						if (target?.type !== 'item') return undefined
+						return {
+							...target,
+							item: { ...target.item, summary },
+							mode: 'view' as const,
+							pendingRunId: carries ? toolCallId : undefined
+						}
+					})()
+		if (!viewTarget) return false
 		// Re-pointed rather than focused: the url is what hands the tab the call, and
 		// rebuilding it also drops whatever version the reader had pinned.
 		const open = previewTabs.tabs.find((t) => {
@@ -1021,6 +1056,19 @@ function createRuntime(session: Session): SessionRuntime {
 		) {
 			const { slot, store, saved } = rawAppCell(path)
 			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
+			// A held draft exists only in this cell: the server has nothing yet, and the preview's
+			// unmount dropped its UserDraft entry, sync suspension included.
+			if (
+				!force &&
+				store.val &&
+				slot.loadedWorkspace === workspace &&
+				isHeldDraft(workspace, 'raw_app', path)
+			) {
+				UserDraft.stopSync('raw_app', path, { workspace })
+				slot.notFound = false
+				slot.loadedPath = path
+				return
+			}
 			// See loadScript: forced reload remounts via the render gate.
 			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
 			slot.loading = true
@@ -1103,21 +1151,7 @@ function createRuntime(session: Session): SessionRuntime {
 				// editor-shaped, same keys the extraction below reads.
 				const draftValue: any = deployedOnly ? undefined : (result as any).draft
 				const sourceValue: any = draftValue ?? result.value
-				let data: RawAppData = { ...DEFAULT_DATA }
-				if (sourceValue?.data) {
-					const d = sourceValue.data
-					if (d.creation) {
-						data = {
-							tables: d.tables ?? [],
-							datatable: d.creation.datatable,
-							schema: d.creation.schema
-						}
-					} else {
-						data = d
-					}
-				} else if (sourceValue?.datatables) {
-					data = { ...DEFAULT_DATA, tables: sourceValue.datatables }
-				}
+				const data: RawAppData = extractDataConfig(sourceValue) ?? { ...DEFAULT_DATA }
 				const runtimeValue = {
 					files: (sourceValue?.files ?? {}) as Record<string, string>,
 					runnables: (sourceValue?.runnables ?? {}) as Record<string, any>,
@@ -1126,6 +1160,7 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
+					labels: draftValue?.labels ?? result.labels,
 					draft_path: draftValue?.draft_path,
 					// Only a fresh checkout forks from the head; a draft keeps its own base,
 					// unknown included, or it would read as up to date. See loadScript.
@@ -1152,15 +1187,14 @@ function createRuntime(session: Session): SessionRuntime {
 					const user = get(userStore)
 					// A builder can save no inline runnable, so the regular starter could never be saved.
 					await workspaceListLoaded()
-					const builder = operatorBuilderAppsIn(workspace)
+					const builder = capabilitiesInWorkspace(workspace).apps === 'compose'
 					saved.val = undefined
 					store.val = {
 						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
 						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
 						data: { ...DEFAULT_DATA },
+						// No run-as user: the deploy dialog resolves it, the folder's default first.
 						policy: {
-							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
-							on_behalf_of_email: user?.email,
 							execution_mode: 'publisher',
 							sandbox: true
 						},
@@ -1181,7 +1215,16 @@ function createRuntime(session: Session): SessionRuntime {
 			}
 		},
 
+		holdDraftUntilSend(workspace, kind, path) {
+			UserDraft.stopSync(kind, path, { workspace })
+			if (!isHeldDraft(workspace, kind, path)) heldDrafts.push({ workspace, kind, path })
+		},
+		holdsDraft: isHeldDraft,
+
 		itemDeployed(workspace, kind, storagePath, deployedPath = storagePath) {
+			// Deployed, it is saved: forcePersist would write a draft over the deployed item.
+			releaseHeldDraft(workspace, kind, storagePath)
+			releaseHeldDraft(workspace, kind, deployedPath)
 			if (deployedPath !== storagePath) {
 				// Nothing is deployed at the storage path, so its editor would go on
 				// creating the item again and its draft would outlive the deploy: drop
@@ -1330,7 +1373,18 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 export function getOrCreateRuntime(session: Session): SessionRuntime {
 	let runtime = runtimes.get(session.id)
 	if (!runtime) {
-		runtime = createRuntime(session)
+		// The manager's `$derived` fields belong to whatever effect is running when they are
+		// built. A runtime outlives the component that first asked for it (Home hands its
+		// session to /sessions and unmounts), so give it a root of its own; built inside the
+		// component, its deriveds turn inert once that component is gone.
+		let created: SessionRuntime | undefined
+		runtimeRoots.set(
+			session.id,
+			$effect.root(() => {
+				created = createRuntime(session)
+			})
+		)
+		runtime = created!
 		runtimes.set(session.id, runtime)
 		// The gate opens even when the restore fails: a session that cannot read its
 		// history is still usable, and a send that waits forever is not.
@@ -1339,21 +1393,6 @@ export function getOrCreateRuntime(session: Session): SessionRuntime {
 		)
 	}
 	return runtime
-}
-
-export function disposeRuntime(sessionId: string) {
-	const runtime = runtimes.get(sessionId)
-	if (!runtime) return
-	runtime.manager.cancel('runtime disposed')
-	runtime.manager.historyManager.close()
-	runtimes.delete(sessionId)
-	// The sidebar reads the stored chat again rather than trust a read that
-	// predates everything this runtime saw.
-	peeks.delete(sessionId)
-}
-
-export function listRuntimes(): SessionRuntime[] {
-	return Array.from(runtimes.values())
 }
 
 /** A pipeline deleted outside the session: every live session on its workspace
@@ -1366,75 +1405,6 @@ export function forgetDeletedPipeline(workspace: string, folder: string): void {
 		void runtime.forgetPipelineDrafts(key)
 		void runtime.manager.removeModifiedItem(PIPELINE_DRAFT_KIND, pipelineBundlePath(key))
 	}
-}
-
-export function getRuntime(sessionId: string): SessionRuntime | undefined {
-	return runtimes.get(sessionId)
-}
-
-// ---------------------------------------------------------------------------
-// Cross-tab catch-up
-// ---------------------------------------------------------------------------
-
-// Chained per session so two turn-ends close together (a turn plus its queued
-// follow-up) re-read sequentially: the later read starts after the earlier
-// one's loadPastChat, so the newest record is what ends up on screen.
-const catchUps = new Map<string, Promise<void>>()
-
-onRemoteTurnEnd((sessionId, chatId) => {
-	const next = (catchUps.get(sessionId) ?? Promise.resolve())
-		.then(() => applyRemoteTurnEnd(sessionId, chatId))
-		.catch((e) => console.error('Failed to catch up on a turn from another tab', e))
-	catchUps.set(sessionId, next)
-	void next.finally(() => {
-		if (catchUps.get(sessionId) === next) catchUps.delete(sessionId)
-	})
-	// Awaited by the caller: the composer unlock rides on this settling.
-	return next
-})
-
-async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<void> {
-	const runtime = runtimes.get(sessionId)
-	if (!runtime) {
-		// The driving tab may have rotated to a new chat; follow it, or the next
-		// read and a later runtime would open the old one.
-		setSessionChatId(sessionId, chatId)
-		refreshSessionChatPeek(sessionId)
-		return
-	}
-	const m = runtime.manager
-	// Two transient states get a short retry rather than a skip, because the
-	// composer unlocks when this promise settles and a skip would unlock it on
-	// stale history: a send of this tab's own still in preflight (it may yet be
-	// refused, leaving no turn to converge on), and a store that failed to
-	// open. A turn actually running here owns the transcript instead — its own
-	// end converges — and the pruner caps the whole hold at STALE_MS anyway.
-	for (let attempt = 0; ; attempt++) {
-		if (m.loading) return
-		if (!m.sendInFlight) {
-			const res = await m.historyManager.reloadChat(chatId)
-			if (res === 'missing') return
-			if (res === 'loaded') break
-		}
-		if (attempt >= 7) return
-		await new Promise((r) => setTimeout(r, 500))
-		if (runtimes.get(sessionId) !== runtime) return
-	}
-	// Disposed (session deleted, teardown) while the read was in flight.
-	if (runtimes.get(sessionId) !== runtime) return
-	// Adopts the driver's chat unconditionally, current view included: watching
-	// a session means following where its activity is, and it is also how tabs
-	// converge after an unsynced /clear rotation. A watcher browsing an older
-	// conversation is pulled along — deliberate, and the price of not syncing
-	// rotation as its own message.
-	//
-	// preserveQueue: this reload is a catch-up, not a conversation switch — a
-	// draft queued here (a refused send's kept message, a failed turn's card)
-	// is unsent user input the re-read must not destroy.
-	await m.loadPastChat(chatId, { preserveQueue: true })
-	// loadPastChat's own artifact sync no-ops for an unchanged session id, so
-	// artifacts the driver wrote during the turn need this forced re-read.
-	await m.artifacts.resyncFromStore()
 }
 
 // Point a session's preview at a single seed tab. For re-pointing an existing
@@ -1450,29 +1420,13 @@ export function resetSessionPreviewTabs(sessionId: string, seedUrl: string): voi
 	const rt = runtimes.get(sessionId)
 	if (rt) {
 		rt.previewTabs.reset(tabs, 'session')
+		// Written to the record now, not after the owner's debounce: the sessions page judges
+		// the arrival by the record's tabs, and a draft without any opens on Home instead.
+		rt.previewTabs.flushNow()
 	} else {
 		setSessionTabs(sessionId, tabs, 'session')
 		setSessionPreviewCollapsed(sessionId, false)
 	}
-}
-
-export type SessionChatStatus =
-	| 'idle'
-	| 'streaming'
-	// The assistant's turn ended and the user has yet to reply — passive, unlike
-	// 'awaiting-answer'/'needs-confirmation', where a running loop is blocked.
-	| 'awaiting-user'
-	| 'awaiting-answer'
-	| 'needs-confirmation'
-	| 'draft'
-	| 'error'
-
-// Full session teardown: dispose the runtime and remove from sessionState in one
-// call. Callers (sidebar / header dropdowns) just invoke this; navigation away
-// from a deleted active session is the caller's responsibility.
-export function removeSession(sessionId: string): void {
-	disposeRuntime(sessionId)
-	deleteSessionState(sessionId)
 }
 
 // The chat calls a new item by its chosen name while its draft is stored at
@@ -1501,6 +1455,19 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) {
 		return 'Error: no active session to open the preview in.'
+	}
+	// An agent's editor is its resource tab, and its deployed page the agent's own.
+	if (kind === 'agent') {
+		const view = mode === 'view'
+		const result = getOrCreateRuntime(session).previewTabs.open(
+			view
+				? { type: 'page', href: `/agents/get/${path}`, label: path }
+				: { type: 'pageitem', ref: { kind: 'resource', path } }
+		)
+		const side = view ? 'deployed page' : 'editor'
+		return result.status === 'focused'
+			? `A preview tab is already showing the ${side} of agent "${path}" — focused it.`
+			: `Opened the ${side} of agent "${path}" in a new tab in the side panel.`
 	}
 	const target = previewTargetForSessionTarget(
 		kind,
@@ -1797,103 +1764,3 @@ setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
 		}
 	}
 })
-
-export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {
-	const m = runtime.manager
-	const last = m.displayMessages[m.displayMessages.length - 1]
-	// A loop parked on the user still reports `loading`, so these must be tested
-	// before `streaming` — otherwise "answer me" renders as "the AI is typing"
-	// and a session that needs the user looks like one that doesn't.
-	const pending = pendingUserAction(m.displayMessages)
-	if (pending === 'question') return 'awaiting-answer'
-	if (pending === 'confirmation') return 'needs-confirmation'
-	if (m.loading) return 'streaming'
-	if (m.instructions.trim().length > 0) return 'draft'
-	if (last?.role === 'user' && last.error) return 'error'
-	if (last && (last.role === 'assistant' || last.role === 'tool')) return 'awaiting-user'
-	return 'idle'
-}
-
-// ---------------------------------------------------------------------------
-// Sessions without a runtime
-// ---------------------------------------------------------------------------
-
-// A runtime costs a chat manager and its loaded transcript, and lives until its
-// session is deleted, so the sidebar does not create one per listed session. It
-// reads the session's one stored chat instead, once. Without a runtime nothing
-// runs in this tab, so only two facts of that chat can matter: its length (for
-// the unread count) and whether its last message failed. Every other status is
-// a live one.
-export interface SessionChatPeek {
-	status: 'error' | 'idle'
-	messageCount: number
-}
-
-const peeks = new SvelteMap<string, SessionChatPeek>()
-const peeksInFlight = new Set<string>()
-const peeksPendingRefresh = new Set<string>()
-
-// Not gated on `detached`: a chat saved mid-wait stores its job undetached, and
-// loadPastChat resumes polling every unfinished job either way.
-function isLiveJob(j: ChatJob): boolean {
-	return (
-		j.status === 'queued' ||
-		j.status === 'running' ||
-		j.status === 'suspended' ||
-		j.status === 'scheduled'
-	)
-}
-
-function sessionById(sessionId: string): Session | undefined {
-	return sessionState.sessions.find((s) => s.id === sessionId)
-}
-
-function refreshSessionChatPeek(sessionId: string): void {
-	peeks.delete(sessionId)
-	if (peeksInFlight.has(sessionId)) {
-		peeksPendingRefresh.add(sessionId)
-		return
-	}
-	const session = sessionById(sessionId)
-	if (session) void ensureSessionChatPeek(session)
-}
-
-export function getSessionChatPeek(sessionId: string): SessionChatPeek | undefined {
-	return peeks.get(sessionId)
-}
-
-/** Read the stored chat of a session that has no runtime. A chat with a detached
- *  job still running gets its runtime instead: only a runtime polls the job and
- *  resumes the conversation when it finishes. */
-export async function ensureSessionChatPeek(session: Session): Promise<void> {
-	const id = session.id
-	const chatId = session.chatId
-	if (runtimes.has(id) || peeks.has(id) || peeksInFlight.has(id) || !chatId) return
-	const email = getCurrentUserEmail()
-	if (!email) return
-	peeksInFlight.add(id)
-	try {
-		const chat = await readStoredChat(chatId, email)
-		if (sessionById(id)?.chatId !== chatId) {
-			refreshSessionChatPeek(id)
-			return
-		}
-		if (!chat || runtimes.has(id)) return
-		if (chat.backgroundJobs?.some(isLiveJob)) {
-			getOrCreateRuntime(session)
-			return
-		}
-		const last = chat.displayMessages[chat.displayMessages.length - 1]
-		peeks.set(id, {
-			status: last?.role === 'user' && last.error ? 'error' : 'idle',
-			messageCount: chat.displayMessages.length
-		})
-	} catch (e) {
-		console.error('Failed to read session chat', e)
-	} finally {
-		peeksInFlight.delete(id)
-		if (peeksPendingRefresh.delete(id)) {
-			refreshSessionChatPeek(id)
-		}
-	}
-}

@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::flows::FlowValue;
+use crate::flows::{FlowValue, Suspend};
 
 const MINUTES: Duration = Duration::from_secs(60);
 const HOURS: Duration = MINUTES.saturating_mul(60);
@@ -218,6 +218,31 @@ pub enum AgentAction {
     },
     Message {},
     WebSearch {},
+    /// The agent is parked until someone approves or rejects these calls of tools that require
+    /// it; it is answered once its `agent_actions_success` entry is written. `call_id` is the
+    /// first call's, and names the request.
+    Approval {
+        call_id: String,
+        calls: Vec<ApprovalCall>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
+    /// The agent is parked until someone answers its question, the same way.
+    Question {
+        call_id: String,
+        question: String,
+        /// Answers the model proposes; a free-text answer is always possible.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        choices: Vec<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        multi_select: bool,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ApprovalCall {
+    pub function_name: String,
+    pub arguments: serde_json::Value,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -409,6 +434,21 @@ pub enum JobResult {
 }
 
 impl FlowStatusModule {
+    /// Whether this completed step's suspend gate could block and never opened (it timed out or
+    /// was disapproved): `approvers` is written when the gate opens, and is the only record of it
+    /// that outlives the run, since its resume_job rows are deleted with its queue row.
+    pub fn suspend_gate_never_opened(&self, suspend: Option<&Suspend>) -> bool {
+        let Some(suspend) = suspend else {
+            return false;
+        };
+        if suspend.required_events.unwrap_or(0) == 0
+            || suspend.continue_on_disapprove_timeout.unwrap_or(false)
+        {
+            return false;
+        }
+        matches!(self, FlowStatusModule::Success { skipped: false, approvers, .. } if approvers.is_empty())
+    }
+
     pub fn job(&self) -> Option<Uuid> {
         match self {
             FlowStatusModule::WaitingForPriorSteps { .. } => None,

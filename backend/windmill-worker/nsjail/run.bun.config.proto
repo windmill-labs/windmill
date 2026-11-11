@@ -11,7 +11,7 @@ mount_proc: true
 
 cwd: "/tmp/{LANG}"
 
-clone_newnet: false
+clone_newnet: {CLONE_NEWNET}
 clone_newuser: {CLONE_NEWUSER}
 clone_newcgroup: false
 

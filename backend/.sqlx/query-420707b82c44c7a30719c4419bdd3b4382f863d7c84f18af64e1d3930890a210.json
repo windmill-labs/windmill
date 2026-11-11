@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM workspace_diff\n                     WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'\n                       AND path = 'u/admin/inline' AND fork_last_event_kind = 'write')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "420707b82c44c7a30719c4419bdd3b4382f863d7c84f18af64e1d3930890a210"
+}

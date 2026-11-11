@@ -59,6 +59,8 @@ use windmill_common::utils::rd_string;
 pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
+#[cfg(feature = "parquet")]
+pub mod fork_store;
 
 // Re-export object_store types so consumers don't need a direct object_store dep
 #[cfg(feature = "parquet")]

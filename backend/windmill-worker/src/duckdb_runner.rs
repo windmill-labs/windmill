@@ -23,8 +23,7 @@ use windmill_common::error::{Error, Result};
 
 use crate::{
     common::{build_command_with_isolation, resolve_nsjail_tmp_mount_block, DEV_CONF_NSJAIL},
-    is_sandboxing_enabled, is_unshare_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE,
-    NSJAIL_PATH, PATH_ENV,
+    is_sandboxing_enabled, is_unshare_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
 };
 
 const NSJAIL_CONFIG_RUN_DUCKDB_CONTENT: &str = include_str!("../nsjail/run.duckdb.config.proto");
@@ -42,7 +41,9 @@ pub(crate) enum RunnerMode {
 
 /// Decided once per job, so every connection a job opens runs the same way.
 pub(crate) fn runner_mode() -> RunnerMode {
-    if cfg!(unix) && is_sandboxing_enabled() && NSJAIL_AVAILABLE.is_some() {
+    // Not gated on `NSJAIL_AVAILABLE`: a sandboxed worker whose nsjail cannot jail must fail
+    // the job, as every other jailed executor does, not run it outside the jail.
+    if cfg!(unix) && is_sandboxing_enabled() {
         RunnerMode::Jailed
     } else if is_unshare_enabled() {
         // `build_command_with_isolation` logs and runs unisolated when `unshare` is missing,
@@ -166,28 +167,37 @@ fn needed_extensions(blocks: &[String]) -> Vec<String> {
 
 static INSTALLED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
 
-/// Installs, outside the jail, what the job will load inside it. The runner only runs
-/// `INSTALL` here, and only of statements built above, so no script SQL and no extension
-/// code runs unjailed. Once per extension per worker process.
-async fn install_missing_extensions(blocks: &[String], job_dir: &str) -> Result<()> {
+/// Installs, ahead of the job and with the worker's proxy, what the job will load: into the
+/// jail's cache for a jailed run, or into the runner's default one for a run that does not get
+/// the proxy and so could not download them itself. The runner only runs `INSTALL` here, and
+/// only of statements built above, so no script SQL and no extension code runs unjailed. Once
+/// per extension per cache per worker process.
+async fn install_missing_extensions(
+    blocks: &[String],
+    job_dir: &str,
+    jail_cache: bool,
+) -> Result<()> {
+    let key = |s: &String| format!("{jail_cache}:{s}");
     let missing: Vec<String> = {
         let installed = INSTALLED.lock().unwrap();
         needed_extensions(blocks)
             .into_iter()
-            .filter(|s| s.starts_with("FORCE ") || !installed.contains(s))
+            .filter(|s| s.starts_with("FORCE ") || !installed.contains(&key(s)))
             .collect()
     };
     if missing.is_empty() {
         return Ok(());
     }
-    let ext_dir = extension_dir();
-    tokio::fs::create_dir_all(&ext_dir).await?;
-    let blocks: Vec<String> = std::iter::once(format!(
-        "SET extension_directory='{}';",
-        ext_dir.replace('\'', "''")
-    ))
-    .chain(missing.iter().cloned())
-    .collect();
+    let mut blocks = Vec::with_capacity(missing.len() + 1);
+    if jail_cache {
+        let ext_dir = extension_dir();
+        tokio::fs::create_dir_all(&ext_dir).await?;
+        blocks.push(format!(
+            "SET extension_directory='{}';",
+            ext_dir.replace('\'', "''")
+        ));
+    }
+    blocks.extend(missing.iter().cloned());
     let out = spawn_runner(
         RunnerMode::Plain,
         &RunnerRequest {
@@ -209,10 +219,13 @@ async fn install_missing_extensions(blocks: &[String], job_dir: &str) -> Result<
     if let Some(raw) = out.result.strip_prefix("ERROR ") {
         let msg = serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string());
         return Err(Error::ExecutionErr(format!(
-            "Installing DuckDB extensions for the jailed runner failed: {msg}"
+            "Installing DuckDB extensions ahead of the job failed: {msg}"
         )));
     }
-    INSTALLED.lock().unwrap().extend(missing.into_iter().filter(|s| !s.starts_with("FORCE ")));
+    INSTALLED
+        .lock()
+        .unwrap()
+        .extend(missing.iter().filter(|s| !s.starts_with("FORCE ")).map(key));
     Ok(())
 }
 
@@ -280,18 +293,35 @@ fn parse_duckdb_size(s: &str) -> Option<u64> {
     Some((num * mult) as u64)
 }
 
+/// DuckDB's prebuilt linux_amd64 extensions target x86-64-v3, and every job loads httpfs, so
+/// on a CPU without AVX2 the runner would die with SIGILL and an opaque crash message.
+fn check_cpu_supported() -> Result<()> {
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    if !std::arch::is_x86_feature_detected!("avx2") {
+        return Err(Error::ExecutionErr(
+            "DuckDB requires a CPU with AVX2 (x86-64-v3): its extensions crash on this worker's \
+             CPU. On a VM, set the CPU type to `host` or `x86-64-v3` (Proxmox's default \
+             `x86-64-v2-AES` hides AVX2; on VMware, raise the EVC mode to Haswell or later), or \
+             run DuckDB jobs on a worker group with a newer CPU."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) async fn run(
     mode: RunnerMode,
     req: &RunnerRequest<'_>,
     job_dir: &str,
 ) -> Result<RunnerOutput> {
+    check_cpu_supported()?;
     let spill_dir = format!("{}/spill", work_dir(job_dir));
     tokio::fs::create_dir_all(&spill_dir).await?;
     let req = RunnerRequest { temp_directory: &spill_dir, ..*req };
-    if mode != RunnerMode::Jailed {
+    if mode != RunnerMode::Jailed && crate::passes_proxy_to_jobs() {
         return spawn_runner(mode, &req, job_dir).await;
     }
-    install_missing_extensions(req.blocks, job_dir).await?;
+    install_missing_extensions(req.blocks, job_dir, mode == RunnerMode::Jailed).await?;
     let blocks = unforce_installs(req.blocks);
     spawn_runner(mode, &RunnerRequest { blocks: &blocks, ..req }, job_dir).await
 }
@@ -437,19 +467,24 @@ async fn spawn_runner(
     if let Some(cap) = &spill_cap {
         cmd.env("DUCKDB_MAX_TEMP_DIRECTORY_SIZE", cap);
     }
-    for var in [
-        "GOOGLE_APPLICATION_CREDENTIALS",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "NO_PROXY",
-        "ALL_PROXY",
-        "http_proxy",
-        "https_proxy",
-        "no_proxy",
-        "all_proxy",
-    ] {
-        if let Ok(v) = std::env::var(var) {
-            cmd.env(var, v);
+    if let Ok(v) = std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
+        cmd.env("GOOGLE_APPLICATION_CREDENTIALS", v);
+    }
+    // An `Install` request only fetches extensions, a dependency install that keeps the proxy.
+    if matches!(req.mode, RequestMode::Install) || crate::passes_proxy_to_jobs() {
+        for var in [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "NO_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "no_proxy",
+            "all_proxy",
+        ] {
+            if let Ok(v) = std::env::var(var) {
+                cmd.env(var, v);
+            }
         }
     }
 
@@ -475,6 +510,7 @@ async fn spawn_runner(
             });
         }
     }
+    crate::common::apply_nsjail_gvisor_compat(&cmd)?;
     let mut child = cmd.spawn().map_err(|e| {
         Error::InternalErr(format!("Could not start the DuckDB runner ({mode:?}): {e}"))
     })?;

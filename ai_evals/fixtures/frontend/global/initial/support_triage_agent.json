@@ -1,0 +1,18 @@
+{
+  "workspace": {
+    "resources": [
+      {
+        "path": "f/evals/global/support_triage",
+        "resource_type": "ai_agent",
+        "description": "Triages incoming support tickets",
+        "value": {
+          "provider": { "kind": "anthropic", "model": "claude-sonnet-5", "resource": "" },
+          "output_type": "text",
+          "system_prompt": "Classify each ticket as billing, bug or question, then reply with the label only.",
+          "memory": { "kind": "off" },
+          "tools": []
+        }
+      }
+    ]
+  }
+}

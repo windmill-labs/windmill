@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n             SET operator_settings = COALESCE(operator_settings, '{}'::jsonb) || $1\n             WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "80977e90833b63da4cdde111db80d78c8e577dbce51f8571a9ffe3e8e1e652a1"
+}

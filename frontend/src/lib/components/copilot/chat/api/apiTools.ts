@@ -109,6 +109,7 @@ export function createApiTools(
 			def: chatTool,
 			planModeSafe: !!endpoint && ['GET', 'HEAD', 'OPTIONS'].includes(method),
 			requiresConfirmation: needsConfirmation,
+			confirmAction: method === 'DELETE' ? 'delete' : 'confirm',
 			confirmationMessage: `Run ${toolName}`,
 			showDetails: true,
 			showFade: true,

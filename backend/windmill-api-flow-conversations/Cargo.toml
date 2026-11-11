@@ -7,6 +7,9 @@ edition.workspace = true
 [lib]
 name = "windmill_api_flow_conversations"
 path = "src/lib.rs"
+# src/ has no unit tests or doctests: remove both lines before adding one, or cargo test never runs it.
+test = false
+doctest = false
 
 [dependencies]
 windmill-api-auth.workspace = true

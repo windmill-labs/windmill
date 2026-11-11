@@ -88,10 +88,9 @@ export async function uploadAttachments(
       attachments.map(async (attachment, index) => {
         try {
           const blob = attachmentBlob(attachment)
-          const filename = storedAttachmentName(
-            attachment.name || `attachment-${index + 1}`,
-            blob.type
-          )
+          // The last segment only: the name may come from whoever sent the file.
+          const name = attachment.name?.split(/[\\/]/).pop()?.replace(/^\.+$/, '')
+          const filename = storedAttachmentName(name || `attachment-${index + 1}`, blob.type)
           const { file_key } = await api.uploadFile(`${prefix}/${index}/${filename}`, blob, {
             contentType: blob.type,
             signal: batch.signal

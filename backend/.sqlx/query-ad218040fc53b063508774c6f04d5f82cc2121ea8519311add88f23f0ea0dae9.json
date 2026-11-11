@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE usr SET added_via = $1, is_admin = $2 WHERE username = $3 AND workspace_id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ad218040fc53b063508774c6f04d5f82cc2121ea8519311add88f23f0ea0dae9"
+}

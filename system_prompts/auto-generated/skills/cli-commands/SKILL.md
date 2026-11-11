@@ -182,7 +182,7 @@ flow related commands
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
   - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
-- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
+- `flow preview <flow_path:string>` - preview a local flow without deploying it. <flow_path> is the flow's Windmill path (f/x/my_flow), its .flow/__flow folder or its flow.yaml. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
@@ -540,6 +540,20 @@ resource type related commands
 - `resource-type new <name:string>` - create a new resource type locally
 - `resource-type push <file_path:string> <name:string>` - push a local resource spec. This overrides any remote versions.
 - `resource-type generate-namespace` - Create a TypeScript definition file with the RT namespace generated from the resource types
+
+### review
+
+Review a pull request on a git sync repository with the workspace's AI, the way deployment requests are reviewed. Reads the changes and the base branch's review instructions from git; the instance, workspace and token come from the flags, never from the checkout's wmill.yaml.
+
+**Options:**
+- `--base <ref:string>` - The base branch commit. Defaults to the pull_request event's base.
+- `--head <ref:string>` - The pull request's commit. Defaults to the event's head, else HEAD.
+- `--model <model:string>` - provider:model to review with. Defaults to the workspace's default model.
+- `--folder <dir:string>` - The repository directory the workspace is synced into, when it is not the root.
+- `--json` - Print the review as JSON
+- `--post <target:string>` - Post the review on the pull request. Only `github` is supported.
+- `--pr <number:number>` - The pull request number. Defaults to the pull_request event's.
+- `--fail-on <severity:string>` - Exit with 1 when a finding is at least this severe: high, medium or low.
 
 ### schedule
 

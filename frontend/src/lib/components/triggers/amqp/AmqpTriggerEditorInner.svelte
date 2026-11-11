@@ -91,7 +91,6 @@
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	const wsId = $derived($operatingWorkspace)
 
 	let amqp_resource_path: string = $state('')
@@ -586,7 +585,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!actingUser?.operator}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
 					/>
 				</Section>
 			{/if}

@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT is_admin, operator, workspace_role, email FROM usr where username = $1 AND workspace_id = $2 AND disabled = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "884dd7d41713a964a0fbb854d6e54cff4538e230b3cd72dd2e840a08b2a178d9"
+}

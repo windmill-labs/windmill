@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Runnable, StaticAppInput } from '$lib/components/apps/inputType'
+import type { PathRunType, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 import { schemaToInputsSpec } from '$lib/components/apps/utils'
 import { defaultIfEmptyString } from '$lib/utils'
 
@@ -10,7 +10,7 @@ export type LoadedRunnableSchema = {
 
 export function buildPathRunnableSelection(
 	path: string,
-	runType: 'script' | 'flow' | 'hubscript',
+	runType: PathRunType,
 	loadedSchema: LoadedRunnableSchema,
 	defaultUserInput: boolean,
 	rawApps: boolean

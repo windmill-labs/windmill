@@ -86,6 +86,8 @@ type HubPaths = {
 	teamsErrorHandler: string
 	teamsRecoveryHandler: string
 	teamsSuccessHandler: string
+	slackVariableExpirationHandler: string
+	teamsVariableExpirationHandler: string
 	emailErrorHandler: string
 	cloneRepoToS3forGitRepoViewer: string
 	appReport: string

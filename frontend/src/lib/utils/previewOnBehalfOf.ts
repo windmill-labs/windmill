@@ -5,8 +5,9 @@ type ActingUser =
 /**
  * The identity an editor preview should run as: the runnable's configured run-as identity, so a
  * test behaves like the current deployed run. Only admins and `wm_deployers` may preview as
- * someone else, and never operators (the server refuses everyone else); anyone else previews as
- * themselves, which is also what their own save would record.
+ * someone else, and never a role without `code`, which is what `operator` carries (the server
+ * refuses everyone else); anyone else previews as themselves, which is also what their own save
+ * would record.
  */
 export function previewOnBehalfOf(
 	user: ActingUser,

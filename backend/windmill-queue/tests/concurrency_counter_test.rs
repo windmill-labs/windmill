@@ -349,8 +349,10 @@ mod concurrency {
     /// `limit` and spawns N workers; all must reject. Reports elapsed.
     /// Useful for comparing legacy FOR-UPDATE-on-every-pull vs the lockless
     /// precheck — same setup, just toggle the function under test by checking
-    /// out the legacy file before running.
+    /// out the legacy file before running. `bail_path_no_admits_when_full` pins the
+    /// zero-admit behavior in CI.
     #[sqlx::test(migrations = "../migrations")]
+    #[ignore = "manual benchmark: cargo test --test concurrency_counter_test -- --ignored"]
     async fn bench_over_limit_storm(db: Pool<Postgres>) {
         let key = "bench-over-limit-storm".to_string();
         let limit: i32 = 5;
@@ -408,8 +410,10 @@ mod concurrency {
     /// fail with the offending iteration index.
     ///
     /// This is a single test rather than 500 cargo invocations so the cost
-    /// is one DB setup, not 500. Total ~30s.
+    /// is one DB setup, not 500. Total ~30s, so it is a manual soak: in CI
+    /// `stress_never_over_admits` and `stress_matrix` run the same storm.
     #[sqlx::test(migrations = "../migrations")]
+    #[ignore = "manual soak: cargo test --test concurrency_counter_test -- --ignored"]
     async fn long_haul_stress(db: Pool<Postgres>) {
         let limit: i32 = 2;
         let workers: usize = 100;

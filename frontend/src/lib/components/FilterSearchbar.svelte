@@ -3,6 +3,10 @@
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import { formatDatePretty, parsePrettyDate, type IconType } from '$lib/utils'
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	// Its date-fns would otherwise load with every list page that has a searchbar.
+	const calendarModule = lazyModule(() => import('./common/InlineCalendarInput.svelte'))
 
 	export type FilterSchemaRec = Record<string, FilterSchema>
 	export type FilterSchema = (
@@ -69,6 +73,19 @@
 	 */
 	export function hasActiveFilters(val: Record<string, unknown>): boolean {
 		return Object.values(val).some((v) => v !== undefined && v !== null && v !== '' && v !== false)
+	}
+
+	/**
+	 * Whether typed text names a filter: every word of the query must occur in its label or
+	 * key, in any order, so "archive" and "archived only" both find "Only archived".
+	 */
+	export function filterMatchesQuery(key: string, filter: FilterSchema, query: string): boolean {
+		const words = query.replace(/\\(.)/g, '$1').toLowerCase().split(/\s+/).filter(Boolean)
+		const haystack = [filter.label, key, key.replaceAll('_', ' ')]
+			.filter(Boolean)
+			.join(' ')
+			.toLowerCase()
+		return words.every((w) => haystack.includes(w))
 	}
 
 	/**
@@ -319,10 +336,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import Badge from './common/badge/Badge.svelte'
-	import InlineCalendarInput, {
-		fromCalendarDate,
-		toCalendarDate
-	} from './common/InlineCalendarInput.svelte'
+	import { fromCalendarDate, toCalendarDate } from './common/calendarDate'
 	import { ButtonType } from './common'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
@@ -437,12 +451,7 @@
 			return Object.entries(schema)
 				.filter(([_, s]) => !s.hidden)
 				.filter(([k, _]) => !(k in value))
-				.filter(([k, filterSchema]) => {
-					if (!searchText) return true
-					const label = (filterSchema.label || k).toLowerCase()
-					const key = k.toLowerCase()
-					return label.includes(searchText) || key.includes(searchText)
-				})
+				.filter(([k, filterSchema]) => filterMatchesQuery(k, filterSchema, searchText))
 				.map(([key, filterSchema]) => ({
 					type: 'filter' as const,
 					key,
@@ -541,6 +550,15 @@
 		}
 		return []
 	})
+
+	// Free-text mode keeps the keyboard for the surrounding list, but a term that names a
+	// filter ("archive" → "Only archived") still lists the matching filters, click-only.
+	let freeTextFilterHint = $derived(
+		open &&
+			!dropdownVisible &&
+			currentTextSegment.text.trim().length >= 3 &&
+			menuItems.some((i) => i.type === 'filter')
+	)
 
 	// Reset highlighted index when menu items change
 	$effect(() => {
@@ -647,7 +665,13 @@
 	function handleKeyDown(e: KeyboardEvent) {
 		// In free-text mode the dropdown is hidden; let arrow/enter keys pass through to
 		// the surrounding UI (e.g. list navigation) rather than steering a hidden menu.
-		if (!dropdownVisible) return
+		if (!dropdownVisible) {
+			// The hint sits over the list's first rows, so it gets out of the way once the list
+			// is being navigated; the next typed character brings it back.
+			if (freeTextFilterHint && ['Escape', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key))
+				open = false
+			return
+		}
 		if (e.key === 'Escape') {
 			open = false
 			return
@@ -786,7 +810,7 @@
 </div>
 
 <GenericDropdown
-	open={dropdownVisible}
+	open={dropdownVisible || freeTextFilterHint}
 	instantClose={hideDropdownOnFreeText}
 	getInputRect={() => {
 		const r = inputElement?.getBoundingClientRect() ?? new DOMRect()
@@ -800,15 +824,19 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div class="py-1 p-2 overflow-y-auto" onmousedown={(e) => e.stopPropagation()}>
 		{#if !currentTag || !schema[currentTag]}
-			{#if presets.length}
-				<div class="text-xs px-2 my-2 font-bold">Presets</div>
+			{#if presets.length && !freeTextFilterHint}
+				<div class="text-2xs uppercase tracking-wide font-semibold text-secondary px-2 my-2">
+					Presets
+				</div>
 				<div class="mb-3 px-2 flex gap-2 flex-wrap max-h-24 overflow-y-auto">
 					{#each presets as preset}
 						{@render presetTag(preset)}
 					{/each}
 				</div>
 			{/if}
-			<div class="text-xs px-2 my-2 font-bold">Filters</div>
+			<div class="text-2xs uppercase tracking-wide font-semibold text-secondary px-2 my-2">
+				Filters
+			</div>
 			{#each menuItems as item, index}
 				{#if item.type === 'filter' && item.filterSchema}
 					{@render menuItem({
@@ -816,7 +844,7 @@
 						onClick: item.onClick,
 						label: item.filterSchema.label || item.key,
 						description: item.filterSchema.description,
-						highlighted: index === highlightedIndex
+						highlighted: index === highlightedIndex && !freeTextFilterHint
 					})}
 				{/if}
 			{/each}
@@ -861,35 +889,37 @@
 	{:else if filter.type === 'date'}
 		{@const filterMode = filter.mode}
 		<div class="p-3 mb-1">
-			{#if !filterMode || filterMode === 'single'}
-				<InlineCalendarInput
-					bind:value={
-						() => toCalendarDate(value[currentTag!]),
-						(v) => {
-							setValueForCurrentTag(fromCalendarDate(v))
-							taggedTextInput?.preventCursorMoveOnNextSync()
+			{#await calendarModule.load() then { default: InlineCalendarInput }}
+				{#if !filterMode || filterMode === 'single'}
+					<InlineCalendarInput
+						bind:value={
+							() => toCalendarDate(value[currentTag!]),
+							(v) => {
+								setValueForCurrentTag(fromCalendarDate(v))
+								taggedTextInput?.preventCursorMoveOnNextSync()
+							}
 						}
-					}
-				/>
-			{:else}
-				{@const curr = toCalendarDate(value[currentTag!])}
-				{@const obj =
-					filterMode === 'end'
-						? { start: toCalendarDate(value[filter.otherField as keyof SchemaT]), end: curr }
-						: { end: toCalendarDate(value[filter.otherField as keyof SchemaT]), start: curr }}
-				<InlineCalendarInput
-					mode="range"
-					onClickBehavior={`set-${filterMode}`}
-					infiniteRange
-					bind:value={
-						() => obj,
-						(v) => {
-							setValueForCurrentTag(fromCalendarDate(v[filterMode]))
-							taggedTextInput?.preventCursorMoveOnNextSync()
+					/>
+				{:else}
+					{@const curr = toCalendarDate(value[currentTag!])}
+					{@const obj =
+						filterMode === 'end'
+							? { start: toCalendarDate(value[filter.otherField as keyof SchemaT]), end: curr }
+							: { end: toCalendarDate(value[filter.otherField as keyof SchemaT]), start: curr }}
+					<InlineCalendarInput
+						mode="range"
+						onClickBehavior={`set-${filterMode}`}
+						infiniteRange
+						bind:value={
+							() => obj,
+							(v) => {
+								setValueForCurrentTag(fromCalendarDate(v[filterMode]))
+								taggedTextInput?.preventCursorMoveOnNextSync()
+							}
 						}
-					}
-				/>
-			{/if}
+					/>
+				{/if}
+			{/await}
 		</div>
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
@@ -947,18 +977,18 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		class={twMerge(
-			'py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm flex items-center gap-3',
+			'py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-xs text-primary flex items-center gap-2',
 			highlighted && 'bg-surface-hover'
 		)}
 		onclick={onClick}
 	>
 		{#if Icon}
-			<Icon size={16} class="inline" />
+			<Icon size={14} class="inline shrink-0" />
 		{/if}
 		<div class="inline flex-1 relative min-w-0">
-			<div class="text-sm ellipsize">{label}</div>
+			<div class="ellipsize">{label}</div>
 			{#if description}
-				<div class="text-xs text-hint">{description}</div>
+				<div class="text-2xs text-hint">{description}</div>
 			{/if}
 		</div>
 		{#if onNegativeClick}

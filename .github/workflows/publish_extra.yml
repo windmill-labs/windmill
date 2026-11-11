@@ -13,22 +13,56 @@ on:
 permissions: write-all
 
 jobs:
-  sleep:
+  # A release builds on its own ee-slim, pinned by digest (:latest is still the
+  # previous release while this one builds), and waits for its python client to
+  # be on PyPI, since lsp/Pipfile requires it.
+  base_image:
     runs-on: ubicloud
+    outputs:
+      image: ${{ steps.base.outputs.image }}
     steps:
-      - name: Sleep for 900 seconds waiting for pypi to update index
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: sleep 900
+      - name: Wait for this release's ee-slim image and PyPI client
+        id: base
         shell: bash
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}-ee-slim
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "image=$IMAGE:latest" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          deadline=$((SECONDS + 75 * 60))
+          on_pypi() {
+            local page
+            page=$(curl -fsS -H 'Cache-Control: max-age=0' https://pypi.org/simple/wmill/) || return 1
+            grep -qF -e "wmill-${version}-py" -e "wmill-${version}.tar.gz" <<<"$page"
+          }
+          until on_pypi; do
+            (( SECONDS < deadline )) || { echo "wmill $version is not on PyPI"; exit 1; }
+            sleep 20
+          done
+          echo "wmill $version is on PyPI"
+          # A re-pushed tag finds the previous attempt's image under the same tag,
+          # so wait for the one built from this commit.
+          revision() {
+            docker buildx imagetools inspect "$IMAGE:$version" --format \
+              '{{ index (index .Image "linux/amd64").Config.Labels "org.opencontainers.image.revision" }}' 2>/dev/null
+          }
+          until [[ "$(revision)" == "$GITHUB_SHA" ]]; do
+            (( SECONDS < deadline )) || { echo "$IMAGE:$version for $GITHUB_SHA was never pushed"; exit 1; }
+            sleep 30
+          done
+          digest=$(docker buildx imagetools inspect "$IMAGE:$version" --format '{{.Manifest.Digest}}')
+          echo "image=$IMAGE@$digest" | tee -a "$GITHUB_OUTPUT"
 
   # Build and test the image before publishing
   test_extra:
-    needs: [sleep]
+    needs: [base_image]
     runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -62,6 +96,8 @@ jobs:
           context: .
           file: ./docker/DockerfileExtra
           load: true
+          build-args: |
+            BASE_IMAGE=${{ needs.base_image.outputs.image }}
           tags: windmill-extra:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -71,6 +107,7 @@ jobs:
           docker run -d --name windmill-extra-test \
             -p 3001:3001 -p 3002:3002 -p 3003:3003 \
             -e ENABLE_LSP=true \
+            -e REQUIRE_SIGNED_LSP_REQUESTS=false \
             -e ENABLE_MULTIPLAYER=true \
             -e ENABLE_DEBUGGER=true \
             -e DEBUGGER_PORT=3003 \
@@ -101,15 +138,13 @@ jobs:
           docker rm windmill-extra-test || true
 
   publish_extra:
-    needs: [sleep, test_extra]
+    needs: [base_image, test_extra]
     # a tag-targeted dispatch would republish the release tags unsigned,
     # un-verifying the release; to republish a release, re-push its tag
     if: github.event_name == 'push' || !startsWith(github.ref, 'refs/tags/')
     runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: depot/setup-action@v1
 
@@ -140,6 +175,8 @@ jobs:
           file: ./docker/DockerfileExtra
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            BASE_IMAGE=${{ needs.base_image.outputs.image }}
           sbom: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest

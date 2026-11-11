@@ -103,7 +103,6 @@
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -760,7 +759,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!actingUser?.operator}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
 						promptText="Pick a script or flow to be triggered "
 						promptClass="text-xs text-primary"
 					>
@@ -894,7 +893,13 @@
 								{#snippet content()}
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
-											<RelationPicker {can_write} bind:pg14 bind:relations disabled={!can_write} />
+											<RelationPicker
+												{can_write}
+												bind:pg14
+												bind:relations
+												{transaction_to_track}
+												disabled={!can_write}
+											/>
 										</TabContent>
 										<TabContent value="advanced">
 											<div class="flex flex-col gap-6"
@@ -1005,6 +1010,7 @@
 															bind:pg14
 															{can_write}
 															bind:relations
+															{transaction_to_track}
 															disabled={!can_write}
 														/>
 													</div>

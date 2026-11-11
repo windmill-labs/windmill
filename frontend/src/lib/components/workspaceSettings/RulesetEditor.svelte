@@ -2,6 +2,7 @@
 	import { Section, Button, DrawerContent } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import ManageGroupsLink from '$lib/components/ManageGroupsLink.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -16,8 +17,9 @@
 	import { clone } from '$lib/utils'
 	import { DEV_WORKSPACE_LOCK_RULE_NAME } from '$lib/workspaceProtectionRules.svelte'
 	import { untrack } from 'svelte'
-	import { Save } from 'lucide-svelte'
+	import { ArrowRight, Plus, Save, Trash2 } from 'lucide-svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	interface Props {
 		rule?: ProtectionRuleset
@@ -45,12 +47,17 @@
 	let restrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let restrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let restrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
+	let requireIsolatedForks = $state(hasRule('RequireIsolatedForks'))
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
 	let selectedUsers = $state<string[]>(
 		untrack(() => rule)?.bypass_users?.map((u) => u.replace('u/', '')) ?? []
 	)
+	type RoleMapping = { from: string | undefined; to: string | undefined }[]
+	const mappingRows = (m: Record<string, string> | undefined): RoleMapping =>
+		Object.entries(m ?? {}).map(([from, to]) => ({ from, to }))
+	let forkRoleMapping = $state<RoleMapping>(mappingRows(untrack(() => rule)?.fork_role_mapping))
 
 	// Initial state for unsaved changes tracking
 	let initialName = $state(untrack(() => rule)?.name ?? '')
@@ -60,10 +67,14 @@
 	let initialRestrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let initialRestrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let initialRestrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
+	let initialRequireIsolatedForks = $state(hasRule('RequireIsolatedForks'))
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
 			: []
+	)
+	let initialForkRoleMapping = $state<RoleMapping>(
+		mappingRows(untrack(() => rule)?.fork_role_mapping)
 	)
 	let initialSelectedUsers = $state<string[]>(
 		untrack(() => rule)?.bypass_users
@@ -74,6 +85,7 @@
 	// Available options
 	let availableGroups = $state<string[]>([])
 	let availableUsers = $state<string[]>([])
+	let availableRoles = $state<{ value: string; label: string }[]>([])
 
 	let saving = $state(false)
 
@@ -88,11 +100,17 @@
 		availableUsers = users
 	}
 
+	async function loadAvailableRoles() {
+		const { roles } = await WorkspaceService.listWorkspaceRoles({ workspace: $workspaceStore! })
+		availableRoles = roles.map((r) => ({ value: r.name, label: r.label }))
+	}
+
 	$effect(() => {
 		if ($workspaceStore) {
 			untrack(() => {
 				loadAvailableGroups()
 				loadAvailableUsers()
+				loadAvailableRoles()
 			})
 		}
 	})
@@ -107,8 +125,10 @@
 					restrictAnonymousAppDeployment ||
 					restrictPublicRunSharing ||
 					restrictGuestAppDeployment ||
+					requireIsolatedForks ||
 					selectedGroups.length > 0 ||
-					selectedUsers.length > 0
+					selectedUsers.length > 0 ||
+					forkRoleMapping.length > 0
 			: name !== initialName ||
 					disableDirectDeployment !== initialDisableDirectDeployment ||
 					disableFork !== initialDisableFork ||
@@ -116,10 +136,27 @@
 					restrictAnonymousAppDeployment !== initialRestrictAnonymousAppDeployment ||
 					restrictPublicRunSharing !== initialRestrictPublicRunSharing ||
 					restrictGuestAppDeployment !== initialRestrictGuestAppDeployment ||
+					requireIsolatedForks !== initialRequireIsolatedForks ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
-						JSON.stringify([...initialSelectedUsers].sort())
+						JSON.stringify([...initialSelectedUsers].sort()) ||
+					JSON.stringify(forkRoleMapping) !== JSON.stringify(initialForkRoleMapping)
+	)
+
+	const mappingError = $derived.by(() => {
+		const seen = new Set<string>()
+		for (const { from, to } of forkRoleMapping) {
+			if (!from || !to) return 'Pick both roles of every mapping'
+			if (from === to) return `${from} is mapped to itself`
+			if (seen.has(from)) return `${from} is mapped twice`
+			seen.add(from)
+		}
+		return undefined
+	})
+
+	const forkRoleMappingBody = $derived(
+		Object.fromEntries(forkRoleMapping.map(({ from, to }) => [from!, to!]))
 	)
 
 	const nameError = $derived.by(() => {
@@ -132,7 +169,7 @@
 		return undefined
 	})
 
-	const canSave = $derived(!nameError && hasUnsavedChanges)
+	const canSave = $derived(!nameError && !mappingError && hasUnsavedChanges)
 
 	async function create() {
 		if (!canSave || !$workspaceStore) return
@@ -155,10 +192,12 @@
 						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : []),
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
-							: [])
+							: []),
+						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
-					bypass_users: selectedUsers
+					bypass_users: selectedUsers,
+					fork_role_mapping: forkRoleMappingBody
 				}
 			})
 
@@ -194,10 +233,12 @@
 						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : []),
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
-							: [])
+							: []),
+						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
-					bypass_users: selectedUsers
+					bypass_users: selectedUsers,
+					fork_role_mapping: forkRoleMappingBody
 				}
 			})
 
@@ -211,8 +252,10 @@
 			initialRestrictAnonymousAppDeployment = restrictAnonymousAppDeployment
 			initialRestrictPublicRunSharing = restrictPublicRunSharing
 			initialRestrictGuestAppDeployment = restrictGuestAppDeployment
+			initialRequireIsolatedForks = requireIsolatedForks
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
+			initialForkRoleMapping = clone(forkRoleMapping)
 
 			onUpdate?.()
 		} catch (error) {
@@ -264,6 +307,9 @@
 			class="flex flex-col gap-4"
 		>
 			<Label label="Groups">
+				{#snippet action()}
+					<ManageGroupsLink onReturn={loadAvailableGroups} />
+				{/snippet}
 				<MultiSelect
 					bind:value={selectedGroups}
 					items={safeSelectItems(availableGroups)}
@@ -294,6 +340,12 @@
 			<div class="flex flex-col gap-1">
 				<Toggle bind:checked={disableFork} options={{ right: 'Disable workspace forking' }} />
 				{@render description('Users cannot create forks of this workspace.')}
+			</div>
+			<div class="flex flex-col gap-1">
+				<Toggle bind:checked={requireIsolatedForks} options={{ right: 'Require isolated forks' }} />
+				{@render description(
+					"Forks of this workspace cannot share its data: every object storage and ducklake stays isolated, and every data table is cloned instead of pointing at this workspace's database."
+				)}
 			</div>
 			<div class="flex flex-col gap-1">
 				<Toggle
@@ -330,6 +382,51 @@
 				{@render description(
 					'Only workspace admins and bypassers can mint a public link to a run (readable without login). The read-only link for workspace members stays available to everyone.'
 				)}
+			</div>
+		</Section>
+
+		<Section
+			label="Roles in forks"
+			description="A member forking this workspace keeps their role in the fork. Map a role to give its members another one in their forks, for example operator to developer. Only roles that may fork can use it."
+			class="flex flex-col gap-2"
+		>
+			{#each forkRoleMapping as mapping, i (i)}
+				<div class="flex items-center gap-2">
+					<Select
+						bind:value={mapping.from}
+						items={availableRoles}
+						placeholder="Role here"
+						class="grow"
+					/>
+					<ArrowRight size={14} class="text-secondary shrink-0" />
+					<Select
+						bind:value={mapping.to}
+						items={availableRoles}
+						placeholder="Role in the fork"
+						class="grow"
+					/>
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						iconOnly
+						startIcon={{ icon: Trash2 }}
+						aria-label="Remove mapping"
+						onclick={() => forkRoleMapping.splice(i, 1)}
+					/>
+				</div>
+			{/each}
+			{#if mappingError}
+				<p class="text-2xs text-red-500">{mappingError}</p>
+			{/if}
+			<div>
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: Plus }}
+					onclick={() => forkRoleMapping.push({ from: undefined, to: undefined })}
+				>
+					Add mapping
+				</Button>
 			</div>
 		</Section>
 	</div>

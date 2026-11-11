@@ -9,9 +9,9 @@ use axum::body::{to_bytes, Body};
 use axum::response::Response;
 use serde_json::Value;
 use sql_builder::prelude::*;
-use windmill_common::auth::create_jwt_token;
-use windmill_common::db::{Authed, UserDB};
+use windmill_common::db::UserDB;
 use windmill_common::error::Error;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
@@ -171,22 +171,20 @@ pub async fn get_resources(
     Ok(rows)
 }
 
-/// Generic function to get items (scripts or flows) from the database
-pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin>(
-    user_db: &UserDB,
+/// The scripts or flows a listing covers: the caller's workspace, unarchived,
+/// callable, and narrowed by favorites and `path_filter`.
+fn items_query(
     authed: &ApiAuthed,
     workspace_id: &str,
     scope_type: &str,
     item_type: &str,
     path_filter: Option<PathFilter<'_>>,
-) -> Result<Vec<T>, ErrorData> {
+) -> SqlBuilder {
     let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
-    let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
-    sqlb.fields(&fields);
     if scope_type == "favorites" {
         sqlb.join("favorite")
-            .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?".bind(&item_type)
-                .bind(&authed.username));
+            .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
+                .binds(&[&item_type, &authed.username]));
     }
     sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
         .and_where("o.archived = false");
@@ -209,17 +207,27 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
                 sqlb.and_where(cond);
             }
         }
+        Some(PathFilter::LastSegment(segments)) => {
+            if segments.is_empty() {
+                sqlb.and_where("false");
+            } else {
+                let conds: Vec<String> = segments
+                    .iter()
+                    .map(|s| "o.path LIKE ? ESCAPE '\\'".bind(&format!("%/{}", escape_like(s))))
+                    .collect();
+                sqlb.and_where(format!("({})", conds.join(" OR ")));
+            }
+        }
     }
+    sqlb
+}
 
-    sqlb.order_by(
-        if item_type == "flow" {
-            "o.edited_at"
-        } else {
-            "o.created_at"
-        },
-        false,
-    )
-    .limit(ITEMS_FETCH_MAX_LIMIT);
+async fn fetch_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin>(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    sqlb: &SqlBuilder,
+    item_type: &str,
+) -> Result<Vec<T>, ErrorData> {
     let sql = sqlb.sql().map_err(|e| {
         tracing::error!("failed to build sql: {}", e);
         ErrorData::internal_error(format!("failed to build sql: {}", e), None)
@@ -240,6 +248,44 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
     })?;
     Ok(rows)
+}
+
+/// Generic function to get items (scripts or flows) from the database
+pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin>(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    scope_type: &str,
+    item_type: &str,
+    path_filter: Option<PathFilter<'_>>,
+) -> Result<Vec<T>, ErrorData> {
+    let mut sqlb = items_query(authed, workspace_id, scope_type, item_type, path_filter);
+    sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
+    sqlb.order_by(
+        if item_type == "flow" {
+            "o.edited_at"
+        } else {
+            "o.created_at"
+        },
+        false,
+    )
+    .limit(ITEMS_FETCH_MAX_LIMIT);
+    fetch_items(user_db, authed, &sqlb, item_type).await
+}
+
+/// Every path `get_items` would return with no fetch cap.
+pub async fn get_item_paths(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    scope_type: &str,
+    item_type: &str,
+    path_filter: Option<PathFilter<'_>>,
+) -> Result<Vec<String>, ErrorData> {
+    let mut sqlb = items_query(authed, workspace_id, scope_type, item_type, path_filter);
+    sqlb.distinct().field("o.path");
+    let rows: Vec<(String,)> = fetch_items(user_db, authed, &sqlb, item_type).await?;
+    Ok(rows.into_iter().map(|(path,)| path).collect())
 }
 
 /// Get scripts from the Hub
@@ -653,6 +699,25 @@ pub async fn create_http_request(
     api_authed: &ApiAuthed,
     body_json: Option<Value>,
 ) -> BackendResult<reqwest::Response> {
+    // Scope the minted JWT to the proxied route so a scope-restricted MCP token
+    // can't be widened into a full-privilege blank check. See
+    // `jwt_scopes_for_proxied_route`.
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
+    let scopes = jwt_scopes_for_proxied_route(api_authed.scopes.as_deref(), method, parsed.path())?;
+    send_as_caller(method, url, workspace_id, api_authed, body_json, scopes).await
+}
+
+/// Call the API as `api_authed` with a JWT carrying `scopes`; `None` is the caller's
+/// full rights, for a server whose own code picks every route it calls.
+pub async fn send_as_caller(
+    method: &str,
+    url: &str,
+    workspace_id: &str,
+    api_authed: &ApiAuthed,
+    body_json: Option<Value>,
+    scopes: Option<Vec<String>>,
+) -> BackendResult<reqwest::Response> {
     let client = &HTTP_CLIENT;
     let mut request_builder = match method {
         "GET" => client.get(url),
@@ -668,29 +733,9 @@ pub async fn create_http_request(
         }
     };
 
-    // Scope the minted JWT to the proxied route so a scope-restricted MCP token
-    // can't be widened into a full-privilege blank check. See
-    // `jwt_scopes_for_proxied_route`.
-    let parsed = reqwest::Url::parse(url)
-        .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
-    let scopes = jwt_scopes_for_proxied_route(api_authed.scopes.as_deref(), method, parsed.path())?;
-
-    // Add authorization header. Carry the caller's job provenance into the proxy
-    // JWT: a job's WM_TOKEN is capped at workspace admin (GHSA-hfh4-cx4h-3fcr), and
-    // dropping `job_id` here would re-mint an uncapped token that satisfies
-    // require_super_admin / require_devops_role on the proxied route.
-    let authed = Authed::from(api_authed.clone());
-    let token = create_jwt_token(
-        authed,
-        workspace_id,
-        3600,
-        api_authed.job_id,
-        None,
-        None,
-        scopes,
-    )
-    .await
-    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    let token = crate::ai_session_tools::mint_caller_jwt(workspace_id, api_authed, scopes)
+        .await
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
     // Add body if present
@@ -723,16 +768,16 @@ struct McpPreprocessorEvent<'a> {
 
 /// Headers withheld from a preprocessor because they authenticate the connection.
 ///
-/// Not a security boundary: a webhook preprocessor receives all three. Withheld
-/// because nothing needs them yet, and releasing one later is additive while
-/// withdrawing one after runnables read it is not.
+/// `build_headers` already withholds Windmill's own credentials. The rest is
+/// withheld because nothing needs it yet, and releasing one later is additive
+/// while withdrawing one after runnables read it is not.
 const WITHHELD_FROM_PREPROCESSOR: &[&str] = &["authorization", "cookie", "proxy-authorization"];
 
 /// Every header a preprocessor may see.
 fn preprocessor_headers(
     headers: &http::HeaderMap,
 ) -> HashMap<String, Box<serde_json::value::RawValue>> {
-    let mut selected = build_headers(headers, None, true);
+    let mut selected = build_headers(headers, None, true, true);
     selected.retain(|name, _| {
         !WITHHELD_FROM_PREPROCESSOR
             .iter()
@@ -748,8 +793,7 @@ fn preprocessor_headers(
 pub async fn prepare_push_args(
     db: &DB,
     w_id: &str,
-    path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     args: Value,
     request: &McpRequest<'_>,
 ) -> Result<windmill_queue::PushArgsOwned, Error> {
@@ -760,18 +804,17 @@ pub async fn prepare_push_args(
         }
     }
 
-    let runnable_id = if is_flow {
-        RunnableId::from_flow_path(path)
-    } else {
-        // Resolves a `hub/<version_id>` path to the hub script on its own.
-        RunnableId::from_script_path(path)
-    };
-
     // MCP is not one of the `TRIGGER_KIND` enum values and does not need to be:
     // the per-kind arms of the no-preprocessor heuristic are payload-shape
     // special cases for message triggers, and `Webhook` reaches the same generic
     // arm MCP wants while sharing that kind's format cache.
-    let runnable_format = get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook).await?;
+    let runnable_format = get_runnable_format(
+        RunnableId::from_ref(runnable),
+        w_id,
+        db,
+        &TriggerKind::Webhook,
+    )
+    .await?;
 
     Ok(match runnable_format {
         // Without a preprocessor there is nowhere for a header to go that the
@@ -1422,6 +1465,7 @@ mod tests {
             read_only: false,
             job_id,
             credential_expiry: None,
+            mcp_client: None,
         }
     }
 

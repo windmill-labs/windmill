@@ -7,14 +7,16 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use bytes::Bytes;
-use http::header::CONTENT_TYPE;
+use http::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::JsonRawValue;
+use tower_cookies::Cookie;
 use windmill_common::{
     error::Error,
     jobs::WM_TRACEPARENT,
     triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
+    users::COOKIE_NAME,
     worker::to_raw_value,
     DB, OTEL_TRACING_ENABLED,
 };
@@ -139,13 +141,13 @@ impl RawWebhookArgs {
             get_random_file_name, get_workspace_s3_resource, upload_file_internal,
         };
         use futures::TryStreamExt;
-        use windmill_object_store::build_object_store_client;
+        use windmill_object_store::fork_store::workspace_object_store;
         use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 
         let (_, s3_resource) = get_workspace_s3_resource(authed, db, None, w_id, None).await?;
 
         if let Some(s3_resource) = s3_resource {
-            let s3_client = build_object_store_client(&s3_resource).await?;
+            let s3_client = workspace_object_store(db, w_id, None, &s3_resource).await?;
 
             let mut parts: Vec<(String, MultipartValue)> = Vec::new();
 
@@ -363,16 +365,19 @@ impl WebhookArgs {
         // don't get a stray `_wm_traceparent` arg key.
         let trace_context = inbound_traceparent(&self.metadata.headers);
 
+        // Webhooks are authenticated by Windmill (a webhook capture stands in for one).
         let headers = build_headers(
             &self.metadata.headers,
             self.metadata.query_include_header,
             runnable_format.has_preprocessor,
+            true,
         );
 
         let query = build_query(
             self.metadata.query.as_deref(),
             self.metadata.query_include_query,
             runnable_format.has_preprocessor,
+            true,
         );
 
         let mut push_args = match runnable_format {
@@ -614,19 +619,50 @@ fn inbound_traceparent(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// A header's value as a runnable or a capture sees it, `None` to withhold it.
+///
+/// Windmill's session cookie is never forwarded: browsers attach it on their own, so it would hand
+/// the visitor's session to whoever wrote the runnable. Other cookies are kept. When the request
+/// was authenticated by Windmill (`windmill_authed`), its bearer token is withheld as well.
+fn forwarded_header_value(
+    name: &str,
+    value: &http::HeaderValue,
+    windmill_authed: bool,
+) -> Option<String> {
+    let value = value.to_str().unwrap_or("");
+    if name.eq_ignore_ascii_case(COOKIE.as_str()) {
+        // Parsed the way `extract_token` reads it, so an encoded name is caught too.
+        let other_cookies = value
+            .split(';')
+            .filter(|c| !Cookie::parse_encoded(*c).is_ok_and(|c| c.name() == COOKIE_NAME))
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        return (!other_cookies.is_empty()).then(|| other_cookies.join("; "));
+    }
+    if windmill_authed
+        && name.eq_ignore_ascii_case(AUTHORIZATION.as_str())
+        && value.starts_with("Bearer ")
+    {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+/// `windmill_authed`: the caller was authenticated by Windmill, so `Authorization: Bearer` carries
+/// their Windmill token. See `forwarded_header_value`.
 pub fn build_headers(
     headers: &HeaderMap,
     include_header: Option<String>,
     include_all_headers: bool,
+    windmill_authed: bool,
 ) -> HashMap<String, Box<RawValue>> {
     let mut selected_headers = HashMap::new();
 
     if include_all_headers {
         for (k, v) in headers.iter() {
-            selected_headers.insert(
-                k.to_string(),
-                to_raw_value(&v.to_str().unwrap_or("").to_string()),
-            );
+            if let Some(v) = forwarded_header_value(k.as_str(), v, windmill_authed) {
+                selected_headers.insert(k.to_string(), to_raw_value(&v));
+            }
         }
     } else {
         let whitelist = include_header
@@ -636,10 +672,13 @@ pub fn build_headers(
             .iter()
             .chain(INCLUDE_HEADERS.iter())
             .for_each(|h| {
-                if let Some(v) = headers.get(h) {
+                if let Some(v) = headers
+                    .get(h)
+                    .and_then(|v| forwarded_header_value(h, v, windmill_authed))
+                {
                     selected_headers.insert(
                         h.to_string().to_lowercase().replace('-', "_"),
-                        to_raw_value(&v.to_str().unwrap_or("").to_string()),
+                        to_raw_value(&v),
                     );
                 }
             });
@@ -651,16 +690,20 @@ pub fn build_query(
     query: Option<&str>,
     include_query: Option<String>,
     include_all_query: bool,
+    windmill_authed: bool,
 ) -> HashMap<String, Box<RawValue>> {
     let Some(query) = query else {
         return HashMap::new();
     };
+    // `?token=` is a Windmill credential when Windmill authenticated the request.
+    let withheld = |k: &str| windmill_authed && k == "token";
 
     if include_all_query {
         let queries =
             serde_urlencoded::from_str::<HashMap<String, String>>(&query).unwrap_or_default();
         queries
             .into_iter()
+            .filter(|(k, _)| !withheld(k))
             .map(|(k, v)| (k, to_raw_value(&v)))
             .collect()
     } else {
@@ -671,11 +714,14 @@ pub fn build_query(
         if !parse_query_args.is_empty() {
             let queries =
                 serde_urlencoded::from_str::<HashMap<String, String>>(&query).unwrap_or_default();
-            parse_query_args.iter().for_each(|h| {
-                if let Some(v) = queries.get(h) {
-                    args.insert(h.to_string(), to_raw_value(v));
-                }
-            });
+            parse_query_args
+                .iter()
+                .filter(|h| !withheld(h))
+                .for_each(|h| {
+                    if let Some(v) = queries.get(h) {
+                        args.insert(h.to_string(), to_raw_value(v));
+                    }
+                });
         }
         args
     }
@@ -754,6 +800,47 @@ impl WebhookArgs {
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn test_build_headers_withholds_windmill_credentials() {
+        let headers = HeaderMap::from_iter([
+            (COOKIE, "a=1; token=s; %74oken=s; b=2".parse().unwrap()),
+            (AUTHORIZATION, "Bearer s".parse().unwrap()),
+        ]);
+        let get =
+            |h: &HashMap<String, Box<RawValue>>, k: &str| h.get(k).map(|v| v.get().to_string());
+
+        for windmill_authed in [false, true] {
+            let auth = (!windmill_authed).then(|| r#""Bearer s""#.to_string());
+            let all = build_headers(&headers, None, true, windmill_authed);
+            assert_eq!(get(&all, "cookie").as_deref(), Some(r#""a=1; b=2""#));
+            assert_eq!(get(&all, "authorization"), auth);
+
+            let listed = build_headers(
+                &headers,
+                Some("cookie,authorization".into()),
+                false,
+                windmill_authed,
+            );
+            assert_eq!(get(&listed, "cookie").as_deref(), Some(r#""a=1; b=2""#));
+            assert_eq!(get(&listed, "authorization"), auth);
+
+            let query = build_query(Some("token=s&a=1"), None, true, windmill_authed);
+            assert_eq!(query.contains_key("token"), !windmill_authed);
+            assert!(query.contains_key("a"));
+            let listed = build_query(
+                Some("token=s&a=1"),
+                Some("token,a".into()),
+                false,
+                windmill_authed,
+            );
+            assert_eq!(listed.contains_key("token"), !windmill_authed);
+            assert!(listed.contains_key("a"));
+        }
+
+        let only_session = HeaderMap::from_iter([(COOKIE, "token=s".parse().unwrap())]);
+        assert!(build_headers(&only_session, None, true, false).is_empty());
+    }
 
     #[tokio::test]
     async fn test_bodyless_request_with_json_content_type() {

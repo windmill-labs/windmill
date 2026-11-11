@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::TimeZone;
 use http::{request::Parts, StatusCode};
+use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -170,10 +171,10 @@ impl AuthCache {
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
         // predates this field.
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
-        // The workspace's guest switch is enforced here, once, for every guest request
-        // — not per handler, where each guest-reachable route would have to remember
-        // it. Uncached, so turning guests off takes effect on the next request of every
-        // guest session and every token derived from one.
+        // The no-account rule is enforced here, once, for every guest request — not per
+        // handler, where each guest-reachable route would have to remember it. Uncached,
+        // so an account provisioned after the mint ends the guest session, and every
+        // token derived from one, on its next request.
         if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
             let Some(w_id) = w_id else { return None };
             let email = &opt_job_authed.authed.email;
@@ -276,11 +277,9 @@ impl AuthCache {
                             return None;
                         }
                     };
-                // The workspace switch, the instance switch and the app being in guest
-                // mode, in one answer (guest_app_admits). The door re-reads the switches
-                // and the no-account rule per request through the sentinel below
-                // (guest_session_stands), so turning any of them off stops a cached JWT
-                // session on its next call.
+                // The app being in guest mode (guest_app_admits). The door re-reads the
+                // no-account rule per request through the sentinel below
+                // (guest_session_stands), and the on-behalf resolver re-reads the mode.
                 match windmill_common::workspaces::guest_app_admits(
                     &self.db,
                     w_id,
@@ -348,6 +347,7 @@ impl AuthCache {
                     read_only: false,
                     job_id: None,
                     credential_expiry: Some(credential_expiry),
+                    mcp_client: None,
                 };
                 AUTH_CACHE.insert(
                     key,
@@ -393,6 +393,7 @@ impl AuthCache {
                             read_only: false,
                             job_id: None,
                             credential_expiry: None,
+                            mcp_client: claims.mcp_client,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the
@@ -465,8 +466,8 @@ impl AuthCache {
                                         let lookup = if super_admin {
                                             Some((true, false))
                                         } else {
-                                            sqlx::query!(
-                                                "SELECT is_admin, operator FROM usr where username = $1 AND \
+                                            let row = sqlx::query!(
+                                                "SELECT is_admin, operator, workspace_role FROM usr where username = $1 AND \
                                                  workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
@@ -474,8 +475,24 @@ impl AuthCache {
                                             .fetch_optional(&self.db)
                                             .await
                                             .ok()
-                                            .flatten()
-                                            .map(|r| (r.is_admin, r.operator))
+                                            .flatten();
+                                            match row {
+                                                Some(r) => {
+                                                    // Fails closed: an unreadable role config
+                                                    // gates the member rather than freeing it.
+                                                    let restricted =
+                                                        windmill_common::roles::member_is_restricted_db(
+                                                            &self.db,
+                                                            w_id.as_ref().unwrap(),
+                                                            r.workspace_role,
+                                                            r.operator,
+                                                        )
+                                                        .await
+                                                        .unwrap_or(true);
+                                                    Some((r.is_admin, restricted && !r.is_admin))
+                                                }
+                                                None => None,
+                                            }
                                         };
 
                                         if let Some((is_admin, is_operator)) = lookup {
@@ -508,6 +525,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -562,6 +580,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -595,15 +614,35 @@ impl AuthCache {
                                     username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query!(
-                                        "SELECT username, is_admin, operator FROM usr WHERE
+                                        "SELECT username, is_admin, operator, workspace_role FROM usr WHERE
                                             email = $1 AND workspace_id = $2 AND disabled = false",
                                         &email,
                                         w_id.as_ref().unwrap()
                                     )
-                                    .map(|x| (x.username, x.is_admin, x.operator))
+                                    .map(|x| (x.username, x.is_admin, x.operator, x.workspace_role))
                                     .fetch_optional(&self.db)
                                     .await
-                                    .unwrap_or(Some(("error".to_string(), false, false)));
+                                    .unwrap_or(Some(("error".to_string(), false, false, None)));
+                                    let row_o = match row_o {
+                                        Some((username, is_admin, operator, workspace_role)) => {
+                                            // Fails closed, as above.
+                                            let restricted =
+                                                windmill_common::roles::member_is_restricted_db(
+                                                    &self.db,
+                                                    w_id.as_ref().unwrap(),
+                                                    workspace_role,
+                                                    operator,
+                                                )
+                                                .await
+                                                .unwrap_or(true);
+                                            Some((
+                                                username,
+                                                is_admin,
+                                                restricted && !is_admin && !super_admin,
+                                            ))
+                                        }
+                                        None => None,
+                                    };
 
                                     match row_o {
                                         Some((username, is_admin, is_operator)) => {
@@ -641,6 +680,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         }
                                         None if super_admin => {
@@ -666,6 +706,7 @@ impl AuthCache {
                                                     read_only,
                                                     job_id: None,
                                                     credential_expiry: None,
+                                                    mcp_client: None,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -704,6 +745,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         }
                                         None => None,
@@ -724,6 +766,7 @@ impl AuthCache {
                                         read_only,
                                         job_id: None,
                                         credential_expiry: None,
+                                        mcp_client: None,
                                     })
                                 }
                             }
@@ -750,7 +793,8 @@ impl AuthCache {
                 {
                     let authed = ApiAuthed {
                         email: SUPERADMIN_SECRET_EMAIL.to_string(),
-                        username: "superadmin_secret".to_string(),
+                        username: windmill_common::usernames::SUPERADMIN_SECRET_USERNAME
+                            .to_string(),
                         is_admin: true,
                         is_operator: false,
                         groups: Vec::new(),
@@ -763,6 +807,7 @@ impl AuthCache {
                         read_only: false,
                         job_id: None,
                         credential_expiry: None,
+                        mcp_client: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -774,8 +819,8 @@ impl AuthCache {
 }
 
 /// How long a guest JWT resolves from the auth cache before the arm re-runs (and
-/// re-reads the key). A guest JWT is not revocable except by the workspace switch or
-/// by rotating the key, so the entry must be short enough that a rotated key bites
+/// re-reads the key). A guest JWT is not revocable except by taking its app out of
+/// guest mode or by rotating the key, so the entry must be short enough that a rotated key bites
 /// soon, unlike a normal token whose row can be deleted. Also what makes the
 /// day-keyed activity dedupe below reachable across a midnight.
 const GUEST_JWT_CACHE_TTL: chrono::Duration = chrono::Duration::minutes(5);
@@ -866,10 +911,9 @@ async fn admit_and_record_guest_jwt(db: &DB, w_id: &str, email: &str, app_path: 
         return false;
     }
     GUEST_JWT_ACTIVITY_CACHE.insert(cache_key, ());
-    // Audit last, best-effort, on its own connection: the EE writer swallows an
-    // `audit_partitioned` failure but that failing statement still aborts the
-    // transaction it runs in, so auditing before the commit would let the whole
-    // activity row roll back while this returned success, admitting an uncounted guest.
+    // Audit last, best-effort, on its own connection: a failed `audit_partitioned`
+    // insert aborts the transaction it runs in, so auditing before the commit would
+    // let an audit failure drop the activity row that counts this guest.
     if first_jwt {
         let author = windmill_common::audit::AuditAuthor {
             email: email.to_string(),
@@ -1022,6 +1066,49 @@ where
     }
 }
 
+/// Adds the suffixed form of each tag of an `if_jobs:filter_tags:` scope: in a dev workspace a
+/// job allowed on `gpu` is queued on `gpu-dev`, and the token must still reach the jobs it starts.
+fn expand_filter_tags_with_dev_suffix(scopes: &mut [String], suffix: &str) {
+    for scope in scopes.iter_mut() {
+        if let Some(tags) = scope.strip_prefix("if_jobs:filter_tags:") {
+            let expanded = tags
+                .split(',')
+                .flat_map(|t| {
+                    let suffixed = windmill_common::worker::with_dev_workspace_suffix(t, suffix);
+                    [t.to_string(), suffixed]
+                })
+                .unique()
+                .join(",");
+            *scope = format!("if_jobs:filter_tags:{expanded}");
+        }
+    }
+}
+
+/// Only while isolation is on and for a workspace whose jobs get the suffix then: otherwise the
+/// suffixed tags are other tags the token was not given.
+async fn expand_filter_tags_for_dev_workspace(
+    db: &DB,
+    workspace_id: &str,
+    scopes: Option<&mut Vec<String>>,
+) {
+    let Some(scopes) = scopes else { return };
+    if !windmill_common::worker::DEV_WORKSPACE_ISOLATION.load(std::sync::atomic::Ordering::Relaxed)
+        || !scopes.iter().any(|s| s.starts_with("if_jobs:filter_tags:"))
+    {
+        return;
+    }
+    let (is_dev, in_dev_lineage) = windmill_common::workspaces::dev_lineage(db, workspace_id)
+        .await
+        .unwrap_or((
+            workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX),
+            true,
+        ));
+    if windmill_common::worker::is_isolated_workspace(is_dev, in_dev_lineage) {
+        let suffix = windmill_common::worker::DEV_WORKSPACE_TAG_SUFFIX.load();
+        expand_filter_tags_with_dev_suffix(scopes, &suffix);
+    }
+}
+
 pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) {
     if let Some(scopes) = scopes {
         for scope in scopes.iter_mut() {
@@ -1095,6 +1182,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         read_only: false,
         job_id: None,
         credential_expiry: None,
+        mcp_client: None,
     }
 }
 
@@ -1110,10 +1198,10 @@ pub async fn resolve_opt_job_authed(
     };
 
     if is_no_auth() {
-        return Ok((
-            OptJobAuthed { authed: no_auth_admin_authed(), job_id: None },
-            parts,
-        ));
+        let authed = no_auth_admin_authed();
+        // Handlers taking `Extension<ApiAuthed>` read this insert, as on the token path.
+        parts.extensions.insert(authed.clone());
+        return Ok((OptJobAuthed { authed, job_id: None }, parts));
     }
 
     // Safe only while what the route checks below read is fixed before the first
@@ -1172,6 +1260,14 @@ pub async fn resolve_opt_job_authed(
                 let authed = &mut opt_job_authed.authed;
                 if authed.scopes.is_some() && !own_job_runtime_route {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());
+                    if let Some(w_id) = workspace_id.as_deref() {
+                        expand_filter_tags_for_dev_workspace(
+                            &cache.db,
+                            w_id,
+                            authed.scopes.as_mut(),
+                        )
+                        .await;
+                    }
 
                     if let Err(err) = crate::scopes::check_scopes_for_route(
                         authed.scopes.as_deref(),
@@ -1192,6 +1288,7 @@ pub async fn resolve_opt_job_authed(
                     // could approve an OAuth flow that mints a new non-read-only
                     // token.
                     let is_mcp_transport = path == "/api/mcp/gateway"
+                        || path == "/api/mcp"
                         || (path.starts_with("/api/mcp/w/")
                             && (path.ends_with("/mcp")
                                 || path.ends_with("/sse")
@@ -1358,6 +1455,19 @@ pub async fn list_tokens_internal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_tags_reach_their_dev_workspace_form() {
+        let mut scopes = vec![
+            "jobs:read".to_string(),
+            "if_jobs:filter_tags:gpu,bash-dev".to_string(),
+        ];
+        expand_filter_tags_with_dev_suffix(&mut scopes, "-dev");
+        assert_eq!(
+            scopes,
+            vec!["jobs:read", "if_jobs:filter_tags:gpu,gpu-dev,bash-dev"]
+        );
+    }
 
     /// Dropping the `AUTH_CACHE` entry between the two resolutions is what makes a memo
     /// hit observable: only a working memo can answer the second one.

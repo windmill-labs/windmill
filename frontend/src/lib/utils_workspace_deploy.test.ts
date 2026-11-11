@@ -32,8 +32,8 @@ vi.mock('$lib/gen', async (importOriginal) => ({
 	}
 }))
 
-// The deploy runs the published shared package, whose variable body has no `labels`: this
-// pins that the adapter still carries them until a version that does is installed.
+// The variable body is built by the installed shared package: this pins that a deploy from the
+// app sends the source's labels on create and on update.
 describe('deploying a variable to another workspace', () => {
 	it('carries its labels on create and on update', async () => {
 		for (const workspaceTo of ['lacks-it', 'has-it']) {
@@ -239,14 +239,17 @@ describe('workspace-level deploy permission', () => {
 		expect(res.reason).toContain('Direct deployment')
 	})
 
-	// The server refuses an operator in the item handler regardless of their global role: a
-	// superadmin who is an operator in the workspace still gets 401 creating a script. So the
-	// operator term has to stay above the admin/superadmin short-circuit — hoisting the admin
-	// checks would offer a deploy the server refuses.
-	it('refuses an operator who is also a superadmin', async () => {
+	// Authentication merges superadmin into admin, and `caller_capabilities` gives an admin every
+	// capability, whatever the workspace role.
+	it('lets a superadmin whose role is operator deploy', async () => {
 		const res = await permission({ ...member, operator: true, is_super_admin: true }, [])
+		expect(res.ok).toBe(true)
+	})
+
+	it('refuses a member whose role cannot code', async () => {
+		const res = await permission({ ...member, operator: true }, [])
 		expect(res.ok).toBe(false)
-		expect(res.reason).toContain('operator')
+		expect(res.reason).toContain('role')
 	})
 })
 

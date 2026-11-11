@@ -84,11 +84,7 @@ describe('readPlan', () => {
 	})
 })
 
-/**
- * `create_workspace` takes the username it is given and writes it to `usr.username` without
- * checking it — `Some("")` passes its only guard — so a blank or malformed one becomes a
- * workspace whose owner has no usable name. The wizard is the last thing that can refuse it.
- */
+/** The server refuses these at creation, after the earlier steps have run; the plan says so first. */
 describe('planProblem — the new-workspace username', () => {
 	const dest = (username?: string) => ({
 		slug: 'calendly',
@@ -104,13 +100,15 @@ describe('planProblem — the new-workspace username', () => {
 		expect(planProblem(dest('   '))).toMatch(/needs a username/i)
 	})
 
-	it('refuses one the backend would store verbatim but never accept elsewhere', () => {
-		expect(planProblem(dest('1bad'))).toMatch(/letters and numbers/i)
-		expect(planProblem(dest('a b'))).toMatch(/letters and numbers/i)
+	it('refuses one the server would refuse', () => {
+		expect(planProblem(dest('jean-luc'))).toMatch(/letters, numbers and underscores/i)
+		expect(planProblem(dest('a b'))).toMatch(/letters, numbers and underscores/i)
 	})
 
 	it('accepts a valid one', () => {
 		expect(planProblem(dest('guilhem'))).toBeUndefined()
+		expect(planProblem(dest('1bad'))).toBeUndefined()
+		expect(planProblem(dest('a'))).toBeUndefined()
 	})
 })
 

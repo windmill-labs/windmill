@@ -6,11 +6,12 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
+use windmill_common::jobs::JobKind;
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
-    strip_fork_reserved_attach_args, DatatableAccess, DatatableConnectAs,
+    get_datatable_resource_from_db, get_ducklake_from_db_unchecked, sql_literal_len,
+    strip_fork_reserved_attach_args, strip_sql_comments, DatatableAccess, DatatableConnectAs,
     DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
@@ -115,6 +116,8 @@ async fn fetch_custom_test_body(conn: &Connection, w_id: &str, path: &str) -> Re
 // `record_declared_warehouse_write`).
 fn build_materialized_query(
     query: &str,
+    // Names the table of a target that names none; a run without a path has to name it.
+    script_path: Option<&str>,
     partition_value: Option<&str>,
     // Custom (`// data_test <path>`) test bodies, pre-fetched by the caller
     // (`fetch_custom_test_bodies`) so this stays pure/sync and unit-testable —
@@ -129,6 +132,10 @@ fn build_materialized_query(
     };
 
     let ann = parse_pipeline_annotations(query);
+    let ann = match script_path {
+        Some(path) => ann.for_script(path),
+        None => ann,
+    };
     let has_tests = !ann.data_tests.is_empty();
     let Some(m) = ann.materialize else {
         // Data tests run *against the materialized asset*; without a
@@ -211,7 +218,8 @@ fn build_materialized_query(
     }
     if table.is_empty() {
         return Err(Error::ExecutionErr(format!(
-            "materialize: target `ducklake://{}` has no table (use ducklake://<name>/<table>)",
+            "materialize: target `ducklake://{}` has no table, and this run has no script path to \
+             name it after (use ducklake://<name>/<table>)",
             m.target_path
         )));
     }
@@ -1343,7 +1351,30 @@ pub async fn do_duckdb(
             // itself stays pure/sync.
             let custom_test_bodies =
                 fetch_custom_test_bodies(query, conn, &job.workspace_id).await?;
-            build_materialized_query(query, partition_value.as_deref(), &custom_test_bodies)?
+            // A deployed script, run directly or from a flow, names an untabled target after
+            // its own path. An inline flow step's path is `<flow>/<step id>`, which would name
+            // one shared table per step id across every flow, so it has to name its table.
+            // A flow editor's "Test this step" (marked by `_FLOW_PATH`) previews an inline step
+            // under that same `<flow>/<step id>` path. A step referencing a deployed script
+            // sends that script's hash and previews under its own path, which names its table
+            // as the script's own run does, wherever the script sits relative to the flow.
+            let inline_step_preview = job.runnable_id.is_none()
+                && job
+                    .args
+                    .as_ref()
+                    .is_some_and(|a| a.0.contains_key("_FLOW_PATH"));
+            let script_path = (job.kind == JobKind::Script
+                || (job.kind == JobKind::Preview
+                    && job.flow_step_id.is_none()
+                    && !inline_step_preview))
+                .then(|| job.runnable_path.as_deref())
+                .flatten();
+            build_materialized_query(
+                query,
+                script_path,
+                partition_value.as_deref(),
+                &custom_test_bodies,
+            )?
         } else {
             None
         };
@@ -1602,7 +1633,6 @@ pub async fn do_duckdb(
         )
         .await?;
 
-
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
         let job_dir = job_dir.to_string();
@@ -1635,6 +1665,8 @@ pub async fn do_duckdb(
             Ok(r) => r,
             Err(e) => {
                 if let Some((_, meta)) = &materialize {
+                    // Persisted and served by the assets API, so masked like the job error.
+                    let error = mask_secrets(e.to_string(), &hidden_passwords.lock().unwrap());
                     record_mat(
                         conn,
                         &job.workspace_id,
@@ -1644,7 +1676,7 @@ pub async fn do_duckdb(
                         None,
                         None,
                         None,
-                        Some(&e.to_string()),
+                        Some(&error),
                     )
                     .await;
                 }
@@ -1792,6 +1824,8 @@ pub async fn do_duckdb(
                 return Err(Error::ExecutionRawError(to_raw_value(&json!({
                     "message": message,
                     "name": "ExecutionErr",
+                    "flow_path": reserved_variables.get("WM_FLOW_PATH").filter(|p| !p.is_empty()),
+                    "job_id": job.id,
                     "step_id": job.flow_step_id,
                     "data_tests": data_tests,
                 }))));
@@ -1840,14 +1874,7 @@ pub async fn do_duckdb(
             // Passwords might appear in the error message — and, for the
             // structured data-test failure, in sampled row data read from an
             // attached database — so every outgoing error is sanitized here.
-            let sanitize = |mut s: String| {
-                for pwd in hidden_passwords.lock().unwrap().iter() {
-                    if let Some(sanitized) = sanitize_string_from_password(&s, &pwd.clone()) {
-                        s = sanitized;
-                    }
-                }
-                s
-            };
+            let sanitize = |s: String| mask_secrets(s, &hidden_passwords.lock().unwrap());
             match e {
                 // The structured payload must keep its variant: flattening it
                 // to a string (the arm below) would strip the data-test
@@ -1908,6 +1935,20 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
     }
     let mib = ((bytes as f64 * DUCKDB_MEMORY_FRACTION) as i64) / (1024 * 1024);
     Some(format!("{}MiB", mib.max(64)))
+}
+
+/// Longest first: a short secret can occur inside a longer one (an IAM resource's placeholder
+/// password inside the token minted for it), and masking it first leaves the rest unmatched.
+/// An empty secret would put a mask between every character.
+fn mask_secrets(mut s: String, secrets: &[String]) -> String {
+    let mut secrets: Vec<&String> = secrets.iter().filter(|p| !p.is_empty()).collect();
+    secrets.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    for pwd in secrets {
+        if let Some(sanitized) = sanitize_string_from_password(&s, pwd) {
+            s = sanitized;
+        }
+    }
+    s
 }
 
 // The runner reports an engine error as `ERROR <json-encoded-message>`. Decode the JSON string
@@ -2189,6 +2230,41 @@ fn get_attach_db_install_str(db_type: &str) -> Result<&str> {
     }
 }
 
+/// A postgres resource with `use_iam_auth` authenticates with an RDS IAM token, which DuckDB's
+/// postgres extension cannot mint: swap one in as the password before the ATTACH is built, and
+/// force TLS as every IAM connection does. The token is valid for 15 minutes, so a connection
+/// DuckDB opens later in the job is refused.
+async fn apply_pg_iam_auth(
+    db_resource: &mut Value,
+    hidden_passwords: &Arc<Mutex<Vec<String>>>,
+) -> Result<()> {
+    if db_resource.get("use_iam_auth").and_then(Value::as_bool) != Some(true) {
+        return Ok(());
+    }
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let res: PgDatabase = serde_json::from_value(db_resource.clone())?;
+        let token = res.iam_auth_token().await?;
+        // DuckDB's connection errors echo the attach URI, where the token is percent-encoded.
+        hidden_passwords
+            .lock()
+            .unwrap()
+            .extend([urlencoding::encode(&token).into_owned(), token.clone()]);
+        db_resource["password"] = json!(token);
+        if !matches!(res.sslmode.as_deref(), Some("verify-ca" | "verify-full")) {
+            db_resource["sslmode"] = json!("require");
+        }
+        Ok(())
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    {
+        let _ = hidden_passwords;
+        Err(Error::ExecutionErr(
+            "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+        ))
+    }
+}
+
 async fn transform_attach_db_resource_query(
     parsed: &ParsedAttachDbResource<'_>,
     job_id: &Uuid,
@@ -2196,11 +2272,17 @@ async fn transform_attach_db_resource_query(
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     job_dir: &str,
 ) -> Result<Vec<String>> {
-    let db_resource: Value = client
+    let mut db_resource: Value = client
         .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
         .await?;
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
+    if matches!(
+        parsed.db_type.to_lowercase().as_str(),
+        "postgres" | "postgresql"
+    ) {
+        apply_pg_iam_auth(&mut db_resource, hidden_passwords).await?;
     }
     db_resource_to_attach_statements(
         db_resource,
@@ -2232,11 +2314,18 @@ async fn db_resource_to_attach_statements(
     )
     .to_string();
 
-    Ok(vec![
+    let mut statements = vec![
         get_attach_db_install_str(db_type)?.to_string(),
         format!("LOAD {};", db_type),
-        attach_str,
-    ])
+    ];
+    // DuckDB 2.0's MySQL scanner hands whole queries to the server by default, which turns
+    // binary-collated text into BLOB and moves grouping to MySQL's collation. Read when the
+    // ATTACH runs, so it has to precede it.
+    if db_type == "mysql" {
+        statements.push("SET mysql_enable_remote_pushdown=false;".to_string());
+    }
+    statements.push(attach_str);
+    Ok(statements)
 }
 
 async fn transform_attach_ducklake(
@@ -2260,12 +2349,12 @@ async fn transform_attach_ducklake(
         .map(|m| m.as_str()[1..m.as_str().len() - 1].to_string())
         .unwrap_or_default();
 
-    let ducklake = match conn {
+    let mut ducklake = match conn {
         Connection::Http(client) => get_ducklake_from_agent_http(client, name, w_id).await?,
         Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
     };
     // In a fork, METADATA_SCHEMA / DATA_PATH / OVERRIDE_DATA_PATH are owned by the fork
-    // resolution (DuckDB silently keeps the last occurrence of a duplicated option, so a
+    // resolution (the last occurrence of a duplicated option is the one kept, so a
     // user-supplied one would escape the fork namespace back to the parent's).
     let user_extra_args = if ducklake.fork_defer.is_some() {
         strip_fork_reserved_attach_args(&user_extra_args)
@@ -2291,6 +2380,17 @@ async fn transform_attach_ducklake(
     {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
+    if db_type == "postgres" {
+        apply_pg_iam_auth(&mut ducklake.catalog_resource, hidden_passwords).await?;
+    }
+    // A fork attaches each ancestor's catalog too, usually the same IAM-auth database.
+    for a in ducklake
+        .fork_defer
+        .iter_mut()
+        .flat_map(|d| d.ancestors.iter_mut())
+    {
+        apply_pg_iam_auth(&mut a.catalog_resource, hidden_passwords).await?;
+    }
 
     // Escape single quotes: db_conn_str, storage and data_path are embedded in
     // single-quoted DuckDB literals below, so an unescaped quote in a resource
@@ -2306,37 +2406,18 @@ async fn transform_attach_ducklake(
     let data_path = ducklake.storage.path.replace('\'', "''");
 
     let extra_args = if let Some(default_extra_args) = ducklake.extra_args {
-        format!("{},{}", extra_args, default_extra_args)
+        // A newline, so a trailing `--` comment in the script's args ends before the config's.
+        format!("{}\n,{}", extra_args, default_extra_args)
     } else {
         extra_args
     };
-    // Ducklake 0.3 only requires DATA_PATH at creation and then stores it internally in the catalog
-    // But it will fail if DATA_PATH changes afterwards which is annoying for us
-    // So we always enable override
-    let extra_args = if extra_args.contains("OVERRIDE_DATA_PATH") {
-        extra_args
-    } else {
-        format!(", OVERRIDE_DATA_PATH TRUE{extra_args}")
-    };
-    // Automatically migrate ducklake
-    let extra_args = if extra_args.contains("AUTOMATIC_MIGRATION") {
-        extra_args
-    } else {
-        format!(", AUTOMATIC_MIGRATION TRUE{extra_args}")
-    };
-    // In a fork, re-emit the fork-owned DATA_PATH as the LAST option: DuckDB keeps the last
-    // occurrence of a duplicated option, so this wins over anything the arg stripping might
-    // not recognize (e.g. a dollar-quoted literal), regardless of literal syntax. The
-    // METADATA_SCHEMA injected by the fork resolution is already last within `extra_args`.
-    let extra_args = if ducklake.fork_defer.is_some() {
-        format!("{extra_args}, DATA_PATH 's3://{storage}/{data_path}'")
-    } else {
-        extra_args
-    };
-
-    let attach_str = format!(
-        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",
+    let options = ducklake_attach_options(
+        &format!("s3://{storage}/{data_path}"),
+        &extra_args,
+        ducklake.fork_defer.is_some(),
     );
+    let attach_str =
+        format!("ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} ({options});");
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
     let mut statements = vec![
@@ -2355,6 +2436,86 @@ async fn transform_attach_ducklake(
         )?);
     }
     Ok(Some(statements))
+}
+
+/// The option list of a lake's ATTACH. `extra_args` are the script's then the lake config's,
+/// each part prefixed by a comma; later options override earlier ones, so Windmill's defaults
+/// come first and, in a fork, the fork-owned DATA_PATH last (it must win over anything the
+/// reserved-arg stripping did not recognize, e.g. a dollar-quoted literal).
+fn ducklake_attach_options(data_path: &str, extra_args: &str, fork: bool) -> String {
+    // OVERRIDE_DATA_PATH: DuckLake stores DATA_PATH at creation and refuses a different one
+    // afterwards. DUCKLAKE_VERSION '1.0': a catalog migrated to 1.1 cannot be downgraded and is
+    // unreadable by DuckDB 1.x engines, so one job on an upgraded worker would break every older
+    // worker and any rollback. Unpinned, AUTOMATIC_MIGRATION targets the newest format and new
+    // catalogs are created at it.
+    let mut options = format!(
+        "DATA_PATH '{data_path}', OVERRIDE_DATA_PATH TRUE, AUTOMATIC_MIGRATION TRUE, \
+         DUCKLAKE_VERSION '1.0'{extra_args}"
+    );
+    if fork {
+        options.push_str(&format!("\n, DATA_PATH '{data_path}'"));
+    }
+    keep_last_attach_option(&options)
+}
+
+/// Drops every occurrence of an ATTACH option but its last. DuckDB 1.x kept the last of
+/// duplicated options; 2.0 rejects the statement ("Unexpected duplicate option").
+fn keep_last_attach_option(options: &str) -> String {
+    let parts = split_attach_options(options);
+    let key = |part: &str| -> String {
+        match part.strip_prefix('"') {
+            Some(quoted) => quoted.split('"').next().unwrap_or_default().to_string(),
+            None => part
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect(),
+        }
+        .to_ascii_uppercase()
+    };
+    let keys: Vec<String> = parts.iter().map(|p| key(p)).collect();
+    parts
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| keys[i + 1..].iter().all(|k| k.is_empty() || *k != keys[*i]))
+        .map(|(_, p)| p.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Splits an ATTACH option list on the commas outside string literals ([`sql_literal_len`])
+/// and parentheses, dropping empty parts. SQL comments are dropped too: a `--` comment would
+/// otherwise swallow whatever is joined after it on the same line, `);` included.
+fn split_attach_options(options: &str) -> Vec<String> {
+    let options = strip_sql_comments(options);
+    let options = options.as_str();
+    let mut parts = vec![];
+    let mut part = String::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < options.len() {
+        let rest = &options[i..];
+        if let Some(len) = sql_literal_len(options, i) {
+            part.push_str(&rest[..len]);
+            i += len;
+            continue;
+        }
+        let c = rest.chars().next().unwrap();
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(std::mem::take(&mut part).trim().to_string());
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+        part.push(c);
+        i += c.len_utf8();
+    }
+    parts.push(part.trim().to_string());
+    parts.retain(|p| !p.is_empty());
+    parts
 }
 
 // Double-quote a possibly schema-qualified table reference, each dotted segment
@@ -2418,8 +2579,8 @@ fn fork_defer_statements(
             .map(|s| format!(", METADATA_SCHEMA '{}'", s.replace('\'', "''")))
             .unwrap_or_default();
         // The ancestor config's own non-reserved args (e.g. `ENCRYPTED true`) — an
-        // option-dependent lake wouldn't attach without them. Emitted FIRST: DuckDB keeps the
-        // last occurrence of a duplicated option, so the fork-owned DATA_PATH / READ_ONLY /
+        // option-dependent lake wouldn't attach without them. Emitted FIRST: the last occurrence
+        // of a duplicated option is the one kept, so the fork-owned DATA_PATH / READ_ONLY /
         // METADATA_SCHEMA after them always win.
         let extra_args = a
             .extra_args
@@ -2430,8 +2591,11 @@ fn fork_defer_statements(
         // / CREATE_IF_NOT_EXISTS: an ancestor lake that would need creating or migrating fails
         // loudly rather than being mutated from a fork. IF NOT EXISTS: several ATTACH blocks in
         // one script (e.g. the user's + the materialize synthetic one) emit the same ancestors.
+        let options = keep_last_attach_option(&format!(
+            "{extra_args}DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema}"
+        ));
         stmts.push(format!(
-            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} ({extra_args}DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema});",
+            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} ({options});",
             a.alias
         ));
     }
@@ -2566,6 +2730,8 @@ async fn transform_attach_datatable(
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
+    let mut db_resource = db_resource;
+    apply_pg_iam_auth(&mut db_resource, hidden_passwords).await?;
 
     Ok(Some(pg_secret_attach_statements(
         db_resource,
@@ -2828,6 +2994,16 @@ mod tests {
     }
 
     #[test]
+    fn mask_secrets_masks_a_token_containing_a_shorter_secret() {
+        let token = "h:5432/?Action=connect&DBUser=rds_iam&X-Amz-Signature=abc123";
+        let secrets = [String::new(), "rds_iam".to_string(), token.to_string()];
+        assert_eq!(
+            mask_secrets(format!("failed for {token} as rds_iam"), &secrets),
+            "failed for ****** as ******"
+        );
+    }
+
+    #[test]
     fn decode_ffi_error_unescapes_multiline_and_strips_quotes() {
         // Mirror the FFI: JSON-encode the raw DuckDB message, prefix "ERROR ".
         let raw_msg = "Invalid Input Error: data tests failed on main/raw_orders \
@@ -2902,6 +3078,40 @@ mod tests {
             defer_tables.into_iter().map(|(t, c)| (t, c, 0)).collect(),
             fork_views,
         )
+    }
+
+    #[test]
+    fn ducklake_attach_pins_catalog_format_and_never_repeats_an_option() {
+        assert_eq!(
+            ducklake_attach_options("s3://b/p", "", false),
+            "DATA_PATH 's3://b/p', OVERRIDE_DATA_PATH TRUE, AUTOMATIC_MIGRATION TRUE, \
+             DUCKLAKE_VERSION '1.0'"
+        );
+        // The script's then the lake config's args override the defaults; in a fork the
+        // fork-owned DATA_PATH overrides everything.
+        assert_eq!(
+            ducklake_attach_options(
+                "s3://b/fork",
+                ", data_path 's3://b/parent', ducklake_version '1.1',METADATA_SCHEMA 'a,b'",
+                true
+            ),
+            "OVERRIDE_DATA_PATH TRUE, AUTOMATIC_MIGRATION TRUE, ducklake_version '1.1', \
+             METADATA_SCHEMA 'a,b', DATA_PATH 's3://b/fork'"
+        );
+        assert_eq!(
+            keep_last_attach_option("X 'it''s, ok', ENCRYPTED $t$a, b$t$, X 1, f(a, b)"),
+            "ENCRYPTED $t$a, b$t$, X 1, f(a, b)"
+        );
+        assert_eq!(
+            keep_last_attach_option(
+                "DATA_PATH 'a', \"data_path\" 'b', READ_ONLY false -- why, it is\n, /* x, */ E 1"
+            ),
+            "\"data_path\" 'b', READ_ONLY false, E 1"
+        );
+        assert_eq!(
+            keep_last_attach_option("READ_ONLY false /* a /* b, */ c, */, E 1"),
+            "READ_ONLY false, E 1"
+        );
     }
 
     #[test]
@@ -3486,7 +3696,7 @@ mod tests {
         // The wrapped query still references `$file`, so the parsed sig binds it.
         // No custom data tests here, so no fetched bodies are needed.
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3520,6 +3730,7 @@ mod tests {
         // binds them at run time.
         let (rewritten, _) = build_materialized_query(
             script,
+            None,
             Some("2026-07-02"),
             &std::collections::HashMap::new(),
         )
@@ -3542,7 +3753,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history track=name\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
@@ -3573,7 +3784,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history deletes=close\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
@@ -3586,10 +3797,11 @@ mod tests {
     #[test]
     fn materialize_scd2_requires_key() {
         let script = "-- materialize scd2 ducklake://main/dim\nSELECT id, name FROM dl.src";
-        let err = match build_materialized_query(script, None, &std::collections::HashMap::new()) {
-            Err(e) => e,
-            Ok(_) => panic!("scd2 without key must error"),
-        };
+        let err =
+            match build_materialized_query(script, None, None, &std::collections::HashMap::new()) {
+                Err(e) => e,
+                Ok(_) => panic!("scd2 without key must error"),
+            };
         assert!(
             format!("{err}").contains("requires a natural key"),
             "got: {err}"
@@ -3602,6 +3814,7 @@ mod tests {
                       -- materialize scd2 ducklake://main/dim key=id\nSELECT id, name FROM dl.src";
         let err = match build_materialized_query(
             script,
+            None,
             Some("2026-07-01"),
             &std::collections::HashMap::new(),
         ) {
@@ -3627,7 +3840,7 @@ mod tests {
                       -- data_test not_null id\n\
                       SELECT id FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3652,7 +3865,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id on_schema_change=fail\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3671,7 +3884,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id on_schema_change=sync\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3704,7 +3917,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3728,7 +3941,7 @@ mod tests {
         let script = "-- materialize ducklake://main/t on_schema_change=fail\n\
                       SELECT a, b FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");

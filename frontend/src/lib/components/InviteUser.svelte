@@ -1,16 +1,19 @@
 <script lang="ts">
 	import { Button } from './common'
 	import Popover from './meltComponents/Popover.svelte'
-
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import RolePicker from './settings/RolePicker.svelte'
+	import type { EffectiveRole } from '$lib/gen'
+	import { validRoleOr } from '$lib/workspaceRoles'
 	import { MailPlus } from 'lucide-svelte'
 
 	interface Props {
-		inviteUser: (email: string, selected: 'operator' | 'developer' | 'admin') => Promise<void>
+		/** `selected` is a role name, or `admin`. */
+		inviteUser: (email: string, selected: string) => Promise<void>
+		/** The workspace's roles; undefined while loading. */
+		roles: EffectiveRole[] | undefined
 	}
 
-	const { inviteUser }: Props = $props()
+	const { inviteUser, roles }: Props = $props()
 
 	let email: string = $state('')
 
@@ -23,7 +26,8 @@
 		}
 	}
 
-	let selected: 'operator' | 'developer' | 'admin' = $state('developer')
+	let picked: string | undefined = $state(undefined)
+	const selected = $derived(validRoleOr(roles, picked))
 </script>
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
@@ -46,30 +50,7 @@
 				bind:value={email}
 				class="mr-4"
 			/>
-			<ToggleButtonGroup bind:selected>
-				{#snippet children({ item })}
-					<ToggleButton
-						value="operator"
-						label="Operator"
-						tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-						{item}
-					/>
-
-					<ToggleButton
-						value="developer"
-						label="Developer"
-						tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-						{item}
-					/>
-
-					<ToggleButton
-						value="admin"
-						label="Admin"
-						tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-						{item}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
+			<RolePicker {roles} disablePortal value={selected} onchange={(v) => (picked = v)} />
 			<Button
 				variant="accent"
 				unifiedSize="md"

@@ -38,8 +38,12 @@ pub struct ListAuditLogQuery {
     pub resource: Option<String>,
     pub before: Option<chrono::DateTime<chrono::Utc>>,
     pub after: Option<chrono::DateTime<chrono::Utc>>,
-    // Keyset cursor on the `id DESC` ordering. Lets a client stream a page in small batches
-    // without paying a growing OFFSET on every batch.
+    // Keyset cursor on the `timestamp DESC, id DESC` ordering: the id and timestamp of the last
+    // row seen. Lets a client stream a page in small batches without paying a growing OFFSET on
+    // every batch. `before_id` alone filters on the id only.
     pub before_id: Option<i64>,
+    pub before_id_timestamp: Option<chrono::DateTime<chrono::Utc>>,
     pub all_workspaces: Option<bool>,
+    // The entries about one run: started, viewed, cancelled, resumed, deleted...
+    pub job_id: Option<sqlx::types::Uuid>,
 }

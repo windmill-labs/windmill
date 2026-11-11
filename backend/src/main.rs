@@ -38,13 +38,16 @@ use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::{
     agent_workers::AgentConfig,
     global_settings::{
-        AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
-        CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
-        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DEPENDENCY_JOB_TAG_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
+        AI_CONFIG_SETTING, API_BASE_URL_APPLIES_TO_SETTING, API_BASE_URL_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING,
+        BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
+        CONCURRENCY_KEY_MAX_QUEUED_SETTING, CONCURRENCY_LIMIT_IN_ORDER_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DEPENDENCY_JOB_TAG_SETTING,
+        DEV_WORKSPACE_ISOLATION_SETTING, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING,
+        DEV_WORKSPACE_TAG_SUFFIX_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
         ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
         EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
         HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
@@ -128,7 +131,9 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_concurrency_key_max_queued, load_dependency_job_tag,
+    initial_load, load_api_base_url, load_api_base_url_applies_to, load_concurrency_key_max_queued,
+    load_concurrency_limit_in_order, load_dependency_job_tag, load_dev_workspace_isolation,
+    load_dev_workspace_isolation_skip_non_dev_forks, load_dev_workspace_tag_suffix,
     load_disable_password_login, load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
     load_mcp_disable_token_query_param, load_metrics_debug_enabled, load_preview_tags_override,
     load_require_preexisting_user, load_retention_period_overrides, load_tag_per_workspace_enabled,
@@ -307,6 +312,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     for git_sync_path in [
         windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH,
         windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH,
+        windmill_common::workspaces::GIT_SYNC_REVIEW_SCRIPT_PATH,
     ] {
         let git_sync_path = git_sync_path.to_string();
         if !all_paths.contains(&git_sync_path) {
@@ -683,6 +689,29 @@ async fn windmill_main() -> anyhow::Result<()> {
         _ => {}
     }
 
+    // Before `num_workers`: it reads `WORKER_GROUP`, which an agent authenticating with a
+    // workload identity token only learns from the server.
+    let agent_setup = if mode == Mode::Agent {
+        let agent_config = match AgentConfig::from_env() {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        };
+        let suffix = resolve_worker_suffix(&hostname, 1)?;
+        if let Err(e) = agent_config.resolve_workload_identity(&suffix).await {
+            eprintln!(
+                "Agent worker could not authenticate with its workload identity token, check \
+                 AGENT_IDENTITY_TOKEN_FILE and BASE_INTERNAL_URL (the reason is in the server log): {e:#}"
+            );
+            std::process::exit(1);
+        }
+        Some((agent_config, suffix))
+    } else {
+        None
+    };
+
     #[allow(unused_mut)]
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
@@ -735,19 +764,11 @@ async fn windmill_main() -> anyhow::Result<()> {
         .and_then(|x| x.parse().ok())
         .unwrap_or(IpAddr::from(default_bind_addr));
 
-    let (conn, first_suffix, agent_config) = if mode == Mode::Agent {
-        let agent_config = match AgentConfig::from_env() {
-            Ok(config) => config,
-            Err(e) => {
-                tracing::error!("{e}");
-                std::process::exit(1);
-            }
-        };
+    let (conn, first_suffix, agent_config) = if let Some((agent_config, suffix)) = agent_setup {
         tracing::info!(
             "Creating http client for cluster using base internal url {}",
             agent_config.base_internal_url
         );
-        let suffix = resolve_worker_suffix(&hostname, 1)?;
         (
             Connection::Http(agent_config.build_http_client(&suffix)),
             Some(suffix),
@@ -846,6 +867,8 @@ async fn windmill_main() -> anyhow::Result<()> {
     let worker_mode = num_workers > 0;
 
     if worker_mode {
+        windmill_common::worker::warn_secret_shaped_whitelist_envs();
+
         #[cfg(any(target_os = "linux"))]
         if let Err(e) = disable_oom_group() {
             tracing::warn!(
@@ -991,7 +1014,7 @@ Windmill Community Edition {GIT_VERSION}
             tracing::error!("Failed to reload license key: {err:#}");
             if is_agent {
                 tracing::error!(
-                    "Agent worker cannot connect to server. Please check AGENT_TOKEN and BASE_INTERNAL_URL"
+                    "Agent worker cannot connect to server. Please check AGENT_TOKEN (or AGENT_IDENTITY_TOKEN_FILE) and BASE_INTERNAL_URL"
                 );
                 std::process::exit(1);
             }
@@ -1052,12 +1075,8 @@ Windmill Community Edition {GIT_VERSION}
 
         // Before the first load: it can sign a token for instance object storage.
         #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
-        windmill_common::oidc_ee::init_oidc_signing(
-            &conn,
-            server_mode,
-            killpill_rx.resubscribe(),
-        )
-        .await?;
+        windmill_common::oidc_ee::init_oidc_signing(&conn, server_mode, killpill_rx.resubscribe())
+            .await?;
 
         initial_load(
             &conn,
@@ -1655,7 +1674,7 @@ async fn process_notify_event(
                 "Webhook change detected, invalidating webhook cache: {}",
                 payload
             );
-            windmill_api::webhook_util::WEBHOOK_CACHE.remove(payload);
+            windmill_api::webhook_util::invalidate_webhook_cache(payload);
         }
         "notify_workspace_envs_change" => {
             tracing::info!(
@@ -1664,12 +1683,15 @@ async fn process_notify_event(
             );
             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
         }
-        "notify_operator_settings_change" => {
+        // Written by the legacy operator settings mirror, always alongside a role override.
+        c if c == "notify_operator_settings_change"
+            || c == windmill_common::roles::ROLE_OVERRIDES_CHANGE_CHANNEL =>
+        {
             tracing::info!(
-                "Operator settings change detected, invalidating operator rights cache: {}",
+                "Role overrides change detected, invalidating workspace roles cache: {}",
                 payload
             );
-            windmill_common::workspaces::invalidate_operator_rights_cache(payload);
+            windmill_common::roles::invalidate_workspace_roles_cache(payload);
         }
         "notify_asset_producer_change" => {
             tracing::debug!(
@@ -1738,11 +1760,13 @@ async fn process_notify_event(
                             windmill_api_scripts::scripts::RAW_SCRIPT_LATEST_HASH_CACHE
                                 .remove(&format!("{workspace_id}:{path}"));
                             if *kind == "preprocessor" {
+                                // A stored flow can spell the path with the leading `/` the worker
+                                // tolerates, and must not keep the old format when it runs.
                                 match sqlx::query_scalar::<_, i64>(
                                     "SELECT fv.id
                                     FROM flow f
                                     INNER JOIN flow_version fv ON fv.id = f.versions[array_upper(f.versions, 1)]
-                                    WHERE fv.value->'preprocessor_module'->'value'->>'path' = $1 AND f.workspace_id = $2",
+                                    WHERE fv.value->'preprocessor_module'->'value'->>'path' IN ($1, '/' || $1) AND f.workspace_id = $2",
                                 )
                                 .bind(*path)
                                 .bind(*workspace_id)
@@ -1881,6 +1905,21 @@ async fn process_notify_event(
                         tracing::error!("Error loading dependency job tag: {e:#}");
                     }
                 }
+                DEV_WORKSPACE_ISOLATION_SETTING => {
+                    if let Err(e) = load_dev_workspace_isolation(db).await {
+                        tracing::error!("Error loading dev workspace isolation: {e:#}");
+                    }
+                }
+                DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING => {
+                    if let Err(e) = load_dev_workspace_isolation_skip_non_dev_forks(db).await {
+                        tracing::error!("Error loading dev workspace isolation of forks: {e:#}");
+                    }
+                }
+                DEV_WORKSPACE_TAG_SUFFIX_SETTING => match load_dev_workspace_tag_suffix(db).await {
+                    Ok(true) if worker_mode => reload_worker_config(db, tx.clone(), true).await,
+                    Ok(_) => (),
+                    Err(e) => tracing::error!("Error loading dev workspace tag suffix: {e:#}"),
+                },
                 WORKSPACE_FAIRNESS_ENABLED_SETTING => {
                     if let Err(e) = load_workspace_fairness_enabled(db).await {
                         tracing::error!("Error loading workspace fairness enabled: {e:#}");
@@ -1899,6 +1938,11 @@ async fn process_notify_event(
                 WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING => {
                     if let Err(e) = load_workspace_fairness_min_total(db).await {
                         tracing::error!("Error loading workspace fairness min total: {e:#}");
+                    }
+                }
+                CONCURRENCY_LIMIT_IN_ORDER_SETTING => {
+                    if let Err(e) = load_concurrency_limit_in_order(db).await {
+                        tracing::error!("Error loading concurrency limit in order: {e:#}");
                     }
                 }
                 CONCURRENCY_KEY_MAX_QUEUED_SETTING => {
@@ -2011,8 +2055,20 @@ async fn process_notify_event(
                 DISABLE_PASSWORD_LOGIN_SETTING => {
                     load_disable_password_login(db).await;
                 }
+                windmill_common::global_settings::WORKSPACE_ROLES_SETTING => {
+                    windmill_common::roles::invalidate_all_roles_cache();
+                }
                 MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING => {
                     load_mcp_disable_token_query_param(db).await;
+                }
+                windmill_common::global_settings::MCP_EXTERNAL_IDP_SETTING => {
+                    crate::monitor::load_mcp_external_idp(db).await;
+                }
+                API_BASE_URL_SETTING => {
+                    load_api_base_url(db).await;
+                }
+                API_BASE_URL_APPLIES_TO_SETTING => {
+                    load_api_base_url_applies_to(db).await;
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");

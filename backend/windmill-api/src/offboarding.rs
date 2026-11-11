@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::db::{ApiAuthed, OptJobAuthed};
-use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
+use crate::secret_backend_ext::{
+    reject_http_store_refs_under_prefix, rename_vault_secrets_with_prefix,
+};
 use axum::{
     extract::{Extension, Path},
     Json,
@@ -633,6 +635,7 @@ pub(crate) async fn offboard_global_user(
     }
 
     if req.delete_user {
+        windmill_api_users::users::revoke_mcp_oauth_grants(&mut *tx, &email, None).await?;
         sqlx::query!("DELETE FROM token WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;
@@ -918,7 +921,7 @@ async fn offboard_user_from_workspace<'c>(
     ).execute(&mut **tx).await?;
 
     sqlx::query!(
-        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3 AND NOT EXISTS (SELECT 1 FROM flow_node d WHERE d.workspace_id = $3 AND d.hash_v2 = flow_node.hash_v2 AND d.path = REGEXP_REPLACE(flow_node.path, 'u/' || $2 || '/(.*)', $1 || '/\1'))"#,
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
 
@@ -1073,9 +1076,10 @@ async fn offboard_user_from_workspace<'c>(
     // ---- variables (with Vault secret handling) ----
     let old_var_prefix = format!("u/{}/", username);
     let new_var_prefix = format!("{}/", reassign_to);
+    reject_http_store_refs_under_prefix(&mut **tx, w_id, &old_var_prefix).await?;
 
     let vault_secrets: Vec<(String, String)> = sqlx::query!(
-        r#"SELECT path, value FROM variable
+        r#"SELECT path, value::text AS "value!" FROM variable
            WHERE path LIKE ('u/' || $1 || '/%')
            AND workspace_id = $2
            AND is_secret = true
@@ -1209,6 +1213,11 @@ async fn offboard_user_from_workspace<'c>(
     // They are NOT done here for reassign-only (delete_user=false) since the user stays.
 
     // ---- Related path tables ----
+    sqlx::query!(
+        r#"UPDATE native_trigger SET connection_path = REGEXP_REPLACE(connection_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE connection_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        &new_prefix, username, w_id
+    ).execute(&mut **tx).await?;
+
     sqlx::query!(
         r#"UPDATE workspace_integrations SET resource_path = REGEXP_REPLACE(resource_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE resource_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix, username, w_id

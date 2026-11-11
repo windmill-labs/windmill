@@ -263,6 +263,10 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_isolation: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_isolation_skip_non_dev_forks: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_tags_override: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
@@ -279,11 +283,15 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_job_tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_tag_suffix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub github_app_webhook_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_base_url_applies_to: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -362,6 +370,8 @@ pub struct GlobalSettings {
     pub custom_instance_pg_databases: Option<CustomInstancePgDatabases>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_instance_pg: Option<ExternalInstancePg>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_workload_identity_issuers: Option<Vec<AgentWorkloadIdentityIssuer>>,
 
     // Opaque settings (EE-private structs or no clear schema)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -584,6 +594,8 @@ pub struct OAuthClient {
     pub share_with_workspaces: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grant_types: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pkce: Option<bool>,
 
     /// Catch-all for provider-specific fields (e.g. Keycloak `org`, Okta `domain`/`custom`).
     #[serde(flatten)]
@@ -730,6 +742,42 @@ pub struct TeamsChannel {
     pub team_name: String,
     pub channel_id: String,
     pub channel_name: String,
+}
+
+// ---------------------------------------------------------------------------
+// Agent worker workload identity
+// ---------------------------------------------------------------------------
+
+/// An issuer whose workload identity tokens (Kubernetes projected service account tokens,
+/// SPIFFE JWT-SVIDs, ...) an agent worker may authenticate with instead of an agent token.
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct AgentWorkloadIdentityIssuer {
+    /// Must equal the token's `iss` exactly.
+    pub issuer: String,
+    /// Where the signing keys are published. Defaults to the `jwks_uri` of the issuer's OIDC
+    /// discovery document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwks_uri: Option<String>,
+    /// The JWKS document itself, as JSON text, for an issuer this instance cannot reach.
+    /// Takes precedence over `jwks_uri`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwks: Option<String>,
+    /// Must be one of the token's `aud`.
+    pub audience: String,
+    /// Tried in order; the first whose claims all match decides the worker group and tags.
+    #[serde(default)]
+    pub rules: Vec<AgentWorkloadIdentityRule>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct AgentWorkloadIdentityRule {
+    /// Claim path (dot separated, a key that itself contains dots such as `kubernetes.io`
+    /// is matched whole) to the exact value it must hold.
+    pub claims: BTreeMap<String, String>,
+    pub worker_group: String,
+    pub tags: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -962,6 +1010,8 @@ pub struct WorkerGroupConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env_vars_allowlist: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_job_proxy: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min_alive_workers_alert_threshold: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autoscaling: Option<AutoscalingConfig>,
@@ -970,6 +1020,9 @@ pub struct WorkerGroupConfig {
     /// Workers of the group pull no new job while this is set; queued jobs wait.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused: Option<bool>,
+    /// The group listens to its tags suffixed with the dev workspace tag suffix, and only to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serves_dev_workspaces: Option<bool>,
     /// Object store this group's dependency cache uses instead of the instance one. Same shape
     /// as the instance `object_store_cache_config`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1151,7 +1204,14 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
     (
         "secret_backend",
-        &["token", "client_secret", "secret_access_key"],
+        &[
+            "token",
+            "approle_secret_id",
+            "client_secret",
+            "secret_access_key",
+            "auth",
+            "extra_headers",
+        ],
     ),
     (
         "object_store_cache_config",
@@ -1184,15 +1244,20 @@ fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Va
         }
     }
     // Settings that are maps-of-objects where each child has a sensitive sub-field.
-    const NESTED_MAP_SENSITIVE: &[(&str, &str)] = &[("oauths", "secret")];
-    for &(parent_key, child_field) in NESTED_MAP_SENSITIVE {
+    const NESTED_MAP_SENSITIVE: &[(&str, &[&str])] = &[
+        ("oauths", &["secret", "signing_secret"]),
+        ("external_secrets", &["token", "approle_secret_id"]),
+    ];
+    for &(parent_key, child_fields) in NESTED_MAP_SENSITIVE {
         if key == parent_key {
             if let serde_json::Value::Object(entries) = value {
                 let mut masked = entries.clone();
                 for (_entry_key, entry_val) in masked.iter_mut() {
                     if let serde_json::Value::Object(ref mut obj) = entry_val {
-                        if let Some(v) = obj.get(child_field) {
-                            obj.insert(child_field.to_string(), redact_json_value(v));
+                        for &child_field in child_fields {
+                            if let Some(v) = obj.get(child_field) {
+                                obj.insert(child_field.to_string(), redact_json_value(v));
+                            }
                         }
                     }
                 }
@@ -1421,7 +1486,7 @@ pub fn diff_worker_configs(
 }
 
 /// Declaratively replace the global settings, rejecting a
-/// `github_app_webhook_base_url`, `api_base_url` or
+/// `github_app_webhook_base_url`, `api_base_url`, `api_base_url_applies_to` or
 /// `http_route_default_allowed_origins` the API would reject.
 ///
 /// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
@@ -1481,6 +1546,13 @@ pub async fn sync_global_settings_declarative(
         }
     }
 
+    let applies_to_key = crate::global_settings::API_BASE_URL_APPLIES_TO_SETTING;
+    match desired.get(applies_to_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(v) => crate::global_settings::validate_api_base_url_applies_to(v)
+            .map_err(|e| anyhow::anyhow!("{applies_to_key}: {e}"))?,
+    }
+
     let banner_key = crate::global_settings::INSTANCE_BANNER_SETTING;
     match desired.get(banner_key) {
         None | Some(serde_json::Value::Null) => {}
@@ -1499,6 +1571,21 @@ pub async fn sync_global_settings_declarative(
             .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
     }
 
+    let issuers_key = crate::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
+    match desired.get(issuers_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(issuers) => crate::agent_workload_identity::validate_issuers_value(issuers)
+            .map_err(|e| anyhow::anyhow!("{issuers_key}: {e}"))?,
+    }
+
+    let suffix_key = crate::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING;
+    match desired.get(suffix_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(suffix) => crate::global_settings::validate_dev_workspace_tag_suffix(suffix)
+            .map_err(|e| anyhow::anyhow!("{suffix_key}: {e}"))?,
+    }
+
     // An origin list that cannot be parsed is dropped at boot, leaving the
     // empty default — which is no restriction at all. Rejecting it here is what
     // keeps a typo in a ConfigMap from silently widening CORS instance-wide.
@@ -1510,10 +1597,27 @@ pub async fn sync_global_settings_declarative(
     crate::global_settings::parse_max_token_expiration_days(desired.get(max_expiration_key))
         .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
 
+    let idp_key = crate::global_settings::MCP_EXTERNAL_IDP_SETTING;
+    crate::global_settings::parse_mcp_external_idp(desired.get(idp_key))
+        .map_err(|e| anyhow::anyhow!("{idp_key}: {e}"))?;
+
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    let roles_key = crate::global_settings::WORKSPACE_ROLES_SETTING;
+    let roles_written = diff.upserts.iter().any(|(k, _)| k == roles_key)
+        || diff.deletes.iter().any(|k| k == roles_key);
+    if roles_written {
+        crate::roles::validate_instance_roles_write(db, desired.get(roles_key))
+            .await
+            .map_err(|e| anyhow::anyhow!("{roles_key}: {e}"))?;
+    }
     crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff, observer)
         .await?;
     apply_settings_diff(db, &diff, observer).await?;
+    if roles_written {
+        crate::roles::after_instance_roles_write(db)
+            .await
+            .map_err(|e| anyhow::anyhow!("{roles_key}: {e}"))?;
+    }
 
     Ok(())
 }
@@ -2837,10 +2941,12 @@ mod tests {
     #[test]
     fn format_setting_value_redacts_oauth_secrets() {
         let val = serde_json::json!({
-            "google": {"id": "client-id", "secret": "my-super-secret-12345"}
+            "google": {"id": "client-id", "secret": "my-super-secret-12345"},
+            "slack": {"id": "s", "secret": "s", "signing_secret": "slack-signing-secret-678"}
         });
         let formatted = format_setting_value("oauths", &val);
         assert!(!formatted.contains("my-super-secret-12345"));
+        assert!(!formatted.contains("slack-signing-secret-678"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
     }
@@ -2863,6 +2969,20 @@ mod tests {
         });
         let formatted = format_setting_value("github_enterprise_app", &val);
         assert!(!formatted.contains("MIIEsecretbody"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_http_store_credentials() {
+        let val = serde_json::json!({
+            "type": "HttpStore",
+            "base_url": "https://store.example",
+            "auth": {"type": "StaticHeader", "header_name": "X-Key", "header_value": "store-api-key-12345"},
+            "extra_headers": {"X-Tenant-Key": "tenant-key-67890"}
+        });
+        let formatted = format_setting_value("secret_backend", &val);
+        assert!(!formatted.contains("store-api-key-12345"));
+        assert!(!formatted.contains("tenant-key-67890"));
+        assert!(formatted.contains("store.example"));
     }
 
     #[test]
@@ -3043,6 +3163,7 @@ mod tests {
                         tenant: None,
                         share_with_workspaces: None,
                         grant_types: vec![],
+                        pkce: None,
                         extra: BTreeMap::new(),
                     }),
                 );

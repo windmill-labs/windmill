@@ -69,19 +69,8 @@ async fn reregister_service<T: External>(
     moved: &[&MovedNativeTrigger],
     handler: T,
 ) {
-    let oauth_data: T::OAuthData =
-        match decrypt_oauth_data(db, w_id, T::SERVICE_NAME.integration_service()).await {
-            Ok(oauth_data) => oauth_data,
-            Err(e) => {
-                for trigger in moved {
-                    record_failure::<T>(db, w_id, &trigger.external_id, &e).await;
-                }
-                return;
-            }
-        };
-
     for trigger in moved {
-        if let Err(e) = reregister_one(db, authed, w_id, &handler, &oauth_data, trigger).await {
+        if let Err(e) = reregister_one(db, authed, w_id, &handler, trigger).await {
             record_failure::<T>(db, w_id, &trigger.external_id, &e).await;
         }
     }
@@ -99,7 +88,6 @@ async fn reregister_one<T: External>(
     authed: &ApiAuthed,
     w_id: &str,
     handler: &T,
-    oauth_data: &T::OAuthData,
     moved: &MovedNativeTrigger,
 ) -> Result<()> {
     let external_id = moved.external_id.as_str();
@@ -136,7 +124,16 @@ async fn reregister_one<T: External>(
         service_config,
         summary: trigger.summary.clone(),
         enabled: trigger.enabled,
+        connection_path: trigger.connection_path.clone(),
     };
+
+    let oauth_data: T::OAuthData = decrypt_oauth_data(
+        db,
+        w_id,
+        T::SERVICE_NAME.integration_service(),
+        trigger.connection_path.as_deref(),
+    )
+    .await?;
 
     // The token is scoped to the runnable path and only its hash is kept, so pointing the webhook
     // at the new path means minting a replacement rather than reusing the old one. Commit it
@@ -157,7 +154,7 @@ async fn reregister_one<T: External>(
     let updated = handler
         .update(
             w_id,
-            oauth_data,
+            &oauth_data,
             external_id,
             &webhook_token,
             &data,

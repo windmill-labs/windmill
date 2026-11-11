@@ -6,6 +6,8 @@ import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 import { OidcService } from '$lib/gen'
+import { workspaceRolesErrors } from '$lib/workspaceRoles'
+import { deepEqual } from 'fast-equals'
 
 /**
  * Bumped after instance settings are successfully saved. Settings whose display
@@ -69,20 +71,28 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'external_secrets'
 		| 'external_instance_pg'
 		| 'instance_pg'
 		| 'github_enterprise_app'
 		| 'webhook_base_url'
+		| 'api_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
 		| 'instance_banner'
 		| 'accent_color'
+		| 'agent_workload_identity_issuers'
+		| 'mcp_external_idp'
+		| 'workspace_roles'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
 		onChange: (values: Record<string, any>) => Record<string, any>
 		checked: (values: Record<string, any>) => boolean
 	}
+	/** Other global settings the field reads and writes besides `key`, so the form tracks
+	 * their changes too. */
+	companionKeys?: string[]
 	hiddenIfNull?: boolean
 	hiddenIfEmpty?: boolean
 	hiddenInEe?: boolean
@@ -96,7 +106,9 @@ export interface Setting {
 	codeAreaLang?: string
 	actionButton?: {
 		label: string
-		onclick: (values: Record<string, any>) => Promise<void>
+		onclick?: (values: Record<string, any>) => Promise<void>
+		/** Opens in a new tab, so unsaved settings survive. */
+		href?: string
 		variant?: ButtonType.Variant
 	}
 }
@@ -130,6 +142,11 @@ function validateIndexerSettings(v: any): Record<string, string> {
 	return errors
 }
 
+const manageInstanceGroupsButton: Setting['actionButton'] = {
+	label: 'Manage instance groups',
+	href: '/instance_groups'
+}
+
 export const scimSamlSetting: Setting[] = [
 	{
 		label: 'SCIM token',
@@ -138,7 +155,8 @@ export const scimSamlSetting: Setting[] = [
 		fieldType: 'password',
 		placeholder: 'mytoken',
 		storage: 'setting',
-		ee_only: ''
+		ee_only: '',
+		actionButton: manageInstanceGroupsButton
 	},
 	{
 		label: 'SAML metadata',
@@ -214,6 +232,7 @@ export const settings: Record<string, Setting[]> = {
 				label: 'The API is served on a different url than the UI',
 				onChange(values) {
 					values['api_base_url'] = values['api_base_url'] == null ? '' : null
+					if (values['api_base_url'] == null) values['api_base_url_applies_to'] = null
 					return values
 				},
 				checked: (values) => values['api_base_url'] != null
@@ -222,9 +241,10 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'API base url',
 			description:
-				'Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway. If that url does not also serve the UI, the CLI must authenticate with a token rather than the browser login.',
+				"Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote, the MCP server), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway, and untick what that url does not serve: those keep the url the UI is browsed on. If it does not also serve the UI, the CLI must authenticate with a token rather than the browser login. MCP clients get their OAuth endpoints on it, except sign-in, which opens on the base url in the user's browser; a host serving only MCP must forward /api/mcp/* and /.well-known/oauth-*/api/mcp/*.",
 			key: 'api_base_url',
-			fieldType: 'text',
+			fieldType: 'api_base_url',
+			companionKeys: ['api_base_url_applies_to'],
 			placeholder: 'https://api.windmill.company.com',
 			storage: 'setting',
 			ee_only: '',
@@ -596,6 +616,17 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'Run concurrency-limited jobs in order',
+			description:
+				"Jobs waiting on a concurrency limit keep the order workers pull jobs in: for each tag, by priority, then by when they became due. On by default. Turned off, a job deferred by its concurrency limit loses its place and can be overtaken by one queued after it, which drains a busy key of short jobs faster. In order, a slot is only given to the job first in its tag's line, so a job that cannot start yet (for example one its own concurrency time window still holds back) holds back the jobs behind it on the same key and tag; jobs of other tags are not held back. Jobs that become due at the same moment, before any of them has waited, start in the order workers pick them up. Admitting jobs of a key one at a time in order lowers its throughput at high limits.",
+			key: 'concurrency_limit_in_order',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: 'Concurrency limits are an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Max jobs queued per concurrency key',
 			description:
 				'Rejects new jobs once this many are already queued behind one concurrency key. Jobs sharing a key run at most <em>concurrent limit</em> at a time regardless of spare worker capacity, so a caller pushing faster than the key drains grows a backlog no capacity can absorb. Scoped per key, so a runaway producer cannot block the rest of the workspace. Set 0 to disable. Default 10000.',
@@ -632,6 +663,16 @@ export const settings: Record<string, Setting[]> = {
 				v == undefined ||
 				v === '' ||
 				(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3650)
+		}
+	],
+	'Workspace roles': [
+		{
+			label: 'Workspace roles',
+			key: 'workspace_roles',
+			fieldType: 'workspace_roles',
+			storage: 'setting',
+			ee_only: 'Custom workspace roles are only available in the EE version',
+			validate: workspaceRolesErrors
 		}
 	],
 	'Managed Postgres': [
@@ -812,8 +853,9 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Auto-login SSO provider',
-			description:
-				'If set, the login page redirects automatically to this provider. Use the OAuth provider key (e.g. "okta", "google") or "saml". The provider must be configured; otherwise the setting is ignored. Visit /user/login?no_sso=1 to bypass the redirect and fall back to the normal login form.',
+			description: 'Send the login page straight to this provider.',
+			tooltip:
+				'Use the OAuth provider key (okta, google) or saml. Ignored when that provider is not configured. /user/login?no_sso=1 shows the normal login form.',
 			key: 'auto_login_provider',
 			fieldType: 'text',
 			placeholder: 'okta',
@@ -822,10 +864,60 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'SSO groups claim',
 			description:
-				'Name of the SAML attribute or OIDC userinfo claim carrying the user\'s IdP groups ("http://schemas.microsoft.com/ws/2008/06/identity/claims/groups" on Entra SAML, "groups" for most OIDC providers). Its values must be the same group ids that SCIM stored as the instance groups\' external id (Entra emits object ids in both), since matching is by external id only. When set, every SSO login reconciles the user\'s membership in those SCIM-provisioned instance groups against the claim, so IdP group changes take effect at the next login instead of waiting for the SCIM push. Instance groups without an external id are never touched, and a login whose claim is absent or empty changes nothing. Leave empty to disable.',
+				"The claim or SAML attribute listing a user's IdP groups. Each SSO login then updates their membership in the instance groups linked to an IdP group.",
+			tooltip:
+				'Usually groups on OIDC (read from the userinfo response), or http://schemas.microsoft.com/ws/2008/06/identity/claims/groups on Entra SAML. Values must match the IdP group of each instance group: the id SCIM stored, or the id or full path set on the group (Entra uses object ids). Groups without an IdP group are never changed. Without SCIM, a login with an empty or missing claim removes the user from every linked group; with SCIM, it changes nothing. An Entra groups overage changes nothing either. MCP requests signed in through the external identity provider use the groups in their token the same way.',
 			key: 'sso_groups_claim',
 			fieldType: 'text',
 			placeholder: 'groups',
+			storage: 'setting',
+			ee_only: '',
+			actionButton: manageInstanceGroupsButton
+		},
+		{
+			label: 'SSO email claim',
+			description:
+				"The claim or SAML attribute holding a user's email. Windmill accounts are keyed by email.",
+			tooltip:
+				'Leave empty to use the email claim on OIDC and the NameID on SAML. A login whose claim is missing falls back to that default, so one setting can serve providers that name it differently. The claim decides which account a login opens, so map it only to an attribute users cannot edit at the identity provider. GitHub and Nextcloud logins always use their own email source. A changed email signs in as a different user.',
+			key: 'sso_email_claim',
+			fieldType: 'text',
+			placeholder: 'email',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'SSO username claim',
+			description:
+				'The claim or SAML attribute holding the username given to an account created at its first SSO login. NameID means the SAML NameID.',
+			tooltip:
+				'Leave empty to use preferred_username on OIDC and the usual username attributes on SAML (uid, username, preferred_username, UPN). A login whose claim is missing falls back to that default. Existing accounts keep their username. Has no effect when automatic username creation is off.',
+			key: 'sso_username_claim',
+			fieldType: 'text',
+			placeholder: 'preferred_username',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'MCP external identity provider',
+			description:
+				'Let MCP clients sign in with your OpenID Connect provider. Each client acts as the signed-in Windmill user, within the access you set for it below.',
+			tooltip:
+				'Tokens Windmill issued keep working. The user must already exist in Windmill: they sign in once first. When the SSO groups claim is set, each request uses the groups listed in its token, so a change in the IdP applies at the next token. Runs record the client, and their steps read it as WM_MCP_CLIENT.',
+			key: 'mcp_external_idp',
+			fieldType: 'mcp_external_idp',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		}
+	],
+	'Agent workers': [
+		{
+			label: 'Workload identity issuers',
+			key: 'agent_workload_identity_issuers',
+			description:
+				'An issuer lets an agent worker authenticate with a short-lived token its platform issues it (a Kubernetes projected service account token, a SPIFFE JWT-SVID, ...) in place of an agent token: point AGENT_IDENTITY_TOKEN_FILE at it. The token must be signed by a trusted issuer, carry its audience, and match a rule, which decides the worker group and tags the agent may serve. <a href="https://www.windmill.dev/docs/core_concepts/agent_workers">Learn more</a>',
+			fieldType: 'agent_workload_identity_issuers',
 			storage: 'setting',
 			ee_only: ''
 		}
@@ -1218,12 +1310,20 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Backend type',
 			description:
-				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager as external secret backends.',
+				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault, Azure Key Vault, AWS Secrets Manager, and any secret store with an HTTP API (read-only) as external secret backends.',
 			key: 'secret_backend',
 			fieldType: 'secret_backend',
 			storage: 'setting',
-			ee_only:
-				'HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager integrations are Enterprise Edition features'
+			ee_only: 'External secret store integrations are Enterprise Edition features'
+		},
+		{
+			label: 'External secret references',
+			description:
+				'Let secret variables reference existing secrets in HashiCorp Vault, read when the variable is read, under the path prefixes allowed here.',
+			key: 'external_secrets',
+			fieldType: 'external_secrets',
+			storage: 'setting',
+			ee_only: 'External secret references are an Enterprise Edition feature'
 		}
 	],
 	'GitHub App': [
@@ -1313,6 +1413,13 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Jobs',
 				aiId: 'instance-settings-jobs',
 				aiDescription: 'Instance jobs settings'
+			},
+			{
+				id: 'workspace_roles',
+				label: 'Workspace roles',
+				aiId: 'instance-settings-workspace-roles',
+				aiDescription: 'Roles workspace members can hold and their capabilities',
+				isEE: true
 			}
 		]
 	},
@@ -1336,6 +1443,13 @@ export const instanceSettingsNavigationGroups = [
 				label: 'SCIM/SAML',
 				aiId: 'instance-settings-scim-saml',
 				aiDescription: 'Instance SCIM/SAML settings',
+				isEE: true
+			},
+			{
+				id: 'agent_workers',
+				label: 'Agent workers',
+				aiId: 'instance-settings-agent-workers',
+				aiDescription: 'Workload identity issuers agent workers can authenticate with',
 				isEE: true
 			},
 			{
@@ -1497,11 +1611,13 @@ export const tabToCategoryMap: Record<string, string> = {
 	object_storage: 'Object Storage',
 	managed_postgres: 'Managed Postgres',
 	jobs: 'Jobs',
+	workspace_roles: 'Workspace roles',
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
 	db_health: 'DB Health',
 	oidc_signing: 'OIDC signing',
+	agent_workers: 'Agent workers',
 	lsp: 'LSP'
 }
 
@@ -1559,11 +1675,13 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	'Managed Postgres': 'managed_postgres',
 	Jobs: 'jobs',
+	'Workspace roles': 'workspace_roles',
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',
 	'DB Health': 'db_health',
 	'OIDC signing': 'oidc_signing',
+	'Agent workers': 'agent_workers',
 	LSP: 'lsp'
 }
 
@@ -1662,3 +1780,96 @@ export const WORKSPACE_REGISTRY_SETTINGS: Setting[] = settings['Registries'].fil
 		s.key !== 'uv_index_strategy' &&
 		s.key !== 'uv_python_install_mirror'
 )
+
+export const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
+/** Display-only marker for the Review changes diff; never parsed back into a value. */
+export const SENSITIVE_CHANGED = '__SENSITIVE_AND_CHANGED__'
+
+export const sensitiveKeys: Set<string> = new Set([
+	...[...Object.values(settings), scimSamlSetting]
+		.flatMap((s) => Object.values(s))
+		.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
+		.map((s) => s.key),
+	'ducklake_user_pg_pwd',
+	'jwt_secret',
+	'workspace_registries'
+])
+
+// Nested fields inside object-valued settings that contain secrets.
+// Each entry maps a top-level key to its sensitive sub-field names.
+export const nestedSensitiveFields: Record<string, string[]> = {
+	smtp_settings: ['smtp_password'],
+	secret_backend: ['token', 'approle_secret_id', 'client_secret', 'secret_access_key'],
+	object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
+	custom_instance_pg_databases: ['user_pwd'],
+	external_instance_pg: ['password'],
+	rsa_keys: ['private_key'],
+	github_enterprise_app: ['private_key'],
+	external_secrets: ['vault.token', 'vault.approle_secret_id']
+}
+
+// A field may name one nested level, `parent.child`.
+export function getField(obj: any, field: string): any {
+	const [a, b] = field.split('.')
+	return b === undefined ? obj?.[a] : obj?.[a]?.[b]
+}
+
+export function setField(obj: any, field: string, value: any) {
+	const [a, b] = field.split('.')
+	if (b === undefined) obj[a] = value
+	else if (obj[a] && typeof obj[a] === 'object') obj[a] = { ...obj[a], [b]: value }
+}
+
+/**
+ * Replaces sensitive values with placeholders. An unchanged non-empty value becomes
+ * SENSITIVE_UNCHANGED, which the YAML editor restores on parse. A changed value is kept
+ * in clear so the YAML editor can edit it, unless `markChanged` is set: then it becomes
+ * SENSITIVE_CHANGED, for read-only views such as the Review changes diff.
+ */
+export function maskSensitive(
+	obj: Record<string, any>,
+	initialValues: Record<string, any> | undefined,
+	initialOauths: Record<string, any> | undefined,
+	opts: { markChanged?: boolean } = {}
+): Record<string, any> {
+	// Values are deep clones of the initial ones, so a read-only view compares
+	// structurally; the editor keeps `===`, which its restore step relies on.
+	const same = opts.markChanged ? deepEqual : (a: any, b: any) => a === b
+	const mask = (current: any, initial: any): string | undefined => {
+		if (current == null || current === '') return undefined
+		if (same(current, initial)) return SENSITIVE_UNCHANGED
+		return opts.markChanged ? SENSITIVE_CHANGED : undefined
+	}
+
+	const masked: Record<string, any> = {}
+	for (const [key, value] of Object.entries(obj)) {
+		if (key === 'oauths' && typeof value === 'object' && value !== null) {
+			const maskedOauths: Record<string, any> = {}
+			for (const [provider, config] of Object.entries(value as Record<string, any>)) {
+				if (typeof config === 'object' && config !== null && 'secret' in config) {
+					const m = mask(config.secret, initialOauths?.[provider]?.secret)
+					maskedOauths[provider] = m ? { ...config, secret: m } : config
+				} else {
+					maskedOauths[provider] = config
+				}
+			}
+			masked[key] = maskedOauths
+		} else if (key in nestedSensitiveFields && typeof value === 'object' && value !== null) {
+			const cp = { ...value }
+			const init = initialValues?.[key]
+			for (const field of nestedSensitiveFields[key]) {
+				const m = mask(
+					field === 'serviceAccountKey' ? JSON.stringify(cp[field]) : getField(cp, field),
+					field === 'serviceAccountKey' ? JSON.stringify(init?.[field]) : getField(init, field)
+				)
+				if (m) setField(cp, field, m)
+			}
+			masked[key] = cp
+		} else if (sensitiveKeys.has(key)) {
+			masked[key] = mask(value, initialValues?.[key]) ?? value
+		} else {
+			masked[key] = value
+		}
+	}
+	return masked
+}

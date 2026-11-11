@@ -9,6 +9,7 @@ use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    runnable_ref::RunnableRef,
     worker::to_raw_value,
 };
 use windmill_git_sync::DeployedObject;
@@ -25,23 +26,29 @@ use super::{
 /// `$script:` URL resolver and `initial_messages` of kind `runnable_result`.
 /// That execution happens in a background task where the reconstructed authed is
 /// scopeless (so its check_scopes is a no-op), so enforce run scope here, at
-/// create/update time, against the API caller's token.
+/// create/update time, against the API caller's token. Reading the paths here also
+/// refuses, for any caller, one that does not parse.
 fn check_secondary_runnable_scopes(
     authed: &ApiAuthed,
     config: &WebsocketConfigRequest,
 ) -> Result<()> {
-    if let Some(rest) = config.url.strip_prefix("$flow:") {
-        check_scopes(authed, || format!("jobs:run:flows:{}", rest))?;
-    } else if let Some(rest) = config.url.strip_prefix("$script:") {
-        check_scopes(authed, || format!("jobs:run:scripts:{}", rest))?;
+    let check = |runnable: RunnableRef| {
+        let kind = if runnable.is_flow() {
+            "flows"
+        } else {
+            "scripts"
+        };
+        check_scopes(authed, || format!("jobs:run:{kind}:{}", runnable.path()))
+    };
+    if let Some(runnable) = RunnableRef::from_ws_url(&config.url) {
+        check(runnable?)?;
     }
     if let Some(messages) = config.initial_messages.as_ref() {
         for msg in messages {
             if let Ok(InitialMessage::RunnableResult { path, is_flow, .. }) =
                 serde_json::from_value::<InitialMessage>(msg.clone())
             {
-                let kind = if is_flow { "flows" } else { "scripts" };
-                check_scopes(authed, || format!("jobs:run:{}:{}", kind, path))?;
+                check(RunnableRef::from_path(&path, is_flow)?)?;
             }
         }
     }
@@ -67,6 +74,7 @@ impl TriggerCrud for WebsocketTrigger {
         "url",
         "filters",
         "filter_logic",
+        "run_on_filter_error",
         "initial_messages",
         "url_runnable_args",
         "can_return_message",
@@ -169,9 +177,10 @@ impl TriggerCrud for WebsocketTrigger {
                 error_handler_path,
                 error_handler_args,
                 retry,
-                heartbeat
+                heartbeat,
+                run_on_filter_error
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17, $18
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17, $18, $19
             )
             "#,
             w_id,
@@ -194,7 +203,8 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.config.heartbeat.map(SqlxJson) as _
+            trigger.config.heartbeat.map(SqlxJson) as _,
+            trigger.config.run_on_filter_error
         )
         .execute(&mut *tx)
         .await?;
@@ -251,7 +261,8 @@ impl TriggerCrud for WebsocketTrigger {
             error_handler_path = $15,
             error_handler_args = $16,
             retry = $17,
-            heartbeat = $18
+            heartbeat = $18,
+            run_on_filter_error = $19
         WHERE
             workspace_id = $13 AND path = $14
     ",
@@ -276,7 +287,8 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.config.heartbeat.map(SqlxJson) as _
+            trigger.config.heartbeat.map(SqlxJson) as _,
+            trigger.config.run_on_filter_error
         )
         .execute(&mut *tx)
         .await?;
@@ -295,25 +307,22 @@ impl TriggerCrud for WebsocketTrigger {
         let url = &config.url;
 
         let connect_url: Cow<str> = if url.starts_with("$") {
-            if url.starts_with("$flow:") || url.starts_with("$script:") {
-                let path = url.splitn(2, ':').nth(1).unwrap();
-                Cow::Owned(
-                    get_url_from_runnable_value(
-                        path,
-                        url.starts_with("$flow:"),
-                        &db,
-                        authed.clone(),
-                        config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
-                        &workspace_id,
-                    )
-                    .await?,
-                )
-            } else {
+            let Some(runnable) = RunnableRef::from_ws_url(url) else {
                 return Err(Error::BadConfig(format!(
                     "Invalid WebSocket runnable path: {}",
                     url
                 )));
-            }
+            };
+            Cow::Owned(
+                get_url_from_runnable_value(
+                    &runnable?,
+                    &db,
+                    authed.clone(),
+                    config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
+                    &workspace_id,
+                )
+                .await?,
+            )
         } else {
             Cow::Borrowed(&url)
         };

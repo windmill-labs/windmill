@@ -218,12 +218,13 @@ pub async fn require_is_owner(
 }
 
 async fn _check_nb_of_groups(db: &DB) -> Result<()> {
-    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all' AND name != 'error_handler' AND name != 'slack' AND name != 'wm_deployers'",)
+    // Groups that back workspace settings do not count toward the limit.
+    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all' AND name != 'error_handler' AND name != 'slack' AND name != 'wm_deployers' AND name != 'variable_expiration_handler'",)
         .fetch_one(db)
         .await?;
     if nb_groups.unwrap_or(0) >= 3 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of groups (3 outside of native groups 'all', 'slack', 'error_handler' and 'wm_deployers') without an enterprise license"
+            "You have reached the maximum number of groups (3 outside of native groups 'all', 'slack', 'error_handler', 'wm_deployers' and 'variable_expiration_handler') without an enterprise license"
                 .to_string(),
         ));
     }
@@ -238,6 +239,13 @@ async fn create_group(
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
     crate::check_demo_workspace_restriction(&authed, &w_id, "Group creation")?;
+    // Admins stay allowed: `wmill sync push` recreates exported groups through this endpoint.
+    if !authed.is_admin && windmill_common::RESERVED_GROUP_NAMES.contains(&ng.name.as_str()) {
+        return Err(Error::BadRequest(format!(
+            "Group name {} is reserved by Windmill; only an admin can create it",
+            ng.name
+        )));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
@@ -295,10 +303,26 @@ async fn create_group(
     Ok(format!("Created group {}", ng.name))
 }
 
+#[derive(Deserialize)]
+struct NewIGroup {
+    name: String,
+    summary: Option<String>,
+    external_id: Option<String>,
+}
+
+/// The IdP group a manual edit links an instance group to: an id or a full path, trimmed,
+/// blank meaning no link.
+fn normalize_external_id(external_id: Option<&str>) -> Option<String> {
+    external_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 async fn create_igroup(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Json(ng): Json<NewGroup>,
+    Json(ng): Json<NewIGroup>,
 ) -> Result<String> {
     use uuid::Uuid;
 
@@ -309,10 +333,11 @@ async fn create_igroup(
 
     let id = Uuid::new_v4().to_string();
     sqlx::query!(
-        "INSERT INTO instance_group (name, summary, id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        "INSERT INTO instance_group (name, summary, id, external_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         normalized_name,
         ng.summary,
         id,
+        normalize_external_id(ng.external_id.as_deref()),
     )
     .execute(&mut *tx)
     .await?;
@@ -423,9 +448,11 @@ pub async fn apply_instance_role(
     .execute(&mut **tx)
     .await?;
 
-    // Update super_admin flag on non-session tokens
+    // Update super_admin flag on non-session tokens. A promotion leaves MCP tokens alone: they
+    // carry superadmin access only when minted with it (`create_token_internal`).
     sqlx::query!(
-        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
+                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
         new_super_admin,
         email
     )
@@ -459,6 +486,8 @@ pub async fn propagate_instance_group_roles(
 struct IGroupUpdate {
     new_summary: String,
     instance_role: Option<String>,
+    /// Omitted keeps the stored link; blank clears it.
+    external_id: Option<String>,
 }
 
 async fn update_igroup(
@@ -470,22 +499,38 @@ async fn update_igroup(
     require_super_admin(&db, &authed).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    let old_role_opt = sqlx::query_scalar!(
-        "SELECT instance_role FROM instance_group WHERE name = $1 FOR UPDATE",
+    let old = sqlx::query!(
+        "SELECT instance_role, external_id, scim_display_name IS NOT NULL AS \"scim_managed!\"
+         FROM instance_group WHERE name = $1 FOR UPDATE",
         &name
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let old_role = not_found_if_none(old_role_opt, "instance_group", name.clone())?;
+    let old = not_found_if_none(old, "instance_group", name.clone())?;
+    let old_role = old.instance_role;
 
     let validated_role = validate_instance_role(&igroup_update.instance_role)?;
 
-    sqlx::query("UPDATE instance_group SET summary = $1, instance_role = $2 WHERE name = $3")
-        .bind(igroup_update.new_summary)
-        .bind(&validated_role)
-        .bind(&name)
-        .execute(&mut *tx)
-        .await?;
+    let external_id = match igroup_update.external_id.as_deref() {
+        None => old.external_id.clone(),
+        Some(v) => normalize_external_id(Some(v)),
+    };
+    // SCIM records the IdP's id on the groups it provisions and rewrites it on every push.
+    if old.scim_managed && external_id != old.external_id {
+        return Err(Error::BadRequest(format!(
+            "instance group {name} is provisioned by SCIM, which sets its IdP group"
+        )));
+    }
+
+    sqlx::query(
+        "UPDATE instance_group SET summary = $1, instance_role = $2, external_id = $3 WHERE name = $4",
+    )
+    .bind(igroup_update.new_summary)
+    .bind(&validated_role)
+    .bind(&external_id)
+    .bind(&name)
+    .execute(&mut *tx)
+    .await?;
 
     // An omitted or null instance_role is stored as NULL above, so it revokes like any other
     // change: members must be recomputed whenever the stored role differs.
@@ -1040,6 +1085,8 @@ struct IGroup {
     summary: Option<String>,
     emails: Option<Vec<String>>,
     instance_role: Option<String>,
+    external_id: Option<String>,
+    scim_managed: bool,
 }
 
 #[derive(Serialize)]
@@ -1048,6 +1095,8 @@ struct IGroupWithWorkspaces {
     summary: Option<String>,
     emails: Option<Vec<String>>,
     instance_role: Option<String>,
+    external_id: Option<String>,
+    scim_managed: bool,
     workspaces: Vec<WorkspaceInfo>,
 }
 
@@ -1062,7 +1111,7 @@ async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
 
     let groups = sqlx::query_as!(
         IGroup,
-        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name, instance_role"
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role, external_id, scim_display_name IS NOT NULL AS \"scim_managed!\" FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name"
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1079,7 +1128,7 @@ async fn list_igroups_with_workspaces(
     // Get all instance groups with their emails first
     let groups = sqlx::query_as!(
         IGroup,
-        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name, summary, instance_role"
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role, external_id, scim_display_name IS NOT NULL AS \"scim_managed!\" FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name"
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1135,6 +1184,8 @@ async fn list_igroups_with_workspaces(
             summary: group.summary,
             emails: group.emails,
             instance_role: group.instance_role,
+            external_id: group.external_id,
+            scim_managed: group.scim_managed,
             workspaces,
         });
     }
@@ -1149,7 +1200,7 @@ async fn get_igroup(
 ) -> JsonResult<IGroupWithWorkspaces> {
     let group = sqlx::query_as!(
         IGroup,
-        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE name = $1 GROUP BY name, instance_role",
+        "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role, external_id, scim_display_name IS NOT NULL AS \"scim_managed!\" FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE name = $1 GROUP BY name",
         name
     )
     .fetch_optional(&db)
@@ -1189,6 +1240,8 @@ async fn get_igroup(
         summary: group.summary,
         emails: group.emails,
         instance_role: group.instance_role,
+        external_id: group.external_id,
+        scim_managed: group.scim_managed,
         workspaces,
     }));
 }

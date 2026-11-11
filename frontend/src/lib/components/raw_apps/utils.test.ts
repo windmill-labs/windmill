@@ -7,6 +7,7 @@ import {
 	formatRuntimeLogsForChat,
 	genWmillTs,
 	normalizeRawAppRuntimeLogs,
+	rawAppCtx,
 	rawAppPreviewModules,
 	stripRawAppDiffNoise,
 	type Runnable
@@ -53,6 +54,16 @@ const flowSchema = {
 	}
 } as const
 
+describe('rawAppCtx', () => {
+	it("carries the page's query without Windmill's own parameters", () => {
+		expect(rawAppCtx(undefined, 'ws', 'u/me/app', '?customer=42&wm_coep=1&tab=b').query).toEqual({
+			customer: '42',
+			tab: 'b'
+		})
+		expect(rawAppCtx(undefined, 'ws', 'u/me/app', '').query).toEqual({})
+	})
+})
+
 describe('genWmillTs', () => {
 	it('generates the correct flow args type for path runnables', () => {
 		const runnables: Record<string, Runnable> = {
@@ -74,7 +85,7 @@ describe('genWmillTs', () => {
 
 		const dts = genWmillTs(runnables)
 
-		expect(dts).toContain('myflow: (args: { string_input: string }) => Promise<any>;')
+		expect(dts).toContain('myflow: (args: { string_input: string }, opts?: { memoryId?: string }) => Promise<any>;')
 	})
 
 	it('leaves ctx fields out of the args type, the server fills them', () => {
@@ -91,7 +102,7 @@ describe('genWmillTs', () => {
 			}
 		}
 
-		expect(genWmillTs(runnables)).toContain('myflow: (args: { count?: number }) => Promise<any>;')
+		expect(genWmillTs(runnables)).toContain('myflow: (args: { count?: number }, opts?: { memoryId?: string }) => Promise<any>;')
 	})
 
 	it('quotes flow input names that are not valid identifiers', () => {
@@ -112,7 +123,7 @@ describe('genWmillTs', () => {
 
 		// `user-name: string` is unparseable, so the whole generated d.ts is
 		// rejected and every backend call in the editor loses its types.
-		expect(genWmillTs(runnables)).toContain('myflow: (args: { "user-name": string })')
+		expect(genWmillTs(runnables)).toContain('myflow: (args: { "user-name": string }, ')
 	})
 })
 

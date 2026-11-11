@@ -16,9 +16,10 @@ use axum::{
 };
 use windmill_api_auth::{
     auth::{list_tokens_internal, TruncatedTokenWithEmail},
-    build_scope_path_predicate, check_scopes, get_scope_tags, maybe_refresh_folders,
-    require_owner_of_path, ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    ApiAuthed,
 };
+use windmill_common::roles::AuthorLevel;
 use windmill_common::workspaces::{
     check_deploy_rules, check_operator_can_build, operator_builder_rights, BuilderKind,
     RuleCheckResult,
@@ -133,6 +134,17 @@ async fn list_search_flows(
     Ok(Json(rows))
 }
 
+/// `WHERE` condition matching one label, directly on the flow or inherited from its folder.
+///
+/// The template has two `?`, so both are filled in a single `binds` pass. Chaining `bind`
+/// would not work: `bind` replaces the first `?` of the string *as it is at that moment*,
+/// so the second call would find the `?` that the first call inserted as part of the bound
+/// value and substitute there, leaving the value partly outside its quotes.
+fn label_condition(label: &str) -> String {
+    "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
+        .binds(&[&label.trim()])
+}
+
 async fn list_flows(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -216,11 +228,7 @@ async fn list_flows(
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where(
-                "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
-            );
+            sqlb.and_where(label_condition(l));
         }
     }
 
@@ -244,7 +252,7 @@ async fn list_flows(
 
     // Append the authed user's drafts at paths with no deployed flow; see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && (!authed.is_operator || operator_builder_rights(&db, &w_id).await?.flows)
+        && operator_builder_rights(&db, &w_id, &authed).await?.flows
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
@@ -576,6 +584,7 @@ async fn list_paths_linking_agent(
 
 async fn validate_flow(
     new_flow: &NewFlow,
+    flows_level: AuthorLevel,
     authed: &ApiAuthed,
     db: &DB,
     user_db: &UserDB,
@@ -591,7 +600,7 @@ async fn validate_flow(
 
     guard_flow_from_debounce_data(new_flow).await?;
 
-    if authed.is_operator {
+    if flows_level == AuthorLevel::Compose {
         validate_operator_flow(
             &new_flow.parse_flow_value()?,
             &new_flow.tag,
@@ -641,85 +650,11 @@ pub async fn validate_operator_composed_flow(
     user_db: &UserDB,
     w_id: &str,
 ) -> error::Result<()> {
-    let mut refs = windmill_common::flows::check_flow_is_composition_only(value)?;
-
-    // A tag is how a step picks the worker group it runs on: unauthorized, a builder could route
-    // a job onto a privileged one.
-    refs.tags.extend(flow_tag.clone().filter(|t| !t.is_empty()));
-    if !refs.tags.is_empty() {
-        // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
-        let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
-        for tag in &refs.tags {
-            windmill_common::jobs::check_tag_available_for_workspace_internal(
-                db,
-                w_id,
-                tag,
-                None,
-                std::future::ready(w_id.to_string()),
-                is_super_admin,
-                get_scope_tags(authed),
-            )
-            .await?;
-        }
-    }
-
-    if refs.runnables.is_empty() && refs.pinned_scripts.is_empty() {
-        return Ok(());
-    }
-    // A flow can step through the same script thirty times; this runs on every write, preview and
-    // dependency job.
-    refs.runnables.sort();
-    refs.runnables.dedup();
-    refs.pinned_scripts
-        .sort_by_key(|(path, hash)| (path.clone(), hash.0));
-    refs.pinned_scripts
-        .dedup_by_key(|(path, hash)| (path.clone(), hash.0));
-    // The worker resolves a step's path with the root DB handle and runs it as that runnable's
-    // `on_behalf_of`, so composing an unreadable path would run code the builder cannot see. RLS
-    // on this transaction is the check.
     let mut tx = user_db.clone().begin(authed).await?;
-    for (is_flow, path) in &refs.runnables {
-        let readable = if *is_flow {
-            sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2)",
-                w_id,
-                path,
-            )
-        } else {
-            sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2)",
-                w_id,
-                path,
-            )
-        }
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(false);
-        if !readable {
-            return Err(Error::PermissionDenied(format!(
-                "{} {path} does not exist or is not readable by you",
-                if *is_flow { "Flow" } else { "Script" }
-            )));
-        }
-    }
-    // A pinned step is dispatched by its hash alone, ignoring the path beside it, so a readable
-    // path paired with another script's hash would still run that other script.
-    for (path, hash) in &refs.pinned_scripts {
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND hash = $3)",
-            w_id,
-            path,
-            hash.0,
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(false);
-        if !exists {
-            return Err(Error::PermissionDenied(format!(
-                "Version {hash} is not a readable version of {path}"
-            )));
-        }
-    }
+    windmill_api_auth::composed::authorize_composed_flow(
+        value, flow_tag, authed, db, &mut tx, w_id,
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -732,14 +667,8 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(mut nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "create flows",
-    )
-    .await?;
+    let flows_level =
+        check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "create flows").await?;
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
 
     // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
@@ -759,7 +688,7 @@ async fn create_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
+    validate_flow(&nf, flows_level, &authed, &db, &user_db, &w_id).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -805,6 +734,21 @@ async fn create_flow(
             nf.preserve_on_behalf_of = Some(true);
         }
     }
+    // Before `tx` opens, as every `db` read here must be: `user_db` wraps the same pool, so
+    // taking a second connection while holding `tx` lets concurrent deploys starve it.
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
 
@@ -830,19 +774,6 @@ async fn create_flow(
     if restricts_steps {
         windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
     }
-    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
-        nf.on_behalf_of_email.as_deref(),
-        nf.on_behalf_of.as_deref(),
-        nf.preserve_on_behalf_of.unwrap_or(false),
-        &authed,
-        &w_id,
-        &db,
-    )
-    .await?;
-    // Written beside the principal only while a worker that still reads it may be live.
-    let legacy_on_behalf_of_email =
-        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
-            .await?;
     sqlx::query!(
         r#"INSERT INTO flow (
         workspace_id, path, summary, description,
@@ -1352,14 +1283,8 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(ef): Json<EditFlow>,
 ) -> Result<String> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "update flows",
-    )
-    .await?;
+    let flows_level =
+        check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "update flows").await?;
     let flow_path = flow_path.to_path();
     // The URL identifies the flow being updated; the body path is only needed to rename.
     let mut nf = ef.into_new_flow(flow_path);
@@ -1386,9 +1311,23 @@ async fn update_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
+    validate_flow(&nf, flows_level, &authed, &db, &user_db, &w_id).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
+    // Before `tx` opens, for the reason given in `create_flow`.
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
     let mut tx = user_db.clone().begin(&authed).await?;
 
     check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
@@ -1426,21 +1365,10 @@ async fn update_flow(
     if restricts_steps {
         windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
     }
-    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
-        nf.on_behalf_of_email.as_deref(),
-        nf.on_behalf_of.as_deref(),
-        nf.preserve_on_behalf_of.unwrap_or(false),
-        &authed,
-        &w_id,
-        &db,
-    )
-    .await?;
-    // Written beside the principal only while a worker that still reads it may be live.
-    let legacy_on_behalf_of_email =
-        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
-            .await?;
 
-    sqlx::query!(
+    // A version is inserted at the path below and nothing else ties it to a live flow: one
+    // written for a flow deleted meanwhile would surface in a flow recreated there.
+    let updated = sqlx::query!(
         "
         UPDATE
             flow
@@ -1486,7 +1414,11 @@ async fn update_flow(
     .await
     .map_err(|e| {
         error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}"))
-    })?;
+    })?
+    .rows_affected();
+    if updated == 0 {
+        return Err(Error::NotFound(format!("Flow {flow_path} not found")));
+    }
     if set_job_token_scopes {
         windmill_common::scopes::log_job_token_scopes_deploy("flow", job_token_scopes.as_deref());
     }
@@ -1520,6 +1452,26 @@ async fn update_flow(
         .map_err(|e| {
             error::Error::internal_err(format!(
                 "Error updating flow due to updating flow history path: {e:#}"
+            ))
+        })?;
+
+        // Nodes are referenced by id, so moving them only keeps them deduplicated at the new
+        // path. One a deleted flow left there with the same content stays where it is.
+        sqlx::query!(
+            "UPDATE flow_node n SET path = $1 WHERE path = $2 AND workspace_id = $3
+            AND NOT EXISTS (
+                SELECT 1 FROM flow_node d
+                WHERE d.path = $1 AND d.workspace_id = $3 AND d.hash_v2 = n.hash_v2
+            )",
+            nf.path,
+            flow_path,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            error::Error::internal_err(format!(
+                "Error updating flow due to updating flow nodes path: {e:#}"
             ))
         })?;
 
@@ -2053,14 +2005,7 @@ async fn archive_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "archive flows",
-    )
-    .await?;
+    check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "archive flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2201,14 +2146,7 @@ async fn delete_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "delete flows",
-    )
-    .await?;
+    check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "delete flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2224,7 +2162,6 @@ async fn delete_flow_by_path(
     }
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture all related data for trashbin before deleting (CASCADE will remove flow_version, flow_node)
     let trash_flow: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT to_jsonb(t) FROM flow t WHERE path = $1 AND workspace_id = $2")
             .bind(path)
@@ -2264,15 +2201,18 @@ async fn delete_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
+    let deleted = sqlx::query!(
         "DELETE FROM flow WHERE path = $1 AND workspace_id = $2",
         path,
         &w_id
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
 
-    if let Some(flow_data) = trash_flow {
+    // Row-level security can let a caller read a flow it may not delete; its versions must
+    // then stay where they are.
+    if let Some(flow_data) = trash_flow.filter(|_| deleted > 0) {
         let mut trash_data = serde_json::json!({"row": flow_data});
         if !trash_flow_versions.is_empty() {
             trash_data["flow_versions"] = serde_json::Value::Array(trash_flow_versions);
@@ -2283,7 +2223,7 @@ async fn delete_flow_by_path(
         if !trash_drafts.is_empty() {
             trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
         }
-        windmill_common::trashbin::move_to_trash(
+        let trash_id = windmill_common::trashbin::move_to_trash(
             &mut *tx,
             &w_id,
             "flow",
@@ -2292,6 +2232,7 @@ async fn delete_flow_by_path(
             &authed.username,
         )
         .await?;
+        windmill_common::trashbin::set_aside_flow_versions(&mut *tx, &w_id, path, trash_id).await?;
     }
 
     if !query.keep_captures.unwrap_or(false) {
@@ -2378,6 +2319,31 @@ mod tests {
     };
 
     const SECOND: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn label_condition_fills_both_placeholders_in_one_pass() {
+        // Ordinary label: unchanged behaviour, the value appears quoted in both positions.
+        assert_eq!(
+            super::label_condition(" finance "),
+            "(o.labels @> ARRAY['finance'] OR folder_labels(o.workspace_id, o.path) @> ARRAY['finance'])"
+        );
+
+        // A `?` in the label must stay inside the quoted literal in both positions and must
+        // not leave a placeholder behind. With chained `bind`s this produced
+        // `ARRAY['a'a?b'b'] ... ARRAY[?]`, i.e. label text outside the quotes.
+        let cond = super::label_condition("a?b");
+        assert_eq!(
+            cond,
+            "(o.labels @> ARRAY['a?b'] OR folder_labels(o.workspace_id, o.path) @> ARRAY['a?b'])"
+        );
+        assert!(!cond.contains("ARRAY[?]"));
+
+        // Single quotes keep being escaped by doubling.
+        assert_eq!(
+            super::label_condition("a'?b"),
+            "(o.labels @> ARRAY['a''?b'] OR folder_labels(o.workspace_id, o.path) @> ARRAY['a''?b'])"
+        );
+    }
 
     #[test]
     fn flowmodule_serde() {
@@ -2540,6 +2506,7 @@ mod tests {
             delete_after_secs: None,
             concurrency_settings: ConcurrencySettings::default(),
             debouncing_settings: DebouncingSettings::default(),
+            timeout: None,
         };
         let expect = serde_json::json!({
           "modules": [

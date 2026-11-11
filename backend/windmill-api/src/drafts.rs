@@ -16,6 +16,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use windmill_api_flows::flows::validate_operator_flow;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::roles::AuthorLevel;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
@@ -469,7 +470,10 @@ async fn update_draft(
         }
     }
 
-    if authed.is_operator && kind == UserDraftItemKind::Flow {
+    // A role that composes but does not author in full is held to the composition-only rules on
+    // its drafts as on its deploys.
+    let caps = windmill_common::roles::caller_capabilities(&db, &w_id, &authed).await?;
+    if caps.flows == AuthorLevel::Compose && kind == UserDraftItemKind::Flow {
         if let Some(value) = &req.value {
             #[derive(Deserialize)]
             struct FlowDraft {
@@ -495,8 +499,45 @@ async fn update_draft(
         }
     }
 
+    // An agent draft is held to the rules of its deploy, as a flow draft is: a developer who
+    // tests it in the agent editor runs its tools as themselves.
+    if caps.flows != AuthorLevel::Full && kind == UserDraftItemKind::Resource {
+        if let Some(value) = &req.value {
+            #[derive(Deserialize)]
+            struct ResourceDraft {
+                #[serde(default)]
+                args: serde_json::Value,
+                resource_type: Option<String>,
+            }
+            let draft: ResourceDraft = serde_json::from_str(&strip_json_nul(value.0.get()))
+                .map_err(|e| Error::BadRequest(format!("Invalid resource draft: {e}")))?;
+            // Whatever type the draft names, deploying it over a deployed agent keeps the row's type.
+            let is_agent = draft.resource_type.as_deref() == Some("ai_agent")
+                || sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent')",
+                    &w_id,
+                    path,
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false);
+            if is_agent {
+                let mut tx = user_db.clone().begin(&authed).await?;
+                windmill_api_auth::composed::validate_operator_agent(
+                    &draft.args,
+                    &authed,
+                    &db,
+                    &mut tx,
+                    &w_id,
+                )
+                .await?;
+                tx.commit().await?;
+            }
+        }
+    }
+
     // A raw-app draft carries the app value and its policy side by side.
-    if authed.is_operator && kind == UserDraftItemKind::RawApp {
+    if caps.apps == AuthorLevel::Compose && kind == UserDraftItemKind::RawApp {
         if let Some(value) = &req.value {
             let draft: serde_json::Value = serde_json::from_str(&strip_json_nul(value.0.get()))
                 .map_err(|e| Error::BadRequest(format!("Invalid app draft: {e}")))?;
@@ -1269,9 +1310,9 @@ pub(crate) async fn require_can_write_path(
     // about. Read access is deliberately asymmetric: `require_can_read_path` has no operator block,
     // so an operator can still READ a draft they can read via `/drafts/get`, mirroring their read
     // access to deployed content. Intended.
-    if authed.is_operator && !operator_can_draft(db, w_id, kind).await? {
+    if !operator_can_draft(db, w_id, authed, kind).await? {
         return Err(Error::PermissionDenied(format!(
-            "operators cannot save {} drafts in this workspace",
+            "your role cannot save {} drafts in this workspace",
             kind.as_str()
         )));
     }

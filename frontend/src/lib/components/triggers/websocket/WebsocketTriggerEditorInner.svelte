@@ -105,7 +105,6 @@
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -123,6 +122,7 @@
 	let dirtyUrl = $state(false)
 	let filters: FilterNode[] = $state([])
 	let filterLogic = $state<'and' | 'or'>('and')
+	let runOnFilterError = $state(false)
 	let initial_messages: WebsocketTriggerInitialMessage[] = $state([])
 	let url_runnable_args: Record<string, any> | undefined = $state({})
 	let can_return_message = $state(false)
@@ -264,6 +264,7 @@
 			initialPath = ''
 			filters = []
 			filterLogic = 'and'
+			runOnFilterError = false
 			initial_messages = []
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
@@ -298,6 +299,7 @@
 		url = cfg?.url
 		filters = cfg?.filters ?? []
 		filterLogic = cfg?.filter_logic ?? 'and'
+		runOnFilterError = cfg?.run_on_filter_error ?? false
 		initial_messages = cfg?.initial_messages ?? []
 		url_runnable_args = cfg?.url_runnable_args
 		can_return_message = cfg?.can_return_message
@@ -330,6 +332,7 @@
 			url,
 			filters,
 			filter_logic: filterLogic,
+			run_on_filter_error: runOnFilterError,
 			initial_messages,
 			url_runnable_args,
 			can_return_message,
@@ -637,7 +640,7 @@
 								bind:itemKind
 								bind:scriptPath={script_path}
 								allowRefresh={can_write}
-								allowEdit={!actingUser?.operator}
+								allowEdit={editRights.roleCanAuthor(itemKind)}
 								clearable
 							/>
 							{#if emptyString(script_path)}
@@ -912,7 +915,7 @@
 					/>
 				{/snippet}
 				<div class="flex flex-col gap-6">
-					<TriggerFilters bind:filters bind:filterLogic disabled={!can_write} />
+					<TriggerFilters bind:filters bind:filterLogic bind:runOnFilterError disabled={!can_write} />
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler" label="Error Handler" />

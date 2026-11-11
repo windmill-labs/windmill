@@ -7,9 +7,11 @@ use strum::AsRefStr;
 
 use crate::{
     datatable_roles::{ADMIN_DATATABLE_ROLE, CUSTOM_INSTANCE_USER},
+    db::Authable,
     error::{self, to_anyhow, Error, Result},
     get_database_url,
-    secret_backend::{get_secret_value, is_external_stored_value},
+    roles::{caller_capabilities, AuthorLevel, RoleCapabilities},
+    secret_backend::{get_secret_value, resolves_externally},
     utils::{get_custom_pg_instance_password, get_custom_pg_instance_replication_password},
     variables::{build_crypt, decrypt},
     PgDatabase, DB,
@@ -61,7 +63,12 @@ pub struct ProtectionRuleset {
     pub rules: ProtectionRules,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
+    /// Role a member of the workspace gets in a fork of it, keyed by the role it holds here.
+    /// Unmapped roles carry over unchanged.
+    pub fork_role_mapping: ForkRoleMapping,
 }
+
+pub type ForkRoleMapping = sqlx::types::Json<std::collections::BTreeMap<String, String>>;
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,6 +80,7 @@ bitflags::bitflags! {
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
         const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
         const RESTRICT_GUEST_APP_DEPLOYMENT =       1 << 5;
+        const REQUIRE_ISOLATED_FORKS =              1 << 6;
     }
 }
 
@@ -86,6 +94,7 @@ pub enum ProtectionRuleKind {
     RestrictAnonymousAppDeployment,
     RestrictPublicRunSharing,
     RestrictGuestAppDeployment,
+    RequireIsolatedForks,
 }
 
 impl ProtectionRuleKind {
@@ -109,6 +118,7 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictGuestAppDeployment => {
                 ProtectionRules::RESTRICT_GUEST_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::RequireIsolatedForks => ProtectionRules::REQUIRE_ISOLATED_FORKS,
         }
     }
 
@@ -129,6 +139,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictGuestAppDeployment => {
                 "Opening an app to guests (anyone who can sign in) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RequireIsolatedForks => {
+                "Forks of this workspace must isolate its data: no shared object storage or ducklake, and every data table cloned"
             }
         }
     }
@@ -193,7 +206,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/29785/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30174/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -201,7 +214,12 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/29785/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/29784/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30172/git-sync-init-repository-windmill";
+
+/// Hub script that reviews a pull request with the workspace's AI (`ai_review_prs`): clones
+/// the base branch, fetches the pull request's head and runs `wmill review --json` from the
+/// `windmill-cli` it pins. The server posts what it returns.
+pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30173/git-sync-review-pull-request-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -365,6 +383,12 @@ pub struct GitRepositorySettings {
     /// deploy callback reads this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
+    /// Review every pull request against the tracked branch with the workspace's AI and post
+    /// the findings on it (`wmill review`, run by `GIT_SYNC_REVIEW_SCRIPT_PATH`). Arrives on
+    /// the pull request webhook, so it needs a credential the server holds. Parent-owned like
+    /// `fork_open_prs`; off by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ai_review_prs: bool,
     /// Server-owned: the last failure opening a PR for a deploy branch of this
     /// repo (e.g. the GitHub App installation hasn't approved the pull-request
     /// permission). Written by the deploy completion hook, cleared on the next
@@ -384,26 +408,44 @@ impl GitRepositorySettings {
             .unwrap_or(LATEST_GIT_SYNC_SCRIPT_PATH)
     }
 
-    pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
-        let path = self.effective_script_path();
-        // example: "hub/28102/sync-script-to-git-repo-windmill"
-        let current = path
-            .split("/") // -> ["hub" "28102" "sync-script-to-git-repo-windmill"]
-            .skip(1) // omit "hub"
-            .next() // get numeric id
-            .ok_or(Error::InternalErr(format!(
-                "cannot get script version id from: {}",
-                path
-            )))?
-            .parse()
-            .unwrap_or_else(|e| {
-                tracing::warn!("cannot get script version id from: {}. e: {e}", path);
-
-                u32::MAX
-            });
-
-        Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
+    /// The path a deployment callback job is queued with.
+    pub fn callback_path(&self) -> String {
+        sync_callback_path(self.script_path.as_deref())
     }
+
+    pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
+        Ok(sync_script_meets_min_version(
+            &self.callback_path(),
+            min_version,
+        ))
+    }
+}
+
+/// The path a git sync script (`None` for the latest one) is queued with: parsed when it
+/// parses. A setting that doesn't parse is kept as written, so its callback is still queued and
+/// fails visibly in the workspace's runs instead of the repository silently not syncing.
+pub fn sync_callback_path(script_path: Option<&str>) -> String {
+    let raw = script_path.unwrap_or(LATEST_GIT_SYNC_SCRIPT_PATH);
+    crate::runnable_ref::RunnableRef::from_path(raw, false)
+        .map_or_else(|_| raw.to_string(), |script| script.path().to_string())
+}
+
+/// Whether the git sync script queued at `path` (from [`sync_callback_path`]) is at least
+/// `min_version`. Never fails, so one repository's setting cannot stop the others' dispatch.
+pub fn sync_script_meets_min_version(path: &str, min_version: u32) -> bool {
+    // Reading the queued path makes `/hub/28102/…` hub 28102. Not `hub_id()`: a workspace path
+    // keeps its second segment as version (`f/28000/…`).
+    let current = path
+        .split('/')
+        .nth(1)
+        .and_then(|id| id.parse().ok())
+        .unwrap_or_else(|| {
+            tracing::warn!("cannot get script version id from: {}", path);
+
+            u32::MAX
+        });
+
+    current >= min_version // this works on assumption that all scripts in hub have sequential ids
 }
 
 /// How auto-pull triggers are delivered for a repository.
@@ -577,8 +619,9 @@ impl AutoPullSettings {
     /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
     /// enabled and the observed head differs from the last sha we pulled for
     /// that ref. Re-observing the same head (a redundant poll) is a no-op. A
-    /// commit our own deploy pushed is not: pushes never write here, so the pull
-    /// it triggers picks up anything pushed under it.
+    /// commit our own deploy pushed is skipped only when it sits directly on the
+    /// synced head (`advance_synced_sha_past_own_push`); pushed on anything else,
+    /// it moves nothing here, so the pull picks up the commits under it.
     pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
         self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
     }
@@ -882,12 +925,8 @@ pub async fn guest_count_in_window<'c, E: sqlx::Executor<'c, Database = sqlx::Po
 #[derive(Clone, Debug, Serialize)]
 pub struct GuestUsage {
     /// Whether this deployment can admit guests at all ([`instance_supports_guests`]).
-    /// Off, every other field is moot and no switch below can turn guests on.
+    /// Off, every other field is moot and an app in `guest` mode admits members only.
     pub available: bool,
-    /// The superadmin switch (`GUEST_ACCESS_DISABLED_SETTING`), which every workspace
-    /// switch sits under. Reported as stored, so a superadmin sees what they set even
-    /// where `available` overrules it.
-    pub instance_enabled: bool,
     /// Distinct guest emails over the trailing `window_days`.
     pub guest_count: i64,
     pub window_days: i32,
@@ -907,8 +946,8 @@ pub const GUESTS_UNAVAILABLE_MESSAGE: &str =
 /// Whether guests can exist on this deployment at all. They cannot on the shared cloud:
 /// a guest is an identity Windmill itself never vouched for, admitted on the say-so of
 /// whoever runs the instance, which is not a call a multi-tenant deployment can make for
-/// its tenants. Folded into every guest gate below, so a workspace switch or an app
-/// policy left saying `guest` is inert rather than honored.
+/// its tenants. Folded into every guest gate below, so an app policy left saying `guest`
+/// is inert rather than honored.
 pub fn instance_supports_guests() -> bool {
     !*crate::worker::CLOUD_HOSTED
 }
@@ -923,31 +962,7 @@ pub fn require_guest_support() -> Result<()> {
     }
 }
 
-/// SQL for the superadmin switch alone, absent meaning on. The setting is read as text
-/// before the cast so `true` and `"true"` both count.
-fn instance_switch_sql() -> String {
-    format!(
-        "NOT COALESCE((SELECT (value #>> '{{}}')::boolean FROM global_settings \
-         WHERE name = '{}'), false)",
-        crate::global_settings::GUEST_ACCESS_DISABLED_SETTING
-    )
-}
-
-/// SQL for "the instance admits guests": the superadmin switch, under
-/// [`instance_supports_guests`].
-fn instance_admits_guests_sql() -> String {
-    if !instance_supports_guests() {
-        return "false".to_string();
-    }
-    instance_switch_sql()
-}
-
 pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
-    let instance_switch = instance_switch_sql();
-    let instance_enabled: bool = sqlx::query_scalar(&format!("SELECT {instance_switch}"))
-        .fetch_one(db)
-        .await
-        .map_err(|e| Error::internal_err(format!("reading the instance guest switch: {e:#}")))?;
     let guest_count = guest_count_in_window(db).await?;
     let metered = guests_are_metered().await;
     let billable_guests = if metered {
@@ -957,7 +972,6 @@ pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
     };
     Ok(GuestUsage {
         available: instance_supports_guests(),
-        instance_enabled,
         guest_count,
         window_days: GUEST_WINDOW_DAYS,
         free_allowance: FREE_GUESTS_PER_WINDOW,
@@ -1001,19 +1015,19 @@ pub async fn guest_admission(conn: &mut sqlx::PgConnection, email: &str) -> Resu
     )))
 }
 
-/// Whether a guest session for `email` in `w_id` still stands: the instance and the
-/// workspace admit guests, and the email still has no account. Read at the auth door on
-/// every guest request, so turning either switch off, or an account provisioned after
-/// the mint (or racing it), ends the session on its next request.
+/// Whether a guest session for `email` in `w_id` still stands: the deployment admits
+/// guests, and the email still has no account. Read at the auth door on every guest
+/// request, so an account provisioned after the mint (or racing it) ends the session on
+/// its next request. Whether its app still admits guests is the on-behalf resolver's call.
 pub async fn guest_session_stands(db: &crate::DB, w_id: &str, email: &str) -> Result<bool> {
-    let instance_admits = instance_admits_guests_sql();
-    let stands: Option<bool> = sqlx::query_scalar(&format!(
-        "SELECT guest_access_enabled
-            AND {instance_admits}
-            AND NOT EXISTS(SELECT 1 FROM password WHERE email = $2)
+    if !instance_supports_guests() {
+        return Ok(false);
+    }
+    let stands: Option<bool> = sqlx::query_scalar(
+        "SELECT NOT EXISTS(SELECT 1 FROM password WHERE email = $2)
             AND NOT EXISTS(SELECT 1 FROM usr WHERE email = $2)
-         FROM workspace_settings WHERE workspace_id = $1"
-    ))
+         FROM workspace_settings WHERE workspace_id = $1",
+    )
     .bind(w_id)
     .bind(email)
     .fetch_optional(db)
@@ -1022,27 +1036,23 @@ pub async fn guest_session_stands(db: &crate::DB, w_id: &str, email: &str) -> Re
     Ok(stands.unwrap_or(false))
 }
 
-/// Every switch at once: the instance's, the workspace's, and `app_path` being in
-/// `guest` execution mode. The single answer to "may a guest session be minted for this
-/// app", used by the mint itself and by the sign-in branch that decides whether to call
-/// it. A missing app or a policy with no stated mode reads as "no". The allowance is
-/// `guest_admission`.
+/// Whether the deployment admits guests and `app_path` is in `guest` execution mode.
+/// The single answer to "may a guest session be minted for this app", used by the mint
+/// itself and by the sign-in branch that decides whether to call it. A missing app or a
+/// policy with no stated mode reads as "no". The allowance is `guest_admission`.
 pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
     executor: E,
     w_id: &str,
     app_path: &str,
 ) -> Result<bool> {
     // The mint refuses a path it cannot scope, so discovery must not advertise one.
-    if !crate::auth::is_scope_literal_path(app_path) {
+    if !instance_supports_guests() || !crate::auth::is_scope_literal_path(app_path) {
         return Ok(false);
     }
-    let instance_admits = instance_admits_guests_sql();
-    let admits: Option<bool> = sqlx::query_scalar(&format!(
-        "SELECT COALESCE(ws.guest_access_enabled AND app.policy->>'execution_mode' = 'guest', false)
-            AND {instance_admits}
-         FROM app JOIN workspace_settings ws ON ws.workspace_id = app.workspace_id
-         WHERE app.workspace_id = $1 AND app.path = $2"
-    ))
+    let admits: Option<bool> = sqlx::query_scalar(
+        "SELECT COALESCE(policy->>'execution_mode' = 'guest', false)
+         FROM app WHERE workspace_id = $1 AND path = $2",
+    )
     .bind(w_id)
     .bind(app_path)
     .fetch_optional(executor)
@@ -1054,9 +1064,9 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
 }
 
 /// Billable members of `w_id` and the seats they cost, as
-/// `ceil(developers + (operators + service_accounts)/2)`. A service account is half a seat whatever
-/// its role; a disabled member is not billed. In a workspace that granted operators builder rights,
-/// every operator counts as a developer.
+/// `ceil(authors + (non_authors + service_accounts)/2)`. A service account is half a seat whatever
+/// its role; a disabled member is not billed. A member is an author when its role writes or
+/// composes scripts, flows or apps (`crate::roles::AUTHOR_SEAT_SQL`).
 ///
 /// The workspace is invoiced by a job outside this codebase that counts the same rows with its own
 /// SQL. The two must be changed together: this rule disagreeing with that one is what bills a
@@ -1065,28 +1075,23 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
 /// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
 /// authorized for that workspace (or run in trusted server-side code).
 pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats> {
-    let row = sqlx::query!(
-        r#"SELECT
-            COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
-            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS "operators!",
-            COUNT(*) FILTER (WHERE is_service_account AND NOT disabled) AS "service_accounts!"
-        FROM usr WHERE workspace_id = $1"#,
-        w_id
-    )
+    let (developers, operators, service_accounts): (i64, i64, i64) = sqlx::query_as(&format!(
+        "SELECT
+            COUNT(*) FILTER (WHERE ({author}) AND NOT disabled AND NOT is_service_account),
+            COUNT(*) FILTER (WHERE NOT ({author}) AND NOT disabled AND NOT is_service_account),
+            COUNT(*) FILTER (WHERE is_service_account AND NOT disabled)
+        FROM usr t WHERE workspace_id = $1",
+        author = crate::roles::AUTHOR_SEAT_SQL
+    ))
+    .bind(w_id)
     .fetch_one(db)
     .await
     .map_err(|e| Error::internal_err(format!("counting billable seats of {w_id}: {e:#}")))?;
-    let (developers, operators) = if operator_builder_rights(db, w_id).await?.any() {
-        (row.developers + row.operators, 0)
-    } else {
-        (row.developers, row.operators)
-    };
     Ok(BillableSeats {
         developers,
         operators,
-        service_accounts: row.service_accounts,
-        seats: ((developers as f64) + 0.5 * ((operators + row.service_accounts) as f64)).ceil()
-            as i64,
+        service_accounts,
+        seats: ((developers as f64) + 0.5 * ((operators + service_accounts) as f64)).ceil() as i64,
     })
 }
 
@@ -1182,7 +1187,8 @@ pub async fn get_protection_rules(
                 name,
                 rules as "rules: ProtectionRules",
                 bypass_groups,
-                bypass_users
+                bypass_users,
+                fork_role_mapping as "fork_role_mapping: ForkRoleMapping"
             FROM workspace_protection_rule
             WHERE workspace_id = $1
             ORDER BY name
@@ -1206,25 +1212,10 @@ pub fn invalidate_protection_rules_cache(workspace_id: &str) {
     PROTECTION_RULES_CACHE.remove(workspace_id);
 }
 
-// Operator rights cache
+// Role rights. What a restricted caller may author or manage comes from its role; see
+// `crate::roles`. The gates below keep the operator vocabulary of the call sites that predate roles.
 
-lazy_static::lazy_static! {
-    static ref OPERATOR_RIGHTS_CACHE: Cache<String, (OperatorRights, i64)> = Cache::new(1000);
-}
-
-/// Every operator right of a workspace, read and cached together because they share one
-/// `operator_settings` column and one invalidation. The two groups have opposite polarity:
-/// the builder rights are granted on request and cost a seat, the `manage` rights are held by
-/// default and cost nothing.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub struct OperatorRights {
-    pub builder: OperatorBuilderRights,
-    pub manage: OperatorManageRights,
-}
-
-/// The two things a workspace can let its operators compose. Granted independently: composing a
-/// flow is fully checked server-side, while a full-code app is a browser-built bundle no check can
-/// read, so an admin may reasonably want the first without the second.
+/// What a caller may compose or author, per kind, at least at the `Compose` level.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct OperatorBuilderRights {
     pub flows: bool,
@@ -1232,8 +1223,8 @@ pub struct OperatorBuilderRights {
 }
 
 /// Which capability a gate needs. Naming a kind at each call site is what keeps the two rights
-/// from collapsing back into one: a gate that takes "either" authorizes an app write on a
-/// flows-only workspace.
+/// from collapsing back into one: a gate that takes "either" authorizes an app write for a role
+/// that may only compose flows.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BuilderKind {
     Flows,
@@ -1241,8 +1232,8 @@ pub enum BuilderKind {
 }
 
 impl OperatorBuilderRights {
-    /// Whether either right is granted. Only for surfaces that are genuinely not per-kind: the
-    /// seat a membership costs, and listing drafts.
+    /// Whether either right is granted. Only for surfaces that are genuinely not per-kind, such
+    /// as listing drafts.
     pub fn any(&self) -> bool {
         self.flows || self.apps
     }
@@ -1253,23 +1244,9 @@ impl OperatorBuilderRights {
             BuilderKind::Apps => self.apps,
         }
     }
-}
 
-/// Writes an operator may perform unless the workspace withdraws them. Unlike the visibility
-/// flags beside them in `operator_settings`, these are enforced; unlike a right a workspace
-/// grants, they are held by default and cost no seat.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct OperatorManageRights {
-    pub schedules: bool,
-    pub triggers: bool,
-}
-
-/// Granted unless explicitly withdrawn. Every path that materializes these rights without a
-/// stored setting - a workspace with no `workspace_settings` row included - has to land here, or
-/// an upgrade silently revokes what operators could do the day before.
-impl Default for OperatorManageRights {
-    fn default() -> Self {
-        Self { schedules: true, triggers: true }
+    pub fn from_capabilities(caps: &RoleCapabilities) -> Self {
+        Self { flows: caps.flows != AuthorLevel::None, apps: caps.apps != AuthorLevel::None }
     }
 }
 
@@ -1300,77 +1277,25 @@ impl ManageKind {
     }
 }
 
-impl OperatorManageRights {
-    pub fn has(&self, kind: ManageKind) -> bool {
-        match kind {
-            ManageKind::Schedules => self.schedules,
-            ManageKind::Triggers => self.triggers,
-        }
-    }
-}
-
-/// What operators of this workspace may still write. Per workspace, not per user.
-///
-/// Read on every gated write, so it is cached with a 60s TTL. This gates writes, so a withdrawal
-/// cannot wait out that TTL on the rest of the fleet: an `AFTER UPDATE OF operator_settings`
-/// trigger publishes `notify_operator_settings_change` and every server drops its entry through
-/// `process_notify_event`. [`invalidate_operator_rights_cache`] is the local half of that, and
-/// what a test flipping the setting directly has to call itself.
-///
-/// Call it before opening an RLS transaction: it takes a connection from the root pool, and a
-/// second pooled connection held alongside a transaction self-deadlocks on a one-connection pool.
-async fn operator_rights(db: &DB, workspace_id: &str) -> Result<OperatorRights> {
-    let now = chrono::Utc::now().timestamp();
-
-    if let Some((rights, expiry)) = OPERATOR_RIGHTS_CACHE.get(workspace_id) {
-        if expiry > now {
-            return Ok(rights);
-        }
-    }
-
-    // The builder key defaults to false, a right the workspace has to grant; the manage keys to
-    // true, rights it has to withdraw. An absent key means "never configured" for both, so the
-    // defaults have to differ here rather than at the call sites.
-    let row = sqlx::query!(
-        "SELECT COALESCE((operator_settings->>'builder_flows')::boolean, false) AS \"flows!\",
-                COALESCE((operator_settings->>'builder_apps')::boolean, false) AS \"apps!\",
-                COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",
-                COALESCE((operator_settings->>'manage_triggers')::boolean, true) AS \"triggers!\"
-         FROM workspace_settings WHERE workspace_id = $1",
-        workspace_id
-    )
-    .fetch_optional(db)
-    .await
-    .map_err(|e| {
-        Error::internal_err(format!(
-            "Failed to fetch operator settings for {workspace_id}: {e:#}"
-        ))
-    })?;
-
-    let rights = row
-        .map(|r| OperatorRights {
-            builder: OperatorBuilderRights { flows: r.flows, apps: r.apps },
-            manage: OperatorManageRights { schedules: r.schedules, triggers: r.triggers },
-        })
-        .unwrap_or_default();
-
-    OPERATOR_RIGHTS_CACHE.insert(workspace_id.to_string(), (rights, now + 60));
-
-    Ok(rights)
-}
-
-/// What operators of this workspace may compose out of already-deployed runnables. Per workspace,
-/// not per user: every operator gets whatever is granted, and consumes a full seat for it.
-pub async fn operator_builder_rights(db: &DB, workspace_id: &str) -> Result<OperatorBuilderRights> {
-    Ok(operator_rights(db, workspace_id).await?.builder)
-}
-
-/// Whether operators of this workspace may save a draft of `kind`: one they could deploy. A
-/// resource or variable always, since their routes do not gate operators; a flow or full-code app
-/// under its builder right, a schedule or trigger under the matching manage right; nothing else.
-pub async fn operator_can_draft(
+/// What the caller may compose or author, per kind. Everything for an unrestricted caller.
+pub async fn operator_builder_rights<A: Authable + ?Sized>(
     db: &DB,
     workspace_id: &str,
+    authed: &A,
+) -> Result<OperatorBuilderRights> {
+    Ok(OperatorBuilderRights::from_capabilities(
+        &caller_capabilities(db, workspace_id, authed).await?,
+    ))
+}
+
+/// Whether the caller may save a draft of `kind`: one they could deploy. A resource or variable
+/// always, since their routes do not gate roles; a flow or full-code app at the `Compose` level or
+/// above, a low-code app at `Full`, a schedule or trigger under the matching manage right, a
+/// script or data pipeline with `code`.
+pub async fn operator_can_draft<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
     kind: crate::user_drafts::UserDraftItemKind,
 ) -> Result<bool> {
     use crate::user_drafts::UserDraftItemKind;
@@ -1380,64 +1305,123 @@ pub async fn operator_can_draft(
     ) {
         return Ok(true);
     }
-    let rights = operator_rights(db, workspace_id).await?;
+    let caps = caller_capabilities(db, workspace_id, authed).await?;
+    // Exhaustive on purpose: a new kind must pick the capability it needs, or every non-admin
+    // (unrestricted developers included) is refused its drafts.
     Ok(match kind {
-        UserDraftItemKind::Flow => rights.builder.has(BuilderKind::Flows),
-        UserDraftItemKind::RawApp => rights.builder.has(BuilderKind::Apps),
-        kind => kind.manage_kind().is_some_and(|m| rights.manage.has(m)),
+        UserDraftItemKind::Flow => caps.flows != AuthorLevel::None,
+        UserDraftItemKind::RawApp => caps.apps != AuthorLevel::None,
+        UserDraftItemKind::Script | UserDraftItemKind::DataPipeline => caps.code,
+        UserDraftItemKind::App => caps.apps == AuthorLevel::Full,
+        UserDraftItemKind::Resource | UserDraftItemKind::Variable => true,
+        UserDraftItemKind::TriggerSchedule
+        | UserDraftItemKind::TriggerWebhook
+        | UserDraftItemKind::TriggerDefaultEmail
+        | UserDraftItemKind::TriggerEmail
+        | UserDraftItemKind::TriggerHttp
+        | UserDraftItemKind::TriggerWebsocket
+        | UserDraftItemKind::TriggerPostgres
+        | UserDraftItemKind::TriggerKafka
+        | UserDraftItemKind::TriggerNats
+        | UserDraftItemKind::TriggerMqtt
+        | UserDraftItemKind::TriggerAmqp
+        | UserDraftItemKind::TriggerSqs
+        | UserDraftItemKind::TriggerGcp
+        | UserDraftItemKind::TriggerAzure
+        | UserDraftItemKind::TriggerPoll
+        | UserDraftItemKind::TriggerCli
+        | UserDraftItemKind::TriggerNextcloud
+        | UserDraftItemKind::TriggerGoogle
+        | UserDraftItemKind::TriggerGithub => {
+            kind.manage_kind().is_some_and(|m| caps.has_manage(m))
+        }
     })
 }
 
-/// Gate for a write only a workspace that granted the builder right covering `kind` lets operators
-/// perform. `action` completes "Operators cannot {action} for security reasons".
-pub async fn check_operator_can_build(
+/// Gate for a flow or app write. Refuses a caller whose role holds no right on `kind`, and returns
+/// the level it does hold: at `Compose` the caller MUST then run the composition-only checks, and
+/// only at `Full` may skip them. `action` completes "Your role cannot {action}".
+pub async fn check_operator_can_build<A: Authable + ?Sized>(
     db: &DB,
     workspace_id: &str,
-    is_operator: bool,
+    authed: &A,
     kind: BuilderKind,
     action: &str,
-) -> Result<()> {
-    if is_operator && !operator_builder_rights(db, workspace_id).await?.has(kind) {
+) -> Result<AuthorLevel> {
+    let level = caller_capabilities(db, workspace_id, authed)
+        .await?
+        .level(kind);
+    if level == AuthorLevel::None {
         return Err(Error::PermissionDenied(format!(
-            "Operators cannot {action} for security reasons"
+            "Your role cannot {action} in this workspace"
+        )));
+    }
+    Ok(level)
+}
+
+/// Gate for a write that runs or stores code of the caller's own on a worker: scripts, previews,
+/// dependency jobs, dynamic selects. `action` completes "Your role cannot {action}".
+pub async fn check_role_can_code<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+    action: &str,
+) -> Result<()> {
+    if !caller_capabilities(db, workspace_id, authed).await?.code {
+        return Err(Error::PermissionDenied(format!(
+            "Your role cannot {action} in this workspace"
         )));
     }
     Ok(())
 }
 
-/// Whether a membership consumes an operator (half) seat rather than an author seat. Either
-/// builder right makes an operator an author of deployable artifacts, so both weigh the same full
-/// seat: there is no half-author.
+/// Gate for starting a run on the caller's behalf. 403 rather than 401, which the frontend reads as
+/// a dead session.
+pub async fn check_role_can_run<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+) -> Result<()> {
+    if !caller_capabilities(db, workspace_id, authed).await?.run {
+        return Err(Error::PermissionDenied(
+            "Your role cannot run scripts, flows or AI agents in this workspace".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether a member holding role `role` in `workspace_id` consumes an operator (half) seat rather
+/// than an author seat: a role that composes counts as an author, there is no half-author.
 pub async fn consumes_operator_seat(
     db: &DB,
     workspace_id: &str,
-    is_operator: bool,
+    is_admin: bool,
+    role: &str,
 ) -> Result<bool> {
-    Ok(is_operator && !operator_builder_rights(db, workspace_id).await?.any())
+    Ok(!is_admin
+        && !crate::roles::role_capabilities_by_name(db, workspace_id, role)
+            .await?
+            .is_author())
 }
 
-/// Invalidate the operator rights cache for a workspace
-pub fn invalidate_operator_rights_cache(workspace_id: &str) {
-    OPERATOR_RIGHTS_CACHE.remove(workspace_id);
-}
-
-/// Gate for a write operators may perform unless the workspace withdrew it. Prefer layering
+/// Gate for a write a role may perform unless its configuration withdraws it. Prefer layering
 /// `gate_operator_writes` on a whole router over calling this per handler; see
-/// `docs/operator-write-rights.md`. Both `workspace_id` and `is_operator` MUST come from the
-/// authenticated request (the route's workspace, `ApiAuthed::is_operator`): passing `false` skips
-/// the check, and another workspace's id checks the wrong settings.
-pub async fn check_operator_can_manage(
+/// `docs/operator-write-rights.md`. `workspace_id` MUST be the route's workspace.
+pub async fn check_operator_can_manage<A: Authable + ?Sized>(
     db: &DB,
     workspace_id: &str,
-    is_operator: bool,
+    authed: &A,
     kind: ManageKind,
 ) -> Result<()> {
-    if is_operator && !operator_rights(db, workspace_id).await?.manage.has(kind) {
+    if !caller_capabilities(db, workspace_id, authed)
+        .await?
+        .has_manage(kind)
+    {
         // 403, not 401: the caller is authenticated and simply lacks the right. The frontend reads
         // an uncaught 401 as a dead session and logs the user out, so `NotAuthorized` here would
-        // eject an operator from the app instead of telling them why.
+        // eject the user from the app instead of telling them why.
         return Err(Error::PermissionDenied(format!(
-            "Operators cannot manage {} in this workspace",
+            "Your role cannot manage {} in this workspace",
             kind.noun()
         )));
     }
@@ -1507,6 +1491,21 @@ pub async fn check_user_against_rule(
     }
 
     Ok(RuleCheckResult::Allowed)
+}
+
+/// The roles members of `workspace_id` get in a fork of it, merged across its rulesets: where two
+/// rulesets map the same role, the first by name wins. Unmapped roles carry over unchanged.
+pub async fn fork_role_mapping(
+    workspace_id: &str,
+    db: &DB,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut mapping = std::collections::BTreeMap::new();
+    for ruleset in get_protection_rules(workspace_id, db).await?.iter() {
+        for (from, to) in ruleset.fork_role_mapping.iter() {
+            mapping.entry(from.clone()).or_insert_with(|| to.clone());
+        }
+    }
+    Ok(mapping)
 }
 
 /// Check all deploy-gating protection rules at once.
@@ -2850,9 +2849,87 @@ pub fn fork_ducklake_ancestor_alias(lake_name: &str, ancestor_w_id: &str) -> Str
     )
 }
 
+/// The byte length of the string literal or quoted identifier starting at byte `i` of `sql`
+/// ('…', "…", $tag$…$tag$, or E'…' with backslash escapes), if one starts there. An
+/// unterminated one runs to the end.
+pub fn sql_literal_len(sql: &str, i: usize) -> Option<usize> {
+    let rest = &sql[i..];
+    let after_ident = sql[..i]
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_alphanumeric() || c == '_');
+    match rest.as_bytes()[0] {
+        b'E' | b'e' if !after_ident && rest[1..].starts_with('\'') => {
+            let bytes = rest.as_bytes();
+            let mut j = 2;
+            while j < bytes.len() {
+                match bytes[j] {
+                    b'\\' => j += 2,
+                    b'\'' if bytes.get(j + 1) == Some(&b'\'') => j += 2,
+                    b'\'' => return Some(j + 1),
+                    _ => j += 1,
+                }
+            }
+            Some(rest.len())
+        }
+        q @ (b'\'' | b'"') => Some(rest[1..].find(q as char).map_or(rest.len(), |e| e + 2)),
+        b'$' => rest[1..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .filter(|&n| rest[1 + n..].starts_with('$'))
+            .map(|n| {
+                let delim = &rest[..n + 2];
+                rest[n + 2..]
+                    .find(delim)
+                    .map_or(rest.len(), |e| n + 2 + e + delim.len())
+            }),
+        _ => None,
+    }
+}
+
+/// Replaces each SQL comment outside string literals ([`sql_literal_len`]) with a space,
+/// following DuckDB: `--` runs to the end of the line and `/* */` nests. An unterminated block
+/// comment is kept as is, so the statement it ends up in fails to parse rather than silently
+/// losing what follows.
+pub fn strip_sql_comments(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < sql.len() {
+        let rest = &sql[i..];
+        if let Some(len) = sql_literal_len(sql, i) {
+            out.push_str(&rest[..len]);
+            i += len;
+        } else if rest.starts_with("--") {
+            i += rest.find('\n').unwrap_or(rest.len());
+            out.push(' ');
+        } else if rest.starts_with("/*") {
+            let (mut depth, mut j) = (1usize, 2);
+            while depth > 0 && j < rest.len() {
+                if rest[j..].starts_with("/*") {
+                    (depth, j) = (depth + 1, j + 2);
+                } else if rest[j..].starts_with("*/") {
+                    (depth, j) = (depth - 1, j + 2);
+                } else {
+                    j += rest[j..].chars().next().map_or(1, char::len_utf8);
+                }
+            }
+            if depth > 0 {
+                out.push_str(rest);
+                break;
+            }
+            out.push(' ');
+            i += j;
+        } else {
+            let c = rest.chars().next().unwrap();
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
+}
+
 /// Strip `METADATA_SCHEMA` / `DATA_PATH` / `OVERRIDE_DATA_PATH` tokens from ducklake ATTACH
 /// extra args. In a fork these options are injected by the fork resolution; a user- or
-/// settings-supplied duplicate silently wins (DuckDB keeps the last occurrence) and would
+/// settings-supplied duplicate silently wins (the worker keeps the last occurrence) and would
 /// escape the fork namespace back to the parent's, so they are removed rather than overridden.
 pub fn strip_fork_reserved_attach_args(extra_args: &str) -> String {
     lazy_static::lazy_static! {
@@ -2861,8 +2938,10 @@ pub fn strip_fork_reserved_attach_args(extra_args: &str) -> String {
         )
         .unwrap();
     }
+    // Comments go first: the fork-owned options are appended after these args, and a trailing
+    // `-- …` would otherwise comment them out of the ATTACH.
     RESERVED
-        .replace_all(extra_args, "")
+        .replace_all(&strip_sql_comments(extra_args), "")
         .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -3000,6 +3079,8 @@ lazy_static::lazy_static! {
     /// broadcasts on `FORK_LINEAGE_CHANGE_CHANNEL`. A process that receives no broadcast — an agent
     /// worker polls no notify events — has only the TTL, and takes the shorter one.
     static ref ROOT_WORKSPACE_CACHE: Cache<String, (String, i64)> = Cache::new(5000);
+    /// workspace id -> ((dev or fork, dev lineage), expiry ts), swept with the cache above.
+    static ref DEV_LINEAGE_CACHE: Cache<String, ((bool, bool), i64)> = Cache::new(5000);
 }
 
 const ROOT_WORKSPACE_CACHE_TTL_S: i64 = 300;
@@ -3018,12 +3099,59 @@ const ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S: i64 = 30;
 /// `windmill_queue::tags::invalidate_fork_parent_cache`.
 pub fn invalidate_root_workspace_cache(w_id: &str) {
     ROOT_WORKSPACE_CACHE.remove(w_id);
+    DEV_LINEAGE_CACHE.remove(w_id);
 }
 
 /// Drop every cached root workspace: the answer depends on the whole ancestor chain, so a mutation
 /// that reshapes the tree moves an unbounded set of descendants.
 pub fn clear_root_workspace_cache() {
     ROOT_WORKSPACE_CACHE.clear();
+    DEV_LINEAGE_CACHE.clear();
+}
+
+/// Whether `w_id` has a parent or a generated fork id, and whether a dev workspace is on its
+/// ancestor chain: the inputs of `worker::is_isolated_workspace`, as `windmill_queue::tags` reads
+/// them, for callers outside that crate. `None` when the lookup failed, which is not cached.
+pub async fn dev_lineage(db: &crate::DB, w_id: &str) -> Option<(bool, bool)> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some((lineage, expiry)) = DEV_LINEAGE_CACHE.get(w_id) {
+        if expiry > now {
+            return Some(lineage);
+        }
+    }
+    let (has_parent, in_dev_lineage) = sqlx::query_as::<_, (Option<bool>, Option<bool>)>(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, is_dev_workspace, deleted, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, w.deleted, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT
+                (SELECT parent_workspace_id IS NOT NULL FROM chain WHERE depth = 0),
+                (SELECT bool_or(is_dev_workspace
+                                OR (parent_workspace_id IS NULL AND id LIKE 'wm-fork-%')
+                                OR (deleted AND parent_workspace_id IS NOT NULL))
+                 FROM chain)
+        "#,
+    )
+    .bind(w_id)
+    .fetch_one(db)
+    .await
+    .map_err(|e| tracing::warn!("failed to resolve the dev lineage of {w_id}: {e:#}"))
+    .ok()?;
+    let lineage = (
+        w_id.starts_with(WM_FORK_PREFIX) || has_parent == Some(true),
+        in_dev_lineage != Some(false),
+    );
+    DEV_LINEAGE_CACHE.insert(
+        w_id.to_string(),
+        (lineage, now + ROOT_WORKSPACE_CACHE_TTL_S),
+    );
+    Some(lineage)
 }
 
 /// Nearest ancestor-or-self of `w_id` that is an environment of its own: a root ("prod") workspace
@@ -3790,7 +3918,7 @@ async fn transform_json_unchecked(
         serde_json::Value::String(s) if s.starts_with("$var:") => {
             let path = &s[5..];
             let (value, is_secret): (String, bool) = sqlx::query_as(
-                "SELECT value, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
+                "SELECT value::text, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
             )
             .bind(&w_id)
             .bind(path)
@@ -3799,7 +3927,7 @@ async fn transform_json_unchecked(
             .map_err(to_anyhow)?
             .ok_or_else(|| Error::NotFound(format!("variable {path} does not exist")))?;
             let value = if is_secret {
-                if is_external_stored_value(&value) {
+                if resolves_externally(&value) {
                     get_secret_value(db, w_id, &s[5..], &value).await?
                 } else {
                     let mc = build_crypt(&db, &w_id).await?;
@@ -3825,6 +3953,27 @@ mod tests {
 
     fn tenants(list: &[&str]) -> DataTableRoleTenants {
         DataTableRoleTenants { tenants: list.iter().map(|t| t.to_string()).collect() }
+    }
+
+    #[test]
+    fn sync_script_version_is_the_second_segment_of_the_queued_path() {
+        let meets = |p, min| sync_script_meets_min_version(&sync_callback_path(p), min);
+        assert!(meets(None, 28956));
+        assert!(!meets(Some("hub/28102/sync"), 28103));
+        assert!(!meets(Some("/hub/28102/sync"), 28103));
+        assert!(meets(Some("/hub/28103/sync"), 28103));
+        assert!(!meets(Some("f/28000/sync"), 28103));
+        assert!(meets(Some("u/admin/sync"), 28103));
+        assert!(meets(Some("sync"), 28103));
+        assert!(meets(Some("//hub/28102/sync"), 28103));
+        assert_eq!(
+            sync_callback_path(Some("/hub/28102/sync")),
+            "hub/28102/sync"
+        );
+        assert_eq!(
+            sync_callback_path(Some("//hub/28102/sync")),
+            "//hub/28102/sync"
+        );
     }
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
@@ -4265,6 +4414,19 @@ mod tests {
         assert_eq!(
             strip_fork_reserved_attach_args("METADATA_SCHEMA 'wm_fork_evil'"),
             ""
+        );
+        // A trailing comment must not survive to comment out the fork options appended after.
+        assert_eq!(
+            strip_fork_reserved_attach_args("READ_ONLY false -- why, '/*'"),
+            "READ_ONLY false"
+        );
+        assert_eq!(
+            strip_sql_comments("a /* x /* y */ x */ b '--' $q$/*$q$ -- c\nd /* open"),
+            "a   b '--' $q$/*$q$  \nd /* open"
+        );
+        assert_eq!(
+            strip_sql_comments(r"x E'a\'/* k */\'b' /* d */ e'c''/*'"),
+            r"x E'a\'/* k */\'b'   e'c''/*'"
         );
     }
 

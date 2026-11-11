@@ -21,14 +21,13 @@
 	import SchemaForm from '../SchemaForm.svelte'
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
 	import JobLoader from '../JobLoader.svelte'
-	import { FlowService, type Job, type OpenFlow, type ScriptLang } from '$lib/gen'
+	import { FlowService, JobService, type Job, type OpenFlow, type ScriptLang } from '$lib/gen'
 	import { getScriptByPath } from '$lib/scripts'
 	import { slide } from 'svelte/transition'
 	import { DebugToolbar, DebugPanel, debugState } from '$lib/components/debug'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
-	import { userStore } from '$lib/stores'
 	import { isHubFlowPath } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { rawAppPreviewModules } from './utils'
@@ -156,15 +155,15 @@
 	function getCtxValue(expr: string): any {
 		switch (expr) {
 			case 'username':
-				return $userStore?.username ?? ''
+				return actingUser?.username ?? ''
 			case 'email':
-				return $userStore?.email ?? ''
+				return actingUser?.email ?? ''
 			case 'groups':
 				return actingUser?.groups ?? []
 			case 'workspace':
 				return opWs ?? ''
 			case 'author':
-				return $userStore?.email ?? '' // In editor, author is the current user
+				return actingUser?.email ?? '' // In editor, author is the current user
 			default:
 				return ''
 		}
@@ -225,6 +224,18 @@
 					} else {
 						await jobLoader.runFlowByPath(runnable.path, args)
 					}
+				} else if (runnable.runType == 'agent') {
+					// A turn of the agent as it is deployed, as the editor: the direct run has no way
+					// to ask for the app's identity.
+					const path = runnable.path
+					const { user_message, user_attachments, previous_messages } = args as Record<string, any>
+					await jobLoader.abstractRun(() =>
+						JobService.runAgent({
+							workspace: opWs!,
+							path,
+							requestBody: { user_message, user_attachments, previous_messages }
+						})
+					)
 				} else if (runnable.runType == 'script' || runnable.runType == 'hubscript') {
 					if (previewOnBehalfOf) {
 						const script = await getScriptByPath(runnable.path, opWs)

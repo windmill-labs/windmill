@@ -17,10 +17,16 @@
 	import { importStore } from '$lib/components/apps/store'
 	import { onDestroy, untrack } from 'svelte'
 	import { page } from '$app/state'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
+	import { classicAppDraftParts } from '$lib/appDiffSides'
+	import {
+		appDraftSettings,
+		withDraftPolicySettings
+	} from '$lib/components/apps/editor/appDraftSettings'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
 	/** Seeded from a hub app this load; AppEditor relaxes a few authoring affordances. */
@@ -206,6 +212,15 @@
 			getDraft
 		})
 		if (tok !== loadAppToken) return
+		// A draft-only app has no page for Home's card to open.
+		if (!backendApp.no_deployed) {
+			recentItems.record($workspaceStore!, {
+				kind: 'app',
+				path: backendApp.path,
+				summary: backendApp.summary,
+				via: 'edit'
+			})
+		}
 		// Deployed App value for AppEditor's autosave `discardIf`, captured BEFORE
 		// the draft swap below replaces `backendApp.value`. `undefined` when
 		// there's no deployed row (draft-only path).
@@ -217,7 +232,8 @@
 				// never compares equal (and a summary-only edit still counts as a change).
 				({
 					...(structuredClone(stateSnapshot(backendApp.value)) as App),
-					summary: backendApp.summary
+					summary: backendApp.summary,
+					...appDraftSettings(structuredClone(stateSnapshot(backendApp)))
 				} as App)
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
@@ -349,6 +365,16 @@
 		// `app = undefined` first, unmounting AppEditor and releasing the UserDraft
 		// entry, so the remount starts fresh — no local discard is needed here
 		// (and `UserDraft.discard` would POST `value: null`, a spurious autosave).
+		// The draft's settings win over the deployed ones here; `savedApp` keeps the deployed ones,
+		// which the settings drawer compares against.
+		const draftParts = classicAppDraftParts(backendApp.value)
+		backendApp = {
+			...backendApp,
+			policy: draftParts.policy
+				? withDraftPolicySettings(backendApp.policy, draftParts.policy)
+				: backendApp.policy,
+			labels: draftParts.labels ?? backendApp.labels
+		} as typeof backendApp
 		app = backendApp
 	}
 
@@ -485,7 +511,7 @@
 				{deployedBaseline}
 				newPath={app.value?.draft_path ?? app.path}
 				path={page.params.path ?? ''}
-				policy={app.policy}
+				bind:policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}

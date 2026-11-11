@@ -92,6 +92,16 @@ pub(crate) fn raw_to_string(x: &str) -> String {
     }
 }
 
+/// Narrow a JSON integer to the Rust type bound for a SQL argument, erroring the way the
+/// database would rather than letting an `as` cast wrap it into a different value.
+pub(crate) fn narrow_sql_int<T, N>(n: N, sql_type: &str) -> anyhow::Result<T>
+where
+    T: TryFrom<N>,
+    N: std::fmt::Display + Copy,
+{
+    T::try_from(n).map_err(|_| anyhow!("value \"{n}\" is out of range for type {sql_type}"))
+}
+
 pub async fn build_args_map<'a>(
     job: &'a MiniPulledJob,
     client: &AuthedClient,
@@ -359,9 +369,11 @@ pub async fn transform_json_value(
                         })
                     })
                 }
-                Connection::Http(_) => {
-                    Err(Error::NotFound("Http connection not supported".to_string()))
-                }
+                Connection::Http(_) => Err(Error::ExecutionErr(format!(
+                    "`{name}` is an `$encrypted:` value, which an agent worker cannot decrypt: \
+                     pass the secret as a `$var:` reference (in a flow, a static input or an \
+                     exact `flow_env.<key>` read) and build the value inside the script"
+                ))),
             }
 
             // let path = y.strip_prefix("$res:").unwrap();
@@ -566,6 +578,17 @@ pub async fn get_reserved_variables(
     )
     .await
     .to_vec();
+    let mut variables = variables;
+    if let Some(client) = &job.mcp_client {
+        variables.push(variables::ContextualVariable {
+            name: "WM_MCP_CLIENT".to_string(),
+            value: client.clone(),
+            description: "OAuth client of the external identity provider the run was started \
+                          through on the user's behalf, propagated to flow steps"
+                .to_string(),
+            is_custom: false,
+        });
+    }
 
     Ok(build_envs_map(variables).await)
 }
@@ -642,6 +665,11 @@ pub async fn update_worker_ping_for_failed_init_script(
                         native_mode: None,
                         draining: None,
                         ping_type: PingType::InitScript,
+                        // The worker exits right after this ping, so it is its last chance to
+                        // report the init script's outcome.
+                        job_stats: windmill_common::worker_job_stats::job_stats_snapshot(
+                            worker_name,
+                        ),
                     },
                 )
                 .await
@@ -976,12 +1004,26 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     }
 }
 
+/// Under `NSJAIL_GVISOR_COMPAT`, rewrites the config of an nsjail `cmd` for gVisor. A spawn of
+/// nsjail that bypasses `start_child_process` must call this itself.
+pub fn apply_nsjail_gvisor_compat(cmd: &Command) -> Result<(), Error> {
+    if *crate::NSJAIL_GVISOR_COMPAT && cmd.as_std().get_program() == crate::NSJAIL_PATH.as_str() {
+        crate::nsjail_compat::apply(cmd.as_std()).map_err(|e| {
+            Error::ExecutionErr(format!(
+                "NSJAIL_GVISOR_COMPAT could not prepare nsjail: {e}"
+            ))
+        })?;
+    }
+    Ok(())
+}
+
 pub async fn start_child_process(
     cmd: Command,
     executable: &str,
     disable_process_group: bool,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
     use process_wrap::tokio::*;
+    apply_nsjail_gvisor_compat(&cmd)?;
     let mut cmd = TokioCommandWrap::from(cmd);
 
     // On Windows, put the child in its own console process group so a CTRL_BREAK_EVENT
@@ -2610,6 +2652,7 @@ mod tests {
             viewer_data_access: None,
             runnable_settings_handle: None,
             job_token_scopes: None,
+            mcp_client: None,
         }
     }
 
@@ -2771,11 +2814,14 @@ mod tests {
                 include_str!("../nsjail/download.ruby.config.proto"),
             ),
         ] {
-            let at = profile
-                .find("\n{ENVARS}\n")
+            // Line by line: a Windows checkout gives the profiles CRLF endings.
+            let lines = profile.lines().collect::<Vec<_>>();
+            let at = lines
+                .iter()
+                .position(|l| *l == "{ENVARS}")
                 .unwrap_or_else(|| panic!("{name}: no {{ENVARS}}"));
             assert!(
-                !profile[..at].contains("\nenvar:"),
+                !lines[..at].iter().any(|l| l.starts_with("envar:")),
                 "{name}: a fixed envar precedes {{ENVARS}}"
             );
         }

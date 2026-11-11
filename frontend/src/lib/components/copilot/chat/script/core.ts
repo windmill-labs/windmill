@@ -26,14 +26,16 @@ import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getEffectiveModelContextWindow } from '../../modelConfig'
 import type { ReviewChangesOpts } from '../monaco-adapter'
-import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, getCurrentModel, type SessionAi } from '$lib/aiStore'
 import { get } from 'svelte/store'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
 
-// Score threshold for npm packages search filtering
-const SCORE_THRESHOLD = 1000
+// The registry's best match is kept, and the runner-up only when it scores this share of it:
+// the scores have no fixed scale (a descriptive query's right answer can score a few hundred, a
+// package's own name thousands), so a match is judged against the best one.
+const NPM_RUNNER_UP_SHARE = 0.6
 // percentage of the context window for documentation of npm packages
 const DOCS_CONTEXT_PERCENTAGE = 1
 // percentage of the context window for types of npm packages
@@ -602,7 +604,10 @@ type PackageSearchResult = {
 }
 
 const packagesSearchCache = new Map<string, PackageSearchResult[]>()
-export async function searchExternalIntegrationResources(args: { query: string }): Promise<string> {
+export async function searchExternalIntegrationResources(
+	args: { query: string },
+	sessionAi?: SessionAi
+): Promise<string> {
 	try {
 		if (packagesSearchCache.has(args.query)) {
 			return JSON.stringify(packagesSearchCache.get(args.query))
@@ -612,15 +617,19 @@ export async function searchExternalIntegrationResources(args: { query: string }
 			`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(args.query)}&size=2`
 		)
 		const data = await result.json()
+		const best = Math.max(0, ...data.objects.map((r: PackageSearchQuery) => r.searchScore))
 		const filtered = data.objects.filter(
-			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
+			(r: PackageSearchQuery) => r.searchScore >= best * NPM_RUNNER_UP_SHARE
 		)
 
-		const model = getCurrentModel()
+		const model = sessionAi ? sessionAi.model : getCurrentModel()
+		if (!model) {
+			throw new Error('No model selected')
+		}
 		const modelContextWindow = getEffectiveModelContextWindow(
 			model.provider,
 			model.model,
-			get(copilotInfo).contextWindowPerModel
+			(sessionAi ? sessionAi.info : get(copilotInfo))?.contextWindowPerModel
 		)
 		const results: PackageSearchResult[] = await Promise.all(
 			filtered.map(async (r: PackageSearchQuery) => {
@@ -681,9 +690,10 @@ export const searchNpmPackagesTool: SessionTool<{}> = {
 	requires: NONE,
 	def: SEARCH_NPM_PACKAGES_TOOL,
 	planModeSafe: true,
-	fn: async ({ args, toolId, toolCallbacks }) => {
+	fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
-		const result = await searchExternalIntegrationResources(args)
+		const sessionAi = (helpers as { sessionAi?: () => SessionAi } | undefined)?.sessionAi
+		const result = await searchExternalIntegrationResources(args, sessionAi?.())
 		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved relevant packages' })
 		return result
 	}
@@ -1007,6 +1017,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		})
 	},
 	requiresConfirmation: true,
+	confirmAction: 'run',
 	confirmationMessage: 'Run a test of the current script',
 	showDetails: true,
 	autoCollapseDetails: false

@@ -52,4 +52,20 @@ describe('pageHeader', () => {
 		register({ actions: snippet('nested') })
 		expect(pageHeader.actions.map((a) => a.contexts)).toEqual([pageContexts, undefined])
 	})
+
+	// In-page buttons stand down when the header offers the same hand-off, so which registration
+	// is read decides which of them disappear; a nested registration that names no source must not
+	// hide the page's.
+	it('takes the session source of the innermost registration that has one', () => {
+		const route = { page: () => '/runs' }
+		const editor = { target: { kind: 'script' as const, path: 'u/admin/s' } }
+		register({ sessionSource: route })
+		register({ sessionSource: editor })
+		register({ section: { label: 'Nested' } })
+		expect(pageHeader.sessionSource).toBe(editor)
+		pageHeader.release(ids.splice(1, 1)[0])
+		expect(pageHeader.sessionSource).toBe(route)
+		pageHeader.release(ids.shift()!)
+		expect(pageHeader.sessionSource).toBeUndefined()
+	})
 })

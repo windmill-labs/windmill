@@ -136,7 +136,7 @@
 			obj = {
 				openapi_spec_format: lang,
 				info,
-				url: apiBaseUrl(),
+				url: apiBaseUrl('webhooks'),
 				http_route_filters: getHttpRouteFilters(),
 				webhook_filters: getWebhookFilters()
 			}
@@ -155,7 +155,7 @@
 				requestBody: {
 					openapi_spec_format,
 					info,
-					url: apiBaseUrl(),
+					url: apiBaseUrl('webhooks'),
 					http_route_filters: getHttpRouteFilters(),
 					webhook_filters: getWebhookFilters()
 				}
@@ -225,7 +225,7 @@
 				{/snippet}
 				<CopyableCodeBlock
 					code={`token=${emptyString(token) ? '' : token}; \\
-curl -X POST "${apiBaseUrl()}/api/w/${$operatingWorkspace!}/openapi/generate" \\
+curl -X POST "${apiBaseUrl('cli')}/api/w/${$operatingWorkspace!}/openapi/generate" \\
 -H "Authorization: Bearer $token" \\
 -H "Content-Type: application/json" \\
 -d '${JSON.stringify(obj)}'`}

@@ -3,7 +3,14 @@
 		scimSamlSetting,
 		settings,
 		settingsKeys,
-		instanceSettingsSaved
+		instanceSettingsSaved,
+		SENSITIVE_UNCHANGED,
+		sensitiveKeys,
+		nestedSensitiveFields,
+		getField,
+		setField,
+		maskSensitive,
+		type Setting
 	} from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
@@ -308,6 +315,8 @@
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
 			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			// ms_teams takes its tenant from the pinned Teams tile; the backend fills the URLs.
+			.filter(([name]) => name !== 'ms_teams')
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
 
@@ -315,6 +324,12 @@
 	// instance name + its registry template (substituting {instance} into the
 	// URLs). Replaces the old per-provider setup functions.
 	function setupTemplatedOauthUrls() {
+		// The backend falls back to the pre-rename `teams` key when `ms_teams` is absent, so
+		// turning the Teams tile off (ms_teams saved before, gone now) has to drop both.
+		// TODO: remove with the backend fallback.
+		if (oauths && initialOauths?.['ms_teams'] && !oauths['ms_teams'] && oauths['teams']) {
+			delete oauths['teams']
+		}
 		for (const [name, tmpl] of Object.entries(connectConfigTemplates)) {
 			if (!oauths?.[name]) continue
 			const key = tmpl.extra_params_key ?? 'instance'
@@ -477,9 +492,10 @@
 		const categorySettings = getSettingsForCategory(category)
 		const obj: Record<string, any> = {}
 		for (const s of categorySettings) {
-			const normalized = normalizeValue(vals[s.key], s.key)
-			if (normalized !== undefined) {
-				obj[s.key] = vals[s.key]
+			for (const key of [s.key, ...(s.companionKeys ?? [])]) {
+				if (normalizeValue(vals[key], key) !== undefined) {
+					obj[key] = vals[key]
+				}
 			}
 		}
 		if (category === 'Auth/OAuth/SAML') {
@@ -545,11 +561,16 @@
 		return dirtyCategories[category] ?? false
 	}
 
+	/** The global settings a field owns: its `key` and any companion keys it also writes. */
+	function settingKeys(s: Setting): string[] {
+		return [s.key, ...(s.companionKeys ?? [])]
+	}
+
 	export function discardCategory(category: string) {
 		const categorySettings = getSettingsForCategory(category)
-		for (const s of categorySettings) {
-			const v = initialValues[s.key]
-			$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		for (const key of categorySettings.flatMap(settingKeys)) {
+			const v = initialValues[key]
+			$values[key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 		if (category === 'Auth/OAuth/SAML') {
 			oauths = JSON.parse(JSON.stringify(initialOauths))
@@ -628,10 +649,18 @@
 				})
 		)
 
+		const companionKeys = categorySettings
+			.filter((x) => x.storage === 'setting')
+			.flatMap((x) => x.companionKeys ?? [])
+			.filter((key) => !deepEqual(initialValues?.[key], $values?.[key]))
+		for (const key of companionKeys) {
+			await SettingService.setGlobal({ key, requestBody: { value: $values?.[key] ?? null } })
+		}
+
 		// Update only the saved category's initial values
-		for (const s of categorySettings) {
-			const v = $values[s.key]
-			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		for (const key of categorySettings.flatMap(settingKeys)) {
+			const v = $values[key]
+			initialValues[key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 		instanceSettingsSaved.update((n) => n + 1)
 		if (categorySettings.some((s) => s.key === 'base_url')) {
@@ -696,18 +725,6 @@
 	let yamlError = $state('')
 	let showSensitive = $state(false)
 
-	const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
-
-	const sensitiveKeys: Set<string> = new Set([
-		...[...Object.values(settings), scimSamlSetting]
-			.flatMap((s) => Object.values(s))
-			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
-			.map((s) => s.key),
-		'ducklake_user_pg_pwd',
-		'jwt_secret',
-		'workspace_registries'
-	])
-
 	// Settings that should never appear in YAML export/import.
 	// `worker_configs` is a legacy ghost key: worker configs live in the `config`
 	// table (managed from /workers), not in `global_settings`. Older DBs may
@@ -715,68 +732,17 @@
 	// so it never round-trips through this editor.
 	const excludedKeys: Set<string> = new Set(['worker_configs'])
 
-	// Nested fields inside object-valued settings that contain secrets.
-	// Each entry maps a top-level key to its sensitive sub-field names.
-	const nestedSensitiveFields: Record<string, string[]> = {
-		smtp_settings: ['smtp_password'],
-		secret_backend: ['token', 'client_secret', 'secret_access_key'],
-		object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
-		custom_instance_pg_databases: ['user_pwd'],
-		external_instance_pg: ['password'],
-		rsa_keys: ['private_key'],
-		github_enterprise_app: ['private_key']
-	}
-
-	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
-	function maskField(current: any, initial: any): string | undefined {
-		if (current != null && current !== '' && current === initial) return SENSITIVE_UNCHANGED
-		return undefined
-	}
-
-	function maskSensitive(obj: Record<string, any>): Record<string, any> {
-		const masked: Record<string, any> = {}
-		for (const [key, value] of Object.entries(obj)) {
-			if (key === 'oauths' && typeof value === 'object' && value !== null) {
-				const maskedOauths: Record<string, any> = {}
-				for (const [provider, config] of Object.entries(value as Record<string, any>)) {
-					if (typeof config === 'object' && config !== null && 'secret' in config) {
-						const m = maskField(config.secret, initialOauths?.[provider]?.secret)
-						maskedOauths[provider] = m ? { ...config, secret: m } : config
-					} else {
-						maskedOauths[provider] = config
-					}
-				}
-				masked[key] = maskedOauths
-			} else if (key in nestedSensitiveFields && typeof value === 'object' && value !== null) {
-				const cp = { ...value }
-				const init = initialValues?.[key]
-				for (const field of nestedSensitiveFields[key]) {
-					const m = maskField(
-						field === 'serviceAccountKey' ? JSON.stringify(cp[field]) : cp[field],
-						field === 'serviceAccountKey' ? JSON.stringify(init?.[field]) : init?.[field]
-					)
-					if (m) cp[field] = m
-				}
-				masked[key] = cp
-			} else if (sensitiveKeys.has(key) && value != null && value !== '') {
-				masked[key] = value === initialValues?.[key] ? SENSITIVE_UNCHANGED : value
-			} else {
-				masked[key] = value
-			}
-		}
-		return masked
-	}
-
 	/**
 	 * Builds a sorted YAML string of all instance settings.
 	 * - normalize: strip keys whose values match the default (empty/falsy or key-specific defaults)
 	 * - mask: replace sensitive values with placeholder (for display)
+	 * - markChanged: with mask, also hide changed secrets (read-only views)
 	 */
 	function buildSettingsYaml(
 		vals: Record<string, any>,
 		oauthsObj: Record<string, any>,
 		reqPreexisting: boolean,
-		opts: { normalize?: boolean; mask?: boolean } = {}
+		opts: { normalize?: boolean; mask?: boolean; markChanged?: boolean } = {}
 	): string {
 		// Merge all settings (including oauths) into one object so they sort together
 		const merged: Record<string, any> = { ...vals }
@@ -797,7 +763,11 @@
 			obj['custom_instance_pg_databases'] = { ...obj['custom_instance_pg_databases'] }
 			delete obj['custom_instance_pg_databases'].databases
 		}
-		return YAML.stringify(opts.mask ? maskSensitive(obj) : obj)
+		return YAML.stringify(
+			opts.mask
+				? maskSensitive(obj, initialValues, initialOauths, { markChanged: opts.markChanged })
+				: obj
+		)
 	}
 
 	function syncFormToYaml() {
@@ -858,8 +828,8 @@
 				if (parsed[parentKey] && typeof parsed[parentKey] === 'object') {
 					const init = initialValues?.[parentKey]
 					for (const field of fields) {
-						if (parsed[parentKey][field] === SENSITIVE_UNCHANGED) {
-							parsed[parentKey][field] = init?.[field]
+						if (getField(parsed[parentKey], field) === SENSITIVE_UNCHANGED) {
+							setField(parsed[parentKey], field, getField(init, field))
 						}
 					}
 				}
@@ -929,10 +899,12 @@
 				initialValues,
 				initialOauths,
 				initialRequirePreexistingUserForOauth,
-				{ normalize: true }
+				{ normalize: true, mask: true, markChanged: true }
 			),
 			modified: buildSettingsYaml($values, oauths, requirePreexistingUserForOauth, {
-				normalize: true
+				normalize: true,
+				mask: true,
+				markChanged: true
 			})
 		}
 	}
@@ -1068,7 +1040,10 @@
 					<ul class="list-disc list-inside pl-2">
 						<li>Job counts and durations per language</li>
 						<li>Git sync repository counts</li>
-						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li
+							>Feature usage and adoption counts, including AI model, web search provider and public
+							Hub names</li
+						>
 						<li>Counts of workspaces, scripts, flows and apps</li>
 						<li>Database, runtime and object storage details</li>
 					</ul>
@@ -1104,7 +1079,10 @@
 						<li>Login types, user and seat counts</li>
 						<li>Worker count, vCPUs and memory</li>
 						<li>Development instance status</li>
-						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li
+							>Feature usage and adoption counts, including AI model, web search provider and public
+							Hub names</li
+						>
 						<li>Counts of workspaces, scripts, flows and apps</li>
 					</ul>
 				</div>
@@ -1114,6 +1092,12 @@
 				title="Jobs"
 				description="Configure default timeouts and retention policies for job execution."
 				link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
+			/>
+		{:else if category == 'Workspace roles'}
+			<SettingsPageHeader
+				title="Workspace roles"
+				description="Define the roles workspace members can hold and what each one may author, manage and see. Workspace admin is separate and holds everything."
+				link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
 			/>
 		{:else if category == 'Service logs'}
 			<SettingsPageHeader
@@ -1179,6 +1163,12 @@
 			{#if $enterpriseLicense}
 				<OidcSigningStatus />
 			{/if}
+		{:else if category == 'Agent workers'}
+			<SettingsPageHeader
+				title="Agent workers"
+				description="Optional. Agent workers authenticate with the agent token (AGENT_TOKEN) you create on the Workers page with New agent worker, which needs nothing set here. Add an issuer only to also accept workload identity tokens."
+				link="https://www.windmill.dev/docs/core_concepts/agent_workers"
+			/>
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths
@@ -1209,7 +1199,7 @@
 		<div class="flex-col flex gap-6 pb-6">
 			{#each settings[category] as setting}
 				<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
-				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key')}
+				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key') && !(setting.key === 'mcp_external_idp' && authSubTab !== 'sso')}
 					<InstanceSetting
 						{openSmtpSettings}
 						on:closeDrawer={() => closeDrawer?.()}

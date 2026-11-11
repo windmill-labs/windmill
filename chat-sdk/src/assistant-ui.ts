@@ -7,7 +7,7 @@ import {
 } from '@assistant-ui/react'
 import { useEffect, useMemo } from 'react'
 import { useWindmillChat } from './react'
-import type { ChatMessage, ChatOptions } from './types'
+import type { ChatMessage, RawAppWmill, TypedChatOptions } from './types'
 import { parseJsonOr } from './utils'
 
 /** One assistant turn: the assistant and tool rows between two user messages. */
@@ -17,7 +17,7 @@ export interface WindmillTurn {
   messages: ChatMessage[]
 }
 
-export interface WindmillRuntimeOptions extends ChatOptions {
+export type WindmillRuntimeOptions<W extends RawAppWmill = RawAppWmill> = TypedChatOptions<W> & {
   /** Load the conversation list on mount so `ThreadListPrimitive` has something to show. Default true. */
   threadList?: boolean
 }
@@ -27,7 +27,7 @@ export interface WindmillRuntimeOptions extends ChatOptions {
  * Conversations become threads, so the thread list primitives switch, create and
  * delete Windmill conversations.
  */
-export function useWindmillRuntime(options: WindmillRuntimeOptions): AssistantRuntime {
+export function useWindmillRuntime<W extends RawAppWmill>(options: WindmillRuntimeOptions<W>): AssistantRuntime {
   const chat = useWindmillChat(options)
   const turns = useMemo(() => groupTurns(chat.messages), [chat.messages])
   const withThreadList = options.threadList !== false

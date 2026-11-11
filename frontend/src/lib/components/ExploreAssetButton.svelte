@@ -37,14 +37,11 @@
 	import { isS3Uri } from '$lib/utils'
 	import { Database, File, HardDriveIcon } from 'lucide-svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
+	const roleCaps = useRoleCapabilities()
 
 	const {
 		asset,
@@ -83,7 +80,7 @@
 </script>
 
 <Button
-	disabled={actingUser?.operator || disabled}
+	disabled={!$roleCaps.code || disabled}
 	unifiedSize={'md'}
 	variant={buttonVariant}
 	wrapperClasses={className}

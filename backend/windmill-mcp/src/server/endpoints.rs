@@ -113,9 +113,27 @@ pub fn endpoint_tool_to_mcp_tool_multi(tool: &EndpointTool) -> Tool {
         return mcp_tool;
     }
 
+    // Surface the requirement in the prose description too (the schema is
+    // authoritative, but some models/clients lean on the text). Kept terse — this
+    // repeats across every workspace-scoped tool in the list.
+    if let Some(desc) = mcp_tool.description.take() {
+        mcp_tool.description = Some(format!("{desc} Requires `workspace_id`.").into());
+    } else {
+        mcp_tool.description = Some("Requires `workspace_id`.".into());
+    }
+    with_workspace_id_arg(mcp_tool)
+}
+
+/// The tool with a required `workspace_id` argument, which the caller strips before
+/// dispatching.
+pub fn with_workspace_id_arg(mut mcp_tool: Tool) -> Tool {
     let mut schema = (*mcp_tool.input_schema).clone();
 
-    if let Some(props) = schema.get_mut("properties").and_then(|p| p.as_object_mut()) {
+    if let Some(props) = schema
+        .entry("properties")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+    {
         props.insert(
             "workspace_id".to_string(),
             serde_json::json!({
@@ -134,15 +152,6 @@ pub fn endpoint_tool_to_mcp_tool_multi(tool: &EndpointTool) -> Tool {
         None => {
             schema.insert("required".to_string(), serde_json::json!(["workspace_id"]));
         }
-    }
-
-    // Surface the requirement in the prose description too (the schema is
-    // authoritative, but some models/clients lean on the text). Kept terse — this
-    // repeats across every workspace-scoped tool in the list.
-    if let Some(desc) = mcp_tool.description.take() {
-        mcp_tool.description = Some(format!("{desc} Requires `workspace_id`.").into());
-    } else {
-        mcp_tool.description = Some("Requires `workspace_id`.".into());
     }
 
     mcp_tool.input_schema = Arc::new(schema);

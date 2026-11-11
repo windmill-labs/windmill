@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            workspace_invite.workspace_id,\n            workspace_invite.email,\n            workspace_invite.is_admin,\n            workspace_invite.operator,\n            COALESCE(workspace_invite.workspace_role, CASE WHEN workspace_invite.operator THEN 'operator' ELSE 'developer' END) AS \"role!\",\n            workspace.parent_workspace_id\n        FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id\n        WHERE workspace_id = $1\n        ORDER BY workspace_invite.email",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "role!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "parent_workspace_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      true
+    ]
+  },
+  "hash": "1fbb8493d20eacea2ac78c4473a85f96bd91de548185238f9fd66ac2b4a1e0a0"
+}

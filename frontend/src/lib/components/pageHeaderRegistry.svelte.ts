@@ -1,5 +1,6 @@
 import type { Snippet } from 'svelte'
 import type { WorkspaceItemKind } from './workspacePicker'
+import type { OpenInSessionSource } from './sessions/OpenInSessionButton.svelte'
 
 /** An item the page is working on: the breadcrumb walks its path and ends with its summary. */
 export type PageHeaderItem = {
@@ -34,6 +35,14 @@ export type PageHeaderSection = {
 	/** No chevron after the name: the page's siblings are not the workspace's pages and items,
 	 *  which is all that picker offers. A session is one. */
 	noNavPicker?: boolean
+	/** Artifacts the section is one of — a shared artifact's page. The nav picker lists them in
+	 *  its Artifacts branch, opens on that branch with `currentId` highlighted, and navigates to
+	 *  `href(id)` when one is picked. */
+	navArtifacts?: {
+		items: { id: string; name: string }[]
+		currentId?: string
+		href: (id: string) => string
+	}
 }
 
 export type PageHeaderContent = {
@@ -41,6 +50,10 @@ export type PageHeaderContent = {
 	section?: PageHeaderSection
 	/** Rendered at the right end of the bar — the page's own buttons. */
 	actions?: Snippet
+	/** What the "Open in AI session" button in `actions` takes this page to. The page draws that
+	 *  button itself, right before its main action (Deploy, Edit), since only the page knows which
+	 *  that is; naming it here lets in-page buttons to the same destination stand down. */
+	sessionSource?: OpenInSessionSource
 	/** Orders these buttons among the other registrations', ascending; registration order breaks a
 	 *  tie. For a menu that must stay at the far end however many pages register before it. */
 	actionsOrder?: number
@@ -198,6 +211,14 @@ export const pageHeader = {
 					: []
 			})
 			.sort((a, b) => a.order - b.order || a.i - b.i)
+	},
+	/** The innermost registration's session source: the hand-off the header offers. */
+	get sessionSource(): OpenInSessionSource | undefined {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const c = read(entries[i])
+			if (c?.sessionSource) return c.sessionSource
+		}
+		return undefined
 	},
 	/** Width of the bar in px, or 0 before it has been measured. */
 	get barWidth(): number {

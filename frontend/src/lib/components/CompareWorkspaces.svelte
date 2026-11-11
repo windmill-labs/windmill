@@ -17,6 +17,7 @@
 		UserPlus
 	} from 'lucide-svelte'
 	import { onDestroy, untrack } from 'svelte'
+	import { isExternalRef } from '$lib/externalSecretRef'
 	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
 	import {
@@ -37,6 +38,7 @@
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 
 	import type { Kind } from '$lib/utils_deployable'
 	import {
@@ -64,6 +66,8 @@
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
+	import AiReview from './deploymentRequest/AiReview.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 	import { userStore } from '$lib/stores'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import CompareTargetPicker from './CompareTargetPicker.svelte'
@@ -282,14 +286,19 @@
 					}
 				})
 			} else {
-				const v = await VariableService.getVariable({ workspace: from, path, decryptSecret: true })
+				// An external secret reference is copied as the reference, never as its resolved value.
+				let v = await VariableService.getVariable({ workspace: from, path, decryptSecret: false })
+				if (v.is_secret && !isExternalRef(v.value)) {
+					v = await VariableService.getVariable({ workspace: from, path, decryptSecret: true })
+				}
 				await VariableService.createVariable({
 					workspace: to,
 					requestBody: {
 						path,
 						value: v.value ?? '',
 						is_secret: v.is_secret ?? false,
-						description: v.description ?? ''
+						description: v.description ?? '',
+						value_valid_until: v.value_valid_until ?? undefined
 					}
 				})
 			}
@@ -428,6 +437,7 @@
 	)
 
 	let selectedItems = $state<string[]>([])
+	let selectedDiffs = $derived(selectableDiffs.filter((d) => selectedItems.includes(getItemKey(d))))
 
 	// Selected items that carry a pending draft. They're opt-in (excluded from the
 	// default selection), so a non-empty list means the user explicitly picked an
@@ -488,6 +498,9 @@
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
+	// Resource rows that are AI agents: titled by their summary and drawn as agents, as a script is.
+	// Per side, since a path can be an agent on one side and another resource type on the other.
+	let agentKeys = $state<Record<string, { current: boolean; parent: boolean }>>({})
 	// What has already been asked for. Deliberately not `$state`: the fetchers below run inside an
 	// effect, and a guard that reads reactive state makes that effect depend on what it writes —
 	// which is a loop. A plain Set is also what tells "asked, and the answer was nothing" from
@@ -505,6 +518,14 @@
 
 	function getItemKey(diff: WorkspaceItemDiff): string {
 		return `${diff.kind}:${diff.path}`
+	}
+
+	// Drawn as an agent by the side being deployed, or by the target's when the source deletes it.
+	function isAgentRow(diff: WorkspaceItemDiff): boolean {
+		const sides = agentKeys[getItemKey(diff)]
+		if (!sides) return false
+		const fromCurrent = mergeIntoParent ? diff.exists_in_fork : !diff.exists_in_source
+		return fromCurrent ? sides.current : sides.parent
 	}
 
 	/** The two things a row needs from an item — the name it shows and who it runs as — are fields
@@ -574,9 +595,9 @@
 	})
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
-		// Only fetch summaries for scripts, flows, and apps
+		// Only fetch summaries for scripts, flows, apps, and resources (for the agents among them)
 		const itemsToFetch = diffs.filter((diff) =>
-			['script', 'flow', 'app', 'raw_app', 'folder'].includes(diff.kind)
+			['script', 'flow', 'app', 'raw_app', 'folder', 'resource'].includes(diff.kind)
 		)
 		// Read once, so every request in this pass names the pair the pass was started for. Named
 		// the way the diff names the two sides: `exists_in_fork` is this workspace, `exists_in_source`
@@ -593,6 +614,33 @@
 			summariesRequested.add(key)
 
 			summaryCache[key] = { loading: true }
+
+			if (diff.kind === 'resource') {
+				const read = (ws: string) =>
+					ResourceService.getResource({ workspace: ws, path: diff.path }).catch((error) => {
+						console.error(`Failed to fetch resource ${diff.path} in ${ws}`, error)
+						return undefined
+					})
+				const [current, parent] = await Promise.all([
+					diff.exists_in_fork ? read(forkWs) : undefined,
+					diff.exists_in_source ? read(sourceWs) : undefined
+				])
+				if (!alive) return
+				const sides = {
+					current: current?.resource_type === 'ai_agent',
+					parent: parent?.resource_type === 'ai_agent'
+				}
+				const agent = sides.current || sides.parent
+				if (agent) agentKeys[key] = sides
+				summaryCache[key] = agent
+					? {
+							current: sides.current ? current?.description : undefined,
+							parent: sides.parent ? parent?.description : undefined,
+							loading: false
+						}
+					: { loading: false }
+				continue
+			}
 
 			// Only the sides that have the item. An item that is only ahead does not exist in the
 			// other workspace, so asking it there is a 404 by construction — a guaranteed-failing
@@ -806,14 +854,55 @@
 
 		if (result.success) {
 			deploymentStatus[statusKey] = { status: 'deployed' }
+			if (kind === 'folder' && !removes) {
+				warnOnAddedFolderOwners(path, workspaceFrom, workspaceToDeployTo)
+			}
 		} else {
 			deploymentStatus[statusKey] = { status: 'failed', error: result.error }
 			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`, 'error')
 		}
 	}
 
+	// A non-admin can't drop their own ownership of a folder (the folder UPDATE policy
+	// rejects a row they don't own), so updateFolder keeps them as an owner. The folder then
+	// never matches its source, and the conflict comes back on every compare unless we say why.
+	async function warnOnAddedFolderOwners(path: string, workspaceFrom: string, workspaceTo: string) {
+		const name = path.replace(/^f\//, '')
+		try {
+			const [source, target, me] = await Promise.all([
+				FolderService.getFolder({ workspace: workspaceFrom, name }),
+				FolderService.getFolder({ workspace: workspaceTo, name }),
+				UserService.whoami({ workspace: workspaceTo })
+			])
+			const owner = `u/${me.username}`
+			if (!me.is_admin && target.owners.includes(owner) && !source.owners.includes(owner)) {
+				sendUserToast(
+					`${path} still differs in ${workspaceTo}: it kept ${owner} as owner, because a non-admin can't remove their own ownership of a folder. To clear it, make ${owner} owner of ${path} in ${workspaceFrom} too, or deploy as an admin of ${workspaceTo}.`,
+					'warning',
+					[],
+					undefined,
+					15000
+				)
+			}
+		} catch {
+			// The deploy itself succeeded; the next compare still shows the difference.
+		}
+	}
+
 	let deploymentErrorMessage = $state('')
-	let allowBehindChangesOverride = $state(false)
+	// The override acknowledges the outdated items listed next to it, not the
+	// selection, so it holds while every outdated item is one the user ticked it
+	// for: a refresh bringing in a new one asks again, one leaving the list does not.
+	let acknowledgedBehindKeys = $state<Set<string> | undefined>()
+	let allowBehindChangesOverride = $derived(
+		acknowledgedBehindKeys != undefined &&
+			itemsWithBehindChanges.every((d) => acknowledgedBehindKeys!.has(getItemKey(d)))
+	)
+	function setBehindChangesOverride(allow: boolean) {
+		acknowledgedBehindKeys = allow
+			? new Set(itemsWithBehindChanges.map((d) => getItemKey(d)))
+			: undefined
+	}
 
 	async function isComparisonUpToDate(): Promise<boolean> {
 		if (!comparison) {
@@ -1078,7 +1167,12 @@
 			workspaceDeployPerm,
 			(comparison?.diffs ?? [])
 				.filter((d) => selectedItems.includes(getItemKey(d)))
-				.map((d) => d.kind)
+				.map((d) => d.kind),
+			capabilitiesIn(
+				// Superadmin is global; a workspace's admin flag is not.
+				{ is_super_admin: $userStore?.is_super_admin },
+				$userWorkspaces.find((w) => w.id == deployTargetWorkspace)
+			)
 		)
 	)
 
@@ -1122,16 +1216,15 @@
 			const current = new Set(diffs.filter(removesInTarget).map((d) => getItemKey(d)))
 			const flipped = [...current].filter((k) => !removalKeys.has(k))
 			removalKeys = current
-			if (flipped.some((k) => selectedItems.includes(k))) {
-				selectedItems = selectedItems.filter((k) => !flipped.includes(k))
+			// A row that left the list (made workspace specific, synced elsewhere) takes its
+			// tick with it: the deploy button counts the selection, and a key with no row
+			// would be reported as undeployable.
+			const listed = new Set(selectableDiffs.map((d) => getItemKey(d)))
+			const kept = selectedItems.filter((k) => listed.has(k) && !flipped.includes(k))
+			if (kept.length !== selectedItems.length) {
+				selectedItems = kept
 			}
 		})
-	})
-
-	// Reset override when selection or direction changes
-	$effect(() => {
-		;[selectedItems, mergeIntoParent]
-		allowBehindChangesOverride = false
 	})
 
 	// Trigger and schedule rows now flow through `comparison.diffs` like every
@@ -1304,6 +1397,7 @@
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
 				items={deployableItems}
+				isAgent={(item) => isAgentRow(item.diff as WorkspaceItemDiff)}
 				{selectedItems}
 				{deploymentStatus}
 				{allSelected}
@@ -1582,7 +1676,8 @@
 							<span class="font-medium flex flex-row gap-1 text-red-500">
 								<input
 									type="checkbox"
-									bind:checked={allowBehindChangesOverride}
+									checked={allowBehindChangesOverride}
+									onchange={(e) => setBehindChangesOverride(e.currentTarget.checked)}
 									class="rounded max-w-4"
 								/>
 								Override: Deploy despite {itemsWithBehindChanges.length} outdated item{itemsWithBehindChanges.length !==
@@ -1627,10 +1722,10 @@
 					<!-- Point the edit link at the workspace the item actually lives in:
 					     a parent-only row (deleted/absent in the fork) would 404 if linked
 					     into the fork, so link it into the parent instead. -->
-					{@const editUrl = editUrlFor(
-						diff,
-						diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId
-					)}
+					{@const linkWs = diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId}
+					{@const editUrl = agentKeys[key]?.[diff.exists_in_fork ? 'current' : 'parent']
+						? `/agents/edit/${diff.path}?workspace=${encodeURIComponent(linkWs)}`
+						: editUrlFor(diff, linkWs)}
 					{#if isTriggerOrScheduleKind(diff.kind)}
 						<span class="text-emphasis">
 							{KIND_DISPLAY_NAMES[diff.kind as string] ?? diff.kind}
@@ -1788,8 +1883,21 @@
 
 				{#snippet footer()}
 					{#if !nothingToAct}
-						<div class="flex items-center justify-between">
-							<div></div>
+						<div class="flex items-start justify-between gap-4">
+							<div class="flex-1 min-w-0">
+								<!-- The request form and an open request carry their own review. -->
+								{#if mergeIntoParent && $copilotInfo.enabled && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
+									<AiReview
+										scope={{
+											kind: 'deployment',
+											diffs: selectedDiffs,
+											forkWorkspaceId: currentWorkspaceId,
+											parentWorkspaceId
+										}}
+										source="selection"
+									/>
+								{/if}
+							</div>
 
 							<div class="flex flex-col items-end gap-2">
 								<!-- Always show the deploy footer: only the items visible to the user are
@@ -1866,6 +1974,7 @@
 					{parentWorkspaceId}
 					currentUsername={$userStore?.username ?? ''}
 					isAdmin={$userStore?.is_admin ?? false}
+					diffs={comparison?.diffs.filter((d) => diffActionableInDirection(d, true)) ?? []}
 					onStateChange={(open) => {
 						hasOpenDeploymentRequest = open
 					}}

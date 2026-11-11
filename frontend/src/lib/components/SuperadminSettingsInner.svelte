@@ -2,6 +2,7 @@
 	import { UserService, type GlobalUserInfo, type ExternalJwtToken, SettingService } from '$lib/gen'
 	import type { GuestList } from '$lib/gen'
 	import { Tab, Tabs } from '$lib/components/common'
+	import { isNewTabClick } from '$lib/navigation'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -63,7 +64,6 @@
 	let {
 		closeDrawer,
 		showHeaderInfo = true,
-		disableChatOffset = false,
 		yamlMode = $bindable(false),
 		hasUnsavedChanges = $bindable(false),
 		hasAnyInvalid = $bindable(false)
@@ -333,7 +333,7 @@
 				     scrollbar in view rather than under hundreds of rows. -->
 				<div class={usersListShown ? 'h-full flex flex-col px-8 py-4' : 'h-fit px-8 py-4'}>
 					{#if tab === 'ai' && !yamlMode}
-						<InstanceAISettings {disableChatOffset} />
+						<InstanceAISettings />
 					{:else if tab === 'users' && !yamlMode}
 						<div class="flex-1 min-h-0 flex flex-col">
 							{#if !automateUsernameCreation && !isCloudHosted()}
@@ -630,8 +630,9 @@
 																				href="/workspace_settings?tab=users&workspace={workspace_id}"
 																				class="hover:underline"
 																				title={workspace_id}
-																				onclick={() => closeDrawer?.()}
-																				>{truncate(workspace_id, 20)}</a
+																				onclick={(e) => {
+																					if (!isNewTabClick(e)) closeDrawer?.()
+																				}}>{truncate(workspace_id, 20)}</a
 																			>
 																		{:else}
 																			its workspace
@@ -642,7 +643,9 @@
 																		href="/groups"
 																		class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
 																		title={groupRoleTooltip}
-																		onclick={() => closeDrawer?.()}
+																		onclick={(e) => {
+																			if (!isNewTabClick(e)) closeDrawer?.()
+																		}}
 																	>
 																		Set by instance group
 																	</a>
@@ -658,7 +661,9 @@
 																				{
 																					displayName: 'Manage in workspace',
 																					icon: Settings,
-																					action: () => closeDrawer?.(),
+																					action: (e) => {
+																						if (!isNewTabClick(e)) closeDrawer?.()
+																					},
 																					href: `/workspace_settings?tab=users&workspace=${workspace_id}`
 																				}
 																			]}
@@ -813,7 +818,6 @@
 									loading={guestLoading}
 									onLoadMore={() =>
 										loadGuestPage(Math.floor((guestList?.guests.length ?? 0) / guestPerPage) + 1)}
-									onInstanceSwitch={() => loadGuestPage(1)}
 								/>
 							{/if}
 						</div>

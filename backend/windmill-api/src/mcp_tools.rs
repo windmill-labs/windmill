@@ -10,7 +10,10 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, StripPath},
 };
-use windmill_store::{resources::explain_resource_perm_error, variables::get_value_internal};
+use windmill_store::{
+    resources::{check_resource_var_ref_scope, explain_resource_perm_error},
+    variables::get_value_internal,
+};
 
 /// A connected MCP server is a third party the user chose, reached over a
 /// connection this request holds open: without a deadline one that never answers
@@ -67,12 +70,22 @@ async fn connect_mcp_client(
         serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
             .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
 
+    // The token, URL and header secrets are read on the caller's behalf and sent to a URL
+    // the resource chose, so each needs the same scope as a resource reference. The token
+    // is checked before the OAuth refresh touches its variable.
+    let token_var_path = mcp_resource
+        .token
+        .as_deref()
+        .map(|t| t.trim_start_matches("$var:"))
+        .filter(|p| !p.trim().is_empty());
+    if let Some(token_var_path) = token_var_path {
+        check_resource_var_ref_scope(authed, path, token_var_path)?;
+    }
+
     #[cfg(feature = "oauth2")]
     {
         tracing::info!("Checking if token needs refresh before creating MCP client");
-        if let Some(ref token_path) = mcp_resource.token {
-            let token_var_path = token_path.trim_start_matches("$var:");
-
+        if let Some(token_var_path) = token_var_path {
             let token_info = sqlx::query!(
                 r#"
             SELECT
@@ -90,13 +103,12 @@ async fn connect_mcp_client(
 
             if let Some(info) = token_info {
                 if let (Some(account_id), Some(true)) = (info.account_id, info.is_expired) {
-                    let refresh_tx = user_db.clone().begin(authed).await?;
                     if let Err(e) = crate::oauth2_oss::_refresh_token(
-                        refresh_tx,
                         token_var_path,
                         w_id,
                         account_id,
                         db,
+                        false,
                     )
                     .await
                     {
@@ -113,14 +125,9 @@ async fn connect_mcp_client(
     // Resolve the token through the caller's permissioned (RLS + audit) path so
     // a developer cannot exfiltrate a secret they are not allowed to read by
     // pointing an MCP resource's token at it.
-    let token = if let Some(token_path) = &mcp_resource.token {
-        let token_var_path = token_path.trim_start_matches("$var:");
-        if token_var_path.trim().is_empty() {
-            None
-        } else {
-            let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
-            Some(get_value_internal(&db_authed, w_id, token_var_path, false).await?)
-        }
+    let token = if let Some(token_var_path) = token_var_path {
+        let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+        Some(get_value_internal(&db_authed, w_id, token_var_path, false).await?)
     } else {
         None
     };
@@ -130,7 +137,7 @@ async fn connect_mcp_client(
         .chain(mcp_resource.headers.iter_mut().flatten().map(|(_, v)| v))
     {
         if let Some(var_path) = value.strip_prefix("$var:") {
-            check_scopes(authed, || format!("variables:read:{}", var_path))?;
+            check_resource_var_ref_scope(authed, path, var_path)?;
             let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
             *value = get_value_internal(&db_authed, w_id, var_path, false).await?;
         }

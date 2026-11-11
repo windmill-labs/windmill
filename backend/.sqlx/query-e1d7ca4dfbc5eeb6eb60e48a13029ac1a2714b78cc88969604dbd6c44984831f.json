@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_diff WHERE fork_workspace_id = 'wm-fork-secrets'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e1d7ca4dfbc5eeb6eb60e48a13029ac1a2714b78cc88969604dbd6c44984831f"
+}

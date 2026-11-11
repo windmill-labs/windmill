@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM workspace_settings WHERE ($1::text IS NOT NULL AND workspace_id = $1\n            OR $1::text IS NULL AND NOT COALESCE(role_overrides ? $2, false)) AND (\n            auto_invite->>'role' = $2\n            OR EXISTS (SELECT 1 FROM jsonb_each_text(\n                CASE WHEN jsonb_typeof(auto_invite->'instance_groups_roles') = 'object'\n                     THEN auto_invite->'instance_groups_roles' ELSE '{}'::jsonb END) g\n                WHERE g.value = $2))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0d69f5f6d2e3a4b7b801c6feea92a383e841fa7c3f1c5e2849481c6057ab1e84"
+}

@@ -255,6 +255,8 @@ fn agent_module(config: &AgentDraft) -> Result<serde_json::Value> {
             .entry("input_transforms")
             .or_insert_with(|| serde_json::json!({}));
         if let Some(transforms) = transforms.as_object_mut() {
+            // A case carries no history: each one is asked fresh.
+            transforms.remove("previous_messages");
             for key in ["user_message", "user_attachments"] {
                 transforms.insert(
                     key.to_string(),
@@ -560,8 +562,9 @@ pub async fn run_experiment(
     Json(payload): Json<RunExperiment>,
 ) -> Result<String> {
     check_scopes(&authed, || "jobs:run".to_string())?;
+    windmill_common::workspaces::check_role_can_run(&db, &w_id, &authed).await?;
     // A write, not a read: it persists an experiment into the dataset.
-    require_dataset_writable(&authed, &user_db, &w_id, &payload.dataset).await?;
+    require_dataset_writable(&authed, &db, &user_db, &w_id, &payload.dataset).await?;
 
     let mut subject = payload.subject;
     let draft = validate_subject(&subject)?;

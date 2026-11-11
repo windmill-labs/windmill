@@ -1,3 +1,6 @@
+// Only the enterprise object-store tar helpers use this; `load_cache` below qualifies
+// `std::time::Instant` directly, so the import is dead in other builds.
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 use tokio::time::Instant;
 use windmill_common::error;
 
@@ -199,6 +202,10 @@ pub async fn pull_from_tar(
     Ok(())
 }
 
+// Only `pull_from_tar` (the enterprise object-store cache path) still unpacks a tar
+// through this helper; the codebase-bundle path uses `extract_codebase_tar` instead.
+// Gate it with the caller's cfg so it is not dead code in other builds.
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub fn extract_tar(tar: bytes::Bytes, folder: &str) -> error::Result<()> {
     use bytes::Buf;
 

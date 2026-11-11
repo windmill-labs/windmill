@@ -14,11 +14,81 @@ use crate::DB;
 
 lazy_static::lazy_static! {
     pub static ref INVALID_USERNAME_CHARS: Regex = Regex::new(r"[^A-Za-z0-9_]").unwrap();
-    pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z][a-zA-Z_0-9]*$"#).unwrap();
 }
 
 /// Width of the `username` columns of `usr`, `password` and `pending_user`.
 pub const USERNAME_MAX_LEN: usize = 50;
+
+/// The `created_by` of jobs run by logged-out visitors of public apps. Logged-out callers may
+/// read and cancel jobs created by it, so no new account may take it. Those checks compare
+/// exactly, so only this exact spelling is reserved.
+pub const ANONYMOUS_USERNAME: &str = "anonymous";
+
+/// The name Windmill uses for requests made with the `SUPERADMIN_SECRET` token.
+pub const SUPERADMIN_SECRET_USERNAME: &str = "superadmin_secret";
+
+pub const ERROR_HANDLER_USERNAME: &str = "error_handler";
+pub const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
+pub const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
+pub const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
+pub const VARIABLE_EXPIRATION_HANDLER_USERNAME: &str = "variable_expiration_handler";
+pub const SCHEDULE_RECOVERY_HANDLER_USERNAME: &str = "schedule_recovery_handler";
+pub const AUTOSCALING_USERNAME: &str = "autoscaling";
+
+/// Bare names Windmill writes as a job's `created_by`. Job visibility matches that column by
+/// username alone, so an account with one of these names would see (and could cancel) the jobs
+/// Windmill ran under it. A new producer of such a name must be added here.
+pub const RESERVED_JOB_USERNAMES: &[&str] = &[
+    ANONYMOUS_USERNAME,
+    SUPERADMIN_SECRET_USERNAME,
+    ERROR_HANDLER_USERNAME,
+    SCHEDULE_ERROR_HANDLER_USERNAME,
+    GLOBAL_ERROR_HANDLER_USERNAME,
+    SUCCESS_HANDLER_USERNAME,
+    VARIABLE_EXPIRATION_HANDLER_USERNAME,
+    SCHEDULE_RECOVERY_HANDLER_USERNAME,
+    AUTOSCALING_USERNAME,
+];
+
+/// Bare names Windmill writes only as audit authors. Audit visibility matches the author's
+/// username alone, so an account with one of these names would read those entries. A new
+/// producer of such a name must be added here.
+const RESERVED_AUDIT_USERNAMES: &[&str] = &[
+    "scim",
+    "sso",
+    "system",
+    "storage_usage",
+    "instance_config_sync",
+    "git_sync_auto_pull",
+    "presigned",
+];
+
+/// Exact match: the visibility checks compare exactly.
+pub fn is_reserved_username(username: &str) -> bool {
+    RESERVED_JOB_USERNAMES.contains(&username) || RESERVED_AUDIT_USERNAMES.contains(&username)
+}
+
+/// The rule for every username a caller chooses; the generators produce only names it accepts.
+/// It keeps usernames off Windmill's own identities: the hyphenated ones (`group-<g>` becomes
+/// `g/<g>`, `schedule-<path>`, `email-…`), neither equal nor prefix-matched, by the no-hyphen
+/// rule, and the bare ones by the reserved lists above.
+pub fn validate_username(username: &str) -> error::Result<()> {
+    if username.is_empty()
+        || username.len() > USERNAME_MAX_LEN
+        || INVALID_USERNAME_CHARS.is_match(username)
+    {
+        return Err(Error::BadRequest(format!(
+            "Invalid username {username:?}: use only letters, digits and underscores, \
+             at most {USERNAME_MAX_LEN} characters"
+        )));
+    }
+    if is_reserved_username(username) {
+        return Err(Error::BadRequest(format!(
+            "The username {username} is reserved"
+        )));
+    }
+    Ok(())
+}
 
 /// `base` with the collision suffix of `attempt` appended (none for the first attempt), cut
 /// to `USERNAME_MAX_LEN`. A local part longer than the column is a valid email, and an
@@ -59,7 +129,7 @@ pub async fn generate_instance_wide_unique_username<'c>(
             )));
         }
         username = fit_username(&base_username, i);
-        username_conflict = sqlx::query_scalar!(
+        username_conflict = is_reserved_username(&username) || sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 and email != $2 UNION SELECT 1 FROM password WHERE username = $1 UNION SELECT 1 FROM pending_user WHERE username = $1)",
                 &username,
                 &email
@@ -183,6 +253,43 @@ pub async fn get_instance_username_or_create_pending<'c>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_username() {
+        for ok in [
+            "jean_luc",
+            "42",
+            "A",
+            "Anonymous",
+            &"a".repeat(USERNAME_MAX_LEN),
+        ] {
+            assert!(validate_username(ok).is_ok(), "{ok}");
+        }
+        for bad in ["", "jean-luc", "group-ops", "josé", "a b", &"a".repeat(51)] {
+            assert!(validate_username(bad).is_err(), "{bad}");
+        }
+        // Spelled out rather than read from the lists, so dropping a name from them fails here.
+        for reserved in [
+            "anonymous",
+            "superadmin_secret",
+            "error_handler",
+            "schedule_error_handler",
+            "global",
+            "success_handler",
+            "variable_expiration_handler",
+            "schedule_recovery_handler",
+            "autoscaling",
+            "scim",
+            "sso",
+            "system",
+            "storage_usage",
+            "instance_config_sync",
+            "git_sync_auto_pull",
+            "presigned",
+        ] {
+            assert!(validate_username(reserved).is_err(), "{reserved}");
+        }
+    }
 
     #[test]
     fn test_fit_username_keeps_the_column_width() {

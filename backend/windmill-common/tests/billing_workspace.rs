@@ -125,13 +125,12 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
     );
 
     sqlx::query(
-        "INSERT INTO workspace_settings (workspace_id, operator_settings)
-         VALUES ('seat-root', '{\"builder_flows\": true}')",
+        "INSERT INTO role_seat (workspace_id, role, author) VALUES ('seat-root', 'operator', true)",
     )
     .execute(&db)
     .await
     .unwrap();
-    windmill_common::workspaces::invalidate_operator_rights_cache("seat-root");
+    windmill_common::roles::invalidate_all_roles_cache();
     let breakdown = billable_seats(&db, "seat-root").await.unwrap();
     assert_eq!(
         (
@@ -141,22 +140,29 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
             breakdown.seats
         ),
         (4, 0, 1, 5),
-        "builder rights bill every operator as a developer, service accounts stay half a seat"
+        "a role that composes bills its members as developers, service accounts stay half a seat"
     );
+    sqlx::query("UPDATE role_seat SET author = false WHERE workspace_id = 'seat-root'")
+        .execute(&db)
+        .await
+        .unwrap();
+    windmill_common::roles::invalidate_all_roles_cache();
+    let breakdown = billable_seats(&db, "seat-root").await.unwrap();
+    assert_eq!(
+        (breakdown.developers, breakdown.operators, breakdown.seats),
+        (2, 2, 4),
+        "a workspace override that authors nothing bills its members at half a seat"
+    );
+
+    // An admin holds everything, so it is a full seat whatever role it keeps underneath.
     sqlx::query(
-        "UPDATE workspace_settings SET operator_settings = '{\"builder_apps\": true}'
-         WHERE workspace_id = 'seat-root'",
+        "UPDATE usr SET is_admin = true WHERE workspace_id = 'seat-root' AND email = 'op1@w.dev'",
     )
     .execute(&db)
     .await
     .unwrap();
-    windmill_common::workspaces::invalidate_operator_rights_cache("seat-root");
     let breakdown = billable_seats(&db, "seat-root").await.unwrap();
-    assert_eq!(
-        (breakdown.developers, breakdown.operators, breakdown.seats),
-        (4, 0, 5),
-        "the app right alone also bills every operator as a developer"
-    );
+    assert_eq!((breakdown.developers, breakdown.operators), (3, 1));
 
     insert_ws(&db, "seat-fork1", Some("seat-root"), false).await;
     insert_ws(&db, "seat-fork2", Some("seat-root"), false).await;

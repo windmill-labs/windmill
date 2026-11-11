@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO slack_thread_agent (slack_team_id, channel_id, thread_ts, workspace_id, agent_path)\n         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c9a8aca5b40f9393ccab04edd10cb507b5e8dc0cca2ddd424e09d784e3e22be5"
+}

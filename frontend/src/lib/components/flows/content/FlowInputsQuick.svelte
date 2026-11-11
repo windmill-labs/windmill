@@ -8,7 +8,7 @@
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
 	import { defaultScripts, enterpriseLicense, hubBaseUrlStore } from '$lib/stores'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -35,7 +35,8 @@
 	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 
@@ -158,7 +159,7 @@
 		selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
 		if (
-			!$operatorBuilderFlows &&
+			!composeOnlyFlows &&
 			['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)
 		) {
 			if (!selected && preFilter == 'all') {
@@ -258,7 +259,7 @@
 	let showAiRows = $derived(
 		!disableAi &&
 			!$copilotInfo.workspaceDisabled &&
-			!$operatorBuilderFlows &&
+			!composeOnlyFlows &&
 			funcDesc?.length > 0 &&
 			kind != 'failure' &&
 			kind != 'preprocessor' &&
@@ -291,14 +292,14 @@
 			preFilter === 'all' &&
 			!selected &&
 			customUi?.aiSandbox != false &&
-			!$operatorBuilderFlows
+			!composeOnlyFlows
 			? matchingAiSandboxes
 			: []
 	)
 
 	// Hub runnables carry code the workspace never reviewed, and the backend refuses them in a
 	// flow a builder authors, so the hub browser and its integration filters are not offered.
-	let showHub = $derived(!$operatorBuilderFlows)
+	let showHub = $derived(!composeOnlyFlows)
 
 	// Every result row lives in one keyboard index space, and hovering a row moves that index, so
 	// mouse and keyboard can never highlight two different rows. Offsets follow the render order.

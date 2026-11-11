@@ -17,6 +17,7 @@
 		copilotInfo,
 		copilotSessionModel,
 		getUserCustomPrompts,
+		invalidateWorkspaceCopilotInfo,
 		setCopilotInfo,
 		setUserCustomPrompts
 	} from '$lib/aiStore'
@@ -192,6 +193,7 @@
 				requestBody: { ...config, custom_prompts }
 			})
 			setCopilotInfo(response.effective_ai_config)
+			invalidateWorkspaceCopilotInfo(workspace)
 			initialPrompt = value
 			customPrompts = { [activeMode]: value }
 			sendUserToast('Workspace AI prompt saved')
@@ -240,6 +242,9 @@
 
 	const config = $derived<ChatModelSettingsConfig>({
 		label: providerModel.model,
+		// "claude-sonnet-4-6" → "sonnet": the family is what tells Claude models apart at a
+		// glance. Other providers' names have no such word, so they stay whole.
+		shortLabel: /^claude-([a-z]+)-/.exec(providerModel.model)?.[1],
 		title: 'Model & reasoning settings',
 		badge: freeTier && !freeTier.exhausted ? { text: 'Free', warn: freeRunningLow } : undefined,
 		// Off in a session: the assistant settings modal's Instructions section owns the

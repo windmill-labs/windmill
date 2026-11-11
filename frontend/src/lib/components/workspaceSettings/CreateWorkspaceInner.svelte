@@ -11,6 +11,12 @@
 		type CompletedJob
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
+	import {
+		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
+		isForkOfIsolated,
+		loadDevWorkspaceTagSuffix
+	} from '$lib/devWorkspaceTags'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
 	import {
@@ -28,12 +34,17 @@
 		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
-	import { isOperatorInWorkspace } from '$lib/components/sidebar/operatorRoutes'
+	import { canFork, capabilitiesIn } from '$lib/roleCapabilities'
 	import {
+		canUserBypassRuleKindInRulesets,
 		fetchProtectionRulesForWorkspace,
-		isRuleUnconditionallyActiveInRulesets
+		getActiveRulesetsForKindInRulesets,
+		isRuleActiveInRulesets,
+		isRuleUnconditionallyActiveInRulesets,
+		readProtectionRulesForWorkspace
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
+	import { getUserExt } from '$lib/user'
 	import { Button } from '$lib/components/common'
 	import {
 		DEV_WORKSPACE_LABELS,
@@ -57,7 +68,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
+	import { AI_PROVIDERS } from '$lib/components/copilot/aiProviders'
 	import { LoaderCircle, Trash2 } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
@@ -70,6 +81,7 @@
 	import WorkspaceScopeTrigger from '../WorkspaceScopeTrigger.svelte'
 	import DarkModeToggle from '../sidebar/DarkModeToggle.svelte'
 	import ForkDucklakeSection from './ForkDucklakeSection.svelte'
+	import ForkStorageSection from './ForkStorageSection.svelte'
 	import { createWorkspaceForkAndWait } from '$lib/utils/forkCreation'
 
 	interface Props {
@@ -127,15 +139,14 @@
 	})
 	let forkableWorkspaces = $derived(forkable.current)
 
-	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
-	// Never one the user is an operator in: a fork does not carry the role, so forking such a base
-	// would hand them a full-rights copy of it.
+	// Base candidates are the current workspace's family: its root first, then every fork/dev under it,
+	// except those the user's role there may not fork.
 	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))
 	let baseCandidates = $derived(
 		(familyRoot
 			? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)]
 			: []
-		).filter((w) => !isOperatorInWorkspace(w))
+		).filter((w) => canFork(capabilitiesIn(undefined, w)))
 	)
 	let baseItems = $derived(
 		baseCandidates.map((w) => ({
@@ -162,6 +173,12 @@
 	// read as a root (it would offer invalid dev creation while the workspace list is still loading).
 	// `workspaceIsFork` (prefix OR parent) also excludes an orphaned `wm-fork-` workspace, whose parent
 	// FK was set null — it has no parent but is still a fork, so it can't host a dev workspace.
+	let baseIsRoot = $derived(
+		!!baseWorkspaceEntry && !workspaceIsFork(baseWorkspaceId, forkableWorkspaces)
+	)
+	$effect(() => {
+		isFork && loadDevWorkspaceTagSuffix()
+	})
 	let baseCanHostDev = $derived(
 		!!baseWorkspaceEntry &&
 			(!workspaceIsFork(baseWorkspaceId, forkableWorkspaces) ||
@@ -265,6 +282,69 @@
 
 	let forkDatatableSection: ReturnType<typeof ForkDatatableSection> | undefined = $state(undefined)
 	let forkDucklakeSection: ReturnType<typeof ForkDucklakeSection> | undefined = $state(undefined)
+	let forkStorageSection: ReturnType<typeof ForkStorageSection> | undefined = $state(undefined)
+	let datatableCount = $state(0)
+	let ducklakeCount = $state(0)
+	let storageCount = $state(0)
+	let forkDataCount = $derived(datatableCount + ducklakeCount + storageCount)
+
+	// The base's `RequireIsolatedForks` rule leaves no data shared with it: the sections below drop
+	// their sharing options. The server enforces it; this only keeps the form from offering a
+	// choice it would refuse. Bypass is judged with the user's identity in the BASE, like
+	// ParentWorkspaceProtectionAlert.
+	const baseRuleContext = resource(
+		() => (isFork ? baseWorkspaceId : undefined),
+		async (ws, _prev, { signal }) => {
+			if (!ws) return undefined
+			const [rules, user] = await Promise.all([readProtectionRulesForWorkspace(ws), getUserExt(ws)])
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { ws, rules, user }
+		}
+	)
+	let requireIsolation = $derived.by(() => {
+		const ctx = baseRuleContext.current
+		const rules = ctx?.rules ?? []
+		return (
+			!!ctx &&
+			isRuleActiveInRulesets(rules, 'RequireIsolatedForks') &&
+			!canUserBypassRuleKindInRulesets(rules, 'RequireIsolatedForks', ctx.user)
+		)
+	})
+
+	// The server lets admins and the rulesets' bypass list fork past `DisableWorkspaceForking`
+	// silently, so the form makes that an explicit choice, as direct deployment does. It fails
+	// closed: until the selected base's rules are read, nobody can tell whether a bypass applies.
+	let baseRulesForSelection = $derived.by(() => {
+		const ctx = baseRuleContext.current
+		return ctx && ctx.ws === baseWorkspaceId ? ctx : undefined
+	})
+	let baseRulesUnreadable = $derived(
+		!!baseRulesForSelection && baseRulesForSelection.rules === undefined
+	)
+	let forkingRulesets = $derived(
+		getActiveRulesetsForKindInRulesets(
+			baseRulesForSelection?.rules ?? [],
+			'DisableWorkspaceForking'
+		)
+	)
+	let canBypassForkingRule = $derived(
+		canUserBypassRuleKindInRulesets(
+			forkingRulesets,
+			'DisableWorkspaceForking',
+			baseRulesForSelection?.user
+		)
+	)
+	let forkingBypassConfirmed = $state(false)
+	$effect(() => {
+		baseWorkspaceId
+		forkingBypassConfirmed = false
+	})
+	let forkingBlocked = $derived(
+		isFork &&
+			!!baseWorkspaceId &&
+			(baseRulesForSelection?.rules === undefined ||
+				(forkingRulesets.length > 0 && !(canBypassForkingRule && forkingBypassConfirmed)))
+	)
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -421,9 +501,11 @@
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-					// Sent in this first phase too, so a clone the fork would refuse is refused before
-					// any branch is created.
+					// Sent in this first phase too, so a clone or a sharing choice the fork would refuse
+					// is refused before any branch is created.
 					forked_datatables: forkedDatatables,
+					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
+					shared_storages: forkStorageSection?.getSharedStorages() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
@@ -487,6 +569,7 @@
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 					forked_datatables: forkedDatatables,
 					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
+					shared_storages: forkStorageSection?.getSharedStorages() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
@@ -741,6 +824,40 @@
 					{/if}
 				</Alert>
 			{/if}
+			{#if isFork && baseRulesUnreadable}
+				<Alert type="error" title="Could not read {currentWorkspaceName}'s protection rules">
+					Forking stays disabled until they can be checked. Reload the page to try again.
+				</Alert>
+			{:else if isFork && forkingRulesets.length > 0}
+				<Alert
+					type={canBypassForkingRule ? 'warning' : 'error'}
+					title="Forking {currentWorkspaceName} is restricted"
+				>
+					<div class="flex flex-col gap-2">
+						<p>
+							The protection rule{forkingRulesets.length > 1 ? 's' : ''}
+							<b>{forkingRulesets.map((r) => r.name).join(', ')}</b>
+							disable{forkingRulesets.length > 1 ? '' : 's'} forking this workspace.
+							{#if canBypassForkingRule}
+								You can bypass {forkingRulesets.length > 1 ? 'them' : 'it'} as
+								{baseRulesForSelection?.user?.is_admin ||
+								baseRulesForSelection?.user?.is_super_admin
+									? 'an admin'
+									: 'one of its bypass users or groups'}.
+							{:else}
+								Only workspace admins and the rule's bypass users and groups can fork it.
+							{/if}
+						</p>
+						{#if canBypassForkingRule}
+							<Toggle
+								size="xs"
+								bind:checked={forkingBypassConfirmed}
+								options={{ right: 'Bypass the restriction and fork anyway' }}
+							/>
+						{/if}
+					</div>
+				</Alert>
+			{/if}
 			{#if !isFork}
 				<label class="flex flex-col gap-1">
 					<span class="text-xs font-semibold text-emphasis">Workspace name</span>
@@ -963,19 +1080,77 @@
 						there.
 					</Alert>
 				{/if}
+				{#if baseWorkspaceId && createAsDevWorkspace}
+					<Alert
+						type="info"
+						size="xs"
+						title="Resources and variables are copied from {baseWorkspaceId}"
+					>
+						The dev workspace starts with copies of {baseWorkspaceId}'s resources and variables,
+						credentials included. Point them at staging before developers use it.
+						{#if !forkingLocked && !lockProdForking}
+							Turn on <b>Prevent forking</b> above so developers fork this dev workspace, which will
+							hold staging credentials, rather than {baseWorkspaceId}.
+						{/if}
+						{#if $devWorkspaceTagSuffix}
+							Its jobs run on dev workers (tags suffixed with <code>{$devWorkspaceTagSuffix}</code
+							>).
+						{/if}
+					</Alert>
+				{:else if baseWorkspaceId && $devWorkspaceTagSuffix && !isForkOfIsolated(baseWorkspaceId, $userWorkspaces, $devWorkspaceSkipNonDevForks)}
+					<Alert type="info" size="xs" title="Runs on {baseWorkspaceId}'s workers">
+						Forks of non-dev workspaces are not isolated on this instance: jobs of this fork run on
+						the same workers as {baseWorkspaceId}.
+					</Alert>
+				{:else if baseWorkspaceId && $devWorkspaceTagSuffix}
+					<Alert type="info" size="xs" title="Runs on dev workers">
+						Jobs of this fork run on the worker groups serving dev workspaces (tags suffixed with
+						<code>{$devWorkspaceTagSuffix}</code>).
+						{#if baseIsRoot}
+							It copies {baseWorkspaceId}'s resources and variables, so its scripts use
+							{baseWorkspaceId}'s credentials from those workers and reach what their network
+							allows. Forking a dev workspace instead gives a fork its staging credentials.
+						{/if}
+					</Alert>
+				{/if}
 			{/if}
 			{#if isFork}
-				<ForkDatatableSection
-					bind:this={forkDatatableSection}
-					sourceWorkspace={baseWorkspaceId}
-					onAllDone={() => {
-						completeFork(effectiveForkId)
-					}}
-					onCanceled={() => {
-						forkCreationLoading = false
-					}}
-				/>
-				<ForkDucklakeSection bind:this={forkDucklakeSection} sourceWorkspace={baseWorkspaceId} />
+				<!-- Hidden rather than unmounted while empty: the sections load their own lists. -->
+				<div class={forkDataCount > 0 ? 'flex flex-col gap-3' : 'hidden'}>
+					<Label label="Fork data">
+						<span class="text-xs text-secondary">
+							Isolated or cloned: the fork writes only its own data, and this workspace's is never
+							changed. Shared: the fork reads and writes this workspace's data directly.
+							{#if requireIsolation}
+								A protection rule on this workspace requires isolation.
+							{/if}
+						</span>
+					</Label>
+					<ForkDatatableSection
+						bind:this={forkDatatableSection}
+						bind:itemCount={datatableCount}
+						sourceWorkspace={baseWorkspaceId}
+						{requireIsolation}
+						onAllDone={() => {
+							completeFork(effectiveForkId)
+						}}
+						onCanceled={() => {
+							forkCreationLoading = false
+						}}
+					/>
+					<ForkDucklakeSection
+						bind:this={forkDucklakeSection}
+						bind:itemCount={ducklakeCount}
+						sourceWorkspace={baseWorkspaceId}
+						{requireIsolation}
+					/>
+					<ForkStorageSection
+						bind:this={forkStorageSection}
+						bind:itemCount={storageCount}
+						sourceWorkspace={baseWorkspaceId}
+						{requireIsolation}
+					/>
+				</div>
 			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">
@@ -1006,7 +1181,7 @@
 							<span class="text-2xs text-secondary">(optional but recommended)</span>
 						</label>
 
-						<ToggleButtonGroup bind:selected>
+						<ToggleButtonGroup bind:selected wrap>
 							{#snippet children({ item })}
 								<ToggleButton value="openai" label="OpenAI" {item} />
 								<ToggleButton value="anthropic" label="Anthropic" {item} />
@@ -1017,6 +1192,7 @@
 						<div class="flex flex-row gap-1">
 							<input
 								id="ai-key"
+								class="flex-1 min-w-0"
 								type="password"
 								autocomplete="new-password"
 								bind:value={aiKey}
@@ -1101,17 +1277,15 @@
 	</div>
 	<div class="flex flex-wrap flex-row {inModal ? 'justify-end' : 'justify-between'} gap-4 pt-4">
 		{#if !inModal}
-			<Button
-				disabled={forkCreationLoading}
-				variant="default"
-				size="sm"
-				href="/user/workspaces">&leftarrow; Back to workspaces</Button
+			<Button disabled={forkCreationLoading} variant="default" size="sm" href="/user/workspaces"
+				>&leftarrow; Back to workspaces</Button
 			>
 		{/if}
 		{#if !forkCreationLoading}
 			<Button
 				variant="accent"
 				disabled={checking ||
+					forkingBlocked ||
 					errorId != '' ||
 					!name ||
 					(!automateUsernameCreation && (errorUser != '' || !username)) ||

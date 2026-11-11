@@ -197,12 +197,6 @@ pub async fn validate_url_for_ssrf(url: &str) -> Result<ValidatedTarget, SsrfVal
     Ok(ValidatedTarget { host: host.to_string(), addrs })
 }
 
-pub fn allow_private_mcp_server_urls() -> bool {
-    std::env::var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV)
-        .ok()
-        .is_some_and(|v| v == "true" || v == "1")
-}
-
 pub fn allow_private_saml_metadata_urls() -> bool {
     std::env::var(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV)
         .ok()
@@ -311,22 +305,22 @@ pub async fn validate_guest_jwks_url(url: &str) -> Result<ValidatedTarget, SsrfV
     validate_url_for_ssrf(url).await
 }
 
+/// Check an MCP server URL, allowing the private hosts `ALLOW_PRIVATE_MCP_SERVER_URLS` names
+/// (`true`/`1` for all of them, or a [`PrivateHostAllowance`] list).
 pub async fn validate_mcp_server_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
-    let parsed =
-        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
-
-    match parsed.scheme() {
-        "http" | "https" => {}
-        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    // Read per call rather than cached, so warn about bad entries once, not on every connect.
+    static WARN_INVALID: std::sync::Once = std::sync::Once::new();
+    let value = std::env::var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV).unwrap_or_default();
+    let (allowance, invalid) = PrivateHostAllowance::parse(&value);
+    if !invalid.is_empty() {
+        WARN_INVALID.call_once(|| {
+            tracing::warn!(
+                "Ignoring {ALLOW_PRIVATE_MCP_SERVER_URLS_ENV} entries {invalid:?}: expected a \
+                 host, host:port, IP address or CIDR range"
+            )
+        });
     }
-
-    let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
-
-    if allow_private_mcp_server_urls() {
-        return Ok(ValidatedTarget::unpinned(host));
-    }
-
-    validate_url_for_ssrf(url).await
+    validate_url_for_ssrf_allowing(url, &allowance).await
 }
 
 /// Save-time check only: the webhook is sent later from another task that resolves
@@ -369,8 +363,9 @@ pub async fn validate_mcp_server_url_for_bad_request(
 pub fn mcp_ssrf_error_message(e: &SsrfValidationError) -> String {
     match e {
         SsrfValidationError::Private { .. } => format!(
-            "{e}. If you need to use private/internal MCP server URLs, \
-             set the {ALLOW_PRIVATE_MCP_SERVER_URLS_ENV}=true environment variable"
+            "{e}. To use a private/internal MCP server, add its host (host, host:port or \
+             CIDR range) to the comma-separated {ALLOW_PRIVATE_MCP_SERVER_URLS_ENV} environment \
+             variable, or set it to true to allow every private host"
         ),
         _ => e.to_string(),
     }
@@ -394,6 +389,188 @@ pub fn webhook_ssrf_error_message(e: &SsrfValidationError) -> String {
         ),
         _ => e.to_string(),
     }
+}
+
+/// Which private hosts an `ALLOW_PRIVATE_*` opt-in lets a URL reach.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum PrivateHostAllowance {
+    /// Private hosts are refused.
+    #[default]
+    None,
+    /// Every private host is allowed; only the URL's scheme and host are checked (`true` / `1`).
+    All,
+    /// Only the private hosts these entries name are allowed.
+    Hosts(Vec<AllowedPrivateHost>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AllowedPrivateHost {
+    /// A host name, trusted whatever it resolves to.
+    Name { name: String, port: Option<u16> },
+    /// An address or network a URL's host may resolve into.
+    Net { net: ipnet::IpNet, port: Option<u16> },
+}
+
+impl AllowedPrivateHost {
+    fn parse(entry: &str) -> Option<Self> {
+        if let Ok(net) = entry.parse::<ipnet::IpNet>() {
+            return Some(Self::Net { net: net.trunc(), port: None });
+        }
+        let unbracketed = entry
+            .strip_prefix('[')
+            .and_then(|e| e.strip_suffix(']'))
+            .unwrap_or(entry);
+        if let Ok(ip) = unbracketed.parse::<IpAddr>() {
+            return Some(Self::Net { net: ip.into(), port: None });
+        }
+        if let Ok(addr) = entry.parse::<SocketAddr>() {
+            return Some(Self::Net { net: addr.ip().into(), port: Some(addr.port()) });
+        }
+        let (host, port) = match entry.rsplit_once(':') {
+            Some((host, port)) => (host, Some(port.parse::<u16>().ok()?)),
+            None => (entry, None),
+        };
+        // Normalized the way `url::Url` normalizes the host it is compared against. An address
+        // reaching here is a loose WHATWG form (`10` is 0.0.0.10, not 10/8) and a `*` is not a
+        // wildcard, so both are refused rather than read as something the operator never meant.
+        match url::Host::parse(host.trim_end_matches('.')).ok()? {
+            url::Host::Domain(name) if !name.is_empty() && !name.contains('*') => {
+                Some(Self::Name { name, port })
+            }
+            _ => None,
+        }
+    }
+}
+
+fn port_allowed(allowed: Option<u16>, port: u16) -> bool {
+    allowed.map_or(true, |p| p == port)
+}
+
+impl PrivateHostAllowance {
+    /// `true`/`1` allows every private host; anything else is a comma-separated list of
+    /// `host`, `host:port`, IP address, `ip:port` (`[v6]:port`) or CIDR entries. Also returns
+    /// the entries that parse as none of these, which allow nothing.
+    pub fn parse(value: &str) -> (Self, Vec<String>) {
+        match value.trim() {
+            "true" | "1" => return (Self::All, vec![]),
+            "" | "false" | "0" => return (Self::None, vec![]),
+            _ => {}
+        }
+        let mut hosts = vec![];
+        let mut invalid = vec![];
+        for entry in value.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+            match AllowedPrivateHost::parse(entry) {
+                Some(host) => hosts.push(host),
+                None => invalid.push(entry.to_string()),
+            }
+        }
+        let allowance = if hosts.is_empty() {
+            Self::None
+        } else {
+            Self::Hosts(hosts)
+        };
+        (allowance, invalid)
+    }
+
+    pub fn from_env(var: &str) -> Self {
+        let Ok(value) = std::env::var(var) else {
+            return Self::None;
+        };
+        let (allowance, invalid) = Self::parse(&value);
+        for entry in invalid {
+            tracing::warn!(
+                "Ignoring {var} entry {entry:?}: expected a host, host:port, IP address or CIDR range"
+            );
+        }
+        allowance
+    }
+
+    fn allows_name(&self, name: &str, port: u16) -> bool {
+        let name = name.trim_end_matches('.');
+        matches!(self, Self::Hosts(hosts) if hosts.iter().any(|h| matches!(h,
+            AllowedPrivateHost::Name { name: n, port: p } if n == name && port_allowed(*p, port))))
+    }
+
+    fn allows_ip(&self, ip: &IpAddr, port: u16) -> bool {
+        // Judged by where it is delivered: an allowed v6 range such as an operator's NAT64
+        // prefix must not carry a request on to an embedded private v4 like 169.254.169.254.
+        let ip = &match ip {
+            // The local-use NAT64 prefix places its v4 by a prefix length only the site knows,
+            // so the destination cannot be judged and no network entry admits it.
+            IpAddr::V6(v6) if v6.segments()[..3] == [0x0064, 0xff9b, 0x0001] => return false,
+            // `::1` and `::` sit inside the IPv4-compatible block but are v6's own.
+            IpAddr::V6(v6) if !v6.is_loopback() && !v6.is_unspecified() => {
+                embedded_ipv4(v6).map_or(*ip, IpAddr::V4)
+            }
+            IpAddr::V6(_) => *ip,
+            IpAddr::V4(_) => *ip,
+        };
+        matches!(self, Self::Hosts(hosts) if hosts.iter().any(|h| matches!(h,
+            AllowedPrivateHost::Net { net, port: p } if net.contains(ip) && port_allowed(*p, port))))
+    }
+}
+
+/// [`validate_url_for_ssrf`], except that the URL may also reach the private hosts
+/// `allowance` names.
+///
+/// A host matched by name is trusted whatever it resolves to, so it is left unpinned. Any
+/// other host must resolve only to public addresses or ones inside an allowed network, and
+/// those addresses are pinned as usual.
+pub async fn validate_url_for_ssrf_allowing(
+    url: &str,
+    allowance: &PrivateHostAllowance,
+) -> Result<ValidatedTarget, SsrfValidationError> {
+    if *allowance == PrivateHostAllowance::None {
+        return validate_url_for_ssrf(url).await;
+    }
+
+    let parsed =
+        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
+    let port = match parsed.scheme() {
+        "http" | "https" => parsed.port_or_known_default().unwrap_or(80),
+        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    };
+    let host_str = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+
+    if *allowance == PrivateHostAllowance::All {
+        return Ok(ValidatedTarget::unpinned(host_str));
+    }
+
+    let ip = match parsed.host().ok_or(SsrfValidationError::MissingHost)? {
+        url::Host::Domain(name) => {
+            if allowance.allows_name(name, port) {
+                return Ok(ValidatedTarget::unpinned(host_str));
+            }
+            None
+        }
+        url::Host::Ipv4(ip) => Some(IpAddr::V4(ip)),
+        url::Host::Ipv6(ip) => Some(IpAddr::V6(ip)),
+    };
+
+    if let Some(ip) = ip {
+        if is_private_ip(&ip) && !allowance.allows_ip(&ip, port) {
+            return Err(SsrfValidationError::Private { resolved: false });
+        }
+        return Ok(ValidatedTarget::unpinned(host_str));
+    }
+
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(format!("{host_str}:{port}"))
+        .await
+        .map_err(|e| SsrfValidationError::ResolutionFailed {
+            host: host_str.to_string(),
+            source: e.to_string(),
+        })?
+        .collect();
+    if addrs.is_empty() {
+        return Err(SsrfValidationError::NoAddresses(host_str.to_string()));
+    }
+    for addr in &addrs {
+        if is_private_ip(&addr.ip()) && !allowance.allows_ip(&addr.ip(), port) {
+            return Err(SsrfValidationError::Private { resolved: true });
+        }
+    }
+
+    Ok(ValidatedTarget { host: host_str.to_string(), addrs })
 }
 
 /// Whether `ip` is loopback, private, link-local, or otherwise not a public
@@ -689,6 +866,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn validate_mcp_server_url_allows_only_listed_private_hosts() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateMcpServerUrlsEnvGuard::set(Some("10.1.0.0/16, mcp.internal:8080"));
+
+        assert!(validate_mcp_server_url("http://10.1.2.3/mcp").await.is_ok());
+        assert!(validate_mcp_server_url("http://mcp.internal:8080/mcp")
+            .await
+            .is_ok());
+        assert!(matches!(
+            validate_mcp_server_url("http://10.2.0.1/mcp").await,
+            Err(SsrfValidationError::Private { resolved: false })
+        ));
+        assert!(matches!(
+            validate_mcp_server_url("http://169.254.169.254/").await,
+            Err(SsrfValidationError::Private { resolved: false })
+        ));
+    }
+
+    #[tokio::test]
     async fn validate_mcp_server_url_keeps_syntax_guards_when_private_urls_are_allowed() {
         let _lock = TEST_ENV_LOCK.lock().await;
         let _guard = PrivateMcpServerUrlsEnvGuard::set(Some("true"));
@@ -711,9 +907,7 @@ mod tests {
         let private_error = validate_mcp_server_url("http://127.0.0.1/foo")
             .await
             .unwrap_err();
-        assert!(
-            mcp_ssrf_error_message(&private_error).contains("ALLOW_PRIVATE_MCP_SERVER_URLS=true")
-        );
+        assert!(mcp_ssrf_error_message(&private_error).contains(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV));
 
         let invalid_error = validate_mcp_server_url("localhost:11434/v1")
             .await
@@ -876,5 +1070,67 @@ mod tests {
         assert!(
             !saml_ssrf_error_message(&invalid_error).contains(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV)
         );
+    }
+
+    #[test]
+    fn private_host_allowance_parses_flags_and_entries() {
+        assert_eq!(
+            PrivateHostAllowance::parse("true").0,
+            PrivateHostAllowance::All
+        );
+        assert_eq!(
+            PrivateHostAllowance::parse("false").0,
+            PrivateHostAllowance::None
+        );
+        let (parsed, invalid) =
+            PrivateHostAllowance::parse("Gateway.Internal., 10.1.0.0/16, x:y, 10, *.internal");
+        // A bare `10` would otherwise be 0.0.0.10, and `*` is no wildcard.
+        assert_eq!(invalid, ["x:y", "10", "*.internal"]);
+        let PrivateHostAllowance::Hosts(hosts) = parsed else {
+            panic!("{parsed:?}")
+        };
+        assert_eq!(
+            hosts[0],
+            AllowedPrivateHost::Name { name: "gateway.internal".into(), port: None }
+        );
+    }
+
+    #[tokio::test]
+    async fn private_host_allowance_admits_only_listed_hosts() {
+        let a = PrivateHostAllowance::parse(
+            "localhost:8080, 10.1.0.0/16, 127.0.0.2:9000, [::1]:443, 64:ff9b::/96, 64:ff9b:1::/48",
+        )
+        .0;
+        let ok = |u: &'static str| {
+            let a = a.clone();
+            async move { validate_url_for_ssrf_allowing(u, &a).await.is_ok() }
+        };
+        // Trusted by name on its port only, so nothing to pin.
+        let target = validate_url_for_ssrf_allowing("http://localhost:8080/v1", &a)
+            .await
+            .unwrap();
+        assert!(target.pinned_addrs().is_empty());
+        assert!(!ok("http://localhost:8081/v1").await);
+        assert!(ok("http://10.1.2.3/v1").await);
+        assert!(ok("http://[::ffff:10.1.2.3]/v1").await);
+        assert!(!ok("http://10.2.0.1/v1").await);
+        assert!(ok("http://127.0.0.2:9000/v1").await);
+        assert!(!ok("http://127.0.0.2/v1").await);
+        assert!(ok("https://[::1]/v1").await);
+        assert!(!ok("http://[::1]/v1").await);
+        // An allowed v6 range does not reach the private v4 it embeds.
+        assert!(!ok("http://[64:ff9b::a9fe:a9fe]/").await);
+        assert!(!ok("http://[64:ff9b:1::a9fe:a9fe]/").await);
+        assert!(!ok("http://169.254.169.254/latest/meta-data").await);
+        assert!(ok("http://8.8.8.8/v1").await);
+    }
+
+    #[tokio::test]
+    async fn private_host_allowance_pins_hosts_resolved_into_allowed_nets() {
+        let a = PrivateHostAllowance::parse("127.0.0.0/8, ::1").0;
+        let target = validate_url_for_ssrf_allowing("http://localhost:1234/", &a)
+            .await
+            .unwrap();
+        assert!(!target.pinned_addrs().is_empty());
     }
 }

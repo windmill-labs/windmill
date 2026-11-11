@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET variable_expiration_failed_at = NULL\n         WHERE variable_expiration_failed_at IS NOT NULL AND variable_expiration_handler IS NULL\n         RETURNING workspace_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eacce0ccde20eddc4aded69c35d62122478424a36193254d5e00b8723ca28079"
+}

@@ -843,7 +843,8 @@ mod dedicated_worker_tests {
 
         let job_a = completed_job(uuid_a, &db).await;
         let job_b = completed_job(uuid_b, &db).await;
-        assert_eq!(job_a.json_result().unwrap(), json!(105));
+        // helper(5) = 50, + 100
+        assert_eq!(job_a.json_result().unwrap(), json!(150));
         assert_eq!(job_b.json_result().unwrap(), json!(205));
         assert_ran_on_dedicated_worker(&db, uuid_a, "python3").await;
         assert_ran_on_dedicated_worker(&db, uuid_b, "python3").await;

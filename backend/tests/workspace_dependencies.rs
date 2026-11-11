@@ -1,23 +1,10 @@
 mod workspace_dependencies {
 
     use sqlx::{Pool, Postgres};
-    use tokio_stream::StreamExt;
     use windmill_common::scripts::ScriptLang;
     use windmill_dep_map::workspace_dependencies::NewWorkspaceDependencies;
-    use windmill_test_utils::in_test_worker;
-    use windmill_test_utils::init_client;
-    use windmill_test_utils::listen_for_completed_jobs;
-    mod deps {
-        pub const REQUIREMENTS_IN: &'static str = "tiny==0.1.3";
-        //     pub const GO_MOD: &'static str = r##"
-        // module example.com/project
 
-        // go 1.20
-
-        // require github.com/gin-gonic/gin v1.8.1
-        // "##;
-
-        pub const PACKAGE_JSON: &'static str = r##"
+    const PACKAGE_JSON: &'static str = r##"
     {
       "name": "example-project",
       "version": "1.0.0",
@@ -27,101 +14,13 @@ mod workspace_dependencies {
     }
     "##;
 
-        pub const COMPOSER_JSON: &'static str = r##"
-    {
-      "name": "example/project",
-      "require": {
-        "monolog/monolog": "^2.3"
-      }
-    }
-    "##;
-    }
-
-    #[cfg(feature = "python")]
-    #[sqlx::test(fixtures("base", "workspace_dependencies_leafs"))]
-    #[ignore]
-    async fn basic_manual_named(db: Pool<Postgres>) -> anyhow::Result<()> {
-        let ((_client, port, _s), db, mut completed) = (
-            init_client(db.clone()).await,
-            &db,
-            listen_for_completed_jobs(&db).await,
-        );
-
-        for (idx, (l, c)) in [
-            (ScriptLang::Python3, deps::REQUIREMENTS_IN),
-            (ScriptLang::Bun, deps::PACKAGE_JSON),
-            (ScriptLang::Php, deps::COMPOSER_JSON),
-            // (ScriptLang::Go, deps::GO_MOD),
-        ]
-        .iter()
-        .enumerate()
-        {
-            let id = NewWorkspaceDependencies {
-                workspace_id: "test-workspace".into(),
-                language: *l,
-                content: (*c).into(),
-                name: Some("test".to_owned()),
-                description: None,
-            }
-            .create(("".to_owned(), "".to_owned(), "".to_owned()), db.clone())
-            .await
-            .unwrap();
-
-            assert_eq!(idx + 1, id as usize);
-        }
-
-        // Wait for 4 jobs.
-        // Creating those dependencies will trigger redeployment of all scripts in workspace_dependencies_leafs.sql
-        in_test_worker(
-            db,
-            async {
-                completed.next().await;
-                completed.next().await;
-                completed.next().await;
-                // completed.next().await;
-            },
-            port,
-        )
-        .await;
-
-        // Verify all scripts have correct locks
-        // let mut langs = vec![];
-        // for r in sqlx::query!(
-        //     r#"SELECT language AS "language: ScriptLang",lock FROM script WHERE archived = false"#
-        // )
-        // .fetch_all(db)
-        // .await
-        // .unwrap()
-        // {
-        //     match r.language {
-        //         ScriptLang::Python3 => assert_eq!("", &r.lock.unwrap()),
-        //         ScriptLang::Go => todo!(),
-        //         ScriptLang::Bun => todo!(),
-        //         ScriptLang::Bunnative => todo!(),
-        //         ScriptLang::Php => todo!(),
-        //         _ => panic!("Unsupported language"),
-        //     }
-
-        //     langs.push(r.language);
-        // }
-
-        // langs.sort();
-        // // Just tiny additional verification for peace of mind.
-        // assert_eq!(langs.as_slice(), &[]);
-
-        Ok(())
-    }
-
     #[sqlx::test(fixtures("base", "hub_sync_blacklist"))]
     async fn hub_sync_blacklist_from_workspace_deps(db: Pool<Postgres>) -> anyhow::Result<()> {
-        let ((_client, port, _s), db, mut completed) = (
-            init_client(db.clone()).await,
-            &db,
-            listen_for_completed_jobs(&db).await,
-        );
+        // The first unnamed workspace dependencies wait out the existence cache before
+        // redeploying their dependents. Read once per process, and this binary has no other test.
+        std::env::set_var("EXISTS_CACHE_TIMEOUT_MS", "0");
+        let db = &db;
 
-        // Verify built-in fixtures exist
-        // Check that hub_sync script exists and is a Bun script
         let hub_sync_lang = sqlx::query_scalar!(
             r#"SELECT language AS "language: ScriptLang" FROM script WHERE path = 'u/admin/hub_sync'"#
         )
@@ -134,51 +33,55 @@ mod workspace_dependencies {
             "Expected hub_sync to be a Bun script"
         );
 
-        // Create unnamed (default) workspace dependencies for Bun
-        let _id = NewWorkspaceDependencies {
+        // Unnamed (default) workspace dependencies for Bun
+        NewWorkspaceDependencies {
             workspace_id: "admins".into(),
             language: ScriptLang::Bun,
-            content: deps::PACKAGE_JSON.into(),
-            name: None, // No name = default workspace dependencies
+            content: PACKAGE_JSON.into(),
+            name: None,
             description: None,
         }
         .create(("".to_owned(), "".to_owned(), "".to_owned()), db.clone())
         .await
         .unwrap();
 
-        // Wait for exactly 1 job (only u/admin/simple_bun, not hub_sync)
-        let job_id = in_test_worker(db, async { completed.next().await }, port)
-            .await
-            .expect("Expected one job to complete");
-
-        // Query the job's runnable_path
-        let runnable_path =
-            sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", job_id)
-                .fetch_one(db)
-                .await
-                .unwrap();
-
+        // The dependency map decides which runnables are redeployed, and is rebuilt before
+        // `create` returns.
+        let importers: Vec<String> = sqlx::query_scalar(
+            "SELECT importer_path FROM dependency_map
+             WHERE workspace_id = 'admins' AND imported_path = 'dependencies/package.json'
+             ORDER BY importer_path",
+        )
+        .fetch_all(db)
+        .await?;
         assert_eq!(
-            runnable_path,
-            Some("u/admin/simple_bun".to_string()),
-            "Expected job runnable_path to be 'u/admin/simple_bun' (hub_sync should be blacklisted)"
+            importers,
+            vec!["u/admin/simple_bun".to_string()],
+            "hub_sync must not be recorded as importing the default workspace dependencies"
         );
 
-        // Assert total job count is 1
-        let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job")
-            .fetch_one(db)
-            .await
-            .unwrap();
-
-        assert_eq!(job_count, Some(1), "Expected exactly one job total");
-
-        // Assert v2_job_queue is empty
-        let queue_count = sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue")
-            .fetch_one(db)
-            .await
-            .unwrap();
-
-        assert_eq!(queue_count, Some(0), "Expected job queue to be empty");
+        // The redeploy is pushed in the background as a debounced dependency job; it never needs
+        // to run for what is asserted here.
+        let mut jobs: Vec<(Option<String>, String)> = vec![];
+        for _ in 0..200 {
+            jobs = sqlx::query_as(
+                "SELECT runnable_path, kind::text FROM v2_job WHERE workspace_id = 'admins'",
+            )
+            .fetch_all(db)
+            .await?;
+            if !jobs.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(
+            jobs,
+            vec![(
+                Some("u/admin/simple_bun".to_string()),
+                "dependencies".to_string()
+            )],
+            "Expected exactly one dependency job, for u/admin/simple_bun (hub_sync should be blacklisted)"
+        );
 
         Ok(())
     }

@@ -21,6 +21,7 @@ use windmill_api_auth::{
 };
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::DB;
 use windmill_common::{
     can_preserve_on_behalf_of,
@@ -268,10 +269,17 @@ async fn create_schedule(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(ns): Json<NewSchedule>,
+    Json(mut ns): Json<NewSchedule>,
 ) -> Result<String> {
     check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
     reject_reserved_schedule_path(&ns.path)?;
+    // Stored as parsed: the next-run check, the monitor's re-arm, the run history and renames
+    // all match the stored target exactly against job paths, which never start with `/`.
+    if !ns.script_path.is_empty() {
+        ns.script_path = RunnableRef::from_path(&ns.script_path, ns.is_flow)?
+            .path()
+            .to_string();
+    }
 
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
@@ -894,17 +902,18 @@ async fn list_schedule(
     }
     if let Some(broad_filter) = &lsq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(path ILIKE ? OR script_path ILIKE ? OR description ILIKE ? OR summary ILIKE ? OR schedule ILIKE ?)"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
     if let Some(label) = &lsq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(labels @> ARRAY[?] OR folder_labels(workspace_id, path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -926,13 +935,13 @@ async fn list_schedule(
         && lsq.summary.is_none()
         && lsq.broad_filter.is_none()
         && lsq.label.is_none()
-        && (!authed.is_operator
-            || windmill_common::workspaces::operator_can_draft(
-                &db,
-                &w_id,
-                UserDraftItemKind::TriggerSchedule,
-            )
-            .await?)
+        && windmill_common::workspaces::operator_can_draft(
+            &db,
+            &w_id,
+            &authed,
+            UserDraftItemKind::TriggerSchedule,
+        )
+        .await?
     {
         let draft_only_rows = fetch_draft_only_list_rows(
             &db,
@@ -1124,8 +1133,7 @@ pub async fn preview_schedule(
     let schedule =
         ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref(), true)?;
 
-    let tz =
-        chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+    let tz = windmill_common::tz::Tz::from_str(&payload.timezone).map_err(Error::BadRequest)?;
 
     let upcoming: Vec<DateTime<Utc>> = schedule.upcoming(tz, 5)?;
 

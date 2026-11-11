@@ -457,7 +457,6 @@
 					<InstanceAISettings
 						bind:this={instanceAiSettings}
 						bind:hasUnsavedChanges={aiHasUnsavedChanges}
-						disableChatOffset
 						showHubSync
 					/>
 				{:else}
@@ -508,7 +507,6 @@
 							<InstanceAISettings
 								bind:this={instanceAiSettings}
 								bind:hasUnsavedChanges={aiHasUnsavedChanges}
-								disableChatOffset
 								showHubSync
 							/>
 						{:else}

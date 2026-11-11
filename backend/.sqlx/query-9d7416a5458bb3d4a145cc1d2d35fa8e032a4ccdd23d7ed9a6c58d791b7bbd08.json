@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM variable WHERE workspace_id = $1 AND path = $2 RETURNING account",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "9d7416a5458bb3d4a145cc1d2d35fa8e032a4ccdd23d7ed9a6c58d791b7bbd08"
+}

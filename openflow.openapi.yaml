@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.837.0
+  version: 1.867.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -75,6 +75,10 @@ components:
         concurrency_time_window_s:
           type: number
           description: Time window in seconds for concurrent_limit
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run of this flow does when its concurrency limit is reached. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed, like any failed step.
         debounce_delay_s:
           type: integer
           description: Delay in seconds to debounce flow executions
@@ -103,6 +107,15 @@ components:
         delete_after_secs:
           type: integer
           description: If set, delete the flow job's args, result and logs after this many seconds following job completion
+        timeout:
+          type: integer
+          description: >-
+            Wall-clock limit in seconds for the whole flow run, counted from its start and including
+            time spent sleeping or suspended at an approval. It also applies when the flow is called as
+            a subflow step, unless that step sets its own timeout, which replaces it. It is checked periodically, so
+            a run can go a few seconds past it. When it expires, the running steps are cancelled, the
+            failure module runs if there is one, and the flow ends cancelled with a timeout error. A
+            calling flow sees the subflow step fail with that error.
         flow_env:
           type: object
           description: "Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource)."
@@ -308,7 +321,7 @@ components:
           required:
             - expr
         sleep:
-          description: Delay before executing this step (in seconds or as expression)
+          description: Delay after this step completes, before the next step starts (in seconds or as expression)
           $ref: '#/components/schemas/InputTransform'
         cache_ttl:
           type: number
@@ -333,6 +346,9 @@ components:
               description: If true, return mock value instead of executing
             return_value:
               description: Value to return when mocked
+            preview_only:
+              type: boolean
+              description: If true, the mock applies only to runs started as a flow preview (from the editor, and every job under it, subflows included). Absent or false, it applies to every run.
         suspend:
           type: object
           description: Configuration for approval/resume steps that wait for user input
@@ -770,6 +786,10 @@ components:
         concurrency_time_window_s:
           type: number
           description: Time window for concurrent_limit
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run of this step does when its concurrency limit is reached. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         custom_concurrency_key:
           type: string
           description: Custom key for grouping concurrent executions
@@ -922,6 +942,14 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
+        max_iterations:
+          type: integer
+          minimum: 1
+          description: Maximum number of iterations. Checked after each iteration; when reached and stop_after_if did not stop the loop, the loop fails with an error named 'LoopExhausted'
+        max_duration_secs:
+          type: integer
+          minimum: 1
+          description: Maximum wall-clock seconds since the first iteration started, checked after each iteration. A running iteration is not interrupted, so the loop can exceed the limit by up to one iteration; the timeout of the body's steps caps an iteration. When reached and stop_after_if did not stop the loop, the loop fails with an error named 'LoopExhausted'
       required:
         - modules
         - skip_failures
@@ -995,6 +1023,9 @@ components:
         parallel:
           type: boolean
           description: If true, all branches execute concurrently. If false, they execute sequentially
+        parallelism:
+          description: Maximum number of branches running at once when parallel=true. Can be static number or expression
+          $ref: '#/components/schemas/InputTransform'
       required:
         - branches
         - type
@@ -1008,7 +1039,7 @@ components:
           description: Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')
         summary:
           type: string
-          description: "The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp or websearch tool it is a plain label. Put the human-readable explanation in 'description'."
+          description: "The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp, websearch or question tool it is a plain label. Put the human-readable explanation in 'description'."
         description:
           type: string
           description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.
@@ -1018,6 +1049,9 @@ components:
           items:
             type: string
           description: "Scopes the token of this tool's jobs is restricted to, on top of the agent step's own restriction: a tool can only narrow it."
+        requires_approval:
+          type: boolean
+          description: "Flowmodule and mcp tools only. Each call waits for a person to approve or reject it from the flow's run page or chat, without the agent holding a worker. Calls in the same turn that do not require approval run right away. A rejected call, or one nobody answers within 30 minutes, is reported to the AI as not run."
         value:
           $ref: '#/components/schemas/ToolValue'
       required:
@@ -1030,12 +1064,14 @@ components:
         - $ref: '#/components/schemas/FlowModuleTool'
         - $ref: '#/components/schemas/McpToolValue'
         - $ref: '#/components/schemas/WebsearchToolValue'
+        - $ref: '#/components/schemas/QuestionToolValue'
       discriminator:
         propertyName: tool_type
         mapping:
           flowmodule: '#/components/schemas/FlowModuleTool'
           mcp: '#/components/schemas/McpToolValue'
           websearch: '#/components/schemas/WebsearchToolValue'
+          question: '#/components/schemas/QuestionToolValue'
 
     FlowModuleTool:
       description: A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module
@@ -1058,6 +1094,20 @@ components:
           type: string
           enum:
             - websearch
+      required:
+        - tool_type
+
+    QuestionToolValue:
+      type: object
+      description: "Built-in tool the AI calls as ask_question: the agent stops, releasing its worker, until someone answers from the flow's run page or chat or the question times out, then resumes with the answer as the tool result."
+      properties:
+        tool_type:
+          type: string
+          enum:
+            - question
+        timeout:
+          type: integer
+          description: Seconds to wait for an answer before the question is reported to the AI as timed out. Defaults to 1800.
       required:
         - tool_type
 
@@ -1494,6 +1544,57 @@ components:
                     enum: [web_search]
                 required:
                   - type
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [approval]
+                  call_id:
+                    type: string
+                  calls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        function_name:
+                          type: string
+                        arguments: {}
+                      required:
+                        - function_name
+                        - arguments
+                  expires_at:
+                    type: string
+                    format: date-time
+                required:
+                  - type
+                  - call_id
+                  - calls
+                  - expires_at
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [question]
+                  call_id:
+                    type: string
+                  question:
+                    type: string
+                  choices:
+                    type: array
+                    items:
+                      type: string
+                    description: answers the model proposes; a free-text answer is always possible
+                  multi_select:
+                    type: boolean
+                    description: whether several choices can be picked together
+                  expires_at:
+                    type: string
+                    format: date-time
+                required:
+                  - type
+                  - call_id
+                  - question
+                  - expires_at
               - type: object
                 properties:
                   type:

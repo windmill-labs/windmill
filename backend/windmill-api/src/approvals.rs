@@ -342,18 +342,14 @@ async fn fetch_approval_step(
     .ok_or_else(|| Error::BadRequest("This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string()))
     .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job, r.created_at, r.created_by, r.script_path, r.args))?;
 
-    let flow_data = match cache::job::fetch_flow(db, &job_kind, script_hash).await {
-        Ok(data) => data,
-        Err(_) => {
-            if let Some(parent_job_id) = parent_job_id.as_ref() {
-                cache::job::fetch_preview_flow(db, parent_job_id, raw_flow).await?
-            } else {
-                return Err(Error::BadRequest(
-                    "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
-                ));
-            }
-        }
+    let Some(flow_job_id) = parent_job_id.as_ref() else {
+        return Err(Error::BadRequest(
+            "This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string(),
+        ));
     };
+    let flow_data =
+        cache::job::fetch_flow_or_preview(db, &job_kind, script_hash, flow_job_id, raw_flow)
+            .await?;
 
     let flow_value = flow_data.value();
     let flow_step_id = flow_step_id.unwrap_or("");
