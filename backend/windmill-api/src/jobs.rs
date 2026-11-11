@@ -12248,7 +12248,7 @@ async fn get_completed_job_result_maybe(
         "SELECT
                 result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                 result_columns,
-                status = 'success' AS \"success!\",
+                status IN ('success', 'skipped') AS \"success!\",
                 created_by AS \"created_by!\"
             FROM v2_job_completed c
                 JOIN v2_job j USING (id)

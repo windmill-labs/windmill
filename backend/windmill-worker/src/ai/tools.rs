@@ -1020,7 +1020,7 @@ async fn execute_windmill_tools(
             .collect();
         if !pending.is_empty() {
             let completed = sqlx::query!(
-                "SELECT id, status = 'success' AS \"success!\", result AS \"result: Json<Box<RawValue>>\"
+                "SELECT id, status IN ('success', 'skipped') AS \"success!\", result AS \"result: Json<Box<RawValue>>\"
                 FROM v2_job_completed WHERE workspace_id = $1 AND id = ANY($2)",
                 ctx.job.workspace_id,
                 &pending,

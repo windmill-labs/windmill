@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, status = 'success' AS \"success!\", result AS \"result: Json<Box<RawValue>>\"\n                FROM v2_job_completed WHERE workspace_id = $1 AND id = ANY($2)",
+  "query": "SELECT id, status IN ('success', 'skipped') AS \"success!\", result AS \"result: Json<Box<RawValue>>\"\n                FROM v2_job_completed WHERE workspace_id = $1 AND id = ANY($2)",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       true
     ]
   },
-  "hash": "789c3f6d29f46fcb17a22fe97405a1754ccb8ddeb08c23795dfe14e9f332e9dc"
+  "hash": "abeb5bbbcf73a5859deb247c55763b88fb904c85b6248e5326cc0316efd645d9"
 }

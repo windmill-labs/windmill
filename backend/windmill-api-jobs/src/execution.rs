@@ -577,7 +577,7 @@ pub async fn run_wait_result_internal(
                     SELECT
                         result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                         result_columns,
-                        status = 'success' AS \"success!\"
+                        status IN ('success', 'skipped') AS \"success!\"
                     FROM
                         v2_job_completed
                     WHERE
