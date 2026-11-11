@@ -350,8 +350,8 @@ leaves and ignores the current scope.
 		if (action && !action.disabled && !action.loading) runAction(action)
 	}
 
-	/** The button area's width when each row's action ran: its success pill keeps it, since
-	 * `actionsWidth` follows the highlighted row and would resize the pill on hover. */
+	/** The button area's width when each row's action ran, the least its success pill takes. Read
+	 * from `actionsWidth` live, the pill would resize on hover, which moves the highlighted row. */
 	let pillWidths: Record<string, number> = $state({})
 	function runAction(action: DrillLeafAction) {
 		if (highlightedKey) pillWidths[highlightedKey] = actionsWidth
@@ -760,8 +760,8 @@ leaves and ignores the current scope.
 		{#if done}
 			<!-- SaveButton's success pill, over the row's button and its dropdown chevron. -->
 			<div
-				class="absolute inset-y-0 my-auto h-7 right-3 z-10 flex items-center justify-center gap-1.5 px-2 rounded-md text-xs font-medium whitespace-nowrap overflow-hidden bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200"
-				style={pillWidths[leaf.key] ? `width: ${pillWidths[leaf.key]}px` : undefined}
+				class="absolute inset-y-0 my-auto h-7 right-3 z-10 flex items-center justify-center gap-1.5 px-2 rounded-md text-xs font-medium whitespace-nowrap bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200"
+				style={pillWidths[leaf.key] ? `min-width: ${pillWidths[leaf.key]}px` : undefined}
 				role="status"
 				transition:fly={{ y: -10, duration: 150 }}
 			>
