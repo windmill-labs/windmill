@@ -48,6 +48,18 @@ export interface UserDraftSyncOptions<Draft> {
 	onSaved?: (itemKind: UserDraftItemKind, path: string) => void
 }
 
+/** Every mounted editor's debounced-but-unwritten save, with the workspace it writes to. */
+const pendingEditorSaves = new Map<() => void, string>()
+
+/**
+ * Hand every open session editor's debounced save for `workspace` to `UserDraft` now. It
+ * then sits parked in the syncer, so follow with `UserDraftDbSyncer.flushWorkspace` to
+ * have it land.
+ */
+export function flushEditorSaves(workspace: string): void {
+	for (const [save, ws] of [...pendingEditorSaves]) if (ws === workspace) save()
+}
+
 /**
  * Bidirectional sync between a session editor's runtime store and the shared
  * `UserDraft` cell for `(workspace, kind, path)`. Holding a *live* handle
@@ -126,6 +138,7 @@ export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void
 				clearTimeout(outboundTimer)
 				outboundTimer = undefined
 			}
+			pendingEditorSaves.delete(save)
 			pendingFlush = undefined
 			untrack(() => {
 				const current = UserDraft.get<Draft>(codec.itemKind, path, { workspace })
@@ -137,7 +150,9 @@ export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void
 				opts.onSaved?.(codec.itemKind, path)
 			})
 		}
+		if (pendingFlush) pendingEditorSaves.delete(pendingFlush)
 		pendingFlush = save
+		pendingEditorSaves.set(save, workspace)
 		if (outboundTimer) clearTimeout(outboundTimer)
 		outboundTimer = setTimeout(save, codec.debounceMs)
 	})
