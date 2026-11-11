@@ -30,6 +30,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	import MeltButton from '$lib/components/meltComponents/MeltButton.svelte'
 	import { sidebarClasses } from './MenuButton.svelte'
 	import SessionStatusDot from '$lib/components/sessions/SessionStatusDot.svelte'
+	import type { SessionChatStatus } from '$lib/components/sessions/sessionRuntimeRegistry.svelte'
 
 	interface Props {
 		title: string
@@ -39,8 +40,8 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		isCollapsed: boolean
 		/** A dot on the icon: something inside wants attention. */
 		notify?: boolean
-		/** Typing dots while the section is folded: something inside is running. */
-		working?: boolean
+		/** A live session status the folded section shows for the items it hides. */
+		status?: SessionChatStatus
 		/** A section with nothing to fold: the row stays, without its chevron. */
 		disabled?: boolean
 		/**
@@ -64,7 +65,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		onToggle,
 		isCollapsed,
 		notify = false,
-		working = false,
+		status,
 		disabled = false,
 		actions,
 		// Renamed: the menu's own `children` snippets below would shadow it.
@@ -103,10 +104,10 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 {#snippet sectionIcon()}
 	<!-- Under an item icon's 16px, to leave the rail's chevron room beside it. -->
 	<span class="relative flex-shrink-0 flex">
-		{#if working && isFolded}
-			<!-- Wider than the icon: moved off the rail's chevron. -->
+		{#if status && isFolded}
+			<!-- The typing dots are wider than the icon: moved off the rail's chevron. -->
 			<span class="flex -translate-x-0.5">
-				<SessionStatusDot status="streaming" isFork={false} />
+				<SessionStatusDot {status} isFork={false} />
 			</span>
 		{:else}
 			<Icon size={12} class="text-hint" />
@@ -254,8 +255,8 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 						<span class="truncate uppercase text-[0.5rem] leading-3 font-normal text-secondary"
 							>{title}</span
 						>
-						{#if working && isFolded}
-							<SessionStatusDot status="streaming" isFork={false} />
+						{#if status && isFolded}
+							<SessionStatusDot {status} isFork={false} />
 						{/if}
 						{#if notify && (isFolded || disabled)}
 							{@render notifyDot('flex-shrink-0')}
