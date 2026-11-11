@@ -149,32 +149,22 @@ where
     )
     .fetch_all(db)
     .await?;
-    let mut moved = false;
     if !paths.iter().any(|p| p == path) {
-        let still_linked = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2 AND account = $3)",
-            w_id,
-            path,
-            id
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-        // A reconnect moved the variable to another account during the exchange: writing this
-        // token there would put the previous identity back. The account's other variables and
-        // its rotated refresh token are still saved below.
-        moved = !still_linked;
-        if !moved {
-            paths.push(path.to_string());
-        }
+        paths.push(path.to_string());
     }
+    // A variable a reconnect moved to another account is skipped; the account's other variables
+    // and its rotated refresh token are still saved.
+    let mut moved = false;
     let mut stored = Ok(());
     for p in &paths {
-        stored =
-            crate::secret_backend_ext::store_oauth_token_value(db, w_id, p, &token.access_token)
-                .await;
-        if stored.is_err() {
-            break;
+        match crate::secret_backend_ext::store_oauth_token_value(db, w_id, p, id, &token.access_token)
+            .await
+        {
+            Ok(written) => moved |= !written && p == path,
+            Err(e) => {
+                stored = Err(e);
+                break;
+            }
         }
     }
     sqlx::query!(

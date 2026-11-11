@@ -273,8 +273,6 @@ async fn test_decrypt_workspace_level(db: Pool<Postgres>) -> anyhow::Result<()> 
 
     assert_eq!(config.access_token, "ws-access-token");
     assert_eq!(config.refresh_token.as_deref(), Some("ws-refresh-token"));
-    assert_eq!(config.client_id, "test-client-id");
-    assert_eq!(config.client_secret, "test-client-secret");
     assert_eq!(config.base_url, "https://example.com");
 
     Ok(())
@@ -321,9 +319,8 @@ async fn test_decrypt_instance_level(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .await?;
 
-    assert_eq!(config.client_id, "instance-client-id");
-    assert_eq!(config.client_secret, "instance-client-secret");
     assert_eq!(config.access_token, "inst-access-token");
+    assert_eq!(config.base_url, "https://accounts.google.com");
 
     Ok(())
 }

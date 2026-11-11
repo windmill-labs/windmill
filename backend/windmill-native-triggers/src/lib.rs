@@ -584,11 +584,10 @@ pub struct OAuthConfig {
     pub base_url: String,
     pub access_token: String,
     pub refresh_token: Option<String>,
-    pub client_id: String,
-    pub client_secret: String,
     pub connection_path: String,
     pub account_id: Option<i32>,
-    /// Made by the connect flow, so refreshed with the client above.
+    /// Issued by the workspace's OAuth app, whose server a Nextcloud resource saved without its
+    /// own `baseUrl` belongs to.
     #[serde(default)]
     pub managed: bool,
 }
@@ -837,61 +836,32 @@ pub async fn decrypt_oauth_data<T: DeserializeOwned>(
     };
 
     let managed = row.managed.unwrap_or(false);
-    let (base_url, client_id, client_secret) = if managed {
-        let oauth_data = get_workspace_integration(db, workspace_id, service_name)
+    // Only Nextcloud has a base URL: the resource's own, else the server of the client that issued
+    // the account.
+    let base_url = match row
+        .resource_value
+        .as_ref()
+        .and_then(|v| v.get("baseUrl"))
+        .and_then(|v| v.as_str())
+    {
+        Some(url) if !url.is_empty() => url.trim_end_matches('/').to_string(),
+        _ if managed => get_workspace_integration(db, workspace_id, service_name)
             .await?
-            .oauth_data;
-        let (client_id, client_secret) = if oauth_data
-            .get("instance_shared")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            windmill_common::global_settings::get_instance_oauth_credentials(
-                db,
-                service_name.resource_type(),
-            )
-            .await
-            .map_err(|e| {
-                Error::InternalErr(format!(
-                    "Failed to read instance OAuth credentials for {}: {}",
-                    service_name, e
-                ))
-            })?
-        } else {
-            (
-                oauth_data["client_id"].as_str().unwrap_or("").to_string(),
-                oauth_data["client_secret"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string(),
-            )
-        };
-        let base_url = oauth_data["base_url"].as_str().unwrap_or("").to_string();
-        (base_url, client_id, client_secret)
-    } else {
-        // Only Nextcloud has a base URL: the resource's own, else the instance client's server.
-        let base_url = match row
-            .resource_value
-            .as_ref()
-            .and_then(|v| v.get("baseUrl"))
-            .and_then(|v| v.as_str())
-        {
-            Some(url) if !url.is_empty() => url.trim_end_matches('/').to_string(),
-            _ if service_name == ServiceName::Nextcloud => instance_oauth_entry(db, service_name)
-                .await?
-                .map(|e| instance_base_url(&e))
-                .unwrap_or_default(),
-            _ => String::new(),
-        };
-        (base_url, String::new(), String::new())
+            .oauth_data["base_url"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
+        _ if service_name == ServiceName::Nextcloud => instance_oauth_entry(db, service_name)
+            .await?
+            .map(|e| instance_base_url(&e))
+            .unwrap_or_default(),
+        _ => String::new(),
     };
 
     let assembled = json!({
         "base_url": base_url,
         "access_token": access_token,
         "refresh_token": row.refresh_token,
-        "client_id": client_id,
-        "client_secret": client_secret,
         "connection_path": connection_path,
         "account_id": row.account_id,
         "managed": managed,

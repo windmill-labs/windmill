@@ -210,7 +210,7 @@ async fn database_backend_persists_refreshed_token() {
 
     set_backend(&db, serde_json::json!({ "type": "Database" })).await;
     setup_workspace(&db, w_id).await;
-    let _ = simulate_connect(&db, w_id, path, "OLD_TOKEN").await;
+    let account_id = simulate_connect(&db, w_id, path, "OLD_TOKEN").await;
 
     // Connect-time token is served.
     let v = variable_value(&db, w_id, path).await;
@@ -220,7 +220,7 @@ async fn database_backend_persists_refreshed_token() {
     );
 
     // Refresh persists the new token.
-    store_oauth_token_value(&db, w_id, path, "NEW_TOKEN")
+    store_oauth_token_value(&db, w_id, path, account_id, "NEW_TOKEN")
         .await
         .unwrap();
 
@@ -250,7 +250,7 @@ async fn external_backend_persists_refreshed_token() {
 
     set_backend(&db, aws_sm_config(&aws_sm_endpoint())).await;
     setup_workspace(&db, w_id).await;
-    let _ = simulate_connect(&db, w_id, path, "OLD_TOKEN").await;
+    let account_id = simulate_connect(&db, w_id, path, "OLD_TOKEN").await;
 
     // Connect-time token is served from the external store.
     let marker = variable_value(&db, w_id, path).await;
@@ -282,7 +282,7 @@ async fn external_backend_persists_refreshed_token() {
     );
 
     // The fix: persist through the backend.
-    store_oauth_token_value(&db, w_id, path, "NEW_TOKEN")
+    store_oauth_token_value(&db, w_id, path, account_id, "NEW_TOKEN")
         .await
         .unwrap();
 
@@ -326,7 +326,7 @@ async fn failed_persist_resets_account_expiry() {
     // Point the backend at an unreachable endpoint so the persist fails.
     set_backend(&db, aws_sm_config("http://127.0.0.1:1")).await;
 
-    let res = store_oauth_token_value(&db, w_id, path, "NEW_TOKEN").await;
+    let res = store_oauth_token_value(&db, w_id, path, account_id, "NEW_TOKEN").await;
     assert!(res.is_err(), "persist to unreachable backend should fail");
     assert!(
         account_expires_in_past(&db, w_id, account_id).await,
