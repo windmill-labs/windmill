@@ -266,10 +266,11 @@ function collectTailwindCandidates(dirs: string[]): string[] {
       if (e.isDirectory()) walk(full);
       else if (TAILWIND_SCAN_EXTS.has(path.extname(e.name))) {
         // Each split keeps a different set of characters that candidates may contain
-        // (`content-['x']`, `[&>svg]:hidden` inside '…', classes next to markup); the
-        // compiler drops tokens that are not utilities, so the union is safe.
+        // (`content-['x']` or `content-["x"]` inside the other quote, `[&>svg]:hidden`,
+        // classes next to markup); the compiler drops tokens that are not utilities,
+        // so the union is safe.
         const text = fs.readFileSync(full, "utf-8");
-        for (const re of [/[\s"`{};]+/, /[\s"'`{};=]+/, /[\s"'`{}<>;=]+/]) {
+        for (const re of [/[\s"`{};]+/, /[\s'`{};=]+/, /[\s"'`{};=]+/, /[\s"'`{}<>;=]+/]) {
           for (const tok of text.split(re)) {
             // Svelte's `class:hidden={x}` names the utility after the directive.
             if (tok) candidates.add(tok.startsWith("class:") ? tok.slice(6) : tok);
@@ -354,12 +355,28 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
               } catch {
                 p = createRequire(path.join(path.resolve(appDir), "_")).resolve(id);
               }
-              watchFiles.add(p);
-              // The mtime query re-evaluates a config or plugin edited during `app dev`;
-              // a plain import would keep serving the first version from the module cache.
-              const url = `${pathToFileURL(p).href}?t=${fs.statSync(p).mtimeMs}`;
-              const mod: any = await import(url);
-              return { path: p, base: path.dirname(p), module: mod.default ?? mod };
+              // Bundled and evaluated afresh on every build rather than import()ed: TS, ESM
+              // and CJS configs all load under Node, and an edit to the module or a local
+              // file it imports applies on the next `app dev` rebuild instead of hitting
+              // the runtime's module cache.
+              const out = await build.esbuild.build({
+                entryPoints: [p],
+                bundle: true,
+                platform: "node",
+                format: "cjs",
+                packages: "external",
+                write: false,
+                metafile: true,
+                logLevel: "silent",
+              });
+              for (const input of Object.keys(out.metafile.inputs)) {
+                watchFiles.add(path.resolve(input));
+              }
+              const module = { exports: {} as any };
+              new Function("module", "exports", "require", "__filename", "__dirname",
+                out.outputFiles[0].text)(module, module.exports, createRequire(p), p, path.dirname(p));
+              const mod = module.exports;
+              return { path: p, base: path.dirname(p), module: mod?.default ?? mod };
             },
           });
           const dirs = [appDir, ...(sharedUiDir ? [sharedUiDir] : [])];
