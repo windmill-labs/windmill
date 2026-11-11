@@ -1,8 +1,8 @@
 /*
- * The artifact document look, shared by the in-app viewer, the shared page and the HTML/PDF
- * export. Plain CSS rather than Tailwind because the export inlines this file into a standalone
- * page, where no Tailwind build exists. Colours come from the theme's `--color-*` tokens (rgb
- * triplets); the export defines the light ones itself (`artifactExport.ts`).
+ * The artifact document look, shared by the in-app viewer, the shared page, the PDF download and
+ * the HTML export. Plain CSS rather than Tailwind because the HTML export inlines this file into a
+ * standalone page, where no Tailwind build exists. Colours come from the theme's `--color-*`
+ * tokens (rgb triplets); the HTML export defines the light ones itself (`artifactExport.ts`).
  * Everything is scoped under `.wm-doc` and every tunable is a `--doc-*` variable, so a rule
  * scoped the same way restyles it: /kitchen_sink/artifacts writes such rules live.
  */
@@ -253,8 +253,8 @@
 	font-size: 0.8em;
 }
 
-/* In-app, fenced code is the code-block renderer's own panel (`.not-prose`); in the export it
-   is a plain `pre`. */
+/* In the app and the PDF, fenced code is the code-block renderer's own panel (`.not-prose`); in
+   the HTML export it is a plain `pre`. */
 .wm-doc > .not-prose {
 	margin: 1.5em 0;
 }

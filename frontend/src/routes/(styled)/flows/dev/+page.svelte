@@ -292,7 +292,7 @@
 				{#if $userStore}
 					As {$userStore?.username} in {$workspaceStore}
 				{:else}
-					<span class="text-red-600">Unable to login</span>
+					<span class="text-red-600">Unable to log in</span>
 				{/if}
 			</div>
 

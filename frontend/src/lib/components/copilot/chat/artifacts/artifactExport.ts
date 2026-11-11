@@ -195,39 +195,8 @@ export function artifactHtmlDocument(
 	return htmlPage(name, renderArtifactHtml(content), options)
 }
 
-/** The page a download or a print gets: `artifactHtmlDocument` with its fonts embedded. */
-export async function artifactHtmlFile(
-	name: string,
-	content: string,
-	options: ArtifactHtmlOptions = {}
-): Promise<string> {
+/** The page a download gets: `artifactHtmlDocument` with its fonts embedded. */
+export async function artifactHtmlFile(name: string, content: string): Promise<string> {
 	const html = renderArtifactHtml(content)
-	return htmlPage(name, html, { ...options, fontCss: await artifactFontCss(html) })
-}
-
-/**
- * Opens the browser's print dialog on the exported page, which is where "Save as PDF" lives.
- * A hidden iframe rather than a new window, so no popup blocker gets in the way. Sandboxed
- * without scripts; same-origin is what lets this page call its `print()`.
- */
-export async function printArtifact(
-	name: string,
-	content: string,
-	options?: ArtifactHtmlOptions
-): Promise<void> {
-	const iframe = document.createElement('iframe')
-	iframe.setAttribute('sandbox', 'allow-same-origin allow-modals')
-	iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
-	iframe.srcdoc = await artifactHtmlFile(name, content, options)
-	iframe.onload = async () => {
-		const win = iframe.contentWindow
-		if (!win) return iframe.remove()
-		// `load` does not wait for the web fonts a linked stylesheet declares.
-		await win.document.fonts.ready
-		// Firefox and Safari return from print() before the dialog closes.
-		win.addEventListener('afterprint', () => iframe.remove())
-		win.focus()
-		win.print()
-	}
-	document.body.appendChild(iframe)
+	return htmlPage(name, html, { fontCss: await artifactFontCss(html) })
 }

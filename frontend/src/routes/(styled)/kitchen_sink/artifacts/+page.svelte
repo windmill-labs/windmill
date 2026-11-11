@@ -1,16 +1,16 @@
 <script lang="ts">
-	// The artifact document at /kitchen_sink/artifacts: the real renderer (`ArtifactBody`) and the
-	// real HTML export, restyled live through `labCss`. Development builds only, because trying
-	// fonts means loading them from Google Fonts, which a deployed instance must not do.
+	// The artifact document at /kitchen_sink/artifacts: the real renderer (`ArtifactBody`), HTML
+	// export and PDF download, restyled live through `labCss`. Development builds only, because
+	// trying fonts means loading them from Google Fonts, which a deployed instance must not do.
 	import { PersistedState } from 'runed'
 	import type { Attachment } from 'svelte/attachments'
-	import { Copy, FileText, Printer, RotateCcw } from 'lucide-svelte'
+	import { Copy, FileDown, FileText, RotateCcw } from 'lucide-svelte'
 	import ArtifactBody from '$lib/components/copilot/chat/artifacts/ArtifactBody.svelte'
 	import {
 		artifactFontCss,
-		artifactHtmlDocument,
-		printArtifact
+		artifactHtmlDocument
 	} from '$lib/components/copilot/chat/artifacts/artifactExport'
+	import { printArtifact } from '$lib/components/copilot/chat/artifacts/printArtifact'
 	import { Button } from '$lib/components/common'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -62,16 +62,18 @@
 	let v = $derived(view.current)
 	let sample = $derived(SAMPLES.find((x) => x.value === v.sample) ?? SAMPLES[0])
 
-	let inAppCss = $derived(labCss(s, '.wm-doc-lab .wm-doc'))
+	// `:root` outranks the document's own `.wm-doc` rules, and still matches in the PDF download's
+	// print frame, which copies this page's stylesheets.
+	let inAppCss = $derived(labCss(s, ':root .wm-doc'))
 	let exportCss = $derived(labCss(s, '.wm-doc'))
 	let pageFontLinks = $derived(enabled ? fontLinks(s) : [])
-	let exportOptions = $derived({ css: exportCss, fontLinks: pageFontLinks })
 	// Every face the app ships, as a download embeds them.
 	let shippedFontCss = $state('')
 	if (enabled) artifactFontCss().then((css) => (shippedFontCss = css))
 	let exportHtml = $derived(
 		artifactHtmlDocument(sample.name, sample.content, {
-			...exportOptions,
+			css: exportCss,
+			fontLinks: pageFontLinks,
 			fontCss: shippedFontCss
 		})
 	)
@@ -140,8 +142,9 @@
 			<div class="flex flex-col gap-1">
 				<h1 class="text-lg font-semibold text-emphasis">Artifact document</h1>
 				<p class="text-xs text-secondary">
-					The real renderer and HTML export, restyled live. Inter, Newsreader and JetBrains Mono
-					ship with the app; the other fonts load from Google Fonts, on this page only.
+					The real renderer, HTML export and PDF download, restyled live. Inter, Newsreader and
+					JetBrains Mono ship with the app; the other fonts load from Google Fonts, on this page
+					only.
 				</p>
 			</div>
 
@@ -311,7 +314,7 @@
 					{#snippet children({ item })}
 						<ToggleButton {item} value="session" label="Session panel" size="sm" />
 						<ToggleButton {item} value="shared" label="Shared page" size="sm" />
-						<ToggleButton {item} value="export" label="Export" size="sm" />
+						<ToggleButton {item} value="export" label="HTML export" size="sm" />
 					{/snippet}
 				</ToggleButtonGroup>
 				<div class="w-44">
@@ -327,10 +330,10 @@
 					<Button
 						unifiedSize="sm"
 						variant="default"
-						startIcon={{ icon: Printer }}
-						onClick={() => printArtifact(sample.name, sample.content, exportOptions)}
+						startIcon={{ icon: FileDown }}
+						onClick={() => printArtifact(sample.name, sample.content)}
 					>
-						Print or save as PDF
+						Download as PDF
 					</Button>
 				</div>
 			</div>
@@ -346,23 +349,14 @@
 							<FileText size={14} class="shrink-0 text-secondary" />
 							<span class="truncate text-xs font-normal text-emphasis">{sample.name}</span>
 						</div>
-						<div class="wm-doc-lab min-h-0 flex-1 overflow-auto px-8">
+						<div class="min-h-0 flex-1 overflow-auto px-8">
 							<ArtifactBody content={sample.content} source={false} />
 						</div>
 					</div>
 				{:else if v.surface === 'shared'}
-					<!-- The layout of /shared_artifacts/[id]. -->
-					<div class="flex h-full w-full max-w-4xl flex-col gap-3">
-						<div class="flex flex-col gap-1">
-							<div class="flex min-w-0 items-center gap-2">
-								<FileText size={16} class="shrink-0 text-secondary" />
-								<span class="truncate text-lg font-semibold text-emphasis">{sample.name}</span>
-							</div>
-							<span class="text-xs font-normal text-secondary">Shared by admin · v3</span>
-						</div>
-						<div
-							class="wm-doc-lab min-h-0 flex-1 overflow-auto rounded-md bg-surface-tertiary px-8"
-						>
+					<!-- The body of /shared_artifacts/[id], under the app's page header. -->
+					<div class="h-full w-full overflow-auto rounded-md border bg-surface-tertiary px-8">
+						<div class="mx-auto max-w-4xl">
 							<ArtifactBody content={sample.content} source={false} />
 						</div>
 					</div>

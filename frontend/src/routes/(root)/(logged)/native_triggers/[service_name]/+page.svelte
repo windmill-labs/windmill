@@ -45,7 +45,36 @@
 	let loading = $state(true)
 	let serviceAvailable: boolean | undefined = $state(undefined)
 	let serviceSupported = $state(true)
-	let editor: NativeTriggerEditor
+	let editor: NativeTriggerEditor | undefined = $state()
+
+	// Deep link: #<external_id> opens that trigger's editor. Opening a trigger pre-sets
+	// handledId: a row link opens the editor itself, before the hash moves. Ids are compared
+	// decoded since the browser percent-encodes the hash.
+	let handledId = ''
+	$effect(() => {
+		const hash = page.url.hash
+		if (hash.length <= 1) {
+			handledId = ''
+			return
+		}
+		let externalId: string
+		try {
+			externalId = decodeURIComponent(hash.slice(1))
+		} catch {
+			return
+		}
+		if (externalId === handledId || !editor) return
+		const trigger = triggers.find((t) => t.external_id === externalId)
+		if (trigger) {
+			handledId = externalId
+			editor.openEdit(trigger.external_id, trigger.is_flow)
+		}
+	})
+
+	function openEditor(trigger: TriggerW) {
+		handledId = trigger.external_id
+		editor?.openEdit(trigger.external_id, trigger.is_flow)
+	}
 
 	let filteredItems: TriggerW[] = $state([])
 	let items: TriggerW[] = $state([])
@@ -200,7 +229,7 @@
 		<div class="max-w-md mx-auto text-center py-12">
 			<h2 class="text-lg font-semibold text-emphasis mb-2">Service not supported</h2>
 			<p class="text-secondary text-xs mb-4">
-				The service "{serviceName}" is not supported for native triggers.
+				The service "{serviceName}" is not supported for integration triggers.
 			</p>
 			<p class="text-xs text-secondary">Supported services: nextcloud</p>
 		</div>
@@ -209,7 +238,7 @@
 	<CenteredPage>
 		<PageHeader
 			title="{serviceConfig?.serviceDisplayName || serviceName} triggers"
-			tooltip="Native triggers managed externally by {serviceConfig?.serviceDisplayName ||
+			tooltip="Integration triggers managed externally by {serviceConfig?.serviceDisplayName ||
 				serviceName}. These are more efficient than regular triggers as they're handled directly by the service provider."
 		>
 			<Button
@@ -233,7 +262,7 @@
 					{serviceConfig?.serviceDisplayName || serviceName} isn't configured in this workspace yet.
 					<div class="flex gap-2">
 						<Button variant="accent" href="/workspace_settings?tab=native_triggers">
-							Manage native triggers
+							Manage integration triggers
 						</Button>
 						<Button variant="subtle" onclick={() => checkServiceAvailability()}>Retry check</Button>
 					</div>
@@ -279,7 +308,7 @@
 							disabled: !!$triggerLock,
 							title: $triggerLock,
 							aiId: 'native-triggers-empty-add',
-							aiDescription: 'Add native trigger'
+							aiDescription: 'Add integration trigger'
 						}}
 					/>
 				{:else if items?.length}
@@ -287,7 +316,7 @@
 						service={serviceName}
 						triggers={items.slice(0, nbDisplayed)}
 						{loading}
-						onEdit={(trigger) => editor?.openEdit(trigger.external_id, trigger.is_flow)}
+						onEdit={openEditor}
 						onRecreate={(trigger) => editor?.openRecreate(trigger)}
 						onSync={syncTriggers}
 						onUpdate={loadTriggers}

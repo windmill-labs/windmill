@@ -27,6 +27,11 @@ describe('getActiveScriptSettingsBadges', () => {
 		expect(keys).toEqual([])
 	})
 
+	it('surfaces a negative priority as low priority', () => {
+		const keys = getActiveScriptSettingsBadges({ priority: -100 }).map((b) => b.key)
+		expect(keys).toEqual(['low_priority'])
+	})
+
 	it('treats non-positive concurrency limits, timeouts and cache ttl as inactive (legacy zero rows)', () => {
 		const keys = getActiveScriptSettingsBadges({
 			concurrent_limit: 0,

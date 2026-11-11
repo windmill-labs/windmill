@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
-	import { Bot } from 'lucide-svelte'
-	import SidebarSectionHeader from './SidebarSectionHeader.svelte'
+	import { Bot, MessagesSquare } from 'lucide-svelte'
+	import SidebarSection from './SidebarSection.svelte'
 	import { page } from '$app/state'
 	import { afterNavigate } from '$app/navigation'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -12,6 +11,7 @@
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { agentOfChatPath } from '$lib/components/flows/conversations/agentEditorChat'
 	import { sidebarClasses } from './MenuButton.svelte'
+	import SidebarShowOlder, { SIDEBAR_RECENT_MS } from './SidebarShowOlder.svelte'
 
 	// The reader's own flow and agent chats, the ones a flow's or an agent's own page shows: the
 	// editors' test chats stay with the editors.
@@ -23,19 +23,25 @@
 		'boolean'
 	)
 
+	const showOlder = useLocalStorageValue('windmill_ai_chats_show_older', false, 'boolean')
+
 	// Tagged with its workspace: responses are not ordered, and a late one from the workspace
-	// just left must not show here. Not read on the collapsed rail, which shows no chats.
+	// just left must not show here.
 	const listing = resource(
-		() => [$workspaceStore, isCollapsed] as const,
-		async ([ws, collapsed]) => {
-			if (!ws || collapsed) return undefined
+		() => $workspaceStore,
+		async (ws) => {
+			if (!ws) return undefined
 			const rows = await FlowConversationsService.listFlowConversations({
 				workspace: ws,
 				perPage: 30,
 				kind: 'deployed',
 				mine: true
 			})
-			return { ws, rows }
+			// Listed newest `updated_at` first, which every new message bumps, so the chats active
+			// in the window are a prefix of the page.
+			const since = Date.now() - SIDEBAR_RECENT_MS
+			const recent = rows.findIndex((c) => new Date(c.updated_at).getTime() < since)
+			return { ws, rows, recent: recent === -1 ? rows.length : recent }
 		}
 	)
 	// A chat is started on its flow's or agent's page, so it lists once the reader leaves one.
@@ -44,8 +50,19 @@
 		if (!left || left === to?.url.pathname) return
 		if (left.startsWith('/flows/get/') || left.startsWith('/agents/get/')) listing.refetch()
 	})
+	const current = $derived(
+		listing.current && listing.current.ws === $workspaceStore ? listing.current : undefined
+	)
+	const allRows = $derived(current?.rows ?? [])
+	const openId = $derived(page.url.searchParams.get('conversation'))
+	// The open chat always lists, however old.
 	const rows = $derived(
-		listing.current && listing.current.ws === $workspaceStore ? listing.current.rows : []
+		showOlder.val || !current
+			? allRows
+			: allRows.filter((c, i) => i < current.recent || c.id === openId)
+	)
+	const olderCount = $derived(
+		allRows.filter((c, i) => i >= (current?.recent ?? 0) && c.id !== openId).length
 	)
 
 	function target(c: FlowConversation) {
@@ -56,21 +73,20 @@
 			href: `/${agent !== undefined ? 'agents' : 'flows'}/get/${agent ?? c.flow_path}?conversation=${c.id}`
 		}
 	}
-
-	const openId = $derived(page.url.searchParams.get('conversation'))
 </script>
 
-{#if !isCollapsed && rows.length > 0}
-	<div class="flex flex-col gap-1">
-		<SidebarSectionHeader
-			title="AI chats"
-			collapsed={sectionCollapsed.val}
-			onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-		/>
-		{#if !sectionCollapsed.val}
+{#if allRows.length > 0}
+	<SidebarSection
+		title="AI chats"
+		icon={MessagesSquare}
+		folded={sectionCollapsed.val}
+		onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
+		{isCollapsed}
+	>
+		{#snippet children(inPopover)}
+			{@const rail = isCollapsed && !inPopover}
 			<div
-				transition:slide={{ duration: 180 }}
-				class="flex flex-col gap-0.5 max-h-[40vh] overflow-y-auto"
+				class="flex flex-col gap-0.5 max-h-[40vh] overflow-y-auto {rail ? 'scrollbar-hidden' : ''}"
 			>
 				{#each rows as c (c.id)}
 					{@const t = target(c)}
@@ -79,7 +95,9 @@
 						href={t.href}
 						title="{t.agent ? 'Agent' : 'Flow'} {t.path}"
 						class={twMerge(
-							'flex flex-row items-center gap-2 px-2 py-1 rounded text-xs font-normal min-w-0',
+							// shrink-0: in the capped list a row would otherwise shrink to its content,
+							// which is shorter in the rail, where it has no label.
+							'flex flex-row items-center gap-2 px-2 h-6 shrink-0 rounded text-xs font-normal min-w-0',
 							selected
 								? twMerge(sidebarClasses.selectedBg, sidebarClasses.selectedText)
 								: 'text-secondary hover:bg-surface-hover'
@@ -90,10 +108,18 @@
 						{:else}
 							<BarsStaggered size={14} class="shrink-0 text-teal-500" />
 						{/if}
-						<span class="truncate">{c.title || 'Untitled chat'}</span>
+						<span class={rail ? 'sr-only' : 'truncate'}>{c.title || 'Untitled chat'}</span>
 					</a>
 				{/each}
+				{#if olderCount > 0}
+					<SidebarShowOlder
+						count={olderCount}
+						expanded={showOlder.val}
+						onToggle={() => (showOlder.val = !showOlder.val)}
+						{rail}
+					/>
+				{/if}
 			</div>
-		{/if}
-	</div>
+		{/snippet}
+	</SidebarSection>
 {/if}

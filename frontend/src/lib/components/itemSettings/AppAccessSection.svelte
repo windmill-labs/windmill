@@ -75,6 +75,12 @@
 				canUserBypassRuleKind('RestrictGuestAppDeployment', $userStore ?? undefined))
 	)
 
+	// The server refuses every deploy that leaves an app public on a free cloud workspace, so an
+	// already-public app can only be switched away from it. Read for `workspace`, which a session
+	// editor can set to another workspace than the one navigated to.
+	let premium = $state<boolean | undefined>(undefined)
+	let publicNeedsPlan = $derived(isCloudHosted() && premium === false)
+
 	let guestUsage = $state<GuestUsage | undefined>(undefined)
 	// The backend decides; the hostname stands in until it answers, the shared cloud being the
 	// only deployment where guests are unavailable.
@@ -84,6 +90,11 @@
 	let secretUrl: string | undefined = $state(undefined)
 
 	function load() {
+		if (isCloudHosted()) {
+			WorkspaceService.getIsPremium({ workspace })
+				.then((p) => (premium = p))
+				.catch(() => (premium = undefined))
+		}
 		WorkspaceService.getGuestUsage({ workspace })
 			.then((u) => (guestUsage = u))
 			.catch(() => (guestUsage = undefined))
@@ -150,7 +161,18 @@
 </script>
 
 <div class="flex flex-col gap-4">
-	{#if rulesetsLoaded && !canSetAnonymous && mode != 'anonymous'}
+	{#if publicNeedsPlan}
+		<Alert type="info" title="Public apps require a paid plan" size="xs">
+			On Windmill Cloud, publishing or updating an app that anyone can open without signing in
+			requires a paid plan.
+			{#if mode == 'anonymous'}
+				Switch this app to Members to deploy it.
+			{/if}
+			<a href="/workspace_settings?tab=premium" target="_blank" class="underline"
+				>Upgrade this workspace</a
+			>
+		</Alert>
+	{:else if rulesetsLoaded && !canSetAnonymous && mode != 'anonymous'}
 		<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
 			Opening this app to anyone with the link is restricted to workspace admins and bypass users by
 			a workspace protection rule
@@ -191,8 +213,10 @@
 						<ToggleButton
 							label="Public"
 							value="anonymous"
-							disabled={!canSetAnonymous && mode != 'anonymous'}
-							tooltip="Anyone with the secret URL. No login."
+							disabled={mode != 'anonymous' && (publicNeedsPlan || !canSetAnonymous)}
+							tooltip={publicNeedsPlan
+								? 'Requires a paid plan on Windmill Cloud.'
+								: 'Anyone with the secret URL. No login.'}
 							{item}
 						/>
 					{/snippet}

@@ -79,7 +79,9 @@ export function extractDataConfig(value: any): RawAppData | undefined {
 				schema: d.creation.schema
 			}
 		}
-		return d
+		// A `data` written by hand (raw_app.yaml through the CLI) can omit `tables`, and the
+		// editor maps over it unguarded.
+		return { ...d, tables: Array.isArray(d.tables) ? d.tables : [] }
 	} else if (value?.datatables) {
 		return { ...DEFAULT_DATA, tables: value.datatables }
 	}

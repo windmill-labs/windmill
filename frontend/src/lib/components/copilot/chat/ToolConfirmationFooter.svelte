@@ -12,6 +12,7 @@
 		confirmLabel: string
 		/** Omit for a label-only confirm button. */
 		confirmIcon?: any
+		confirmDestructive?: boolean
 		class?: string
 	}
 
@@ -22,6 +23,7 @@
 		rejectDestructive = false,
 		confirmLabel,
 		confirmIcon,
+		confirmDestructive = false,
 		class: className
 	}: Props = $props()
 
@@ -48,6 +50,7 @@
 	<Button
 		variant="accent"
 		unifiedSize="sm"
+		destructive={confirmDestructive}
 		startIcon={confirmIcon ? { icon: confirmIcon } : undefined}
 		on:click={() => respond(true)}
 	>

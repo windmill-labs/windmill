@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE tags AS (\n            (SELECT tag FROM concurrency_key\n            WHERE key = $1 AND ended_at IS NULL AND place IS NOT NULL\n            ORDER BY tag LIMIT 1)\n            UNION ALL\n            SELECT (SELECT ck.tag FROM concurrency_key ck\n                WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.place IS NOT NULL AND ck.tag > t.tag\n                ORDER BY ck.tag LIMIT 1)\n            FROM tags t WHERE t.tag IS NOT NULL\n        ), admitted AS (\n            SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1\n        ), fronts AS (\n            SELECT f.job_id, f.priority, f.place\n            FROM tags t\n            CROSS JOIN LATERAL (\n                SELECT ck.job_id, ck.priority, ck.place, q.running, q.scheduled_for,\n                    q.canceled_by IS NOT NULL AS canceled, q.id IS NULL AS gone\n                FROM concurrency_key ck LEFT JOIN v2_job_queue q ON q.id = ck.job_id\n                WHERE ck.key = $1 AND ck.tag = t.tag AND ck.ended_at IS NULL\n                    AND ck.place IS NOT NULL\n                    AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)\n                ORDER BY ck.priority DESC, ck.place, ck.job_id\n                LIMIT $2\n            ) f\n            WHERE t.tag IS NOT NULL AND NOT f.canceled AND NOT f.gone\n                AND (f.running OR f.scheduled_for > now() - interval '5 seconds')\n        )\n        SELECT job_id AS \"job_id!\" FROM fronts ORDER BY priority DESC, place, job_id LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "28ac4b4756d2a5b852d21e5a8c69b81ec38a9b9131a8d990aae02df7a5d29dae"
+}

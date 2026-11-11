@@ -5,9 +5,26 @@ Symbols, not line numbers, are cited: they drift less.
 - **Credential precedence** (`windmill-api-auth/src/auth.rs` `extract_token`): `Authorization: Bearer`
   → `token` cookie → `?token=` query param. A URL with `?token=` is a credential on every route, but
   an existing cookie silently wins over it.
-- **`AUTH_CACHE`** caches a token's identity for 120 s. Deleting a token row does not purge it: the
-  DB trigger (`migrations/20260316000001_token_hash_pk_swap.up.sql`) notifies only for
-  `label = 'session'` rows, and `delete_token` never calls `invalidate_token_from_cache`.
+- **`AUTH_CACHE`** caches a token's identity for 120 s. Deleting a token row purges it only for
+  some rows: the delete trigger (`notify_token_invalidation`, last replaced in
+  `migrations/20261106141303_mcp_oauth_token_delete_revokes_grant.up.sql`) notifies every
+  instance for `session` and `mcp-oauth-*` rows, within the notify poll (≤10 s), and
+  `delete_token` also evicts at once on the instance serving it. Other labels deleted by other
+  paths stay cached until the TTL, which ignores the token's own expiration.
+- **Deleting a live MCP OAuth access token revokes its refresh grant**, by whatever path: the same
+  trigger marks the `mcp_oauth_refresh_token` row issued with it (`access_token_hash`) revoked, so
+  only that client's connection ends. A token past its expiration keeps its grant, since the
+  expiry sweep deletes it and its client must still refresh. A client idle past its access
+  token's 7 days therefore has no row left to delete: what ends a user's access calls
+  `revoke_mcp_oauth_grants` (`windmill-api-users`), which also deletes grants without a live
+  token and codes not yet exchanged — a password change or reset, disabling or deleting the
+  account, offboarding, SCIM deactivation and removal, and (for the grants bound to that
+  workspace) removal from a workspace. The grant lock (`lock_mcp_oauth_grants`) is the user's
+  `password` row, shared while issuing a grant and exclusive while revoking, because every path
+  that changes a user locks that row before their tokens: a refresh takes it, then its
+  access-token row, then its grant, the order the trigger also follows. A new path that writes a
+  user's tokens and may revoke must lock that row first too. `leave_workspace` and `leave_instance`
+  delete no tokens and revoke nothing.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.
@@ -49,6 +66,12 @@ Symbols, not line numbers, are cited: they drift less.
   `ephemeral-` prefix needs no other change (keep it clear of `is_server_minted_label` if minted
   through `tokens/create`); a new prefix also goes into the SQL and Svelte mirrors that function's
   doc lists.
+- **A token's `super_admin` column is what lets it into a workspace its owner is not a member
+  of**, and makes a workspace-less MCP token list every workspace. `create_token_internal` copies
+  it from `password` for every token except an MCP one (an `mcp:` scope), which carries it only
+  when the request sets `super_admin`; the MCP OAuth approve stores the same request on its code
+  and refresh rows, and each exchange re-checks `password`. A new path minting an MCP token must
+  ask the same question, or it reaches a different set of workspaces than the other two.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
@@ -160,6 +183,16 @@ Symbols, not line numbers, are cited: they drift less.
   "true"/"false" strings) and is only consulted for the claim above; only GitHub is filtered to
   `primary && verified`; a missing email is fabricated from `name` as `<name>@windmill.dev` and
   reaches `login_externally` with `email_asserted = false`.
+- **SSO claim names** (`sso_email_claim`, `sso_username_claim`, instance-wide, OIDC and SAML
+  alike): a configured claim absent from a login falls back to the protocol default (OIDC
+  `email` and the chain above, SAML NameID; `preferred_username` / the SAML username list),
+  so one setting serves providers that name it differently. A configured email claim counts
+  as asserted and can claim a `pending_oauth` account, so it must name an attribute users
+  cannot edit at the IdP; `email_verified` is only read when the claim is `email` (the MCP
+  external IdP instead refuses any token marked unverified, whatever its email claim: it never
+  creates or claims an account, so the stricter rule costs nothing there). GitHub and Nextcloud
+  keep their own email source. Accounts stay keyed by email: the username claim only names an
+  account at creation, and an email change at the IdP signs in as a different account.
 - **MCP access tokens from an external issuer** (`mcp_external_idp`, EE, `mcp/external_idp.rs`):
   taken only for a JWT whose unverified `iss` is the configured issuer, then verified against its
   discovery JWKS. With no audience configured, only a token typed as an access token (`at+jwt`

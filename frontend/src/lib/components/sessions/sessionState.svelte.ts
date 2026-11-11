@@ -59,9 +59,15 @@ export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app' | 'pipeline'; 
 // Sessions whose committed workspace is no longer in the user's list are
 // still treated as forks (the "unavailable" terminal state) so we don't
 // flip them back to Building once access is lost.
-export function isForkSession(session: Session, allWorkspaces: UserWorkspace[]): boolean {
+// `allWorkspaces` is undefined until the workspace list has loaded: a workspace absent
+// from it then says nothing, so only the stored root can tell a fork from a root.
+export function isForkSession(
+	session: Session,
+	allWorkspaces: UserWorkspace[] | undefined
+): boolean {
 	const wsId = session.workspace_id ?? session.pending_workspace_id
 	if (!wsId) return false
+	if (!allWorkspaces) return !!session.workspace_root_id && wsId !== session.workspace_root_id
 	const ws = allWorkspaces.find((w) => w.id === wsId)
 	if (!ws) return !!session.workspace_id
 	return !!ws.parent_workspace_id
@@ -126,9 +132,9 @@ export type Session = {
 	// untouched draft never persists, so idle `+` clicks vanish on reload
 	// instead of littering the sidebar.
 	transient?: boolean
-	// In memory only, on a transient session opened onto an item that lives on its own (a new
-	// app's draft): its preview writes are not a touch, so a session the user never starts
-	// vanishes on reload instead of reopening onto the item. Cleared with `transient`.
+	// In memory only, on a transient session opened onto an item (a new app): no touch stores
+	// it, a typed prompt included, so only its first send does. A session the user never
+	// starts vanishes on reload instead of reopening onto the item. Cleared with `transient`.
 	untilStarted?: boolean
 	// Epoch ms of the last write to this record — typing, renaming, archiving,
 	// changing preview tabs, or catching up on new messages. Stamped by the two
@@ -315,7 +321,9 @@ export function sessionInCurrentFamily(s: Session): boolean {
 function ensureSessionRootId(s: Session): boolean {
 	if (s.workspace_root_id || s.transient) return false
 	const workspaceId = s.workspace_id ?? s.pending_workspace_id
-	if (workspaceId && get(userWorkspaces).length === 0) return false
+	// `userWorkspaces` holds `admins` for a superadmin before the list loads, so its
+	// length alone would stamp a fork's own id as its root.
+	if (workspaceId && (!get(usersWorkspaceStore) || get(userWorkspaces).length === 0)) return false
 	const root = sessionRootId(s)
 	if (!root) return false
 	s.workspace_root_id = root
@@ -483,16 +491,12 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 // unread watermark via putSession) persist directly, so an untouched draft
 // stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
-	if (s.transient) delete s.transient
-	delete s.untilStarted
 	s.lastActivityAt = Date.now()
-	void putSession(s)
-}
-
-// Preview state (tabs, collapse, width) is a touch except on an `untilStarted` session.
-function persistPreviewTouch(s: Session): void {
+	// Stored only by its first send (materializeTransient): stored earlier, a reload would
+	// reopen it onto an item that was never saved.
 	if (s.transient && s.untilStarted) return
-	persistTouched(s)
+	if (s.transient) delete s.transient
+	void putSession(s)
 }
 
 // When the session was last used. Pre-dates-the-field records report their
@@ -1403,7 +1407,7 @@ export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabI
 	if (!s) return
 	s.previewTabs = tabs.map((t) => ({ ...t }))
 	s.activePreviewTabId = activeTabId
-	persistPreviewTouch(s)
+	persistTouched(s)
 }
 
 // Persist whether the preview panel is collapsed for this session (a touch).
@@ -1411,7 +1415,7 @@ export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !!s.previewCollapsed === collapsed) return
 	s.previewCollapsed = collapsed
-	persistPreviewTouch(s)
+	persistTouched(s)
 }
 
 // Persist the preview split size the user dragged for this session (a touch).
@@ -1419,7 +1423,7 @@ export function setSessionPreviewSize(id: string, size: number): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || s.previewSize === size) return
 	s.previewSize = size
-	persistPreviewTouch(s)
+	persistTouched(s)
 }
 
 // Persist the session's Use or Build choice (a touch). Plan is left out: a reload ends the

@@ -89,6 +89,14 @@ describe('isForkSession', () => {
 			true
 		)
 	})
+
+	it('falls back to the stored root until the workspace list has loaded', () => {
+		const fork = session({ workspace_id: 'fork', workspace_root_id: 'root' })
+		const root = session({ workspace_id: 'root', workspace_root_id: 'root' })
+		expect(isForkSession(fork, undefined)).toBe(true)
+		expect(isForkSession(root, undefined)).toBe(false)
+		expect(isForkSession(session({ workspace_id: 'fork' }), undefined)).toBe(false)
+	})
 })
 
 describe('commitSessionWorkspace — fork-creation failure', () => {
@@ -534,6 +542,14 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 				{ id: 'session', url: '/apps_raw/edit/u/me/app', loc: '/apps_raw/edit/u/me/app' }
 			]
 			setSessionTabs('held-on-app', tabs, 'session')
+			expect(held.transient).toBe(true)
+			vi.useFakeTimers()
+			try {
+				setSessionDraftPrompt('held-on-app', 'make it blue')
+				vi.advanceTimersByTime(1000)
+			} finally {
+				vi.useRealTimers()
+			}
 			expect(held.transient).toBe(true)
 			createdId = createSession().id
 			expect(createdId).not.toBe('held-on-app')

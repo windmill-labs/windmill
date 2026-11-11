@@ -32,7 +32,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { ArrowUp, Loader2, Square, X } from 'lucide-svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Kbd } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { type PasteAttachment } from './pasteTokens'
 	import { chatDraft, expanded } from './chatDraft'
@@ -44,7 +44,6 @@
 		type AttachedImage
 	} from './imageUtils'
 	import { modelSupportsVision } from '../modelConfig'
-	import { tryGetCurrentModel } from '$lib/aiStore'
 	import { createLongHash } from '$lib/editorLangUtils'
 	import {
 		fileToAttachedTextFile,
@@ -89,6 +88,8 @@
 		onSendRequest?: (instructions: string) => void
 		showContext?: boolean
 		bottomRightSnippet?: Snippet
+		/** Shows "Press Esc again to clear" next to the send button. */
+		clearHint?: boolean
 		onKeyDown?: (e: KeyboardEvent) => void
 		// When provided, overrides `chatHost.loading` for the send/stop
 		// button — useful for callers driving their own request lifecycle
@@ -144,6 +145,7 @@
 		onSendRequest = undefined,
 		showContext = true,
 		bottomRightSnippet,
+		clearHint = false,
 		onKeyDown = undefined,
 		loading,
 		onCancel,
@@ -331,11 +333,9 @@
 		if (imageFiles.length === 0) return
 		// The vision check is about the model this composer's own turn will hit, so it
 		// only applies to a host that picks that model. Elsewhere the model is chosen
-		// in the flow and tryGetCurrentModel would answer for the wrong one.
+		// in the flow and the host's model would answer for the wrong one.
 		if (chatHost.supportsModelSettings) {
-			// tryGetCurrentModel returns undefined instead of throwing: this runs from a
-			// drop/paste handler that can't surface a rejection.
-			const model = tryGetCurrentModel()
+			const model = chatHost.currentModel
 			// Only known text-only models fail this, so attaching would certainly 400 the
 			// next turn — refuse rather than warn and send it anyway.
 			if (model && !modelSupportsVision(model.provider, model.model)) {
@@ -681,6 +681,42 @@
 	/** Whether nothing would ship with a send: no text and no attachment. */
 	export function isDraftEmpty(): boolean {
 		return draft.isEmpty
+	}
+
+	// Only GLOBAL's context is chips the user added; the editors' modes seed theirs with the
+	// code being edited, which an Escape must neither count nor drop.
+	const userContext = $derived(chatHost.mode === AIMode.GLOBAL ? selectedContext : [])
+
+	const attachmentsInFlight = $derived(
+		pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0
+	)
+
+	/** Whether there is anything for `clearDraft` to drop: the draft, a context chip, or an
+	 * attachment still being read. */
+	export function hasClearableContent(): boolean {
+		return !draft.isEmpty || userContext.length > 0 || attachmentsInFlight
+	}
+
+	/** Whether an `@` or `/` picker is open: an Escape then belongs to it. */
+	export function hasOpenPicker(): boolean {
+		return showAppContextTooltip || (contextTextareaComponent?.hasOpenPicker() ?? false)
+	}
+
+	/** Drops everything the user put in the composer: text, attachments and context chips.
+	 * Refused while an attachment is still being read, as a send is: it would land after the
+	 * clear. Returns whether it cleared. */
+	export function clearDraft(): boolean {
+		if (attachmentsInFlight) return false
+		if (chatHost.mode === AIMode.GLOBAL) {
+			// GLOBAL drops every chip below, so the per-`@`-mention removals are skipped. The
+			// editor modes keep them: they are what drops a mention's chip with its text.
+			contextTextareaComponent?.clearForSend()
+			draft.clear()
+			selectedContext = []
+		} else {
+			draft.clear()
+		}
+		return true
 	}
 
 	export function focusInput(selection?: ComposerSelection) {
@@ -1305,25 +1341,37 @@
 				selectedContext.length === 0))}
 	<!-- Accent only once there is something to send, so the button lights up as the draft
 	     becomes sendable; idle and Stop stay quiet. -->
-	<Button
-		variant={!isLoading && !sendDisabled ? 'accent' : 'subtle'}
-		unifiedSize={size}
-		iconOnly
-		title={isLoading
-			? 'Stop'
-			: needsTextForAttachment
-				? 'Write a message to send with the attachment'
-				: 'Send'}
-		startIcon={{ icon: isLoading ? Square : ArrowUp }}
-		disabled={!isLoading && sendDisabled}
-		on:click={() => {
-			if (isLoading) {
-				onCancel ? onCancel() : chatHost.cancel()
-			} else if (!sendDisabled) {
-				submitRequest()
-			}
-		}}
-	/>
+	<div class="relative flex shrink-0">
+		<!-- Floats over the field so the box keeps its size; the field's colour hides the text
+		     under it. -->
+		{#if clearHint}
+			<div
+				class="absolute right-full top-1/2 -translate-y-1/2 mr-1.5 flex items-center gap-1 whitespace-nowrap rounded bg-surface-input pl-2 text-xs text-hint pointer-events-none"
+				role="status"
+			>
+				Press <Kbd small>Esc</Kbd> again to clear
+			</div>
+		{/if}
+		<Button
+			variant={!isLoading && !sendDisabled ? 'accent' : 'subtle'}
+			unifiedSize={size}
+			iconOnly
+			title={isLoading
+				? 'Stop'
+				: needsTextForAttachment
+					? 'Write a message to send with the attachment'
+					: 'Send'}
+			startIcon={{ icon: isLoading ? Square : ArrowUp }}
+			disabled={!isLoading && sendDisabled}
+			on:click={() => {
+				if (isLoading) {
+					onCancel ? onCancel() : chatHost.cancel()
+				} else if (!sendDisabled) {
+					submitRequest()
+				}
+			}}
+		/>
+	</div>
 {/snippet}
 
 <!-- One wrapping row for every badge-shaped chip: selected context (or, when the

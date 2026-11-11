@@ -15,16 +15,18 @@
 		CodeXml,
 		ExternalLink,
 		TriangleAlert,
-		Layers
+		Layers,
+		Folder
 	} from 'lucide-svelte'
 	import { Button } from './common'
+	import TextInput from './text_input/TextInput.svelte'
 	import Select from './select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Badge from './common/badge/Badge.svelte'
 	import { SvelteMap } from 'svelte/reactivity'
 	import { untrack } from 'svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
-	import { parseTag } from './dedicated_worker'
+	import { canonicalTag, isDedicatedPattern, parseTag } from './dedicated_worker'
 	import Tooltip from './Tooltip.svelte'
 
 	// A "Runnable" is a script or flow with dedicated_worker=true
@@ -73,13 +75,15 @@
 	interface SelectedTagInfo {
 		tag: string
 		workspace: string
-		type: 'script' | 'flow'
+		type: 'script' | 'flow' | 'pattern'
 		path: string
 		language?: string
 		runners?: FlowRunner[]
 		expanded?: boolean
 		loading?: boolean
 		workspaceDeps?: string[]
+		// Patterns: how many dedicated scripts the pattern covers today
+		matches?: number
 	}
 	let selectedTagsInfo: SvelteMap<string, SelectedTagInfo> = $state(new SvelteMap())
 
@@ -183,7 +187,10 @@
 				tags.map(async (tag) => {
 					// Check if we already have this info cached
 					const existing = currentInfo.get(tag)
-					if (existing && (existing.type === 'script' || existing.runners !== undefined)) {
+					if (
+						existing &&
+						(existing.type !== 'flow' || existing.runners !== undefined)
+					) {
 						// Backfill workspaceDeps and language if missing
 						if (existing.type === 'script' && !existing.workspaceDeps) {
 							const depInfo = depsPerWorkspace.get(existing.workspace)?.get(existing.path)
@@ -217,6 +224,21 @@
 					// Parse and fetch
 					const parsed = parseTag(tag)
 					if (!parsed) return
+
+					if (parsed.type === 'pattern') {
+						const matches = disabled
+							? undefined
+							: await ScriptService.listScripts({
+									workspace: parsed.workspace,
+									dedicatedWorker: true,
+									pathStart: parsed.path.slice(0, -1),
+									perPage: 1000
+								})
+									.then((s) => s.length)
+									.catch(() => undefined)
+						newInfo.set(tag, { tag, ...parsed, matches })
+						return
+					}
 
 					if (disabled) {
 						// Read-only: just show path info, skip API calls
@@ -459,7 +481,7 @@
 						language: script.language ?? 'unknown',
 						type: 'script',
 						path: script.path,
-						selected: selectedTags.includes(tag),
+						selected: isSelected(tag),
 						workspaceDeps: depsMap.get(script.path)
 					})
 				}
@@ -474,7 +496,7 @@
 					language: 'flow',
 					type: 'flow',
 					path: flow.path,
-					selected: selectedTags.includes(tag),
+					selected: isSelected(tag),
 					runners: undefined,
 					loadingRunners: false,
 					expanded: false
@@ -519,16 +541,49 @@
 	function updateSelectedTags() {
 		// Keep tags from other workspaces, update only the currently visible ones
 		const visibleTags = new Set(runnables.map((r) => r.tag))
-		const otherTags = selectedTags.filter((t) => !visibleTags.has(t))
+		const otherTags = selectedTags.filter((t) => !visibleTags.has(canonicalTag(t)))
+		for (const r of runnables) if (coveringPattern(r)) r.selected = false
 		const newVisibleTags = runnables.filter((r) => r.selected).map((r) => r.tag)
 		selectedTags = [...otherTags, ...newVisibleTags]
 		onchange?.(selectedTags)
 	}
 
+	// `tag` is canonical; a saved entry may be spelled with a leading `/`
+	function isSelected(tag: string): boolean {
+		return selectedTags.some((t) => canonicalTag(t) === tag)
+	}
+
+	let patternInput = $state('')
+	let patternTag = $derived(
+		selectedWorkspace && isDedicatedPattern(patternInput.trim())
+			? canonicalTag(`${selectedWorkspace}:${patternInput.trim()}`)
+			: undefined
+	)
+
+	// The selected pattern that already serves this script, which makes its own entry redundant
+	function coveringPattern(r: Runnable): string | undefined {
+		if (r.type !== 'script') return undefined
+		return selectedTags.find((t) => {
+			const p = parseTag(t)
+			return (
+				p?.type === 'pattern' &&
+				t.startsWith(`${selectedWorkspace}:`) &&
+				r.path.startsWith(p.path.slice(0, -1))
+			)
+		})
+	}
+
+	function addPattern() {
+		if (!patternTag || isSelected(patternTag)) return
+		selectedTags = [...selectedTags, patternTag]
+		patternInput = ''
+		updateSelectedTags()
+	}
+
 	function removeTag(tag: string) {
 		selectedTags = selectedTags.filter((t) => t !== tag)
 		// Also update runnable state if visible
-		const runnable = runnables.find((r) => r.tag === tag)
+		const runnable = runnables.find((r) => r.tag === canonicalTag(tag))
 		if (runnable) {
 			runnable.selected = false
 		}
@@ -541,7 +596,7 @@
 		}
 	})
 
-	let selectedCount = $derived(runnables.filter((r) => r.selected).length)
+	let selectedCount = $derived(runnables.filter((r) => r.selected || coveringPattern(r)).length)
 
 	// Compute shared runner groups: scripts sharing a (workspace, dep_name, language) tuple
 	interface RunnerGroup {
@@ -651,12 +706,29 @@
 				{#if info}
 					{#if info.type === 'flow'}
 						<BarsStaggered size={14} class="flex-shrink-0 text-secondary" />
+					{:else if info.type === 'pattern'}
+						<Folder size={14} class="flex-shrink-0 text-secondary" />
 					{:else}
 						<CodeXml size={14} class="flex-shrink-0 text-secondary" />
 					{/if}
 					<span class="text-xs truncate min-w-0">{info.path}</span>
 					<span class="text-xs text-tertiary flex-shrink-0">({info.workspace})</span>
 					<span class="flex-1"></span>
+					{#if info.type === 'pattern'}
+						<Tooltip small>
+							Serves every script under this folder that has the dedicated worker setting enabled.
+							A script enabling it later is picked up once deployed.
+						</Tooltip>
+						{#if info.matches === 0}
+							<Badge color="yellow" small>No matching scripts yet</Badge>
+						{:else if info.matches !== undefined}
+							<Badge color="gray" small>
+								{info.matches} script{info.matches !== 1 ? 's' : ''}
+							</Badge>
+						{:else}
+							<Badge color="gray" small>All dedicated scripts</Badge>
+						{/if}
+					{/if}
 					{#if !tagRunnerGroup.has(tag)}
 						{#if info.workspaceDeps}
 							{#each info.workspaceDeps as dep}
@@ -803,6 +875,8 @@
 							{:else}
 								<div class="border rounded-md divide-y max-h-64 overflow-y-auto bg-surface">
 									{#each runnables as runnable (runnable.tag)}
+										{@const via = coveringPattern(runnable)}
+										{@const checked = runnable.selected || !!via}
 										<div>
 											<div class="flex items-center">
 												{#if runnable.type === 'flow' && runnable.runners && runnable.runners.length > 0}
@@ -822,24 +896,30 @@
 													</button>
 												{/if}
 												<button
-													class="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover transition-colors text-left min-w-0"
+													class="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover transition-colors text-left min-w-0 disabled:hover:bg-transparent"
 													onclick={(e) => {
 														e.stopPropagation()
-														if (!disabled) toggleRunnable(runnable)
+														if (!disabled && !via) toggleRunnable(runnable)
 													}}
-													{disabled}
+													disabled={disabled || !!via}
 												>
 													<div
 														class="w-4 h-4 border rounded flex items-center justify-center flex-shrink-0"
-														class:bg-blue-500={runnable.selected}
-														class:border-blue-500={runnable.selected}
+														class:bg-blue-500={checked}
+														class:border-blue-500={checked}
+														class:opacity-50={!!via}
 													>
-														{#if runnable.selected}
+														{#if checked}
 															<Check class="h-3 w-3 text-white" />
 														{/if}
 													</div>
 													<span class="flex-1 text-xs truncate min-w-0">{runnable.displayName}</span
 													>
+													{#if via}
+														<span class="text-2xs text-hint flex-shrink-0"
+															>via {parseTag(via)?.path}</span
+														>
+													{/if}
 													{#if runnable.type === 'flow' && runnable.runners}
 														<span class="text-xs text-tertiary flex-shrink-0">
 															{runnable.runners.length}
@@ -890,6 +970,25 @@
 									{selectedCount} selected
 								</div>
 							{/if}
+						</div>
+					{/if}
+
+					{#if selectedWorkspace}
+						<div class="flex flex-col gap-1">
+							<span class="text-xs text-secondary">Folder pattern</span>
+							<div class="flex gap-2 items-center">
+								<TextInput bind:value={patternInput} inputProps={{ placeholder: 'f/folder/*', disabled }} />
+								<Button
+									unifiedSize="md"
+									variant="default"
+									disabled={disabled || !patternTag}
+									onclick={addPattern}>Add</Button
+								>
+							</div>
+							<span class="text-2xs text-tertiary"
+								>Every script under the folder that enables the dedicated worker setting, including
+								ones deployed later.</span
+							>
 						</div>
 					{/if}
 				</div>

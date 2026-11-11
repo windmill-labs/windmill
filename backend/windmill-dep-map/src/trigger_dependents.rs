@@ -73,15 +73,23 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
         let mut tag = None;
         let job_payload = match importer_kind.as_str() {
-            "script" => match sqlx::query_scalar!(
-                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
+            "script" => match sqlx::query!(
+                "SELECT hash, codebase IS NOT NULL AS \"is_codebase!\" FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
                 importer_path,
                 w_id
             )
             .fetch_optional(&mut *tx)
             .await?
             {
-                Some(hash) => {
+                Some(row) if row.is_codebase => {
+                    // A codebase bundle carries its imports and only the CLI can rebuild it, so
+                    // a relock would deploy a version with no bundle and every run would fail.
+                    // Its importer rows are left alone: deleting them here, unserialized with
+                    // deploys, can drop the rows of a plain version deployed meanwhile.
+                    continue;
+                }
+                Some(row) => {
+                    let hash = row.hash;
                     tracing::debug!("newest hash for {} is: {hash}", importer_path);
 
                     let info =

@@ -154,6 +154,7 @@
 						{/if}
 					{:else}
 						<QuickMenuItem
+							href={`/run/${r?.document.id[0]}`}
 							onselect={(shift) => {
 								selectedItem = r
 								selectedWorkspace = r?.document.workspace_id[0]

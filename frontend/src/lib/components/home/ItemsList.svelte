@@ -75,6 +75,8 @@
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { bulkKey, HomeSelection, setHomeSelection } from './homeSelection.svelte'
 	import HomeQuickAccess from './HomeQuickAccess.svelte'
+	import { recentItems } from './recentItems.svelte'
+	import { cacheIdentity } from '$lib/persistedCache.svelte'
 
 	const editRights = shareEditRights(useEditRights())
 
@@ -596,6 +598,19 @@
 	// handing back a cursor can't spin forever; hitting it leaves `hasMore` set, so the
 	// footer stays and another click resumes where this one stopped.
 	const OWNER_LOAD_ALL_PAGES = 100
+	// The first rows of each owner open now, by prefix, as last fetched. One entry per listing
+	// scope rather than one per owner: the cache is shared and bounded, and an entry per owner,
+	// sort and filter would evict the other pages' entries. Only what an opened node first
+	// renders is kept: the entry reaches the first frame only while it fits the localStorage
+	// snapshot's budget, which drops an oversized entry whole.
+	const openOwnerPagesCache = persistedValue<Record<string, { items: RunnableItem[] }>>(
+		'home_open_owner_pages',
+		1
+	)
+	const OWNER_CACHED_ROWS = 50
+	// Prefixes whose rows on screen are still the cached page: until a first page of their own
+	// lands, whichever load that is (one after a failed request included) replaces them.
+	const ownersShowingCache = new Set<string>()
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
@@ -645,11 +660,30 @@
 			gen
 		}
 		const prefix = `${owner}/`
-		// Only a forced refresh replaces this prefix's rows, so a reload swaps them without
-		// blanking the tree. Everything else merges: a nested prefix inherits rows from an
-		// ancestor's pages, and one page of its own can cover fewer of them than are shown —
+		const scopeArgs = {
+			...sortToParams(sortOrder),
+			showArchived: archived ? true : undefined,
+			includeWithoutMain: includeWithoutMain ? true : undefined,
+			kinds: runnableKinds,
+			includeDraftOnly: true,
+			perPage: OWNER_PAGE_SIZE
+		}
+		const params = { ...scopeArgs, pathStart: prefix }
+		const cacheScope = { workspace: ws, args: scopeArgs }
+		const sentWith = readSessionHint()
+		// A first load with nothing of this prefix on screen (a reload reopening the owners left
+		// open) paints the page last fetched, so the frame that mounts the tree has the rows the
+		// Home snapshot painted before the app booted.
+		const cached =
+			!more && !force && !treeOwnerItems.some((x) => effectivePath(x).startsWith(prefix))
+				? openOwnerPagesCache.peek(cacheScope)?.[owner]
+				: undefined
+		if (cached) ownersShowingCache.add(owner)
+		// A forced refresh, or the fresh page replacing a cached one, swaps this prefix's rows
+		// without blanking the tree. Everything else merges: a nested prefix inherits rows from
+		// an ancestor's pages, and one page of its own can cover fewer of them than are shown —
 		// replacing would delete rows on the click meant to add them.
-		const replacing = !more && force
+		const replacing = !more && (force || ownersShowingCache.has(owner))
 		// Merges a page and answers how many rows it actually added. Reads the live store
 		// each time rather than a snapshot, so a page landing while another prefix loads
 		// doesn't drop that prefix's rows.
@@ -674,6 +708,10 @@
 			treeOwnerItems = merged
 			return added
 		}
+		if (cached) {
+			mergePage(cached.items)
+			firstMerge = true
+		}
 		let cursor = more ? st?.cursor : undefined
 		let nextCursor: string | undefined
 		// A nested prefix's own stream restarts at its first row, which an ancestor's pages
@@ -685,17 +723,7 @@
 		for (let page = 0; page < (all ? OWNER_LOAD_ALL_PAGES : OWNER_CATCH_UP_PAGES); page++) {
 			let res: { items: RunnableItem[]; next_cursor?: string }
 			try {
-				res = await ScriptService.listRunnables({
-					workspace: ws,
-					...sortToParams(sortOrder),
-					showArchived: archived ? true : undefined,
-					includeWithoutMain: includeWithoutMain ? true : undefined,
-					kinds: runnableKinds,
-					pathStart: prefix,
-					includeDraftOnly: true,
-					perPage: OWNER_PAGE_SIZE,
-					cursor
-				})
+				res = await ScriptService.listRunnables({ workspace: ws, ...params, cursor })
 			} catch (e: any) {
 				if (gen !== treeGen) return
 				// Keep the cursor the pages that did land reached, so the next click resumes
@@ -718,7 +746,22 @@
 			// workspace changed and reset the tree); drop the response so stale rows from
 			// another scope can't appear under the current one.
 			if (gen !== treeGen) return
+			if (!more && page === 0) {
+				// Owners closed since are dropped: a reload reopens only the ones open now.
+				const kept = Object.entries(openOwnerPagesCache.peek(cacheScope) ?? {}).filter(([p]) =>
+					openOwners.has(p)
+				)
+				openOwnerPagesCache.save(
+					cacheScope,
+					{
+						...Object.fromEntries(kept),
+						[owner]: { items: res.items.slice(0, OWNER_CACHED_ROWS) }
+					},
+					sentWith
+				)
+			}
 			const added = mergePage(res.items)
+			if (replacing) ownersShowingCache.delete(owner)
 			nextCursor = res.next_cursor
 			cursor = nextCursor
 			// Collapsing the node is the only way to stop a run that spans many pages;
@@ -805,7 +848,15 @@
 		await reloadItems()
 		await tick()
 		homeSelection.dropVanished(renderedBefore)
+		void recentItems.prune($workspaceStore ?? '')
 	}
+
+	// Once per visit and workspace, here rather than in the Recent section, which unmounts
+	// while searching. `cacheIdentity` makes it wait for a user whose session is confirmed.
+	$effect(() => {
+		const workspace = $workspaceStore
+		if (workspace && cacheIdentity()) untrack(() => void recentItems.prune(workspace))
+	})
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TableScript | TableFlow | TableApp | TableRawApp | TableAgent,
@@ -912,6 +963,9 @@
 		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
 
+	// Only the unfiltered tree lists folders it holds no rows of.
+	let hideEmptyFoldersOffered = $derived(treeLazyMode && !archived && keepEmptyFolders)
+
 	let listSettingsItems: MenuItem[] = $derived([
 		{
 			displayName: 'Flat list',
@@ -922,10 +976,9 @@
 		{
 			displayName: 'Hide empty folders',
 			description:
-				'Folders with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
+				'Folders and your user space with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
 			toggle: hideEmptyFolders,
-			// Only the unfiltered tree lists folders it holds no rows of.
-			hide: !treeLazyMode || archived || !keepEmptyFolders,
+			hide: !hideEmptyFoldersOffered,
 			action: () => setHideEmptyFolders(!hideEmptyFolders)
 		},
 		{
@@ -2411,6 +2464,7 @@
 							: undefined}
 						keepEmptyFolders={keepEmptyFolders && !hideEmptyFolders}
 						{keptFolders}
+						hideEmptySelf={hideEmptyFoldersOffered && hideEmptyFolders}
 					/>
 				{/key}
 			{/if}

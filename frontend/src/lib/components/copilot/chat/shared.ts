@@ -704,6 +704,8 @@ export type ToolDisplayMessage = {
 	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
+	/** A `read_workspace_item` call that found an agent: the tool's `type` only says resource. */
+	readsAgent?: boolean
 	/** What marks this row with its provider. Recorded rather than looked up, because the
 	 * server listing lives only in memory and a reloaded transcript does not have it. The
 	 * workspace rides along: a chat is readable from any workspace, and the same path names

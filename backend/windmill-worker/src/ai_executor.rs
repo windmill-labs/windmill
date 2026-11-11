@@ -66,8 +66,9 @@ use windmill_common::{
     flows::{AgentTool, FlowModule, FlowModuleValue, InputTransform, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
-    scripts::get_full_hub_script_by_path,
-    utils::{StripPath, HTTP_CLIENT},
+    runnable_ref::RunnableRef,
+    scripts::get_full_hub_script_by_id,
+    utils::HTTP_CLIENT,
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{append_logs, cancel_single_job, CanceledBy, MiniPulledJob};
@@ -761,7 +762,22 @@ pub async fn handle_ai_agent_job(
     };
 
     let value = flow_data.value();
-    let preserve_step_tags = value.preserve_step_tags;
+    // Tools resolve their tag against the agent's, so only a custom agent tag needs the walk.
+    let preserve_step_tags = value.preserve_step_tags
+        || (flow_job.parent_job.is_some()
+            && !crate::worker_flow::is_default_flow_tag(
+                &job.tag,
+                &job.workspace_id,
+                windmill_queue::tags::dev_flow_tag_suffix(&job.workspace_id, &job.tag, db)
+                    .await?
+                    .as_deref(),
+            )
+            && crate::worker_flow::enclosing_flow_preserves_step_tags(
+                db,
+                &job.workspace_id,
+                flow_job_id,
+            )
+            .await?);
 
     let module = if direct_parent_job_kind == JobKind::AIAgent {
         let parent_agent_step_id = direct_parent_job_flow_step_id.as_deref().ok_or_else(|| {
@@ -1062,13 +1078,10 @@ pub async fn handle_ai_agent_job(
                             )
                         }
                         None => {
-                            if path.starts_with("hub/") {
-                                let hub_script = get_full_hub_script_by_path(
-                                    StripPath(path.to_string()),
-                                    &HTTP_CLIENT,
-                                    None,
-                                )
-                                .await?;
+                            let tool = RunnableRef::from_path(path, false)?;
+                            if let Some(hub_id) = tool.hub_id() {
+                                let hub_script =
+                                    get_full_hub_script_by_id(hub_id, &HTTP_CLIENT, None).await?;
                                 // Hub scripts carry their free-text description in `summary`.
                                 derived_description = hub_script
                                     .summary
@@ -1080,7 +1093,7 @@ pub async fn handle_ai_agent_job(
                                 let hash = get_latest_hash_for_path(
                                     &mut *db.acquire().await?,
                                     &job.workspace_id,
-                                    path.as_str(),
+                                    tool.path(),
                                     true,
                                 )
                                 .await?
@@ -1088,7 +1101,7 @@ pub async fn handle_ai_agent_job(
                                 // update module definition to use a fixed hash so all tool calls match the same schema
                                 t.value = to_raw_value(&FlowModuleValue::Script {
                                     hash: Some(hash),
-                                    path: path.clone(),
+                                    path: tool.path().to_string(),
                                     tag_override: tag_override.clone(),
                                     input_transforms: input_transforms.clone(),
                                     is_trigger: *is_trigger,
@@ -1702,7 +1715,7 @@ pub async fn run_agent(
                 function: ToolDefFunction {
                     name: unique_tool_name,
                     description: Some(
-                        "This tool MUST be used last to return a structured JSON object as the final output."
+                        "Return the final answer. Always finish by calling this tool exactly once with the answer as its input, instead of replying in plain text."
                             .to_string(),
                     ),
                     parameters: to_raw_value(&schema),

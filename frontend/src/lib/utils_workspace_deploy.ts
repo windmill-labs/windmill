@@ -694,6 +694,7 @@ export async function createFolderIfAbsent(
 			workspace: workspaceTo,
 			requestBody: {
 				name,
+				display_name: folder.display_name,
 				owners: owners.map(translate).filter((p): p is string => !!p),
 				extra_perms: Object.fromEntries(
 					acl.flatMap(([p, write]) => {

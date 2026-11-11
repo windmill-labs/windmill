@@ -24,7 +24,7 @@
 	import { latestRequest } from '$lib/utils/latestRequest'
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { enterpriseLicense, usedTriggerKinds, workspaceStore } from '$lib/stores'
-	import { goto, setQuery } from '$lib/navigation'
+	import { isNewTabClick, setQuery } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import {
@@ -144,11 +144,6 @@
 	function openEdit(path: string, isFlow: boolean) {
 		if (hosted) hosted.openItem(path)
 		else editor?.openEdit(path, isFlow)
-	}
-
-	function openLink(href: string) {
-		if (hosted) hosted.openLink(href)
-		else goto(href)
 	}
 
 	async function getDeployUiSettings() {
@@ -714,6 +709,7 @@
 			<a
 				href="#{path}"
 				onclick={(e) => {
+					if (!hosted && isNewTabClick(e)) return
 					if (hosted) e.preventDefault()
 					openEdit(path, is_flow)
 				}}
@@ -793,7 +789,7 @@
 						{
 							displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
 							icon: Eye,
-							action: () => openLink(href)
+							...(hosted ? { action: () => hosted.openLink(href) } : { href })
 						},
 						...(canEdit && !draft_only && mode !== 'suspended'
 							? [

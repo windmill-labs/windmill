@@ -22,6 +22,12 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
+	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
+	import { getStepPropPicker } from '../previousResults'
+	import { emptySchema } from '$lib/utils'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		noEditor: boolean
@@ -79,7 +85,29 @@
 		dragging = false
 	}
 
-	const { flowStore, flowStateStore, history } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, flowStateStore, history, previewArgs } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+
+	if (typeof value.parallelism === 'number') {
+		value.parallelism = { type: 'static', value: value.parallelism }
+	}
+
+	const DEFAULT_PARALLELISM = 2
+	let parallelismEditor: SimpleEditor | undefined = $state(undefined)
+	let parallelismSchema = $state(emptySchema())
+	parallelismSchema.properties['parallelism'] = { type: 'integer' }
+	const parallelismCapped = $derived(value.parallelism != undefined)
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			flowStateStore.val,
+			parentModule,
+			previousModule,
+			flowModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
+	)
 
 	function addBranch() {
 		addBranchOp(flowModule.id, { flowStore, history })
@@ -108,6 +136,23 @@
 		}
 	})
 </script>
+
+{#snippet parallelismToggle()}
+	<Toggle
+		size="xs"
+		textClass="text-xs font-normal text-primary"
+		checked={parallelismCapped}
+		on:change={({ detail }) => {
+			value.parallelism = detail ? { type: 'static', value: DEFAULT_PARALLELISM } : undefined
+		}}
+		options={{
+			right: 'Limit concurrent branches',
+			rightTooltip:
+				'Cap how many branches run at once. The others wait and start as running ones finish. Without a cap every branch starts at once.',
+			rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_branches#branch-all'
+		}}
+	/>
+{/snippet}
 
 <div class="h-full flex flex-col w-full" id="flow-editor-branch-all-wrapper">
 	<FlowCard
@@ -206,10 +251,43 @@
 							<Toggle
 								id="branchall-parallel-{flowModule.id}"
 								bind:checked={value.parallel}
+								on:change={({ detail }) => {
+									// An absent `parallelism` means "no cap" to the worker.
+									if (!detail) value.parallelism = undefined
+								}}
 								options={{
 									right: 'All branches run in parallel'
 								}}
 							/>
+							{#if value.parallel}
+								<div class="mt-2 pl-9" transition:slideDynamic>
+									<PropPickerWrapper
+										sidePane
+										flow_input={stepPropPicker.pickableProperties.flow_input}
+										notSelectable
+										pickableProperties={stepPropPicker.pickableProperties}
+										on:select={({ detail }) => {
+											parallelismEditor?.insertAtCursor(detail)
+											parallelismEditor?.focus()
+										}}
+									>
+										<!-- Keyed on the toggle: the form seeds its static/expression mode once. -->
+										{#key parallelismCapped}
+											<InputTransformForm
+												bind:arg={() => value.parallelism, (v) => (value.parallelism = v)}
+												argName="parallelism"
+												collapsed={!parallelismCapped}
+												header={parallelismToggle}
+												schema={parallelismSchema}
+												argExtra={{ min: 1, step: 1 }}
+												animateAppear
+												previousModuleId={previousModule?.id}
+												bind:editor={parallelismEditor}
+											/>
+										{/key}
+									</PropPickerWrapper>
+								</div>
+							{/if}
 						</div>
 					</section>
 				{:else}

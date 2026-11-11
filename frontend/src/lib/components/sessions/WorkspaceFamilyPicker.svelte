@@ -18,6 +18,7 @@
 		workspaceSubtreeRows
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
+	import { isNewTabClick } from '$lib/navigation'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { WorkspaceService } from '$lib/gen'
@@ -553,7 +554,9 @@
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 				<a
 					href={settingsHref}
-					onclick={() => (dropdownOpen = false)}
+					onclick={(e) => {
+						if (!isNewTabClick(e)) dropdownOpen = false
+					}}
 					class={`${rowBase} shrink-0 hover:bg-surface-hover`}
 				>
 					<Settings size={14} class="shrink-0 text-tertiary" />

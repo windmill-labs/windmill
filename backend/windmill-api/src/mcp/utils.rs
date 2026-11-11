@@ -768,16 +768,16 @@ struct McpPreprocessorEvent<'a> {
 
 /// Headers withheld from a preprocessor because they authenticate the connection.
 ///
-/// Not a security boundary: a webhook preprocessor receives all three. Withheld
-/// because nothing needs them yet, and releasing one later is additive while
-/// withdrawing one after runnables read it is not.
+/// `build_headers` already withholds Windmill's own credentials. The rest is
+/// withheld because nothing needs it yet, and releasing one later is additive
+/// while withdrawing one after runnables read it is not.
 const WITHHELD_FROM_PREPROCESSOR: &[&str] = &["authorization", "cookie", "proxy-authorization"];
 
 /// Every header a preprocessor may see.
 fn preprocessor_headers(
     headers: &http::HeaderMap,
 ) -> HashMap<String, Box<serde_json::value::RawValue>> {
-    let mut selected = build_headers(headers, None, true);
+    let mut selected = build_headers(headers, None, true, true);
     selected.retain(|name, _| {
         !WITHHELD_FROM_PREPROCESSOR
             .iter()
@@ -804,18 +804,17 @@ pub async fn prepare_push_args(
         }
     }
 
-    let runnable_id = if runnable.is_flow() {
-        RunnableId::from_flow_path(runnable.path())
-    } else {
-        // Resolves a `hub/<version_id>` path to the hub script on its own.
-        RunnableId::from_script_path(runnable.path())
-    };
-
     // MCP is not one of the `TRIGGER_KIND` enum values and does not need to be:
     // the per-kind arms of the no-preprocessor heuristic are payload-shape
     // special cases for message triggers, and `Webhook` reaches the same generic
     // arm MCP wants while sharing that kind's format cache.
-    let runnable_format = get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook).await?;
+    let runnable_format = get_runnable_format(
+        RunnableId::from_ref(runnable),
+        w_id,
+        db,
+        &TriggerKind::Webhook,
+    )
+    .await?;
 
     Ok(match runnable_format {
         // Without a preprocessor there is nowhere for a header to go that the

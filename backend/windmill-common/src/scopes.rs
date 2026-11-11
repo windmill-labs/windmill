@@ -424,7 +424,8 @@ impl ScopeDomain {
             "concurrency_groups" => Some(Self::ConcurrencyGroups),
             "oidc" => Some(Self::Oidc),
             "openapi" => Some(Self::Openapi),
-            "acls" => Some(Self::Acls),
+            // `/access` reports which grants reach a principal, so `acls` scopes cover it.
+            "acls" | "access" => Some(Self::Acls),
             "raw_apps" => Some(Self::RawApps),
             "agent_workers" => Some(Self::AgentWorkers),
             "mcp" => Some(Self::Mcp),

@@ -18,6 +18,7 @@ pub use windmill_common::db::DB;
 use windmill_common::{
     error::Error,
     global_settings::INSTANCE_PYTHON_VERSION_SETTING,
+    hub_resource_types::DISABLE_RT_SYNC,
     utils::{generate_lock_id, GIT_VERSION},
     worker::PyVAlias,
 };
@@ -119,6 +120,12 @@ lazy_static::lazy_static! {
                     (20261015114712, include_str!(
                         "../../migrations/20261015114712_queue_workspace_scheduled_for_index.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261105203203, include_str!(
+                        "../../migrations/20261105203203_concurrency_key_waiting_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261106050615, include_str!(
+                        "../../migrations/20261106050615_concurrency_key_place_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     // The widening fails every query the previous release's still-running
                     // servers prepared on the column; `variables::widen_variable_value` does it
                     // once they are gone.
@@ -126,6 +133,12 @@ lazy_static::lazy_static! {
                         "../../migrations/20261012213357_widen_variable_value.up.sql"
                     ).replace("ALTER TABLE variable ALTER COLUMN value TYPE VARCHAR(15040);", "")),
                     ].into_iter().collect();
+
+    /// A whole `INSERT INTO resource_type` statement, quoted `;` included, which
+    /// `DISABLE_RT_SYNC` strips from migrations. Matched rather than marked in the files:
+    /// editing an applied migration changes its checksum, which sqlx refuses at startup.
+    static ref RESOURCE_TYPE_SEED: regex::Regex =
+        regex::Regex::new(r"(?i)INSERT\s+INTO\s+resource_type\b(?:[^;']|'(?:[^']|'')*')*;").unwrap();
 }
 
 pub struct CustomMigrator {
@@ -244,7 +257,21 @@ impl Migrate for CustomMigrator {
             );
 
 
-            if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
+            let mut overridden = OVERRIDDEN_MIGRATIONS
+                .get(&migration.version)
+                .map(|sql| std::borrow::Cow::Borrowed(sql.as_str()));
+            if *DISABLE_RT_SYNC {
+                let sql = overridden.as_deref().unwrap_or(&migration.sql);
+                if let std::borrow::Cow::Owned(stripped) = RESOURCE_TYPE_SEED.replace_all(sql, "") {
+                    tracing::info!(
+                        "DISABLE_RT_SYNC: not seeding the resource types of migration {}",
+                        migration.version
+                    );
+                    overridden = Some(std::borrow::Cow::Owned(stripped));
+                }
+            }
+
+            if let Some(migration_sql) = overridden {
                 tracing::info!("Using custom migration for version {}", migration.version);
 
                 if migration_sql.contains("CONCURRENTLY") {
@@ -271,7 +298,7 @@ impl Migrate for CustomMigrator {
                         }
                     }
                 } else if !migration_sql.is_empty() {
-                    self.inner.execute(&**migration_sql).await?;
+                    self.inner.execute(&*migration_sql).await?;
                 }
                 let _ = sqlx::query(
                     r#"
@@ -457,7 +484,16 @@ pub async fn wait_for_migrations(
         "This worker is on Windmill version {GIT_VERSION} (migration version {latest_version}). Only servers run migrations. Waiting for a server with version >= {GIT_VERSION} to apply the migration..."
     );
 
-    let mut attempts = 0;
+    // During a rolling upgrade, new workers start at the same time as the new
+    // server, which needs a while to come up and migrate. Exiting early only
+    // makes the pod restart and look like a crash loop, so wait long enough to
+    // cover a normal rollout and only give up if the server is truly not coming.
+    const RECHECK_SECS: u64 = 3;
+    // Over 12 rollouts (3,430 worker starts) the longest wait was 94s and
+    // p99 47s; 3 minutes covers that with margin.
+    const MAX_WAIT_SECS: u64 = 3 * 60;
+    const LOG_EVERY: u64 = 10;
+    let mut attempts: u64 = 0;
 
     loop {
         let is_applied: Result<Option<bool>, sqlx::Error> =
@@ -473,16 +509,19 @@ pub async fn wait_for_migrations(
                 );
                 return Ok(());
             }
-            Ok(_) => {
+            Ok(_) if attempts % LOG_EVERY == 0 => {
                 tracing::info!(
-                    "Database not up to date yet. This worker (Windmill {GIT_VERSION}, migration version {latest_version}) is waiting for a server with version >= {GIT_VERSION} to run the migration. Rechecking in 3s..."
+                    "Database not up to date yet. This worker (Windmill {GIT_VERSION}, migration version {latest_version}) is waiting for a server with version >= {GIT_VERSION} to run the migration. Waited {}s so far, giving up after {MAX_WAIT_SECS}s...",
+                    attempts * RECHECK_SECS
                 );
             }
-            Err(e) => {
+            Ok(_) => {}
+            Err(e) if attempts % LOG_EVERY == 0 => {
                 tracing::info!(
-                    "Could not check migration status (migrations table may not exist yet): {e:#}. Rechecking in 3s..."
+                    "Could not check migration status (migrations table may not exist yet): {e:#}. Rechecking every {RECHECK_SECS}s..."
                 );
             }
+            Err(_) => {}
         }
 
         tokio::select! {
@@ -490,15 +529,27 @@ pub async fn wait_for_migrations(
                 tracing::info!("Killpill received, stopping migration wait");
                 return Ok(());
             }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+            _ = tokio::time::sleep(std::time::Duration::from_secs(RECHECK_SECS)) => {}
         }
 
         attempts += 1;
-        if attempts >= 10 {
+        if attempts * RECHECK_SECS >= MAX_WAIT_SECS {
             tracing::error!(
-                "Timed out after 10 attempts waiting for migration version {latest_version}. Exiting."
+                "Timed out after {MAX_WAIT_SECS}s waiting for migration version {latest_version}. Exiting."
             );
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn resource_type_seed_is_stripped_whole() {
+        // Its description carries a `;` inside a quoted string, and statements follow the seed.
+        let sql = include_str!("../../migrations/20260831120907_skills_resource_type.up.sql");
+        let stripped = super::RESOURCE_TYPE_SEED.replace_all(sql, "");
+        assert!(!stripped.to_lowercase().contains("insert into resource_type"));
+        assert!(stripped.contains("INSERT INTO folder"));
     }
 }

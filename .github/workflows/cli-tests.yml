@@ -47,7 +47,22 @@ jobs:
         with:
           node-version: "20"
 
+      # setup-bun downloads from GitHub releases on every run and gives up after
+      # ~40s of 504s; outages last longer, so each job retries once after a pause.
       - name: Setup Bun
+        id: setup-bun
+        continue-on-error: true
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Wait before retrying Bun setup
+        if: steps.setup-bun.outcome == 'failure'
+        shell: bash
+        run: sleep 60
+
+      - name: Setup Bun (retry)
+        if: steps.setup-bun.outcome == 'failure'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -94,6 +109,19 @@ jobs:
           node-version: "20"
 
       - name: Setup Bun
+        id: setup-bun
+        continue-on-error: true
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Wait before retrying Bun setup
+        if: steps.setup-bun.outcome == 'failure'
+        shell: bash
+        run: sleep 60
+
+      - name: Setup Bun (retry)
+        if: steps.setup-bun.outcome == 'failure'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -148,6 +176,19 @@ jobs:
           node-version: "20"
 
       - name: Setup Bun
+        id: setup-bun
+        continue-on-error: true
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Wait before retrying Bun setup
+        if: steps.setup-bun.outcome == 'failure'
+        shell: bash
+        run: sleep 60
+
+      - name: Setup Bun (retry)
+        if: steps.setup-bun.outcome == 'failure'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
