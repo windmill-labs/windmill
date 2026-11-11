@@ -33887,7 +33887,7 @@ components:
           type: boolean
         preserve_on_behalf_of:
           type: boolean
-          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own, or the one the agent runs as now when the value names none. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
+          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
 
     Resource:
       type: object

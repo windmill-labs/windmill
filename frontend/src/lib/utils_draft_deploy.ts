@@ -722,15 +722,18 @@ export async function deployDraft(
 					}
 				})
 			} else {
+				// As for an app: an agent draft carries no identity, so the deployed one is kept (the
+				// backend resets it to the deploying user without the flag, gated by
+				// can_preserve_on_behalf_of).
+				const agentObo =
+					deployed.resource_type === 'ai_agent' ? deployed.value?.on_behalf_of : undefined
 				await ResourceService.updateResource({
 					workspace,
 					path,
 					requestBody: {
 						path: d.path ?? path,
-						value: d.args ?? {},
-						// As for an app: an agent draft carries no identity, so the deployed one is kept,
-						// for whoever the server lets keep it.
-						preserve_on_behalf_of: agent || undefined,
+						value: agentObo ? { ...(d.args ?? {}), on_behalf_of: agentObo } : (d.args ?? {}),
+						preserve_on_behalf_of: agentObo ? true : undefined,
 						description: d.description ?? '',
 						labels: d.labels,
 						ws_specific: d.wsSpecific

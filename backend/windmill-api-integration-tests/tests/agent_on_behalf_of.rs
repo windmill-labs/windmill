@@ -62,22 +62,6 @@ async fn test_agent_write_resets_identity(db: Pool<Postgres>) -> anyhow::Result<
     assert!((200..300).contains(&status), "create: {status} {body}");
     assert_eq!(agent_identity(&db).await?.as_deref(), Some("u/test-user-2"));
 
-    // Asking to keep it without naming it, as a draft's deploy does, keeps the deployed one.
-    let mut unnamed = value.clone();
-    unnamed.as_object_mut().unwrap().remove("on_behalf_of");
-    let (status, body) = post(
-        &base_url,
-        "SECRET_TOKEN",
-        &format!("resources/update/{AGENT}"),
-        json!({ "value": unnamed, "preserve_on_behalf_of": true }),
-    )
-    .await?;
-    assert!(
-        (200..300).contains(&status),
-        "keep unnamed: {status} {body}"
-    );
-    assert_eq!(agent_identity(&db).await?.as_deref(), Some("u/test-user-2"));
-
     // The agent's owner, not an admin, asking to keep it.
     let (status, body) = post(
         &base_url,

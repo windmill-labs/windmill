@@ -127,7 +127,7 @@ describe('deployDraft preserves on_behalf_of', () => {
 		)
 	})
 
-	it('agent: asks to keep the deployed identity, which its draft never carries', async () => {
+	it('agent: claims the deployed identity, which its draft never carries', async () => {
 		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
 			path: 'f/support/triage_agent',
 			resource_type: 'ai_agent',
@@ -139,7 +139,7 @@ describe('deployDraft preserves on_behalf_of', () => {
 		expect(ResourceService.updateResource).toHaveBeenCalledWith(
 			expect.objectContaining({
 				requestBody: expect.objectContaining({
-					value: { system_prompt: 'drafted' },
+					value: { system_prompt: 'drafted', on_behalf_of: 'u/alice' },
 					preserve_on_behalf_of: true
 				})
 			})
