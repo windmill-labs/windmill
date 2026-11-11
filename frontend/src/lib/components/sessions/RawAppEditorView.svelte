@@ -150,6 +150,9 @@
 		const saved = UserDraftDbSyncer.getState(key)
 		if (saved.state === 'failed') {
 			sendUserToast(`Could not save the app: ${saved.failureMessage ?? 'unknown error'}`, true)
+			// Left parked, the syncer would retry this setup on unmount or page close, after the
+			// user may have dismissed the reopened picker or chosen to build with AI instead.
+			UserDraftDbSyncer.dropPending(key)
 			setupSettled = false
 			return
 		}
