@@ -759,6 +759,10 @@ async fn route_job(
             &params,
             runnable_format,
             trigger.wrap_body,
+            matches!(
+                trigger.authentication_method,
+                AuthenticationMethod::Windmill
+            ),
         )
         .map(windmill_queue::PushArgsOwned::omit_untrusted_interpolation)
         .map_err(|e| e.into_response())?;

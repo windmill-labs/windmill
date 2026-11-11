@@ -19,7 +19,10 @@
 # ============================================================================
 # Build final extra services image from windmill-ee-slim (includes nsjail)
 # ============================================================================
-FROM ghcr.io/windmill-labs/windmill-ee-slim:latest AS final
+# Release builds pass this release's ee-slim by digest: at tag time :latest is
+# still the previous release.
+ARG BASE_IMAGE=ghcr.io/windmill-labs/windmill-ee-slim:latest
+FROM ${BASE_IMAGE} AS final
 
 ARG APP=/usr/src/app
 
@@ -138,9 +141,16 @@ RUN addgroup --gid 1000 windmill && \
 # (/tmp/windmill/cache/uv) after the base already made it world-writable, leaving
 # root-owned 0755 dirs that make uv fail EACCES for a non-root UID. /pyls/.cache
 # (XDG_CACHE_HOME, incl. DENO_DIR) and /tmp/monaco are written at runtime too.
-RUN chmod -R a+rX /usr/local /pyls /debugger /multiplayer /tmp/monaco && \
-    chmod -R a+rw /tmp/windmill /pyls/.cache && \
-    find /tmp/windmill /pyls/.cache /tmp/monaco -type d -exec chmod 777 {} +
+# Each find touches only paths missing the bits (same result as chmod -R): a
+# chmod on a file from an earlier layer copies it into this layer, so a blanket
+# chmod -R costs 15 min and 330 MB per arch here.
+RUN find /usr/local /pyls /debugger /multiplayer /tmp/monaco ! -type l \
+      \( ! -perm -a+r -o -perm /111 ! -perm -a+x -o -type d ! -perm -a+x \) \
+      -exec chmod a+rX {} + && \
+    find /tmp/windmill /pyls/.cache ! -type d ! -type l ! -perm -a+rw \
+      -exec chmod a+rw {} + && \
+    find /tmp/windmill /pyls/.cache /tmp/monaco -type d ! -perm 777 \
+      -exec chmod 777 {} +
 
 # Expose all service ports
 EXPOSE 3000 3001 3002 3003

@@ -290,6 +290,18 @@ describe('groupToolRuns', () => {
 		expect(header([mcp('list_issues'), other])).toBe('List issues, get issue')
 	})
 
+	it('counts agent reads apart from other workspace item reads', () => {
+		const read = { type: 'resource', path: 'f/a/x' }
+		const agent = { readsAgent: true }
+		expect(
+			header([
+				tool('read_workspace_item', read, agent),
+				tool('read_workspace_item', read, agent),
+				tool('read_workspace_item', read)
+			])
+		).toBe('Read 2 agents, read workspace item')
+	})
+
 	it('names the first three kinds of call and leaves the rest to `more`', () => {
 		const group = groupToolRuns([
 			tool('search_workspace'),

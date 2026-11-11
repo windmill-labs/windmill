@@ -1141,9 +1141,9 @@ async fn test_relative_imports_python(db: Pool<Postgres>) -> anyhow::Result<()> 
     let content = r#"
 from f.system.same_folder_script import main as test1
 from .same_folder_script import main as test2
-from f.system_relative.different_folder_script import main as test3
-from ..system_relative.different_folder_script import main as test4
-    
+from f.system_relative.system import main as test3
+from ..system_relative.loader import main as test4
+
 def main():
     return [test1(), test2(), test3(), test4()]
 "#
