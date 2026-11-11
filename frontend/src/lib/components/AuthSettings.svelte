@@ -629,29 +629,6 @@
 										/>
 									</label>
 								{/if}
-								{#if k === 'gworkspace'}
-									<div>
-										<Toggle
-											options={{
-												right:
-													'Allow workspace admins to set up Google integration triggers using these credentials'
-											}}
-											checked={oauths[k]?.share_with_workspaces ?? false}
-											on:change={(e) => {
-												if (oauths && oauths[k]) {
-													oauths[k] = { ...oauths[k], share_with_workspaces: e.detail }
-												}
-											}}
-										/>
-										{#if oauths[k]?.share_with_workspaces}
-											<p class="text-xs text-tertiary mt-1">
-												Workspace admins will be able to connect Google integration triggers without
-												configuring their own OAuth client. The credentials are not exposed to them.
-												Connections use the redirect URI above.
-											</p>
-										{/if}
-									</div>
-								{/if}
 							</div>
 						</div>
 					{/if}

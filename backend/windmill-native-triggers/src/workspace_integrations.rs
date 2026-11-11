@@ -24,7 +24,6 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     utils::{require_admin, HTTP_CLIENT},
-    variables::{build_crypt, encrypt},
     DB,
 };
 
@@ -35,7 +34,7 @@ use windmill_api_auth::{check_scopes, require_is_writer, ApiAuthed};
 use crate::{
     decrypt_oauth_data, delete_token_by_hash, delete_workspace_integration, instance_base_url,
     instance_oauth_entry, list_usable_connections, lock_connection, nextcloud::OcsResponse,
-    require_native_integration_use, resolve_endpoint, Connection, ServiceName,
+    resolve_endpoint, Connection, ServiceName,
 };
 
 #[cfg(feature = "native_trigger")]
@@ -60,17 +59,15 @@ type HmacSha256 = Hmac<Sha256>;
 const STATE_EXPIRATION_SECONDS: i64 = 600; // 10 minutes
 
 /// Generate a signed OAuth state that is cluster-safe.
-/// The state contains: workspace_id, service_name, timestamp, nonce, the path the connection
-/// will be saved at, and the user it was issued to. The path makes the callback independent of the
-/// page the provider redirects to; the user stops anyone else from finishing the flow, which would
-/// save their account at a path the issuer chose.
+/// The state contains: workspace_id, service_name, timestamp, nonce and the user it was issued to.
+/// The workspace and service make the callback independent of the page the provider redirects to;
+/// the user stops anyone else from exchanging the code, which would hand them the issuer's token.
 /// It's signed with HMAC-SHA256 using the workspace key.
 #[cfg(feature = "native_trigger")]
 async fn generate_signed_state(
     db: &DB,
     workspace_id: &str,
     service_name: ServiceName,
-    connection_path: &str,
     username: &str,
 ) -> Result<String> {
     use windmill_common::variables::get_workspace_key;
@@ -78,12 +75,11 @@ async fn generate_signed_state(
     let nonce = uuid::Uuid::new_v4().to_string();
     let timestamp = chrono::Utc::now().timestamp();
     let payload = format!(
-        "{}:{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}",
         workspace_id,
         service_name.as_str(),
         timestamp,
         nonce,
-        URL_SAFE_NO_PAD.encode(connection_path),
         URL_SAFE_NO_PAD.encode(username)
     );
 
@@ -101,8 +97,7 @@ async fn generate_signed_state(
     Ok(format!("{}:{}", encoded_payload, encoded_signature))
 }
 
-/// Validate a signed OAuth state (correct signature, workspace, service and user, not expired)
-/// and return the connection path it was issued for.
+/// Validate a signed OAuth state: correct signature, workspace, service and user, not expired.
 #[cfg(feature = "native_trigger")]
 async fn validate_signed_state(
     db: &DB,
@@ -110,7 +105,7 @@ async fn validate_signed_state(
     workspace_id: &str,
     service_name: ServiceName,
     username: &str,
-) -> Result<String> {
+) -> Result<()> {
     use windmill_common::variables::get_workspace_key;
 
     let invalid = || Error::BadRequest("Invalid or expired state parameter".to_string());
@@ -123,13 +118,12 @@ async fn validate_signed_state(
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .ok_or_else(invalid)?;
 
-    // Parse payload: workspace_id:service_name:timestamp:nonce:connection_path:username
-    let [state_workspace_id, state_service, timestamp, _nonce, encoded_path, encoded_user] =
-        payload
-            .split(':')
-            .collect::<Vec<_>>()
-            .try_into()
-            .map_err(|_| invalid())?;
+    // Parse payload: workspace_id:service_name:timestamp:nonce:username
+    let [state_workspace_id, state_service, timestamp, _nonce, encoded_user] = payload
+        .split(':')
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|_| invalid())?;
 
     if state_workspace_id != workspace_id
         || state_service != service_name.as_str()
@@ -150,14 +144,7 @@ async fn validate_signed_state(
     let received_signature = URL_SAFE_NO_PAD
         .decode(encoded_signature)
         .map_err(|_| invalid())?;
-    mac.verify_slice(&received_signature)
-        .map_err(|_| invalid())?;
-
-    URL_SAFE_NO_PAD
-        .decode(encoded_path)
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .ok_or_else(invalid)
+    mac.verify_slice(&received_signature).map_err(|_| invalid())
 }
 
 #[cfg(feature = "native_trigger")]
@@ -205,87 +192,48 @@ pub struct OAuthConfigResponse {
     pub redirect_uri: Option<String>,
 }
 
-/// The OAuth client a connection is made with: the workspace's own when an admin configured one,
-/// otherwise the instance's when the instance admin shares it. The flag says which.
+/// The OAuth app the workspace configured for the service, if any. Without one, connections use
+/// the instance's connect client through the resource connect flow.
 #[cfg(feature = "native_trigger")]
-async fn resolve_oauth_client(
+async fn workspace_app(
     db: &DB,
     workspace_id: &str,
     service_name: ServiceName,
-) -> Result<(WorkspaceOAuthConfig, bool)> {
-    let workspace_config =
+) -> Result<Option<WorkspaceOAuthConfig>> {
+    Ok(
         get_workspace_oauth_config::<WorkspaceOAuthConfig>(db, workspace_id, service_name)
             .await
             .ok()
-            .filter(|c| !c.instance_shared && !c.client_id.is_empty());
-    match workspace_config {
-        Some(config) => Ok((config, false)),
-        None => Ok((get_instance_oauth_config(db, service_name).await?, true)),
-    }
+            .filter(|c| !c.instance_shared && !c.client_id.is_empty()),
+    )
 }
 
-/// Connecting writes the connection's variable and resource at `path`, so a path-scoped token must
-/// cover both, whatever the user behind it may write.
+#[cfg(feature = "native_trigger")]
+async fn require_workspace_app(
+    db: &DB,
+    workspace_id: &str,
+    service_name: ServiceName,
+) -> Result<WorkspaceOAuthConfig> {
+    workspace_app(db, workspace_id, service_name)
+        .await?
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "This workspace has no {service_name} OAuth app. Connect through the instance's \
+                 instead."
+            ))
+        })
+}
+
+/// Sharing or disconnecting the connection at `path` acts on its variable and resource, so a
+/// path-scoped token must cover both, whatever the user behind it may write.
 #[cfg(feature = "native_trigger")]
 fn check_connection_scopes(authed: &ApiAuthed, path: &str) -> Result<()> {
     check_scopes(authed, || format!("variables:write:{path}"))?;
     check_scopes(authed, || format!("resources:write:{path}"))
 }
 
-/// Reconnecting at a path swaps the account every trigger using it acts as, including the shared
-/// account's, so only whoever connected it or an admin may replace what is there. Writing the
-/// path is not enough: a folder writer would otherwise turn other members' triggers into their own.
-///
-/// Admins included, only a connection the trigger connect flow made can be replaced. A resource connected
-/// from Resources keeps its scopes and lifecycle there: its token may carry scopes the runnables
-/// using it need and that a trigger connect would not ask for.
-#[cfg(feature = "native_trigger")]
-async fn check_can_replace(
-    db: &DB,
-    authed: &ApiAuthed,
-    workspace_id: &str,
-    path: &str,
-) -> Result<()> {
-    let existing = sqlx::query!(
-        r#"SELECT
-             (SELECT created_by FROM resource WHERE workspace_id = $1 AND path = $2) AS "owner?",
-             EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)
-               OR EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2) AS "taken!",
-             COALESCE((SELECT a.is_workspace_integration FROM variable v
-                       JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
-                       WHERE v.workspace_id = $1 AND v.path = $2), false) AS "managed!""#,
-        workspace_id,
-        path,
-    )
-    .fetch_one(db)
-    .await?;
-    if existing.taken && !existing.managed {
-        return Err(Error::BadRequest(format!(
-            "{path} was not connected by integration triggers. Triggers can use it, but it can only \
-             be replaced from Resources. Connect at another path to use a new account."
-        )));
-    }
-    if authed.is_admin {
-        return Ok(());
-    }
-    if existing.taken && existing.owner.as_deref() != Some(authed.username.as_str()) {
-        return Err(Error::NotAuthorized(format!(
-            "{path} holds a connection someone else created. Connect at another path, or ask an \
-             admin to reconnect it."
-        )));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "native_trigger")]
-fn default_connection_path(authed: &ApiAuthed, service_name: ServiceName) -> String {
-    format!(
-        "u/{}/native_{}",
-        authed.username,
-        service_name.resource_type()
-    )
-}
-
+/// The authorize URL of a resource connect made with the workspace's OAuth app. The token comes
+/// back to the caller through `oauth_callback`, which the resource connect saves like any other.
 #[cfg(feature = "native_trigger")]
 async fn generate_connect_url(
     authed: ApiAuthed,
@@ -293,105 +241,33 @@ async fn generate_connect_url(
     Path((workspace_id, service_name)): Path<(String, ServiceName)>,
     Json(body): Json<ConnectUrlBody>,
 ) -> JsonResult<String> {
-    require_native_integration_use(&db, &workspace_id, &authed).await?;
-
-    let (oauth_config, is_instance_shared) =
-        resolve_oauth_client(&db, &workspace_id, service_name).await?;
-
-    let connection_path = body
-        .resource_path
-        .filter(|p| !p.is_empty())
-        .unwrap_or_else(|| default_connection_path(&authed, service_name));
-    check_connection_scopes(&authed, &connection_path)?;
-    check_can_replace(&db, &authed, &workspace_id, &connection_path).await?;
-
-    let redirect_uri = redirect_uri_for(&oauth_config, is_instance_shared, service_name);
-    let scopes = connection_scopes(&db, &workspace_id, &connection_path, service_name).await?;
-
-    // Generate a signed state that is cluster-safe
-    let state = generate_signed_state(
-        &db,
-        &workspace_id,
-        service_name,
-        &connection_path,
-        &authed.username,
-    )
-    .await?;
+    let oauth_config = require_workspace_app(&db, &workspace_id, service_name).await?;
+    let redirect_uri = redirect_uri_for(&oauth_config, service_name);
+    let state = generate_signed_state(&db, &workspace_id, service_name, &authed.username).await?;
     let auth_url = build_authorization_url(
         &oauth_config,
         service_name,
         &state,
         &redirect_uri,
-        &scopes.join(" "),
+        &body.scopes.join(" "),
     );
     Ok(Json(auth_url))
 }
 
-/// Where every connection made with an instance client lands: the resource connect callback each
-/// instance client already registers.
+/// The redirect URI registered on the workspace app. Providers compare it to the registered one,
+/// so the server picks it, identically when authorizing and exchanging. An app saved before it
+/// stored its own uses the one the settings showed then.
 #[cfg(feature = "native_trigger")]
-fn canonical_redirect_uri(service_name: ServiceName) -> String {
-    format!(
-        "{}/oauth/callback/{}",
-        &**windmill_common::BASE_URL.load(),
-        service_name.resource_type()
-    )
-}
-
-/// The redirect a workspace app saved before it stored its own: the one the settings showed then.
-#[cfg(feature = "native_trigger")]
-fn legacy_redirect_uri(service_name: ServiceName) -> String {
-    format!(
-        "{}/workspace_settings?tab=native_triggers&service={}",
-        &**windmill_common::BASE_URL.load(),
-        service_name.as_str()
-    )
-}
-
-/// The redirect URI registered on the client a connection is made with. Providers compare it to
-/// the registered one, so the server picks it, identically when authorizing and exchanging.
-#[cfg(feature = "native_trigger")]
-fn redirect_uri_for(
-    config: &WorkspaceOAuthConfig,
-    is_instance_shared: bool,
-    service_name: ServiceName,
-) -> String {
-    if is_instance_shared {
-        canonical_redirect_uri(service_name)
-    } else if config.redirect_uri.is_empty() {
-        legacy_redirect_uri(service_name)
+fn redirect_uri_for(config: &WorkspaceOAuthConfig, service_name: ServiceName) -> String {
+    if config.redirect_uri.is_empty() {
+        format!(
+            "{}/workspace_settings?tab=native_triggers&service={}",
+            &**windmill_common::BASE_URL.load(),
+            service_name.as_str()
+        )
     } else {
         config.redirect_uri.clone()
     }
-}
-
-/// The scopes to ask for when connecting at `path`: what the service's triggers need, plus whatever
-/// the account there already holds, so reconnecting never takes access away from what uses it.
-#[cfg(feature = "native_trigger")]
-async fn connection_scopes(
-    db: &DB,
-    workspace_id: &str,
-    path: &str,
-    service_name: ServiceName,
-) -> Result<Vec<String>> {
-    let existing = sqlx::query_scalar!(
-        "SELECT a.scopes FROM variable v
-         JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
-         WHERE v.workspace_id = $1 AND v.path = $2",
-        workspace_id,
-        path,
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .unwrap_or_default();
-    let mut scopes: Vec<String> = service_name.required_scopes();
-    for scope in existing {
-        if !scopes.contains(&scope) {
-            scopes.push(scope);
-        }
-    }
-    Ok(scopes)
 }
 
 #[cfg(feature = "native_trigger")]
@@ -716,7 +592,7 @@ async fn list_integrations(
 }
 
 /// Whether the caller can create triggers for this service: the workspace has an OAuth client, the
-/// instance shares one, or the caller can already use a connection, such as a connected resource.
+/// instance has one, or the caller can already use a connection, such as a connected resource.
 #[cfg(feature = "native_trigger")]
 async fn integration_exist(
     authed: ApiAuthed,
@@ -724,7 +600,7 @@ async fn integration_exist(
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, service_name)): Path<(String, ServiceName)>,
 ) -> JsonResult<bool> {
-    if is_instance_sharing_enabled(&db, service_name).await? {
+    if has_instance_client(&db, service_name).await? {
         return Ok(Json(true));
     }
     let mut tx = user_db.begin(&authed).await?;
@@ -757,8 +633,8 @@ async fn integration_exist(
 #[cfg(feature = "native_trigger")]
 #[derive(Debug, Deserialize)]
 struct ConnectUrlBody {
-    /// Where to save the connection; defaults to `u/<caller>/native_<resource type>`.
-    resource_path: Option<String>,
+    #[serde(default)]
+    scopes: Vec<String>,
 }
 
 #[cfg(feature = "native_trigger")]
@@ -775,16 +651,17 @@ struct NextcloudUserData {
 }
 
 #[cfg(feature = "native_trigger")]
+/// Exchange the code of a connect made with the workspace's OAuth app, and hand the token back in
+/// the shape the resource connect callback answers. The caller saves it like any connected
+/// resource, flagged as issued by the workspace app so refreshes use it.
+#[cfg(feature = "native_trigger")]
 async fn oauth_callback(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
     Path((workspace_id, service_name)): Path<(String, ServiceName)>,
     Json(body): Json<OAuthCallbackBody>,
-) -> JsonResult<String> {
-    require_native_integration_use(&db, &workspace_id, &authed).await?;
-
-    let resource_path = validate_signed_state(
+) -> JsonResult<windmill_oauth::ConnectCallbackResponse> {
+    validate_signed_state(
         &db,
         &body.state,
         &workspace_id,
@@ -792,151 +669,29 @@ async fn oauth_callback(
         &authed.username,
     )
     .await?;
-    check_connection_scopes(&authed, &resource_path)?;
-    check_can_replace(&db, &authed, &workspace_id, &resource_path).await?;
 
-    let (oauth_config, is_instance_shared) =
-        resolve_oauth_client(&db, &workspace_id, service_name).await?;
-    let redirect_uri = redirect_uri_for(&oauth_config, is_instance_shared, service_name);
-    // Read before the connection there is replaced: it is the account whose scopes carry over.
-    let scopes = connection_scopes(&db, &workspace_id, &resource_path, service_name).await?;
-
-    let token_response =
+    let oauth_config = require_workspace_app(&db, &workspace_id, service_name).await?;
+    let redirect_uri = redirect_uri_for(&oauth_config, service_name);
+    let token_json =
         exchange_code_for_token(&oauth_config, service_name, &body.code, &redirect_uri).await?;
+    let token = windmill_oauth::parse_token_response(token_json, None)?;
 
-    let expires_in = token_response.expires_in.unwrap_or(3600);
-
-    // A user transaction, so the variable and resource policies decide whether the caller may
-    // write a connection at this path.
-    let mut tx = user_db.begin(&authed).await?;
-
-    // Reconnecting at a path swaps the token and account in place: the resource and variable keep
-    // their sharing and description, and the triggers using the path keep working.
-    let replaced_account = sqlx::query_scalar!(
-        "SELECT account FROM variable WHERE workspace_id = $1 AND path = $2",
-        workspace_id,
-        resource_path,
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-
-    // 1. Create account record for token refresh
-    let account_id = sqlx::query_scalar!(
-        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, is_workspace_integration, scopes)
-         VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, true, $5)
-         RETURNING id",
-        workspace_id,
-        service_name.as_str(),
-        expires_in.to_string(),
-        token_response.refresh_token.as_deref().unwrap_or(""),
-        &scopes,
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|e| Error::InternalErr(format!("Failed to create account: {}", e)))?;
-
-    // 2. Create variable with encrypted access token
-    let mc = build_crypt(&db, &workspace_id).await?;
-    let encrypted_access_token = encrypt(&mc, &token_response.access_token);
-
-    sqlx::query!(
-        "INSERT INTO variable (workspace_id, path, value, is_secret, description, account, is_oauth)
-         VALUES ($1, $2, $3, true, $4, $5, true)
-         ON CONFLICT (workspace_id, path) DO UPDATE
-         SET value = EXCLUDED.value, account = EXCLUDED.account",
-        workspace_id,
-        resource_path,
-        encrypted_access_token,
-        format!("OAuth token for {} workspace integration", service_name),
-        account_id,
-    )
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| Error::InternalErr(format!("Failed to create variable: {}", e)))?;
-
-    // 3. Create resource pointing to the variable
-    let resource_value = if service_name == ServiceName::Nextcloud {
-        let token_value = format!("$var:{}", resource_path);
+    let mut resource_fields = HashMap::new();
+    if service_name == ServiceName::Nextcloud {
         let base_url = &oauth_config.base_url;
-        let user_id = fetch_nextcloud_user_id(base_url, &token_response.access_token).await;
-        match user_id {
-            Ok(user_id) => json!({
-                "token": token_value,
-                "baseUrl": base_url,
-                "userId": user_id,
-            }),
-            Err(e) => {
-                tracing::warn!("Failed to fetch Nextcloud user info: {e}");
-                json!({
-                    "token": token_value,
-                    "baseUrl": base_url,
-                })
+        resource_fields.insert("baseUrl".to_string(), json!(base_url));
+        match fetch_nextcloud_user_id(base_url, &token.access_token.to_string()).await {
+            Ok(user_id) => {
+                resource_fields.insert("userId".to_string(), json!(user_id));
             }
+            Err(e) => tracing::warn!("Failed to fetch Nextcloud user info: {e}"),
         }
-    } else {
-        json!({ "token": format!("$var:{}", resource_path) })
-    };
-
-    sqlx::query!(
-        "INSERT INTO resource (workspace_id, path, value, resource_type, description, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (workspace_id, path) DO UPDATE
-         SET value = EXCLUDED.value, resource_type = EXCLUDED.resource_type",
-        workspace_id,
-        resource_path,
-        resource_value,
-        service_name.resource_type(),
-        format!("{} workspace integration", service_name),
-        authed.username,
-    )
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| Error::InternalErr(format!("Failed to create resource: {}", e)))?;
-
-    // 4. A connection made with the instance's client records that in the workspace, with the
-    //    server its token belongs to. Token refresh reads the client from this row, so it must
-    //    exist for every connection.
-    if is_instance_shared {
-        sqlx::query!(
-            "INSERT INTO workspace_integrations (workspace_id, service_name, oauth_data, created_by)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (workspace_id, service_name) DO UPDATE SET oauth_data = EXCLUDED.oauth_data
-             WHERE (workspace_integrations.oauth_data->>'instance_shared')::boolean",
-            workspace_id,
-            service_name as ServiceName,
-            json!({ "instance_shared": true, "base_url": oauth_config.base_url }),
-            authed.username,
-        )
-        .execute(&mut *tx)
-        .await?;
     }
 
-    audit_log(
-        &mut *tx,
-        &authed,
-        &format!("workspace_integrations.{}.connect", service_name),
-        ActionKind::Create,
-        &workspace_id,
-        Some(&resource_path),
-        None,
-    )
-    .await?;
-
-    tx.commit().await?;
-    delete_unlinked_account(&db, &workspace_id, replaced_account).await;
-
-    Ok(Json(resource_path))
-}
-
-/// Token response from OAuth token exchange
-#[cfg(feature = "native_trigger")]
-#[derive(Debug, Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    refresh_token: Option<String>,
-    #[serde(default)]
-    expires_in: Option<u64>,
+    Ok(Json(windmill_oauth::ConnectCallbackResponse {
+        token,
+        resource_fields,
+    }))
 }
 
 /// Build an OAuth client for native trigger services using windmill-oauth.
@@ -977,10 +732,10 @@ async fn exchange_code_for_token(
     service_name: ServiceName,
     code: &str,
     redirect_uri: &str,
-) -> Result<TokenResponse> {
+) -> Result<serde_json::Value> {
     let client = build_native_oauth_client(config, service_name, redirect_uri)?;
 
-    let token_response: TokenResponse = client
+    let token_response: serde_json::Value = client
         .exchange_code(code.to_string())
         .with_client(&*OAUTH_HTTP_CLIENT)
         .execute()
@@ -1125,26 +880,8 @@ pub async fn cleanup_connection(
     Ok(account_id)
 }
 
-/// Delete a connection's account once no variable links it any more. Any variable can link any
-/// account, so another one may still hold it; the check needs `db`, since the caller's own
-/// transaction does not see variables it cannot read.
 #[cfg(feature = "native_trigger")]
-pub async fn delete_unlinked_account(db: &DB, workspace_id: &str, account_id: Option<i32>) {
-    let Some(account_id) = account_id else {
-        return;
-    };
-    if let Err(e) = sqlx::query!(
-        "DELETE FROM account WHERE workspace_id = $1 AND id = $2
-         AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
-        workspace_id,
-        account_id,
-    )
-    .execute(db)
-    .await
-    {
-        tracing::error!("Failed to delete account {account_id} in {workspace_id}: {e}");
-    }
-}
+use windmill_store::variables::delete_unlinked_account;
 
 /// Remove every connection of a service in the workspace.
 #[cfg(feature = "native_trigger")]
@@ -1161,18 +898,12 @@ pub async fn cleanup_service_connections(
     .fetch_all(&mut *tx)
     .await?;
 
-    let paths = sqlx::query_scalar!(
-        "DELETE FROM variable WHERE workspace_id = $1 AND account = ANY($2) RETURNING path",
+    // Scripts and flows may use these resources too, so they stay, with a token that no longer
+    // refreshes, until someone reconnects them.
+    sqlx::query!(
+        "UPDATE variable SET account = NULL WHERE workspace_id = $1 AND account = ANY($2)",
         workspace_id,
         &account_ids,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "DELETE FROM resource WHERE workspace_id = $1 AND path = ANY($2)",
-        workspace_id,
-        &paths,
     )
     .execute(&mut *tx)
     .await?;
@@ -1180,9 +911,10 @@ pub async fn cleanup_service_connections(
     Ok(())
 }
 
-/// Check if the instance admin has enabled sharing of OAuth credentials for a given service.
+/// Whether the instance has a connect client for the service, which every workspace connects
+/// through when it has no OAuth app of its own.
 #[cfg(feature = "native_trigger")]
-async fn is_instance_sharing_enabled(db: &DB, service_name: ServiceName) -> Result<bool> {
+async fn has_instance_client(db: &DB, service_name: ServiceName) -> Result<bool> {
     let entry = match instance_oauth_entry(db, service_name).await? {
         Some(v) => v,
         None => return Ok(false),
@@ -1190,52 +922,11 @@ async fn is_instance_sharing_enabled(db: &DB, service_name: ServiceName) -> Resu
 
     let id = entry.get("id").and_then(|v| v.as_str()).unwrap_or("");
     let secret = entry.get("secret").and_then(|v| v.as_str()).unwrap_or("");
-    let share = entry
-        .get("share_with_workspaces")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
     // A Nextcloud client belongs to the one server the instance names.
     let has_server =
         service_name != ServiceName::Nextcloud || !instance_base_url(&entry).is_empty();
 
-    Ok(!id.is_empty() && !secret.is_empty() && share && has_server)
-}
-
-/// Read instance-level OAuth credentials for a service (when sharing is enabled).
-#[cfg(feature = "native_trigger")]
-async fn get_instance_oauth_config(
-    db: &DB,
-    service_name: ServiceName,
-) -> Result<WorkspaceOAuthConfig> {
-    if !is_instance_sharing_enabled(db, service_name).await? {
-        return Err(Error::BadRequest(format!(
-            "No {service_name} OAuth app is configured for this workspace. A workspace admin can \
-             configure one in the workspace settings, under integration triggers."
-        )));
-    }
-
-    let (client_id, client_secret) =
-        windmill_common::global_settings::get_instance_oauth_credentials(
-            db,
-            service_name.resource_type(),
-        )
-        .await?;
-    // Google and GitHub use absolute URLs.
-    let base_url = match service_name {
-        ServiceName::Nextcloud => instance_oauth_entry(db, service_name)
-            .await?
-            .map(|e| instance_base_url(&e))
-            .unwrap_or_default(),
-        _ => String::new(),
-    };
-
-    Ok(WorkspaceOAuthConfig {
-        client_id,
-        client_secret,
-        base_url,
-        instance_shared: false,
-        redirect_uri: String::new(),
-    })
+    Ok(!id.is_empty() && !secret.is_empty() && has_server)
 }
 
 #[cfg(feature = "native_trigger")]
@@ -1245,8 +936,43 @@ async fn check_instance_sharing_available(
     Path((workspace_id, service_name)): Path<(String, ServiceName)>,
 ) -> JsonResult<bool> {
     require_admin(authed.is_admin, &workspace_id)?;
-    let available = is_instance_sharing_enabled(&db, service_name).await?;
-    Ok(Json(available))
+    Ok(Json(has_instance_client(&db, service_name).await?))
+}
+
+/// The scopes the service's triggers need, which a connection made for them requests.
+#[cfg(feature = "native_trigger")]
+async fn required_scopes(
+    _authed: ApiAuthed,
+    Path((_workspace_id, service_name)): Path<(String, ServiceName)>,
+) -> JsonResult<Vec<String>> {
+    Ok(Json(
+        service_name
+            .required_scopes()
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect(),
+    ))
+}
+
+/// The services this workspace has its own OAuth app for. Any member may read it: the resource
+/// connect uses it to pick the client a connection is made with.
+#[cfg(feature = "native_trigger")]
+async fn list_workspace_apps(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(workspace_id): Path<String>,
+) -> JsonResult<Vec<ServiceName>> {
+    use strum::IntoEnumIterator;
+    let mut services = vec![];
+    for service_name in ServiceName::iter() {
+        if workspace_app(&db, &workspace_id, service_name)
+            .await?
+            .is_some()
+        {
+            services.push(service_name);
+        }
+    }
+    Ok(Json(services))
 }
 
 #[cfg(feature = "native_trigger")]
@@ -1318,22 +1044,14 @@ async fn set_workspace_connection(
     .execute(&mut *tx)
     .await?
     .rows_affected();
-    // A workspace whose connections all come from Resources has no row yet; with the instance
-    // client shared, it gets the same row a trigger connect would have written.
+    // A workspace without its own OAuth app has no row yet. Its row only holds the shared path.
     if updated == 0 {
-        if !is_instance_sharing_enabled(&db, service_name).await? {
-            return Err(Error::NotFound(format!(
-                "{service_name} is not set up in this workspace"
-            )));
-        }
-        let config = get_instance_oauth_config(&db, service_name).await?;
         sqlx::query!(
             "INSERT INTO workspace_integrations
                (workspace_id, service_name, oauth_data, resource_path, created_by)
-             VALUES ($1, $2, $3, $4, $5)",
+             VALUES ($1, $2, NULL, $3, $4)",
             workspace_id,
             service_name as ServiceName,
-            json!({ "instance_shared": true, "base_url": config.base_url }),
             path,
             authed.username,
         )
@@ -1383,20 +1101,10 @@ async fn delete_connection(
     let mut tx = user_db.clone().begin(&authed).await?;
     let usable = list_usable_connections(&db, &mut tx, &workspace_id, service_name).await?;
     tx.commit().await?;
-    match usable.iter().find(|c| c.path == path) {
-        None => {
-            return Err(Error::NotFound(format!(
-                "No {service_name} connection at {path}"
-            )))
-        }
-        // Disconnecting deletes the resource, which runnables may use: that is for Resources.
-        Some(c) if !c.managed => {
-            return Err(Error::BadRequest(format!(
-                "{path} is a resource connected outside integration triggers. Delete it from \
-                 Resources instead."
-            )))
-        }
-        Some(_) => {}
+    if !usable.iter().any(|c| c.path == path) {
+        return Err(Error::NotFound(format!(
+            "No {service_name} connection at {path}"
+        )));
     }
 
     // Disconnecting deletes these triggers, so a path-scoped token must cover each of them. Only
@@ -1489,6 +1197,8 @@ async fn delete_connection(
 pub fn workspaced_service() -> Router {
     let router = Router::new()
         .route("/list", get(list_integrations))
+        .route("/workspace_apps", get(list_workspace_apps))
+        .route("/{service_name}/required_scopes", get(required_scopes))
         .route("/{service_name}/exists", get(integration_exist))
         .route("/{service_name}/create", post(create_workspace_integration))
         .route(

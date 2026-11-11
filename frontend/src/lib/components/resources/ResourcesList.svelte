@@ -68,6 +68,7 @@
 		Link,
 		Palette,
 		Pen,
+		Plug,
 		Plus,
 		RotateCw,
 		Save,
@@ -1251,7 +1252,7 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, scopes, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, scopes, client, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
 										{@const canWrite =
@@ -1487,6 +1488,22 @@
 																	}
 																}
 															},
+															...(is_oauth
+																? [
+																		{
+																			displayName: 'Reconnect',
+																			icon: Plug,
+																			disabled: !canWrite || !showCreateButtons,
+																			// A workspace app's account names its service, not a client.
+																			action: () =>
+																				appConnect?.open?.(
+																					client?.endsWith('_sandbox') ? client : resource_type,
+																					path,
+																					scopes ?? []
+																				)
+																		}
+																	]
+																: []),
 															...(account != undefined
 																? [
 																		{

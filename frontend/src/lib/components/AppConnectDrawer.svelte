@@ -9,19 +9,17 @@
 	import GoogleSigninButton from './GoogleSigninButton.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { addResourceTitle } from './resourceTypeDisplay'
-	import type { NativeConnect } from './triggers/native/utils'
-
 	interface Props {
 		expressOAuthSetup?: boolean
 		workspace?: string
-		native?: NativeConnect
 	}
 
-	let { expressOAuthSetup = false, workspace = undefined, native = undefined }: Props = $props()
+	let { expressOAuthSetup = false, workspace = undefined }: Props = $props()
 
-	/** Set by `open(rt, fillPath)`, not by the parent: which resource this run fills is a
-	 *  property of the click, and a prop would go stale between two different rows. */
+	/** Set by `open(rt, fillPath, requiredScopes)`, not by the parent: which resource this run
+	 *  fills is a property of the click, and a prop would go stale between two different rows. */
 	let fillPath: string | undefined = $state(undefined)
+	let requiredScopes: string[] = $state([])
 
 	let drawer: Drawer | undefined = $state()
 	let resourceType = $state('')
@@ -33,9 +31,11 @@
 	let appConnectInner: AppConnectInner | undefined = $state(undefined)
 
 	let rtToLoad: string | undefined = $state('')
-	/** `fill` connects into a resource that already exists, instead of creating one. */
-	export async function open(rt?: string, fill?: string) {
+	/** `fill` connects into a resource that already exists, instead of creating one; filling an
+	 *  OAuth resource reconnects it in place. `scopes` are requested on top of the defaults. */
+	export async function open(rt?: string, fill?: string, scopes: string[] = []) {
 		fillPath = fill
+		requiredScopes = scopes
 		handedOff = false
 		rtToLoad = rt
 		drawer?.openDrawer?.()
@@ -78,7 +78,7 @@
 	size="700px"
 >
 	<DrawerContent
-		title={native?.title ?? addResourceTitle(step > 1 ? resourceType : undefined)}
+		title={addResourceTitle(step > 1 ? resourceType : undefined)}
 		id="add-resource-drawer"
 		on:close={drawer?.closeDrawer}
 		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
@@ -101,7 +101,7 @@
 			express={expressOAuthSetup}
 			{workspace}
 			{fillPath}
-			{native}
+			{requiredScopes}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
@@ -121,7 +121,7 @@
 						{disabled}
 						onClick={() => appConnectInner?.next()}
 					>
-						{#if (step == 2 && !manual) || native}
+						{#if step == 2 && !manual}
 							Connect
 						{:else if step == 1}
 							Next

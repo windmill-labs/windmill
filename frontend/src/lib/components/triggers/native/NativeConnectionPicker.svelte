@@ -13,7 +13,7 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
-	import { connectNativeAccount, getServiceConfig } from './utils'
+	import { getServiceConfig } from './utils'
 
 	interface Props {
 		service: NativeServiceName
@@ -52,15 +52,22 @@
 	const confirmationModal = createAsyncConfirmationModal()
 
 	let connections = $state<NativeTriggerConnection[] | undefined>(undefined)
-	let connecting = $state(false)
+	let requiredScopes = $state<string[]>([])
 	let connectDrawer: AppConnectDrawer | undefined = $state(undefined)
+	const resourceType = $derived(getServiceConfig(service)?.resourceType)
 
 	async function load() {
 		try {
-			connections = await WorkspaceIntegrationService.listNativeTriggerConnections({
-				workspace: $operatingWorkspace!,
-				serviceName: service
-			})
+			;[connections, requiredScopes] = await Promise.all([
+				WorkspaceIntegrationService.listNativeTriggerConnections({
+					workspace: $operatingWorkspace!,
+					serviceName: service
+				}),
+				WorkspaceIntegrationService.getNativeTriggerRequiredScopes({
+					workspace: $operatingWorkspace!,
+					serviceName: service
+				})
+			])
 		} catch (err: any) {
 			connections = []
 			sendUserToast(`Failed to load ${displayName} connections: ${err.body ?? err.message}`, true)
@@ -81,39 +88,37 @@
 		else value = path
 	}
 
-	async function connect(path: string) {
-		connecting = true
-		try {
-			path = await connectNativeAccount($operatingWorkspace!, service, path)
-			await load()
-			sendUserToast(`${displayName} account connected`)
-			onConnectionsChange?.()
-			select(path)
-		} catch (err: any) {
-			sendUserToast(`Could not connect ${displayName}: ${err.body ?? err.message}`, true)
-			throw err
-		} finally {
-			connecting = false
-		}
+	function connect() {
+		connectDrawer?.open(resourceType, undefined, requiredScopes)
 	}
 
+	async function onConnected(path: string) {
+		await load()
+		onConnectionsChange?.()
+		select(path)
+	}
+
+	/** Reconnecting asks for what triggers need plus what the account holds, so nothing else
+	 * using it loses access. */
 	async function reconnect(c: NativeTriggerConnection) {
 		if (c.owner && c.owner !== operatingUser.current?.username) {
 			const confirmed = await confirmationModal.ask({
 				title: `Reconnect ${c.path} with your account?`,
 				confirmationText: 'Reconnect',
-				children: `${c.path} will act as the ${displayName} account you sign in with, instead of ${c.owner}'s. Every trigger using it will act as you.`
+				children: `${c.path} will act as the ${displayName} account you sign in with, instead of ${c.owner}'s. Every trigger and runnable using it will act as you.`
 			})
 			if (!confirmed) return
 		}
-		await connect(c.path).catch(() => {})
+		connectDrawer?.open(resourceType, c.path, [
+			...new Set([...requiredScopes, ...(c.scopes ?? [])])
+		])
 	}
 
 	async function disconnect(path: string) {
 		const confirmed = await confirmationModal.ask({
 			title: `Disconnect ${path}?`,
 			confirmationText: 'Disconnect',
-			children: `This deletes every ${displayName} trigger that uses this account, including ones other members created. This action cannot be undone.`
+			children: `This deletes the resource and variable at ${path}, which scripts and flows may also use, and every ${displayName} trigger that uses this account, including ones other members created. This action cannot be undone.`
 		})
 		if (!confirmed) return
 		try {
@@ -132,17 +137,14 @@
 	}
 
 	// Members cannot write the workspace connection; the server refuses anyone else it does not own.
-	// A resource connected elsewhere is deleted from Resources, where its other uses are visible.
 	function canDisconnect(c: NativeTriggerConnection): boolean {
-		if (!c.managed) return false
 		if (operatingUser.current?.is_admin) return true
 		return !c.workspace && !!c.owner && c.owner === operatingUser.current?.username
 	}
 
-	// The server lets only the connection's owner or an admin replace it, and never replaces a
-	// resource connected from Resources.
+	// Writers of its variable may reconnect it; offered to its owner and admins, the ones who
+	// know which account it should act as.
 	function canReconnect(c: NativeTriggerConnection): boolean {
-		if (!c.managed) return false
 		return (
 			!!operatingUser.current?.is_admin ||
 			(!!c.owner && c.owner === operatingUser.current?.username)
@@ -172,7 +174,7 @@
 		onClear={() => select(undefined)}
 		{clearable}
 		disabled={disabled || locked}
-		loading={connections === undefined || connecting}
+		loading={connections === undefined}
 		placeholder={placeholder ?? `Connect a ${displayName} account to create this trigger`}
 		noItemsMsg="No {displayName} account connected yet"
 	>
@@ -183,7 +185,6 @@
 					unifiedSize="xs"
 					variant="subtle"
 					startIcon={{ icon: RefreshCw }}
-					disabled={connecting}
 					onclick={() => (close(), reconnect(connection))}
 				>
 					Reconnect
@@ -209,8 +210,8 @@
 					wrapperClasses="flex-1"
 					btnClasses="rounded-none"
 					startIcon={{ icon: Plus }}
-					disabled={disabled || connecting}
-					onclick={() => (close(), connectDrawer?.open(getServiceConfig(service)?.resourceType))}
+					{disabled}
+					onclick={() => (close(), connect())}
 				>
 					Connect a {displayName} account
 				</Button>
@@ -228,7 +229,6 @@
 					unifiedSize="xs"
 					variant="subtle"
 					startIcon={{ icon: RefreshCw }}
-					disabled={connecting}
 					onclick={() => reconnect(current)}
 				>
 					Reconnect
@@ -240,15 +240,26 @@
 		{@const missing = selected}
 		<Alert type="warning" title="This account is missing permissions" size="xs">
 			<div class="flex flex-col gap-2">
-				{#if missing.managed}
+				{#if canReconnect(missing)}
 					<span>
 						Triggers need {missing.missing_scopes?.join(', ')}. Reconnecting asks for them and keeps
 						what the account already has.
 					</span>
+					<div>
+						<Button
+							unifiedSize="xs"
+							variant="default"
+							wrapperClasses="w-fit"
+							startIcon={{ icon: RefreshCw }}
+							onclick={() => reconnect(missing)}
+						>
+							Reconnect
+						</Button>
+					</div>
 				{:else}
 					<span>
-						Triggers need {missing.missing_scopes?.join(', ')}. This resource was connected from
-						Resources, so connect a new account that grants them.
+						Triggers need {missing.missing_scopes?.join(', ')}. Ask {missing.owner ?? 'its owner'} to
+						reconnect it, or connect your own account.
 					</span>
 					<div>
 						<Button
@@ -256,24 +267,10 @@
 							variant="default"
 							wrapperClasses="w-fit"
 							startIcon={{ icon: Plus }}
-							disabled={disabled || connecting}
-							onclick={() => connectDrawer?.open(getServiceConfig(service)?.resourceType)}
+							{disabled}
+							onclick={connect}
 						>
-							Connect a new account
-						</Button>
-					</div>
-				{/if}
-				{#if canReconnect(missing)}
-					<div>
-						<Button
-							unifiedSize="xs"
-							variant="default"
-							wrapperClasses="w-fit"
-							startIcon={{ icon: RefreshCw }}
-							disabled={connecting}
-							onclick={() => reconnect(missing)}
-						>
-							Reconnect
+							Connect your account
 						</Button>
 					</div>
 				{/if}
@@ -288,13 +285,6 @@
 	{/if}
 </div>
 
-<AppConnectDrawer
-	bind:this={connectDrawer}
-	native={{
-		title: `Connect a ${displayName} account`,
-		defaultName: `native_${service}`,
-		connect
-	}}
-/>
+<AppConnectDrawer bind:this={connectDrawer} on:refresh={(e) => onConnected(e.detail)} />
 
 <ConfirmationModal {...confirmationModal.props} />

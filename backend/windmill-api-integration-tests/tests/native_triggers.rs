@@ -5,7 +5,7 @@
  * 1. Resource path change — cleanup old path, recreate at new path
  * 2. Config loading — workspace-level, instance-level, token update
  * 3. Channel expiration renewal — should_renew_channel pure logic
- * 4. Delete workspace integration — full cascade, cleanup preserves triggers, parse_stop_channel_params
+ * 4. Delete workspace integration — unlinks connections, cleanup preserves triggers, parse_stop_channel_params
  */
 
 use serde_json::json;
@@ -23,12 +23,12 @@ use windmill_native_triggers::{
     get_workspace_integration,
     github::GitHub,
     google::{parse_stop_channel_params, should_renew_channel},
-    grant_refused, http_error_status, list_native_triggers, list_usable_connections,
+    http_error_status, list_native_triggers, list_usable_connections,
     map_external_error, native_trigger_is_enabled,
     nextcloud::NextCloud,
     require_native_integration_use, resolve_usable_connection, set_native_trigger_enabled,
     store_native_trigger, store_workspace_integration, update_native_trigger,
-    update_oauth_token_resource, External, ExternalReadFailure, HttpRequestError,
+    External, ExternalReadFailure, HttpRequestError,
     NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
@@ -154,16 +154,13 @@ fn now_ms() -> i64 {
 // 1. Several connections of one service
 // ============================================================================
 
-/// Each connection keeps its own tokens: a refresh written back for one, or disconnecting one,
-/// must not touch another. Providers that rotate refresh tokens invalidate the old one, so a
-/// refresh token copied onto the wrong account breaks that account's next refresh.
+/// Each connection keeps its own tokens: disconnecting one must not touch another.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_connections_are_isolated(db: Pool<Postgres>) -> anyhow::Result<()> {
     let path_a = "u/test-user/native_nextcloud";
     let path_b = "u/other-user/native_nextcloud";
-    let mut account_a = 0;
     for (path, token) in [(path_a, "a"), (path_b, "b")] {
-        let account = setup_oauth_integration(
+        setup_oauth_integration(
             &db,
             ServiceName::Nextcloud,
             path,
@@ -172,32 +169,7 @@ async fn test_connections_are_isolated(db: Pool<Postgres>) -> anyhow::Result<()>
             None,
         )
         .await?;
-        if path == path_a {
-            account_a = account;
-        }
     }
-
-    update_oauth_token_resource(
-        &db,
-        "test-workspace",
-        account_a,
-        "access-a2",
-        Some("refresh-a2"),
-    )
-    .await;
-
-    let a: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_a)).await?;
-    let b: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_b)).await?;
-    assert_eq!(
-        (a.access_token.as_str(), a.refresh_token.as_deref()),
-        ("access-a2", Some("refresh-a2"))
-    );
-    assert_eq!(
-        (b.access_token.as_str(), b.refresh_token.as_deref()),
-        ("access-b", Some("refresh-b"))
-    );
 
     let mut tx = db.begin().await?;
     windmill_native_triggers::workspace_integrations::cleanup_connection(
@@ -301,8 +273,6 @@ async fn test_decrypt_workspace_level(db: Pool<Postgres>) -> anyhow::Result<()> 
 
     assert_eq!(config.access_token, "ws-access-token");
     assert_eq!(config.refresh_token.as_deref(), Some("ws-refresh-token"));
-    assert_eq!(config.client_id, "test-client-id");
-    assert_eq!(config.client_secret, "test-client-secret");
     assert_eq!(config.base_url, "https://example.com");
 
     Ok(())
@@ -349,9 +319,8 @@ async fn test_decrypt_instance_level(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .await?;
 
-    assert_eq!(config.client_id, "instance-client-id");
-    assert_eq!(config.client_secret, "instance-client-secret");
     assert_eq!(config.access_token, "inst-access-token");
+    assert_eq!(config.base_url, "https://accounts.google.com");
 
     Ok(())
 }
@@ -594,7 +563,7 @@ fn test_should_renew_channel_missing_fields() {
 // ============================================================================
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_delete_integration_unlinks_connections(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resource_path = "u/test-user/native_gworkspace";
     let account_id = setup_oauth_integration(
         &db,
@@ -648,15 +617,15 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
     tx.commit().await?;
     assert!(deleted);
 
-    // Verify everything is gone
-    let var_count: i64 = sqlx::query_scalar!(
-        "SELECT count(*) FROM variable WHERE workspace_id = 'test-workspace' AND path = $1",
+    // Scripts and flows may use the resource, so it and its variable stay, unlinked from the
+    // account that refreshed through the removed app.
+    let var_account = sqlx::query_scalar!(
+        "SELECT account FROM variable WHERE workspace_id = 'test-workspace' AND path = $1",
         resource_path,
     )
     .fetch_one(&db)
-    .await?
-    .unwrap_or(0);
-    assert_eq!(var_count, 0);
+    .await?;
+    assert_eq!(var_account, None);
 
     let acc_count: i64 = sqlx::query_scalar!(
         "SELECT count(*) FROM account WHERE workspace_id = 'test-workspace' AND id = $1",
@@ -674,7 +643,7 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
     .fetch_one(&db)
     .await?
     .unwrap_or(0);
-    assert_eq!(res_count, 0);
+    assert_eq!(res_count, 1);
 
     assert!(
         get_workspace_integration(&db, "test-workspace", ServiceName::Google)
@@ -988,29 +957,6 @@ fn test_provider_404_is_recognized() {
     assert!(matches!(
         classify_read_failure(nextcloud_error(StatusCode::NOT_FOUND, "{}")),
         ExternalReadFailure::Missing
-    ));
-}
-
-/// Sending a user to reconnect their integration is only right when the token endpoint refused
-/// the grant; a busy or broken endpoint has them fix credentials that are fine.
-#[test]
-fn test_refresh_failures_blame_only_the_grant_they_refuse() {
-    let refused = |code: u16| grant_refused(Some(StatusCode::from_u16(code).unwrap()), "");
-    for code in [400, 401, 403] {
-        assert!(refused(code), "{code} refuses the grant");
-    }
-    for code in [404, 408, 429, 500, 503] {
-        assert!(!refused(code), "{code} says nothing about the grant");
-    }
-    assert!(!grant_refused(None, ""));
-
-    // GitHub answers `bad_refresh_token` with HTTP 200, so the body is the only tell.
-    let ok = Some(StatusCode::OK);
-    assert!(grant_refused(ok, r#"{"error":"bad_refresh_token"}"#));
-    assert!(grant_refused(ok, r#"{"error":"invalid_grant"}"#));
-    assert!(!grant_refused(
-        ok,
-        r#"{"access_token":"t","token_type":"bearer"}"#
     ));
 }
 

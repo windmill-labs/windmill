@@ -8993,6 +8993,12 @@ paths:
                 variable:
                   $ref: "#/components/schemas/CreateVariable"
                   description: "The variable holding this account's access token. It is created with the account, in one transaction and with the same checks as createVariable, and linked to it so it refreshes through it."
+                is_workspace_integration:
+                  type: boolean
+                  description: "Issued by the workspace's own OAuth app, with `client` naming its service (google, github, nextcloud)."
+                replace:
+                  type: boolean
+                  description: "Reconnect: swap the token and account of the existing variable at variable.path in place, keeping its sharing and description."
               required:
                 - refresh_token
                 - expires_in
@@ -21501,6 +21507,47 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkspaceIntegrations"
 
+  /w/{workspace}/native_triggers/integrations/workspace_apps:
+    get:
+      summary: list the services this workspace has its own OAuth app for
+      operationId: listNativeTriggerWorkspaceApps
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: services with a workspace OAuth app
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NativeServiceName"
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/required_scopes:
+    get:
+      summary: list the scopes the service's triggers need
+      operationId: getNativeTriggerRequiredScopes
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: scopes a connection made for the service's triggers requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/native_triggers/integrations/{service_name}/exists:
     get:
       summary: check if integrations for a particular service exists
@@ -21552,7 +21599,7 @@ paths:
 
   /w/{workspace}/native_triggers/integrations/{service_name}/generate_connect_url:
     post:
-      summary: generate connect url for native trigger service
+      summary: generate the authorize url of a connect made with the workspace OAuth app
       operationId: generateNativeTriggerServiceConnectUrl
       tags:
         - workspace_integration
@@ -21565,17 +21612,18 @@ paths:
             $ref: "#/components/schemas/NativeServiceName"
       requestBody:
         description: >-
-          Where to save the connection (defaults to u/{caller}/native_{resource_type}). Uses
-          the workspace OAuth client, or the instance one when the instance shares it, and the
-          redirect URI registered on that client.
+          The scopes to request. Uses the workspace's own OAuth app and the redirect URI
+          registered on it; refused when the workspace has none.
         required: true
         content:
           application/json:
             schema:
               type: object
               properties:
-                resource_path:
-                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: native trigger service connect url
@@ -21709,7 +21757,7 @@ paths:
 
   /w/{workspace}/native_triggers/integrations/{service_name}/callback:
     post:
-      summary: native trigger service oauth callback
+      summary: exchange the code of a connect made with the workspace OAuth app
       operationId: nativeTriggerServiceCallback
       tags:
         - workspace_integration
@@ -21737,11 +21785,11 @@ paths:
                 - state
       responses:
         "200":
-          description: path of the saved connection
+          description: the token, to save like any connected resource
           content:
             application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/TokenResponse"
 
   /w/{workspace}/native_triggers/{service_name}/create:
     post:
@@ -33395,6 +33443,9 @@ components:
             it unchanged; send null to clear it. Changing it re-arms the
             workspace's variable expiration handler.
           format: date-time
+        unlink_account:
+          type: boolean
+          description: Detach the OAuth account the variable refreshes through, deleting it when no other variable uses it.
         labels:
           type: array
           items:
@@ -33996,6 +34047,9 @@ components:
           items:
             type: string
           description: OAuth scopes the linked account was connected with
+        client:
+          type: string
+          description: OAuth client the linked account refreshes through
         created_by:
           type: string
         edited_at:
@@ -40963,12 +41017,6 @@ components:
         workspace:
           type: boolean
           description: Whether this is the workspace connection, which every member may use
-        managed:
-          type: boolean
-          description: >-
-            Whether the integration trigger connect flow made it. Any other connection is a
-            resource connected from Resources, which triggers can use but only Resources can
-            replace or delete.
         scopes:
           type: array
           nullable: true
@@ -40984,7 +41032,6 @@ components:
       required:
         - path
         - workspace
-        - managed
 
     CreateTriggerResponse:
       type: object

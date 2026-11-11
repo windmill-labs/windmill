@@ -119,8 +119,8 @@ pub async fn store_managed_secret_value(
 /// external backend — the account must not end up marked fresh while the served
 /// secret is stale, or the on-fetch refresh gate (`now() > expires_at`) would keep
 /// serving the stale token for the whole token lifetime. So on failure we reset
-/// `expires_at` to the past and record `refresh_error` — looking the account up via
-/// `variable.account` — and the very next fetch retries the refresh. This also
+/// `expires_at` to the past and record `refresh_error`, and the very next fetch retries the
+/// refresh. This also
 /// covers another refresher of the account having marked it fresh meanwhile.
 ///
 /// Authorization contract: this performs NO access control. It writes the
@@ -130,63 +130,69 @@ pub async fn store_managed_secret_value(
 /// read path has resolved and gated the variable). It is therefore kept
 /// `pub(crate)` and intended solely for the in-crate refresh adapters.
 #[cfg(feature = "oauth2")]
+///
+/// Returns false, storing nothing, when the variable no longer refreshes through `account_id`:
+/// a reconnect moved it to another account while this token was being fetched, and writing it
+/// would put the previous identity back. The row lock orders this against that reconnect.
 pub(crate) async fn store_oauth_token_value(
     db: &DB,
     workspace_id: &str,
     path: &str,
+    account_id: i32,
     token: &str,
-) -> Result<()> {
+) -> Result<bool> {
     let persist = async {
+        let mut tx = db.begin().await?;
+        let linked = sqlx::query_scalar::<_, i32>(
+            "SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2 AND account = $3 \
+             FOR UPDATE",
+        )
+        .bind(workspace_id)
+        .bind(path)
+        .bind(account_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+        if !linked {
+            return Ok::<bool, Error>(false);
+        }
         let value = store_managed_secret_value(db, workspace_id, path, token).await?;
         sqlx::query("UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3")
             .bind(value)
             .bind(workspace_id)
             .bind(path)
-            .execute(db)
+            .execute(&mut *tx)
             .await?;
-        Ok::<(), Error>(())
+        tx.commit().await?;
+        Ok(true)
     }
     .await;
 
-    if let Err(e) = persist {
-        // Mark the account expired again so the next fetch re-runs the refresh
-        // instead of serving the now-stale token until it naturally expires. The
-        // account id is the one linked from the variable being refreshed.
-        let account_id: Option<i32> = sqlx::query_scalar::<_, Option<i32>>(
-            "SELECT account FROM variable WHERE workspace_id = $1 AND path = $2",
-        )
-        .bind(workspace_id)
-        .bind(path)
-        .fetch_optional(db)
-        .await
-        .ok()
-        .flatten()
-        .flatten();
-
-        if let Some(account_id) = account_id {
-            if let Err(reset_err) = sqlx::query(
-                "UPDATE account SET expires_at = now() - interval '1 minute', refresh_error = $1 \
-                 WHERE workspace_id = $2 AND id = $3",
-            )
-            .bind(format!(
-                "OAuth token was refreshed but persisting it to the secret backend failed: {e}"
-            ))
-            .bind(workspace_id)
-            .bind(account_id)
-            .execute(db)
-            .await
-            {
-                tracing::error!(
-                    workspace_id = %workspace_id,
-                    account_id = %account_id,
-                    "failed to reset account expiry after token persistence error: {reset_err}"
-                );
-            }
-        }
-        return Err(e);
+    let e = match persist {
+        Ok(written) => return Ok(written),
+        Err(e) => e,
+    };
+    // Mark the account expired again so the next fetch re-runs the refresh instead of serving
+    // the now-stale token until it naturally expires.
+    if let Err(reset_err) = sqlx::query(
+        "UPDATE account SET expires_at = now() - interval '1 minute', refresh_error = $1 \
+         WHERE workspace_id = $2 AND id = $3",
+    )
+    .bind(format!(
+        "OAuth token was refreshed but persisting it to the secret backend failed: {e}"
+    ))
+    .bind(workspace_id)
+    .bind(account_id)
+    .execute(db)
+    .await
+    {
+        tracing::error!(
+            workspace_id = %workspace_id,
+            account_id = %account_id,
+            "failed to reset account expiry after token persistence error: {reset_err}"
+        );
     }
-
-    Ok(())
+    Err(e)
 }
 
 /// Delete a secret from the configured backend (if using Vault)
@@ -397,4 +403,70 @@ pub async fn rename_vault_secrets_with_prefix(
     }
 
     Ok(updates)
+}
+
+#[cfg(all(test, feature = "oauth2"))]
+mod tests {
+    use super::*;
+
+    /// A refresh that fetched its token before a reconnect moved the variable to another account
+    /// must not write that token over the reconnected one, even while the reconnect is still
+    /// uncommitted when the refresh comes to store.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn refresh_does_not_overwrite_a_reconnect(db: DB) {
+        let w = "w";
+        let path = "u/test/conn";
+        sqlx::query(
+            "INSERT INTO workspace (id, name, owner) VALUES ('w', 'w', 'test@windmill.dev')",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        let account = |client: &'static str| {
+            let db = db.clone();
+            async move {
+                sqlx::query_scalar::<_, i32>(
+                    "INSERT INTO account (workspace_id, client, expires_at, refresh_token)
+                     VALUES ('w', $1, now(), 'r') RETURNING id",
+                )
+                .bind(client)
+                .fetch_one(&db)
+                .await
+                .unwrap()
+            }
+        };
+        let (old, new) = (account("old").await, account("new").await);
+        sqlx::query(
+            "INSERT INTO variable (workspace_id, path, value, is_secret, description, account, is_oauth)
+             VALUES ('w', $1, 'reconnected', true, '', $2, true)",
+        )
+        .bind(path)
+        .bind(old)
+        .execute(&db)
+        .await
+        .unwrap();
+
+        let mut reconnect = db.begin().await.unwrap();
+        sqlx::query("UPDATE variable SET account = $1 WHERE workspace_id = 'w' AND path = $2")
+            .bind(new)
+            .bind(path)
+            .execute(&mut *reconnect)
+            .await
+            .unwrap();
+        let refresh = tokio::spawn({
+            let db = db.clone();
+            async move { store_oauth_token_value(&db, w, path, old, "stale").await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        reconnect.commit().await.unwrap();
+
+        assert!(!refresh.await.unwrap().unwrap());
+        let value: String =
+            sqlx::query_scalar("SELECT value FROM variable WHERE workspace_id = 'w' AND path = $1")
+                .bind(path)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(value, "reconnected");
+    }
 }

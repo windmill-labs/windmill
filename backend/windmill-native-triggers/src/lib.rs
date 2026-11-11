@@ -43,19 +43,15 @@ use serde_json::value::RawValue;
 use sqlx::{FromRow, PgConnection, Postgres};
 use std::{collections::HashMap, fmt::Debug};
 use strum::{EnumIter, IntoEnumIterator};
-use tokio::task;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
     triggers::TriggerKind,
     utils::HTTP_CLIENT,
-    variables::{build_crypt, decrypt, encrypt},
+    variables::{build_crypt, decrypt},
     DB,
 };
 use windmill_queue::PushArgsOwned;
-
-#[cfg(feature = "native_trigger")]
-use windmill_oauth::{ErrorField, ExecuteError, OClient, RefreshToken, Url, OAUTH_HTTP_CLIENT};
 
 use windmill_api_auth::{ApiAuthed, ScopePathFilter};
 pub mod handler;
@@ -451,14 +447,8 @@ pub trait External: Send + Sync + 'static {
                     Self::DISPLAY_NAME
                 );
 
-                let access_token = refresh_connection(
-                    db,
-                    workspace_id,
-                    &oauth_config,
-                    Self::REFRESH_ENDPOINT,
-                    Self::AUTH_ENDPOINT,
-                )
-                .await
+                let access_token = refresh_connection(db, workspace_id, &oauth_config)
+                    .await
                 .map_err(|f| {
                     self.external_error(
                         f.rejected.then_some(StatusCode::UNAUTHORIZED),
@@ -594,11 +584,10 @@ pub struct OAuthConfig {
     pub base_url: String,
     pub access_token: String,
     pub refresh_token: Option<String>,
-    pub client_id: String,
-    pub client_secret: String,
     pub connection_path: String,
     pub account_id: Option<i32>,
-    /// Made by the connect flow, so refreshed with the client above.
+    /// Issued by the workspace's OAuth app, whose server a Nextcloud resource saved without its
+    /// own `baseUrl` belongs to.
     #[serde(default)]
     pub managed: bool,
 }
@@ -847,61 +836,32 @@ pub async fn decrypt_oauth_data<T: DeserializeOwned>(
     };
 
     let managed = row.managed.unwrap_or(false);
-    let (base_url, client_id, client_secret) = if managed {
-        let oauth_data = get_workspace_integration(db, workspace_id, service_name)
+    // Only Nextcloud has a base URL: the resource's own, else the server of the client that issued
+    // the account.
+    let base_url = match row
+        .resource_value
+        .as_ref()
+        .and_then(|v| v.get("baseUrl"))
+        .and_then(|v| v.as_str())
+    {
+        Some(url) if !url.is_empty() => url.trim_end_matches('/').to_string(),
+        _ if managed => get_workspace_integration(db, workspace_id, service_name)
             .await?
-            .oauth_data;
-        let (client_id, client_secret) = if oauth_data
-            .get("instance_shared")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            windmill_common::global_settings::get_instance_oauth_credentials(
-                db,
-                service_name.resource_type(),
-            )
-            .await
-            .map_err(|e| {
-                Error::InternalErr(format!(
-                    "Failed to read instance OAuth credentials for {}: {}",
-                    service_name, e
-                ))
-            })?
-        } else {
-            (
-                oauth_data["client_id"].as_str().unwrap_or("").to_string(),
-                oauth_data["client_secret"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string(),
-            )
-        };
-        let base_url = oauth_data["base_url"].as_str().unwrap_or("").to_string();
-        (base_url, client_id, client_secret)
-    } else {
-        // Only Nextcloud has a base URL: the resource's own, else the instance client's server.
-        let base_url = match row
-            .resource_value
-            .as_ref()
-            .and_then(|v| v.get("baseUrl"))
-            .and_then(|v| v.as_str())
-        {
-            Some(url) if !url.is_empty() => url.trim_end_matches('/').to_string(),
-            _ if service_name == ServiceName::Nextcloud => instance_oauth_entry(db, service_name)
-                .await?
-                .map(|e| instance_base_url(&e))
-                .unwrap_or_default(),
-            _ => String::new(),
-        };
-        (base_url, String::new(), String::new())
+            .oauth_data["base_url"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
+        _ if service_name == ServiceName::Nextcloud => instance_oauth_entry(db, service_name)
+            .await?
+            .map(|e| instance_base_url(&e))
+            .unwrap_or_default(),
+        _ => String::new(),
     };
 
     let assembled = json!({
         "base_url": base_url,
         "access_token": access_token,
         "refresh_token": row.refresh_token,
-        "client_id": client_id,
-        "client_secret": client_secret,
         "connection_path": connection_path,
         "account_id": row.account_id,
         "managed": managed,
@@ -909,14 +869,6 @@ pub async fn decrypt_oauth_data<T: DeserializeOwned>(
 
     serde_json::from_value(assembled)
         .map_err(|e| Error::InternalErr(format!("Failed to deserialize OAuth data: {}", e)))
-}
-
-/// Token refresh response
-#[cfg(feature = "native_trigger")]
-#[derive(Debug, Deserialize)]
-struct RefreshTokenResponse {
-    access_token: String,
-    refresh_token: Option<String>,
 }
 
 /// Why an OAuth token refresh did not produce a new token.
@@ -942,135 +894,20 @@ impl RefreshFailure {
     }
 }
 
-/// Whether a token endpoint's answer means reconnecting the integration is the fix, rather
-/// than the endpoint failing to serve a grant that may well be valid.
-///
-/// Used when the answer carried no OAuth error code to read. The body is checked because no
-/// status reliably reports a refusal: GitHub answers `bad_refresh_token` with HTTP 200. The
-/// status is the last resort — on a token endpoint these three most often mean the stored
-/// grant is spent, and there is nothing better to go on.
-pub fn grant_refused(status: Option<StatusCode>, body: &str) -> bool {
-    body.contains("invalid_grant")
-        || body.contains("bad_refresh_token")
-        || matches!(
-            status,
-            Some(StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
-        )
-}
-
-/// Whether an OAuth error code (RFC 6749 §5.2) means the credentials Windmill stored are what
-/// needs replacing. The rest — a malformed request, an unsupported grant type, a scope the
-/// server will not grant — are faults in how the integration asks, which reconnecting as the
-/// same user will reproduce exactly.
-#[cfg(feature = "native_trigger")]
-fn code_means_reconnect(code: &ErrorField) -> bool {
-    matches!(code, ErrorField::InvalidGrant | ErrorField::InvalidClient)
-}
-
-#[cfg(feature = "native_trigger")]
-fn refresh_failure_from(e: ExecuteError) -> RefreshFailure {
-    let rejected = match &e {
-        // A code says exactly what was refused, so nothing else needs guessing at.
-        ExecuteError::ErrorResponse { error, .. } => code_means_reconnect(&error.error),
-        // A body that would not deserialize is where a refusal hides when the status says
-        // nothing, and it is the only place the reason is written down.
-        ExecuteError::BadResponse { status, body, .. } => {
-            grant_refused(Some(*status), &String::from_utf8_lossy(body))
-        }
-        _ => grant_refused(e.status(), ""),
-    };
-    let message = match &e {
-        ExecuteError::BadResponse { body, .. } => {
-            format!("{e}: {}", String::from_utf8_lossy(body))
-        }
-        _ => error_source_chain(&e),
-    };
-    if rejected {
-        RefreshFailure::rejected(message)
-    } else {
-        RefreshFailure::outage(message)
-    }
-}
-
-/// Refresh OAuth tokens using windmill-oauth.
-#[cfg(feature = "native_trigger")]
-pub async fn refresh_oauth_tokens(
-    oauth_config: &OAuthConfig,
-    refresh_endpoint: &str,
-    auth_endpoint: &str,
-) -> std::result::Result<OAuthConfig, RefreshFailure> {
-    let refresh_token_str = oauth_config
-        .refresh_token
-        .as_ref()
-        .ok_or_else(|| RefreshFailure::rejected("no refresh token is stored".to_string()))?;
-
-    // Build OAuth client for token refresh
-    // Auth URL is not used for refresh, but required by the client constructor
-    let auth_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, auth_endpoint))
-        .map_err(|e| RefreshFailure::outage(format!("invalid auth URL: {e}")))?;
-    let token_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, refresh_endpoint))
-        .map_err(|e| RefreshFailure::outage(format!("invalid token URL: {e}")))?;
-
-    let mut client = OClient::new(oauth_config.client_id.clone(), auth_url, token_url);
-    client.set_client_secret(oauth_config.client_secret.clone());
-
-    let token_response: RefreshTokenResponse = client
-        .exchange_refresh_token(&RefreshToken::from(refresh_token_str.as_str()))
-        .with_client(&*OAUTH_HTTP_CLIENT)
-        .execute()
-        .await
-        .map_err(refresh_failure_from)?;
-
-    Ok(OAuthConfig {
-        base_url: oauth_config.base_url.clone(),
-        access_token: token_response.access_token,
-        refresh_token: token_response
-            .refresh_token
-            .or_else(|| oauth_config.refresh_token.clone()),
-        client_id: oauth_config.client_id.clone(),
-        client_secret: oauth_config.client_secret.clone(),
-        connection_path: oauth_config.connection_path.clone(),
-        account_id: oauth_config.account_id,
-        managed: oauth_config.managed,
-    })
-}
-
-/// Mint a new access token for a connection the service refused. A connect-flow account refreshes
-/// with the client `decrypt_oauth_data` read; a connected resource's account through the variable
-/// store, which knows the instance client that issued it.
+/// Mint a new access token for a connection the service refused, through the variable store: it
+/// knows the client that issued the account (a workspace app included) and writes the token where
+/// the variable keeps it, an external secret backend included.
 async fn refresh_connection(
     db: &DB,
     workspace_id: &str,
     oauth_config: &OAuthConfig,
-    refresh_endpoint: &str,
-    auth_endpoint: &str,
 ) -> std::result::Result<String, RefreshFailure> {
     let Some(account_id) = oauth_config.account_id else {
         return Err(RefreshFailure::rejected(
             "the connection has no refresh token; reconnect it".to_string(),
         ));
     };
-    if !oauth_config.managed {
-        return refresh_resource_account(db, workspace_id, oauth_config, account_id).await;
-    }
-    let refreshed = refresh_oauth_tokens(oauth_config, refresh_endpoint, auth_endpoint).await?;
-    task::spawn({
-        let db = db.clone();
-        let workspace_id = workspace_id.to_string();
-        let access_token = refreshed.access_token.clone();
-        let refresh_token = refreshed.refresh_token.clone();
-        async move {
-            update_oauth_token_resource(
-                &db,
-                &workspace_id,
-                account_id,
-                &access_token,
-                refresh_token.as_deref(),
-            )
-            .await;
-        }
-    });
-    Ok(refreshed.access_token)
+    refresh_resource_account(db, workspace_id, oauth_config, account_id).await
 }
 
 #[cfg(feature = "native_trigger")]
@@ -1104,76 +941,6 @@ async fn refresh_resource_account(
     Err(RefreshFailure::outage(
         "the native_trigger feature is not enabled".to_string(),
     ))
-}
-
-/// Fallback refresh without native_triggers feature
-#[cfg(not(feature = "native_trigger"))]
-pub async fn refresh_oauth_tokens(
-    _oauth_config: &OAuthConfig,
-    _refresh_endpoint: &str,
-    _auth_endpoint: &str,
-) -> std::result::Result<OAuthConfig, RefreshFailure> {
-    Err(RefreshFailure {
-        rejected: false,
-        message: "the native_trigger feature is not enabled".to_string(),
-    })
-}
-
-/// Write a refreshed token back to the account it was refreshed from, by that account's id, never
-/// by service or path: several connections share a service, and a connection's path can be
-/// reconnected or renamed while the refresh is in flight. A provider that rotates refresh tokens
-/// invalidates the old one, so writing it onto another account would break that account's next
-/// refresh.
-///
-/// No authorization happens here: it overwrites the account's secrets as the server. Call it only
-/// with tokens just refreshed from that account's own refresh token.
-pub async fn update_oauth_token_resource(
-    db: &DB,
-    workspace_id: &str,
-    account_id: i32,
-    new_access_token: &str,
-    new_refresh_token: Option<&str>,
-) {
-    let result = async {
-        let mc = build_crypt(db, workspace_id).await?;
-        let encrypted_token = encrypt(&mc, new_access_token);
-
-        sqlx::query!(
-            "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND account = $3",
-            encrypted_token,
-            workspace_id,
-            account_id,
-        )
-        .execute(db)
-        .await?;
-
-        // Even without a new refresh token, expires_at moves so the background refresh does not
-        // re-refresh immediately.
-        sqlx::query!(
-            "UPDATE account SET
-               refresh_token = COALESCE($1, refresh_token),
-               expires_at = now() + interval '1 hour',
-               refresh_error = NULL
-             WHERE workspace_id = $2 AND id = $3",
-            new_refresh_token,
-            workspace_id,
-            account_id,
-        )
-        .execute(db)
-        .await?;
-
-        Ok::<(), Error>(())
-    }
-    .await;
-
-    if let Err(e) = result {
-        tracing::error!(
-            "Failed to update OAuth tokens of account {} in workspace {}: {}",
-            account_id,
-            workspace_id,
-            e
-        );
-    }
 }
 
 /// The scopes a webhook token must carry to run one runnable, and nothing else.
@@ -1871,8 +1638,6 @@ pub struct Connection {
     pub owner: Option<String>,
     /// The workspace connection, which every member may use.
     pub workspace: bool,
-    /// Made by the integration trigger connect flow, rather than a resource connected elsewhere.
-    pub managed: bool,
     /// The scopes requested when the account was connected; unknown when absent.
     pub scopes: Option<Vec<String>>,
     /// The scopes this service's triggers need that `scopes` lacks; unknown when absent.
@@ -1891,8 +1656,7 @@ pub async fn list_usable_connections(
 ) -> Result<Vec<Connection>> {
     let mut connections = sqlx::query_as!(
         Connection,
-        r#"SELECT v.path, r.created_by AS "owner?", false AS "workspace!",
-           COALESCE(a.is_workspace_integration, false) AS "managed!", a.scopes AS "scopes?",
+        r#"SELECT v.path, r.created_by AS "owner?", false AS "workspace!", a.scopes AS "scopes?",
            NULL::text[] AS "missing_scopes?"
          FROM variable v
          JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path
@@ -1942,8 +1706,7 @@ pub async fn workspace_connection(
 ) -> Result<Option<Connection>> {
     let connection = sqlx::query_as!(
         Connection,
-        r#"SELECT v.path, r.created_by AS "owner?", true AS "workspace!",
-           COALESCE(a.is_workspace_integration, false) AS "managed!", a.scopes AS "scopes?",
+        r#"SELECT v.path, r.created_by AS "owner?", true AS "workspace!", a.scopes AS "scopes?",
            NULL::text[] AS "missing_scopes?"
          FROM workspace_integrations wi
          JOIN variable v ON v.workspace_id = wi.workspace_id AND v.path = wi.resource_path

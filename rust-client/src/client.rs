@@ -265,6 +265,7 @@ impl Windmill {
                     is_secret: None,
                     description: None,
                     value_valid_until: None,
+                    unlink_account: None,
                     labels: None,
                     ws_specific: None,
                 },

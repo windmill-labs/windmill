@@ -724,6 +724,151 @@ pub struct NewOAuthAccount {
     pub cc_token_url: Option<String>,
     pub mcp_server_url: Option<String>,
     pub scopes: Option<Vec<String>>,
+    /// Issued by the workspace's own OAuth app for the service named by `client`, which is then
+    /// what refreshes it. A wrong flag only breaks this account's refresh: a refresh token works
+    /// with the client that issued it alone.
+    pub is_workspace_integration: bool,
+}
+
+async fn insert_account(
+    tx: &mut sqlx::PgConnection,
+    w_id: &str,
+    a: NewOAuthAccount,
+) -> Result<i32> {
+    Ok(sqlx::query_scalar!(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, mcp_server_url, scopes, is_workspace_integration) VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id",
+        w_id,
+        a.client,
+        a.expires_in.to_string(),
+        a.refresh_token,
+        a.grant_type,
+        a.cc_client_id,
+        a.cc_client_secret,
+        a.cc_token_url,
+        a.mcp_server_url,
+        a.scopes.as_deref(),
+        a.is_workspace_integration
+    )
+    .fetch_one(&mut *tx)
+    .await?)
+}
+
+/// Delete an account once no variable links it any more. Any variable can link any account, so
+/// another one may still hold it; the check needs `db`, since a caller's own transaction does not
+/// see variables it cannot read.
+pub async fn delete_unlinked_account(db: &DB, workspace_id: &str, account_id: Option<i32>) {
+    let Some(account_id) = account_id else {
+        return;
+    };
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM account WHERE workspace_id = $1 AND id = $2
+         AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
+        workspace_id,
+        account_id,
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Failed to delete account {account_id} in {workspace_id}: {e}");
+    }
+}
+
+/// Swaps the token and account of the OAuth variable at `path` in place: its sharing and
+/// description, and the resources and triggers pointing at it, stay as they are. The account it
+/// held is deleted unless another variable still uses it. Returns the new account's id.
+pub async fn replace_variable_account(
+    authed: ApiAuthed,
+    db: &DB,
+    user_db: UserDB,
+    webhook: &WebhookShared,
+    w_id: String,
+    path: String,
+    value: String,
+    account: NewOAuthAccount,
+) -> Result<i32> {
+    check_scopes(&authed, || format!("variables:write:{path}"))?;
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    let authed = maybe_refresh_folders(&path, &w_id, authed, db).await;
+
+    let mut tx = user_db.begin(&authed).await?;
+    // Locked before the secret is written, which an external backend does by path: a refresh of
+    // the old account writes there under the same lock, so it lands either before this token or
+    // not at all. Row-level security hides a variable the caller may not write.
+    let old = sqlx::query!(
+        "SELECT value::text AS \"value!\", account FROM variable
+         WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+        path,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| Error::NotAuthorized(format!("You cannot write the variable at {path}")))?;
+    let old_ref = is_external_ref_value(&old.value).then_some(old.value.as_str());
+    let value = secret_value_to_store(
+        db,
+        &w_id,
+        &path,
+        value,
+        false,
+        "update",
+        authed.is_admin,
+        old_ref,
+        true,
+    )
+    .await?;
+
+    let account_id = insert_account(&mut tx, &w_id, account).await?;
+    sqlx::query!(
+        "UPDATE variable SET value = $3, account = $4, edited_by = $5, edited_at = now()
+         WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path,
+        value,
+        account_id,
+        authed.username,
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "variables.update",
+        ActionKind::Update,
+        &w_id,
+        Some(&path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    delete_unlinked_account(db, &w_id, old.account).await;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        db,
+        &w_id,
+        DeployedObject::Variable { path: path.clone(), parent_path: None },
+        Some(format!("Variable '{path}' reconnected")),
+        true,
+        None,
+    )
+    .await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateVariable { workspace: w_id, old_path: path.clone(), new_path: path },
+    );
+
+    Ok(account_id)
 }
 
 /// Creates a variable and, given `account`, the OAuth account it refreshes through, linked in the
@@ -793,23 +938,7 @@ pub async fn create_variable_with_account(
     let mut tx = user_db.begin(&authed).await?;
 
     let account_id = match account {
-        Some(a) => Some(
-            sqlx::query_scalar!(
-                "INSERT INTO account (workspace_id, client, expires_at, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, mcp_server_url, scopes) VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
-                &w_id,
-                a.client,
-                a.expires_in.to_string(),
-                a.refresh_token,
-                a.grant_type,
-                a.cc_client_id,
-                a.cc_client_secret,
-                a.cc_token_url,
-                a.mcp_server_url,
-                a.scopes.as_deref()
-            )
-            .fetch_one(&mut *tx)
-            .await?,
-        ),
+        Some(a) => Some(insert_account(&mut tx, &w_id, a).await?),
         None => None,
     };
 
@@ -1243,6 +1372,10 @@ struct EditVariable {
         deserialize_with = "windmill_common::more_serde::double_option"
     )]
     value_valid_until: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    /// Detaches the OAuth account the variable refreshes through, for a token that no longer
+    /// comes from it.
+    #[serde(default)]
+    unlink_account: bool,
 }
 
 #[derive(Deserialize)]
@@ -1292,6 +1425,18 @@ async fn update_variable(
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
         has_sql_updates = true;
+    }
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
+    // A reconnect locks the row before writing the secret, so a refresh of the account it
+    // unlinks cannot land its token after this one (see `replace_variable_account`).
+    if ns.unlink_account {
+        sqlx::query_scalar!(
+            "SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+            path,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
     }
     let ns_value_is_none = ns.value.is_none();
     // Determine the target path for storing secrets (use new path if provided)
@@ -1366,8 +1511,6 @@ async fn update_variable(
         sqlb.set_str("is_secret", nbool);
         has_sql_updates = true;
     }
-
-    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     if let Some(npath) = ns.path.clone() {
         if npath != path {
@@ -1541,6 +1684,21 @@ async fn update_variable(
         }
     }
 
+    let mut unlinked_account = None;
+    if ns.unlink_account {
+        unlinked_account = sqlx::query_scalar!(
+            "UPDATE variable v SET account = NULL FROM variable o
+             WHERE o.workspace_id = v.workspace_id AND o.path = v.path
+               AND v.workspace_id = $1 AND v.path = $2 AND v.account IS NOT NULL
+             RETURNING o.account",
+            w_id,
+            &npath,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1553,6 +1711,7 @@ async fn update_variable(
     .await?;
 
     tx.commit().await?;
+    delete_unlinked_account(&db, &w_id, unlinked_account).await;
 
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
