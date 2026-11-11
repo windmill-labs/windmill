@@ -592,10 +592,11 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   const buildOptions = getDevBuildOptions(entryPoint, frameworks.svelte);
 
-  // Load framework-specific plugins (svelte) based on package.json
-  const frameworkPlugins = await createFrameworkPlugins(appDir);
-
   const sharedUiDir = findSharedUiDir(appDir);
+
+  // Load framework-specific plugins (svelte) based on package.json
+  const frameworkPlugins = await createFrameworkPlugins(appDir, sharedUiDir);
+
   const sharedUiPlugins =
     sharedUiDir && fs.existsSync(sharedUiDir)
       ? [createSharedUiPlugin(sharedUiDir, appDir)]

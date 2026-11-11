@@ -243,12 +243,120 @@ function createSveltePlugin(appDir: string): any {
   };
 }
 
+const TAILWIND_ENTRY = /@import\s+(?:url\(\s*)?["']tailwindcss["']|@tailwind\s/;
+const TAILWIND_SCAN_EXTS = new Set([
+  ".html", ".js", ".jsx", ".ts", ".tsx", ".svelte", ".vue",
+]);
+
+function collectTailwindCandidates(dirs: string[]): string[] {
+  const candidates = new Set<string>();
+  const walk = (dir: string) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith(".") || e.name === "node_modules" || e.name === "dist") continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (TAILWIND_SCAN_EXTS.has(path.extname(e.name))) {
+        // ponytail: whitespace/quote split instead of Tailwind's oxide scanner; the
+        // compiler drops tokens that are not utilities, so over-collecting is harmless.
+        for (const tok of fs.readFileSync(full, "utf-8").split(/[\s"'`{}<>;]+/)) {
+          if (tok) candidates.add(tok);
+        }
+      }
+    }
+  };
+  dirs.forEach(walk);
+  return [...candidates];
+}
+
+/**
+ * Compiles stylesheets that pull in Tailwind v4 (`@import "tailwindcss"`) with the
+ * app's own `tailwindcss` package, generating the utilities used in the app and the
+ * shared `ui/` folder. esbuild alone would inline Tailwind's sources verbatim and
+ * ship `@theme`/`@tailwind utilities` to the browser, which ignores them.
+ * Imports inside the stylesheet are resolved through esbuild, so `/ui/...` and the
+ * "style" export condition work as they do for plain CSS.
+ */
+function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
+  let compilePromise: Promise<any> | undefined;
+  const loadCompile = () =>
+    (compilePromise ??= (async () => {
+      try {
+        const requireFromApp = createRequire(path.join(path.resolve(appDir), "package.json"));
+        const mod: any = await import(pathToFileURL(requireFromApp.resolve("tailwindcss")).href);
+        const compile = mod.compile ?? mod.default?.compile;
+        // Tailwind v3 has no compile(); its CSS keeps going through esbuild as before.
+        return typeof compile === "function" ? compile : undefined;
+      } catch {
+        return undefined;
+      }
+    })());
+
+  return {
+    name: "wmill-tailwind",
+    setup(build: any) {
+      build.onLoad({ filter: /\.css$/ }, async (args: any) => {
+        if (args.namespace !== "file") return undefined;
+        const source = await readTextFile(args.path);
+        if (!TAILWIND_ENTRY.test(source)) return undefined;
+        const compile = await loadCompile();
+        if (!compile) return undefined;
+
+        const watchFiles = new Set<string>();
+        const resolveFrom = async (id: string, base: string, kind: string) => {
+          // The importer lets the shared-ui plugin send bare imports made from ui/
+          // to the app's node_modules; esbuild only reads it as a path prefix.
+          const r = await build.resolve(id, {
+            resolveDir: base,
+            importer: path.join(base, "_"),
+            kind,
+          });
+          if (r.errors.length > 0) throw new Error(r.errors[0].text);
+          watchFiles.add(r.path);
+          return r.path;
+        };
+        try {
+          const compiler = await compile(source, {
+            base: path.dirname(args.path),
+            loadStylesheet: async (id: string, base: string) => {
+              const p = await resolveFrom(id, base, "import-rule");
+              return { path: p, base: path.dirname(p), content: await readTextFile(p) };
+            },
+            loadModule: async (id: string, base: string) => {
+              const p = await resolveFrom(id, base, "require-call");
+              const mod: any = await import(pathToFileURL(p).href);
+              return { path: p, base: path.dirname(p), module: mod.default ?? mod };
+            },
+          });
+          const dirs = [appDir, ...(sharedUiDir ? [sharedUiDir] : [])];
+          return {
+            contents: compiler.build(collectTailwindCandidates(dirs)),
+            loader: "css",
+            resolveDir: path.dirname(args.path),
+            watchFiles: [...watchFiles],
+          };
+        } catch (e: any) {
+          return { errors: [{ text: `Tailwind CSS: ${e?.message ?? e}` }] };
+        }
+      });
+    },
+  };
+}
+
 /**
  * Creates framework-specific esbuild plugins based on detected dependencies
  */
-export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
+export async function createFrameworkPlugins(
+  appDir: string,
+  sharedUiDir?: string,
+): Promise<any[]> {
   const frameworks = detectFrameworks(appDir);
-  const plugins: any[] = [];
+  const plugins: any[] = [createTailwindPlugin(appDir, sharedUiDir)];
 
   if (frameworks.svelte) {
     log.info(colors.blue("🔧 Svelte detected, adding svelte plugin..."));
@@ -394,7 +502,7 @@ export async function createBundle(
   await ensureNodeModules(appDir);
 
   // Load framework-specific plugins (svelte) based on package.json
-  const frameworkPlugins = await createFrameworkPlugins(appDir);
+  const frameworkPlugins = await createFrameworkPlugins(appDir, options.sharedUiDir);
 
   // Ensure output directory exists
   const distDir = path.join(process.cwd(), outDir);
