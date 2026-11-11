@@ -154,6 +154,13 @@ export function createTailwindPlugin(appDir: string, sharedUiDir?: string): any 
             content: fs.readFileSync(resolved.path, "utf-8"),
           };
         },
+        rebaseUrl(url, from, to) {
+          const cut = url.search(/[?#]/);
+          const file = cut === -1 ? url : url.slice(0, cut);
+          const suffix = cut === -1 ? "" : url.slice(cut);
+          const rel = path.relative(to, path.resolve(from, file)).split(path.sep).join("/");
+          return (rel.startsWith("../") ? rel : "./" + rel) + suffix;
+        },
         // `@plugin` / `@config` run in this process, as they would under the
         // Tailwind CLI: resolved from the stylesheet, then from the app.
         async loadModule(id, base) {

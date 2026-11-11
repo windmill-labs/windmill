@@ -48,6 +48,11 @@ export interface TailwindHost {
     resourceHint: "plugin" | "config",
   ): Promise<{ path: string; base: string; module: unknown }>;
   /**
+   * `url` as written in a stylesheet in directory `from`, made relative to
+   * directory `to`, with forward slashes and a leading `./` or `../`.
+   */
+  rebaseUrl(url: string, from: string, to: string): string;
+  /**
    * The files whose class names the stylesheet must cover: the app's sources
    * (and the shared `/ui` folder) when `includeDefault`, plus whatever each
    * `@source` names. `dirs` are the directories walked, for watch mode.
@@ -144,10 +149,17 @@ export async function compileTailwind(
   const compiler = await compile(css, {
     base,
     from: path,
+    // Tailwind inlines every import into this stylesheet, which the bundler
+    // then resolves from `base`: a relative url() has to be rebased to keep
+    // pointing next to the sheet it was written in.
     loadStylesheet: async (id, from) => {
       const sheet = await host.loadStylesheet(id, from);
       files.add(sheet.path);
-      return sheet;
+      if (sheet.base === base) return sheet;
+      return {
+        ...sheet,
+        content: rewriteUrls(sheet.content, (url) => host.rebaseUrl(url, sheet.base, base)),
+      };
     },
     loadModule: async (id, from, hint) => {
       const mod = await host.loadModule(id, from, hint);
@@ -180,6 +192,17 @@ export async function compileTailwind(
     files: [...files],
     dirs: scanned.dirs,
   };
+}
+
+const CSS_URL = /url\(\s*(["']?)([^"')]+?)\1\s*\)/g;
+// Absolute, scheme-qualified (data:, https:, …), fragment or variable: not a file path.
+const NOT_RELATIVE = /^(?:\/|#|[a-z][a-z0-9+.-]*:|var\()/i;
+
+/** Applies `rebase` to every relative `url()` in `css`. */
+export function rewriteUrls(css: string, rebase: (url: string) => string): string {
+  return css.replace(CSS_URL, (match, quote, url) =>
+    NOT_RELATIVE.test(url) ? match : `url(${quote}${rebase(url)}${quote})`,
+  );
 }
 
 /** The part of a glob before its first wildcard segment: `src/**\/*.tsx` -> `src`. */
