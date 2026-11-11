@@ -1293,3 +1293,65 @@ async fn test_generated_username_skips_anonymous(db: Pool<Postgres>) -> anyhow::
     assert_eq!(username, "anonymous2");
     Ok(())
 }
+
+/// The default account stays exploitable after its password is set back to `changeme`, which
+/// stores a hash with a new salt and parameters, so the check must verify rather than compare.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_is_default_superadmin_active(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let url = format!(
+        "http://localhost:{}/api/users/is_default_superadmin_active",
+        server.addr.port()
+    );
+    let active = |token: &'static str| {
+        let url = url.clone();
+        async move {
+            let resp = client()
+                .get(url)
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await
+                .unwrap();
+            (resp.status(), resp.text().await.unwrap())
+        }
+    };
+
+    // `changeme`, hashed with a different salt and cost than the migration's seed.
+    sqlx::query(
+        "INSERT INTO password (email, password_hash, login_type, super_admin, verified, name)
+         VALUES ('admin@windmill.dev', $1, 'password', true, true, 'Admin')
+         ON CONFLICT (email) DO UPDATE SET password_hash = $1, disabled = false",
+    )
+    .bind("$argon2id$v=19$m=19456,t=2,p=1$TKpUDH3ZS4QevqmTfN233A$JBkCQbNobQTUlG0KlKBl1CKbPZK0iqe7BydnIqDfaVc")
+    .execute(&db)
+    .await?;
+    assert_eq!(
+        active("SECRET_TOKEN").await,
+        (reqwest::StatusCode::OK, "true".into())
+    );
+    assert_eq!(
+        active("SECRET_TOKEN_2").await.0,
+        reqwest::StatusCode::UNAUTHORIZED
+    );
+
+    sqlx::query("UPDATE password SET disabled = true WHERE email = 'admin@windmill.dev'")
+        .execute(&db)
+        .await?;
+    assert_eq!(
+        active("SECRET_TOKEN").await,
+        (reqwest::StatusCode::OK, "false".into())
+    );
+
+    sqlx::query(
+        "UPDATE password SET disabled = false, password_hash = 'not-a-real-hash'
+         WHERE email = 'admin@windmill.dev'",
+    )
+    .execute(&db)
+    .await?;
+    assert_eq!(
+        active("SECRET_TOKEN").await,
+        (reqwest::StatusCode::OK, "false".into())
+    );
+    Ok(())
+}

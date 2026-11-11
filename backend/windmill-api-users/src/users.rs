@@ -128,6 +128,10 @@ pub fn global_service() -> Router {
         .route("/decline_invite", post(decline_invite))
         .route("/accept_invite", post(accept_invite))
         .route("/list_as_super_admin", get(list_users_as_super_admin))
+        .route(
+            "/is_default_superadmin_active",
+            get(is_default_superadmin_active),
+        )
         .route("/set_login_type/{user}", post(set_login_type))
         .route("/update/{user}", post(update_user))
         .route("/delete/{user}", delete(delete_user))
@@ -382,6 +386,31 @@ pub async fn is_first_time_setup(Extension(db): Extension<DB>) -> JsonResult<boo
     }
     FIRST_TIME_SETUP.store(false, std::sync::atomic::Ordering::Relaxed);
     Ok(Json(false))
+}
+
+/// Whether `admin@windmill.dev` can still sign in with `changeme`. Verified rather than
+/// compared to the seeded hash: a password set back to `changeme` gets a fresh salt. Unlike
+/// `is_first_time_setup`, this stays true after `base_url` is saved or other users exist.
+async fn is_default_superadmin_active(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(argon2): Extension<Arc<Argon2<'_>>>,
+) -> JsonResult<bool> {
+    require_super_admin(&db, &authed).await?;
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Ok(Json(false));
+    }
+    let hash: Option<String> = sqlx::query_scalar(
+        "SELECT password_hash FROM password WHERE email = 'admin@windmill.dev' \
+         AND login_type = 'password' AND disabled = false AND password_hash IS NOT NULL",
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(hash.is_some_and(|hash| {
+        argon2.verify_password(b"changeme", hash.as_str()).is_ok()
+    })))
 }
 
 #[derive(Deserialize)]

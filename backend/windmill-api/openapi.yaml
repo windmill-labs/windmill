@@ -4295,6 +4295,20 @@ paths:
               schema:
                 type: boolean
 
+  /users/is_default_superadmin_active:
+    get:
+      summary: is the default admin@windmill.dev account still usable with its default password (superadmin only)
+      operationId: isDefaultSuperadminActive
+      tags:
+        - user
+      responses:
+        "200":
+          description: true if admin@windmill.dev can still log in with the default password
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /users/list_as_super_admin:
     get:
       summary: list all users as super admin (require to be super amdin)
