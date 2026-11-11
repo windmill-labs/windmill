@@ -28,7 +28,7 @@ beforeAll(() => {
   write("f/demo.raw_app/index.css", `@import "/ui/theme.css";\n`);
   write(
     "f/demo.raw_app/index.tsx",
-    `import "./index.css";\nimport { cls } from "/ui/button";\nconsole.log(cls, "bg-from-app [&>svg]:hidden", "before:content-['x']");\n`,
+    `import "./index.css";\nimport { cls } from "/ui/button";\nconsole.log(cls, "bg-from-app [&>svg]:hidden", "before:content-['x']", '[&>p]:block');\n`,
   );
   const pkg = "f/demo.raw_app/node_modules/tailwindcss";
   write(
@@ -46,7 +46,7 @@ beforeAll(() => {
       const tw = await loadStylesheet("tailwindcss", ui.base);
       return {
         build: (candidates) =>
-          tw.content + ["bg-from-app", "bg-from-ui", "[&>svg]:hidden", "before:content-['x']"]
+          tw.content + ["bg-from-app", "bg-from-ui", "[&>svg]:hidden", "before:content-['x']", "[&>p]:block"]
             .filter((c) => candidates.includes(c))
             .map((c) => ".hit-" + c.replace(/\\W/g, "_") + " { color: red; }").join("\\n"),
       };
@@ -68,7 +68,7 @@ test("tailwind stylesheets compile with the app's tailwindcss over app and ui/ s
     sharedUiDir: path.join(root, "ui"),
   });
   expect(css).toContain("tailwind-entry");
-  for (const hit of ["bg_from_app", "bg_from_ui", "___svg__hidden", "before_content___x__"]) {
+  for (const hit of ["bg_from_app", "bg_from_ui", "___svg__hidden", "before_content___x__", "___p__block"]) {
     expect(css).toContain(`.hit-${hit}`);
   }
   expect(css).not.toContain("@theme");

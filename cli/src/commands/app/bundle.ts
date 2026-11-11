@@ -265,12 +265,11 @@ function collectTailwindCandidates(dirs: string[]): string[] {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) walk(full);
       else if (TAILWIND_SCAN_EXTS.has(path.extname(e.name))) {
-        // ponytail: two plain splits instead of Tailwind's oxide scanner. The coarse one
-        // keeps `'`, `>` and `<` that arbitrary values use (`[&>svg]:hidden`,
-        // `content-['x']`), the fine one frees classes from `className='…'` and markup.
-        // The compiler drops tokens that are not utilities, so over-collecting is harmless.
+        // Each split keeps a different set of characters that candidates may contain
+        // (`content-['x']`, `[&>svg]:hidden` inside '…', classes next to markup); the
+        // compiler drops tokens that are not utilities, so the union is safe.
         const text = fs.readFileSync(full, "utf-8");
-        for (const re of [/[\s"`{};]+/, /[\s"'`{}<>;=]+/]) {
+        for (const re of [/[\s"`{};]+/, /[\s"'`{};=]+/, /[\s"'`{}<>;=]+/]) {
           for (const tok of text.split(re)) {
             // Svelte's `class:hidden={x}` names the utility after the directive.
             if (tok) candidates.add(tok.startsWith("class:") ? tok.slice(6) : tok);
@@ -295,13 +294,19 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
   let compilePromise: Promise<any> | undefined;
   const loadCompile = () =>
     (compilePromise ??= (async () => {
+      let entry: string;
       try {
-        const requireFromApp = createRequire(path.join(path.resolve(appDir), "package.json"));
-        const mod: any = await import(pathToFileURL(requireFromApp.resolve("tailwindcss")).href);
+        entry = createRequire(path.join(path.resolve(appDir), "package.json")).resolve("tailwindcss");
+      } catch {
+        return undefined;
+      }
+      try {
+        const mod: any = await import(pathToFileURL(entry).href);
         const compile = mod.compile ?? mod.default?.compile;
         // Tailwind v3 has no compile(); its CSS keeps going through esbuild as before.
         return typeof compile === "function" ? compile : undefined;
-      } catch {
+      } catch (e: any) {
+        log.warn(`Could not load ${entry}, Tailwind CSS is bundled uncompiled: ${e?.message ?? e}`);
         return undefined;
       }
     })());
@@ -318,12 +323,7 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
         const source = await readTextFile(args.path);
         if (!TAILWIND_ENTRY.test(source)) return undefined;
         const compile = await loadCompile();
-        if (!compile) {
-          log.warn(
-            `${args.path} uses Tailwind CSS v4 syntax but no tailwindcss v4 package could be loaded from ${appDir}; it is bundled uncompiled.`,
-          );
-          return undefined;
-        }
+        if (!compile) return undefined;
 
         const watchFiles = new Set<string>();
         const resolveFrom = async (id: string, base: string, kind: string) => {
@@ -355,7 +355,10 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
                 p = createRequire(path.join(path.resolve(appDir), "_")).resolve(id);
               }
               watchFiles.add(p);
-              const mod: any = await import(pathToFileURL(p).href);
+              // The mtime query re-evaluates a config or plugin edited during `app dev`;
+              // a plain import would keep serving the first version from the module cache.
+              const url = `${pathToFileURL(p).href}?t=${fs.statSync(p).mtimeMs}`;
+              const mod: any = await import(url);
               return { path: p, base: path.dirname(p), module: mod.default ?? mod };
             },
           });
