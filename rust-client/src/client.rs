@@ -426,13 +426,9 @@ impl Windmill {
                 &self.workspace,
                 path,
                 EditResource {
-                    path: None,
-                    description: None,
                     value: Some(value),
                     resource_type: Some(resource_type.to_owned()),
-                    labels: None,
-                    ws_specific: None,
-                    preserve_on_behalf_of: None,
+                    ..Default::default()
                 },
             )
             .await?;
@@ -880,6 +876,7 @@ impl Windmill {
                 result,
                 success,
                 started,
+                ..
             } = job_api::get_completed_job_result_maybe(
                 &self.client_config,
                 &self.workspace,
