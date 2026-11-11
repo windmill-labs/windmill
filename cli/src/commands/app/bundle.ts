@@ -243,7 +243,10 @@ function createSveltePlugin(appDir: string): any {
   };
 }
 
-const TAILWIND_ENTRY = /@import\s+(?:url\(\s*)?["']tailwindcss["']|@tailwind\s/;
+// `tailwindcss/…` covers the split imports (theme.css, utilities.css) used to drop
+// preflight; `@reference`/`@apply` cover component stylesheets imported from JS.
+const TAILWIND_ENTRY =
+  /@import\s+(?:url\(\s*)?["']tailwindcss["'/]|@tailwind\s|@reference\s|@apply\s/;
 const TAILWIND_SCAN_EXTS = new Set([
   ".html", ".js", ".jsx", ".ts", ".tsx", ".svelte", ".vue",
 ]);
@@ -262,10 +265,16 @@ function collectTailwindCandidates(dirs: string[]): string[] {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) walk(full);
       else if (TAILWIND_SCAN_EXTS.has(path.extname(e.name))) {
-        // ponytail: whitespace/quote split instead of Tailwind's oxide scanner; the
-        // compiler drops tokens that are not utilities, so over-collecting is harmless.
-        for (const tok of fs.readFileSync(full, "utf-8").split(/[\s"'`{}<>;]+/)) {
-          if (tok) candidates.add(tok);
+        // ponytail: two plain splits instead of Tailwind's oxide scanner. The coarse one
+        // keeps `'`, `>` and `<` that arbitrary values use (`[&>svg]:hidden`,
+        // `content-['x']`), the fine one frees classes from `className='…'` and markup.
+        // The compiler drops tokens that are not utilities, so over-collecting is harmless.
+        const text = fs.readFileSync(full, "utf-8");
+        for (const re of [/[\s"`{};]+/, /[\s"'`{}<>;=]+/]) {
+          for (const tok of text.split(re)) {
+            // Svelte's `class:hidden={x}` names the utility after the directive.
+            if (tok) candidates.add(tok.startsWith("class:") ? tok.slice(6) : tok);
+          }
         }
       }
     }
@@ -301,11 +310,20 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
     name: "wmill-tailwind",
     setup(build: any) {
       build.onLoad({ filter: /\.css$/ }, async (args: any) => {
-        if (args.namespace !== "file") return undefined;
+        // Package stylesheets (tailwindcss's own parts included) are inlined by the
+        // app stylesheet that imports them, never compiled on their own.
+        if (args.namespace !== "file" || args.path.includes(`${path.sep}node_modules${path.sep}`)) {
+          return undefined;
+        }
         const source = await readTextFile(args.path);
         if (!TAILWIND_ENTRY.test(source)) return undefined;
         const compile = await loadCompile();
-        if (!compile) return undefined;
+        if (!compile) {
+          log.warn(
+            `${args.path} uses Tailwind CSS v4 syntax but no tailwindcss v4 package could be loaded from ${appDir}; it is bundled uncompiled.`,
+          );
+          return undefined;
+        }
 
         const watchFiles = new Set<string>();
         const resolveFrom = async (id: string, base: string, kind: string) => {
@@ -327,8 +345,16 @@ function createTailwindPlugin(appDir: string, sharedUiDir?: string): any {
               const p = await resolveFrom(id, base, "import-rule");
               return { path: p, base: path.dirname(p), content: await readTextFile(p) };
             },
+            // Plugins and configs run in Node, so they resolve with Node's rules rather
+            // than esbuild's browser ones; ui/ falls back to the app's packages.
             loadModule: async (id: string, base: string) => {
-              const p = await resolveFrom(id, base, "require-call");
+              let p: string;
+              try {
+                p = createRequire(path.join(base, "_")).resolve(id);
+              } catch {
+                p = createRequire(path.join(path.resolve(appDir), "_")).resolve(id);
+              }
+              watchFiles.add(p);
               const mod: any = await import(pathToFileURL(p).href);
               return { path: p, base: path.dirname(p), module: mod.default ?? mod };
             },
