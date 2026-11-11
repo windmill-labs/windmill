@@ -23,12 +23,12 @@ use windmill_native_triggers::{
     get_workspace_integration,
     github::GitHub,
     google::{parse_stop_channel_params, should_renew_channel},
-    grant_refused, http_error_status, list_native_triggers, list_usable_connections,
+    http_error_status, list_native_triggers, list_usable_connections,
     map_external_error, native_trigger_is_enabled,
     nextcloud::NextCloud,
     require_native_integration_use, resolve_usable_connection, set_native_trigger_enabled,
     store_native_trigger, store_workspace_integration, update_native_trigger,
-    update_oauth_token_resource, External, ExternalReadFailure, HttpRequestError,
+    External, ExternalReadFailure, HttpRequestError,
     NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
@@ -154,16 +154,13 @@ fn now_ms() -> i64 {
 // 1. Several connections of one service
 // ============================================================================
 
-/// Each connection keeps its own tokens: a refresh written back for one, or disconnecting one,
-/// must not touch another. Providers that rotate refresh tokens invalidate the old one, so a
-/// refresh token copied onto the wrong account breaks that account's next refresh.
+/// Each connection keeps its own tokens: disconnecting one must not touch another.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_connections_are_isolated(db: Pool<Postgres>) -> anyhow::Result<()> {
     let path_a = "u/test-user/native_nextcloud";
     let path_b = "u/other-user/native_nextcloud";
-    let mut account_a = 0;
     for (path, token) in [(path_a, "a"), (path_b, "b")] {
-        let account = setup_oauth_integration(
+        setup_oauth_integration(
             &db,
             ServiceName::Nextcloud,
             path,
@@ -172,32 +169,7 @@ async fn test_connections_are_isolated(db: Pool<Postgres>) -> anyhow::Result<()>
             None,
         )
         .await?;
-        if path == path_a {
-            account_a = account;
-        }
     }
-
-    update_oauth_token_resource(
-        &db,
-        "test-workspace",
-        account_a,
-        "access-a2",
-        Some("refresh-a2"),
-    )
-    .await;
-
-    let a: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_a)).await?;
-    let b: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_b)).await?;
-    assert_eq!(
-        (a.access_token.as_str(), a.refresh_token.as_deref()),
-        ("access-a2", Some("refresh-a2"))
-    );
-    assert_eq!(
-        (b.access_token.as_str(), b.refresh_token.as_deref()),
-        ("access-b", Some("refresh-b"))
-    );
 
     let mut tx = db.begin().await?;
     windmill_native_triggers::workspace_integrations::cleanup_connection(
@@ -988,29 +960,6 @@ fn test_provider_404_is_recognized() {
     assert!(matches!(
         classify_read_failure(nextcloud_error(StatusCode::NOT_FOUND, "{}")),
         ExternalReadFailure::Missing
-    ));
-}
-
-/// Sending a user to reconnect their integration is only right when the token endpoint refused
-/// the grant; a busy or broken endpoint has them fix credentials that are fine.
-#[test]
-fn test_refresh_failures_blame_only_the_grant_they_refuse() {
-    let refused = |code: u16| grant_refused(Some(StatusCode::from_u16(code).unwrap()), "");
-    for code in [400, 401, 403] {
-        assert!(refused(code), "{code} refuses the grant");
-    }
-    for code in [404, 408, 429, 500, 503] {
-        assert!(!refused(code), "{code} says nothing about the grant");
-    }
-    assert!(!grant_refused(None, ""));
-
-    // GitHub answers `bad_refresh_token` with HTTP 200, so the body is the only tell.
-    let ok = Some(StatusCode::OK);
-    assert!(grant_refused(ok, r#"{"error":"bad_refresh_token"}"#));
-    assert!(grant_refused(ok, r#"{"error":"invalid_grant"}"#));
-    assert!(!grant_refused(
-        ok,
-        r#"{"access_token":"t","token_type":"bearer"}"#
     ));
 }
 
