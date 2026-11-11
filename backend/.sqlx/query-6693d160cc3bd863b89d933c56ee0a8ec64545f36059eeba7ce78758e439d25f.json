@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE ai_artifact SET\n             latest_version = $4,\n             content = CASE WHEN pinned THEN content ELSE $5 END,\n             name = CASE WHEN pinned THEN name ELSE $6 END,\n             shown_version = CASE WHEN pinned THEN shown_version ELSE $4 END,\n             updated_at = CASE WHEN pinned THEN updated_at ELSE now() END,\n             session_id = COALESCE(session_id, $8)\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND latest_version = $7\n           AND deleted_at IS NULL\n         RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                   role, shown_version, latest_version, pinned, created_at, updated_at,\n                   deleted_at",
+  "query": "UPDATE ai_artifact SET\n             pinned = $4,\n             shown_version = CASE WHEN $4 THEN $5 ELSE latest_version END,\n             content = $6, name = $7, updated_at = now()\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND deleted_at IS NULL\n           AND latest_hash = $8 AND (NOT $4 OR $5 <= latest_version)\n         RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                   role, shown_version, latest_version, pinned, created_at, updated_at,\n                   deleted_at",
   "describe": {
     "columns": [
       {
@@ -84,11 +84,11 @@
         "Text",
         "Text",
         "Text",
+        "Bool",
         "Int4",
         "Text",
         "Varchar",
-        "Int4",
-        "Varchar"
+        "Text"
       ]
     },
     "nullable": [
@@ -109,5 +109,5 @@
       true
     ]
   },
-  "hash": "3ffba03f6d7be24c9f2518a1fc1fb0322d80b531b4111eed6bf9795d1467ac45"
+  "hash": "6693d160cc3bd863b89d933c56ee0a8ec64545f36059eeba7ce78758e439d25f"
 }

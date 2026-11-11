@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE ai_artifact SET\n             pinned = $4, shown_version = $5, content = $6, name = $7, updated_at = now()\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND deleted_at IS NULL\n           AND CASE WHEN $4 THEN $5 <= latest_version ELSE $5 = latest_version END\n         RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                   role, shown_version, latest_version, pinned, created_at, updated_at,\n                   deleted_at",
+  "query": "INSERT INTO ai_artifact\n                     (workspace_id, artifact_id, path, email, created_by, session_id, name, kind,\n                      role, shown_version, content, latest_version, latest_hash)\n                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $10, $12)\n                 RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                           role, shown_version, latest_version, pinned, created_at, updated_at,\n                           deleted_at",
   "describe": {
     "columns": [
       {
@@ -81,10 +81,15 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Text",
-        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
         "Int4",
         "Text",
         "Varchar"
@@ -108,5 +113,5 @@
       true
     ]
   },
-  "hash": "28e0be2d0e9271f5478725bbd9aa60257b58f98f6c72c63f647721f30ea1313f"
+  "hash": "5834cf8b95eb586c6202f1c36a9f40fb6e1fbab37d67637f967b25afe90bbb67"
 }

@@ -19,9 +19,12 @@ CREATE TABLE ai_artifact (
     -- The version people with access see, and its text.
     shown_version INTEGER NOT NULL,
     content TEXT NOT NULL,
-    -- The newest version the owner wrote. Above `shown_version` only while `pinned`; writes are
-    -- refused unless they name it as their base, which is what stops a stale copy overwriting.
+    -- The newest version the owner wrote. Above `shown_version` only while `pinned`.
     latest_version INTEGER NOT NULL,
+    -- The SHA-256 of that version's text, kept while an older one is pinned. A write is refused
+    -- unless it was made on this text: two of the owner's browsers can each hold a different
+    -- text under the same version number.
+    latest_hash VARCHAR(64) NOT NULL,
     pinned BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- When `content` last changed.
@@ -89,14 +92,15 @@ USING (exists(
 -- AI_SHARED_ARTIFACT_RETENTION_SECS were already deleted by the monitor.
 INSERT INTO ai_artifact (
     id, workspace_id, artifact_id, path, extra_perms, email, created_by, name, kind,
-    shown_version, content, latest_version, pinned, created_at, updated_at
+    shown_version, content, latest_version, latest_hash, pinned, created_at, updated_at
 )
 SELECT
     s.id, s.workspace_id, s.artifact_id,
     'u/' || s.created_by || '/' || s.slug
         || CASE WHEN s.rn > 1 THEN '_' || left(replace(s.id::text, '-', ''), 8) ELSE '' END,
     '{"g/all": false}'::jsonb, s.email, s.created_by, s.name, s.kind,
-    s.version, s.content, s.version, true, s.shared_at, s.shared_at
+    s.version, s.content, s.version, encode(sha256(convert_to(s.content, 'UTF8')), 'hex'), true,
+    s.shared_at, s.shared_at
 FROM (
     SELECT a.*, row_number() OVER (
         PARTITION BY a.workspace_id, a.created_by, a.slug ORDER BY a.shared_at, a.id

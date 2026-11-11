@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { planFirst, SessionArtifactsStore } from './artifactsState.svelte'
@@ -155,21 +156,23 @@ describe('SessionArtifactsStore', () => {
 		expect(await store.update('nope', { content: 'x' })).toBeUndefined()
 	})
 
-	it('gives two tabs editing at once distinct versions, keeping both snapshots', async () => {
-		// Without the transactional read both tabs stamp the same next version, and one edit
-		// and its snapshot vanish under the other.
+	it('stores only the first of two edits two tabs make at once on one version', async () => {
+		// The second, stored over the first, would replace a version it never saw, and with it
+		// one the other tab may have shared since.
 		const other = new (await import('./artifactsState.svelte')).SessionArtifactsStore()
 		await store.setSession('s1')
 		const created = await store.create('s1', { name: 'Doc', content: 'v1' })
 		await other.setSession('s1')
 
-		await Promise.all([
+		const results = await Promise.allSettled([
 			store.update(created.id, { content: 'from A', note: 'A' }),
 			other.update(created.id, { content: 'from B', note: 'B' })
 		])
 
-		expect((await dbMod.listArtifactVersions(created.id)).map((v) => v.version)).toEqual([3, 2, 1])
-		expect((await dbMod.getArtifact(created.id))?.version).toBe(3)
+		expect(results.filter((r) => r.status === 'rejected')).toMatchObject([
+			{ reason: { name: 'ArtifactStaleError', latest: 2, caughtUp: true } }
+		])
+		expect((await dbMod.listArtifactVersions(created.id)).map((v) => v.version)).toEqual([2, 1])
 	})
 
 	it('keeps an edit the store refused when the next update lands', async () => {
@@ -404,21 +407,23 @@ describe('SessionArtifactsStore', () => {
 		expect(store.artifacts.map((a) => a.id)).toContain(plan.id)
 	})
 
-	it('gives two tabs proposing at once distinct versions, keeping both snapshots', async () => {
+	it('stores only the first of two proposals two tabs make at once on one plan', async () => {
 		// The hazard the transaction exists for: read outside it and both tabs stamp the same
 		// next version, so one proposal and its snapshot vanish under the other.
 		const other = new (await import('./artifactsState.svelte')).SessionArtifactsStore()
 		await store.setSession('s1')
 		await store.savePlan('s1', { name: 'Plan', content: 'v1', note: 'first' }, undefined)
 
-		await Promise.all([
+		const results = await Promise.allSettled([
 			store.savePlan('s1', { name: 'Plan', content: 'from A', note: 'A' }, undefined),
 			other.savePlan('s1', { name: 'Plan', content: 'from B', note: 'B' }, undefined)
 		])
 
+		expect(results.filter((r) => r.status === 'rejected')).toMatchObject([
+			{ reason: { name: 'ArtifactStaleError', latest: 2 } }
+		])
 		const versions = (await store.listVersions(dbMod.planArtifactId('s1'))).map((v) => v.version)
-		expect(versions).toEqual([3, 2, 1])
-		expect((await dbMod.getArtifact(dbMod.planArtifactId('s1')))?.version).toBe(3)
+		expect(versions).toEqual([2, 1])
 	})
 
 	it('an approval racing a newer proposal moves the pointer without reverting content', async () => {
@@ -553,9 +558,14 @@ describe('SessionArtifactsStore with a server copy', () => {
 
 	it('refuses an edit the owner overtook from another browser, and takes that version', async () => {
 		const { AiService, shared, doc } = await sharedDoc()
-		AiService.writeAiArtifact.mockResolvedValue({ outcome: 'stale', latest_version: 3 })
+		AiService.writeAiArtifact.mockResolvedValue({
+			outcome: 'stale',
+			latest_version: 3,
+			latest_hash: sha256('v3 from elsewhere')
+		})
 		AiService.getAiArtifact.mockResolvedValue({
 			shown_version: 3,
+			latest_version: 3,
 			name: 'Doc',
 			content: 'v3 from elsewhere'
 		} as never)
@@ -567,13 +577,51 @@ describe('SessionArtifactsStore with a server copy', () => {
 		})
 		expect(await shared.get(doc.id)).toMatchObject({ version: 3, content: 'v3 from elsewhere' })
 		// The edit is redone on that version, and lands.
-		AiService.writeAiArtifact.mockResolvedValue({ outcome: 'saved' } as never)
+		AiService.writeAiArtifact.mockResolvedValue({ outcome: 'saved', latest_version: 4 })
 		expect(await shared.update(doc.id, { content: 'v4 from here' })).toMatchObject({ version: 4 })
 		expect(AiService.writeAiArtifact).toHaveBeenLastCalledWith(
 			expect.objectContaining({
-				requestBody: expect.objectContaining({ base_version: 3, version: 4 })
+				requestBody: expect.objectContaining({ base_hash: sha256('v3 from elsewhere'), version: 4 })
 			})
 		)
+	})
+
+	it('refuses an edit made on another text than the server holds under that number', async () => {
+		// Another of the owner's browsers wrote its own v1 and shared it: the numbers match, and
+		// the edit must still not replace what people see.
+		const { AiService, shared, doc } = await sharedDoc()
+		const theirs = { name: 'Doc', content: 'v1 elsewhere', shown_version: 1, latest_version: 1 }
+		AiService.writeAiArtifact.mockResolvedValueOnce({
+			outcome: 'stale',
+			latest_version: 1,
+			latest_hash: sha256('v1 elsewhere')
+		})
+		AiService.getAiArtifact.mockResolvedValue(theirs as never)
+		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'saved', latest_version: 2 })
+
+		await expect(shared.update(doc.id, { content: 'v2 from here' })).rejects.toMatchObject({
+			name: 'ArtifactStaleError',
+			latest: 2,
+			caughtUp: true
+		})
+		expect(await shared.get(doc.id)).toMatchObject({ version: 2, content: 'v1 elsewhere' })
+		// The server's copy takes the number this browser gave that text.
+		expect(AiService.writeAiArtifact).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({
+					base_hash: sha256('v1 elsewhere'),
+					version: 2,
+					content: 'v1 elsewhere'
+				})
+			})
+		)
+	})
+
+	it('stores a version under the number the server gave it', async () => {
+		const { AiService, shared, doc } = await sharedDoc()
+		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'saved', latest_version: 5 })
+		expect(await shared.update(doc.id, { content: 'v2' })).toMatchObject({ version: 5 })
+		expect(await shared.getVersion(doc.id, 5)).toMatchObject({ content: 'v2' })
 	})
 
 	it('catches up with a version written in another browser, unless an older one is pinned', async () => {
@@ -591,7 +639,11 @@ describe('SessionArtifactsStore with a server copy', () => {
 		const { AiService, shared, doc } = await sharedDoc()
 		const copy = { name: 'Doc', content: 'v3 from elsewhere', shown_version: 3, latest_version: 3 }
 		await new stateMod.SessionArtifactsStore(() => 'ws').catchUp(doc, copy as never)
-		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'stale', latest_version: 3 })
+		AiService.writeAiArtifact.mockResolvedValueOnce({
+			outcome: 'stale',
+			latest_version: 3,
+			latest_hash: sha256('v3 from elsewhere')
+		})
 		AiService.getAiArtifact.mockResolvedValue(copy as never)
 
 		await expect(shared.update(doc.id, { content: 'v2 from here' })).rejects.toMatchObject({
@@ -605,7 +657,11 @@ describe('SessionArtifactsStore with a server copy', () => {
 		const { AiService, shared, doc } = await sharedDoc()
 		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'saved' } as never)
 		await new stateMod.SessionArtifactsStore(() => 'ws').update(doc.id, { content: 'v2 elsewhere' })
-		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'stale', latest_version: 2 })
+		AiService.writeAiArtifact.mockResolvedValueOnce({
+			outcome: 'stale',
+			latest_version: 2,
+			latest_hash: sha256('v2 elsewhere')
+		})
 		AiService.getAiArtifact.mockResolvedValue({
 			name: 'Doc',
 			content: 'v1',
@@ -667,23 +723,30 @@ describe('SessionArtifactsStore with a server copy', () => {
 		expect(await shared.get(doc.id)).toMatchObject({ version: 1, content: 'v1' })
 	})
 
-	it('brings a server copy behind this browser up to date', async () => {
+	it('writes an edit over a server copy that holds one of its older versions', async () => {
 		const { AiService, shared, doc } = await sharedDoc()
-		// Shared before its writes reached the server, which still holds the version shared then.
+		// Stored while the server held no copy, so the copy shared since holds v1.
 		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'not_shared' })
 		await shared.update(doc.id, { content: 'v2' })
+		AiService.writeAiArtifact.mockResolvedValueOnce({
+			outcome: 'stale',
+			latest_version: 1,
+			latest_hash: sha256('v1')
+		})
+		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'saved', latest_version: 3 })
 
-		AiService.writeAiArtifact.mockResolvedValueOnce({ outcome: 'stale', latest_version: 1 })
-		AiService.publishAiArtifact.mockResolvedValue({} as never)
 		expect(await shared.update(doc.id, { content: 'v3' })).toMatchObject({ version: 3 })
-		expect(AiService.publishAiArtifact).toHaveBeenCalledWith(
+		expect(AiService.writeAiArtifact).toHaveBeenLastCalledWith(
 			expect.objectContaining({
-				workspace: 'ws',
-				requestBody: expect.objectContaining({ artifact_id: doc.id, version: 3, content: 'v3' })
+				requestBody: expect.objectContaining({ base_hash: sha256('v1'), version: 3, content: 'v3' })
 			})
 		)
 	})
 })
+
+function sha256(text: string): string {
+	return createHash('sha256').update(text, 'utf8').digest('hex')
+}
 
 function mk(over: Partial<db.PersistedArtifact> = {}): db.PersistedArtifact {
 	return {

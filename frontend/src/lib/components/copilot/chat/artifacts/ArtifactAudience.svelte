@@ -82,7 +82,7 @@
 		}
 		saving = true
 		try {
-			const result = await showVersion(local, workspace, server.latest_version, {
+			const result = await showVersion(local, workspace, {
 				pinned,
 				version,
 				name: snapshot.name,

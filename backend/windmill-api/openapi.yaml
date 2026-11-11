@@ -15256,8 +15256,7 @@ paths:
       description: >
         Makes the artifact an item with a path under the caller's user folder, before its access
         list is first changed, with this version as the one people with access see. An artifact
-        already on the server keeps its path and access list, takes this version when it is newer
-        than the latest it knows, and leaves the trash.
+        already on the server keeps its path, access list and versions, and leaves the trash.
       operationId: publishAiArtifact
       tags:
         - ai
@@ -15306,7 +15305,7 @@ paths:
     post:
       summary: save a new version of one of the caller's shared AI session artifacts
       description: >
-        Refused, with outcome stale, unless base_version is the latest version the server knows.
+        Refused, with outcome stale, unless base_hash is the SHA-256 of the latest version's text.
         People with access see the new version at once unless the owner pinned one.
       operationId: writeAiArtifact
       tags:
@@ -15321,18 +15320,21 @@ paths:
             schema:
               type: object
               required:
-                - base_version
+                - base_hash
                 - version
                 - name
                 - content
               properties:
-                base_version:
-                  type: integer
-                  minimum: 1
-                  description: the version the edit was made on
+                base_hash:
+                  type: string
+                  description: the SHA-256, in lowercase hex, of the text the edit was made on
                 version:
                   type: integer
-                  minimum: 2
+                  minimum: 1
+                  description: >
+                    the number the owner's browser gives the new version; the server stores it
+                    under the next number above its latest instead when this one is not, and
+                    answers with the number it took
                 name:
                   type: string
                 content:
@@ -15367,12 +15369,13 @@ paths:
                 - version
                 - name
                 - content
+                - base_hash
               properties:
                 pinned:
                   type: boolean
                   description: >
                     true keeps people on this version while newer ones are written; false shows
-                    them the latest version, which version must then be
+                    them the latest version, whose name and content these are
                 version:
                   type: integer
                   minimum: 1
@@ -15380,6 +15383,11 @@ paths:
                   type: string
                 content:
                   type: string
+                base_hash:
+                  type: string
+                  description: >
+                    the SHA-256, in lowercase hex, of the latest version's text in the owner's
+                    browser; refused, with outcome stale, unless it is the server's latest
       responses:
         "200":
           description: what the change did
@@ -31727,10 +31735,15 @@ components:
           type: string
           enum: [saved, stale, not_shared]
           description: >
-            stale: the write was based on an older version than latest_version, and nothing was
-            saved; not_shared: the server holds no live copy of this artifact of the caller's
+            stale: the change was made on another text than the latest version's, and nothing
+            was saved; not_shared: the server holds no live copy of this artifact of the caller's
         latest_version:
           type: integer
+          description: >
+            saved: the number the latest version is stored under; stale: the latest version's
+        latest_hash:
+          type: string
+          description: "stale: the SHA-256, in lowercase hex, of the latest version's text"
         artifact:
           $ref: "#/components/schemas/AiArtifact"
       required:

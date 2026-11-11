@@ -11,8 +11,9 @@
 //! changes who has access).
 //!
 //! Artifacts live in their owner's browser. A row holds one version, the one people with access
-//! see. The owner's browser sends each later version, and a write that was not based on the
-//! latest version the row knows is refused, so a stale copy never overwrites a newer one.
+//! see. The owner's browser sends each later version, and the row takes it only when it was made
+//! on the text of the latest version the row knows, which the row keeps a SHA-256 of: a copy in
+//! another of the owner's browsers can carry the same version number over a different text.
 
 use crate::db::{ApiAuthed, DB};
 use axum::{
@@ -22,6 +23,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
@@ -184,11 +186,15 @@ struct ArtifactListEntry {
 /// error: the caller reads the latest version from it and redoes its edit on top.
 #[derive(Serialize)]
 struct WriteResult {
-    /// `saved`, `stale` (based on an older version than `latest_version`), or `not_shared`
-    /// (the server holds no live copy of this artifact of the caller's).
+    /// `saved`, `stale` (made on another text than the latest version's), or `not_shared` (the
+    /// server holds no live copy of this artifact of the caller's).
     outcome: &'static str,
+    /// When saved, the number the latest version is stored under; when stale, the latest's.
     #[serde(skip_serializing_if = "Option::is_none")]
     latest_version: Option<i32>,
+    /// When stale, the SHA-256 of the latest version's text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     artifact: Option<ArtifactItem>,
 }
@@ -198,17 +204,47 @@ impl WriteResult {
         WriteResult {
             outcome: "saved",
             latest_version: Some(row.latest_version),
+            latest_hash: None,
             artifact: Some(ArtifactItem::from_row(row, authed)),
         }
     }
 
-    fn stale(latest_version: i32) -> Self {
-        WriteResult { outcome: "stale", latest_version: Some(latest_version), artifact: None }
+    fn stale(latest: Latest) -> Self {
+        WriteResult {
+            outcome: "stale",
+            latest_version: Some(latest.version),
+            latest_hash: Some(latest.hash),
+            artifact: None,
+        }
     }
 
     fn not_shared() -> Self {
-        WriteResult { outcome: "not_shared", latest_version: None, artifact: None }
+        WriteResult {
+            outcome: "not_shared",
+            latest_version: None,
+            latest_hash: None,
+            artifact: None,
+        }
     }
+
+    /// The answer when a write's conditions matched no row.
+    fn refused(latest: Option<Latest>) -> Self {
+        latest.map_or_else(WriteResult::not_shared, WriteResult::stale)
+    }
+}
+
+/// The SHA-256 of a version's text, hex-encoded, as the browser computes it over the same UTF-8.
+fn fingerprint(content: &str) -> String {
+    hex::encode(Sha256::digest(content.as_bytes()))
+}
+
+fn check_hash(hash: &str) -> Result<()> {
+    if hash.len() != 64 || !hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return Err(Error::BadRequest(
+            "base_hash must be a SHA-256 in lowercase hex".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Checks an id compared against a `VARCHAR(255)` column: Postgres answers a NUL in a text
@@ -535,10 +571,10 @@ struct PublishArtifact {
 }
 
 /// Make one of the caller's artifacts an item, with this version as the one people see, before
-/// its access list is first changed. An artifact already on the server keeps its path and
-/// access list, and takes this version when it is newer than the latest it knows. One in the
-/// trash leaves it with an empty access list: its owner deleted it, so sharing it again starts
-/// from nobody, where Restore brings back who it was shared with.
+/// its access list is first changed. An artifact already on the server keeps its path, access
+/// list and versions: only a write made on its latest version's text replaces that text. One in
+/// the trash leaves it with an empty access list: its owner deleted it, so sharing it again
+/// starts from nobody, where Restore brings back who it was shared with.
 async fn publish_artifact(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -582,12 +618,7 @@ async fn publish_artifact(
             sqlx::query_as!(
                 ArtifactRow,
                 "UPDATE ai_artifact SET
-                     content = CASE WHEN NOT pinned AND $3 > latest_version THEN $4 ELSE content END,
-                     name = CASE WHEN NOT pinned AND $3 > latest_version THEN $5 ELSE name END,
-                     updated_at = CASE WHEN NOT pinned AND $3 > latest_version THEN now() ELSE updated_at END,
-                     shown_version = CASE WHEN NOT pinned AND $3 > latest_version THEN $3 ELSE shown_version END,
-                     latest_version = GREATEST(latest_version, $3),
-                     session_id = COALESCE(session_id, $6),
+                     session_id = COALESCE(session_id, $3),
                      extra_perms = CASE WHEN deleted_at IS NULL THEN extra_perms ELSE '{}'::jsonb END,
                      deleted_at = NULL
                  WHERE workspace_id = $1 AND artifact_id = $2
@@ -596,9 +627,6 @@ async fn publish_artifact(
                            deleted_at",
                 &w_id,
                 &payload.artifact_id,
-                payload.version,
-                &payload.content,
-                name,
                 payload.session_id,
             )
             .fetch_one(&mut *tx)
@@ -626,8 +654,8 @@ async fn publish_artifact(
                 ArtifactRow,
                 "INSERT INTO ai_artifact
                      (workspace_id, artifact_id, path, email, created_by, session_id, name, kind,
-                      role, shown_version, content, latest_version)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $10)
+                      role, shown_version, content, latest_version, latest_hash)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $10, $12)
                  RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,
                            role, shown_version, latest_version, pinned, created_at, updated_at,
                            deleted_at",
@@ -642,6 +670,7 @@ async fn publish_artifact(
                 payload.role.map(ArtifactRole::as_str),
                 payload.version,
                 &payload.content,
+                fingerprint(&payload.content),
             )
             .fetch_one(&mut *tx)
             .await?;
@@ -664,8 +693,11 @@ async fn publish_artifact(
 
 #[derive(Deserialize)]
 struct WriteArtifact {
-    /// The version the edit was made on; the write is refused unless it is the latest one.
-    base_version: i32,
+    /// The SHA-256 of the text the edit was made on; the write is refused unless that is the
+    /// latest version's text.
+    base_hash: String,
+    /// The number the owner's browser gives the new version. Below the next one the server can
+    /// give, it takes that one instead, and answers with it.
     version: i32,
     name: String,
     content: String,
@@ -682,12 +714,8 @@ async fn write_artifact(
 ) -> JsonResult<WriteResult> {
     let name = payload.name.trim();
     check_id("Artifact id", &artifact_id)?;
-    check_version(payload.base_version)?;
-    if payload.version <= payload.base_version {
-        return Err(Error::BadRequest(
-            "A new version must be above the version it was based on".to_string(),
-        ));
-    }
+    check_hash(&payload.base_hash)?;
+    check_version(payload.version)?;
     if let Some(sid) = &payload.session_id {
         check_id("Session id", sid)?;
     }
@@ -695,7 +723,7 @@ async fn write_artifact(
     let mut tx = db.begin().await?;
     // Every edit reaches here, shared or not. Only a copy the server keeps is held to its
     // bounds: refusing one it has none of would leave its owner unable to edit it at all.
-    if latest_live_version(&mut tx, &w_id, &artifact_id, &authed.email)
+    if latest_live(&mut tx, &w_id, &artifact_id, &authed.email)
         .await?
         .is_none()
     {
@@ -703,16 +731,19 @@ async fn write_artifact(
     }
     check_name(name)?;
     check_content(&payload.content)?;
+    // Numbered above both the latest and the browser's own versions, so neither side ever
+    // gives two texts one number: the browser stores the edit under the number answered.
     let row = sqlx::query_as!(
         ArtifactRow,
         "UPDATE ai_artifact SET
-             latest_version = $4,
+             latest_version = GREATEST(latest_version + 1, $4),
+             latest_hash = $9,
              content = CASE WHEN pinned THEN content ELSE $5 END,
              name = CASE WHEN pinned THEN name ELSE $6 END,
-             shown_version = CASE WHEN pinned THEN shown_version ELSE $4 END,
+             shown_version = CASE WHEN pinned THEN shown_version ELSE GREATEST(latest_version + 1, $4) END,
              updated_at = CASE WHEN pinned THEN updated_at ELSE now() END,
              session_id = COALESCE(session_id, $8)
-         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND latest_version = $7
+         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND latest_hash = $7
            AND deleted_at IS NULL
          RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,
                    role, shown_version, latest_version, pinned, created_at, updated_at,
@@ -723,31 +754,38 @@ async fn write_artifact(
         payload.version,
         &payload.content,
         name,
-        payload.base_version,
+        &payload.base_hash,
         payload.session_id,
+        fingerprint(&payload.content),
     )
     .fetch_optional(&mut *tx)
     .await?;
 
     let result = match row {
         Some(row) => WriteResult::saved(row, &authed),
-        None => latest_live_version(&mut tx, &w_id, &artifact_id, &authed.email)
-            .await?
-            .map_or_else(WriteResult::not_shared, WriteResult::stale),
+        None => {
+            WriteResult::refused(latest_live(&mut tx, &w_id, &artifact_id, &authed.email).await?)
+        }
     };
     tx.commit().await?;
     Ok(Json(result))
 }
 
+struct Latest {
+    version: i32,
+    hash: String,
+}
+
 /// The latest version of one of `email`'s artifacts that is on the server and not in the trash.
-async fn latest_live_version(
+async fn latest_live(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
     artifact_id: &str,
     email: &str,
-) -> Result<Option<i32>> {
-    Ok(sqlx::query_scalar!(
-        "SELECT latest_version FROM ai_artifact
+) -> Result<Option<Latest>> {
+    Ok(sqlx::query_as!(
+        Latest,
+        "SELECT latest_version AS version, latest_hash AS hash FROM ai_artifact
          WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND deleted_at IS NULL",
         w_id,
         artifact_id,
@@ -760,11 +798,14 @@ async fn latest_live_version(
 #[derive(Deserialize)]
 struct ShowVersion {
     /// True keeps people on `version` while newer ones are written; false shows them the latest,
-    /// which `version` must then be.
+    /// whose name and content these are.
     pinned: bool,
     version: i32,
     name: String,
     content: String,
+    /// The SHA-256 of the latest version's text in the owner's browser: the change is refused
+    /// unless the server's latest version is that text.
+    base_hash: String,
 }
 
 /// Choose the version people with access see.
@@ -779,14 +820,17 @@ async fn show_version(
     check_name(name)?;
     check_content(&payload.content)?;
     check_version(payload.version)?;
+    check_hash(&payload.base_hash)?;
 
     let mut tx = db.begin().await?;
     let row = sqlx::query_as!(
         ArtifactRow,
         "UPDATE ai_artifact SET
-             pinned = $4, shown_version = $5, content = $6, name = $7, updated_at = now()
+             pinned = $4,
+             shown_version = CASE WHEN $4 THEN $5 ELSE latest_version END,
+             content = $6, name = $7, updated_at = now()
          WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND deleted_at IS NULL
-           AND CASE WHEN $4 THEN $5 <= latest_version ELSE $5 = latest_version END
+           AND latest_hash = $8 AND (NOT $4 OR $5 <= latest_version)
          RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,
                    role, shown_version, latest_version, pinned, created_at, updated_at,
                    deleted_at",
@@ -797,6 +841,7 @@ async fn show_version(
         payload.version,
         &payload.content,
         name,
+        &payload.base_hash,
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -814,14 +859,14 @@ async fn show_version(
                 ActionKind::Update,
                 &w_id,
                 Some(&row.path),
-                Some([("version", payload.version.to_string().as_str())].into()),
+                Some([("version", row.shown_version.to_string().as_str())].into()),
             )
             .await?;
             WriteResult::saved(row, &authed)
         }
-        None => latest_live_version(&mut tx, &w_id, &artifact_id, &authed.email)
-            .await?
-            .map_or_else(WriteResult::not_shared, WriteResult::stale),
+        None => {
+            WriteResult::refused(latest_live(&mut tx, &w_id, &artifact_id, &authed.email).await?)
+        }
     };
     tx.commit().await?;
     Ok(Json(result))

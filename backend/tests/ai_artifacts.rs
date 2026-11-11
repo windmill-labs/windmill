@@ -2,11 +2,16 @@
 //! only their owner writes, and which nobody else reads while they are in the owner's trash.
 
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
 const OWNER: &str = "Bearer SECRET_TOKEN_2";
 const VIEWER: &str = "Bearer SECRET_TOKEN_3";
+
+fn sha256(text: &str) -> String {
+    hex::encode(Sha256::digest(text.as_bytes()))
+}
 
 struct Api {
     client: reqwest::Client,
@@ -105,7 +110,7 @@ async fn an_artifact_reaches_its_access_list_until_it_is_trashed(
         .post(
             "ai/artifacts/write/a1",
             VIEWER,
-            json!({ "base_version": 1, "version": 2, "name": "Plan", "content": "vandalized" }),
+            json!({ "base_hash": sha256("draft"), "version": 2, "name": "Plan", "content": "vandalized" }),
         )
         .await?;
     assert_eq!(body["outcome"], "not_shared", "a viewer wrote the artifact");
@@ -136,28 +141,45 @@ async fn an_artifact_reaches_its_access_list_until_it_is_trashed(
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn a_write_based_on_an_older_version_is_refused(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn a_change_made_on_another_text_is_refused(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let api = Api::new(&server);
     api.publish("draft").await?;
 
-    let write = |content: &str| json!({ "base_version": 1, "version": 2, "name": "Plan", "content": content });
+    let write = |base: &str, version: i32, content: &str| json!({ "base_hash": sha256(base), "version": version, "name": "Plan", "content": content });
     let (_, body) = api
-        .post("ai/artifacts/write/a1", OWNER, write("first"))
+        .post("ai/artifacts/write/a1", OWNER, write("draft", 2, "first"))
         .await?;
     assert_eq!(body["outcome"], "saved", "{body}");
-    let (_, body) = api
-        .post("ai/artifacts/write/a1", OWNER, write("second"))
-        .await?;
-    assert_eq!(body["outcome"], "stale", "{body}");
-    assert_eq!(body["latest_version"], 2);
-
+    // Made on the text the first write replaced, and on another browser's own version 2.
+    for stale in [write("draft", 2, "second"), write("theirs", 3, "second")] {
+        let (_, body) = api.post("ai/artifacts/write/a1", OWNER, stale).await?;
+        assert_eq!(body["outcome"], "stale", "{body}");
+        assert_eq!(body["latest_version"], 2);
+        assert_eq!(body["latest_hash"], sha256("first"));
+    }
     let (_, body) = api.get("ai/artifacts/get/a1", OWNER).await?;
     assert_eq!(
         body["content"], "first",
         "a stale write overwrote a newer version"
     );
+
+    // A browser numbering below the latest gets the next number above it.
+    let (_, body) = api
+        .post("ai/artifacts/write/a1", OWNER, write("first", 2, "third"))
+        .await?;
+    assert_eq!(body["latest_version"], 3, "{body}");
+
+    let pin = |base: &str| json!({ "pinned": true, "version": 1, "name": "Plan", "content": "draft", "base_hash": sha256(base) });
+    let (_, body) = api
+        .post("ai/artifacts/show/a1", OWNER, pin("first"))
+        .await?;
+    assert_eq!(body["outcome"], "stale", "{body}");
+    let (_, body) = api
+        .post("ai/artifacts/show/a1", OWNER, pin("third"))
+        .await?;
+    assert_eq!(body["artifact"]["shown_version"], 1, "{body}");
 
     Ok(())
 }
@@ -169,7 +191,7 @@ async fn only_a_shared_copy_is_held_to_the_name_limit(db: Pool<Postgres>) -> any
     let api = Api::new(&server);
     api.publish("draft").await?;
 
-    let write = json!({ "base_version": 1, "version": 2, "name": "n".repeat(300), "content": "x" });
+    let write = json!({ "base_hash": sha256("draft"), "version": 2, "name": "n".repeat(300), "content": "x" });
     let (_, body) = api
         .post("ai/artifacts/write/never-shared", OWNER, write.clone())
         .await?;

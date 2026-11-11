@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO ai_artifact\n                     (workspace_id, artifact_id, path, email, created_by, session_id, name, kind,\n                      role, shown_version, content, latest_version)\n                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $10)\n                 RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                           role, shown_version, latest_version, pinned, created_at, updated_at,\n                           deleted_at",
+  "query": "UPDATE ai_artifact SET\n             latest_version = GREATEST(latest_version + 1, $4),\n             latest_hash = $9,\n             content = CASE WHEN pinned THEN content ELSE $5 END,\n             name = CASE WHEN pinned THEN name ELSE $6 END,\n             shown_version = CASE WHEN pinned THEN shown_version ELSE GREATEST(latest_version + 1, $4) END,\n             updated_at = CASE WHEN pinned THEN updated_at ELSE now() END,\n             session_id = COALESCE(session_id, $8)\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3 AND latest_hash = $7\n           AND deleted_at IS NULL\n         RETURNING artifact_id, path, extra_perms, email, created_by, session_id, name, kind,\n                   role, shown_version, latest_version, pinned, created_at, updated_at,\n                   deleted_at",
   "describe": {
     "columns": [
       {
@@ -81,17 +81,15 @@
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
-        "Varchar",
+        "Text",
+        "Text",
+        "Text",
         "Int4",
-        "Text"
+        "Text",
+        "Varchar",
+        "Text",
+        "Varchar",
+        "Varchar"
       ]
     },
     "nullable": [
@@ -112,5 +110,5 @@
       true
     ]
   },
-  "hash": "d1feb23148bc06398e40e6b812e73ed325f197be17c5e1fd28847cb49c25f8a2"
+  "hash": "8761dd76350f03a4fb6f98a2d454aaadb900b224e50b6ffc7df7a65545502da3"
 }

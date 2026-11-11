@@ -339,7 +339,7 @@
 		const artifact = liveLocal
 		if (!artifact || !server || !workspace) return
 		return run(async () => {
-			const result = await showVersion(artifact, workspace, server.latest_version, {
+			const result = await showVersion(artifact, workspace, {
 				pinned: false,
 				version: currentVersion(artifact),
 				name: artifact.name,
