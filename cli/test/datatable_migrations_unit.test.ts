@@ -36,6 +36,12 @@ describe("parseDatatableMigrationPath", () => {
     ).toEqual({ datatable: "my-dt", timestamp: 42, name: "x", kind: "down" });
   });
 
+  test("parses Windows-separated paths", () => {
+    expect(
+      parseDatatableMigrationPath("migrations\\datatable\\mydt\\1_x.up.sql"),
+    ).toEqual({ datatable: "mydt", timestamp: 1, name: "x", kind: "up" });
+  });
+
   test("rejects unrelated, legacy and malformed paths", () => {
     for (
       const p of [
