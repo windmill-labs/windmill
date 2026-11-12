@@ -415,7 +415,10 @@
 		if (model == undefined) return
 		diffMode = true
 
-		diffEditor?.showWithModelAndOriginal((savedModule?.value as RawScript).content ?? '', model)
+		diffEditor?.showWithModelAndOriginal(
+			(savedModule?.value as RawScript | undefined)?.content ?? '',
+			model
+		)
 		editor?.hide()
 	}
 

@@ -376,8 +376,6 @@
 			sendingStats = true
 			await SettingService.sendStats()
 			sendUserToast('Usage sent')
-		} catch (err) {
-			throw err
 		} finally {
 			sendingStats = false
 		}
@@ -399,8 +397,6 @@
 			document.body.removeChild(a)
 			URL.revokeObjectURL(url)
 			sendUserToast('Telemetry data downloaded')
-		} catch (err) {
-			throw err
 		} finally {
 			downloadingStats = false
 		}
