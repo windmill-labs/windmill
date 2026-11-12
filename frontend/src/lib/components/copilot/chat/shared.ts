@@ -2167,10 +2167,12 @@ export function createJobUpdateReader(jobId: string, workspace: string) {
 			// prints is shown as raw text and keeps the tail.
 			if (update.new_result_stream) {
 				resultStream += update.new_result_stream
-				if (agentStream === undefined && resultStream.includes('\n')) {
-					agentStream = isAgentStream(resultStream)
+				if (agentStream === undefined) {
+					if (resultStream.includes('\n')) agentStream = isAgentStream(resultStream)
+					// An agent's first event is a short line; this long without one, it is not one.
+					else if (resultStream.length > MAX_LOG_LENGTH) agentStream = false
 				}
-				if (agentStream === false) resultStream = resultStream.slice(-MAX_LOG_LENGTH)
+				if (agentStream !== true) resultStream = resultStream.slice(-MAX_LOG_LENGTH)
 			}
 			if (update.log_offset) logOffset = update.log_offset
 			if (update.stream_offset) streamOffset = update.stream_offset
