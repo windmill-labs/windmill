@@ -4,46 +4,23 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { json } from 'svelte-highlight/languages'
-	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { fenceKind, parseFence, type FenceParse } from './displayCatalog'
+	import { parseFence, type FenceParse } from './displayCatalog'
 
 	const STREAM_QUIET_MS = 300
 
 	let { code }: { code: string } = $props()
 
 	let parsed: FenceParse = $derived(parseFence(code))
-	// True while the source keeps changing in quick succession (a reply streaming in): a
-	// half-written block shows a placeholder, not an error, until the text goes quiet. Starts
-	// true so a stream's first chunk does not flash the error before the second arrives.
+	// True until the source has gone quiet: a block still streaming in shows a placeholder,
+	// not the parse error of its half-written JSON.
 	let streaming = $state(true)
-	let sawStream = false
-	let logged = false
 	let quietTimer: ReturnType<typeof setTimeout> | undefined
 
 	$effect(() => {
 		void code
-		const burst = quietTimer !== undefined
 		clearTimeout(quietTimer)
-		if (burst) {
-			streaming = true
-			sawStream = true
-		}
-		quietTimer = setTimeout(() => {
-			quietTimer = undefined
-			streaming = false
-			logOnce()
-		}, STREAM_QUIET_MS)
+		quietTimer = setTimeout(() => (streaming = false), STREAM_QUIET_MS)
 	})
-
-	// Counts blocks seen streaming in, i.e. written by the model in this view: not re-renders of
-	// a stored transcript, nor artifacts, which arrive whole.
-	function logOnce() {
-		if (logged || !sawStream) return
-		logged = true
-		logFeatureUsage('ai_chat', 'display_block', {
-			key: parsed.ok ? fenceKind(parsed.result) : 'invalid'
-		})
-	}
 
 	onDestroy(() => clearTimeout(quietTimer))
 </script>

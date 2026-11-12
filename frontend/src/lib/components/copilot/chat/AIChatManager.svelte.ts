@@ -59,6 +59,7 @@ import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { AI_PROVIDERS, workspaceAIClients, getStreamedCompletionText } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { logDisplayBlocks } from '$lib/components/display/displayTelemetry'
 import { modelSupportsVision } from '../modelConfig'
 import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
@@ -4617,6 +4618,7 @@ export class AIChatManager implements ChatViewHost {
 						// deduped in commitInterruptedTurn.
 						if (this.currentReply) {
 							partialReply = this.currentReply
+							logDisplayBlocks(this.currentReply)
 						}
 						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
