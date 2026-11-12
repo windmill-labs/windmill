@@ -703,6 +703,8 @@ pub async fn result_to_http_response(
     composite_to_response(composite_result, result, success, rich_responses_allowed)
 }
 
+/// Shapes a job result into a response. `rich_responses_allowed: false` refuses a result that
+/// [`needs_paid_plan`]; HTTP callers get it from [`result_to_http_response`].
 pub fn result_to_response(
     result: Box<RawValue>,
     success: bool,
@@ -1650,6 +1652,8 @@ mod result_to_response_tests {
             r#"{"wm_content_type":"text/plain","wm_headers":{"Content-Disposition":"attachment; filename=\"x.exe\""},"result":"x"}"#,
             r#"{"wm_status_code":401,"wm_headers":{"WWW-Authenticate":"Basic realm=\"login\""}}"#,
             r#"{"wm_content_type":"text/plain; charset=utf-8, text/html","result":"<h1>hi</h1>"}"#,
+            r#"{"wm_headers":{"Set-Cookie":"token=x; Path=/"},"result":{"a":1}}"#,
+            r#"{"wm_headers":{"Clear-Site-Data":"\"cookies\""},"result":{"a":1}}"#,
         ];
         for json in refused {
             let res = result_to_response(raw(json), true, false);
