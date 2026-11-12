@@ -264,8 +264,8 @@
 				<ClipboardPanel content={appUrl} size="md" />
 				<!-- The link above only takes a Windmill login. Embedders that sign their own users in
 				     append an external JWT to the secret URL instead (`/public/<ws>/<secret>/<jwt>`),
-				     which only enterprise builds verify. -->
-				{#if $enterpriseLicense}
+				     which only self-hosted enterprise instances verify, against their own issuer. -->
+				{#if $enterpriseLicense && !isCloudHosted()}
 					<CollapseLink text="Embed with a JWT from your own product">
 						<div class="flex flex-col gap-2">
 							{#if secretUrlHref}
@@ -278,7 +278,8 @@
 								class="text-2xs text-hint"
 							>
 								Open the app without a Windmill login: replace <code>YOUR_JWT</code> with a JWT your
-								backend signs. Its user needs read access to this app.
+								backend signs with the instance's external JWT key (<code>JWT_EXT_JWKS_URL</code>).
+								Its user needs read access to this app.
 							</Description>
 						</div>
 					</CollapseLink>
