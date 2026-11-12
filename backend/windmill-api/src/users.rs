@@ -284,11 +284,14 @@ async fn rename_user(
 
     validate_username(&ru.new_username)?;
 
-    let old_instance_username =
-        sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", user_email)
-            .fetch_optional(&mut *tx)
-            .await?
-            .flatten();
+    let old_instance_account = sqlx::query!(
+        "SELECT username, super_admin FROM password WHERE email = $1",
+        user_email
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let is_super_admin = old_instance_account.as_ref().is_some_and(|a| a.super_admin);
+    let old_instance_username = old_instance_account.and_then(|a| a.username);
 
     sqlx::query!(
         "UPDATE password SET username = $1 WHERE email = $2",
@@ -319,6 +322,17 @@ async fn rename_user(
         .bind(&old_username)
         .execute(&mut *tx)
         .await?;
+        // Where no member holds the name, `u/{name}` resolves to the superadmin with that
+        // `password.username`, so only a superadmin's rows there are theirs to move.
+        if is_super_admin {
+            move_run_as_principal(
+                &mut tx,
+                &old_principal,
+                &new_principal,
+                RunAsScope::WithoutMember(&old_username),
+            )
+            .await?;
+        }
         sqlx::query!(
             "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text))
              WHERE policy->>'on_behalf_of' = $2 AND policy->>'on_behalf_of_email' = $3",
@@ -378,6 +392,78 @@ async fn rename_user(
         "updated username of user {} to {}",
         &user_email, &ru.new_username
     ))
+}
+
+pub(crate) const TRIGGER_TABLES: [&str; 11] = [
+    "http_trigger",
+    "websocket_trigger",
+    "kafka_trigger",
+    "postgres_trigger",
+    "mqtt_trigger",
+    "amqp_trigger",
+    "nats_trigger",
+    "sqs_trigger",
+    "gcp_trigger",
+    "azure_trigger",
+    "email_trigger",
+];
+
+enum RunAsScope<'a> {
+    Workspace(&'a str),
+    /// Every workspace where no member holds this username.
+    WithoutMember(&'a str),
+}
+
+/// Moves the run-as principal of schedules, triggers and folder default rules. A row left on
+/// the old principal no longer resolves: a schedule is disabled at its next push, a trigger
+/// fails when it fires, and a folder rule rejects every runnable it matches.
+async fn move_run_as_principal(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    old_principal: &str,
+    new_principal: &str,
+    scope: RunAsScope<'_>,
+) -> error::Result<()> {
+    // A legacy `group-*` username canonicalizes to the group it names: what runs as that group
+    // is the group's, not the member's, so it stays.
+    if old_principal.starts_with(windmill_common::users::PERMISSIONED_AS_GROUP_PREFIX) {
+        return Ok(());
+    }
+    let (scope_sql, scope_bind) = match scope {
+        RunAsScope::Workspace(w_id) => ("t.workspace_id = $3", w_id),
+        RunAsScope::WithoutMember(username) => (
+            "NOT EXISTS (SELECT 1 FROM usr WHERE usr.workspace_id = t.workspace_id AND usr.username = $3)",
+            username,
+        ),
+    };
+    // SAFETY: `table` comes from a hardcoded list and `scope_sql` from the match above.
+    for table in std::iter::once("schedule").chain(TRIGGER_TABLES) {
+        sqlx::query(&format!(
+            "UPDATE {table} t SET permissioned_as = $1 WHERE t.permissioned_as = $2 AND {scope_sql}"
+        ))
+        .bind(new_principal)
+        .bind(old_principal)
+        .bind(scope_bind)
+        .execute(&mut **tx)
+        .await?;
+    }
+    // The rules are ordered, first match wins, so the rewrite keeps their order.
+    sqlx::query(&format!(
+        r#"UPDATE folder t SET default_permissioned_as = (
+            SELECT jsonb_agg(
+                CASE WHEN rule->>'permissioned_as' = $2
+                     THEN jsonb_set(rule, ARRAY['permissioned_as'], to_jsonb($1::text))
+                     ELSE rule END
+                ORDER BY ord)
+            FROM jsonb_array_elements(t.default_permissioned_as) WITH ORDINALITY AS r(rule, ord))
+        WHERE t.default_permissioned_as @> jsonb_build_array(jsonb_build_object('permissioned_as', $2::text))
+          AND {scope_sql}"#
+    ))
+    .bind(new_principal)
+    .bind(old_principal)
+    .bind(scope_bind)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 async fn update_username_in_workpsace<'c>(
@@ -935,6 +1021,40 @@ async fn update_username_in_workpsace<'c>(
         w_id
     )
     .execute(&mut **tx)
+    .await?;
+
+    // ---- triggers ----
+    // `starts_with` rather than `LIKE`/regex: a legacy email-shaped username carries `.` and `_`,
+    // which those would treat as wildcards and so rewrite another user's paths.
+    // SAFETY: `table` comes from the hardcoded `TRIGGER_TABLES`, not user input.
+    for table in TRIGGER_TABLES {
+        sqlx::query(&format!(
+            "UPDATE {table} SET
+                path = CASE WHEN starts_with(path, 'u/' || $2 || '/')
+                    THEN 'u/' || $1 || substr(path, char_length($2) + 3) ELSE path END,
+                script_path = CASE WHEN starts_with(script_path, 'u/' || $2 || '/')
+                    THEN 'u/' || $1 || substr(script_path, char_length($2) + 3) ELSE script_path END,
+                edited_by = CASE WHEN edited_by = $2 THEN $1 ELSE edited_by END,
+                extra_perms = CASE WHEN extra_perms ? ('u/' || $2)
+                    THEN extra_perms - ('u/' || $2) || jsonb_build_object('u/' || $1, extra_perms->('u/' || $2))
+                    ELSE extra_perms END
+            WHERE workspace_id = $3
+              AND (starts_with(path, 'u/' || $2 || '/') OR starts_with(script_path, 'u/' || $2 || '/')
+                   OR edited_by = $2 OR extra_perms ? ('u/' || $2))"
+        ))
+        .bind(new_username)
+        .bind(old_username)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    move_run_as_principal(
+        tx,
+        &old_principal,
+        &new_principal,
+        RunAsScope::Workspace(w_id),
+    )
     .await?;
 
     // ---- group_ ----
