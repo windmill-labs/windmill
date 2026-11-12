@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.869.0](https://github.com/windmill-labs/windmill/compare/v1.868.0...v1.869.0) (2026-11-12)
+
+
+### Features
+
+* move a live ai session into a workspace fork with its drafts ([#11602](https://github.com/windmill-labs/windmill/issues/11602)) ([484a769](https://github.com/windmill-labs/windmill/commit/484a7699dbd4ecf827528030c8f8bfdc0d9c483b))
+* restyle artifact documents and add an html download ([#12355](https://github.com/windmill-labs/windmill/issues/12355)) ([addc644](https://github.com/windmill-labs/windmill/commit/addc644c1c6e167a436436b2ecb77728f1b4ae21))
+* run AI decision steps on Gemini's Decisions API ([#12370](https://github.com/windmill-labs/windmill/issues/12370)) ([e9f4636](https://github.com/windmill-labs/windmill/commit/e9f4636d445d17b73b3b32aa03b88667694fe13c))
+
+
+### Bug Fixes
+
+* **cli:** point wmill.yaml schema header at an absolute, release-pinned URL ([#12367](https://github.com/windmill-labs/windmill/issues/12367)) ([9eb3d2e](https://github.com/windmill-labs/windmill/commit/9eb3d2e7d480608739f6e5c8dbc1cf75e0bb4243))
+* keep favorites when forking a workspace ([#12325](https://github.com/windmill-labs/windmill/issues/12325)) ([97dedc2](https://github.com/windmill-labs/windmill/commit/97dedc2f10a1d1fcf6bf3b93accc0a9b53fea5d5))
+* keep the picked data table when starting a raw app in the editor ([#12328](https://github.com/windmill-labs/windmill/issues/12328)) ([b4df6ef](https://github.com/windmill-labs/windmill/commit/b4df6ef8330892c891f31d6614aa0df993c0ad21))
+* move schedule and trigger run-as when renaming a user ([#12368](https://github.com/windmill-labs/windmill/issues/12368)) ([1583207](https://github.com/windmill-labs/windmill/commit/1583207af74522adac9e4c1f3bd78e554cd7af2d))
+* run ci tests once a batch deploy has landed, not per item ([#12369](https://github.com/windmill-labs/windmill/issues/12369)) ([bd5f4d4](https://github.com/windmill-labs/windmill/commit/bd5f4d4d3dfa9c283e32bf6bd78209406c217145))
+* **rust-client:** tolerate new api fields in wait_job and set_resource ([#12353](https://github.com/windmill-labs/windmill/issues/12353)) ([f028858](https://github.com/windmill-labs/windmill/commit/f0288586e3706d1eb5400e7b5433385c4d4b2ea8))
+* use the slim scrollbar in the homepage recent runs card ([#12362](https://github.com/windmill-labs/windmill/issues/12362)) ([0491ccf](https://github.com/windmill-labs/windmill/commit/0491ccf3eb30d2dea1b11c4bb02d627ab6c1b683))
+
 ## [1.868.0](https://github.com/windmill-labs/windmill/compare/v1.867.0...v1.868.0) (2026-11-11)
 
 
