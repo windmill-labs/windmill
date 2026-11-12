@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
 	import { prefersReducedMotion } from 'svelte/motion'
-	import { Ban, Loader2, TimerOff } from 'lucide-svelte'
+	import { Ban, Loader2, Maximize2, TimerOff } from 'lucide-svelte'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Button, Tab, Tabs } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -339,22 +340,33 @@
 	// against it; logs and a result stand on the body's own ground and take it cleanly.
 	const fadeBody = $derived(!rawView && (activeTab === 'logs' || activeTab === 'outcome'))
 
+	// The full screen copy of the body, rendered in the modal.
+	let modalBodyEl: HTMLElement | undefined = $state()
+	const modalFades = scrollFades()
+	// Keyed by call id for the same reason as the tab and the JSON toggle.
+	let fullscreenId = $state<string | undefined>(undefined)
+
 	// One scroll region serves every tab, so a switch has to place it: logs open on their
 	// end, which is where a run is read from, and everything else on its start — otherwise
 	// the tab opened after the logs would begin part-way down its own content.
-	$effect(() => {
+	// One effect per copy: a shared one would re-place the card each time the modal mounts or
+	// unmounts, and the card would lose the place the user scrolled it to.
+	function placeScroll(el: HTMLElement | undefined) {
 		void rawView
-		if (!bodyEl) return
-		bodyEl.scrollTop = activeTab === 'logs' && !rawView ? bodyEl.scrollHeight : 0
-	})
+		if (el) el.scrollTop = activeTab === 'logs' && !rawView ? el.scrollHeight : 0
+	}
+	$effect(() => placeScroll(bodyEl))
+	$effect(() => placeScroll(modalBodyEl))
 
 	// And stay on the end while the job writes: a log stream the user has to scroll to
 	// read is not following the run.
-	$effect(() => {
+	function followLogs(el: HTMLElement | undefined) {
 		void logs
-		if (!bodyEl || rawView || activeTab !== 'logs' || !running) return
-		bodyEl.scrollTop = bodyEl.scrollHeight
-	})
+		if (!el || rawView || activeTab !== 'logs' || !running) return
+		el.scrollTop = el.scrollHeight
+	}
+	$effect(() => followLogs(bodyEl))
+	$effect(() => followLogs(modalBodyEl))
 
 	// Ticks only while this card has a job in flight, so a transcript of settled runs
 	// keeps no timers at all.
@@ -555,232 +567,274 @@
 	{:else if pending && runForm}
 		<RunArgsFormDisplay toolCallId={message.tool_call_id} {runForm} />
 	{:else}
-		<!-- One region holding the strip and the body, fixed so the card is the same size on every
+		<!-- Rendered twice: in the card and, full screen, in the modal below. Each copy has its own
+		     scroll region and fades; the tab and JSON toggle are the card's, shared by both. -->
+		{#snippet runBody(inModal: boolean)}
+			{@const f = inModal ? modalFades : fades}
+			<!-- One region holding the strip and the body, fixed so the card is the same size on every
 		     tab — a cap would not do it, since the body is a scroll region and a max-height
 		     silently beats flex-grow. The raw view takes that height as a floor instead: its
 		     blocks scroll on their own, as an ordinary tool call's do, so a scroller around them
-		     would be one too many. -->
-		<div
-			class={twMerge(
-				'relative flex flex-col',
-				rawView ? 'min-h-[20rem]' : jobPending ? '' : 'h-[20rem]'
-			)}
-		>
-			<!-- The tabs go in raw view — they name the parts of the body, and the raw call is not
+		     would be one too many. The modal fills its own height on every view. -->
+			<div
+				class={twMerge(
+					'relative flex flex-col',
+					inModal ? 'min-h-0 flex-1' : rawView ? 'min-h-[20rem]' : jobPending ? '' : 'h-[20rem]'
+				)}
+			>
+				<!-- The tabs go in raw view — they name the parts of the body, and the raw call is not
 			     one of them — while the strip stays, since the JSON toggle lives there. Hence its
 			     fixed height: a row sized by its contents would step every time the tabs leave, and
 			     the tighter Tab padding below is what fits a label inside that height. -->
-			<Tabs
-				selected={activeTab}
-				on:selected={(e) => (userTab = { id: message.tool_call_id, value: e.detail })}
-				class="h-8 px-3 font-main"
-				wrapperClass="shrink-0"
-				slidingIndicator
-			>
-				{#if !rawView && !jobPending}
-					{#each tabs as tab (tab.value)}
-						<!-- The tab widens in first and the bar follows it, because a run adds its tabs as
+				<Tabs
+					selected={activeTab}
+					on:selected={(e) => (userTab = { id: message.tool_call_id, value: e.detail })}
+					class="h-8 px-3 font-main"
+					wrapperClass="shrink-0"
+					slidingIndicator
+				>
+					{#if !rawView && !jobPending}
+						{#each tabs as tab (tab.value)}
+							<!-- The tab widens in first and the bar follows it, because a run adds its tabs as
 						     it produces them: landing the selection on a tab in the frame it appears reads
 						     as one unexplained jump. `border-b-0` because the bar is the selection now.
 						     Size only: Tab's own colour and weight mark the selection, and this class
 						     lands after them in its twMerge, so a colour here would silently win. -->
-						<span class="inline-flex overflow-hidden" in:growIn={{ live: liveStrip }}>
-							<Tab
-								value={tab.value}
-								label={tab.label}
-								class="border-b-0 py-0.5 text-2xs leading-4"
-								exact
-							>
-								{#snippet extra()}
-									{#if tab.value === 'logs' && logLineCount > 0}
-										<span class="text-2xs text-hint">{logLineCount}</span>
-									{/if}
-								{/snippet}
-							</Tab>
-						</span>
-					{/each}
-				{/if}
-				<div class="ml-auto flex items-center pl-2">
-					<Toggle
-						checked={rawView}
-						on:change={(e) => (jsonView = { id: message.tool_call_id, on: e.detail })}
-						size="2xs"
-						options={{ right: 'JSON', rightTooltip: 'Show this call as raw JSON' }}
-						lightMode
-					/>
-				</div>
-			</Tabs>
-
-			<!-- Logs sit on the softer surface, the way program output is shown everywhere else.
-			     The raw view keeps the card's own, as an ordinary tool call has it. -->
-			<div
-				bind:this={bodyEl}
-				use:fades.container
-				onscroll={fades.measure}
-				class={twMerge(
-					'min-h-0 flex-1 px-3 py-2',
-					rawView ? '' : 'overflow-auto',
-					!rawView && !jobPending && activeTab === 'logs' ? 'bg-surface-secondary/50' : ''
-				)}
-			>
-				<!-- min-h-full rather than h-full: the states that centre themselves need the height,
-				     and a box that always filled it would measure as never scrollable. -->
-				<div use:fades.content class="flex min-h-full flex-col">
-					{#if rawView}
-						<div class="space-y-3">
-							<!-- Each block scrolls on its own, so each fades on its own. -->
-							<ToolContentDisplay title="Parameters" content={message.parameters} showFade />
-							<ToolContentDisplay title="Logs" content={message.logs} tail showFade />
-							<ToolContentDisplay
-								title="Result"
-								content={message.result}
-								error={message.error}
-								showFade
+							<span class="inline-flex overflow-hidden" in:growIn={{ live: liveStrip }}>
+								<Tab
+									value={tab.value}
+									label={tab.label}
+									class="border-b-0 py-0.5 text-2xs leading-4"
+									exact
+								>
+									{#snippet extra()}
+										{#if tab.value === 'logs' && logLineCount > 0}
+											<span class="text-2xs text-hint">{logLineCount}</span>
+										{/if}
+									{/snippet}
+								</Tab>
+							</span>
+						{/each}
+					{/if}
+					<div class="ml-auto flex items-center gap-1 pl-2">
+						<Toggle
+							checked={rawView}
+							on:change={(e) => (jsonView = { id: message.tool_call_id, on: e.detail })}
+							size="2xs"
+							options={{ right: 'JSON', rightTooltip: 'Show this call as raw JSON' }}
+							lightMode
+						/>
+						{#if !inModal}
+							<Button
+								variant="subtle"
+								unifiedSize="2xs"
+								startIcon={{ icon: Maximize2 }}
+								iconOnly
+								title="Open full screen"
+								onClick={() => (fullscreenId = message.tool_call_id)}
 							/>
-						</div>
-					{:else if jobPending}
-						<!-- The strip above stays whatever the job does: the call's own result is already
+						{/if}
+					</div>
+				</Tabs>
+
+				<!-- Logs sit on the softer surface, the way program output is shown everywhere else.
+			     The raw view keeps the card's own, as an ordinary tool call has it. -->
+				<div
+					{@attach (el) => {
+						if (inModal) modalBodyEl = el
+						else bodyEl = el
+						return () => {
+							if (inModal) modalBodyEl = undefined
+							else bodyEl = undefined
+						}
+					}}
+					use:f.container
+					onscroll={f.measure}
+					class={twMerge(
+						'min-h-0 flex-1 px-3 py-2',
+						rawView && !inModal ? '' : 'overflow-auto',
+						!rawView && !jobPending && activeTab === 'logs' ? 'bg-surface-secondary/50' : ''
+					)}
+				>
+					<!-- min-h-full rather than h-full: the states that centre themselves need the height,
+				     and a box that always filled it would measure as never scrollable. -->
+					<div use:f.content class="flex min-h-full flex-col">
+						{#if rawView}
+							<div class="space-y-3">
+								<!-- Each block scrolls on its own, so each fades on its own. -->
+								<ToolContentDisplay title="Parameters" content={message.parameters} showFade />
+								<ToolContentDisplay title="Logs" content={message.logs} tail showFade />
+								<ToolContentDisplay
+									title="Result"
+									content={message.result}
+									error={message.error}
+									showFade
+								/>
+							</div>
+						{:else if jobPending}
+							<!-- The strip above stays whatever the job does: the call's own result is already
 						     in the transcript, and the JSON toggle is how it is read. -->
-						<div class="text-2xs leading-4 text-hint">
-							{#if fetchFailed === message.tool_call_id}
-								This run could not be read. It may have been deleted, or be in another workspace.
-								Its result is on the JSON toggle.
-							{:else}
-								<span class="inline-flex items-center gap-1.5">
-									<Loader2 class="h-3 w-3 animate-spin" />
-									Loading this run...
-								</span>
-							{/if}
-						</div>
-					{:else}
-						<!-- Keyed on the tab so the body arrives rather than cuts. One region serves every
+							<div class="text-2xs leading-4 text-hint">
+								{#if fetchFailed === message.tool_call_id}
+									This run could not be read. It may have been deleted, or be in another workspace.
+									Its result is on the JSON toggle.
+								{:else}
+									<span class="inline-flex items-center gap-1.5">
+										<Loader2 class="h-3 w-3 animate-spin" />
+										Loading this run...
+									</span>
+								{/if}
+							</div>
+						{:else}
+							<!-- Keyed on the tab so the body arrives rather than cuts. One region serves every
 						     tab, so only the incoming pane moves: overlapping them would ask this scroller
 						     to hold two at once. -->
-						{#key activeTab}
-							<div class="flex min-h-full flex-1 flex-col" in:enterPane>
-								{#if activeTab === 'input'}
-									<!-- What the runs page shows a finished job's arguments as: the operator has already
+							{#key activeTab}
+								<div class="flex min-h-full flex-1 flex-col" in:enterPane>
+									{#if activeTab === 'input'}
+										<!-- What the runs page shows a finished job's arguments as: the operator has already
 					     read this table. The job id is what lets it fetch arguments too big to have been
 					     persisted with the card. -->
-									<JobArgs
-										args={parameters}
-										id={job?.jobId}
-										workspace={job?.workspace}
-										disableExpand
-									/>
-								{:else if activeTab === 'logs'}
-									{#if logs.trim()}
-										{#if logs.length >= MAX_LOG_LENGTH}
-											<p class="mb-1 text-2xs text-tertiary">
-												Tail of the logs, the last {MAX_LOG_LENGTH} characters.
+										<JobArgs
+											args={parameters}
+											id={job?.jobId}
+											workspace={job?.workspace}
+											disableExpand
+										/>
+									{:else if activeTab === 'logs'}
+										{#if logs.trim()}
+											{#if logs.length >= MAX_LOG_LENGTH}
+												<p class="mb-1 text-2xs text-tertiary">
+													Tail of the logs, the last {MAX_LOG_LENGTH} characters.
+												</p>
+											{/if}
+											<pre class="whitespace-pre-wrap break-words font-mono text-2xs text-primary"
+												>{logs}</pre
+											>
+										{:else}
+											<p class="text-2xs text-tertiary">
+												{inspectedJob?.logsFailed
+													? 'Logs could not be read.'
+													: running
+														? 'No logs yet.'
+														: 'No logs.'}
 											</p>
 										{/if}
-										<pre class="whitespace-pre-wrap break-words font-mono text-2xs text-primary"
-											>{logs}</pre
-										>
-									{:else}
-										<p class="text-2xs text-tertiary">
-											{inspectedJob?.logsFailed
-												? 'Logs could not be read.'
-												: running
-													? 'No logs yet.'
-													: 'No logs.'}
-										</p>
-									{/if}
-									{#if running && !waiting && !inspected}
-										<div class="mt-1 flex items-center gap-1.5 text-2xs text-tertiary">
-											<Loader2 class="h-3 w-3 animate-spin" />
-											streaming
-										</div>
-									{/if}
-									<!-- A run the chat started reports its failure on the tool call; an inspected one
+										{#if running && !waiting && !inspected}
+											<div class="mt-1 flex items-center gap-1.5 text-2xs text-tertiary">
+												<Loader2 class="h-3 w-3 animate-spin" />
+												streaming
+											</div>
+										{/if}
+										<!-- A run the chat started reports its failure on the tool call; an inspected one
 					     carries it as its result, which the pane below renders the way the run page
 					     does. `failed` excludes a cancellation, which also leaves an error on the
 					     message but owns its own pane. -->
-								{:else if !inspected && failed}
-									<pre
-										class="whitespace-pre-wrap break-words font-mono text-2xs text-red-700 dark:text-red-300"
-										>{message.error}</pre
-									>
-								{:else if streaming}
-									<!-- The same renderer as a landed result, handed the partial: it is the one that
+									{:else if !inspected && failed}
+										<pre
+											class="whitespace-pre-wrap break-words font-mono text-2xs text-red-700 dark:text-red-300"
+											>{message.error}</pre
+										>
+									{:else if streaming}
+										<!-- The same renderer as a landed result, handed the partial: it is the one that
 					     knows how to show a result arriving in pieces. -->
-									<DisplayResult
-										result={undefined}
-										result_stream={resultStream}
-										jobId={job?.jobId}
-										workspaceId={job?.workspace}
-										disableExpand
-										hideAsJson
-									/>
-								{:else if resultValue !== undefined}
-									<!-- The run page's own renderer, not a second one invented for the chat: it handles
+										<DisplayResult
+											result={undefined}
+											result_stream={resultStream}
+											jobId={job?.jobId}
+											workspaceId={job?.workspace}
+											disableExpand
+											hideAsJson
+										/>
+									{:else if resultValue !== undefined}
+										<!-- The run page's own renderer, not a second one invented for the chat: it handles
 					     markdown, tables, images and deep nesting without the card guessing at the
 					     shape, and reaches the job through jobId/workspace for an S3 preview.
 					     `disableExpand` drops its toolbar and `hideAsJson` its Pretty/JSON switch,
 					     which the row already owns. -->
-									<DisplayResult
-										result={resultValue}
-										jobId={job?.jobId}
-										workspaceId={job?.workspace}
-										disableExpand
-										hideAsJson
-									/>
-								{:else if canceled}
-									<!-- All that is left to render is the fact itself: a form cancelled before Run
+										<DisplayResult
+											result={resultValue}
+											jobId={job?.jobId}
+											workspaceId={job?.workspace}
+											disableExpand
+											hideAsJson
+										/>
+									{:else if canceled}
+										<!-- All that is left to render is the fact itself: a form cancelled before Run
 						     never reached a job, so there is no result the way a cancelled run has one. -->
-									<div
-										class="flex flex-1 flex-col items-center justify-center gap-1.5 px-4 text-center"
-									>
-										<Ban class="h-4 w-4 text-tertiary" />
-										<p class="text-2xs font-medium leading-4 text-secondary">{cancelReason}</p>
-										{#if !ran}
-											<p class="text-2xs leading-4 text-tertiary">
-												The inputs it would have run with are on the Inputs tab.
-											</p>
-										{/if}
-									</div>
-								{:else}
-									<p class="text-2xs text-tertiary">This run returned no result.</p>
-								{/if}
-							</div>
-						{/key}
-					{/if}
+										<div
+											class="flex flex-1 flex-col items-center justify-center gap-1.5 px-4 text-center"
+										>
+											<Ban class="h-4 w-4 text-tertiary" />
+											<p class="text-2xs font-medium leading-4 text-secondary">{cancelReason}</p>
+											{#if !ran}
+												<p class="text-2xs leading-4 text-tertiary">
+													The inputs it would have run with are on the Inputs tab.
+												</p>
+											{/if}
+										</div>
+									{:else}
+										<p class="text-2xs text-tertiary">This run returned no result.</p>
+									{/if}
+								</div>
+							{/key}
+						{/if}
+					</div>
 				</div>
-			</div>
 
-			<!-- Over the body, not inside it: what is still below fades out, and nothing at the top,
+				<!-- Over the body, not inside it: what is still below fades out, and nothing at the top,
 			     as on the form and on the tool cards. Two layers on the logs, whose ground is the
 			     card's surface with the softer one at half strength over it — one gradient would end
 			     on the wrong colour and leave a band at the very edge. -->
-			{#if fades.bottom && fadeBody}
-				<div
-					class="pointer-events-none absolute inset-x-0 bottom-0 h-[min(2.5rem,35%)] bg-gradient-to-t from-surface via-surface/60 to-transparent"
-				></div>
-				{#if activeTab === 'logs'}
+				{#if f.bottom && fadeBody}
 					<div
-						class="pointer-events-none absolute inset-x-0 bottom-0 h-[min(2.5rem,35%)] bg-gradient-to-t from-surface-secondary/50 via-surface-secondary/30 to-transparent"
+						class="pointer-events-none absolute inset-x-0 bottom-0 h-[min(2.5rem,35%)] bg-gradient-to-t from-surface via-surface/60 to-transparent"
 					></div>
+					{#if activeTab === 'logs'}
+						<div
+							class="pointer-events-none absolute inset-x-0 bottom-0 h-[min(2.5rem,35%)] bg-gradient-to-t from-surface-secondary/50 via-surface-secondary/30 to-transparent"
+						></div>
+					{/if}
 				{/if}
-			{/if}
-		</div>
+			</div>
 
-		{#if running && chatJob}
-			<!-- Where the form keeps its own actions, so the button that stops a run and the one
+			{#if running && chatJob}
+				<!-- Where the form keeps its own actions, so the button that stops a run and the one
 			     that starts it sit in the same corner of the same card. The run page's own cancel
 			     button, down to the icon: the operator has already pressed this one. -->
-			<div class="flex justify-end border-t border-border-light px-3 py-2">
-				<Button
-					variant="accent"
-					unifiedSize="sm"
-					destructive
-					startIcon={{ icon: TimerOff }}
-					title={`Cancel the ${runnableNoun}`}
-					onClick={() => aiChatManager.cancelJob(chatJob.jobId)}
-				>
-					Cancel
-				</Button>
+				<div class="flex justify-end border-t border-border-light px-3 py-2">
+					<Button
+						variant="accent"
+						unifiedSize="sm"
+						destructive
+						startIcon={{ icon: TimerOff }}
+						title={`Cancel the ${runnableNoun}`}
+						onClick={() => aiChatManager.cancelJob(chatJob.jobId)}
+					>
+						Cancel
+					</Button>
+				</div>
+			{/if}
+		{/snippet}
+
+		{@render runBody(false)}
+
+		<!-- Modal portals itself out, so declaring it here keeps it beside the snippet it renders
+		     and closes it with the branch: a run that turns back into a form has no card to show. -->
+		<Modal
+			bind:open={
+				() => fullscreenId === message.tool_call_id,
+				(v) => (fullscreenId = v ? message.tool_call_id : undefined)
+			}
+			title={`${verb} ${runnableName}`}
+			kind="X"
+			fillHeight
+			enterConfirms={false}
+			class="sm:max-w-none"
+		>
+			<div class="flex h-full flex-col overflow-hidden rounded-md border border-border-light">
+				{@render runBody(true)}
 			</div>
-		{/if}
+		</Modal>
 	{/if}
 </ChatCollapsibleCard>
