@@ -54,6 +54,11 @@ export type DrillBranch<L> = {
 	children: DrillNode<L>[]
 	/** Show a spinner alongside the branch (async loading in progress). */
 	loading?: boolean
+	/** Plain text on the right of the branch's row ("Read"), like a leaf's `leafBadge`. */
+	badge?: string
+	/** A line under the branch's entries once drilled in and loaded, for a branch whose entries
+	 * never leave it empty ("f/x has no items yet"), so the picker's "Empty" cannot show. */
+	note?: string
 	/** Hide from search index traversal. Used by the workspace adapter to
 	 * keep the cross-kind 'all' branch out of search (its leaves are
 	 * duplicates of the per-kind branches' leaves). */

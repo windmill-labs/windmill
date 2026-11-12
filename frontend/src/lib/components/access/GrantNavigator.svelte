@@ -75,14 +75,15 @@ changes the grant on the whole folder.
 	const data = $derived(source ?? api)
 	const own = $derived(data.ownSpace)
 
-	let picker:
-		| { focus: () => void; escape: (target: EventTarget | null) => boolean }
-		| undefined = $state()
+	let picker: { focus: () => void; escape: (target: EventTarget | null) => boolean } | undefined =
+		$state()
 	let folders: BrowseAccessFoldersResponse | undefined = $state()
 	/** Rows by top-level branch (`u/alice`, `f/billing`), then by `kind:path`. */
 	let rows: Record<string, Record<string, Row>> = $state({})
 	let loading: Record<string, boolean> = $state({})
 	const loaded = new Set<string>()
+	/** Branches whose every page has arrived, so no rows there means the folder has no items. */
+	let complete: Record<string, boolean> = $state({})
 	/** The change in flight, as `kind:path:label`. */
 	let pending: string | undefined = $state()
 	/** Runs before this time are ignored: the second press of a double click or Enter would
@@ -123,6 +124,7 @@ changes the grant on the whole folder.
 				if (!page.has_more) break
 				offset += page.items.length
 			}
+			complete[branch] = true
 		} catch (e) {
 			loaded.delete(branch)
 			sendUserToast(`Could not load ${branch}: ${e?.body ?? e}`, true)
@@ -185,27 +187,35 @@ changes the grant on the whole folder.
 				loading: loading[own],
 				children: itemLeaves(own)
 			},
-			...(folders ?? []).map(
-				(folder): DrillNode<Leaf> => ({
+			...(folders ?? []).map((folder): DrillNode<Leaf> => {
+				const branch = `f/${folder.name}`
+				const items = itemLeaves(branch)
+				const level = levelOf(folderData(folder), `folder:${folder.name}`)
+				return {
 					type: 'branch',
-					key: `f/${folder.name}`,
-					label: `f/${folder.name}`,
+					key: branch,
+					label: branch,
 					icon: Folder,
 					searchGroup: true,
-					loading: loading[`f/${folder.name}`],
+					loading: loading[branch],
+					badge: level === 'none' ? undefined : LEVEL_LABELS[level],
+					note:
+						complete[branch] && items.length === 0
+							? `${branch} has no items yet. A grant on the whole folder covers the items added later.`
+							: undefined,
 					children: [
 						{
 							type: 'leaf',
 							key: `folder:${folder.name}`,
 							label: `All of f/${folder.name}`,
-							searchableText: `f/${folder.name}`,
+							searchableText: branch,
 							data: folderData(folder),
 							disabled: folder.target_owner || !!folder.blocked
 						},
-						...itemLeaves(`f/${folder.name}`)
+						...items
 					]
-				})
-			),
+				}
+			}),
 			// Other users' and groups' items appear once a search finds them.
 			...others.map(
 				(b): DrillNode<Leaf> => ({

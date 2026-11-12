@@ -32,6 +32,7 @@
 		ExternalLink,
 		Folder,
 		FolderTree,
+		Loader2,
 		Lock,
 		Plus,
 		User,
@@ -60,6 +61,9 @@
 	let navigator: GrantNavigator | undefined = $state()
 	/** The row menu that is open, as `kind:path`. */
 	let openMenu: string | undefined = $state()
+	/** The row whose grant is being written, as `kind:path`. Its menu would otherwise send the
+	 * same change again before the tree reloads with the new level. */
+	let changing: string | undefined = $state()
 	let grantPopover: Popover | undefined = $state()
 	let grantAnchor: HTMLElement | undefined = $state()
 	// Responses are not ordered: a slow answer for the previous principal must not land on this one.
@@ -128,6 +132,8 @@
 	}
 
 	async function changeGrant(kind: string, path: string, level: GrantLevel) {
+		if (changing) return
+		changing = `${kind}:${path}`
 		try {
 			await setGrant($operatingWorkspace!, kind, path, principal, level)
 		} catch (e) {
@@ -135,6 +141,7 @@
 			sendUserToast(`Could not change access to ${what}: ${e?.body ?? e}`, true)
 		}
 		await reload()
+		changing = undefined
 	}
 
 	/** `current` is the grant's level: `true` for write, `false` for read. */
@@ -289,9 +296,14 @@
 			<Lock size={14} class="text-secondary" aria-label={blocked} />
 			{#snippet text()}{blocked}{/snippet}
 		</Tooltip>
+	{:else if changing === `${kind}:${path}`}
+		<span class="flex size-5 items-center justify-center -my-0.5" role="status" aria-label="Saving">
+			<Loader2 size={14} class="animate-spin text-secondary" />
+		</span>
 	{:else}
 		{@const key = `${kind}:${path}`}
 		<DropdownV2
+			disabled={!!changing}
 			size="xs"
 			fixedHeight={false}
 			class="-my-0.5"

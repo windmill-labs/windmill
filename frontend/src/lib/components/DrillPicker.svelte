@@ -899,6 +899,11 @@ leaves and ignores the current scope.
 						>
 							{@render defaultBranchIcon(entry.node)}
 							<span class="flex-1 truncate">{entry.node.label}</span>
+							{#if entry.node.badge}
+								<span class="shrink-0 pl-2 text-xs font-sans font-normal text-secondary"
+									>{entry.node.badge}</span
+								>
+							{/if}
 							{#if entry.node.loading}
 								<Loader2 size={12} class="animate-spin text-tertiary" />
 							{/if}
@@ -913,6 +918,8 @@ leaves and ignores the current scope.
 					<div role="status" class="px-3 py-1.5 text-xs text-tertiary flex items-center gap-2">
 						<Loader2 size={14} class="animate-spin" /> Loading…
 					</div>
+				{:else if currentBranch?.note}
+					<div role="status" class="px-3 py-2 text-xs text-tertiary">{currentBranch.note}</div>
 				{/if}
 			</div>
 		{/if}
