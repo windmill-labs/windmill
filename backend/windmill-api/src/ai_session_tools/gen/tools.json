@@ -216,7 +216,7 @@
 			"type": "object",
 			"properties": {
 				"subject": {
-					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"agent\" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
+					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"agent\" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, \"workspace_settings\" for the keys and rules of the workspace settings (admins only), or \"display\" for the tables and charts a return value renders as. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
 					"type": "string",
 					"enum": [
 						"script",
@@ -226,7 +226,8 @@
 						"agent",
 						"datatable",
 						"pipeline",
-						"workspace_settings"
+						"workspace_settings",
+						"display"
 					]
 				},
 				"language": {

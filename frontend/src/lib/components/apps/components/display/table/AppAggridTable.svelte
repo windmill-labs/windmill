@@ -344,7 +344,7 @@
 				const agColumnDefs = transformColumnDefs({
 					columnDefs:
 						Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-							? ([...resolvedConfig?.columnDefs] as WindmillColumnDef[])
+							? ([...resolvedConfig.columnDefs] as WindmillColumnDef[])
 							: [],
 					actions,
 					customActionsHeader: resolvedConfig?.customActionsHeader,
@@ -492,7 +492,7 @@
 			const agColumnDefs = transformColumnDefs({
 				columnDefs:
 					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-						? ([...resolvedConfig?.columnDefs] as WindmillColumnDef[])
+						? ([...resolvedConfig.columnDefs] as WindmillColumnDef[])
 						: [],
 				actions,
 				customActionsHeader: resolvedConfig?.customActionsHeader,

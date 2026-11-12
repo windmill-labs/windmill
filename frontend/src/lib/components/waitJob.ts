@@ -56,10 +56,10 @@ export async function waitJob(id: string, forceWorkspace?: string) {
 
 			let nextIteration = 50
 
-			if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
-				nextIteration = 500
-			} else if (syncIteration > ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
+			if (syncIteration > ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
 				nextIteration = 2000
+			} else if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
+				nextIteration = 500
 			}
 
 			setTimeout(checkJob, nextIteration)

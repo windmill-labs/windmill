@@ -94,7 +94,8 @@ import {
 	getRawAppPrompt,
 	getResourcePrompt,
 	getAgentPrompt,
-	getScriptPrompt
+	getScriptPrompt,
+	getDisplayPrompt
 } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -283,7 +284,14 @@ const INSTRUCTION_SUBJECTS = [
 // annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
 // `workspace_settings` is the settings document an admin reads and changes.
 // `agent` is a resource of type `ai_agent`, with authoring guidance of its own.
-const INSTRUCTION_SUBJECTS_EXTRA = ['agent', 'datatable', 'pipeline', 'workspace_settings'] as const
+// `display` is the rich-result format: tables and charts a return value renders as.
+const INSTRUCTION_SUBJECTS_EXTRA = [
+	'agent',
+	'datatable',
+	'pipeline',
+	'workspace_settings',
+	'display'
+] as const
 export const ALL_INSTRUCTION_SUBJECTS = [
 	...INSTRUCTION_SUBJECTS,
 	...INSTRUCTION_SUBJECTS_EXTRA
@@ -354,7 +362,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or "workspace_settings" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, "workspace_settings" for the keys and rules of the workspace settings (admins only), or "display" for the tables and charts a return value renders as. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -1781,6 +1789,7 @@ ${
 Rules:${draftsOnlyRule}
 ${findItemsRule}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
+- To show a chart or a sortable table in a reply or an artifact, write a \`\`\`wm-display fenced block holding one JSON value in the chart or table format of get_instructions with subject "display" (read it first). Reach for it when a chart answers the question better than prose or a markdown table; keep small tables as markdown.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
 		// An agent draft is a resource draft that the server checks under the flow builder right.
 		canDraftResources && canWriteFlowDraft,
@@ -2314,6 +2323,8 @@ export function getInstructions(
 			return getPipelineInstructions()
 		case 'workspace_settings':
 			return getWorkspaceSettingsPrompt()
+		case 'display':
+			return getDisplayPrompt()
 	}
 }
 

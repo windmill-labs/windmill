@@ -368,7 +368,8 @@
 			? intersectingElement?.querySelector('.svlt-grid-container')
 			: document.getElementById('root-grid')
 
-		const xPerPxComputed = Number(container?.getAttribute('data-xperpx')) ?? xPerPx
+		const xPerPxAttr = container?.getAttribute('data-xperpx')
+		const xPerPxComputed = xPerPxAttr != null ? Number(xPerPxAttr) : xPerPx
 
 		const position = computePosition(
 			clientX,

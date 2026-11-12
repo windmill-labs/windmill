@@ -55,7 +55,13 @@
 	}
 </script>
 
-<Modal2 bind:isOpen title="Draft out of sync" fixedWidth="sm" fixedHeight="adaptive">
+<Modal2
+	bind:isOpen
+	title="Draft out of sync"
+	fixedWidth="sm"
+	fixedHeight="adaptive"
+	closeOnOutsideClick={false}
+>
 	<div class="flex flex-col w-full gap-4">
 		<div class="flex gap-3 items-start flex-1">
 			<AlertTriangle size={20} class="text-yellow-500 shrink-0 mt-0.5" />
@@ -64,6 +70,7 @@
 					Another tab, browser, or AI agent saved a newer version of this draft. Your autosave was
 					rejected to avoid overwriting their work.
 				</p>
+				<p class="text-xs text-secondary break-all">{query.path}</p>
 				{#if conflictHandle.conflict}
 					<p class="text-xs text-secondary">
 						Server timestamp: {new Date(conflictHandle.conflict.serverTimestamp).toLocaleString()}
@@ -75,16 +82,16 @@
 		<div class="flex justify-end gap-2">
 			<Button
 				variant="default"
-				size="sm"
+				unifiedSize="sm"
 				disabled={busy}
 				on:click={() => UserDraftDbSyncer.clearConflict(query)}
 			>
 				Dismiss
 			</Button>
-			<Button variant="default" size="sm" disabled={busy} on:click={overwriteServer}>
+			<Button variant="default" unifiedSize="sm" disabled={busy} on:click={overwriteServer}>
 				Overwrite the remote
 			</Button>
-			<Button variant="accent" size="sm" loading={busy} on:click={loadFromServer}>
+			<Button variant="accent" unifiedSize="sm" loading={busy} on:click={loadFromServer}>
 				Load from server
 			</Button>
 		</div>

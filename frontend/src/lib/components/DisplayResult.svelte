@@ -38,6 +38,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
+	import ChartResult from './display/ChartResult.svelte'
+	import { isChartResult } from './display/displayCatalog'
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
@@ -89,6 +91,7 @@
 		| 'nondisplayable'
 		| 'pdf'
 		| 'aiagent'
+		| 'chart'
 		| undefined
 	let resultKind: ResultKind = $state()
 	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
@@ -378,7 +381,11 @@
 				}
 
 				if (keys.length != 0) {
-					if (
+					// Only a chart the catalog accepts: any other `{ chart }` result stays JSON. The
+					// catalog caps its rows, so it is exempt from the display size limit.
+					if (keys.length == 1 && keys[0] === 'chart' && isChartResult(result)) {
+						return 'chart'
+					} else if (
 						keys.length == 1 &&
 						[...IMG_KINDS, 'html', 'map', 'pdf', 'file', 'error'].includes(keys[0])
 					) {
@@ -907,6 +914,8 @@
 							{@html renderResultMarkup(result.html)}
 						{/if}
 					</div>
+				{:else if !forceJson && resultKind === 'chart'}
+					<ChartResult chart={result.chart} />
 				{:else if !forceJson && resultKind === 'map'}
 					<div class="h-full" data-interactive>
 						<MapResult

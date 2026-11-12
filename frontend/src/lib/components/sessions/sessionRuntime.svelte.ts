@@ -248,6 +248,9 @@ export interface SessionRuntime {
 	// Drop a folder's in-memory drafts once its draft bundle is discarded, so an
 	// open or later-mounted editor does not save them back.
 	forgetPipelineDrafts(folder: string): Promise<void>
+	// For a session changing workspace with its editors closed. A cached editor counts as
+	// hydrated, so it would skip the new workspace's draft and autosave this one's over it.
+	resetPipelineEditors(): void
 	// Per-(kind, path) editor cells (content/baseline stores + load slot), created
 	// on demand. Each editable preview tab resolves its own cell, so several items
 	// stay live at once.
@@ -839,6 +842,17 @@ function createRuntime(session: Session): SessionRuntime {
 		}
 	}
 
+	function resetPipelineEditors(): void {
+		for (const [key, editor] of pipelineEditors) {
+			editor.reset()
+			try {
+				localStorage.removeItem(pipelineLocalMirrorKey(key))
+			} catch {
+				// Storage unavailable: nothing was mirrored either.
+			}
+		}
+	}
+
 	const runtimeLogRequesters = new Map<string, RawAppRuntimeLogRequester>()
 	// appPath → requester, one entry per mounted raw-app preview tab.
 	const domRequesters = new Map<string, RawAppDomRequester>()
@@ -855,6 +869,7 @@ function createRuntime(session: Session): SessionRuntime {
 		registerPipelineView,
 		deployPipeline,
 		forgetPipelineDrafts,
+		resetPipelineEditors,
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,

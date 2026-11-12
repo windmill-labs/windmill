@@ -110,16 +110,20 @@ export const AI_PROVIDERS: Record<ChatAIProvider, AIProviderDetails> = {
 }
 
 /** Decision models answer typed questions instead of messages, so only an AI decision offers
- *  them: TypeSafe's Jev, Cloudflare's Jev-compatible Clef, and the model of OpenAI's Decisions
- *  API, which an OpenAI resource serves next to its chat models. The pinned Jev version is there
- *  for flows tuned against its probabilities. */
+ *  them: TypeSafe's Jev, Cloudflare's Jev-compatible Clef, and the models of OpenAI's and Gemini's
+ *  Decisions APIs, which an OpenAI or Google AI resource serves next to its chat models. The
+ *  pinned Jev version is there for flows tuned against its probabilities. */
 export const DECISION_AI_PROVIDERS: Record<
-	Exclude<AIProvider, ChatAIProvider> | 'openai',
+	Exclude<AIProvider, ChatAIProvider> | 'openai' | 'googleai',
 	AIProviderDetails
 > = {
 	openai: {
 		label: 'OpenAI',
 		defaultModels: ['gpt-6-luna']
+	},
+	googleai: {
+		label: 'Google AI',
+		defaultModels: ['gemini-decision-1']
 	},
 	typesafe: {
 		label: 'TypeSafe',

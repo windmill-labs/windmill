@@ -963,6 +963,9 @@
 		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
 
+	// Only the unfiltered tree lists folders it holds no rows of.
+	let hideEmptyFoldersOffered = $derived(treeLazyMode && !archived && keepEmptyFolders)
+
 	let listSettingsItems: MenuItem[] = $derived([
 		{
 			displayName: 'Flat list',
@@ -973,10 +976,9 @@
 		{
 			displayName: 'Hide empty folders',
 			description:
-				'Folders with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
+				'Folders and your user space with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
 			toggle: hideEmptyFolders,
-			// Only the unfiltered tree lists folders it holds no rows of.
-			hide: !treeLazyMode || archived || !keepEmptyFolders,
+			hide: !hideEmptyFoldersOffered,
 			action: () => setHideEmptyFolders(!hideEmptyFolders)
 		},
 		{
@@ -2462,6 +2464,7 @@
 							: undefined}
 						keepEmptyFolders={keepEmptyFolders && !hideEmptyFolders}
 						{keptFolders}
+						hideEmptySelf={hideEmptyFoldersOffered && hideEmptyFolders}
 					/>
 				{/key}
 			{/if}
