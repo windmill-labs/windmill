@@ -311,6 +311,12 @@ export interface AssistantValidationSpec {
    * assistant say the right thing" expectations to the judge checklist.
    */
   forbiddenMentions?: string[];
+  /**
+   * `required`: the reply holds at least one ```wm-display block, and every one validates
+   * against the chat's display catalog (what the chat renders as a chart or table).
+   * `forbidden`: the reply holds none.
+   */
+  displayBlocks?: "required" | "forbidden";
 }
 
 export interface EvalCase {
