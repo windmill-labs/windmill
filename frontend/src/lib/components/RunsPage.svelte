@@ -560,7 +560,7 @@
 				body: JSON.stringify(body)
 			}
 		)
-		await new Promise(async (resolve) => {
+		{
 			const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
 			let reRanUuids: string[] = []
 			if (reader) {
@@ -608,8 +608,7 @@
 					}
 				}
 			}
-			resolve(undefined)
-		})
+		}
 
 		selectedIds = []
 		// Opened from the table's "Run again", the options are done; left open, the next selection

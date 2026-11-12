@@ -4,7 +4,7 @@
 // for information about these interfaces
 declare namespace App {
 	interface Stuff {
-		title: string?
+		title?: string
 	}
 }
 
