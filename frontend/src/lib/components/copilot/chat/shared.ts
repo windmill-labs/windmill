@@ -79,6 +79,7 @@ import type { editor as meditor } from 'monaco-editor'
 import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 import type { WebSearchSource } from './webSearchResult'
 import { runOnServer } from './global/backendSessionTools'
+import { isAgentStream } from '../../aiAgentResult'
 
 // Prettify function for code arguments - extracts and formats code from JSON
 function prettifyCodeArguments(content: string): string {
@@ -2139,8 +2140,11 @@ export function createJobUpdateReader(jobId: string, workspace: string) {
 	let logOffset = 0
 	let streamOffset = 0
 	let started = false
+	let agentStream: boolean | undefined
 	return {
-		async poll(): Promise<{ completed: boolean; logs: string; resultStream: string } | undefined> {
+		async poll(): Promise<
+			{ completed: boolean; logs: string; resultStream: string; streamed: boolean } | undefined
+		> {
 			let update: Awaited<ReturnType<typeof JobService.getJobUpdates>>
 			try {
 				update = await JobService.getJobUpdates({
@@ -2157,13 +2161,25 @@ export function createJobUpdateReader(jobId: string, workspace: string) {
 			// Logs are kept as a tail: the offsets come from the server, so dropping the head
 			// costs nothing here, and the job holds the full logs.
 			if (update.new_logs) logs = (logs + update.new_logs).slice(-MAX_LOG_LENGTH)
-			// The stream is kept whole: an agent's is one JSON event per line, read from its
-			// first line, so a tail cut mid-line renders as raw events. It lives only while the
-			// job runs — the terminal patch replaces it with the result.
-			if (update.new_result_stream) resultStream += update.new_result_stream
+			// An agent's stream is kept whole: it is one JSON event per line, read from its first
+			// line, so a tail cut mid-line renders as raw events. It lives only while the job
+			// runs — the terminal patch replaces it with the result. Anything else a script
+			// prints is shown as raw text and keeps the tail.
+			if (update.new_result_stream) {
+				resultStream += update.new_result_stream
+				if (agentStream === undefined && resultStream.includes('\n')) {
+					agentStream = isAgentStream(resultStream)
+				}
+				if (agentStream === false) resultStream = resultStream.slice(-MAX_LOG_LENGTH)
+			}
 			if (update.log_offset) logOffset = update.log_offset
 			if (update.stream_offset) streamOffset = update.stream_offset
-			return { completed: update.completed ?? false, logs, resultStream }
+			return {
+				completed: update.completed ?? false,
+				logs,
+				resultStream,
+				streamed: Boolean(update.new_result_stream)
+			}
 		}
 	}
 }

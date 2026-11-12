@@ -1397,7 +1397,7 @@ export class AIChatManager implements ChatViewHost {
 				}
 				const update = await reader.poll()
 				if (gen !== this.#jobPollGeneration) return
-				if (update?.resultStream && !update.completed) anyStreaming = true
+				if (update?.streamed && !update.completed) anyStreaming = true
 				// Only what this reader has collected: the patch is spread over the card, so
 				// naming a field it has nothing for erases output already on it.
 				if (update?.logs || update?.resultStream) {
@@ -1490,9 +1490,9 @@ export class AIChatManager implements ChatViewHost {
 			void this.#persistBackgroundJobs()
 		}
 
-		// Reschedule while anything is still in flight, backing off up to 5s — except while a
-		// job streams its result: its card shows the partial as it arrives, and at 5s that
-		// reads as a freeze then a jump of a thousand characters.
+		// Reschedule while anything is still in flight, backing off up to 5s — except after a
+		// poll that brought new stream output: the card shows the partial as it arrives, and
+		// at 5s that reads as a freeze then a jump of a thousand characters.
 		if (this.backgroundJobs.some((j) => j.detached && this.isJobNonTerminal(j.status))) {
 			this.#jobPollDelay = anyStreaming ? 1000 : Math.min(this.#jobPollDelay + 1000, 5000)
 			this.#scheduleJobPoll()

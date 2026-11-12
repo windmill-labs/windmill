@@ -32,6 +32,10 @@
 			const continues = progress.key === streamKey && raw.length >= progress.consumed
 			const base = continues ? progress : emptyAgentStreamProgress()
 			progress = { ...advanceAgentStream(raw, base), key: streamKey }
+			if (!continues) {
+				currentLane.restart()
+				reasoningLane.restart()
+			}
 			currentLane.feed(progress.stream.current)
 			reasoningLane.feed(progress.stream.reasoning)
 			if (!continues) {
@@ -56,6 +60,11 @@
 			smoothingMs: 1000,
 			onReveal: (chunk) => (revealed += chunk.length)
 		})
+		function restart() {
+			reveal.reset()
+			revealed = 0
+			fed = ''
+		}
 		return {
 			get revealed() {
 				return revealed
@@ -63,13 +72,12 @@
 			feed(text: string) {
 				// The text only grows within a turn; anything else is the next turn's.
 				if (!text.startsWith(fed)) {
-					reveal.reset()
-					revealed = 0
-					fed = ''
+					restart()
 				}
 				reveal.push(text.slice(fed.length))
 				fed = text
 			},
+			restart,
 			reset: () => reveal.reset()
 		}
 	}
@@ -117,13 +125,14 @@
 		}
 		// Told apart by direction, not by `isOwnScroll`'s time window: the typewriter scrolls
 		// every frame, so every reader scroll would land inside that window and be undone.
-		// Content growing and our own scroll only ever move the pane down.
+		// The end is checked first: content shrinking (reasoning replaced by the answer or a
+		// tool row) also moves the pane up, but leaves it clamped at the end.
 		let lastTop = pane.scrollTop
 		const onScroll = () => {
-			if (pane.scrollTop < lastTop) {
-				following = false
-			} else if (sticker.isAtEnd(pane)) {
+			if (sticker.isAtEnd(pane)) {
 				following = true
+			} else if (pane.scrollTop < lastTop) {
+				following = false
 			}
 			lastTop = pane.scrollTop
 		}
