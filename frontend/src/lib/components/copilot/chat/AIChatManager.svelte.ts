@@ -3931,6 +3931,9 @@ export class AIChatManager implements ChatViewHost {
 				this.contextManager?.removeSelectedDomElement(c.selector, c.appPath)
 			}
 		}
+		if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
+			this.contextManager?.updateContextOnRequest({})
+		}
 		const files = withAttachedTextFileIds(draft.files)
 		const text =
 			draft.text.trim() || draft.images.length > 0 ? draft.text : '(the user sent an empty message)'
