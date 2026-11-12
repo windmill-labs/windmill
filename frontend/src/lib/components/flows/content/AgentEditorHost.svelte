@@ -66,6 +66,8 @@
 		onSaved?: (path: string) => void | Promise<void>
 		/** The path was minted for a new agent, so a missing row starts an empty one. */
 		isNew?: boolean
+		/** The agent a new one copies, for a duplicate. */
+		template?: string
 		/** The deployed agent to run rather than a draft to edit: the run pane leads, and the form
 		 *  beside it only shows the configuration. Fixed for the mount's lifetime. */
 		view?: boolean
@@ -105,6 +107,7 @@
 		onSelectTool = undefined,
 		onSaved = undefined,
 		isNew = false,
+		template = undefined,
 		view = false,
 		onOpenConfig = undefined,
 		openConversation = undefined,
@@ -125,6 +128,7 @@
 		path: () => path,
 		workspace: () => workspace,
 		isNew: () => isNew,
+		template: () => template,
 		deployedOnly: () => view,
 		autosaveToggle: untrack(() => autosaveToggle)
 	})

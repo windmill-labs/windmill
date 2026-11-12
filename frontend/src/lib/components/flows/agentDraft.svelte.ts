@@ -213,6 +213,8 @@ export interface AgentDraftOptions {
 	workspace: () => string | undefined
 	/** A missing row is a new agent to start empty, not a load failure. */
 	isNew?: () => boolean
+	/** The agent a new one copies, for a duplicate. */
+	template?: () => string | undefined
 	/** Only the deployed agent, as a page that runs it shows it: no draft is loaded, restored or
 	 *  written, and a write from another tab does not land here. */
 	deployedOnly?: () => boolean
@@ -434,7 +436,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// name minted after the seed below would differ from it, and the first click would
 						// save it.
 						if (opts.isNew?.() && (err as { status?: number })?.status === 404) {
-							const name = await freeAgentPath(ws)
+							const [name, from] = await Promise.all([freeAgentPath(ws), readTemplate(ws)])
 							if (loadedFor !== key) return
 							noDeployed = true
 							deployed = undefined
@@ -448,10 +450,10 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							)
 							state = {
 								path: name,
-								description: '',
+								description: from?.description ?? '',
 								// Opens on a working chat, the way a new agent is first tried. The editor says
 								// what memory is for, and how to turn it off, while it is on.
-								args: { memory: structuredClone(DEFAULT_AGENT_MEMORY) },
+								args: from?.args ?? { memory: structuredClone(DEFAULT_AGENT_MEMORY) },
 								resource_type: 'ai_agent',
 								wsSpecific: false
 							}
@@ -478,6 +480,25 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 					}
 				)
 		)
+	}
+
+	/** The deployed agent a duplicate starts from. Its identity stays behind: who the copy runs as
+	 *  is its own deploy's to decide. */
+	async function readTemplate(
+		ws: string
+	): Promise<{ description: string; args: AIAgentConfig } | undefined> {
+		const template = opts.template?.()
+		if (!template) return undefined
+		try {
+			const r = await ResourceService.getResource({ workspace: ws, path: template })
+			if (r.resource_type !== 'ai_agent') return undefined
+			const { on_behalf_of: _, ...args } = (r.value ?? {}) as AIAgentConfig & {
+				on_behalf_of?: string
+			}
+			return { description: r.description ?? '', args }
+		} catch {
+			return undefined
+		}
 	}
 
 	async function reload(): Promise<void> {

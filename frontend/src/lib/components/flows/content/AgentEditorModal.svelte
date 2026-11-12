@@ -15,6 +15,8 @@
 	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
+	import ShareButton from '$lib/components/itemSettings/ShareButton.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
@@ -219,6 +221,7 @@
 			: undefined
 	)
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
+	let shareModal: ShareModal | undefined = $state(undefined)
 	let confirmingClose = $state(false)
 
 	function resetToDeployed(): Promise<void> | void {
@@ -709,12 +712,14 @@
 							unifiedSize="sm"
 							variant="default"
 							startIcon={{ icon: DiffIcon }}
-							iconOnly
+							iconOnly={layout === 'pane'}
 							title="Diff"
 							disabled={draftOnly}
 							btnClasses={draftOnly ? 'pointer-events-none' : undefined}
 							on:click={openDiff}
-						/>
+						>
+							Diff
+						</Button>
 					</div>
 				{/if}
 				<!-- Switches the editor's right-hand pane, and is drawn only once the agent has
@@ -784,6 +789,14 @@
 					on:click={() => versionDrawer?.openDrawer()}
 				/>
 				<OpenInSessionButton source={sessionSource} />
+				{#if target && !readOnly}
+					<ShareButton
+						deployed={!draftOnly}
+						iconOnly={layout === 'pane'}
+						unifiedSize="sm"
+						onclick={() => target && shareModal?.openDrawer?.(target.path, 'resource')}
+					/>
+				{/if}
 				<Button
 					unifiedSize="sm"
 					variant="accent"
@@ -833,6 +846,7 @@
 			onSelectTool={(id) => showTool(id)}
 			{onSaved}
 			isNew={target?.isNew}
+			template={target?.template}
 			autosaveToggle={layout !== 'pane'}
 			configFooter={offerFlow ? flowFooter : undefined}
 		/>
@@ -928,9 +942,10 @@
 	</Drawer>
 
 	<DiffDrawer bind:this={diffDrawer} />
+	<ShareModal bind:this={shareModal} />
 
-	<!-- What the script and flow editors' routes mount for their draft: a refused save and a draft older than its last deploy. Not in a session's
-	     pane, as not for those editors: a session keeps every tab it visited mounted, and a hidden
+	<!-- What the script and flow editors' routes mount for their draft: a refused save and a draft
+	     older than its last deploy. Not in a session's pane, as not for those editors: a session keeps every tab it visited mounted, and a hidden
 	     tab's prompt would open over whichever one is showing. -->
 	{#if draftQuery && draft && layout !== 'pane'}
 		<DraftEditorModals

@@ -21,6 +21,8 @@ export interface AgentEditorTarget {
 	/** The path was minted for an agent that does not exist yet: a missing row is an empty agent to
 	 *  start from rather than a load failure. */
 	isNew?: boolean
+	/** With `isNew`: the agent the new one copies. */
+	template?: string
 }
 
 let target = $state<AgentEditorTarget | undefined>(undefined)

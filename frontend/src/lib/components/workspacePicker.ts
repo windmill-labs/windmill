@@ -1,4 +1,4 @@
-export type WorkspaceItemKind = 'flow' | 'script' | 'app'
+export type WorkspaceItemKind = 'flow' | 'script' | 'app' | 'agent'
 
 export type WorkspaceItem = {
 	path: string
@@ -33,14 +33,16 @@ export function workspaceItemDisplayPath(item: Pick<WorkspaceItem, 'path' | 'dra
 export const KIND_LABEL: Record<WorkspaceItemKind, string> = {
 	flow: 'Flows',
 	script: 'Scripts',
-	app: 'Apps'
+	app: 'Apps',
+	agent: 'Agents'
 }
 
 /** Lowercase variant — matches the editor breadcrumb style. */
 export const KIND_LABEL_LOWER: Record<WorkspaceItemKind, string> = {
 	flow: 'flows',
 	script: 'scripts',
-	app: 'apps'
+	app: 'apps',
+	agent: 'agents'
 }
 
 /** Composite keys used for keyboard nav and `initialHighlight`. The picker and
@@ -54,6 +56,7 @@ export const leafKeyFor = (k: WorkspaceItemKind, path: string) => `leaf:${k}:${p
 export function editPathFor(item: WorkspaceItem): string {
 	if (item.kind === 'flow') return `/flows/edit/${item.path}`
 	if (item.kind === 'script') return `/scripts/edit/${item.path}`
+	if (item.kind === 'agent') return `/agents/edit/${item.path}`
 	return item.raw_app ? `/apps_raw/edit/${item.path}` : `/apps/edit/${item.path}`
 }
 
@@ -61,6 +64,7 @@ export function editPathFor(item: WorkspaceItem): string {
 export function viewPathFor(item: WorkspaceItem): string {
 	if (item.kind === 'flow') return `/flows/get/${item.path}`
 	if (item.kind === 'script') return `/scripts/get/${item.path}`
+	if (item.kind === 'agent') return `/agents/get/${item.path}`
 	return item.raw_app ? `/apps_raw/get/${item.path}` : `/apps/get/${item.path}`
 }
 
@@ -68,6 +72,7 @@ type WorkspaceCache = {
 	flow?: WorkspaceItem[]
 	script?: WorkspaceItem[]
 	app?: WorkspaceItem[]
+	agent?: WorkspaceItem[]
 }
 
 /** Module-level session cache. Persists across picker mounts within a single
@@ -84,7 +89,7 @@ const cacheVersion = new Map<string, number>()
 
 const cacheKey = (workspace: string, kind: WorkspaceItemKind) => `${workspace}:${kind}`
 
-const KINDS: WorkspaceItemKind[] = ['flow', 'script', 'app']
+const KINDS: WorkspaceItemKind[] = ['flow', 'script', 'app', 'agent']
 
 function bumpVersion(workspace: string, kind: WorkspaceItemKind) {
 	const k = cacheKey(workspace, kind)
@@ -128,7 +133,7 @@ export async function loadKind(
 
 	const startVersion = cacheVersion.get(key) ?? 0
 	const promise = (async () => {
-		const { ScriptService, FlowService, AppService } = await import('$lib/gen')
+		const { ScriptService, FlowService, AppService, ResourceService } = await import('$lib/gen')
 		let items: WorkspaceItem[]
 		if (kind === 'flow') {
 			const flows = await FlowService.listFlows({
@@ -159,6 +164,22 @@ export async function loadKind(
 				draftOnly: s.draft_only ?? false,
 				hasDraft: s.is_draft ?? false,
 				extraPerms: s.extra_perms
+			}))
+		} else if (kind === 'agent') {
+			const agents = await ResourceService.listResource({
+				workspace,
+				resourceType: 'ai_agent',
+				includeDraftOnly: true,
+				perPage: 1000
+			})
+			items = agents.map((a) => ({
+				path: a.path,
+				summary: a.description ?? '',
+				kind: 'agent' as const,
+				draftPath: a.draft_path,
+				draftOnly: a.draft_only ?? false,
+				hasDraft: a.is_draft ?? false,
+				extraPerms: a.extra_perms
 			}))
 		} else {
 			const apps = await AppService.listApps({

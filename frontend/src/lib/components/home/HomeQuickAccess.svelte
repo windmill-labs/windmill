@@ -186,13 +186,17 @@
 				displayName: 'Duplicate/Fork',
 				icon: GitFork,
 				href: `/${base}/add?template=${item.path}`,
-				hide: !showEditButtons || !$roleCapabilities.code || kind === 'agent'
+				// Agents are authored without code, by whoever may build flows.
+				hide:
+					!showEditButtons ||
+					(kind === 'agent' ? !editRights.roleCanAuthor(kind) : !$roleCapabilities.code)
 			},
 			{
 				displayName: 'Share',
 				icon: UserPlus,
-				action: () => kind !== 'agent' && void openShare(item.path, kind),
-				hide: kind === 'agent' || !editRights.roleCanAuthor(kind)
+				// An agent's permissions are its resource's.
+				action: () => void openShare(item.path, kind === 'agent' ? 'resource' : kind),
+				hide: !editRights.roleCanAuthor(kind)
 			},
 			{
 				displayName: 'View runs',
