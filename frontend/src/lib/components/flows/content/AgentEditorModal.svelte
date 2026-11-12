@@ -218,7 +218,6 @@
 			? { workspace: ws, itemKind: 'resource' as const, path: target.path }
 			: undefined
 	)
-	let othersModalOpen = $state(false)
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let confirmingClose = $state(false)
 
@@ -687,8 +686,6 @@
 				{draftOnly}
 				onResetToDeployed={resetToDeployed}
 				loadedFromDraft={draft.loadedFromDraft}
-				othersDraftsCount={layout === 'pane' ? 0 : draft.otherDraftsUsers.length}
-				onOpenOthersDrafts={() => (othersModalOpen = true)}
 				alwaysSaves={layout === 'pane'}
 				compact={layout !== 'page'}
 			/>
@@ -932,8 +929,7 @@
 
 	<DiffDrawer bind:this={diffDrawer} />
 
-	<!-- What the script and flow editors' routes mount for their draft: a refused save, other
-	     users' drafts of the agent, and a draft older than its last deploy. Not in a session's
+	<!-- What the script and flow editors' routes mount for their draft: a refused save and a draft older than its last deploy. Not in a session's
 	     pane, as not for those editors: a session keeps every tab it visited mounted, and a hidden
 	     tab's prompt would open over whichever one is showing. -->
 	{#if draftQuery && draft && layout !== 'pane'}
@@ -941,12 +937,12 @@
 			workspace={draftQuery.workspace}
 			itemKind="resource"
 			path={draftQuery.path}
-			otherDraftsUsers={draft.otherDraftsUsers}
+			otherDraftsUsers={[]}
 			{draftOnly}
 			hasOwnDraft={draft.loadedFromDraft}
 			onLoadFromServer={() => draft?.reload()}
 			getLocalDraft={() => draft?.state}
-			bind:othersModalOpen
+			othersModalOpen={false}
 			draftSavedAt={draft.draftSavedAt}
 			deployedAt={draft.deployedAt}
 			onLoadLatestDeploy={() =>

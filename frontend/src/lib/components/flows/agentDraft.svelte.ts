@@ -14,10 +14,6 @@ import { DEFAULT_AGENT_MEMORY } from './agentFormFields'
 import { getUsernameForNamespace } from '$lib/userNamespace'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { useTriggerDraftSync, type TriggerDraftSync } from '../triggers/useTriggerDraftSync.svelte'
-import type { UserDraftOverlay } from '$lib/gen'
-import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
-
-type OtherDraftUser = NonNullable<UserDraftOverlay['other_drafts_users']>[number]
 import { logReusableAgentUsage } from './agentTelemetry'
 import {
 	AGENT_BRAIN_LABELS,
@@ -243,8 +239,6 @@ export interface AgentDraftHandle {
 	readonly onBehalfOf: string | undefined
 	/** The load opened on this user's own draft. */
 	readonly loadedFromDraft: boolean
-	/** Other users' drafts of this agent, as the load found them. */
-	readonly otherDraftsUsers: OtherDraftUser[]
 	/** When the draft the load found was saved, and when the agent was last deployed: a draft older
 	 *  than that deploy is stale. */
 	readonly draftSavedAt: string | undefined
@@ -275,7 +269,6 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	 *  have one autosaved from it. Set it through `refuse`, which also clears what was loaded. */
 	let refusal = $state<string | undefined>(undefined)
 	let loadedFromDraft = $state(false)
-	let otherDraftsUsers = $state<OtherDraftUser[]>([])
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
 
@@ -409,25 +402,11 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							draft?: AgentResourceState
 							draft_saved_at?: string
 							edited_at?: string
-							other_drafts_users?: OtherDraftUser[]
-						}
-						// Another user's draft the reader chose to load, from the drafts popover or Home.
-						const theirs = opts.deployedOnly?.()
-							? undefined
-							: OtherUserDraftLoad.takePending(ws, 'resource', path)
-						// Revisiting a path whose overlay was never confirmed or reset: drop its stale
-						// lock, or this reader's own edits could never save again.
-						if (!theirs && OtherUserDraftLoad.isActive(ws, 'resource', path)) {
-							OtherUserDraftLoad.clear(ws, 'resource', path)
 						}
 						// Open on the draft when there is one, so the editor never flashes the deployed
 						// config before the autosave lands.
-						state =
-							(theirs?.value as AgentResourceState | undefined) ??
-							overlay.draft ??
-							structuredClone(deployedState)
+						state = overlay.draft ?? structuredClone(deployedState)
 						loadedFromDraft = !!overlay.draft
-						otherDraftsUsers = overlay.other_drafts_users ?? []
 						draftSavedAt = overlay.draft_saved_at
 						deployedAt = noDeployed ? undefined : overlay.edited_at
 						// Adopt the row's timestamp as this tab's baseline. Without it the first save from
@@ -438,19 +417,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						if (!opts.deployedOnly?.()) {
 							const query = { workspace: ws, itemKind: 'resource' as const, path }
 							UserDraftDbSyncer.recordRemoteSync(query, overlay.draft_saved_at)
-							// With a draft of its own, the reader views theirs without saving over it until
-							// an edit is confirmed as overwriting it.
-							if (theirs && overlay.draft) {
-								OtherUserDraftLoad.beginOverlay({
-									workspace: ws,
-									itemKind: 'resource',
-									path,
-									ownerLabel: theirs.ownerLabel,
-									loadedValue: $state.snapshot(state),
-									onResetToOwnDraft: reload
-								})
-							}
-							if (replaceLocal || theirs) {
+							if (replaceLocal) {
 								UserDraftDbSyncer.dropPending(query)
 								UserDraft.seed('resource', path, $state.snapshot(state), { workspace: ws })
 							}
@@ -604,9 +571,6 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		},
 		get loadedFromDraft() {
 			return loadedFromDraft
-		},
-		get otherDraftsUsers() {
-			return otherDraftsUsers
 		},
 		get draftSavedAt() {
 			return draftSavedAt
