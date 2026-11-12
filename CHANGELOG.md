@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.871.0](https://github.com/windmill-labs/windmill/compare/v1.870.0...v1.871.0) (2026-11-12)
+
+
+### Features
+
+* bring ai agents in line with scripts and flows ([#12311](https://github.com/windmill-labs/windmill/issues/12311)) ([162c6e4](https://github.com/windmill-labs/windmill/commit/162c6e4da6afb68961b7fa7cfc35642d8d890d57))
+* move the home tree's owner menu to the row's right side ([#12359](https://github.com/windmill-labs/windmill/issues/12359)) ([67cfa46](https://github.com/windmill-labs/windmill/commit/67cfa4630f866afa5cc98dc5a26a880d596bdc0a))
+* open the AI chat run card full screen ([#12392](https://github.com/windmill-labs/windmill/issues/12392)) ([38000fa](https://github.com/windmill-labs/windmill/commit/38000fa504cb38dce490cd41a69c0e7e580e367d))
+* show a loading skeleton for the sidebar session list ([#12383](https://github.com/windmill-labs/windmill/issues/12383)) ([f004da9](https://github.com/windmill-labs/windmill/commit/f004da9269eb6ce17003dec0259c2287f4d21201))
+* show key hints on the queued chip and send it mid-turn ([#12342](https://github.com/windmill-labs/windmill/issues/12342)) ([63190ef](https://github.com/windmill-labs/windmill/commit/63190ef61c9eb3c1ecbdf74581c8a56659636492))
+
+
+### Bug Fixes
+
+* hold a builder's hub steps to the run-time hub rule ([#12401](https://github.com/windmill-labs/windmill/issues/12401)) ([6f52126](https://github.com/windmill-labs/windmill/commit/6f521263775526edd66ca69219edd2b097bd9f46))
+* hold roles that cannot run to read-only over mcp and the ai session ([#12357](https://github.com/windmill-labs/windmill/issues/12357)) ([2994e06](https://github.com/windmill-labs/windmill/commit/2994e0664347b63d03d1281a6e16a62c7c91b798))
+* refuse a hub path named by a member without the code capability ([#12381](https://github.com/windmill-labs/windmill/issues/12381)) ([260b480](https://github.com/windmill-labs/windmill/commit/260b480df6418dede84fbab50a19d12d1bc6f221))
+* stream agent results as markdown with openable tool calls ([#12394](https://github.com/windmill-labs/windmill/issues/12394)) ([b6570af](https://github.com/windmill-labs/windmill/commit/b6570af11a21625dac5620655ee1aaacf9250dd6))
+
 ## [1.870.0](https://github.com/windmill-labs/windmill/compare/v1.869.0...v1.870.0) (2026-11-12)
 
 
