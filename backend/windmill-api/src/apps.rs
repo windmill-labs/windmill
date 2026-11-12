@@ -2407,7 +2407,6 @@ fn check_operator_composed_app(
 
     referenced.sort();
     referenced.dedup();
-    refuse_hub_runnables(&referenced)?;
     Ok(referenced)
 }
 
@@ -2467,25 +2466,6 @@ fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(AppRunnableKind
         .collect())
 }
 
-fn refuse_hub_runnables(referenced: &[(AppRunnableKind, String)]) -> Result<()> {
-    for (kind, path) in referenced {
-        let hub = match kind {
-            AppRunnableKind::Agent => path.starts_with("hub/"),
-            AppRunnableKind::Script | AppRunnableKind::Flow => {
-                RunnableRef::from_path(path, *kind == AppRunnableKind::Flow)?
-                    .path()
-                    .starts_with("hub/")
-            }
-        };
-        if hub {
-            return Err(Error::PermissionDenied(format!(
-                "Operators with builder rights cannot reference the hub runnable {path}. Deploy it to the workspace first."
-            )));
-        }
-    }
-    Ok(())
-}
-
 /// Runs on every app write by an operator with builder rights, from inside the create/update
 /// internals so both raw-app endpoints are covered by one check.
 ///
@@ -2514,7 +2494,22 @@ pub(crate) async fn validate_operator_composed_app(
         }
     }
     let referenced = check_operator_composed_app(write, raw_app, value, policy)?;
-    require_runnables_readable(authed, db, user_db, w_id, referenced).await
+    // A Hub path has no workspace row to be readable in: it is held to the rule for naming one.
+    let mut in_workspace = Vec::with_capacity(referenced.len());
+    for (kind, path) in referenced {
+        if kind != AppRunnableKind::Agent {
+            let runnable = RunnableRef::from_path(&path, kind == AppRunnableKind::Flow)?;
+            if runnable.path().starts_with("hub/") {
+                windmill_api_auth::composed::check_builder_can_name_hub(
+                    &runnable, authed, db, w_id,
+                )
+                .await?;
+                continue;
+            }
+        }
+        in_workspace.push((kind, path));
+    }
+    require_runnables_readable(authed, db, user_db, w_id, in_workspace).await
 }
 
 fn policy_runs_as_another(policy: &Policy, authed: &ApiAuthed) -> bool {
@@ -4683,15 +4678,11 @@ async fn execute_component(
         })?;
         // A builder testing the app it is composing only ever previews a deployed runnable
         // (`path`), confined below to what it may read. Inline `raw_code`, which an `id` also
-        // requires, is authoring code, so it stays closed to every operator. So is a hub
-        // path, which `require_path_read_access_for_preview` admits for everyone, and which
-        // `check_can_name_runnable` also refuses further on: it is exactly the unreviewed
-        // code the composition check refuses in a flow.
-        let previews_hub = preview_path.is_some_and(|p| p.starts_with("hub/"));
+        // requires, is authoring code, so it stays closed to every operator. A hub path,
+        // which `require_path_read_access_for_preview` admits for everyone, is held further on
+        // to `check_can_name_runnable`, as it is when a builder saves it as a step.
         let caps = caller_capabilities(&db, &w_id, authed).await?;
-        if !caps.code
-            && (caps.apps == AuthorLevel::None || payload.raw_code.is_some() || previews_hub)
-        {
+        if !caps.code && (caps.apps == AuthorLevel::None || payload.raw_code.is_some()) {
             return Err(Error::PermissionDenied(
                 "Your role cannot run preview jobs in this workspace".to_string(),
             ));
@@ -7281,22 +7272,24 @@ mod operator_app_tests {
             vec![(AppRunnableKind::Script, "f/x/s".to_string())]
         );
 
-        // A hub reference is unreviewed code, refused like it is in a flow.
-        for key in [
-            "a:script/hub/1/x",
-            "a:script//hub/1/x",
-            "a:flow//hub/flows/1/x",
-            // Parses as a workspace flow path, so only the Hub check refuses it.
-            "a:flow/hub/1/x",
+        // A hub reference is reported, for the caller to hold to the rule for naming one.
+        for (key, kind, path) in [
+            ("a:script/hub/1/x", AppRunnableKind::Script, "hub/1/x"),
+            ("a:script//hub/1/x", AppRunnableKind::Script, "/hub/1/x"),
+            (
+                "a:flow//hub/flows/1/x",
+                AppRunnableKind::Flow,
+                "/hub/flows/1/x",
+            ),
+            ("a:flow/hub/1/x", AppRunnableKind::Flow, "hub/1/x"),
         ] {
             let mut policy = builder_policy(
                 serde_json::json!({ key: {"static_inputs": {}, "one_of_inputs": {}} }),
             );
             assert!(
-                matches!(
-                    composed_app(clean.clone(), &mut policy),
-                    Err(Error::PermissionDenied(_))
-                ),
+                composed_app(clean.clone(), &mut policy)
+                    .unwrap()
+                    .contains(&(kind, path.to_string())),
                 "{key}"
             );
         }
@@ -7346,7 +7339,10 @@ mod operator_app_tests {
             vec![(AppRunnableKind::Agent, "f/x/bot".to_string())]
         );
         let mut policy = builder_policy(serde_json::json!({}));
-        assert!(composed_app(path_runnable("hub/1/x", "hubscript"), &mut policy).is_err());
+        assert_eq!(
+            composed_app(path_runnable("hub/1/x", "hubscript"), &mut policy).unwrap(),
+            vec![(AppRunnableKind::Script, "hub/1/x".to_string())]
+        );
 
         // `execute_component` looks up `<component>:<path>` with an unrestricted component, so a
         // second colon must not hide the path from validation: `x:y:script/hub/…` resolves at run
@@ -7354,7 +7350,9 @@ mod operator_app_tests {
         let mut policy = builder_policy(
             serde_json::json!({"x:y:script/hub/123/foo": {"static_inputs": {}, "one_of_inputs": {}}}),
         );
-        assert!(composed_app(clean.clone(), &mut policy).is_err());
+        assert!(composed_app(clean.clone(), &mut policy)
+            .unwrap()
+            .contains(&(AppRunnableKind::Script, "hub/123/foo".to_string())));
         let mut policy = builder_policy(
             serde_json::json!({"x:y:script/f/x/s": {"static_inputs": {}, "one_of_inputs": {}}}),
         );

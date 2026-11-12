@@ -56,6 +56,9 @@ permissions:
   `worker_flow` then applies to the step job. So composing a path is enough to run it, and to run
   it as whoever it runs as: `validate_operator_composed_flow` re-checks each path under the
   caller's RLS. This is the general case; the one below is on top of it, not instead of it.
+  A Hub step has no workspace row to read, so it is collected apart and held to the run-time rule
+  for naming a Hub path (`check_can_name_runnable`) against the builder: Hub steps follow the
+  `code` capability, and preset handlers are allowed to every role.
 - **the `(path, hash)` of every version-pinned step**. A step carrying a `hash` is dispatched by
   that hash alone, with the path beside it never consulted, so a readable path paired with another
   script's hash still runs that other script.
@@ -88,7 +91,8 @@ that function.
 
 The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
 resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
-referenced path under the caller's RLS and refuses hub ones. For a script it checks the version a
+referenced path under the caller's RLS and holds a Hub one to `check_can_name_runnable`, as in a
+flow, so Hub steps follow the `code` capability. For a script it checks the version a
 run would pick: grants are per version, and a path reused after its versions were archived starts
 with none while the archived ones keep theirs. But it has to check **two** surfaces,
 because they are not the same list: the policy's `script/<path>`, `flow/<path>` and
@@ -152,7 +156,7 @@ the bundle same-origin with the session of whoever opens it. A builder's draft i
 held to the same rule as its deploy: `update_draft` refuses one whose `policy.sandbox` is not
 `true`, so whatever an admin opens of an operator's, deployed or drafted, previews isolated.
 Turning the sandbox off in their own editor stays that admin's explicit choice. It also refuses
-a draft naming a runnable the builder cannot read, or a hub one, like the deploy: the editor
+a draft naming a runnable the builder cannot read, or a Hub one its role may not name, like the deploy: the editor
 preview runs them as whoever opens it, and admits any path for an admin. That covers the
 policy's legacy `triggerables` too, `rawscript/` keys included: every deploy of a draft
 carries it through untouched, so an admin deploying the draft would publish it. Its
