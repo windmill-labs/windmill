@@ -46,7 +46,7 @@ jobs:
     outputs:
       digest: ${{ steps.docker_build.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           ref: ${{ github.ref }}
           # GIT_VERSION is `git describe --tags`, which needs the history and
@@ -58,7 +58,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -67,10 +67,10 @@ jobs:
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
-      - uses: depot/setup-action@v1
+      - uses: depot/setup-action@v1.7.2
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -82,7 +82,7 @@ jobs:
 
       - name: Docker meta
         id: meta-public
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -94,7 +94,7 @@ jobs:
 
       - name: Build and push publicly
         id: docker_build
-        uses: depot/build-push-action@v1
+        uses: depot/build-push-action@v1.19.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -111,7 +111,7 @@ jobs:
 
       - name: Sign and attest release image
         if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: ./.github/actions/sign-attest-image
+        uses: $/.github/actions/sign-attest-image
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           digest: ${{ steps.docker_build.outputs.digest }}
@@ -122,7 +122,7 @@ jobs:
     outputs:
       digest: ${{ steps.digest.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           ref: ${{ github.ref }}
           # GIT_VERSION is `git describe --tags`, which needs the history and
@@ -134,7 +134,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -143,11 +143,11 @@ jobs:
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
-      - uses: depot/setup-action@v1
+      - uses: depot/setup-action@v1.7.2
 
       - name: Docker meta
         id: meta-ee-public
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
@@ -161,7 +161,7 @@ jobs:
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -173,7 +173,7 @@ jobs:
 
       - name: Build and push publicly ee
         id: docker_build
-        uses: depot/bake-action@v1
+        uses: depot/bake-action@v1.13.0
         env:
           WM_BUILD_VERSION: ${{ github.sha }}
           SBOM: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
@@ -194,7 +194,7 @@ jobs:
 
       - name: Sign and attest release image
         if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: ./.github/actions/sign-attest-image
+        uses: $/.github/actions/sign-attest-image
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
           digest: ${{ steps.digest.outputs.digest }}
@@ -229,7 +229,7 @@ jobs:
     env:
       ARCH: amd64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       # The runner disk cannot hold the CE and EE images at once, so each image
       # is pulled, extracted from and removed before the next one is pulled.
@@ -262,7 +262,7 @@ jobs:
           ls -la release
 
       - name: Attach binary to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.2
         with:
           files: release/*
 
@@ -314,7 +314,7 @@ jobs:
     runs-on: ubicloud
     needs: [build_ee]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
@@ -328,7 +328,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         run: cd integration_tests && ./run.sh
       - name: Archive logs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         if: always()
         with:
           name: Windmill Integration Tests Logs
@@ -342,9 +342,9 @@ jobs:
       github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/v'))  && (github.event_name != 'workflow_dispatch')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -376,9 +376,9 @@ jobs:
       github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch') && (github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/v'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -429,10 +429,10 @@ jobs:
       # 0.69.3, pinned by digest so a republished tag cannot change what runs with release credentials.
       TRIVY_IMAGE: aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -459,7 +459,7 @@ jobs:
             --severity CRITICAL,HIGH -o "/out/${{ matrix.image }}.cves.txt" "/out/${{ matrix.image }}.trivy.json"
 
       - name: Attach scan results to the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.2
         with:
           files: |
             scan/${{ matrix.image }}.openvex.json
@@ -489,7 +489,7 @@ jobs:
           done
 
       - name: Docker Scout report
-        uses: docker/scout-action@v1
+        uses: docker/scout-action@v1.28.0
         with:
           command: cves
           only-severities: critical,high
@@ -502,7 +502,7 @@ jobs:
       # Filed under main: the Security tab only reads the default branch, so tag-only uploads
       # never close their alerts. `sha` is the release commit, which is on main.
       - name: Upload SARIF result
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v4.39.3
         with:
           sarif_file: scout.sarif.json
           category: docker-scout-${{ matrix.image }}
@@ -545,26 +545,26 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v2.10.0
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: shrink/actions-docker-extract@v3
+      - uses: shrink/actions-docker-extract@v3.1.0
         id: extract
         with:
           image: |-
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
           path: "/static_frontend/."
 
-      - uses: reggionick/s3-deploy@v4
+      - uses: reggionick/s3-deploy@v4.0.0
         with:
           folder: ${{ steps.extract.outputs.destination }}
           bucket: windmill-frontend
@@ -575,18 +575,18 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           ref: ${{ github.ref }}
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
 
-      - uses: depot/setup-action@v1
+      - uses: depot/setup-action@v1.7.2
 
       - name: Docker meta
         id: meta-ee-public
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-cuda
@@ -595,7 +595,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -603,7 +603,7 @@ jobs:
 
       - name: Build and push publicly ee
         id: docker_build
-        uses: depot/build-push-action@v1
+        uses: depot/build-push-action@v1.19.0
         with:
           context: .
           platforms: linux/amd64
@@ -620,7 +620,7 @@ jobs:
 
       - name: Sign and attest release image
         if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: ./.github/actions/sign-attest-image
+        uses: $/.github/actions/sign-attest-image
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-cuda
           digest: ${{ steps.docker_build.outputs.digest }}
@@ -632,16 +632,16 @@ jobs:
     outputs:
       digest: ${{ steps.docker_build.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
 
-      - uses: depot/setup-action@v1
+      - uses: depot/setup-action@v1.7.2
 
       - name: Docker meta
         id: meta-ee-public
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-slim
@@ -650,7 +650,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -658,7 +658,7 @@ jobs:
 
       - name: Build and push publicly ee
         id: docker_build
-        uses: depot/build-push-action@v1
+        uses: depot/build-push-action@v1.19.0
         with:
           context: .
           platforms: linux/amd64
@@ -674,7 +674,7 @@ jobs:
 
       - name: Sign and attest release image
         if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: ./.github/actions/sign-attest-image
+        uses: $/.github/actions/sign-attest-image
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-slim
           digest: ${{ steps.docker_build.outputs.digest }}
@@ -687,16 +687,16 @@ jobs:
       digest: ${{ steps.docker_build.outputs.digest }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
 
-      - uses: depot/setup-action@v1
+      - uses: depot/setup-action@v1.7.2
 
       - name: Docker meta
         id: meta-ee-public
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-slim
@@ -706,7 +706,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -714,7 +714,7 @@ jobs:
 
       - name: Build and push publicly ee
         id: docker_build
-        uses: depot/build-push-action@v1
+        uses: depot/build-push-action@v1.19.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -731,7 +731,7 @@ jobs:
 
       - name: Sign and attest release image
         if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: ./.github/actions/sign-attest-image
+        uses: $/.github/actions/sign-attest-image
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-slim
           digest: ${{ steps.docker_build.outputs.digest }}
@@ -741,16 +741,16 @@ jobs:
     needs: [build]
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
 
-      - uses: depot/setup-action@v1
+      - uses: depot/setup-action@v1.7.2
 
       - name: Docker meta
         id: meta-public
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-full
@@ -759,7 +759,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -767,7 +767,7 @@ jobs:
 
       - name: Build and push publicly
         id: docker_build
-        uses: depot/build-push-action@v1
+        uses: depot/build-push-action@v1.19.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -783,7 +783,7 @@ jobs:
 
       - name: Sign and attest release image
         if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: ./.github/actions/sign-attest-image
+        uses: $/.github/actions/sign-attest-image
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-full
           digest: ${{ steps.docker_build.outputs.digest }}
@@ -793,16 +793,16 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
 
-      - uses: depot/setup-action@v1
+      - uses: depot/setup-action@v1.7.2
 
       - name: Docker meta
         id: meta-ee-public
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-full
@@ -811,7 +811,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -819,7 +819,7 @@ jobs:
 
       - name: Build and push publicly ee
         id: docker_build
-        uses: depot/build-push-action@v1
+        uses: depot/build-push-action@v1.19.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -836,7 +836,7 @@ jobs:
 
       - name: Sign and attest release image
         if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: ./.github/actions/sign-attest-image
+        uses: $/.github/actions/sign-attest-image
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-full
           digest: ${{ steps.docker_build.outputs.digest }}

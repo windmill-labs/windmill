@@ -11,11 +11,14 @@
 
 version: 2
 updates:
-  # Maintain dependencies for GitHub Actions
+  # Maintain dependencies for GitHub Actions (also updates .github/workflows/actions.lock).
+  # The cooldown lets a compromised release be yanked before we pick it up.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
 
   # Maintain dependencies for npm
   - package-ecosystem: "npm"

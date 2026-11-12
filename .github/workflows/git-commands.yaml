@@ -43,14 +43,14 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v2.2.2
         id: app
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
 
       - name: Comment on PR - Starting
-        uses: actions/github-script@v6
+        uses: actions/github-script@v6.4.1
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
@@ -63,21 +63,21 @@ jobs:
             })
 
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.7.0
         with:
           token: ${{ steps.app.outputs.token }}
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Checkout windmill-ee-private
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.7.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: windmill-ee-private
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
       # Setup Rust toolchain
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
@@ -136,7 +136,7 @@ jobs:
           git push origin ${{ env.BRANCH_NAME }}
 
       - name: Comment on PR - Completed
-        uses: actions/github-script@v6
+        uses: actions/github-script@v6.4.1
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
@@ -161,7 +161,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
 
@@ -242,14 +242,14 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v2.2.2
         id: app
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
 
       - name: Comment on PR - Starting
-        uses: actions/github-script@v6
+        uses: actions/github-script@v6.4.1
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
@@ -262,14 +262,14 @@ jobs:
             })
 
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.7.0
         with:
           token: ${{ steps.app.outputs.token }}
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Checkout windmill-ee-private
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.7.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: windmill-ee-private
@@ -308,7 +308,7 @@ jobs:
           git push origin $BRANCH_NAME
 
       - name: Comment on PR - Completed
-        uses: actions/github-script@v6
+        uses: actions/github-script@v6.4.1
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
@@ -331,7 +331,7 @@ jobs:
       pull-requests: read
       issues: read
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v2.2.2
         id: app
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
