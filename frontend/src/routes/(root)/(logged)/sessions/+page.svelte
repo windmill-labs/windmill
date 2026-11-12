@@ -415,7 +415,8 @@
 	const previewTabItems = $derived<TabItem[]>(
 		(owner?.tabs ?? []).map((t) => ({
 			id: t.id,
-			label: tabLabelFor(t, previewWorkspace ?? ''),
+			label: tabNameFor(t, previewWorkspace ?? ''),
+			labelSuffix: sideSuffix(t, previewWorkspace ?? '') || undefined,
 			title: tabTitleFor(t, previewWorkspace ?? '')
 		}))
 	)
