@@ -324,6 +324,13 @@
 	// instance name + its registry template (substituting {instance} into the
 	// URLs). Replaces the old per-provider setup functions.
 	function setupTemplatedOauthUrls() {
+		// An entry with every way turned off (an empty grant list, unlike an absent one,
+		// which means authorization code) does nothing, so it is not saved.
+		for (const [name, entry] of Object.entries(oauths ?? {})) {
+			if (Array.isArray(entry?.grant_types) && entry.grant_types.length === 0) {
+				delete oauths[name]
+			}
+		}
 		// The backend falls back to the pre-rename `teams` key when `ms_teams` is absent, so
 		// turning the Teams tile off (ms_teams saved before, gone now) has to drop both.
 		// TODO: remove with the backend fallback.
