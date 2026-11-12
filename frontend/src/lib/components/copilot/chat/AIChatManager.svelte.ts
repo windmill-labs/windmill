@@ -568,7 +568,23 @@ export class AIChatManager implements ChatViewHost {
 		return (
 			this.loading &&
 			this.#queueSendsMidTurnIn !== undefined &&
-			this.#queueSendsMidTurnIn === this.abortController
+			this.#queueSendsMidTurnIn === this.abortController &&
+			!this.#queueWaitsForTurnEnd()
+		)
+	}
+	/** A queue the turn-start send would refuse or trim: it goes out with that send, after
+	 * the turn. `/compact` and `/clear` act on the whole conversation. Read live, since the
+	 * queue and the session's model can change after the mark. */
+	#queueWaitsForTurnEnd(): boolean {
+		if (isLocalCommand(this.queuedMessage)) return true
+		if (
+			(this.queuedImages.length > 0 || this.queuedFiles.length > 0) &&
+			this.mode !== AIMode.GLOBAL
+		)
+			return true
+		const model = this.currentModel
+		return (
+			this.queuedImages.length > 0 && !!model && !modelSupportsVision(model.provider, model.model)
 		)
 	}
 	get queuedMessage(): string {
@@ -2692,11 +2708,10 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	/** Ctrl+Enter while a turn runs: the queued message goes into that turn as soon as its
-	 * running tool calls finish (`#takeMidTurnMessage`), instead of after the turn.
-	 * `/compact` and `/clear` act on the whole conversation, so they keep waiting. */
+	 * running tool calls finish (`#takeMidTurnMessage`), instead of after the turn. */
 	sendQueuedMidTurn() {
 		if (!this.loading || !this.#hasQueuedMessage()) return
-		if (isLocalCommand(this.queuedMessage)) return
+		if (this.#queueWaitsForTurnEnd()) return
 		this.#queueSendsMidTurnIn = this.abortController
 	}
 
@@ -3896,24 +3911,18 @@ export class AIChatManager implements ChatViewHost {
 
 	/** The queued message as the next message of the running turn, once `sendQueuedMidTurn`
 	 * marked it. Taken only after the turn has output that a stop keeps (`hasUsableOutput`
-	 * in `sendRequestImpl`): a turn rolled back as unsent would drop the message with it. A
-	 * queue the turn-start send would refuse or trim stays queued and goes out with that send. */
+	 * in `sendRequestImpl`): a turn rolled back as unsent would drop the message with it. */
 	#takeMidTurnMessage(
 		collectedMessages: ChatCompletionMessageParam[]
 	): ChatCompletionMessageParam | undefined {
 		if (!this.queuedSendsMidTurn || !this.#hasQueuedMessage()) return undefined
 		if (this.abortController?.signal.aborted) return undefined
 		if (truncateToToolPairedPrefix(collectedMessages).length === 0) return undefined
-		if (this.#lastStepDeclined(collectedMessages)) return undefined
-		if (
-			(this.queuedImages.length > 0 || this.queuedFiles.length > 0) &&
-			this.mode !== AIMode.GLOBAL
-		)
+		if (this.#lastStepDeclined(collectedMessages)) {
+			// Unmarked, so the chip stops promising a mid-turn send.
+			this.#queueSendsMidTurnIn = undefined
 			return undefined
-		const model = tryGetCurrentModel()
-		if (this.queuedImages.length > 0 && model && !modelSupportsVision(model.provider, model.model))
-			return undefined
-		if (isLocalCommand(this.queuedMessage)) return undefined
+		}
 
 		const { draft, context = [] } = this.#takeQueue()
 		// Pinned at enqueue, so consumed from the live selection as any pinned send does.

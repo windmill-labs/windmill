@@ -1341,6 +1341,7 @@ describe('AIChatManager queued messages', () => {
 	it('holds a marked message after the user rejects a tool call, sending it after the turn', async () => {
 		const manager = createManager(createInputMock())
 		let taken: unknown = 'not called'
+		let markedAfter: boolean | undefined
 		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
 			config.addedMessages.push(
 				{
@@ -1354,12 +1355,14 @@ describe('AIChatManager queued messages', () => {
 			manager.queueMessage('also tell me the capital of Peru')
 			manager.sendQueuedMidTurn()
 			taken = config.takeMidTurnMessage()
+			markedAfter = manager.queuedSendsMidTurn
 			return { addedMessages: config.addedMessages }
 		})
 		replyWith('Lima')
 
 		await manager.sendRequest({ instructions: 'deploy it' })
 		expect(taken).toBeUndefined()
+		expect(markedAfter).toBe(false)
 		expect(mocks.runChatLoop).toHaveBeenCalledTimes(2)
 		expect(
 			manager.displayMessages.some(
@@ -1395,6 +1398,25 @@ describe('AIChatManager queued messages', () => {
 	// Attaching is refused on a text-only model, but the model can be switched
 	// after attaching (or a screenshot buffered), and sending the image then fails
 	// the whole turn. The send path re-checks rather than trusting the attach gate.
+	it('does not mark a queued image for a model that cannot read it', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'groq', model: 'llama-3.3-70b-versatile' })
+		let marked: boolean | undefined
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			manager.queueMessage('what is in it', [img('a')])
+			manager.sendQueuedMidTurn()
+			marked = manager.queuedSendsMidTurn
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages.push(message)
+			return { addedMessages: [message] }
+		})
+		replyWith('ok')
+
+		await manager.sendRequest({ instructions: 'work' })
+		expect(marked).toBe(false)
+	})
+
 	it('drops images when the model in use cannot read them', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
