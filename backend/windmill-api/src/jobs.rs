@@ -117,7 +117,8 @@ use windmill_common::{
         Suspend,
     },
     jobs::{
-        script_path_to_payload, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob, RawCode,
+        script_path_to_payload, ChosenBy, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob,
+        RawCode, RunOrigin,
     },
     oauth2::HmacSha256,
     query_builders,
@@ -7138,6 +7139,7 @@ async fn batch_rerun_handle_job(
                 match RunnableRef::from_path(&job.script_path, false) {
                     Ok(script) => push_script_job_by_path_into_queue(
                         authed.clone(),
+                        ChosenBy::Caller,
                         db.clone(),
                         None,
                         user_db.clone(),
@@ -7725,6 +7727,7 @@ pub async fn run_script_by_path(
 
     let (uuid, _, _) = push_script_job_by_path_into_queue(
         authed,
+        ChosenBy::Caller,
         db,
         None,
         user_db,
@@ -7940,6 +7943,7 @@ pub async fn run_workflow_as_code(
                 let script = RunnableRef::from_path(job.script_path(), false)?;
                 script_path_to_payload(
                     &script,
+                    RunOrigin::Deployed,
                     Some(userdb_authed),
                     db.clone(),
                     &w_id,
@@ -8273,6 +8277,7 @@ pub async fn run_wait_result_job_by_path_get(
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_authed) =
         script_path_to_payload(
             &script,
+            RunOrigin::NamedBy(authed.to_authed_ref()),
             Some(user_db_with_authed),
             db.clone(),
             &w_id,
@@ -8425,6 +8430,7 @@ pub async fn run_wait_result_script_by_path_internal(
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
         script_path_to_payload(
             script,
+            RunOrigin::NamedBy(authed.to_authed_ref()),
             Some(db_authed),
             db.clone(),
             &w_id,
@@ -8790,6 +8796,7 @@ pub async fn stream_job(
         RunnableId::ScriptId(ScriptId::ScriptPath(script)) | RunnableId::HubScript(script) => {
             let (uuid, _, _) = push_script_job_by_path_into_queue(
                 authed.clone(),
+                ChosenBy::Caller,
                 db.clone(),
                 None,
                 user_db,
@@ -10639,6 +10646,7 @@ async fn run_dynamic_select(
 
                 let (uuid, _, _) = push_script_job_by_path_into_queue(
                     authed.clone(),
+                    ChosenBy::Caller,
                     db.clone(),
                     None,
                     user_db.clone(),
