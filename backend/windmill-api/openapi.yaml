@@ -17933,6 +17933,11 @@ paths:
           required: false
           schema:
             type: string
+        - name: has_null_parent
+          description: has null parent
+          in: query
+          schema:
+            type: boolean
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
