@@ -384,16 +384,8 @@ fn refuse_guest_mode_where_unavailable(
 /// admin can lift it, unlike `RestrictAnonymousAppDeployment`. Every deploy that
 /// leaves an app public is refused, not only the transition into it, so a free
 /// workspace's existing public apps stay frozen until it upgrades.
-async fn public_apps_allowed(_db: &DB, _w_id: &str) -> Result<bool> {
-    #[cfg(feature = "cloud")]
-    if *CLOUD_HOSTED {
-        return Ok(
-            windmill_common::workspaces::get_team_plan_status(_db, _w_id)
-                .await?
-                .premium,
-        );
-    }
-    Ok(true)
+async fn public_apps_allowed(db: &DB, w_id: &str) -> Result<bool> {
+    windmill_common::workspaces::paid_features_allowed(db, w_id).await
 }
 
 fn public_app_requires_plan(path: &str) -> Error {

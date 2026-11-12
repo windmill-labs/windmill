@@ -128,7 +128,7 @@ async fn run_outcome(
     (result, success): (Box<serde_json::value::RawValue>, bool),
 ) -> BackendResult<RunOutcome> {
     if success {
-        let response = result_to_response(result, true)
+        let response = result_to_response(result, true, true)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         return Ok(RunOutcome::Success(parse_response_body(response).await?));
     }
