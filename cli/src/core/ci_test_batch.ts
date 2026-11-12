@@ -6,6 +6,8 @@ type CiTestedKind = "script" | "flow" | "resource";
 // A test run between two deploys of a batch resolves its imports against a
 // half-deployed workspace, so while a batch is open every deploy asks the
 // server to hold its CI tests back, and the batch queues them once at the end.
+// Nothing else queues them: a push that dies before `closeCiTestBatch` leaves
+// its batch untested.
 let batch: Map<string, { kind: CiTestedKind; path: string }> | undefined;
 
 export function openCiTestBatch() {

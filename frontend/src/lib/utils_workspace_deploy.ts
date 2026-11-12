@@ -364,7 +364,8 @@ export interface DeployItemParams {
 	targetBaseUrl?: string
 	/**
 	 * Hold back the CI tests this deploy would queue. A caller deploying several items in a row
-	 * sets it and queues them once with `triggerCiTestsForBatch` after the last one.
+	 * sets it and queues them once with `triggerCiTestsForBatch` after the last one; nothing else
+	 * queues them.
 	 */
 	skipCiTests?: boolean
 }

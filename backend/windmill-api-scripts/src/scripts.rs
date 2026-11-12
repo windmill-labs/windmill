@@ -9,8 +9,8 @@
 use axum::extract::Multipart;
 use windmill_api_auth::{
     auth::{list_tokens_internal, AuthCache, TruncatedTokenWithEmail},
-    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
-    ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_is_writer,
+    require_owner_of_path, ApiAuthed,
 };
 use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
@@ -3192,7 +3192,7 @@ async fn create_script_internal<'c>(
                 )]))
             });
             tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                tokio::time::sleep(windmill_dep_map::ci_tests::LOCKED_DEPLOY_RELOCK_DELAY).await;
                 if let Err(e) = process_relative_imports(
                     &db2,
                     None,
@@ -5080,7 +5080,6 @@ struct TriggerCiTestsBatchRequest {
 
 async fn trigger_ci_tests_batch(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<TriggerCiTestsBatchRequest>,
@@ -5090,57 +5089,40 @@ async fn trigger_ci_tests_batch(
             "too many items in batch request (max 5000)".to_string(),
         ));
     }
-    // The tests run as the caller, the way a deploy runs them as the deployer: each item
-    // must be one the caller can see.
-    let mut tx = user_db.begin(&authed).await?;
+    // The tests run as the caller, as a deploy runs them as the deployer, so queueing them
+    // takes the authority deploying the items does: the tests can be ones the caller cannot read.
     for item in &req.items {
-        let visible = match item.kind.as_str() {
-            "script" => {
-                check_scopes(&authed, || format!("scripts:read:{}", item.path))?;
-                sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 \
-                     AND archived = false AND deleted = false)",
-                    &w_id,
-                    &item.path
-                )
-                .fetch_one(&mut *tx)
-                .await?
-            }
-            "flow" => {
-                check_scopes(&authed, || format!("flows:read:{}", item.path))?;
-                sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 \
-                     AND archived = false)",
-                    &w_id,
-                    &item.path
-                )
-                .fetch_one(&mut *tx)
-                .await?
-            }
-            "resource" => {
-                check_scopes(&authed, || format!("resources:read:{}", item.path))?;
-                sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)",
-                    &w_id,
-                    &item.path
-                )
-                .fetch_one(&mut *tx)
-                .await?
-            }
+        let (perms_query, scope) = match item.kind.as_str() {
+            "script" => (
+                "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 \
+                 ORDER BY created_at DESC LIMIT 1",
+                "scripts",
+            ),
+            "flow" => (
+                "SELECT extra_perms FROM flow WHERE path = $1 AND workspace_id = $2",
+                "flows",
+            ),
+            "resource" => (
+                "SELECT extra_perms FROM resource WHERE path = $1 AND workspace_id = $2",
+                "resources",
+            ),
             other => {
                 return Err(Error::BadRequest(format!(
                     "CI tests cannot target an item of kind {other}"
                 )))
             }
         };
-        if !visible.unwrap_or(false) {
-            return Err(Error::NotFound(format!(
-                "{} {} not found",
-                item.kind, item.path
-            )));
-        }
+        check_scopes(&authed, || format!("{scope}:write:{}", item.path))?;
+        require_is_writer(
+            &authed,
+            &item.path,
+            &w_id,
+            db.clone(),
+            perms_query,
+            &item.kind,
+        )
+        .await?;
     }
-    tx.commit().await?;
 
     Ok(Json(
         windmill_dep_map::ci_tests::trigger_ci_tests_for_batch(

@@ -3,6 +3,7 @@
 pub use crate::ci_tests_ee::*;
 
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use uuid::Uuid;
 use windmill_common::error;
@@ -17,6 +18,10 @@ pub struct SkipCiTestsQuery {
     #[serde(default)]
     pub skip_ci_tests: bool,
 }
+
+/// How long after a deploy that brings its own lock the scripts importing it are relocked:
+/// that deploy queues no dependency job, so until then nothing shows the relock is coming.
+pub const LOCKED_DEPLOY_RELOCK_DELAY: Duration = Duration::from_secs(10);
 
 #[derive(serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CiTestBatchItem {
@@ -35,6 +40,9 @@ pub struct CiTestBatchOutcome {
 /// Queue the CI tests of a batch deployed with `skip_ci_tests`, once nothing those tests read
 /// is still being locked. The relocks a deployed script causes in the scripts importing it
 /// carry the flag too, so those importers' tests are part of the batch.
+///
+/// Checks no permission and queues the tests as `email`/`username`: the caller must have
+/// verified that this identity may deploy each of `items`, as a deploy would.
 pub async fn trigger_ci_tests_for_batch(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
@@ -53,14 +61,17 @@ pub async fn trigger_ci_tests_for_batch(
         .filter(|i| i.kind == "script")
         .map(|i| i.path.clone())
         .collect();
+    let mut relocks: Vec<(String, String)> = vec![];
     while let Some(path) = frontier.pop() {
         for d in ScopedDependencyMap::get_dependents(&path, w_id, db).await? {
-            if d.importer_kind == "script"
-                && items.insert(CiTestBatchItem {
-                    kind: "script".to_string(),
-                    path: d.importer_path.clone(),
-                })
-            {
+            if d.importer_kind != "script" {
+                continue;
+            }
+            relocks.push((path.clone(), d.importer_path.clone()));
+            if items.insert(CiTestBatchItem {
+                kind: "script".to_string(),
+                path: d.importer_path.clone(),
+            }) {
                 frontier.push(d.importer_path);
             }
         }
@@ -120,7 +131,7 @@ pub async fn trigger_ci_tests_for_batch(
     watched.extend(visited);
 
     let watched: Vec<String> = watched.into_iter().collect();
-    let pending = sqlx::query_scalar!(
+    let mut pending = sqlx::query_scalar!(
         "SELECT DISTINCT j.runnable_path AS \"path!\" FROM v2_job_queue q
          JOIN v2_job j ON j.id = q.id
          WHERE q.workspace_id = $1
@@ -131,6 +142,26 @@ pub async fn trigger_ci_tests_for_batch(
     )
     .fetch_all(db)
     .await?;
+    // A relock still waiting out its delay is in no queue yet: count its source as pending.
+    let relocking: Vec<String> = relocks
+        .into_iter()
+        .filter(|(_, importer)| watched.contains(importer))
+        .map(|(source, _)| source)
+        .collect();
+    let recently_deployed = sqlx::query_scalar!(
+        "SELECT DISTINCT path FROM script WHERE workspace_id = $1 AND path = ANY($2) \
+         AND created_at > now() - make_interval(secs => $3)",
+        w_id,
+        &relocking,
+        (LOCKED_DEPLOY_RELOCK_DELAY + Duration::from_secs(5)).as_secs_f64()
+    )
+    .fetch_all(db)
+    .await?;
+    for path in recently_deployed {
+        if !pending.contains(&path) {
+            pending.push(path);
+        }
+    }
     if !pending.is_empty() && !ignore_pending {
         return Ok(CiTestBatchOutcome { pending, job_ids: vec![] });
     }

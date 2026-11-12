@@ -6839,7 +6839,14 @@ export async function push(
 
       // Wait for at least one task to complete before continuing
       if (pool.size > 0) {
-        await Promise.race(pool);
+        try {
+          await Promise.race(pool);
+        } catch (e) {
+          // The items deployed before the failure held their tests back too.
+          await Promise.allSettled([...pool]);
+          await closeCiTestBatch(workspace.workspaceId);
+          throw e;
+        }
       }
     }
     try {

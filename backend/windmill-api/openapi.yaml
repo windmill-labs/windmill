@@ -12309,7 +12309,7 @@ paths:
         importing them, once nothing those tests read (the tested items, the test scripts and
         their imports) still has a dependency job queued or running. While one does, nothing is
         queued and `pending` lists those paths: call again later, or pass `ignore_pending` to
-        queue them anyway.
+        queue them anyway. The tests run as the caller, who must be able to deploy each item.
       operationId: triggerCiTestsBatch
       tags:
         - script
