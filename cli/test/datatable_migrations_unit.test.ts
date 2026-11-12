@@ -155,6 +155,13 @@ describe("untrackedDatatableMigrationDeletions", () => {
     ).toEqual([]);
   });
 
+  test("matches Windows-separated diff paths against git's paths", () => {
+    const win = changes.map((c) => ({ ...c, path: c.path.replaceAll("/", "\\") }));
+    expect(
+      untrackedDatatableMigrationDeletions(win, { kind: "known", paths: new Set([A_UP, A_DOWN]) }),
+    ).toEqual([]);
+  });
+
   test("flags migrations this repository has never recorded", () => {
     expect(
       untrackedDatatableMigrationDeletions(changes, { kind: "known", paths: new Set() }).map((c) => c.path),
