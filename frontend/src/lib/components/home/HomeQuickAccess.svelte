@@ -141,11 +141,11 @@
 		return kind
 	}
 
-	// Only scripts, flows and raw apps can be context, so another card keeps its menu while the
-	// composer is open; an `app` card is a visual one until the hover's lookup says otherwise.
+	// A visual app cannot be context, so its card keeps its menu while the composer is open; an
+	// `app` card is a visual one until the hover's lookup says otherwise.
 	function canMention(item: Entry): boolean {
 		if (item.kind === 'app') return appKinds.get(`${workspace}/${item.path}`) === 'raw_app'
-		return item.kind !== 'agent'
+		return true
 	}
 
 	function contextElementFor(item: Entry, kind: RecentKind) {
