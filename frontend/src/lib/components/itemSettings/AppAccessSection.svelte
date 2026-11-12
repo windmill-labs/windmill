@@ -439,34 +439,36 @@
 	{/if}
 
 	{#if deployed}
-		{#if embedMode && mode == 'guest' && guestJwtBase && guestsAvailable}
-			<Label label="Embed for your own authenticated users (guest JWT)">
-				<div class="text-xs text-secondary">
-					To open this app for a user your own product already authenticates, mint a short-lived JWT
-					in your backend and append it to the app URL as <code>guest.&lt;jwt&gt;</code>. Each token
-					is its own seatless guest, confined to this app. Unlike the plain secret URL above, there
-					is no shared secret and no Windmill account.
+		{#if mode == 'guest' && guestJwtBase && guestsAvailable}
+			<CollapseLink text="Embed with a guest JWT from your own product">
+				<div class="flex flex-col gap-2">
+					<div class="text-xs text-secondary">
+						To open this app for a user your own product already authenticates, mint a short-lived
+						JWT in your backend and append it to the app URL as <code>guest.&lt;jwt&gt;</code>. Each
+						token is its own seatless guest, confined to this app. Unlike the plain secret URL
+						above, there is no shared secret and no Windmill account.
+					</div>
+					<div class="text-xs text-secondary">
+						Windmill verifies the token against the workspace's guest JWT key (Workspace settings →
+						Guests): a PEM public key or a JWKS URL{#if !isCloudHosted()}, or the instance's
+							configured issuer (<code>JWT_EXT_JWKS_URL</code>) when no workspace key is set{/if}.
+						Set the <b>public</b> half there; in your backend, sign each token with the matching
+						<b>private</b> key using RS256/384/512, PS256/384/512 or ES256/384 (symmetric HS* is
+						refused), carrying <code>email</code>, <code>workspace_id</code> =
+						<code>{workspace}</code>,
+						<code>app_path</code> = <code>{appPath}</code> and <code>exp</code> (at most 24h ahead).
+					</div>
+					<ClipboardPanel
+						content={toEmbedSnippet(`${guestJwtBase}/guest.YOUR_GUEST_JWT`)}
+						size="md"
+					/>
+					<div class="text-2xs text-secondary">
+						Replace <code>YOUR_GUEST_JWT</code> with the token your backend signs per user. Past the
+						instance's free guest allowance a new guest email is refused (see the count above); guests
+						already seen in the window keep working.
+					</div>
 				</div>
-				<div class="text-xs text-secondary">
-					Windmill verifies the token against the workspace's guest JWT key (Workspace settings →
-					Guests): a PEM public key or a JWKS URL{#if !isCloudHosted()}, or the instance's
-						configured issuer (<code>JWT_EXT_JWKS_URL</code>) when no workspace key is set{/if}. Set
-					the <b>public</b> half there; in your backend, sign each token with the matching
-					<b>private</b> key using RS256/384/512, PS256/384/512 or ES256/384 (symmetric HS* is
-					refused), carrying <code>email</code>, <code>workspace_id</code> =
-					<code>{workspace}</code>,
-					<code>app_path</code> = <code>{appPath}</code> and <code>exp</code> (at most 24h ahead).
-				</div>
-				<ClipboardPanel
-					content={toEmbedSnippet(`${guestJwtBase}/guest.YOUR_GUEST_JWT`)}
-					size="md"
-				/>
-				<div class="text-2xs text-secondary">
-					Replace <code>YOUR_GUEST_JWT</code> with the token your backend signs per user. Past the instance's
-					free guest allowance a new guest email is refused (see the count above); guests already seen
-					in the window keep working.
-				</div>
-			</Label>
+			</CollapseLink>
 		{/if}
 
 		<Description
