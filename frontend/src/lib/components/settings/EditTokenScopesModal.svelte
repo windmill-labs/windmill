@@ -8,6 +8,7 @@
 	import ScopesPicker from './ScopesPicker.svelte'
 	import McpAccessPicker, { MCP_SESSION, mcpAccessOf } from '../mcp/McpAccessPicker.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { usersWorkspaceStore } from '$lib/stores'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -39,6 +40,14 @@
 		(initialScopes ?? []).length > 0 && (initialScopes ?? []).every((s) => s.startsWith('mcp:'))
 	)
 	const mcpWorkspaceId = $derived(tokenWorkspaceId ?? $operatingWorkspace ?? '')
+	// The workspaces the token reaches: its own, its list, or every one its owner is in.
+	const mcpReached = $derived.by(() => {
+		if (tokenWorkspaceId) return [tokenWorkspaceId]
+		const list = (initialScopes ?? []).find((s) => s.startsWith('mcp:workspaces:'))
+		return list
+			? list.slice('mcp:workspaces:'.length).split(',')
+			: ($usersWorkspaceStore?.workspaces ?? []).map((w) => w.id)
+	})
 
 	let labelValue = $state('')
 	let pickedScopes = $state<string[] | null>(null)
@@ -157,6 +166,7 @@
 					>
 						<McpAccessPicker
 							workspaceId={mcpWorkspaceId}
+							workspaces={mcpReached}
 							initialScopes={(initialScopes ?? []).filter((s) => !isWorkspaceList(s))}
 							bind:scopes={mcpScopes}
 						/>
