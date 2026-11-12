@@ -5084,13 +5084,10 @@ async fn trigger_ci_tests_batch(
     Path(w_id): Path<String>,
     Json(req): Json<TriggerCiTestsBatchRequest>,
 ) -> JsonResult<CiTestBatchOutcome> {
-    if req.items.len() > 5000 {
-        return Err(Error::BadRequest(
-            "too many items in batch request (max 5000)".to_string(),
-        ));
-    }
     // The tests run as the caller, as a deploy runs them as the deployer, so queueing them
-    // takes the authority deploying the items does: the tests can be ones the caller cannot read.
+    // takes a role that may run and the authority deploying the items does: the tests can be
+    // ones the caller cannot read. No cap on the items: a batch is as large as its push.
+    windmill_common::workspaces::check_role_can_run(&db, &w_id, &authed).await?;
     for item in &req.items {
         let (perms_query, scope) = match item.kind.as_str() {
             "script" => (

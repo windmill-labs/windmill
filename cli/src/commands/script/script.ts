@@ -9,7 +9,7 @@ import {
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
-import { ciTestBatchDeploy } from "../../core/ci_test_batch.ts";
+import { ciTestBatchDeployed, ciTestBatchSkip } from "../../core/ci_test_batch.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -1005,9 +1005,7 @@ async function createScript(
   // produce phantom git-sync / promotion commits on re-pushes.
   const skipIfNoop =
     "skip_if_noop=true" +
-    (ciTestBatchDeploy("script", body.path).skipCiTests
-      ? "&skip_ci_tests=true"
-      : "");
+    (ciTestBatchSkip().skipCiTests ? "&skip_ci_tests=true" : "");
   const extraHeaders = getHeaders();
   if (!bundleContent) {
     try {
@@ -1072,6 +1070,7 @@ async function createScript(
       );
     }
   }
+  ciTestBatchDeployed("script", body.path);
   return performance.now() - start;
 }
 

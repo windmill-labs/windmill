@@ -15,7 +15,8 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
 import {
-  ciTestBatchDeploy,
+  ciTestBatchDeployed,
+  ciTestBatchSkip,
   closeCiTestBatch,
   openCiTestBatch,
 } from "../../core/ci_test_batch.ts";
@@ -6811,9 +6812,10 @@ export async function push(
                 await wmill.updateResource({
                   workspace: workspace.workspaceId,
                   path: removeType(target, "resource"),
-                  ...ciTestBatchDeploy("resource", removeType(target, "resource")),
+                  ...ciTestBatchSkip(),
                   requestBody: { ws_specific: change.wsSpecific },
                 });
+                ciTestBatchDeployed("resource", removeType(target, "resource"));
               } else if (change.kind === "variable") {
                 await wmill.updateVariable({
                   workspace: workspace.workspaceId,
@@ -6831,10 +6833,13 @@ export async function push(
 
         pool.add(promise);
         // Remove from pool when complete
-        promise.then(() => {
+        // Both outcomes: a rejection left unhandled here kills the process before the
+        // failure path below can close the CI test batch.
+        const done = () => {
           pool.delete(promise);
           if (isFolderGroup) folderPhaseRemaining--;
-        });
+        };
+        promise.then(done, done);
       }
 
       // Wait for at least one task to complete before continuing

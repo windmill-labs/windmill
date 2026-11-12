@@ -15,13 +15,16 @@ export function openCiTestBatch() {
 }
 
 /** The deploy call's `skipCiTests` argument: set only while a batch is open. */
-export function ciTestBatchDeploy(
-  kind: CiTestedKind,
-  path: string,
-): { skipCiTests?: boolean } {
-  if (!batch) return {};
-  batch.set(`${kind}:${path}`, { kind, path });
-  return { skipCiTests: true };
+export function ciTestBatchSkip(): { skipCiTests?: boolean } {
+  return batch ? { skipCiTests: true } : {};
+}
+
+/**
+ * Record a deploy made with `ciTestBatchSkip`, once it has succeeded: the batch
+ * endpoint refuses an item the caller may not deploy, and with it the batch.
+ */
+export function ciTestBatchDeployed(kind: CiTestedKind, path: string) {
+  batch?.set(`${kind}:${path}`, { kind, path });
 }
 
 const POLL_MS = 2000;
