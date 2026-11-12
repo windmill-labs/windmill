@@ -8383,10 +8383,17 @@ pub async fn run_wait_result_flow_by_path_get(
         )
         .await?;
 
-    let (result, success) =
-        run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id)
-            .await?;
-    result_to_response(result, success)
+    let (result, success) = run_wait_result_flow_by_path_internal(
+        db.clone(),
+        run_query,
+        &flow,
+        authed,
+        user_db,
+        args,
+        w_id.clone(),
+    )
+    .await?;
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 pub async fn run_wait_result_script_by_path(
@@ -8415,10 +8422,16 @@ pub async fn run_wait_result_script_by_path(
         .await?;
 
     let (result, success) = run_wait_result_script_by_path_internal(
-        db, run_query, &script, authed, user_db, w_id, args,
+        db.clone(),
+        run_query,
+        &script,
+        authed,
+        user_db,
+        w_id.clone(),
+        args,
     )
     .await?;
-    result_to_response(result, success)
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 pub async fn run_wait_result_script_by_path_internal(
@@ -8668,10 +8681,17 @@ pub async fn run_wait_result_flow_by_path(
         )
         .await?;
 
-    let (result, success) =
-        run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id)
-            .await?;
-    result_to_response(result, success)
+    let (result, success) = run_wait_result_flow_by_path_internal(
+        db.clone(),
+        run_query,
+        &flow,
+        authed,
+        user_db,
+        args,
+        w_id.clone(),
+    )
+    .await?;
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 pub async fn stream_flow_by_path(
@@ -8990,7 +9010,7 @@ pub async fn run_wait_result_flow_by_version_get(
         None,
     )
     .await?;
-    result_to_response(result, success)
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 pub async fn run_wait_result_flow_by_version(
@@ -9034,7 +9054,7 @@ pub async fn run_wait_result_flow_by_version(
         None,
     )
     .await?;
-    result_to_response(result, success)
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 /// Whether request-supplied SQL from an operator may run. Operators can only run deployed

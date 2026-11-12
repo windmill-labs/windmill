@@ -1101,6 +1101,16 @@ pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
     Ok(billable_seats(db, w_id).await?.seats)
 }
 
+/// Whether a workspace may use what Windmill Cloud reserves for paid plans (public apps, HTML
+/// and redirect job responses). Resolved through the fork/dev root; always true off the cloud.
+pub async fn paid_features_allowed(_db: &crate::DB, _w_id: &str) -> Result<bool> {
+    #[cfg(feature = "cloud")]
+    if *crate::worker::CLOUD_HOSTED {
+        return Ok(get_team_plan_status(_db, _w_id).await?.premium);
+    }
+    Ok(true)
+}
+
 #[cfg(feature = "cloud")]
 pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPlanStatus> {
     // A fork/dev workspace draws its plan from the root (billing) workspace. Resolve to the root and

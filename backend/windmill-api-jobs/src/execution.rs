@@ -623,7 +623,68 @@ pub async fn run_wait_result_internal(
     }
 }
 
-pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result<Response> {
+/// Content types a workspace without a paid plan may serve on Windmill Cloud: data, never a
+/// document a browser renders as a page (HTML, SVG, XML, PDF, JS, ...).
+const PLAIN_CONTENT_TYPES: [&str; 7] = [
+    "application/json",
+    "text/plain",
+    "text/csv",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+];
+
+/// Refuses a job result that would make a free cloud workspace serve a web page or a redirect
+/// from our domain. `Content-Type` is checked in `windmill_headers` too: a header set there
+/// overrides the JSON body's own content type.
+fn check_plain_response(
+    status_code: Option<u16>,
+    content_type: Option<&str>,
+    headers: Option<&HashMap<String, String>>,
+) -> error::Result<()> {
+    let media_type_allowed = |ct: &str| {
+        let media_type = ct.split(';').next().unwrap_or("").trim();
+        PLAIN_CONTENT_TYPES
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(media_type))
+    };
+    let refused = status_code.is_some_and(|c| (300..400).contains(&c))
+        || content_type.is_some_and(|ct| !media_type_allowed(ct))
+        || headers.is_some_and(|h| {
+            h.keys().any(|k| {
+                ["location", "refresh", "content-type"]
+                    .iter()
+                    .any(|n| n.eq_ignore_ascii_case(k.trim()))
+            })
+        });
+    if refused {
+        return Err(Error::BadRequest(
+            "Custom HTML responses and redirects require a paid plan on Windmill Cloud. Upgrade \
+             this workspace in Workspace Settings > Premium plans, or return JSON or plain text."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// [`result_to_response`] for a response served over HTTP, with the workspace's plan applied.
+pub async fn result_to_http_response(
+    db: &DB,
+    w_id: &str,
+    result: Box<RawValue>,
+    success: bool,
+) -> error::Result<Response> {
+    let rich_responses_allowed =
+        windmill_common::workspaces::paid_features_allowed(db, w_id).await?;
+    result_to_response(result, success, rich_responses_allowed)
+}
+
+pub fn result_to_response(
+    result: Box<RawValue>,
+    success: bool,
+    rich_responses_allowed: bool,
+) -> error::Result<Response> {
     let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
     match composite_result {
         Some(WindmillCompositeResult {
@@ -633,6 +694,13 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
             windmill_content_transfer_encoding,
             result: result_value,
         }) => {
+            if !rich_responses_allowed {
+                check_plain_response(
+                    windmill_status_code,
+                    windmill_content_type.as_deref(),
+                    windmill_headers.as_ref(),
+                )?;
+            }
             if windmill_content_type.is_none()
                 && windmill_status_code.is_none()
                 && windmill_headers.is_none()
@@ -802,7 +870,7 @@ pub async fn run_wait_result(
     )
     .await?;
 
-    result_to_response(result, success)
+    result_to_http_response(db, w_id, result, success).await
 }
 
 // ---------------------------------------------------------------------------
@@ -1383,6 +1451,7 @@ mod result_to_response_tests {
                 r#"{{"wm_content_type":"application/pdf","wm_content_transfer_encoding":"base64","result":"{b64}"}}"#
             )),
             true,
+            true,
         )
         .expect("response");
 
@@ -1401,6 +1470,7 @@ mod result_to_response_tests {
                 r#"{"wm_content_type":"application/pdf","wm_content_transfer_encoding":"base64","result":"not valid base64!!"}"#,
             ),
             true,
+            true,
         );
         assert!(res.is_err(), "invalid base64 must not silently fall back");
     }
@@ -1414,6 +1484,7 @@ mod result_to_response_tests {
                 raw(&format!(
                     r#"{{"wm_content_type":"application/octet-stream","wm_content_transfer_encoding":"base64","result":{result}}}"#
                 )),
+                true,
                 true,
             );
             assert!(
@@ -1430,6 +1501,7 @@ mod result_to_response_tests {
                 r#"{"wm_content_type":"text/plain","wm_content_transfer_encoding":"gzip","result":"x"}"#,
             ),
             true,
+            true,
         );
         assert!(res.is_err());
     }
@@ -1438,6 +1510,7 @@ mod result_to_response_tests {
     async fn transfer_encoding_without_content_type_is_rejected() {
         let res = result_to_response(
             raw(r#"{"wm_content_transfer_encoding":"base64","result":"aGk="}"#),
+            true,
             true,
         );
         assert!(res.is_err());
@@ -1449,6 +1522,7 @@ mod result_to_response_tests {
         // (quotes stripped), not base64-decoded.
         let resp = result_to_response(
             raw(r#"{"wm_content_type":"text/html","result":"<h1>hi</h1>"}"#),
+            true,
             true,
         )
         .expect("response");
@@ -1485,6 +1559,7 @@ mod result_to_response_tests {
                 r#"{"wm_headers":{"content-type":"text/html","content-security-policy":"default-src *","x-content-type-options":"none"},"result":"<h1>hi</h1>"}"#,
             ),
             true,
+            true,
         )
         .expect("response");
 
@@ -1505,6 +1580,7 @@ mod result_to_response_tests {
                     r#"{{"wm_content_type":"text/html","wm_headers":{{"{name}":"content-security-policy, x-content-type-options"}},"result":"<h1>hi</h1>"}}"#
                 )),
                 true,
+                true,
             );
             assert!(res.is_err(), "hop-by-hop header must be rejected: {name}");
         }
@@ -1513,9 +1589,50 @@ mod result_to_response_tests {
     #[tokio::test]
     async fn array_result_is_not_a_composite_response() {
         let json = r#"[201,"text/html",null,null,"<h1>hi</h1>"]"#;
-        let resp = result_to_response(raw(json), true).expect("response");
+        let resp = result_to_response(raw(json), true, true).expect("response");
 
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(body_bytes(resp).await, json.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn pages_and_redirects_need_a_paid_plan() {
+        let refused = [
+            r#"{"wm_content_type":"text/html","result":"<h1>hi</h1>"}"#,
+            r#"{"wm_content_type":"TEXT/HTML; charset=utf-8","result":"<h1>hi</h1>"}"#,
+            r#"{"wm_content_type":"image/svg+xml","result":"<svg/>"}"#,
+            r#"{"wm_content_type":"application/pdf","result":"x"}"#,
+            r#"{"wm_status_code":302,"result":null}"#,
+            r#"{"wm_status_code":308,"result":null}"#,
+            r#"{"wm_headers":{"Location":"https://example.com"},"result":null}"#,
+            r#"{"wm_headers":{"refresh":"0;url=https://example.com"},"result":null}"#,
+            r#"{"wm_headers":{"Content-Type":"text/html"},"result":"<h1>hi</h1>"}"#,
+        ];
+        for json in refused {
+            let res = result_to_response(raw(json), true, false);
+            assert!(
+                matches!(res, Err(Error::BadRequest(_))),
+                "must be refused: {json}"
+            );
+            assert!(
+                result_to_response(raw(json), true, true).is_ok(),
+                "paid: {json}"
+            );
+        }
+
+        let allowed = [
+            r#"{"a":1}"#,
+            r#"{"wm_content_type":"application/json","result":{"a":1}}"#,
+            r#"{"wm_content_type":"text/plain; charset=utf-8","result":"hi"}"#,
+            r#"{"wm_content_type":"image/png","wm_content_transfer_encoding":"base64","result":"aGk="}"#,
+            r#"{"wm_status_code":201,"wm_headers":{"x-custom":"1"},"result":{"a":1}}"#,
+            r#"{"wm_status_code":400,"result":"bad"}"#,
+        ];
+        for json in allowed {
+            assert!(
+                result_to_response(raw(json), true, false).is_ok(),
+                "must be allowed: {json}"
+            );
+        }
     }
 }
