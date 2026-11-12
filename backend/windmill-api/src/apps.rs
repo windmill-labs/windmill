@@ -4684,9 +4684,9 @@ async fn execute_component(
         // A builder testing the app it is composing only ever previews a deployed runnable
         // (`path`), confined below to what it may read. Inline `raw_code`, which an `id` also
         // requires, is authoring code, so it stays closed to every operator. So is a hub
-        // path, which `require_path_read_access_for_preview` admits for everyone and
-        // `runnable_ref_to_payload` then downloads and enqueues: it is exactly the
-        // unreviewed code the composition check refuses in a flow.
+        // path, which `require_path_read_access_for_preview` admits for everyone, and which
+        // `check_can_name_runnable` also refuses further on: it is exactly the unreviewed
+        // code the composition check refuses in a flow.
         let previews_hub = preview_path.is_some_and(|p| p.starts_with("hub/"));
         let caps = caller_capabilities(&db, &w_id, authed).await?;
         if !caps.code
