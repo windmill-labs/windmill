@@ -21,7 +21,9 @@ export function itemContextElement(item: {
 				? 'workspace_flow'
 				: item.kind === 'app' && item.rawApp
 					? 'workspace_app'
-					: undefined
+					: item.kind === 'agent'
+						? 'workspace_agent'
+						: undefined
 	if (!type) return undefined
 	return { type, path: item.path, title: item.path, summary: item.summary, deletable: true }
 }

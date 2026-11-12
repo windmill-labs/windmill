@@ -426,13 +426,18 @@
 			tabindex="-1"
 			aria-hidden="true"
 		></a>
-		<!-- After the filler, so the badges line up down the column whatever the title's length. -->
+		<!-- After the filler, so the badges line up down the column whatever the title's length.
+		     The listing names no owners for an agent's draft, which is private to the reader. -->
 		{#if draft}
 			<span class="shrink-0 inline-flex">
 				<DraftBadge
 					is_draft={draft.mine && !draft.legacy_draft}
 					draft_only={draft.draft_only}
-					draft_users={draft.draft_users}
+					draft_users={draft.kind === 'resource'
+						? draft.mine
+							? [{ username: $userStore?.username }]
+							: []
+						: draft.draft_users}
 					currentUsername={$userStore?.username}
 					{workspace}
 					itemKind={draft.kind}
