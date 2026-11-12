@@ -1,0 +1,28 @@
+name: Verify actions lockfile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/**"
+  pull_request:
+    paths:
+      - ".github/**"
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4.4.0
+        with:
+          persist-credentials: false
+      # Bump the extension pin by hand: Dependabot does not track it.
+      - run: gh extension install github/gh-actions-lock --pin v0.4.1
+      # Run `gh actions-lock` locally and commit .github/workflows/actions.lock to fix a failure.
+      - run: gh actions-lock --verify
