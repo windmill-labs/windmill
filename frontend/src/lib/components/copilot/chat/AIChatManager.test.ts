@@ -1395,9 +1395,6 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.queuedImages).toEqual([])
 	})
 
-	// Attaching is refused on a text-only model, but the model can be switched
-	// after attaching (or a screenshot buffered), and sending the image then fails
-	// the whole turn. The send path re-checks rather than trusting the attach gate.
 	it('does not mark a queued image for a model that cannot read it', async () => {
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
@@ -1417,6 +1414,9 @@ describe('AIChatManager queued messages', () => {
 		expect(marked).toBe(false)
 	})
 
+	// Attaching is refused on a text-only model, but the model can be switched
+	// after attaching (or a screenshot buffered), and sending the image then fails
+	// the whole turn. The send path re-checks rather than trusting the attach gate.
 	it('drops images when the model in use cannot read them', async () => {
 		replyWith('done')
 		const manager = createManager(createInputMock())
