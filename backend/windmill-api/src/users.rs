@@ -457,6 +457,11 @@ async fn move_run_as_principal(
     new_principal: &str,
     scope: RunAsScope<'_>,
 ) -> error::Result<()> {
+    // A legacy `group-*` username canonicalizes to the group it names: what runs as that group
+    // is the group's, not the member's, so it stays.
+    if old_principal.starts_with(windmill_common::users::PERMISSIONED_AS_GROUP_PREFIX) {
+        return Ok(());
+    }
     let (scope_sql, scope_bind) = match scope {
         RunAsScope::Workspace(w_id) => ("t.workspace_id = $3", w_id),
         RunAsScope::WithoutMember(username) => (

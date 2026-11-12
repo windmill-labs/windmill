@@ -1407,6 +1407,50 @@ async fn test_rename_superadmin_moves_run_as_outside_their_workspaces(
     Ok(())
 }
 
+/// A legacy `group-ops` member canonicalizes to `g/ops`; renaming them must not hand the group's
+/// schedules and folder rules to the member.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_group_prefixed_member_keeps_group_run_as(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"UPDATE usr SET username = 'group-ops' WHERE email = 'test2@windmill.dev';
+         UPDATE password SET username = 'group-ops' WHERE email = 'test2@windmill.dev';
+         INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms)
+           VALUES ('test-workspace', 'f/ops/nightly', 'test-user', NOW(), '0 * * * *', 'UTC', true, 'f/ops/job', false, 'test@windmill.dev', 'g/ops', '{}');
+         INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, default_permissioned_as)
+           VALUES ('test-workspace', 'ops', 'ops', '{}', '{}', 'test-user', '[{"path_glob": "*", "permissioned_as": "g/ops"}]');"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let (schedule, rules): (String, serde_json::Value) = sqlx::query_as(
+        "SELECT s.permissioned_as, f.default_permissioned_as FROM schedule s, folder f
+         WHERE s.path = 'f/ops/nightly' AND f.name = 'ops'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(schedule, "g/ops");
+    assert_eq!(
+        rules,
+        json!([{ "path_glob": "*", "permissioned_as": "g/ops" }])
+    );
+
+    Ok(())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_generated_username_skips_anonymous(db: Pool<Postgres>) -> anyhow::Result<()> {
     let mut tx = db.begin().await?;
