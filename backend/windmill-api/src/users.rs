@@ -429,6 +429,7 @@ async fn move_run_as_principal(
     new_principal: &str,
     scope: RunAsScope<'_>,
 ) -> error::Result<()> {
+    debug_assert!(!old_principal.starts_with(windmill_common::users::PERMISSIONED_AS_GROUP_PREFIX));
     let (scope_sql, scope_bind) = match scope {
         RunAsScope::Workspace(w_id) => ("t.workspace_id = $3", w_id),
         RunAsScope::WithoutMember(username) => (
