@@ -405,7 +405,9 @@
 						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
-				filters.val.path != undefined || filters.val.job_kinds != 'all' ? true : undefined,
+				filters.val.path != undefined || filters.val.folder || filters.val.job_kinds != 'all'
+					? true
+					: undefined,
 			label: filters.val.label || undefined,
 			tag: filters.val.tag || undefined,
 			suspended:
