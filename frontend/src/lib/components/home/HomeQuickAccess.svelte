@@ -445,6 +445,7 @@
 					currentUsername={$userStore?.username}
 					{workspace}
 					itemKind={draft.kind}
+					agent={draft.kind === 'resource'}
 					path={draft.path}
 					onMigrated={drafts.refresh}
 				/>

@@ -57,6 +57,9 @@
 		 * slightly smaller — for tight spots like the diff-tree sidebar. The hover
 		 * popover is unchanged. */
 		iconOnly?: boolean
+		/** The `resource` draft is an AI agent's, which has an editor of its own and is authored
+		 *  under the flow right rather than the resource one. */
+		agent?: boolean
 	}
 
 	let {
@@ -69,7 +72,8 @@
 		path = undefined,
 		onMigrated = undefined,
 		allowFork = true,
-		iconOnly = false
+		iconOnly = false,
+		agent = false
 	}: Props = $props()
 
 	// Authed user lands first; everyone else keeps the backend's ordering.
@@ -133,11 +137,22 @@
 	const actionsEnabled = $derived(!!workspace && !!itemKind && !!path && draft_users.length > 0)
 	// The editors these open are the full ones, which a role without code cannot use.
 	const canOpenEditor = $derived(
-		!!itemKind && $roleCapabilities.code && roleCanAuthor(itemKind, $roleCapabilities)
+		agent
+			? roleCanAuthor('agent', $roleCapabilities)
+			: !!itemKind && $roleCapabilities.code && roleCanAuthor(itemKind, $roleCapabilities)
+	)
+	const editHref = $derived(
+		!itemKind || !path ? undefined : agent ? `/agents/edit/${path}` : editRouteFor(itemKind, path)
 	)
 
 	const kindLabel = $derived(
-		itemKind === 'flow' ? 'flow' : itemKind === 'app' || itemKind === 'raw_app' ? 'app' : 'script'
+		agent
+			? 'agent'
+			: itemKind === 'flow'
+				? 'flow'
+				: itemKind === 'app' || itemKind === 'raw_app'
+					? 'app'
+					: 'script'
 	)
 
 	// "Only you can see this {kind}" — true when the authed user owns the
@@ -392,12 +407,12 @@
 								</span>
 								{#if actionsEnabled && isSelf}
 									<!-- Own draft: jump straight into the editor. -->
-									{#if canOpenEditor && itemKind && path}
+									{#if canOpenEditor && editHref}
 										<Button
 											variant="subtle"
 											size="xs3"
 											startIcon={{ icon: Pencil }}
-											href={editRouteFor(itemKind, path)}
+											href={editHref}
 										>
 											Edit
 										</Button>

@@ -99,6 +99,7 @@
 			currentUsername={$userStore?.username}
 			workspace={$workspaceStore ?? undefined}
 			itemKind="resource"
+			agent
 			path={agent.path}
 			onMigrated={() => dispatch('change')}
 		/>
