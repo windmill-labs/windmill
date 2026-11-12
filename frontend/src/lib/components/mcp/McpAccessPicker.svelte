@@ -39,6 +39,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { resolveSessionAccess } from '$lib/components/copilot/chat/global/sessionAccess'
 	import { accessNarrowing } from './accessNarrowing'
+	import { userWorkspaces } from '$lib/stores'
 
 	interface Props {
 		/** The workspace the selection picker browses. */
@@ -97,8 +98,9 @@
 
 	// Each workspace's access, as the chat resolves it, to compare with the level picked.
 	const workspaceAccess = resource(
-		() => [...workspaces],
-		(ids) => Promise.all(ids.map(async (id) => ({ id, there: await resolveSessionAccess(id) })))
+		// Rerun once the workspace list loads: until then a role reads as its legacy defaults.
+		() => ({ ids: [...workspaces], roles: $userWorkspaces }),
+		({ ids }) => Promise.all(ids.map(async (id) => ({ id, there: await resolveSessionAccess(id) })))
 	)
 	const narrowed = $derived(
 		access
