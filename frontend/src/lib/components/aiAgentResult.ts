@@ -184,7 +184,15 @@ export function summarizeAgentResult(result: AgentResult): AgentResultSummary {
 
 export type AgentStreamEntry =
 	| { kind: 'assistant'; content: string }
-	| { kind: 'tool'; callId: string; name: string; running: boolean; success?: boolean }
+	| {
+			kind: 'tool'
+			callId: string
+			name: string
+			running: boolean
+			success?: boolean
+			args?: string
+			result?: string
+	  }
 
 export type AgentStream = {
 	/**
@@ -311,17 +319,19 @@ export function advanceAgentStream(
 				e.kind === 'tool' && e.callId === event.call_id
 		)
 		const settled = event.type === 'tool_result'
-		if (existing) {
-			existing.running = !settled
-			existing.success = settled ? event.success === true : existing.success
-		} else {
-			stream.entries.push({
-				kind: 'tool',
-				callId: event.call_id,
-				name: event.function_name,
-				running: !settled,
-				success: settled ? event.success === true : undefined
-			})
+		let entry = existing
+		if (!entry) {
+			entry = { kind: 'tool', callId: event.call_id, name: event.function_name, running: true }
+			stream.entries.push(entry)
+		}
+		entry.running = !settled
+		if (settled) {
+			entry.success = event.success === true
+			if (typeof event.result === 'string') entry.result = event.result
+		}
+		// Sent whole once the model has finished writing them, not as deltas.
+		if (event.type === 'tool_call_arguments' && typeof event.arguments === 'string') {
+			entry.args = event.arguments || undefined
 		}
 	}
 	return { consumed: complete, stream }

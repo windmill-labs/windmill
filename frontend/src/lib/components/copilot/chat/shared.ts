@@ -2154,13 +2154,13 @@ export function createJobUpdateReader(jobId: string, workspace: string) {
 				return undefined
 			}
 			started ||= update.running ?? false
-			// Both kept as a tail: the offsets come from the server, so dropping the head
-			// costs nothing here, and neither is the record of the run — the logs are on the
-			// job, and a streamed partial is replaced by the result the moment it lands.
+			// Logs are kept as a tail: the offsets come from the server, so dropping the head
+			// costs nothing here, and the job holds the full logs.
 			if (update.new_logs) logs = (logs + update.new_logs).slice(-MAX_LOG_LENGTH)
-			if (update.new_result_stream) {
-				resultStream = (resultStream + update.new_result_stream).slice(-MAX_LOG_LENGTH)
-			}
+			// The stream is kept whole: an agent's is one JSON event per line, read from its
+			// first line, so a tail cut mid-line renders as raw events. It lives only while the
+			// job runs — the terminal patch replaces it with the result.
+			if (update.new_result_stream) resultStream += update.new_result_stream
 			if (update.log_offset) logOffset = update.log_offset
 			if (update.stream_offset) streamOffset = update.stream_offset
 			return { completed: update.completed ?? false, logs, resultStream }
