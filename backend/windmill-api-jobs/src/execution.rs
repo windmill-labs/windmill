@@ -635,48 +635,62 @@ const PLAIN_CONTENT_TYPES: [&str; 7] = [
     "image/webp",
 ];
 
-/// Refuses a job result that would make a free cloud workspace serve a web page or a redirect
-/// from our domain. `Content-Type` is checked in `windmill_headers` too: a header set there
-/// overrides the JSON body's own content type.
-fn check_plain_response(
+/// `windmill_headers` a workspace without a paid plan may not set on Windmill Cloud. Each turns
+/// our domain into something other than a data API: a redirect, a page (a `Content-Type` here
+/// overrides the JSON body's own), a file download, a native login prompt, or a cookie on it.
+const PAID_ONLY_HEADERS: [&str; 6] = [
+    "location",
+    "refresh",
+    "content-type",
+    "content-disposition",
+    "www-authenticate",
+    "set-cookie",
+];
+
+/// Whether serving this composite result would make our domain serve a web page, a redirect or
+/// any of [`PAID_ONLY_HEADERS`], which a free cloud workspace may not do.
+fn needs_paid_plan(
     status_code: Option<u16>,
     content_type: Option<&str>,
     headers: Option<&HashMap<String, String>>,
-) -> error::Result<()> {
+) -> bool {
     let media_type_allowed = |ct: &str| {
         let media_type = ct.split(';').next().unwrap_or("").trim();
         PLAIN_CONTENT_TYPES
             .iter()
             .any(|t| t.eq_ignore_ascii_case(media_type))
     };
-    let refused = status_code.is_some_and(|c| (300..400).contains(&c))
+    status_code.is_some_and(|c| (300..400).contains(&c))
         || content_type.is_some_and(|ct| !media_type_allowed(ct))
         || headers.is_some_and(|h| {
             h.keys().any(|k| {
-                ["location", "refresh", "content-type"]
+                PAID_ONLY_HEADERS
                     .iter()
                     .any(|n| n.eq_ignore_ascii_case(k.trim()))
             })
-        });
-    if refused {
-        return Err(Error::BadRequest(
-            "Custom HTML responses and redirects require a paid plan on Windmill Cloud. Upgrade \
-             this workspace in Workspace Settings > Premium plans, or return JSON or plain text."
-                .to_string(),
-        ));
-    }
-    Ok(())
+        })
 }
 
 /// [`result_to_response`] for a response served over HTTP, with the workspace's plan applied.
+/// The plan is looked up only for a result that needs it, so a plan lookup failure never
+/// holds up an ordinary response. Callers must already have authorized the request for `w_id`
+/// and the job that produced `result`.
 pub async fn result_to_http_response(
     db: &DB,
     w_id: &str,
     result: Box<RawValue>,
     success: bool,
 ) -> error::Result<Response> {
+    let needs_plan =
+        parse_result_object::<WindmillCompositeResult>(result.get()).is_some_and(|c| {
+            needs_paid_plan(
+                c.windmill_status_code,
+                c.windmill_content_type.as_deref(),
+                c.windmill_headers.as_ref(),
+            )
+        });
     let rich_responses_allowed =
-        windmill_common::workspaces::paid_features_allowed(db, w_id).await?;
+        !needs_plan || windmill_common::workspaces::paid_features_allowed(db, w_id).await?;
     result_to_response(result, success, rich_responses_allowed)
 }
 
@@ -694,12 +708,20 @@ pub fn result_to_response(
             windmill_content_transfer_encoding,
             result: result_value,
         }) => {
-            if !rich_responses_allowed {
-                check_plain_response(
+            if !rich_responses_allowed
+                && needs_paid_plan(
                     windmill_status_code,
                     windmill_content_type.as_deref(),
                     windmill_headers.as_ref(),
-                )?;
+                )
+            {
+                return Err(Error::BadRequest(
+                    "The job ran, but its response was refused: custom HTML responses, \
+                     redirects and these response headers require a paid plan on Windmill \
+                     Cloud. Upgrade this workspace in Workspace Settings > Premium plans, or \
+                     return JSON or plain text."
+                        .to_string(),
+                ));
             }
             if windmill_content_type.is_none()
                 && windmill_status_code.is_none()
@@ -1607,6 +1629,8 @@ mod result_to_response_tests {
             r#"{"wm_headers":{"Location":"https://example.com"},"result":null}"#,
             r#"{"wm_headers":{"refresh":"0;url=https://example.com"},"result":null}"#,
             r#"{"wm_headers":{"Content-Type":"text/html"},"result":"<h1>hi</h1>"}"#,
+            r#"{"wm_content_type":"text/plain","wm_headers":{"Content-Disposition":"attachment; filename=\"x.exe\""},"result":"x"}"#,
+            r#"{"wm_status_code":401,"wm_headers":{"WWW-Authenticate":"Basic realm=\"login\""}}"#,
         ];
         for json in refused {
             let res = result_to_response(raw(json), true, false);

@@ -1103,6 +1103,8 @@ pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
 
 /// Whether a workspace may use what Windmill Cloud reserves for paid plans (public apps, HTML
 /// and redirect job responses). Resolved through the fork/dev root; always true off the cloud.
+/// Reads billing state on the unrestricted pool: callers must already have authorized the
+/// request for `w_id`.
 pub async fn paid_features_allowed(_db: &crate::DB, _w_id: &str) -> Result<bool> {
     #[cfg(feature = "cloud")]
     if *crate::worker::CLOUD_HOSTED {
