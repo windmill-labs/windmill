@@ -637,14 +637,16 @@ const PLAIN_CONTENT_TYPES: [&str; 7] = [
 
 /// `windmill_headers` a workspace without a paid plan may not set on Windmill Cloud. Each turns
 /// our domain into something other than a data API: a redirect, a page (a `Content-Type` here
-/// overrides the JSON body's own), a file download, a native login prompt, or a cookie on it.
-const PAID_ONLY_HEADERS: [&str; 6] = [
+/// overrides the JSON body's own), a file download, a native login prompt, or a cookie or
+/// cleared site data on it.
+const PAID_ONLY_HEADERS: [&str; 7] = [
     "location",
     "refresh",
     "content-type",
     "content-disposition",
     "www-authenticate",
     "set-cookie",
+    "clear-site-data",
 ];
 
 /// Whether serving this composite result would make our domain serve a web page, a redirect or
@@ -654,7 +656,12 @@ fn needs_paid_plan(
     content_type: Option<&str>,
     headers: Option<&HashMap<String, String>>,
 ) -> bool {
+    // A browser reads a comma-separated Content-Type as a list and uses its last valid type,
+    // so `text/plain, text/html` renders as HTML.
     let media_type_allowed = |ct: &str| {
+        if ct.contains(',') {
+            return false;
+        }
         let media_type = ct.split(';').next().unwrap_or("").trim();
         PLAIN_CONTENT_TYPES
             .iter()
@@ -681,17 +688,17 @@ pub async fn result_to_http_response(
     result: Box<RawValue>,
     success: bool,
 ) -> error::Result<Response> {
-    let needs_plan =
-        parse_result_object::<WindmillCompositeResult>(result.get()).is_some_and(|c| {
-            needs_paid_plan(
-                c.windmill_status_code,
-                c.windmill_content_type.as_deref(),
-                c.windmill_headers.as_ref(),
-            )
-        });
+    let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
+    let needs_plan = composite_result.as_ref().is_some_and(|c| {
+        needs_paid_plan(
+            c.windmill_status_code,
+            c.windmill_content_type.as_deref(),
+            c.windmill_headers.as_ref(),
+        )
+    });
     let rich_responses_allowed =
         !needs_plan || windmill_common::workspaces::paid_features_allowed(db, w_id).await?;
-    result_to_response(result, success, rich_responses_allowed)
+    composite_to_response(composite_result, result, success, rich_responses_allowed)
 }
 
 pub fn result_to_response(
@@ -700,6 +707,15 @@ pub fn result_to_response(
     rich_responses_allowed: bool,
 ) -> error::Result<Response> {
     let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
+    composite_to_response(composite_result, result, success, rich_responses_allowed)
+}
+
+fn composite_to_response(
+    composite_result: Option<WindmillCompositeResult>,
+    result: Box<RawValue>,
+    success: bool,
+    rich_responses_allowed: bool,
+) -> error::Result<Response> {
     match composite_result {
         Some(WindmillCompositeResult {
             windmill_status_code,
@@ -1631,6 +1647,7 @@ mod result_to_response_tests {
             r#"{"wm_headers":{"Content-Type":"text/html"},"result":"<h1>hi</h1>"}"#,
             r#"{"wm_content_type":"text/plain","wm_headers":{"Content-Disposition":"attachment; filename=\"x.exe\""},"result":"x"}"#,
             r#"{"wm_status_code":401,"wm_headers":{"WWW-Authenticate":"Basic realm=\"login\""}}"#,
+            r#"{"wm_content_type":"text/plain; charset=utf-8, text/html","result":"<h1>hi</h1>"}"#,
         ];
         for json in refused {
             let res = result_to_response(raw(json), true, false);
