@@ -45,6 +45,10 @@ pub async fn authorize_composed_flow(
     w_id: &str,
 ) -> error::Result<()> {
     let mut refs = windmill_common::flows::check_flow_is_composition_only(value)?;
+    // Each check reads the caller's role; a flow can step through the same Hub script many times.
+    refs.hub_runnables
+        .sort_by(|a, b| (a.is_flow(), a.path()).cmp(&(b.is_flow(), b.path())));
+    refs.hub_runnables.dedup();
     for runnable in &refs.hub_runnables {
         check_builder_can_name_hub(runnable, authed, db, w_id).await?;
     }
