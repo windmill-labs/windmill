@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import SidebarSection, {
 		flyoutRowClass,
 		type SectionActionsArgs
@@ -805,12 +805,14 @@
 			{/if}
 		{/snippet}
 		{#if collapsible}
+			<!-- Not disabled while loading: a disabled section ignores its fold, so a folded one
+			     would open for the skeleton and fold again once the sessions arrive. -->
 			<SidebarSection
 				title="AI sessions"
 				icon={MessageSquare}
 				folded={sectionCollapsed.val}
 				onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-				disabled={filteredSessions.length === 0}
+				disabled={sessionState.hydrated && filteredSessions.length === 0}
 				notify={totalUnread > 0}
 				actions={sectionOptions}
 				{isCollapsed}
@@ -1157,6 +1159,21 @@
 				{/each}
 			{/if}
 		</div>
+		{#if !sessionState.hydrated}
+			<!-- Bars sized and spaced like session rows (h-6, gap-0.5), so rows replace them
+			     without a shift. The rail shows no names, so its bars don't vary like text. -->
+			{@const w = rail ? [100, 100, 100] : [75, 55, 65]}
+			<Skeleton
+				class="px-2 pt-1.5"
+				layout={[
+					[{ h: 0.75, w: w[0] }],
+					0.875,
+					[{ h: 0.75, w: w[1] }],
+					0.875,
+					[{ h: 0.75, w: w[2] }]
+				]}
+			/>
+		{/if}
 		<!-- Outside the listbox, so arrow keys move through sessions only. -->
 		{#if olderIds.size > 0}
 			<SidebarShowOlder
