@@ -4634,6 +4634,11 @@ async fn execute_component(
                 "path and raw_code cannot be set at the same time".to_string(),
             ))
         }
+        (true, false) if payload.id.is_some() => {
+            return Err(Error::BadRequest(
+                "path and id cannot be set at the same time".to_string(),
+            ))
+        }
         _ => {}
     };
 
