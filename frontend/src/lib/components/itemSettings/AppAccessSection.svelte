@@ -6,6 +6,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import Description from '$lib/components/Description.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import CollapseLink from '$lib/components/CollapseLink.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { Loader2, Pen, Plus, Trash } from 'lucide-svelte'
@@ -261,6 +262,27 @@
 			{/snippet}
 			{#if mode == 'publisher'}
 				<ClipboardPanel content={appUrl} size="md" />
+				<!-- The link above only takes a Windmill login. Embedders that sign their own users in
+				     append an external JWT to the secret URL instead (`/public/<ws>/<secret>/<jwt>`),
+				     which only enterprise builds verify. -->
+				{#if $enterpriseLicense}
+					<CollapseLink text="Embed with a JWT from your own product">
+						<div class="flex flex-col gap-2">
+							{#if secretUrlHref}
+								<ClipboardPanel content={toEmbedSnippet(`${secretUrlHref}/YOUR_JWT`)} size="md" />
+							{:else}
+								<Loader2 size={16} class="animate-spin" />
+							{/if}
+							<Description
+								link="https://www.windmill.dev/docs/advanced/external_auth_with_jwt"
+								class="text-2xs text-hint"
+							>
+								Open the app without a Windmill login: replace <code>YOUR_JWT</code> with a JWT your
+								backend signs. Its user needs read access to this app.
+							</Description>
+						</div>
+					</CollapseLink>
+				{/if}
 			{:else if secretUrlHref}
 				<ClipboardPanel
 					content={embedMode ? toEmbedSnippet(secretUrlHref) : secretUrlHref}
