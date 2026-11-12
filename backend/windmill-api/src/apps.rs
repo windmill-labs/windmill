@@ -7229,7 +7229,7 @@ mod embed_token_tests {
 #[cfg(test)]
 mod operator_app_tests {
     use super::{check_operator_composed_app, AppRunnableKind, BuilderAppWrite, Policy};
-    use windmill_common::error::{Error, Result};
+    use windmill_common::error::Result;
     use windmill_common::worker::to_raw_value;
 
     fn builder_policy(triggerables_v2: serde_json::Value) -> Policy {
