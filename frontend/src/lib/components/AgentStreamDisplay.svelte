@@ -140,8 +140,10 @@
      turn that goes on to call a tool was narration, and the run's end settles which. -->
 <div bind:this={anchor} class="flex flex-col w-full py-3 gap-1">
 	{#if traceEntries.length > 0}
-		<!-- The finished result's own trace, so its rows open the same way while the run
-		     streams and nothing changes when the result lands. -->
+		<!-- The finished result's renderer, so a row reads the same while the run streams.
+		     The landed result mounts its own trace: rows opened here close then, and a
+		     failed call's label is red only here, since the finished trace has no outcome
+		     for a row until its job is loaded. -->
 		<AgentTrace entries={traceEntries} runKey={streamKey ?? ''} />
 	{/if}
 
