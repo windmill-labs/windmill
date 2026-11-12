@@ -51,6 +51,7 @@
 		diffRemovesInTarget,
 		getItemValue,
 		getOnBehalfOf,
+		triggerCiTestsForBatch,
 		type DeployPermission,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
@@ -848,7 +849,8 @@
 				workspaceFrom,
 				workspaceTo: workspaceToDeployTo,
 				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
-				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind)
+				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind),
+				skipCiTests: true
 			})
 		}
 
@@ -951,6 +953,7 @@
 		let anyFailed = false
 		// Datatables whose migrations deployed cleanly — candidates for a run prompt.
 		const deployedMigrationDatatables = new Set<string>()
+		const ciTested: { kind: 'script' | 'flow' | 'resource'; path: string }[] = []
 		const applyAll = async () => {
 			for (const itemKey of sortedItems) {
 				const deployable = deployableItems.find((d) => d.key === itemKey)
@@ -966,6 +969,13 @@
 					anyFailed = true
 				} else if (deployable.kind === 'datatable_migration') {
 					deployedMigrationDatatables.add(deployable.path.split('/')[0])
+				} else if (
+					(deployable.kind === 'script' ||
+						deployable.kind === 'flow' ||
+						deployable.kind === 'resource') &&
+					!comparison?.diffs.some((d) => getItemKey(d) === itemKey && removesInTarget(d))
+				) {
+					ciTested.push({ kind: deployable.kind, path: deployable.path })
 				}
 			}
 		}
@@ -976,6 +986,10 @@
 		await (mergeIntoParent ? applyAll() : asSyncDeploy(applyAll))
 		deploying = false
 		deselectAll()
+		// The tests are held back while the batch deploys, so each one runs against all of it.
+		triggerCiTestsForBatch(to, ciTested).catch((e) =>
+			sendUserToast(`Failed to queue CI tests: ${e?.body ?? e?.message ?? e}`, true)
+		)
 
 		await maybePromptRunMigrations(deployedMigrationDatatables, to)
 

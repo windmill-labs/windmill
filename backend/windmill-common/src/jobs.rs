@@ -148,8 +148,38 @@ pub fn resolve_delete_after_secs(
     }
 }
 
+/// Who chose the path a job is resolved from. Deliberately has no default: every caller must say
+/// which it is.
+pub enum RunOrigin<'a> {
+    /// The person who chose the path, whose rights it is held to; usually, not always, the
+    /// identity the job runs as (a preview on behalf of another user, a run-as script).
+    NamedBy(AuthedRef<'a>),
+    /// The path is read from a row whose write was checked when it was saved, so it is not
+    /// re-checked here. Choose it only when that save-time check exists.
+    Deployed,
+}
+
+/// [`RunOrigin`] for a function that is handed the identity of the person who would have named
+/// the path: `Caller` resolves to `NamedBy` that identity. Never pass `Caller` with an identity
+/// other than that person's (a trigger's run-as user).
+#[derive(Clone, Copy)]
+pub enum ChosenBy {
+    Caller,
+    Deployed,
+}
+
+impl ChosenBy {
+    pub fn origin<'a>(self, caller: AuthedRef<'a>) -> RunOrigin<'a> {
+        match self {
+            ChosenBy::Caller => RunOrigin::NamedBy(caller),
+            ChosenBy::Deployed => RunOrigin::Deployed,
+        }
+    }
+}
+
 pub async fn script_path_to_payload<'e>(
     script: &RunnableRef,
+    _origin: RunOrigin<'_>,
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: DB,
     w_id: &str,
@@ -247,11 +277,12 @@ pub async fn script_path_to_payload<'e>(
 
 pub async fn runnable_ref_to_payload(
     runnable: &RunnableRef,
+    origin: RunOrigin<'_>,
     db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
     let (payload, tag, _, _, _, on_behalf_of) = if !runnable.is_flow() {
-        script_path_to_payload(runnable, None, db.clone(), w_id, Some(true)).await?
+        script_path_to_payload(runnable, origin, None, db.clone(), w_id, Some(true)).await?
     } else {
         let path = runnable.path().to_string();
         if let Some(hub_id) = runnable.hub_id() {

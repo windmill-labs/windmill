@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT d.path FROM draft d,\n                   jsonb_array_elements(CASE WHEN jsonb_typeof(d.value::jsonb->'drafts') = 'array'\n                                             THEN d.value::jsonb->'drafts' ELSE '[]' END) node\n               WHERE d.workspace_id = $1 AND d.email = $2 AND d.typ = 'data_pipeline'\n                 AND d.path = ANY($3::text[])\n                 AND CASE WHEN (node->1->'script'->>'hash' ~ '^[0-9a-f]{16}$') IS NOT TRUE THEN false\n                          ELSE NOT EXISTS (SELECT 1 FROM script sc WHERE sc.workspace_id = $4::text\n                                   AND sc.hash = ('x' || (node->1->'script'->>'hash'))::bit(64)::bigint)\n                     END\n               ORDER BY d.path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "65148bf40198716608e6b78e51ea606f1a13a5c1889537800710f72619cfb323"
+}

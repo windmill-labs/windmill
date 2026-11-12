@@ -7656,6 +7656,14 @@ async fn clone_workspace_data(
     // drafts would belong to someone the fork holds no membership for.
     clone_drafts(tx, source_workspace_id, target_workspace_id, &authed.email).await?;
 
+    clone_favorites(
+        tx,
+        source_workspace_id,
+        target_workspace_id,
+        &authed.username,
+    )
+    .await?;
+
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -8661,6 +8669,70 @@ fn principal_resolves_sql(principal: &str) -> String {
     )
 }
 
+/// The draft half of `repoint_unresolvable_cloned_identities`: an app policy or trigger in a draft
+/// copied into `target_workspace_id` that names nobody there is re-pointed at `authed`. `items`
+/// narrows it to `authed`'s own rows at those keys, for drafts copied into an existing workspace.
+///
+/// **Authorizes nothing itself.** The caller must have checked that `authed` (loaded in
+/// `target_workspace_id`) may write those drafts there. `items = None` rewrites every draft in the
+/// workspace, other users' included, so it is only for a fork being created inside the same
+/// transaction, before anyone else has drafts in it.
+pub async fn repoint_unresolvable_draft_identities(
+    tx: &mut Transaction<'_, Postgres>,
+    target_workspace_id: &str,
+    authed: &ApiAuthed,
+    items: Option<&[(windmill_common::user_drafts::UserDraftItemKind, String)]>,
+) -> Result<()> {
+    let principal = username_to_permissioned_as(&authed.username);
+    let kinds: Option<Vec<&str>> = items.map(|i| i.iter().map(|(k, _)| k.as_str()).collect());
+    let paths: Option<Vec<&str>> = items.map(|i| i.iter().map(|(_, p)| p.as_str()).collect());
+
+    // A draft holding a genuine NUL escape (the rule of `json_text_has_nul_escape`) is left as it
+    // is, since parsing it would abort the fork. The check must stay in a CASE: json `->>` raises on
+    // a NUL anywhere in the value, and Postgres reorders plain AND conditions.
+    let nul_escape = r"(^|[^\\])(\\\\)*\\u0000";
+    sqlx::query(&format!(
+        "UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value),
+             ARRAY['policy', 'on_behalf_of'], to_jsonb($2::text)),
+             ARRAY['policy', 'on_behalf_of_email'], to_jsonb($3::text)))
+         WHERE workspace_id = $1 AND typ IN ('app', 'raw_app')
+           AND ($5::text[] IS NULL OR (email = $7
+                AND (typ::text, path) IN (SELECT * FROM unnest($5::text[], $6::text[]))))
+           AND CASE WHEN value::text ~ $4 THEN false
+                    ELSE value->'policy'->>'on_behalf_of' IS NOT NULL AND NOT ({}) END",
+        principal_resolves_sql("(value->'policy'->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(&authed.email)
+    .bind(nul_escape)
+    .bind(kinds.as_deref())
+    .bind(paths.as_deref())
+    .bind(&authed.email)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(&format!(
+        "UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value),
+             ARRAY['permissioned_as'], to_jsonb($2::text)))
+         WHERE workspace_id = $1 AND starts_with(typ::text, 'trigger_')
+           AND ($4::text[] IS NULL OR (email = $6
+                AND (typ::text, path) IN (SELECT * FROM unnest($4::text[], $5::text[]))))
+           AND CASE WHEN value::text ~ $3 THEN false
+                    ELSE value->>'permissioned_as' IS NOT NULL AND NOT ({}) END",
+        principal_resolves_sql("(value->>'permissioned_as')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(nul_escape)
+    .bind(kinds.as_deref())
+    .bind(paths.as_deref())
+    .bind(&authed.email)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 /// Re-point the identities a fork clones verbatim at its creator when they name nobody in the fork,
 /// once its membership is final so copied members keep theirs. Unlike scripts and flows these
 /// cannot drop the identity: an app deploy rejects a preserved one that does not resolve, and
@@ -8685,39 +8757,7 @@ async fn repoint_unresolvable_cloned_identities(
     .execute(&mut **tx)
     .await?;
 
-    // A draft holding a genuine NUL escape (the rule of `json_text_has_nul_escape`) is left as it
-    // is, since parsing it would abort the fork. The check must stay in a CASE: json `->>` raises on
-    // a NUL anywhere in the value, and Postgres reorders plain AND conditions.
-    let nul_escape = r"(^|[^\\])(\\\\)*\\u0000";
-    sqlx::query(&format!(
-        "UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value),
-             ARRAY['policy', 'on_behalf_of'], to_jsonb($2::text)),
-             ARRAY['policy', 'on_behalf_of_email'], to_jsonb($3::text)))
-         WHERE workspace_id = $1 AND typ IN ('app', 'raw_app')
-           AND CASE WHEN value::text ~ $4 THEN false
-                    ELSE value->'policy'->>'on_behalf_of' IS NOT NULL AND NOT ({}) END",
-        principal_resolves_sql("(value->'policy'->>'on_behalf_of')")
-    ))
-    .bind(target_workspace_id)
-    .bind(&principal)
-    .bind(&authed.email)
-    .bind(nul_escape)
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query(&format!(
-        "UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value),
-             ARRAY['permissioned_as'], to_jsonb($2::text)))
-         WHERE workspace_id = $1 AND starts_with(typ::text, 'trigger_')
-           AND CASE WHEN value::text ~ $3 THEN false
-                    ELSE value->>'permissioned_as' IS NOT NULL AND NOT ({}) END",
-        principal_resolves_sql("(value->>'permissioned_as')")
-    ))
-    .bind(target_workspace_id)
-    .bind(&principal)
-    .bind(nul_escape)
-    .execute(&mut **tx)
-    .await?;
+    repoint_unresolvable_draft_identities(tx, target_workspace_id, authed, None).await?;
 
     let column_resolves = principal_resolves_sql("permissioned_as");
 
@@ -9265,58 +9305,45 @@ async fn clone_raw_apps(
     Ok(())
 }
 
-/// Clone every per-user draft (and the legacy NULL-email workspace draft,
-/// if present) from the parent. The fork target is empty at create time so
-/// a plain INSERT is safe — no need to UPSERT against the partial unique
-/// indexes (`draft_pkey_with_user` / `draft_pkey_legacy`). `id` is the
-/// BIGSERIAL synthetic PK and is regenerated by the default; we don't list
-/// it in the column set. `created_at` is preserved so the per-tab
-/// `last_sync` baseline the editor reads (`?get_draft=true` → overlay's
-/// `draft_saved_at`) lines up with the parent's timeline — otherwise the
-/// fork's first POST from any open editor would race a stale `last_sync`
-/// and trip the conflict modal on every cloned draft.
 // Only `email = authed_email` and the legacy NULL row are cloned — see
-// `clone_workspace_data` for the rationale.
+// `clone_workspace_data` for the rationale. The fork is empty at create time, so
+// `copy_drafts_to_workspace` skips nothing here.
 async fn clone_drafts(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
     authed_email: &str,
 ) -> Result<()> {
-    // A script/flow draft carries the principal in its value, and deploying it in the clone
-    // would send a pair naming somebody who is not a member there. Stripped rather than
-    // filtered like `clone_scripts`: the address the draft still carries re-derives the
-    // clone's own principal at deploy time, which is the more accurate answer of the two.
-    sqlx::query!(
-        // A script hash is content-addressed and copied as-is, so a script draft's base
-        // still names a version the clone has. `clone_flows` / `clone_apps` mint new ids,
-        // so those drafts arrive with no base (staleness falls back to the timestamps),
-        // lineage field included, or the next autosave would re-derive the source id.
-        //
-        // `clean` is `strip_json_nul`'s parity rule in SQL, so a pre-sanitizer U+0000
-        // escape cannot abort the clone on `to_jsonb` or arrive with its principal
-        // unstripped: escaped backslashes park on chr(1) (lossless, a `json` value's text
-        // cannot hold a raw control byte) so only a real NUL is removed, and chr(92)
-        // spells the backslash so no escape sequence reaches this source file.
-        r#"INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
-         SELECT $2, path, typ,
-                to_json(
-                    CASE WHEN typ IN ('script', 'flow') THEN clean - 'on_behalf_of' ELSE clean END
-                    - CASE WHEN typ = 'flow' THEN 'version_id'
-                           WHEN typ IN ('app', 'raw_app') THEN 'parent_version'
-                           ELSE '' END
-                ),
-                created_at, email,
-                CASE WHEN typ = 'script' THEN base END
-         FROM (
-             SELECT d.path, d.typ, d.created_at, d.email, d.base,
-                    replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean
-             FROM draft d
-             WHERE d.workspace_id = $1 AND (d.email = $3 OR d.email IS NULL)
-         ) s"#,
+    windmill_common::user_drafts::copy_drafts_to_workspace(
+        &mut **tx,
         source_workspace_id,
         target_workspace_id,
         authed_email,
+        None,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Favorites of the fork's members, read after the membership is copied. The forker is named
+/// apart: a superadmin can fork a workspace without having a `usr` row in it.
+async fn clone_favorites(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    forker_username: &str,
+) -> Result<()> {
+    // Deleting a workspace leaves its favorites, so a re-used fork id can already hold some.
+    sqlx::query!(
+        "INSERT INTO favorite (usr, workspace_id, path, favorite_kind)
+         SELECT f.usr, $2::varchar, f.path, f.favorite_kind
+         FROM favorite f
+         WHERE f.workspace_id = $1
+           AND (f.usr = $3 OR f.usr IN (SELECT username FROM usr WHERE workspace_id = $2))
+         ON CONFLICT DO NOTHING",
+        source_workspace_id,
+        target_workspace_id,
+        forker_username,
     )
     .execute(&mut **tx)
     .await?;

@@ -1255,6 +1255,8 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
 #[derive(Deserialize)]
 struct CreateResourceQuery {
     update_if_exists: Option<bool>,
+    #[serde(default)]
+    skip_ci_tests: bool,
 }
 async fn create_resource(
     authed: ApiAuthed,
@@ -1458,7 +1460,7 @@ async fn create_resource(
     );
 
     // Trigger CI tests for items that reference this resource
-    {
+    if !q.skip_ci_tests {
         let db2 = db.clone();
         let path2 = resource.path.clone();
         let email2 = authed.email.clone();
@@ -2134,6 +2136,7 @@ async fn update_resource(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(ci): Query<windmill_dep_map::ci_tests::SkipCiTestsQuery>,
     Json(ns): Json<EditResource>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
@@ -2449,7 +2452,7 @@ async fn update_resource(
     );
 
     // Trigger CI tests for items that reference this resource
-    {
+    if !ci.skip_ci_tests {
         let db2 = db.clone();
         let npath2 = npath.clone();
         let email2 = authed.email.clone();

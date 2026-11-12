@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.869.0](https://github.com/windmill-labs/windmill/compare/v1.868.0...v1.869.0) (2026-11-12)
+
+
+### Features
+
+* move a live ai session into a workspace fork with its drafts ([#11602](https://github.com/windmill-labs/windmill/issues/11602)) ([484a769](https://github.com/windmill-labs/windmill/commit/484a7699dbd4ecf827528030c8f8bfdc0d9c483b))
+* restyle artifact documents and add an html download ([#12355](https://github.com/windmill-labs/windmill/issues/12355)) ([addc644](https://github.com/windmill-labs/windmill/commit/addc644c1c6e167a436436b2ecb77728f1b4ae21))
+* run AI decision steps on Gemini's Decisions API ([#12370](https://github.com/windmill-labs/windmill/issues/12370)) ([e9f4636](https://github.com/windmill-labs/windmill/commit/e9f4636d445d17b73b3b32aa03b88667694fe13c))
+
+
+### Bug Fixes
+
+* **cli:** point wmill.yaml schema header at an absolute, release-pinned URL ([#12367](https://github.com/windmill-labs/windmill/issues/12367)) ([9eb3d2e](https://github.com/windmill-labs/windmill/commit/9eb3d2e7d480608739f6e5c8dbc1cf75e0bb4243))
+* keep favorites when forking a workspace ([#12325](https://github.com/windmill-labs/windmill/issues/12325)) ([97dedc2](https://github.com/windmill-labs/windmill/commit/97dedc2f10a1d1fcf6bf3b93accc0a9b53fea5d5))
+* keep the picked data table when starting a raw app in the editor ([#12328](https://github.com/windmill-labs/windmill/issues/12328)) ([b4df6ef](https://github.com/windmill-labs/windmill/commit/b4df6ef8330892c891f31d6614aa0df993c0ad21))
+* move schedule and trigger run-as when renaming a user ([#12368](https://github.com/windmill-labs/windmill/issues/12368)) ([1583207](https://github.com/windmill-labs/windmill/commit/1583207af74522adac9e4c1f3bd78e554cd7af2d))
+* run ci tests once a batch deploy has landed, not per item ([#12369](https://github.com/windmill-labs/windmill/issues/12369)) ([bd5f4d4](https://github.com/windmill-labs/windmill/commit/bd5f4d4d3dfa9c283e32bf6bd78209406c217145))
+* **rust-client:** tolerate new api fields in wait_job and set_resource ([#12353](https://github.com/windmill-labs/windmill/issues/12353)) ([f028858](https://github.com/windmill-labs/windmill/commit/f0288586e3706d1eb5400e7b5433385c4d4b2ea8))
+* use the slim scrollbar in the homepage recent runs card ([#12362](https://github.com/windmill-labs/windmill/issues/12362)) ([0491ccf](https://github.com/windmill-labs/windmill/commit/0491ccf3eb30d2dea1b11c4bb02d627ab6c1b683))
+
+## [1.868.0](https://github.com/windmill-labs/windmill/compare/v1.867.0...v1.868.0) (2026-11-11)
+
+
+### Features
+
+* compile tailwind css v4 in raw app bundles ([#12346](https://github.com/windmill-labs/windmill/issues/12346)) ([18556fd](https://github.com/windmill-labs/windmill/commit/18556fd9b897e2de6cd95f060d630bc41d7230aa))
+
+
+### Bug Fixes
+
+* back off job polling to 2s after 100 polls ([#12344](https://github.com/windmill-labs/windmill/issues/12344)) ([abede3a](https://github.com/windmill-labs/windmill/commit/abede3a02978f4c65c9c018b27a4167fd31feac2))
+* bump cli bundled minimatch, yaml and fast-uri past advisories ([#12337](https://github.com/windmill-labs/windmill/issues/12337)) ([f7f2eee](https://github.com/windmill-labs/windmill/commit/f7f2eeedfd16a64a462a58b51b81119eb102735c))
+* carry every compared field through fork deploy and diff ([#12348](https://github.com/windmill-labs/windmill/issues/12348)) ([f9cf596](https://github.com/windmill-labs/windmill/commit/f9cf596b3cee77e0070e2decda5cbab259b10471))
+* force the structured output tool on claude 3 and 4 again ([#12349](https://github.com/windmill-labs/windmill/issues/12349)) ([9c76c79](https://github.com/windmill-labs/windmill/commit/9c76c79789dbb7093aa18c4a84404da4cdde967c))
+* hide your own empty user space with the hide empty folders option ([#12345](https://github.com/windmill-labs/windmill/issues/12345)) ([d37dcca](https://github.com/windmill-labs/windmill/commit/d37dcca4c6d8dfdfb52cf96e2b36fbab32896e5a))
+* keep the runs list scrollbar and column labels unclipped ([#12347](https://github.com/windmill-labs/windmill/issues/12347)) ([d1e97ef](https://github.com/windmill-labs/windmill/commit/d1e97ef0206fd013a2576223401bf2a907f72290))
+* treat skipped jobs as successful in result and wait paths ([#12340](https://github.com/windmill-labs/windmill/issues/12340)) ([9d9875c](https://github.com/windmill-labs/windmill/commit/9d9875cf0e7bc85f62d1084529012e92c192a253))
+
+
+### Performance Improvements
+
+* build the ee debug file in the same depot build as the image ([#12339](https://github.com/windmill-labs/windmill/issues/12339)) ([2688493](https://github.com/windmill-labs/windmill/commit/2688493736dc5359857db7bc229749fdda676b60))
+
 ## [1.867.0](https://github.com/windmill-labs/windmill/compare/v1.866.0...v1.867.0) (2026-11-10)
 
 

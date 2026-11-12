@@ -3,8 +3,11 @@
  */
 
 import { expect, test, describe } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parse } from "yaml";
 import Ajv from "ajv";
+import { VERSION } from "../src/core/constants.ts";
 import {
   generateCommentedTemplate,
   generateJsonSchema,
@@ -65,9 +68,13 @@ describe("generateCommentedTemplate", () => {
     expect(config.workspaces["prod"].workspaceId).toBe("prod-ws");
   });
 
-  test("contains yaml-language-server schema directive", () => {
+  // The header must be an absolute URL: a relative path resolves next to the
+  // user's wmill.yaml, where no schema file exists.
+  test("first line points the YAML language server at the schema of this CLI's release tag", () => {
     const yaml = generateCommentedTemplate("main");
-    expect(yaml.startsWith("# yaml-language-server: $schema=wmill.schema.json")).toBe(true);
+    expect(yaml.split("\n")[0]).toBe(
+      `# yaml-language-server: $schema=https://raw.githubusercontent.com/windmill-labs/windmill/v${VERSION}/cli/wmill.schema.json`,
+    );
   });
 
   test("includes all non-commented, non-skipped CONFIG_REFERENCE entries as active YAML keys", () => {
@@ -104,6 +111,14 @@ describe("generateCommentedTemplate", () => {
 
 describe("generateJsonSchema", () => {
   const schema = generateJsonSchema();
+
+  // wmill.yaml headers fetch cli/wmill.schema.json from the release tag, so the
+  // committed file is what users validate against. Regenerate: `bun generate-schema.ts`.
+  test("matches the committed cli/wmill.schema.json", () => {
+    const committed = readFileSync(join(import.meta.dir, "..", "wmill.schema.json"), "utf-8")
+      .replace(/\r\n/g, "\n");
+    expect(committed).toBe(JSON.stringify(schema, null, 2) + "\n");
+  });
 
   test("is a valid JSON Schema draft-07", () => {
     expect(schema.$schema).toBe("http://json-schema.org/draft-07/schema#");

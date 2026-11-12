@@ -2801,7 +2801,7 @@ async fn handle_ai_decision(
     let args = serde_json::from_str::<AIDecisionArgs>(&serde_json::to_string(local_args)?)?;
     if !args.provider.kind.runs_decisions() {
         return Err(Error::BadRequest(format!(
-            "An AI decision runs on a TypeSafe, Cloudflare or OpenAI resource, not {:?}",
+            "An AI decision runs on a TypeSafe, Cloudflare, OpenAI or Google AI resource, not {:?}",
             args.provider.kind
         )));
     }

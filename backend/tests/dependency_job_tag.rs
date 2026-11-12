@@ -40,6 +40,7 @@ async fn relocks_go_to_the_configured_dependency_job_tag(db: Pool<Postgres>) -> 
         "u/test-user",
         &db,
         vec![],
+        false,
     )
     .await?;
 

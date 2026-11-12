@@ -335,8 +335,6 @@
 			// surfaces open on the same job.
 			if (!call?.adopt(run, args, flow?.schema ?? {}))
 				await onNavigate('/run/' + run + '?workspace=' + workspace)
-		} catch (e) {
-			throw e
 		} finally {
 			loading = false
 		}

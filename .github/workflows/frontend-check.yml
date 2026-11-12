@@ -28,5 +28,5 @@ jobs:
         env:
           # svelte-check peaks past node's ~4GB default ceiling on this runner and aborts.
           NODE_OPTIONS: --max-old-space-size=8192
-        run: cd frontend && npm ci && npm run generate-backend-client && npm run
-          check
+        run: cd frontend && npm ci && npm run lint && npm run generate-backend-client &&
+          npm run check
