@@ -240,7 +240,18 @@ async fn fetch_target(
     name: &str,
     principal: &str,
 ) -> Result<windmill_common::db::Authed> {
-    let email = match prefix {
+    let email = target_email(db, w_id, prefix, name).await?;
+    let mut target = fetch_authed_from_permissioned_as(principal, &email, w_id, db).await?;
+    // A workspace group and an instance group can share a name, and both come back.
+    target.groups.sort();
+    target.groups.dedup();
+    Ok(target)
+}
+
+/// The principal's email, empty for a group. Not found when the principal does not exist, so
+/// no route answers for a mistyped one as if it existed with no grants.
+async fn target_email(db: &DB, w_id: &str, prefix: &str, name: &str) -> Result<String> {
+    Ok(match prefix {
         "u" => {
             let usr = sqlx::query!(
                 "SELECT email, disabled FROM usr WHERE workspace_id = $1 AND username = $2",
@@ -279,13 +290,7 @@ async fn fetch_target(
                 "principal must be u/<user> or g/<group>".into(),
             ))
         }
-    };
-
-    let mut target = fetch_authed_from_permissioned_as(principal, &email, w_id, db).await?;
-    // A workspace group and an instance group can share a name, and both come back.
-    target.groups.sort();
-    target.groups.dedup();
-    Ok(target)
+    })
 }
 
 async fn get_access(
@@ -483,7 +488,8 @@ async fn browse_items(
     Path(w_id): Path<String>,
     Query(q): Query<BrowseItemsQuery>,
 ) -> JsonResult<BrowseItems> {
-    check_principal(&authed, &q.principal)?;
+    let (prefix, name) = check_principal(&authed, &q.principal)?;
+    target_email(&db, &w_id, prefix, name).await?;
     let tables = ITEM_TABLES
         .iter()
         .filter(|(kind, ..)| {

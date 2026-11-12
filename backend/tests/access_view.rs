@@ -121,5 +121,14 @@ async fn test_browse_items_kind_and_blocked(db: Pool<Postgres>) -> anyhow::Resul
         .await?;
     assert_eq!(admin["items"][0]["blocked"], serde_json::Value::Null);
 
+    // A mistyped principal is refused rather than listed as holding nothing.
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .query(&[("principal", "g/does_not_exist")])
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 404, "{}", resp.text().await?);
+
     Ok(())
 }
