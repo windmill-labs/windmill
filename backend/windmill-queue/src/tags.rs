@@ -209,8 +209,7 @@ async fn is_dedicated_worker_tag_of(
         .await?;
     let of_workspace = |entry: &serde_json::Value| {
         let (ws, path) = entry.as_str()?.split_once(':')?;
-        (ws == workspace_id)
-            .then(|| WorkspacedPath { workspace_id: ws.to_string(), path: path.to_string() })
+        (ws == workspace_id).then(|| WorkspacedPath::dedicated(ws, path))
     };
     let mut single = vec![];
     let mut many = vec![];

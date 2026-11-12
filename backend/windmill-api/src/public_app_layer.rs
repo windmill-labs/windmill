@@ -79,6 +79,7 @@ fn is_public_route_whitelisted(path: &str) -> bool {
         "/a/*",
         "/api/oauth/get_connect/*",
         "/Inter-Variable.woff2",
+        "/Inter-Variable-Italic.woff2",
     ];
 
     for pattern in &whitelist {
@@ -178,6 +179,7 @@ mod tests {
         assert!(is_public_route_whitelisted(
             "/api/w/workspace/resources/list"
         ));
+        assert!(is_public_route_whitelisted("/Inter-Variable-Italic.woff2"));
 
         // Non-whitelisted routes
         assert!(!is_public_route_whitelisted("/api/version"));

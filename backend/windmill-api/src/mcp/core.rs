@@ -15,13 +15,14 @@ use windmill_mcp::common::types::{
 };
 use windmill_mcp::server::{
     BackendResult, CallToolResult, EndpointTool, ErrorData, McpBackend, McpRequest, PathFilter,
-    SessionAccess, Tool,
+    RunOutcome, SessionAccess, Tool,
 };
 
 use crate::auth::AuthCache;
 use crate::db::ApiAuthed;
 use crate::jobs::{
-    run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
+    result_to_response, run_wait_result_flow_by_path_internal,
+    run_wait_result_script_by_path_internal, RunJobQuery,
 };
 
 use super::auto_generated_endpoints::all_tools;
@@ -108,6 +109,28 @@ impl WindmillBackend {
     ) -> Self {
         Self { db, user_db, base_internal_url, auth_cache }
     }
+}
+
+/// A successful result goes through the same response shaping as the wait-result endpoint, so a
+/// `windmill_status_code`/`result` wrapper is unwrapped exactly as it is there.
+async fn run_outcome(
+    workspace_id: &str,
+    job_id: uuid::Uuid,
+    (result, success): (Box<serde_json::value::RawValue>, bool),
+) -> BackendResult<RunOutcome> {
+    if success {
+        let response = result_to_response(result, true)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        return Ok(RunOutcome::Success(parse_response_body(response).await?));
+    }
+    Ok(RunOutcome::Failed {
+        job_id: job_id.to_string(),
+        run_url: format!(
+            "{}/run/{job_id}?workspace={workspace_id}",
+            windmill_common::BASE_URL.load()
+        ),
+        result: serde_json::from_str(result.get()).unwrap_or(Value::Null),
+    })
 }
 
 #[async_trait]
@@ -287,7 +310,7 @@ impl McpBackend for WindmillBackend {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value> {
+    ) -> BackendResult<RunOutcome> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "script");
         // Called directly rather than through the jobs router, so its run gate does not apply.
         windmill_common::workspaces::check_role_can_run(&self.db, workspace_id, auth)
@@ -299,9 +322,10 @@ impl McpBackend for WindmillBackend {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
+        let job_id: uuid::Uuid = ulid::Ulid::new().into();
         let result = run_wait_result_script_by_path_internal(
             self.db.clone(),
-            RunJobQuery::default(),
+            RunJobQuery { job_id: Some(job_id), ..Default::default() },
             &script,
             auth.clone(),
             self.user_db.clone(),
@@ -311,7 +335,7 @@ impl McpBackend for WindmillBackend {
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        parse_response_body(result).await
+        run_outcome(workspace_id, job_id, result).await
     }
 
     async fn run_flow(
@@ -321,7 +345,7 @@ impl McpBackend for WindmillBackend {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value> {
+    ) -> BackendResult<RunOutcome> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "flow");
         // Called directly rather than through the jobs router, so its run gate does not apply.
         windmill_common::workspaces::check_role_can_run(&self.db, workspace_id, auth)
@@ -333,9 +357,10 @@ impl McpBackend for WindmillBackend {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
+        let job_id: uuid::Uuid = ulid::Ulid::new().into();
         let result = run_wait_result_flow_by_path_internal(
             self.db.clone(),
-            RunJobQuery::default(),
+            RunJobQuery { job_id: Some(job_id), ..Default::default() },
             &flow,
             auth.clone(),
             self.user_db.clone(),
@@ -345,7 +370,7 @@ impl McpBackend for WindmillBackend {
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        parse_response_body(result).await
+        run_outcome(workspace_id, job_id, result).await
     }
 
     async fn call_endpoint(

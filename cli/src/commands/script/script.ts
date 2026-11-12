@@ -9,6 +9,7 @@ import {
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
+import { ciTestBatchDeployed, ciTestBatchSkip } from "../../core/ci_test_batch.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -1002,7 +1003,9 @@ async function createScript(
   // skip_if_noop asks the backend to treat deploys identical to the parent
   // (same content, lockfile, and metadata) as a no-op, so the CLI does not
   // produce phantom git-sync / promotion commits on re-pushes.
-  const skipIfNoop = "skip_if_noop=true";
+  const skipIfNoop =
+    "skip_if_noop=true" +
+    (ciTestBatchSkip().skipCiTests ? "&skip_ci_tests=true" : "");
   const extraHeaders = getHeaders();
   if (!bundleContent) {
     try {
@@ -1067,6 +1070,7 @@ async function createScript(
       );
     }
   }
+  ciTestBatchDeployed("script", body.path);
   return performance.now() - start;
 }
 

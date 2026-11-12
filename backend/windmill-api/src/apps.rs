@@ -68,6 +68,7 @@ use windmill_common::{
     jobs::{
         normalize_nul_in_args, resolve_delete_after_secs, runnable_ref_to_payload,
         sanitize_untrusted_args, schedule_job_deletion, JobPayload, JobTriggerKind, RawCode,
+        RunOrigin,
     },
     runnable_ref::RunnableRef,
     scripts::ScriptLang,
@@ -4659,6 +4660,9 @@ async fn execute_component(
     // tag from the deployed policy and ignore the request body.
     let is_preview = payload.force_viewer_static_fields.is_some();
     let is_inline = payload.raw_code.is_some();
+    // Whether the caller, rather than the deployed app, chose `payload.path`: always in preview,
+    // and in run mode when a Viewer app falls back to a runnable its policy does not declare.
+    let mut caller_named_path = is_preview;
 
     // Preview mode runs request-supplied code as a `Viewer`-mode job (the
     // app-editor equivalent of `/jobs/run/preview`), so it enforces the same
@@ -4926,7 +4930,10 @@ async fn execute_component(
                                 triggerables_v2.get(&format!("{}:{p}", payload.component))
                             })
                         })
-                        .or(Some(&policy_triggerables_default)),
+                        .or_else(|| {
+                            caller_named_path = true;
+                            Some(&policy_triggerables_default)
+                        }),
                     _ => None,
                 })
                 .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
@@ -5161,7 +5168,18 @@ async fn execute_component(
                 )
             }
             // flow or script:
-            (Some(runnable), None, None) => runnable_ref_to_payload(&runnable, &db, &w_id).await?,
+            (Some(runnable), None, None) => {
+                let origin = match opt_authed.as_ref() {
+                    Some(viewer) if caller_named_path => RunOrigin::NamedBy(viewer.to_authed_ref()),
+                    None if caller_named_path => {
+                        return Err(Error::NotAuthorized(
+                            "Required to be authed in viewer mode".to_string(),
+                        ))
+                    }
+                    _ => RunOrigin::Deployed,
+                };
+                runnable_ref_to_payload(&runnable, origin, &db, &w_id).await?
+            }
             // inline script: "preview" mode, or run mode without an entry in the
             // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
             (None, Some(raw_code), None) => {

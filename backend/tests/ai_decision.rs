@@ -1,6 +1,6 @@
 //! AI decision steps run end to end against a stand-in for the decision endpoints: TypeSafe's
 //! System One, Cloudflare Workers AI's, which serves each model at its own URL inside an API
-//! envelope, and OpenAI's Decisions API.
+//! envelope, and OpenAI's and Gemini's Decisions APIs.
 
 use axum::{routing::post, Json, Router};
 use serde_json::{json, Value};
@@ -51,6 +51,22 @@ async fn start_decision_stub() -> anyhow::Result<u16> {
                     .collect::<Vec<_>>();
                 Json(json!({"answers": answers}))
             }),
+        )
+        // Gemini's keys the questions as System One does, and authenticates with its own header.
+        .route(
+            "/gemini/v1beta/decisions",
+            post(
+                |headers: axum::http::HeaderMap, Json(body): Json<Value>| async move {
+                    if headers.get("x-goog-api-key").and_then(|v| v.to_str().ok()) != Some("key")
+                        || body["input"] != "I was charged twice"
+                    {
+                        return Err(axum::http::StatusCode::UNAUTHORIZED);
+                    }
+                    let mut answers = refund_answers(&body);
+                    answers["usage"] = json!({"total_input_tokens": 10, "total_output_tokens": 0});
+                    Ok(Json(answers))
+                },
+            ),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
@@ -90,6 +106,11 @@ async fn test_ai_decision_answers_route_a_following_branch(
             "kind": "openai",
             "resource": {"api_key": "key", "base_url": format!("http://127.0.0.1:{stub_port}/openai/v1")},
             "model": "gpt-6-luna"
+        }),
+        json!({
+            "kind": "googleai",
+            "resource": {"api_key": "key", "base_url": format!("http://127.0.0.1:{stub_port}/gemini/v1beta")},
+            "model": "gemini-decision-1"
         }),
     ] {
         let flow: FlowValue = serde_json::from_value(json!({

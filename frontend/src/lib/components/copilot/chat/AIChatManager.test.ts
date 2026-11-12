@@ -141,6 +141,11 @@ vi.mock('$lib/aiStore', () => ({
 	copilotSessionModel: writable(undefined),
 	getCurrentModel: mocks.getCurrentModel,
 	tryGetCurrentModel: mocks.tryGetCurrentModel,
+	// A session reads its own workspace's config; here every workspace has the same one.
+	getWorkspaceCopilotInfo: () => ({ enabled: true, workspaceDisabled: false, aiModels: [] }),
+	loadWorkspaceCopilotInfo: async () => ({ enabled: true, workspaceDisabled: false, aiModels: [] }),
+	resolveModelFor: mocks.getCurrentModel,
+	tryResolveModelFor: mocks.tryGetCurrentModel,
 	getCombinedCustomPrompt: () => '',
 	getCustomPromptParts: () => ({}),
 	getUserCustomPrompts: () => ({}),

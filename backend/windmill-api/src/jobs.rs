@@ -117,7 +117,8 @@ use windmill_common::{
         Suspend,
     },
     jobs::{
-        script_path_to_payload, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob, RawCode,
+        script_path_to_payload, ChosenBy, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob,
+        RawCode, RunOrigin,
     },
     oauth2::HmacSha256,
     query_builders,
@@ -7138,6 +7139,7 @@ async fn batch_rerun_handle_job(
                 match RunnableRef::from_path(&job.script_path, false) {
                     Ok(script) => push_script_job_by_path_into_queue(
                         authed.clone(),
+                        ChosenBy::Caller,
                         db.clone(),
                         None,
                         user_db.clone(),
@@ -7725,6 +7727,7 @@ pub async fn run_script_by_path(
 
     let (uuid, _, _) = push_script_job_by_path_into_queue(
         authed,
+        ChosenBy::Caller,
         db,
         None,
         user_db,
@@ -7940,6 +7943,7 @@ pub async fn run_workflow_as_code(
                 let script = RunnableRef::from_path(job.script_path(), false)?;
                 script_path_to_payload(
                     &script,
+                    RunOrigin::Deployed,
                     Some(userdb_authed),
                     db.clone(),
                     &w_id,
@@ -8273,6 +8277,7 @@ pub async fn run_wait_result_job_by_path_get(
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_authed) =
         script_path_to_payload(
             &script,
+            RunOrigin::NamedBy(authed.to_authed_ref()),
             Some(user_db_with_authed),
             db.clone(),
             &w_id,
@@ -8378,7 +8383,10 @@ pub async fn run_wait_result_flow_by_path_get(
         )
         .await?;
 
-    run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id).await
+    let (result, success) =
+        run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id)
+            .await?;
+    result_to_response(result, success)
 }
 
 pub async fn run_wait_result_script_by_path(
@@ -8406,8 +8414,11 @@ pub async fn run_wait_result_script_by_path(
         )
         .await?;
 
-    run_wait_result_script_by_path_internal(db, run_query, &script, authed, user_db, w_id, args)
-        .await
+    let (result, success) = run_wait_result_script_by_path_internal(
+        db, run_query, &script, authed, user_db, w_id, args,
+    )
+    .await?;
+    result_to_response(result, success)
 }
 
 pub async fn run_wait_result_script_by_path_internal(
@@ -8418,13 +8429,14 @@ pub async fn run_wait_result_script_by_path_internal(
     user_db: UserDB,
     w_id: String,
     args: PushArgsOwned,
-) -> error::Result<Response> {
+) -> error::Result<(Box<RawValue>, bool)> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
     let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
         script_path_to_payload(
             script,
+            RunOrigin::NamedBy(authed.to_authed_ref()),
             Some(db_authed),
             db.clone(),
             &w_id,
@@ -8492,7 +8504,8 @@ pub async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
+    let wait_result =
+        run_wait_result_internal(&db, uuid, &w_id, None, false, &authed.username).await;
     handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
@@ -8655,7 +8668,10 @@ pub async fn run_wait_result_flow_by_path(
         )
         .await?;
 
-    run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id).await
+    let (result, success) =
+        run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id)
+            .await?;
+    result_to_response(result, success)
 }
 
 pub async fn stream_flow_by_path(
@@ -8790,6 +8806,7 @@ pub async fn stream_job(
         RunnableId::ScriptId(ScriptId::ScriptPath(script)) | RunnableId::HubScript(script) => {
             let (uuid, _, _) = push_script_job_by_path_into_queue(
                 authed.clone(),
+                ChosenBy::Caller,
                 db.clone(),
                 None,
                 user_db,
@@ -8898,7 +8915,7 @@ pub async fn run_wait_result_flow_by_path_internal(
     user_db: UserDB,
     args: PushArgsOwned,
     w_id: String,
-) -> error::Result<Response> {
+) -> error::Result<(Box<RawValue>, bool)> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
     let flow_path = flow.path();
@@ -8961,7 +8978,7 @@ pub async fn run_wait_result_flow_by_version_get(
     let flow_version_info =
         get_flow_version_info_from_version(&db, version, &w_id, &flow_path).await?;
 
-    run_flow_and_wait_result(
+    let (result, success) = run_flow_and_wait_result(
         &authed,
         &db,
         user_db,
@@ -8972,7 +8989,8 @@ pub async fn run_wait_result_flow_by_version_get(
         args,
         None,
     )
-    .await
+    .await?;
+    result_to_response(result, success)
 }
 
 pub async fn run_wait_result_flow_by_version(
@@ -9004,7 +9022,7 @@ pub async fn run_wait_result_flow_by_version(
     let flow_version_info =
         get_flow_version_info_from_version(&db, version, &w_id, &flow_path).await?;
 
-    run_flow_and_wait_result(
+    let (result, success) = run_flow_and_wait_result(
         &authed,
         &db,
         user_db,
@@ -9015,7 +9033,8 @@ pub async fn run_wait_result_flow_by_version(
         args,
         None,
     )
-    .await
+    .await?;
+    result_to_response(result, success)
 }
 
 /// Whether request-supplied SQL from an operator may run. Operators can only run deployed
@@ -10639,6 +10658,7 @@ async fn run_dynamic_select(
 
                 let (uuid, _, _) = push_script_job_by_path_into_queue(
                     authed.clone(),
+                    ChosenBy::Caller,
                     db.clone(),
                     None,
                     user_db.clone(),
@@ -12224,6 +12244,8 @@ struct CompletedJobResult {
     success: Option<bool>,
     completed: bool,
     result: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_skipped: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -12248,7 +12270,8 @@ async fn get_completed_job_result_maybe(
         "SELECT
                 result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                 result_columns,
-                status = 'success' AS \"success!\",
+                status IN ('success', 'skipped') AS \"success!\",
+                status = 'skipped' AS \"is_skipped!\",
                 created_by AS \"created_by!\"
             FROM v2_job_completed c
                 JOIN v2_job j USING (id)
@@ -12287,6 +12310,7 @@ async fn get_completed_job_result_maybe(
             success: Some(res.success),
             completed: true,
             result: res.result,
+            is_skipped: Some(res.is_skipped),
         })
         .into_response())
     } else if get_started.is_some_and(|x| x) {
@@ -12326,6 +12350,7 @@ async fn get_completed_job_result_maybe(
             completed: false,
             success: None,
             result: None,
+            is_skipped: None,
         })
         .into_response())
     } else {
@@ -12334,6 +12359,7 @@ async fn get_completed_job_result_maybe(
             completed: false,
             success: None,
             result: None,
+            is_skipped: None,
         })
         .into_response())
     }

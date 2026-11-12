@@ -5325,6 +5325,26 @@ async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
                         )
                         .await;
                     }
+
+                    // The pull request "Windmill diff" check, for heads no webhook
+                    // delivery has checked (an instance the host cannot reach).
+                    #[cfg(feature = "enterprise")]
+                    if git_ref != "HEAD" {
+                        if let Err(e) = windmill_api::git_sync_ee::poll_pr_diff_checks(
+                            db,
+                            &row.workspace_id,
+                            repo,
+                            &git_ref,
+                        )
+                        .await
+                        {
+                            tracing::warn!(
+                                "git auto-pull: PR diff check poll failed for {}/{}: {e:#}",
+                                row.workspace_id,
+                                repo.git_repo_resource_path
+                            );
+                        }
+                    }
                 }
                 Ok(None) => {}
                 Err(e) => {
@@ -5934,7 +5954,11 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 let restart_in_turn =
                     has_dedicated && **wc != config && wc.cache_clear == config.cache_clear;
                 let (deferred, _deferred_rx) = KillpillSender::new(1);
-                let kill = if restart_in_turn { deferred } else { tx.clone() };
+                let kill = if restart_in_turn {
+                    deferred
+                } else {
+                    tx.clone()
+                };
                 if wc.dedicated_worker != config.dedicated_worker
                     || wc.dedicated_workers != config.dedicated_workers
                     || (has_dedicated && **wc != config)
@@ -5977,7 +6001,10 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 }
 
                 if restart_in_turn {
-                    windmill_common::worker::restart_dedicated_worker_in_turn(db.clone(), tx.clone());
+                    windmill_common::worker::restart_dedicated_worker_in_turn(
+                        db.clone(),
+                        tx.clone(),
+                    );
                 }
             }
             drop(wc);

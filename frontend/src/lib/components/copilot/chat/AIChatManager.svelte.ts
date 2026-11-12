@@ -59,6 +59,7 @@ import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { AI_PROVIDERS, workspaceAIClients, getStreamedCompletionText } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { logDisplayBlocks } from '$lib/components/display/displayTelemetry'
 import { modelSupportsVision } from '../modelConfig'
 import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
@@ -98,7 +99,17 @@ import { fromStore, get } from 'svelte/store'
 import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
 import { roleCapabilities, workspaceStore, type DBSchemas } from '$lib/stores'
-import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
+import {
+	copilotInfo,
+	copilotSessionModel,
+	getWorkspaceCopilotInfo,
+	loadWorkspaceCopilotInfo,
+	resolveModelFor,
+	tryResolveModelFor,
+	type AiTarget,
+	type CopilotInfo
+} from '$lib/aiStore'
+import type { ReasoningProviderModel } from '../reasoningRegistry'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
@@ -581,6 +592,18 @@ export class AIChatManager implements ChatViewHost {
 	// when the chat is idle, an auto-resume turn started for them (see
 	// #maybeAutoResumeFromJobs). Ephemeral like queuedMessage — not persisted.
 	pendingJobNotes = $state<string[]>([])
+	// Notes about something that happened outside a turn, delivered with the job notes.
+	// Persisted on the chat record, unlike the job notes, because nothing re-derives
+	// them after a reload.
+	#modelNotes: string[] = []
+	/** Tell the model about something that happened outside a turn, on its next turn. */
+	async queueModelNote(note: string) {
+		this.#modelNotes = [...this.#modelNotes, note]
+		await this.historyManager.setModelNotes(
+			this.historyManager.getCurrentChatId(),
+			this.#modelNotes
+		)
+	}
 	// Guards #maybeAutoResumeFromJobs against re-entering while its own turn spins up.
 	#autoResuming = false
 	#jobPollTimer: ReturnType<typeof setTimeout> | undefined = undefined
@@ -724,8 +747,11 @@ export class AIChatManager implements ChatViewHost {
 		if (this.reasoningSummaryUnavailableFor.length === 0) {
 			return undefined
 		}
-		const provider = getCurrentModel().provider
-		if (!this.reasoningSummaryUnavailableFor.includes(this.reasoningSummaryKey(provider))) {
+		const provider = this.currentModel?.provider
+		if (
+			!provider ||
+			!this.reasoningSummaryUnavailableFor.includes(this.reasoningSummaryKey(provider))
+		) {
 			return undefined
 		}
 		return `Thinking (hidden, ${providerDisplayName(provider)} org not verified)`
@@ -792,6 +818,12 @@ export class AIChatManager implements ChatViewHost {
 	/** Use, Plan or Build. A session keeps its own: the runtime seeds it from the session record
 	 * and stores each change through `onWorkModeChanged`. */
 	workMode = $state<AIWorkMode>(AIWorkMode.BUILD)
+	/** The session is moving into a fork. Its editors stay closed meanwhile: an edit would save a
+	 * draft in the workspace being left, after the move listed what it brings along. */
+	moving = $state(false)
+	/** A move into a fork has started: no turn starts until it ends, retries and edits included.
+	 * Set before `moving`, which waits for the editors to hand over their pending edits. */
+	moveStarted = $state(false)
 	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
 	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
@@ -877,16 +909,12 @@ export class AIChatManager implements ChatViewHost {
 	#copilotInfo = fromStore(copilotInfo)
 	#sessionModel = fromStore(copilotSessionModel)
 	/** Capabilities the provider runs on its own servers, attached by the adapter at send
-	 * time. Never part of `tools`: the request path would try to dispatch them. The two
-	 * `void` reads only subscribe: the model helpers read through `get()`, which tracks
-	 * nothing, so a change of model or of the workspace's AI config would otherwise not
-	 * re-derive. A workspace switch re-derives through the AI config it loads. */
+	 * time. Never part of `tools`: the request path would try to dispatch them. */
 	get providerTools(): ProviderToolSummary[] {
-		void this.#copilotInfo.current
-		void this.#sessionModel.current
-		const model = tryGetCurrentModel()
-		if (!model || (model.provider === 'openai' && this.skipResponsesApi)) return []
-		const enabled = isWebSearchEnabledForProvider(model.provider)
+		const model = this.currentModel
+		const info = this.aiInfo
+		if (!model || !info || (model.provider === 'openai' && this.skipResponsesApi)) return []
+		const enabled = isWebSearchEnabledForProvider(model.provider, info)
 		return sendsWebSearch(this.operatingWorkspace ?? '', model, enabled)
 			? [
 					{
@@ -1076,6 +1104,37 @@ export class AIChatManager implements ChatViewHost {
 	// Session-resolved when a resolver is set, else the globally-active workspace.
 	get operatingWorkspace(): string | undefined {
 		return this.workspaceResolver?.() ?? get(workspaceStore)
+	}
+
+	/** The AI config this chat sends with. A session's is its own workspace's, never the tab's,
+	 * which belongs to whatever workspace is on screen; other chats use the tab's. Undefined while
+	 * a session's is still loading, and reading it starts the load. */
+	get aiInfo(): CopilotInfo | undefined {
+		if (!this.isSessionChat) return this.#copilotInfo.current
+		const workspace = this.operatingWorkspace
+		return workspace ? getWorkspaceCopilotInfo(workspace) : undefined
+	}
+
+	/** The session's workspace and loaded config, for code that cannot wait for the load. */
+	get loadedSessionAiTarget(): AiTarget | undefined {
+		const info = this.isSessionChat ? this.aiInfo : undefined
+		const workspace = this.operatingWorkspace
+		return info && workspace ? { workspace, info } : undefined
+	}
+
+	get currentModel(): ReasoningProviderModel | undefined {
+		// Subscribes only: the model helpers read through `get()`, which tracks nothing.
+		void this.#sessionModel.current
+		const info = this.aiInfo
+		return info && tryResolveModelFor(info)
+	}
+
+	/** Resolved at each request, after any fork commit. Undefined for other chats, whose requests
+	 * use the tab's. */
+	sessionAiTarget = async (): Promise<AiTarget | undefined> => {
+		if (!this.isSessionChat) return undefined
+		const workspace = this.operatingWorkspace ?? ''
+		return { workspace, info: await loadWorkspaceCopilotInfo(workspace) }
 	}
 
 	// Fired whenever the active chat id changes away from the one the consumer
@@ -1517,8 +1576,21 @@ export class AIChatManager implements ChatViewHost {
 		}, 5_000)
 	}
 
+	#autoResumeHolds = 0
+	/** Keep background-job completions from starting a turn until the returned release runs. */
+	holdAutoResume(): () => void {
+		this.#autoResumeHolds++
+		let released = false
+		return () => {
+			if (released) return
+			released = true
+			this.#autoResumeHolds--
+			void this.#maybeAutoResumeFromJobs()
+		}
+	}
+
 	async #maybeAutoResumeFromJobs() {
-		if (this.#autoResuming) return
+		if (this.#autoResuming || this.#autoResumeHolds > 0) return
 		// Global/sessions chat only (the only mode with a jobs tray + preamble).
 		if (this.mode !== AIMode.GLOBAL) return
 		// Mid-turn: the notes will ride that turn's preamble, so don't start another.
@@ -1576,6 +1648,7 @@ export class AIChatManager implements ChatViewHost {
 		this.#jobUpdateReaders.clear()
 		this.backgroundJobs = []
 		this.pendingJobNotes = []
+		this.#modelNotes = []
 	}
 
 	/** Merge a status patch into the tool card identified by tool_call_id, or
@@ -1809,6 +1882,7 @@ export class AIChatManager implements ChatViewHost {
 	): Promise<'ok' | 'empty' | 'aborted' | 'error'> => {
 		this.compacting = true
 		try {
+			const target = await this.sessionAiTarget()
 			// Cap the summarizer's output at the budget already reserved for the
 			// summary: without a cap the model's default max_tokens applies.
 			const raw = await getStreamedCompletionText(
@@ -1819,7 +1893,7 @@ export class AIChatManager implements ChatViewHost {
 					{ role: 'user', content: getCompactionSummaryPrompt() }
 				],
 				abortController,
-				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS }
+				{ maxTokensCap: SUMMARY_OUTPUT_RESERVE_TOKENS, ...target }
 			)
 			const formatted = formatCompactSummary(raw)
 			if (!formatted) {
@@ -2008,12 +2082,9 @@ export class AIChatManager implements ChatViewHost {
 		model: ChatLoopConfig['modelProvider'] | undefined,
 		inFlightTokens = 0
 	): Promise<boolean> => {
+		const info = (await this.sessionAiTarget())?.info ?? get(copilotInfo)
 		const contextWindow = model
-			? getEffectiveModelContextWindow(
-					model.provider,
-					model.model,
-					get(copilotInfo).contextWindowPerModel
-				)
+			? getEffectiveModelContextWindow(model.provider, model.model, info.contextWindowPerModel)
 			: undefined
 		if (contextWindow === undefined || projectedTokens < contextWindow * COMPACTION_TRIGGER_RATIO) {
 			return false
@@ -2921,6 +2992,7 @@ export class AIChatManager implements ChatViewHost {
 				? {
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
+						sessionAi: () => ({ model: this.currentModel, info: this.aiInfo }),
 						artifacts: this.artifacts,
 						access: this.#toolAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
@@ -2951,7 +3023,10 @@ export class AIChatManager implements ChatViewHost {
 					ensurePipeline: this.#ensurePipeline
 				}
 			: baseHelpers
-		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
+		this.systemMessage = assembleGlobalSystemMessage(
+			getCustomPromptParts(AIMode.GLOBAL, this.aiInfo?.customPrompts ?? {}),
+			opts
+		)
 		this.syncArtifactsSession()
 	}
 
@@ -3131,7 +3206,7 @@ export class AIChatManager implements ChatViewHost {
 			return
 		}
 		this.systemMessage = assembleGlobalSystemMessage(
-			getCustomPromptParts(AIMode.GLOBAL),
+			getCustomPromptParts(AIMode.GLOBAL, this.aiInfo?.customPrompts ?? {}),
 			this.globalAssemblyOpts()
 		)
 	}
@@ -3463,7 +3538,8 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	private notifyReasoningSummaryUnavailable = () => {
-		const provider = getCurrentModel().provider
+		const provider = this.currentModel?.provider
+		if (!provider) return
 		const key = this.reasoningSummaryKey(provider)
 		if (!this.reasoningSummaryUnavailableFor.includes(key)) {
 			this.reasoningSummaryUnavailableFor = [...this.reasoningSummaryUnavailableFor, key]
@@ -3512,6 +3588,8 @@ export class AIChatManager implements ChatViewHost {
 			// while a response streams would bill it to the workspace the user landed
 			// on rather than the one whose credentials and proxy served it.
 			const usageWorkspace = this.operatingWorkspace
+			const target = await this.sessionAiTarget()
+			const info = target?.info
 			const result = await runChatLoop({
 				messages,
 				addedMessages,
@@ -3533,7 +3611,7 @@ export class AIChatManager implements ChatViewHost {
 				get tools() {
 					return withWebSearchFallback(
 						self.tools,
-						!!get(copilotInfo).webSearchBackend,
+						!!(info ?? get(copilotInfo)).webSearchBackend,
 						self.providerTools.length > 0
 					)
 				},
@@ -3543,10 +3621,10 @@ export class AIChatManager implements ChatViewHost {
 				abortController,
 				callbacks,
 				get modelProvider() {
-					return getCurrentModel()
+					return info ? resolveModelFor(info) : getCurrentModel()
 				},
 				get webSearch() {
-					return isWebSearchEnabledForProvider(getCurrentModel().provider)
+					return isWebSearchEnabledForProvider(this.modelProvider.provider, info)
 				},
 				// Build the proxy clients against the operating workspace, not the global
 				// singleton: a session deliberately leaves workspaceStore untouched, so the
@@ -3554,13 +3632,14 @@ export class AIChatManager implements ChatViewHost {
 				// request through the navigation workspace's /ai/proxy instead of the
 				// session's — sending it to the wrong workspace's AI credentials.
 				get clients() {
-					const ws = self.operatingWorkspace ?? ''
+					const ws = target?.workspace ?? self.operatingWorkspace ?? ''
 					return {
 						openai: workspaceAIClients.createOpenaiClient(ws),
 						anthropic: workspaceAIClients.createAnthropicClient(ws)
 					}
 				},
-				workspace: this.operatingWorkspace ?? '',
+				workspace: target?.workspace ?? this.operatingWorkspace ?? '',
+				info,
 				skipResponsesApi: this.skipResponsesApi,
 				onSkipResponsesApi: () => {
 					this.skipResponsesApi = true
@@ -3909,7 +3988,9 @@ export class AIChatManager implements ChatViewHost {
 		// false`), and a copy here would double it. Paste tokens are expanded
 		// into the text, as the queue does, because the restore lanes carry no
 		// pastes.
-		if (this.runHeldElsewhere) {
+		// A move into a fork holds turns the same way: one started now would act on the
+		// workspace being left. The composer is locked then, but a retry or an edit is not.
+		if (this.runHeldElsewhere || this.moveStarted) {
 			if (options.synthetic) {
 				// Client-authored prompt (a job auto-resume), not user input: nothing
 				// to hand back and no toast. Releasing the staged text un-blocks the
@@ -3927,7 +4008,12 @@ export class AIChatManager implements ChatViewHost {
 						options.files
 					)
 				}
-				sendUserToast('This session is running in another tab. Your message was kept.', true)
+				sendUserToast(
+					this.moveStarted
+						? 'This session is moving to another workspace. Your message was kept.'
+						: 'This session is running in another tab. Your message was kept.',
+					true
+				)
 			}
 			return false
 		}
@@ -4126,7 +4212,7 @@ export class AIChatManager implements ChatViewHost {
 		// only edit/retry of a pre-id transcript can arrive without one, and the
 		// hash is deterministic, so hydration reproduces the original id.
 		const files = withAttachedTextFileIds(options.files ?? [])
-		const sendModel = tryGetCurrentModel()
+		const sendModel = this.currentModel
 		const modelIsBlind = !!sendModel && !modelSupportsVision(sendModel.provider, sendModel.model)
 		if (requestedImages.length > 0 && modelIsBlind) {
 			// An image-only message has nothing left once the images are dropped —
@@ -4264,8 +4350,13 @@ export class AIChatManager implements ChatViewHost {
 				this.refreshSessionAccess(this.operatingWorkspace ?? ''),
 				resolveResourceTypeSync(this.operatingWorkspace ?? '', this.messages).then((sync) => {
 					this.resourceTypeSync = sync
-				})
+				}),
+				// Its workspace prompt goes into the system prompt rebuilt below.
+				this.sessionAiTarget().catch(() => {})
 			])
+			if (this.isSessionChat) {
+				this.rebuildGlobalSystemMessage()
+			}
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
 		// request went out. Mirror the main "cancelled before usable output" recovery:
@@ -4421,7 +4512,7 @@ export class AIChatManager implements ChatViewHost {
 			// loading + abortController were set optimistically before beforeSend, above.
 			this.#automaticScroll = true
 
-			const model = tryGetCurrentModel()
+			const model = this.currentModel
 			if (model) {
 				const chatId = this.historyManager.getCurrentChatId()
 				logFeatureUsage('ai_chat', 'message', {
@@ -4513,11 +4604,18 @@ export class AIChatManager implements ChatViewHost {
 			// turn (notify-only wake). Folded into the model-facing text only — the
 			// display bubble keeps this.instructions, and no extra message is added, so
 			// the display↔messages index pairing above stays intact. Ephemeral.
+			const notes = [...this.#modelNotes, ...this.pendingJobNotes]
 			const jobNotesPreamble =
-				this.mode === AIMode.GLOBAL && this.pendingJobNotes.length > 0
-					? this.pendingJobNotes.join('\n\n') + '\n\n'
-					: ''
-			if (jobNotesPreamble) this.pendingJobNotes = []
+				this.mode === AIMode.GLOBAL && notes.length > 0 ? notes.join('\n\n') + '\n\n' : ''
+			if (jobNotesPreamble) {
+				this.pendingJobNotes = []
+				if (this.#modelNotes.length > 0) {
+					this.#modelNotes = []
+					void this.historyManager
+						.setModelNotes(this.historyManager.getCurrentChatId(), [])
+						.catch((e) => console.error('Failed to clear model notes', e))
+				}
+			}
 			const modelInstructions =
 				this.mode === AIMode.GLOBAL
 					? jobNotesPreamble + this.expandGlobalSkillCommand(oldInstructions)
@@ -4622,6 +4720,7 @@ export class AIChatManager implements ChatViewHost {
 						// deduped in commitInterruptedTurn.
 						if (this.currentReply) {
 							partialReply = this.currentReply
+							logDisplayBlocks(this.currentReply)
 						}
 						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
@@ -4895,15 +4994,11 @@ export class AIChatManager implements ChatViewHost {
 				if (
 					requestCarriedImages &&
 					messagesHaveImageParts(this.messages) &&
-					isImageRejection(err, [
-						sendModel?.model,
-						tryGetCurrentModel()?.model,
-						failingModel?.model
-					])
+					isImageRejection(err, [sendModel?.model, this.currentModel?.model, failingModel?.model])
 				) {
 					this.messages = stripImagePartsFromMessages(this.messages)
 					sendUserToast(
-						`${tryGetCurrentModel()?.model ?? 'The model'} could not read the attached image(s), so they were removed from the conversation. Your message was kept.`,
+						`${this.currentModel?.model ?? 'The model'} could not read the attached image(s), so they were removed from the conversation. Your message was kept.`,
 						true
 					)
 				}
@@ -5064,7 +5159,7 @@ export class AIChatManager implements ChatViewHost {
 		// nothing yet, so there is nothing to restore. Un-submitted context-chip
 		// edits are the one loss — the chips re-seed from the untouched message
 		// on the next edit.
-		if (this.runHeldElsewhere) {
+		if (this.runHeldElsewhere || this.moveStarted) {
 			if (newContent !== undefined) {
 				this.restoreToInput(
 					expanded(chatDraft(newContent, pastes ?? [])),
@@ -5073,7 +5168,12 @@ export class AIChatManager implements ChatViewHost {
 				)
 			}
 			// "Text", not "message": chip edits are the part that does not survive.
-			sendUserToast('This session is running in another tab. Your text was kept.', true)
+			sendUserToast(
+				this.moveStarted
+					? 'This session is moving to another workspace. Your text was kept.'
+					: 'This session is running in another tab. Your text was kept.',
+				true
+			)
 			return
 		}
 
@@ -5227,6 +5327,7 @@ export class AIChatManager implements ChatViewHost {
 				if (this.isJobNonTerminal(j.status)) j.detached = true
 			}
 			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
+			this.#modelNotes = chat.modelNotes ?? []
 			// Reloading resolves no card on its own. Settle every one the poller above
 			// will not reach, whoever wrote it — a record from a build that stored cards
 			// without their jobs would otherwise restore one that spins forever.

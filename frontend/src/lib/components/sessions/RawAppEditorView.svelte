@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -143,16 +143,17 @@
 			await runtime.loadRawApp(workspaceId, path, true)
 			return
 		}
-		cell.store.val = setUp
-		// Saved now rather than on the autosave debounce: the editor page reads it back by path.
+		// Saved directly: the editor page reads it back by path. Through this tab's store it would
+		// reach the editor mounted under the picker, which resets `data` to its own data table policy.
 		const key = { workspace: workspaceId, itemKind: 'raw_app' as const, path }
-		UserDraft.save('raw_app', path, runtimeRawAppToDraft(setUp), { workspace: workspaceId })
-		await tick()
-		await UserDraftDbSyncer.flush(key)
-		await UserDraft.forcePersist('raw_app', path, { workspace: workspaceId })
+		await UserDraftDbSyncer.save({ ...key, value: runtimeRawAppToDraft(setUp), immediate: true })
 		const saved = UserDraftDbSyncer.getState(key)
 		if (saved.state === 'failed') {
 			sendUserToast(`Could not save the app: ${saved.failureMessage ?? 'unknown error'}`, true)
+			// Left parked, the syncer would retry this setup on unmount or page close, after the
+			// user may have dismissed the reopened picker or chosen to build with AI instead.
+			UserDraftDbSyncer.dropPending(key)
+			setupSettled = false
 			return
 		}
 		// The session was opened for this app alone; with nothing said in it, it goes.

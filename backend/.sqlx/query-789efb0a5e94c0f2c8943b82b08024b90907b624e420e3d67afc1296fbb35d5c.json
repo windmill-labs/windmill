@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT result AS \"result: sqlx::types::Json<serde_json::Value>\",\n                    status = 'success' AS \"success!\"\n             FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+  "query": "SELECT result AS \"result: sqlx::types::Json<serde_json::Value>\",\n                    status IN ('success', 'skipped') AS \"success!\"\n             FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       null
     ]
   },
-  "hash": "4e14b95c57c6f987f020376f76ad4dd0ff0d043b3eff62863c8f8db89ad34a4e"
+  "hash": "789efb0a5e94c0f2c8943b82b08024b90907b624e420e3d67afc1296fbb35d5c"
 }

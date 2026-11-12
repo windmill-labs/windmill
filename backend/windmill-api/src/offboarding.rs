@@ -206,19 +206,7 @@ async fn get_offboard_preview(
     .fetch_all(db)
     .await?;
 
-    let trigger_tables = [
-        "http_trigger",
-        "websocket_trigger",
-        "kafka_trigger",
-        "postgres_trigger",
-        "mqtt_trigger",
-        "amqp_trigger",
-        "nats_trigger",
-        "sqs_trigger",
-        "gcp_trigger",
-        "azure_trigger",
-        "email_trigger",
-    ];
+    let trigger_tables = crate::users::TRIGGER_TABLES;
     let mut triggers = HashMap::new();
     for table in &trigger_tables {
         // SAFETY: `table` comes from a hardcoded allowlist `trigger_tables`, not user input.
@@ -1153,19 +1141,7 @@ async fn offboard_user_from_workspace<'c>(
     ).execute(&mut **tx).await?;
 
     // ---- triggers (all 10 types with path/permissioned_as) ----
-    let trigger_tables = [
-        "http_trigger",
-        "websocket_trigger",
-        "kafka_trigger",
-        "postgres_trigger",
-        "mqtt_trigger",
-        "amqp_trigger",
-        "nats_trigger",
-        "sqs_trigger",
-        "gcp_trigger",
-        "azure_trigger",
-        "email_trigger",
-    ];
+    let trigger_tables = crate::users::TRIGGER_TABLES;
 
     let mut triggers_reassigned: i64 = 0;
     // SAFETY: `table` comes from a hardcoded allowlist `trigger_tables`, not user input.

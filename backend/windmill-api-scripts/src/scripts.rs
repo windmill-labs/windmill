@@ -9,8 +9,8 @@
 use axum::extract::Multipart;
 use windmill_api_auth::{
     auth::{list_tokens_internal, AuthCache, TruncatedTokenWithEmail},
-    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
-    ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_is_writer,
+    require_owner_of_path, ApiAuthed,
 };
 use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
@@ -40,7 +40,11 @@ use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
-use windmill_dep_map::{lock_hash::record_lock_hashes, process_relative_imports};
+use windmill_dep_map::{
+    ci_tests::{CiTestBatchItem, CiTestBatchOutcome},
+    lock_hash::record_lock_hashes,
+    process_relative_imports,
+};
 
 use windmill_common::{
     assets::{
@@ -144,6 +148,7 @@ pub fn workspaced_service() -> Router {
         // CI test results
         .route("/ci_test_results/{kind}/{*path}", get(get_ci_test_results))
         .route("/ci_test_results_batch", post(get_ci_test_results_batch))
+        .route("/trigger_ci_tests_batch", post(trigger_ci_tests_batch))
         // Save-time schema-contract check (pipelines gap #2b)
         .route("/check_schema_contracts", post(check_schema_contracts))
 }
@@ -575,6 +580,7 @@ async fn create_snapshot_script(
                 user_db.clone(),
                 webhook.clone(),
                 query.skip_if_noop,
+                query.skip_ci_tests,
                 None,
             )
             .await?;
@@ -668,6 +674,9 @@ struct CreateScriptQuery {
     /// sync / promotion callbacks are suppressed.
     #[serde(default)]
     skip_if_noop: bool,
+    /// See `windmill_dep_map::ci_tests::SkipCiTestsQuery`; also carried to the dependency job.
+    #[serde(default)]
+    skip_ci_tests: bool,
 }
 
 async fn create_script(
@@ -686,6 +695,7 @@ async fn create_script(
         db,
         w_id,
         query.skip_if_noop,
+        query.skip_ci_tests,
         ns,
         None,
     )
@@ -727,6 +737,7 @@ async fn update_script(
         db,
         w_id,
         query.skip_if_noop,
+        query.skip_ci_tests,
         ns,
         Some(path.to_string()),
     )
@@ -740,6 +751,7 @@ async fn deploy_script(
     db: DB,
     w_id: String,
     skip_if_noop: bool,
+    skip_ci_tests: bool,
     ns: NewScript,
     supersede_head_at: Option<String>,
 ) -> Result<(StatusCode, String)> {
@@ -769,6 +781,7 @@ async fn deploy_script(
         user_db,
         webhook,
         skip_if_noop,
+        skip_ci_tests,
         supersede_head_at,
     )
     .await?;
@@ -796,7 +809,7 @@ async fn deploy_script(
         }
         hdm.handle(&db).await?;
         let db2 = db.clone();
-        if ready_to_test {
+        if ready_to_test && !skip_ci_tests {
             tokio::spawn(async move {
                 if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
                     &db2,
@@ -1347,6 +1360,7 @@ async fn create_script_internal<'c>(
     user_db: UserDB,
     webhook: WebhookShared,
     skip_if_noop: bool,
+    skip_ci_tests: bool,
     // When set, the parent is the live head at this path rather than anything the body
     // named, resolved against the deploying transaction.
     supersede_head_at: Option<String>,
@@ -3048,13 +3062,15 @@ async fn create_script_internal<'c>(
         // Its dependency job is tagged for a dedicated worker. One taking it through a
         // `dedicated_workers` pattern only listens to the scripts it found at its last config
         // load: re-saving the group's config reloads it, unless the live version it replaces
-        // was served already (a version adopted from a deleted path was not).
+        // was served already (a version adopted from a deleted path was not). An entry's one
+        // leading `/` is dropped first, as `WorkspacedPath::dedicated` reads it for the worker.
         sqlx::query(
             "UPDATE config SET config = config
              WHERE name LIKE 'worker\\_\\_%'
                AND jsonb_typeof(config->'dedicated_workers') = 'array'
                AND EXISTS (
-                   SELECT 1 FROM jsonb_array_elements_text(config->'dedicated_workers') e
+                   SELECT 1 FROM jsonb_array_elements_text(config->'dedicated_workers') raw,
+                       regexp_replace(raw, '^([^:]*):/(?!/)', '\\1:') e
                    WHERE right(e, 2) = '/*' AND starts_with($1 || ':' || $2, left(e, -1)))
                AND NOT EXISTS (
                    SELECT 1 FROM script WHERE workspace_id = $1 AND hash = $3 AND path = $2
@@ -3085,6 +3101,9 @@ async fn create_script_internal<'c>(
         }
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));
+        }
+        if skip_ci_tests {
+            args.insert("skip_ci_tests".to_string(), to_raw_value(&true));
         }
 
         let tx = PushIsolationLevel::Transaction(tx);
@@ -3166,12 +3185,18 @@ async fn create_script_internal<'c>(
             let deployment_message = ns.deployment_message.clone();
             let content = ns.content.clone();
             let language = ns.language.clone();
+            let relock_args = skip_ci_tests.then(|| {
+                sqlx::types::Json(HashMap::from([(
+                    "skip_ci_tests".to_string(),
+                    to_raw_value(&true),
+                )]))
+            });
             tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                tokio::time::sleep(windmill_dep_map::ci_tests::LOCKED_DEPLOY_RELOCK_DELAY).await;
                 if let Err(e) = process_relative_imports(
                     &db2,
                     None,
-                    None,
+                    relock_args.as_ref(),
                     &w_id2,
                     &script_path2,
                     parent_path,
@@ -5042,14 +5067,71 @@ async fn get_ci_test_results(
 }
 
 #[derive(Deserialize)]
-struct CiTestBatchItem {
-    path: String,
-    kind: String,
+struct CiTestBatchRequest {
+    items: Vec<CiTestBatchItem>,
 }
 
 #[derive(Deserialize)]
-struct CiTestBatchRequest {
+struct TriggerCiTestsBatchRequest {
     items: Vec<CiTestBatchItem>,
+    #[serde(default)]
+    ignore_pending: bool,
+}
+
+async fn trigger_ci_tests_batch(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<TriggerCiTestsBatchRequest>,
+) -> JsonResult<CiTestBatchOutcome> {
+    // The tests run as the caller, as a deploy runs them as the deployer, so queueing them
+    // takes a role that may run and the authority deploying the items does: the tests can be
+    // ones the caller cannot read. No cap on the items: a batch is as large as its push.
+    windmill_common::workspaces::check_role_can_run(&db, &w_id, &authed).await?;
+    for item in &req.items {
+        let (perms_query, scope) = match item.kind.as_str() {
+            "script" => (
+                "SELECT extra_perms FROM script WHERE path = $1 AND workspace_id = $2 \
+                 ORDER BY created_at DESC LIMIT 1",
+                "scripts",
+            ),
+            "flow" => (
+                "SELECT extra_perms FROM flow WHERE path = $1 AND workspace_id = $2",
+                "flows",
+            ),
+            "resource" => (
+                "SELECT extra_perms FROM resource WHERE path = $1 AND workspace_id = $2",
+                "resources",
+            ),
+            other => {
+                return Err(Error::BadRequest(format!(
+                    "CI tests cannot target an item of kind {other}"
+                )))
+            }
+        };
+        check_scopes(&authed, || format!("{scope}:write:{}", item.path))?;
+        require_is_writer(
+            &authed,
+            &item.path,
+            &w_id,
+            db.clone(),
+            perms_query,
+            &item.kind,
+        )
+        .await?;
+    }
+
+    Ok(Json(
+        windmill_dep_map::ci_tests::trigger_ci_tests_for_batch(
+            &db,
+            &w_id,
+            req.items,
+            req.ignore_pending,
+            &authed.email,
+            &authed.username,
+        )
+        .await?,
+    ))
 }
 
 async fn get_ci_test_results_batch(

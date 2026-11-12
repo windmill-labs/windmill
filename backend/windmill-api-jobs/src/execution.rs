@@ -37,7 +37,7 @@ use windmill_common::{
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
-        JobPayload,
+        ChosenBy, JobPayload,
     },
     runnable_ref::RunnableRef,
     triggers::TriggerMetadata,
@@ -577,7 +577,7 @@ pub async fn run_wait_result_internal(
                     SELECT
                         result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                         result_columns,
-                        status = 'success' AS \"success!\"
+                        status IN ('success', 'skipped') AS \"success!\"
                     FROM
                         v2_job_completed
                     WHERE
@@ -1167,7 +1167,7 @@ pub async fn run_flow_and_wait_result(
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
-) -> error::Result<Response> {
+) -> error::Result<(Box<RawValue>, bool)> {
     let (uuid, early_return, has_failure_module, _) = run_flow(
         authed,
         db,
@@ -1182,7 +1182,7 @@ pub async fn run_flow_and_wait_result(
     )
     .await?;
 
-    run_wait_result(
+    run_wait_result_internal(
         &db,
         uuid,
         w_id,
@@ -1242,6 +1242,7 @@ pub async fn push_flow_job_by_path_into_queue<'c>(
 
 pub async fn push_script_job_by_path_into_queue<'c>(
     authed: ApiAuthed,
+    chosen_by: ChosenBy,
     db: DB,
     tx_o: Option<sqlx::Transaction<'c, sqlx::Postgres>>,
     user_db: UserDB,
@@ -1267,6 +1268,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
         script_path_to_payload(
             script,
+            chosen_by.origin(authed.to_authed_ref()),
             Some(userdb_authed),
             db.clone(),
             &w_id,
