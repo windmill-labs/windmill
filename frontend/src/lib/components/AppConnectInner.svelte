@@ -1293,14 +1293,6 @@
 				{#snippet title()}
 					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
 					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
-					<!-- Also listed under the instance section: say what this row does instead. -->
-					{#if !oauth && isSharedConnect(key)}
-						<span class="shrink-0 text-2xs font-normal text-secondary">
-							{isCcCapable(key) || connectsInfo[key]?.supports_client_credentials
-								? 'with your own client ID and secret'
-								: 'entered manually'}
-						</span>
-					{/if}
 				{/snippet}
 				{#snippet subtitle()}
 					{plainDescription(resourceTypeDescriptions[key])}
