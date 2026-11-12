@@ -625,10 +625,12 @@ pub async fn run_wait_result_internal(
 
 /// Content types a workspace without a paid plan may serve on Windmill Cloud: data, never a
 /// document a browser renders as a page (HTML, SVG, XML, PDF, JS, ...).
-const PLAIN_CONTENT_TYPES: [&str; 7] = [
+const PLAIN_CONTENT_TYPES: [&str; 9] = [
     "application/json",
+    "application/x-ndjson",
     "text/plain",
     "text/csv",
+    "text/calendar",
     "image/png",
     "image/jpeg",
     "image/gif",
