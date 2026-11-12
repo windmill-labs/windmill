@@ -127,8 +127,6 @@
 	let canSaveCustomPath = $derived(
 		!disabled && !savingCustomPath && customPathInput !== '' && customPathInput !== customPath
 	)
-	// The Embed toggle only shows outside Members, so it must not linger on from another mode.
-	let customUrlEmbed = $derived(embedMode && mode != 'publisher')
 	let customUrlBase = $derived(customUrlBaseOf(workspace, globalWorkspacedRoute))
 	let fullCustomUrl = $derived(customUrlBase + (customPath ?? ''))
 	// The guest JWT rides on the custom URL when set, else on the secret URL.
@@ -158,6 +156,12 @@
 
 	function toEmbedSnippet(url: string): string {
 		return `<iframe src="${url}" title="Windmill app" width="100%" height="600"></iframe>`
+	}
+
+	// The URL/Embed toggle only picks the format. Every link on the tab follows it, the JWT ones
+	// included: a JWT link also works as a plain redirect target.
+	function formatLink(url: string): string {
+		return embedMode ? toEmbedSnippet(url) : url
 	}
 </script>
 
@@ -251,7 +255,7 @@
 	{#if deployed}
 		<Label label={mode == 'publisher' ? 'Link' : 'Secret URL'}>
 			{#snippet action()}
-				{#if secretUrlHref && mode != 'publisher'}
+				{#if mode == 'publisher' || secretUrlHref}
 					<Toggle
 						size="xs"
 						checked={embedMode}
@@ -261,13 +265,20 @@
 				{/if}
 			{/snippet}
 			{#if mode == 'publisher'}
-				<ClipboardPanel content={appUrl} size="md" />
+				<ClipboardPanel content={formatLink(appUrl)} size="md" />
+				{#if embedMode}
+					<div class="text-2xs text-secondary">
+						Viewers sign in to Windmill inside the iframe, so the embedding page must share
+						Windmill's top-level domain. To skip that login, open it with a JWT from your own
+						product.
+					</div>
+				{/if}
 				<!-- The link above only takes a Windmill login. Embedders that sign their own users in
 				     append an external JWT to the secret URL instead (`/public/<ws>/<secret>/<jwt>`),
 				     which only self-hosted enterprise instances verify, against their own issuer. CE gets
 				     the section with an EE notice in place of the snippet; cloud cannot set an issuer. -->
 				{#if !isCloudHosted()}
-					<CollapseLink text="Embed with a JWT from your own product">
+					<CollapseLink text="Open with a JWT from your own product">
 						<div class="flex flex-col gap-2">
 							{#if !$enterpriseLicense}
 								<Description
@@ -279,7 +290,7 @@
 								</Description>
 							{:else}
 								{#if secretUrlHref}
-									<ClipboardPanel content={toEmbedSnippet(`${secretUrlHref}/YOUR_JWT`)} size="md" />
+									<ClipboardPanel content={formatLink(`${secretUrlHref}/YOUR_JWT`)} size="md" />
 								{:else}
 									<Loader2 size={16} class="animate-spin" />
 								{/if}
@@ -297,10 +308,7 @@
 					</CollapseLink>
 				{/if}
 			{:else if secretUrlHref}
-				<ClipboardPanel
-					content={embedMode ? toEmbedSnippet(secretUrlHref) : secretUrlHref}
-					size="md"
-				/>
+				<ClipboardPanel content={formatLink(secretUrlHref)} size="md" />
 				<div class="text-2xs text-secondary">
 					{#if embedMode}
 						Paste this iframe snippet into another app.
@@ -397,10 +405,7 @@
 				<div class="flex flex-row gap-1 items-center">
 					<div class="grow min-w-0">
 						{#if deployed}
-							<ClipboardPanel
-								content={customUrlEmbed ? toEmbedSnippet(fullCustomUrl) : fullCustomUrl}
-								size="md"
-							/>
+							<ClipboardPanel content={formatLink(fullCustomUrl)} size="md" />
 						{:else}
 							<div class="flex flex-col gap-0.5">
 								<span class="text-xs text-primary truncate">{fullCustomUrl}</span>
@@ -439,34 +444,35 @@
 	{/if}
 
 	{#if deployed}
-		{#if embedMode && mode == 'guest' && guestJwtBase && guestsAvailable}
-			<Label label="Embed for your own authenticated users (guest JWT)">
-				<div class="text-xs text-secondary">
-					To open this app for a user your own product already authenticates, mint a short-lived JWT
-					in your backend and append it to the app URL as <code>guest.&lt;jwt&gt;</code>. Each token
-					is its own seatless guest, confined to this app. Unlike the plain secret URL above, there
-					is no shared secret and no Windmill account.
+		{#if mode == 'guest' && guestJwtBase && guestsAvailable}
+			<CollapseLink text="Open with a guest JWT from your own product">
+				<div class="flex flex-col gap-2">
+					<div class="text-xs text-secondary">
+						To open this app for a user your own product already authenticates, mint a short-lived
+						JWT in your backend and append it to the app URL as <code>guest.&lt;jwt&gt;</code>. Each
+						token is its own seatless guest, confined to this app. Without a JWT, viewers of the
+						secret URL above sign in through your identity provider; with one, your backend vouches
+						for them and they see no login. Available on every edition, no enterprise license
+						needed.
+					</div>
+					<div class="text-xs text-secondary">
+						Windmill verifies the token against the workspace's guest JWT key (Workspace settings →
+						Guests): a PEM public key or a JWKS URL{#if !isCloudHosted()}, or the instance's
+							configured issuer (<code>JWT_EXT_JWKS_URL</code>) when no workspace key is set{/if}.
+						Set the <b>public</b> half there; in your backend, sign each token with the matching
+						<b>private</b> key using RS256/384/512, PS256/384/512 or ES256/384 (symmetric HS* is
+						refused), carrying <code>email</code>, <code>workspace_id</code> =
+						<code>{workspace}</code>,
+						<code>app_path</code> = <code>{appPath}</code> and <code>exp</code> (at most 24h ahead).
+					</div>
+					<ClipboardPanel content={formatLink(`${guestJwtBase}/guest.YOUR_GUEST_JWT`)} size="md" />
+					<div class="text-2xs text-secondary">
+						Replace <code>YOUR_GUEST_JWT</code> with the token your backend signs per user. Past the
+						instance's free guest allowance a new guest email is refused (see the count above); guests
+						already seen in the window keep working.
+					</div>
 				</div>
-				<div class="text-xs text-secondary">
-					Windmill verifies the token against the workspace's guest JWT key (Workspace settings →
-					Guests): a PEM public key or a JWKS URL{#if !isCloudHosted()}, or the instance's
-						configured issuer (<code>JWT_EXT_JWKS_URL</code>) when no workspace key is set{/if}. Set
-					the <b>public</b> half there; in your backend, sign each token with the matching
-					<b>private</b> key using RS256/384/512, PS256/384/512 or ES256/384 (symmetric HS* is
-					refused), carrying <code>email</code>, <code>workspace_id</code> =
-					<code>{workspace}</code>,
-					<code>app_path</code> = <code>{appPath}</code> and <code>exp</code> (at most 24h ahead).
-				</div>
-				<ClipboardPanel
-					content={toEmbedSnippet(`${guestJwtBase}/guest.YOUR_GUEST_JWT`)}
-					size="md"
-				/>
-				<div class="text-2xs text-secondary">
-					Replace <code>YOUR_GUEST_JWT</code> with the token your backend signs per user. Past the instance's
-					free guest allowance a new guest email is refused (see the count above); guests already seen
-					in the window keep working.
-				</div>
-			</Label>
+			</CollapseLink>
 		{/if}
 
 		<Description
