@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.870.0](https://github.com/windmill-labs/windmill/compare/v1.869.0...v1.870.0) (2026-11-12)
+
+
+### Features
+
+* charts and tables in AI chat replies and artifacts ([#12374](https://github.com/windmill-labs/windmill/issues/12374)) ([6ba4002](https://github.com/windmill-labs/windmill/commit/6ba400239b8422132fcd4a23b684dfe878f477e4))
+* run the git sync pull request diff check from auto-pull polling ([#12360](https://github.com/windmill-labs/windmill/issues/12360)) ([6e6789a](https://github.com/windmill-labs/windmill/commit/6e6789a5f13857ba690542966dbc7929d8c3dfc8))
+
+
+### Bug Fixes
+
+* apply the url/embed toggle to every app link, jwt ones included ([#12378](https://github.com/windmill-labs/windmill/issues/12378)) ([f634330](https://github.com/windmill-labs/windmill/commit/f634330efbdde5771ee7311324b634b3ae34a1a9))
+* **cli:** pull datatable migrations on Windows ([#12380](https://github.com/windmill-labs/windmill/issues/12380)) ([8e73d30](https://github.com/windmill-labs/windmill/commit/8e73d30d6a3d14d4a5155adf236c85132296ab75))
+* declare es2023 lib the frontend already relies on ([#12372](https://github.com/windmill-labs/windmill/issues/12372)) ([37538e9](https://github.com/windmill-labs/windmill/commit/37538e979e5de682ab090d7c2c5a713ca466bddb))
+* limit cancel-all-matching-filters to top-level jobs ([#12373](https://github.com/windmill-labs/windmill/issues/12373)) ([3e7adc1](https://github.com/windmill-labs/windmill/commit/3e7adc1c4fc93e747d2644be24060f45eba07644))
+* report a failed mcp script or flow run as a tool error ([#12365](https://github.com/windmill-labs/windmill/issues/12365)) ([354aa25](https://github.com/windmill-labs/windmill/commit/354aa2581dcbccfe67781a269f92fc7693bf4456))
+* show the external JWT embed URL for members apps ([#12377](https://github.com/windmill-labs/windmill/issues/12377)) ([78ca426](https://github.com/windmill-labs/windmill/commit/78ca4263ee586b3c5afd5a4224c9180cfd6fb6a2))
+* skip the worker's suspend_resume audit row when a rejected approval continues ([#12376](https://github.com/windmill-labs/windmill/issues/12376)) ([d4f9975](https://github.com/windmill-labs/windmill/commit/d4f9975121ad8c84726a9f8ecf59d844fd0bf245))
+* truncate long labels in chat tool call headers ([#12366](https://github.com/windmill-labs/windmill/issues/12366)) ([d033939](https://github.com/windmill-labs/windmill/commit/d0339396efdfd40cd53e70024b37c6847064cd36))
+
 ## [1.869.0](https://github.com/windmill-labs/windmill/compare/v1.868.0...v1.869.0) (2026-11-12)
 
 
