@@ -96,6 +96,13 @@ export interface ChatViewHost {
 	 * false the stop hands the queue back to the composer, and the queued chip must not
 	 * advertise Esc as "send now". */
 	readonly stopSendsQueuedMessage: boolean
+	/** Whether the queued message can go into the running turn once its running tool calls
+	 * finish, instead of after the turn (Ctrl+Enter). Off where the turn runs as one job on
+	 * the server, which leaves no point to add a message at. */
+	readonly supportsMidTurnMessages: boolean
+	/** The queued message is marked to go into the running turn. */
+	readonly queuedSendsMidTurn: boolean
+	sendQueuedMidTurn: () => void
 	setComposerStaged: (key: string, editingIndex: number | null, bytes: number) => void
 	/** Whether this composer holds anything unsent (text, pastes, attachments, reads in flight). */
 	setComposerHasDraft: (key: string, hasDraft: boolean) => void

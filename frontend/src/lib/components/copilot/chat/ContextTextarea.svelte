@@ -43,7 +43,8 @@
 		selectedContext: ContextElement[]
 		placeholder: string
 		disabled: boolean
-		onSendRequest: () => void
+		/** `withModifier`: sent with Ctrl or ⌘ held. */
+		onSendRequest: (options: { withModifier: boolean }) => void
 		onAddContext: (contextElement: ContextElement) => void
 		/** Called when the user deletes a previously-inserted `@title` mention
 		 * from the textarea. The host should drop the matching entry from
@@ -753,7 +754,11 @@
 
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
-			onSendRequest()
+			const withModifier = e.ctrlKey || e.metaKey
+			// Pages bind their own Ctrl/⌘+Enter on the window (the script editor runs its test),
+			// and would act on this press too.
+			if (withModifier) e.stopPropagation()
+			onSendRequest({ withModifier })
 		}
 	}
 
