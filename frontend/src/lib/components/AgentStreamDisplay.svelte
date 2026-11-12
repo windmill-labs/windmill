@@ -115,10 +115,17 @@
 		if (!pane) {
 			return
 		}
+		// Told apart by direction, not by `isOwnScroll`'s time window: the typewriter scrolls
+		// every frame, so every reader scroll would land inside that window and be undone.
+		// Content growing and our own scroll only ever move the pane down.
+		let lastTop = pane.scrollTop
 		const onScroll = () => {
-			if (!sticker.isOwnScroll()) {
-				following = sticker.isAtEnd(pane)
+			if (pane.scrollTop < lastTop) {
+				following = false
+			} else if (sticker.isAtEnd(pane)) {
+				following = true
 			}
+			lastTop = pane.scrollTop
 		}
 		pane.addEventListener('scroll', onScroll, { passive: true })
 		return () => pane.removeEventListener('scroll', onScroll)

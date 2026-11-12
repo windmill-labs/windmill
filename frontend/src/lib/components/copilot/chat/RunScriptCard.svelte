@@ -546,7 +546,7 @@
 	headerRight={previewTarget ? previewChip : undefined}
 	class="scroll-mb-8"
 	labelClass="font-main font-medium text-primary"
-	contentClass="p-0 overflow-hidden"
+	contentClass="p-0 overflow-hidden font-main"
 >
 	{#if formInPreview}
 		<div class="px-3 py-2 text-2xs leading-4 text-hint">
