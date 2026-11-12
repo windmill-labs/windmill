@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.871.1](https://github.com/windmill-labs/windmill/compare/v1.871.0...v1.871.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* remove dangling cli/cursor symlink that breaks release builds ([#12405](https://github.com/windmill-labs/windmill/issues/12405)) ([5b00012](https://github.com/windmill-labs/windmill/commit/5b00012ec43fc577fd8e5376f8e3ade03e44ecac))
+
 ## [1.871.0](https://github.com/windmill-labs/windmill/compare/v1.870.0...v1.871.0) (2026-11-12)
 
 
