@@ -1,5 +1,13 @@
 <script lang="ts">
-	import { FlaskConical, Settings, FormInput, History, MessageSquare, Save } from 'lucide-svelte'
+	import {
+		DiffIcon,
+		FlaskConical,
+		Settings,
+		FormInput,
+		History,
+		MessageSquare,
+		Save
+	} from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { onDestroy, untrack, type Snippet } from 'svelte'
@@ -7,7 +15,16 @@
 	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
-	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
+	import ShareButton from '$lib/components/itemSettings/ShareButton.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
+	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import DraftEditorModals from '$lib/components/common/confirmationModal/DraftEditorModals.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { runResetToDeployed } from '$lib/userDraftToast'
+	import type { Value } from '$lib/utils'
 	import ResourceVersionHistory from '$lib/components/ResourceVersionHistory.svelte'
 	import {
 		clearPageDrawerAnchor,
@@ -196,6 +213,71 @@
 			!refused &&
 			editRights.capabilities.code
 	)
+	// The agent's draft row, which the header's save state, its Ctrl/Cmd+S and the draft prompts act
+	// on. Unset until the load answers, and for a reader who cannot write the agent.
+	let draftQuery = $derived(
+		ws && target?.path && draft && !draft.loading && !refused && !readOnly
+			? { workspace: ws, itemKind: 'resource' as const, path: target.path }
+			: undefined
+	)
+	let diffDrawer: DiffDrawer | undefined = $state(undefined)
+	let shareModal: ShareModal | undefined = $state(undefined)
+	let confirmingClose = $state(false)
+
+	function resetToDeployed(): Promise<void> | void {
+		const path = target?.path
+		if (!draft || !path) return
+		return draft.sync.resetToDeployed(path)
+	}
+
+	function openDiff() {
+		const deployed = draft?.deployed
+		const current = draft?.state
+		const query = draftQuery
+		if (!deployed || !current || !query) return
+		diffDrawer?.openDrawer()
+		// Snapshotted, or the drawer would follow the form as it is edited behind it.
+		diffDrawer?.setDiff({
+			mode: 'simple',
+			original: $state.snapshot(deployed) as Value,
+			current: $state.snapshot(current) as Value,
+			title: 'Deployed <> Draft',
+			button: {
+				text: 'Restore to deployed',
+				onClick: async () => {
+					await runResetToDeployed({ ...query, onResetToDeployed: resetToDeployed })
+					diffDrawer?.closeDrawer()
+				}
+			}
+		})
+	}
+
+	function saveDraft() {
+		if (draftQuery) void UserDraftDbSyncer.flush(draftQuery)
+	}
+	function onKeyDown(event: KeyboardEvent) {
+		if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 's') {
+			if (!draftQuery) return
+			event.preventDefault()
+			saveDraft()
+		}
+	}
+	// Monaco swallows the keydown, so a focused code editor re-broadcasts it instead.
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+	})
+
+	/** With auto-save off, edits wait for Ctrl/Cmd+S, and closing the dialog would leave them
+	 *  behind unsaved: say so first, as leaving a script or flow does. */
+	function requestClose() {
+		if (draftQuery && UserDraftDbSyncer.hasUnsavedDisabledChanges(draftQuery)) {
+			confirmingClose = true
+		} else {
+			close()
+		}
+	}
+
 	// The draft's path, so a rename shows where it is typed — including a never-deployed agent,
 	// stored at a minted `draft_<uuid>` path and named by the path its first deploy will create,
 	// as the home list names it. Falls back to the target while the draft is still loading.
@@ -434,7 +516,7 @@
 		     the header keeps its height and only the pages move. -->
 		{#if layout === 'modal'}
 			<Modal
-				bind:open={() => true, (open) => !open && close()}
+				bind:open={() => true, (open) => !open && requestClose()}
 				kind="X"
 				fillHeight
 				enterConfirms={false}
@@ -585,6 +667,8 @@
 				v{version}
 			</Badge>
 		{/if}
+		<!-- Where the script and flow editors carry it in a bar of their own: beside the name. -->
+		{#if layout !== 'page'}{@render draftStatus()}{/if}
 	{/snippet}
 	{#snippet levelBadge()}
 		<!-- Marks evals, not the agent, so it sits against that level's own name. Dropped a
@@ -596,9 +680,48 @@
 	{/snippet}
 	<!-- Evals carries none of the editor's actions: nothing there edits the agent, and the run
 			     dialog states for itself whether a run is against the deployed version or the edits. -->
+	{#snippet draftStatus()}
+		{#if draftQuery && draft && !inEvals}
+			<AutosaveIndicator
+				workspace={draftQuery.workspace}
+				itemKind="resource"
+				path={draftQuery.path}
+				{draftOnly}
+				onResetToDeployed={resetToDeployed}
+				loadedFromDraft={draft.loadedFromDraft}
+				alwaysSaves={layout === 'pane'}
+				compact={layout !== 'page'}
+			/>
+		{/if}
+	{/snippet}
 	{#snippet settings()}
 		<div class="flex flex-row items-center gap-2 shrink-0">
 			{#if !inEvals && !refused}
+				<!-- On its own page, first among the actions and followed by Diff, as on the script and
+				     flow pages. -->
+				{#if layout === 'page'}{@render draftStatus()}{/if}
+				{#if draftQuery && draft}
+					<!-- A disabled button fires no pointer events, so the title sits on a wrapper. -->
+					<div
+						title={draftOnly
+							? 'Deploy this agent once to compare against the deployed version'
+							: 'Diff'}
+						class={draftOnly ? 'flex cursor-not-allowed' : 'flex'}
+					>
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							startIcon={{ icon: DiffIcon }}
+							iconOnly={layout === 'pane'}
+							title="Diff"
+							disabled={draftOnly}
+							btnClasses={draftOnly ? 'pointer-events-none' : undefined}
+							on:click={openDiff}
+						>
+							Diff
+						</Button>
+					</div>
+				{/if}
 				<!-- Switches the editor's right-hand pane, and is drawn only once the agent has
 						     loaded and the pane has picked its first mode. -->
 				{#if testPane?.mode && !inSettings}
@@ -666,6 +789,14 @@
 					on:click={() => versionDrawer?.openDrawer()}
 				/>
 				<OpenInSessionButton source={sessionSource} />
+				{#if target && !readOnly}
+					<ShareButton
+						deployed={!draftOnly}
+						iconOnly={layout === 'pane'}
+						unifiedSize="sm"
+						onclick={() => target && shareModal?.openDrawer?.(target.path, 'resource')}
+					/>
+				{/if}
 				<Button
 					unifiedSize="sm"
 					variant="accent"
@@ -682,24 +813,12 @@
 	{/snippet}
 	{#snippet body()}
 		<div class="h-full min-h-0 flex flex-col">
-			<!-- Full-bleed, as a banner is everywhere else: the body's own horizontal padding is
-				     cancelled so it spans it. -->
-			<div class="-mx-4 sm:-mx-6 shrink-0 {inEvals ? 'hidden' : ''}">
-				<LocalDraftBanner
-					show={draft?.sync.hasDraft ?? false}
-					reserveSpace={draft?.sync.hasBaseline ?? false}
-					getDeployed={() => draft?.deployed}
-					getCurrent={() => draft?.state}
-					onDiscard={() => draft?.sync.resetToDeployed(target?.path ?? '')}
-					title="Deployed <> Unsaved agent changes"
-				/>
-			</div>
 			<!-- One strip of pages, so a level slides in from the right the way evals' own levels do.
 			     No `onNavigate`: the arrow keys belong to whichever pane is on screen, and evals answers
 			     them for its own levels. Warmed, as those levels are: a page built on its first visit
 			     lands inside the transition and arrives empty. The page layout has no levels: it opens
 			     settings in a drawer and evals in a dialog, so warming them there would build them twice. -->
-			<!-- Full-bleed as the banner is, each page padding itself: the editor drops its padding
+			<!-- Full-bleed, each page padding itself: the editor drops its padding
 			     when its panes become tabs, and this clips anything that reaches past it. -->
 			<PagedContent
 				warm
@@ -714,7 +833,7 @@
 		</div>
 	{/snippet}
 
-	<!-- Mounted under the evals level too: it holds the draft the header's banner and Deploy act on,
+	<!-- Mounted under the evals level too: it holds the draft the header's draft controls and Deploy act on,
 	     and the config a draft run is offered on. The target is read optionally: a deploy that
 	     navigates away clears it while these are still rendered. -->
 	{#snippet agentPage()}
@@ -727,6 +846,8 @@
 			onSelectTool={(id) => showTool(id)}
 			{onSaved}
 			isNew={target?.isNew}
+			template={target?.template}
+			autosaveToggle={layout !== 'pane'}
 			configFooter={offerFlow ? flowFooter : undefined}
 		/>
 	{/snippet}
@@ -819,4 +940,65 @@
 			/>
 		</DrawerContent>
 	</Drawer>
+
+	<DiffDrawer bind:this={diffDrawer} />
+	<ShareModal bind:this={shareModal} />
+
+	<!-- What the script and flow editors' routes mount for their draft: a refused save and a draft
+	     older than its last deploy. Not in a session's pane, as not for those editors: a session keeps every tab it visited mounted, and a hidden
+	     tab's prompt would open over whichever one is showing. -->
+	{#if draftQuery && draft && layout !== 'pane'}
+		<DraftEditorModals
+			workspace={draftQuery.workspace}
+			itemKind="resource"
+			path={draftQuery.path}
+			otherDraftsUsers={[]}
+			{draftOnly}
+			hasOwnDraft={draft.loadedFromDraft}
+			onLoadFromServer={() => draft?.reload()}
+			getLocalDraft={() => draft?.state}
+			othersModalOpen={false}
+			draftSavedAt={draft.draftSavedAt}
+			deployedAt={draft.deployedAt}
+			onLoadLatestDeploy={() =>
+				runResetToDeployed({ ...draftQuery!, onResetToDeployed: resetToDeployed })}
+			onViewDiff={openDiff}
+		/>
+	{/if}
+
+	<ConfirmationModal
+		open={confirmingClose}
+		title="Unsaved changes detected"
+		confirmationText="Discard changes"
+		onCanceled={() => (confirmingClose = false)}
+		onConfirmed={() => {
+			confirmingClose = false
+			if (draftQuery) UserDraftDbSyncer.dropPending(draftQuery)
+			close()
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>Are you sure you want to discard the changes you have made?</span>
+			<span class="text-xs text-tertiary">
+				Auto-save is off, so these changes are not saved as a draft. Press Ctrl/Cmd+S to save the
+				draft before closing, or enable auto-save from the cloud icon in the header.
+			</span>
+		</div>
+	</ConfirmationModal>
 {/if}
+
+<!-- Leaving the page or reloading it, which the close above never sees: wherever the auto-save
+     toggle can park an edit. -->
+{#if layout !== 'pane'}
+	<UnsavedConfirmationModal
+		showAutosaveTips
+		hasUnsavedChanges={() =>
+			!!draftQuery && UserDraftDbSyncer.hasUnsavedDisabledChanges(draftQuery)}
+		onDiscardChanges={() => {
+			if (draftQuery) UserDraftDbSyncer.dropPending(draftQuery)
+		}}
+	/>
+{/if}
+
+<!-- Capture: the form's fields stop the key on its way back up. -->
+<svelte:window onkeydowncapture={onKeyDown} />

@@ -468,6 +468,11 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
 			workspaceItemsContext += `- type: raw_app, path: ${context.path}\n`
+		} else if (context.type === 'workspace_agent') {
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
+			}
+			workspaceItemsContext += `- type: agent, path: ${context.path}\n`
 		} else if (context.type === 'workspace_folder') {
 			if (!workspaceItemsContext) {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'

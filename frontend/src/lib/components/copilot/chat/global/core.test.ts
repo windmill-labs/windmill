@@ -3892,10 +3892,20 @@ describe('prepareGlobalUserMessage', () => {
 				path: 'f/apps/dashboard',
 				title: 'f/apps/dashboard',
 				summary: 'Dashboard raw app'
+			},
+			{
+				type: 'workspace_agent',
+				path: 'f/agents/triage',
+				title: 'f/agents/triage',
+				summary: 'Triage agent'
 			}
 		])
 
 		expect(message.content).toContain('## SELECTED CONTEXT')
+		expect(message.content).toContain(
+			'- type: agent, path: f/agents/triage (an `ai_agent` resource)'
+		)
+		expect(message.content).not.toContain('Triage agent')
 		expect(message.content).toContain('- type: script, path: f/scripts/report')
 		expect(message.content).toContain('- type: flow, path: f/flows/reporting')
 		expect(message.content).toContain('- type: raw_app, path: f/apps/dashboard')

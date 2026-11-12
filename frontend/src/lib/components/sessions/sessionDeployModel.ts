@@ -67,6 +67,8 @@ export interface DeployItem {
 	/** Legacy workspace-level draft (drives discard's `legacy` flag). */
 	legacy: boolean
 	rawApp: boolean
+	/** A resource draft that is an AI agent's; unknown for a row with no draft. */
+	agent?: boolean
 }
 
 export interface BuildInput {
@@ -112,7 +114,8 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 			mine: it.mine,
 			canWrite: it.can_write,
 			legacy: it.legacy_draft,
-			rawApp: it.raw_app
+			rawApp: it.raw_app,
+			agent: it.kind === 'resource' && it.resource_type === 'ai_agent'
 		})
 	}
 

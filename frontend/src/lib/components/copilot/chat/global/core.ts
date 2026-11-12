@@ -7612,6 +7612,10 @@ export function prepareGlobalUserMessage(
 				content += `- type: run, id: ${context.id}, of: ${context.path} (read it: get_run with id "${context.id}")\n`
 				continue
 			}
+			if (context.type === 'workspace_agent') {
+				content += `- type: agent, path: ${context.path} (an \`ai_agent\` resource)\n`
+				continue
+			}
 			const itemType =
 				context.type === 'workspace_script'
 					? 'script'

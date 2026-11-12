@@ -11152,10 +11152,13 @@ paths:
                       type: string
                     summary:
                       type: string
-                      description: Best-effort, read from the draft JSON's `summary` field when the editor shape carries one.
+                      description: Best-effort, read from the draft JSON's `summary` field when the editor shape carries one, or its `description` for an agent's draft.
                     draft_path:
                       type: string
                       description: User-typed friendly path from the draft JSON's `draft_path`, when set and different from the storage path (e.g. a never-deployed item parked at `u/{user}/draft_{uuid}`).
+                    resource_type:
+                      type: string
+                      description: A `resource` draft's type, the deployed row's when there is one, else the one the draft names. `ai_agent` marks an agent's draft.
                     draft_only:
                       type: boolean
                       description: No deployed counterpart exists at this path — the draft is the whole item.

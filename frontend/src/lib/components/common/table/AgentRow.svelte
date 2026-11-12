@@ -5,6 +5,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import RowLabels from './RowLabels.svelte'
+	import AskAiRowButton from './AskAiRowButton.svelte'
 	import type { ListableResource } from '$lib/gen'
 	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -17,6 +18,7 @@
 	import { cachedDeployUiSettings, warmDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import Row from './Row.svelte'
 	import { selectMenuItems, type RowSelection } from './rowSelection'
+	import { roleCanAuthor } from '$lib/editRights'
 
 	/**
 	 * A home-page row for a saved agent. The agent is an `ai_agent` resource, so the row opens the
@@ -78,7 +80,9 @@
 	{keyboardSelected}
 	{marked}
 	path={agent.draft_path ?? agent.path}
-	summary={agent.description}
+	summary={agent.is_draft
+		? `${agent.description || agent.draft_path || agent.path}*`
+		: agent.description}
 	workspaceId={agent.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={!agent.draft_only}
 	{depth}
@@ -86,26 +90,30 @@
 >
 	{#snippet badges()}
 		<SharedBadge canWrite={agent.canWrite} extraPerms={agent.extra_perms} />
-		<RowLabels inherited={agent.inherited_labels} />
+		<RowLabels labels={agent.labels} inherited={agent.inherited_labels} />
+		<!-- An agent's draft is private, so the only owner to show is the reader. -->
 		<DraftBadge
 			is_draft={agent.is_draft}
 			draft_only={agent.draft_only}
+			draft_users={agent.is_draft ? [{ username: $userStore?.username }] : []}
 			currentUsername={$userStore?.username}
 			workspace={$workspaceStore ?? undefined}
 			itemKind="resource"
+			agent
 			path={agent.path}
 			onMigrated={() => dispatch('change')}
 		/>
 	{/snippet}
 
 	{#snippet actions()}
-		{#if agent.canWrite}
-			<span class="hidden md:inline-flex">
+		<span class="hidden md:inline-flex">
+			<AskAiRowButton kind="agent" path={agent.path} summary={agent.description} />
+			{#if agent.canWrite}
 				<Button variant="subtle" unifiedSize="sm" startIcon={{ icon: Pen }} href={editHref}>
 					Edit
 				</Button>
-			</span>
-		{/if}
+			{/if}
+		</span>
 		<Dropdown
 			size="sm"
 			items={() => [
@@ -117,6 +125,7 @@
 					draftOnly: Boolean(agent.draft_only),
 					wsSpecific: agent.ws_specific,
 					noCode: !$roleCapabilities.code,
+					canAuthor: roleCanAuthor('agent', $roleCapabilities),
 					onShare: () => shareModal.openDrawer?.(agent.path, 'resource'),
 					onDeploy: () => deploymentDrawer.openDrawer(agent.path, 'resource'),
 					onHistory: () => history?.open(),
