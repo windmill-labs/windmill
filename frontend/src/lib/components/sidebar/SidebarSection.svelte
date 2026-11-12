@@ -41,10 +41,11 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		isCollapsed: boolean
 		/** A dot on the icon: something inside wants attention. */
 		notify?: boolean
-		/** How many unread messages `notify` stands for: shown beside the title in the open
-		 * sidebar instead of the dot. The rail keeps the dot, which leaves its status mark room. */
+		/** How many unread messages `notify` stands for: shown as a count instead of the dot,
+		 * beside the title in the open sidebar and in the icon's place in the rail. */
 		unreadCount?: number
-		/** A live session status the folded section shows for the items it hides. */
+		/** A live session status the folded section shows for the items it hides, in place of
+		 * the unread mark. */
 		status?: SessionChatStatus
 		/** A section with nothing to fold: the row stays, without its chevron. */
 		disabled?: boolean
@@ -79,6 +80,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	}: Props = $props()
 
 	const isFolded = $derived(folded && !disabled)
+	const showStatus = $derived(!!status && isFolded)
 	const toggleLabel = $derived(isFolded ? `Unfold ${title}` : `Fold ${title}`)
 	const rowClass =
 		'relative flex items-center justify-start w-full h-[30px] px-2 gap-2 rounded-lg text-left font-normal'
@@ -109,16 +111,18 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 {#snippet sectionIcon()}
 	<!-- Under an item icon's 16px, to leave the rail's chevron room beside it. -->
 	<span class="relative flex-shrink-0 flex">
-		{#if status && isFolded}
-			<!-- The typing dots are wider than the icon: moved off the rail's chevron. -->
+		{#if showStatus && status}
+			<!-- The status mark is wider than the icon: moved off the rail's chevron. -->
 			<span class="flex -translate-x-0.5">
-				<SessionStatusDot {status} isFork={false} dot />
+				<SessionStatusDot {status} isFork={false} />
 			</span>
+		{:else if notify && unreadCount > 0}
+			<UnreadCountBadge count={unreadCount} class="-translate-x-0.5" />
 		{:else}
 			<Icon size={12} class="text-hint" />
-		{/if}
-		{#if notify}
-			{@render notifyDot('absolute -top-1 -right-1')}
+			{#if notify}
+				{@render notifyDot('absolute -top-1 -right-1')}
+			{/if}
 		{/if}
 	</span>
 {/snippet}
@@ -260,10 +264,9 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 						<span class="truncate uppercase text-[0.5rem] leading-3 font-normal text-secondary"
 							>{title}</span
 						>
-						{#if status && isFolded}
+						{#if showStatus && status}
 							<SessionStatusDot {status} isFork={false} />
-						{/if}
-						{#if notify && (isFolded || disabled)}
+						{:else if notify && (isFolded || disabled)}
 							{#if unreadCount > 0}
 								<UnreadCountBadge count={unreadCount} class="flex-shrink-0" />
 							{:else}

@@ -9,16 +9,12 @@
 		status,
 		isFork,
 		forkDetached = false,
-		dot = false,
 		resting,
 		restingTitle
 	}: {
 		status: SessionChatStatus
 		isFork: boolean
 		forkDetached?: boolean
-		/** Plain colored dots for the blocked and failed states, where an icon would be too
-		 * busy (the collapsed rail). */
-		dot?: boolean
 		/** What the slot shows when there is no live signal. Sessions leave it unset and get
 		 * the workspace/fork mark below; another list passes its own resting mark. */
 		resting?: import('svelte').Snippet
@@ -66,17 +62,9 @@
 	{:else if status === 'awaiting-answer' || status === 'needs-confirmation'}
 		<!-- Both mean "the run is blocked on you"; at 12px a second amber circle
 		     glyph would be indistinguishable, so the tooltip carries which one. -->
-		{#if dot}
-			<span class="w-2 h-2 rounded-full bg-amber-500"></span>
-		{:else}
-			<CircleHelp class="w-3 h-3 text-amber-500" />
-		{/if}
+		<CircleHelp class="w-3 h-3 text-amber-500" />
 	{:else if status === 'error'}
-		{#if dot}
-			<span class="w-2 h-2 rounded-full bg-red-500"></span>
-		{:else}
-			<AlertTriangle class="w-3 h-3 text-red-500" />
-		{/if}
+		<AlertTriangle class="w-3 h-3 text-red-500" />
 	{:else if resting}
 		{@render resting()}
 	{:else if isFork}

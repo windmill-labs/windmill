@@ -403,15 +403,16 @@
 			: (getSessionChatPeek(session.id)?.status ?? 'idle')
 	}
 
-	// The statuses a row shows over its resting mark, most urgent first: a session blocked on
-	// the user outranks one still generating, as it does within one session's status.
+	// The statuses a row shows over its resting mark, most urgent first: a session that needs
+	// the user (a question, a confirmation, a failure) outranks one still generating.
 	const LIVE_STATUS_ORDER: SessionChatStatus[] = [
 		'awaiting-answer',
 		'needs-confirmation',
-		'streaming',
-		'error'
+		'error',
+		'streaming'
 	]
-	// What the folded section shows for the sessions it hides.
+	// What the folded section shows for the sessions it hides: one mark only. A session that
+	// needs the user hides the unread count; the unread count hides a session generating.
 	const sectionStatus = $derived.by(() => {
 		let best: number = LIVE_STATUS_ORDER.length
 		for (const s of visibleSessions) {
@@ -419,7 +420,8 @@
 			if (rank !== -1 && rank < best) best = rank
 			if (best === 0) break
 		}
-		return LIVE_STATUS_ORDER[best]
+		const status = LIVE_STATUS_ORDER[best]
+		return status === 'streaming' && totalUnread > 0 ? undefined : status
 	})
 
 	// Clear any persisted collapsed state while the list is empty. The
