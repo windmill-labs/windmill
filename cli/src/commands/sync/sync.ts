@@ -3386,7 +3386,9 @@ export function untrackedDatatableMigrationDeletions<
     (c) =>
       c.name === "deleted" &&
       isDatatableMigrationPath(c.path) &&
-      !(recorded.kind === "known" && recorded.paths.has(c.path)),
+      // git reports `/`-separated paths; the sync diff uses the platform's.
+      !(recorded.kind === "known" &&
+        recorded.paths.has(c.path.replaceAll("\\", "/"))),
   );
 }
 
