@@ -74,8 +74,6 @@
 		Save,
 		SearchX,
 		Trash,
-		User,
-		Bot,
 		UserPlus,
 		Zap
 	} from 'lucide-svelte'
@@ -1360,30 +1358,6 @@
 													</div>
 
 													{#if is_oauth}
-														{@const identityKnown =
-															grant_type === 'client_credentials' ||
-															!(oauthConnectRegistry as Record<string, any>)[resource_type]
-																?.user_scopes}
-														<!-- Slack's bot and user tokens both come from the sign-in flow, so
-														     the grant does not say whose identity the token carries. -->
-														<div class="w-10">
-															{#if identityKnown}
-																<Popover>
-																	{#if grant_type === 'client_credentials'}
-																		<Bot size={16} />
-																	{:else}
-																		<User size={16} />
-																	{/if}
-																	{#snippet text()}
-																		<div>
-																			{grant_type === 'client_credentials'
-																				? 'Connects as the app: the token belongs to the service account behind the client ID.'
-																				: 'Connects as the user who connected it: the token acts with their account.'}
-																		</div>
-																	{/snippet}
-																</Popover>
-															{/if}
-														</div>
 														<div class="w-10 pt-1.5">
 															{#if refresh_error}
 																<Popover>
@@ -1395,6 +1369,7 @@
 																		<div>
 																			Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 																		</div>
+																		{@render oauthIdentity(resource_type, grant_type)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1411,6 +1386,7 @@
 																			this variable is fetched or you can request is to be refreshed
 																			in the dropdown on the right.
 																		</div>
+																		{@render oauthIdentity(resource_type, grant_type)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1425,6 +1401,7 @@
 																			The resource was connected through OAuth and the token is not
 																			expired.
 																		</div>
+																		{@render oauthIdentity(resource_type, grant_type)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1707,6 +1684,16 @@
 		/>
 	{/await}
 {/if}
+
+<!-- Slack's bot and user tokens both come from the sign-in flow, so its grant does not
+     say whose identity the token carries. -->
+{#snippet oauthIdentity(resourceType: string, grantType: string | undefined)}
+	{#if grantType === 'client_credentials'}
+		<div class="mt-2">Connected as an app, with client credentials.</div>
+	{:else if !(oauthConnectRegistry as Record<string, any>)[resourceType]?.user_scopes}
+		<div class="mt-2">Connected as the user who connected it, with authorization code.</div>
+	{/if}
+{/snippet}
 
 {#snippet oauthScopes(resourceType: string, scopes: string[] | undefined)}
 	{#if resourceType === 'nextcloud'}

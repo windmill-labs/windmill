@@ -1176,6 +1176,7 @@
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths
+				savedOauths={initialOauths}
 				bind:instanceInputs
 				bind:requirePreexistingUserForOauth
 				baseUrl={$values?.base_url}

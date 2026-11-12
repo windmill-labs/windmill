@@ -254,8 +254,11 @@ pub fn resolve_registry_config(
 /// Check the instance `oauths` setting before it is written. Each problem names its
 /// entry. Without this, a bad entry is dropped when clients are built, or fails the
 /// parse of the whole map so that every provider disappears, and only a log line says so.
+/// Entries identical to the stored `previous` value are skipped: one saved before this
+/// check existed must not block a save that does not touch it.
 pub fn validate_oauths_setting(
     value: &serde_json::Value,
+    previous: Option<&serde_json::Value>,
     connect_configs_json: &str,
 ) -> Result<(), String> {
     if value.is_null() {
@@ -268,6 +271,9 @@ pub fn validate_oauths_setting(
         .map_err(|e| format!("parsing oauth_connect.json: {e}"))?;
     let mut errors = vec![];
     for (name, raw) in entries {
+        if previous.and_then(|p| p.get(name)) == Some(raw) {
+            continue;
+        }
         if let Err(e) = validate_oauth_entry(name, raw, &registry) {
             errors.push(format!("{name}: {e}"));
         }
@@ -1713,7 +1719,7 @@ mod tests {
                 "placeholder": "x", "extra_params_key": "tenant",
                 "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token" } }
         }"#;
-        let ok = |v: serde_json::Value| validate_oauths_setting(&v, registry);
+        let ok = |v: serde_json::Value| validate_oauths_setting(&v, None, registry);
         assert!(ok(serde_json::Value::Null).is_ok());
         assert!(ok(serde_json::json!({
             "github": { "id": "a", "secret": "b" },
@@ -1753,5 +1759,13 @@ mod tests {
         ] {
             assert!(err.contains(name), "{name} missing from: {err}");
         }
+
+        // An unchanged bad entry, saved before the check existed, does not block the save.
+        let stored = serde_json::json!({ "broken": { "id": 1 } });
+        let next =
+            serde_json::json!({ "broken": { "id": 1 }, "github": { "id": "a", "secret": "b" } });
+        assert!(validate_oauths_setting(&next, Some(&stored), registry).is_ok());
+        let edited = serde_json::json!({ "broken": { "id": 2 } });
+        assert!(validate_oauths_setting(&edited, Some(&stored), registry).is_err());
     }
 }

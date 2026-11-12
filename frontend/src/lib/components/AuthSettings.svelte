@@ -38,6 +38,8 @@
 		// Required (and always bound by InstanceSettings) so it is never undefined.
 		instanceInputs: Record<string, string>
 		oauths?: Record<string, any>
+		/** The OAuth settings as last saved, to tell what an unsaved edit changes. */
+		savedOauths?: Record<string, any>
 		requirePreexistingUserForOauth?: boolean
 		baseUrl?: string
 		scim?: import('svelte').Snippet
@@ -48,6 +50,7 @@
 	let {
 		instanceInputs = $bindable(),
 		oauths = $bindable(),
+		savedOauths = {},
 		requirePreexistingUserForOauth = $bindable(),
 		baseUrl,
 		scim,
@@ -176,10 +179,12 @@
 
 	/** Client-credentials connections use this entry's id and secret. An entry saved
 	 * before `share_client_credentials` existed shares through its grant alone. */
-	function sharesCc(name: string): boolean {
+	function sharesCc(name: string, entries = oauths): boolean {
+		const entry = entries?.[name]
 		return (
-			grants(name).includes('client_credentials') &&
-			oauths?.[name]?.['share_client_credentials'] !== false
+			!!entry &&
+			(entry['grant_types'] ?? ['authorization_code']).includes('client_credentials') &&
+			entry['share_client_credentials'] !== false
 		)
 	}
 
@@ -717,6 +722,17 @@
 												/>
 												<span class="text-2xs text-secondary">{ccDesc}</span>
 											</div>
+											{#if !shared && sharesCc(k, savedOauths)}
+												<!-- Shared resources fetch the instance's credentials at each refresh. -->
+												<Alert
+													type="warning"
+													title="Existing shared connections will stop working"
+													size="xs"
+												>
+													Resources connected with these shared credentials fail at their next token
+													refresh. Users have to connect them again with their own client ID and secret.
+												</Alert>
+											{/if}
 										{/if}
 										{#if shared && credsSet}
 											<Alert type="warning" title="Anyone can act as this app" size="xs">

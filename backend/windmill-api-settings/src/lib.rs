@@ -1009,8 +1009,14 @@ async fn run_setting_pre_write_hook(
     match key {
         #[cfg(feature = "oauth2")]
         windmill_common::global_settings::OAUTH_SETTING => {
+            let previous = windmill_common::global_settings::load_value_from_global_settings(
+                db,
+                windmill_common::global_settings::OAUTH_SETTING,
+            )
+            .await?;
             windmill_oauth::validate_oauths_setting(
                 value,
+                previous.as_ref(),
                 include_str!("../../oauth_connect.json"),
             )
             .map_err(|e| error::Error::BadRequest(format!("OAuth settings: {e}")))?;
