@@ -29,6 +29,7 @@ After all code changes are done, run `./update_sqlx.sh` from `backend/` to regen
 | When | Command | Time |
 |---|---|---|
 | During iteration | `npm run check:fast` | ~2s |
+| During iteration | `npm run lint` (oxlint, `.oxlintrc.json`) | <1s |
 | Final PR validation | `npm run check` | ~50s |
 | After backend API changes | `npm run generate-backend-client` first | |
 
