@@ -14,7 +14,7 @@ async fn a_head_is_claimed_once(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?;
     let claim = |sha: &'static str, listed_at| {
         let db = db.clone();
-        async move { claim_pr_check_head(&db, "ws", REPO, 7, sha, listed_at).await }
+        async move { claim_pr_check_head(&db, "ws", REPO, 7, sha, listed_at, false).await }
     };
 
     let listed_at = Some(chrono::Utc::now() - chrono::Duration::minutes(1));
@@ -42,5 +42,9 @@ async fn a_head_is_claimed_once(db: Pool<Postgres>) -> anyhow::Result<()> {
         .execute(&db)
         .await?;
     assert!(!claim("b", None).await?, "a started check is never retried");
+    assert!(
+        claim_pr_check_head(&db, "ws", REPO, 7, "b", None, true).await?,
+        "a reopen or retarget re-runs it"
+    );
     Ok(())
 }
