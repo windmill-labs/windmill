@@ -6,8 +6,13 @@
 	import Modal from '../common/modal/Modal.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
-	import McpAccessPicker, { MCP_SESSION, mcpAccessOf } from '../mcp/McpAccessPicker.svelte'
+	import McpAccessPicker, {
+		MCP_SESSION,
+		RUNNABLES_AS_TOOLS,
+		mcpAccessOf
+	} from '../mcp/McpAccessPicker.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { usersWorkspaceStore } from '$lib/stores'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -39,6 +44,14 @@
 		(initialScopes ?? []).length > 0 && (initialScopes ?? []).every((s) => s.startsWith('mcp:'))
 	)
 	const mcpWorkspaceId = $derived(tokenWorkspaceId ?? $operatingWorkspace ?? '')
+	// The workspaces the token reaches: its own, its list, or every one its owner is in.
+	const mcpReached = $derived.by(() => {
+		if (tokenWorkspaceId) return [tokenWorkspaceId]
+		const list = (initialScopes ?? []).find((s) => s.startsWith('mcp:workspaces:'))
+		return list
+			? list.slice('mcp:workspaces:'.length).split(',')
+			: ($usersWorkspaceStore?.workspaces ?? []).map((w) => w.id)
+	})
 
 	let labelValue = $state('')
 	let pickedScopes = $state<string[] | null>(null)
@@ -54,6 +67,13 @@
 		const access = mcpAccessOf(mcpScopes)
 		return mcpTouched && (access === 'selected' || access !== mcpAccessOf(initialScopes ?? []))
 	})
+	// An unedited older token (a plain `mcp:all` or an endpoint selection) keeps the endpoint tools
+	// on the per-workspace URLs, which the picker's levels do not describe, so it gets no warning.
+	const describedByPicker = (s: string) =>
+		[MCP_SESSION, RUNNABLES_AS_TOOLS, 'mcp:read_only', 'mcp:read_run'].includes(s)
+	const warnsFor = $derived(
+		mcpEdited || (initialScopes ?? []).some(describedByPicker) ? mcpReached : []
+	)
 	// Carried over as is, the picker knowing nothing of them: dropping the workspace list
 	// would widen the token to every workspace, dropping `mcp:session` would move a sign-in
 	// back to the endpoint tools once it is given `mcp:all` again.
@@ -157,6 +177,7 @@
 					>
 						<McpAccessPicker
 							workspaceId={mcpWorkspaceId}
+							workspaces={warnsFor}
 							initialScopes={(initialScopes ?? []).filter((s) => !isWorkspaceList(s))}
 							bind:scopes={mcpScopes}
 						/>

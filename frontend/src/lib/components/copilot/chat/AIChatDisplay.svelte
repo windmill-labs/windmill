@@ -57,6 +57,7 @@
 	import { chatItemKey, createChatItemGrouper } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
 	import {
+		READ_STARTER_PLACEHOLDER,
 		STARTER_PLACEHOLDER,
 		USE_STARTER_PLACEHOLDER,
 		type ComposerSelection
@@ -1166,9 +1167,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:selectedContext
 				{availableContext}
 				placeholder={starterLayout
-					? heldInUse
-						? USE_STARTER_PLACEHOLDER
-						: STARTER_PLACEHOLDER
+					? workModeLock?.readsOnly
+						? READ_STARTER_PLACEHOLDER
+						: heldInUse
+							? USE_STARTER_PLACEHOLDER
+							: STARTER_PLACEHOLDER
 					: placeholder}
 				{initialInstructions}
 				{onDraftChange}

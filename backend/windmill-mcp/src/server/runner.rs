@@ -807,10 +807,10 @@ impl<B: McpBackend> Runner<B> {
 
         let mut tools = Vec::new();
 
-        // Read-only tokens cannot run scripts/flows/hub-scripts (running is a
-        // mutating action), so skip the script/flow/hub/resource fetches
-        // entirely — they would only be discarded below.
-        if !read_only {
+        // Read-only tokens and roles without the run capability cannot run
+        // scripts/flows/hub-scripts, so skip the script/flow/hub/resource fetches.
+        let can_run = !read_only && self.backend.can_run(auth, workspace_id).await?;
+        if can_run {
             // For granular tokens, push the scope patterns into the SQL query so
             // in-scope items survive the fetch cap (see `PathFilter`). The Rust
             // filter below still runs as a defense-in-depth check. Non-granular
@@ -927,16 +927,23 @@ impl<B: McpBackend> Runner<B> {
             }
         }
 
-        // Add endpoint tools from the generated MCP tools, filtered by scope.
-        // Uses the same run-by-path-aware gate as multi-workspace mode so a
-        // granular token only sees runScriptByPath / runFlowByPath when it can
-        // actually run scripts / flows.
+        // Add endpoint tools from the generated MCP tools, filtered by scope with
+        // the same run-by-path-aware gate as multi-workspace mode. The run endpoints
+        // are also left out for a role the jobs router's run gate would refuse.
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
             if !endpoint_tool_in_scope(scope_config, &endpoint_tool) {
                 continue;
             }
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
+                continue;
+            }
+            if !can_run
+                && matches!(
+                    endpoint_tool.name.as_ref(),
+                    "runScriptByPath" | "runFlowByPath" | "runScriptPreviewAndWaitResult"
+                )
+            {
                 continue;
             }
 

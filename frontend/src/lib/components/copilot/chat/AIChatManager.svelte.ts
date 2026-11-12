@@ -154,6 +154,7 @@ import { resolveSessionAccess } from './global/sessionAccess'
 import {
 	canBuild,
 	isReadOnlyAccess,
+	NO_RUN_ACCESS,
 	USE_MODE_ACCESS,
 	type SessionAccess,
 	type SessionTool
@@ -860,8 +861,9 @@ export class AIChatManager implements ChatViewHost {
 	)
 	/** Why the chat is in Use; undefined in Plan and Build. A protected workspace's access builds
 	 * nothing too, so it is told apart from the role first. */
-	#useReason = $derived.by((): 'protected' | 'role' | 'chosen' | undefined => {
+	#useReason = $derived.by((): 'protected' | 'view_only' | 'role' | 'chosen' | undefined => {
 		if (!this.useModeActive) return undefined
+		if (this.sessionAccess && !this.sessionAccess.has('run')) return 'view_only'
 		if (isReadOnlyAccess(this.sessionAccess)) return 'protected'
 		return this.#useOnly ? 'role' : 'chosen'
 	})
@@ -878,7 +880,13 @@ export class AIChatManager implements ChatViewHost {
 		return this.useModeActive || this.planModeActive ? undefined : ENTER_USE_MODE_TOOL
 	})
 	/** What the tools and the prompt are built for. */
-	#toolAccess = $derived(this.useModeActive ? USE_MODE_ACCESS : this.sessionAccess)
+	#toolAccess = $derived(
+		!this.useModeActive
+			? this.sessionAccess
+			: this.#useReason === 'view_only'
+				? NO_RUN_ACCESS
+				: USE_MODE_ACCESS
+	)
 	// The posture's own state — its two tools, the plan document and the planning round.
 	// Everything it needs from this manager goes through the host above.
 	planMode = new PlanModeController(planModeHostFor(this))

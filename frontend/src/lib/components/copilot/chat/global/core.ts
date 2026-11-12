@@ -179,6 +179,7 @@ import {
 	isReadOnlyAccess,
 	DEPLOY,
 	NONE,
+	RUN,
 	RUN_FLOW_PREVIEW,
 	RUN_PREVIEW,
 	WRITE_APP_DRAFT,
@@ -1569,6 +1570,7 @@ function accessFlags(access: SessionAccess | undefined) {
 	)
 	const canRunPreview = !access || access.has('run_preview')
 	const canRunFlowPreview = !access || access.has('run_flow_preview')
+	const canRun = !access || access.has('run')
 	// A role may code without composing flows, so the flow test tool is named only where it ships.
 	const testRunTools = canRunFlowPreview
 		? 'test_run_script, test_run_flow, or test_run_step'
@@ -1601,6 +1603,7 @@ function accessFlags(access: SessionAccess | undefined) {
 		refusedCode,
 		canRunPreview,
 		canRunFlowPreview,
+		canRun,
 		testRunTools,
 		canManageSchedules,
 		canManageTriggers,
@@ -1643,6 +1646,7 @@ const buildGlobalSystemPrompt = (
 		refusedCode,
 		canRunPreview,
 		canRunFlowPreview,
+		canRun,
 		testRunTools,
 		canManageSchedules,
 		canManageTriggers,
@@ -1727,9 +1731,13 @@ const buildGlobalSystemPrompt = (
 		`
 - A request to run a flow goes to test_run_flow, which prefers the draft and needs no deployment. Use run_flow only when the user names the deployed version, and run_script for any script: those run the DEPLOYED item under this user's own permissions, so read it with read_workspace_item version: "deployed" first so the arguments match the deployed schema. Each shows the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat.`
 	)}${when(
-		!canRunPreview && !canRunFlowPreview,
+		!canRunPreview && !canRunFlowPreview && canRun,
 		`
 - run_script and run_flow are how you run anything here: they run the DEPLOYED item under this user's own permissions, and show them an argument form prefilled with what you sent. Read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every argument you can infer rather than asking for it in chat.`
+	)}${when(
+		!canRun,
+		`
+- This user's role cannot run scripts, flows or agents here: when they ask for a run, say plainly that you cannot start it, and suggest asking a workspace admin, who can grant their role more.`
 	)}`
 
 	const intro = `You are Windmill's global workspace assistant.
@@ -1740,7 +1748,7 @@ ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
 		: readOnly
-			? "Use tools to inspect workspace items, the workspace's run history and its data, and to run items that are already deployed. This session is read-only: you cannot create, edit, deploy or delete anything here, nor test-run code that is not deployed. When the user asks for such a change, say plainly that it cannot be made in this session, and tell them how to make it as the session context below says, rather than describing steps as if you had made it."
+			? `Use tools to inspect workspace items, the workspace's run history and its data${canRun ? ', and to run items that are already deployed' : ''}. This session is read-only: you cannot create, edit, deploy or delete anything here, nor test-run code that is not deployed. When the user asks for such a change, say plainly that it cannot be made in this session, and tell them how to make it as the session context below says, rather than describing steps as if you had made it.`
 			: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
 					canManageSchedules,
 					' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
@@ -1800,7 +1808,7 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 	)}${when(
 		canRunFlowPreview,
 		' Test an agent, its draft included, with test_run_agent.'
-	)} Run a deployed agent with run_agent, never with run_flow or run_script.
+	)}${when(canRun, ' Run a deployed agent with run_agent, never with run_flow or run_script.')}
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${deployRule}${when(
 		canWriteAnyDraft,
 		`
@@ -2357,8 +2365,8 @@ export type SessionPromptContext = {
 	/** The family's dev workspace, where a read-only session sends the user to make changes. */
 	devWorkspace?: { id: string; name: string }
 	/** Why the session is in Use mode, where the workspace itself is not protected: the user
-	 * picked it, or their role builds nothing there. */
-	useMode?: 'chosen' | 'role'
+	 * picked it, their role builds nothing there, or their role cannot run there. */
+	useMode?: 'chosen' | 'role' | 'view_only'
 }
 
 /** Session-state guidance appended to the global system prompt so the model
@@ -2393,7 +2401,7 @@ export function getSessionContextPromptSection(
 		!readOnly && (canDeploy || unruledKinds.length) ? 'deploy_workspace_item' : 'A deploy'
 	const targets = (
 		readOnly
-			? ['reads', 'runs']
+			? ['reads', (!access || access.has('run')) && 'runs']
 			: ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
 	)
 		.filter(Boolean)
@@ -2441,6 +2449,10 @@ export function getSessionContextPromptSection(
 		lines.push(
 			"- The user put this session in Use mode with the composer's mode picker, so it is READ-ONLY until they switch. To make a change, call `enter_build_mode`, which asks them to switch to Use & build, or `enter_plan_mode` to agree on the change first; without those tools, ask them to switch the picker."
 		)
+	} else if (readOnly && ctx.useMode === 'view_only') {
+		lines.push(
+			`- This user's workspace role cannot run scripts, flows or agents here. That role, not this session, is why the session is held in Use mode and is READ-ONLY: it reads the workspace's items, runs and data, and nothing else. When they ask for a run or a change, say that their role does not allow it, and that a workspace admin can grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Their mode picker shows Plan and Use & build greyed out, so never suggest switching modes.`
+		)
 	} else if (readOnly && ctx.useMode === 'role') {
 		lines.push(
 			`- This user's workspace role cannot create or change scripts, flows, apps, schedules or triggers, neither through you nor by hand anywhere in the workspace. That role, not this session, is why the session is held in Use mode and is READ-ONLY. When they ask for one, say that their role does not allow it, and that a workspace admin can create it for them or grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Do not write its code or give steps: they can use neither. Their mode picker shows Plan and Use & build greyed out, so never suggest switching modes. Resources and variables are the exception: every role creates and edits those by hand, outside this session, on the workspace's own Resources and Variables pages.`
@@ -2461,7 +2473,7 @@ export function getSessionContextPromptSection(
 	}
 	lines.push(
 		'- Sessions are saved: the sidebar lists them under AI Sessions, and the user can reopen any of them.',
-		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Use & build (everything Use does, plus changes). How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' ? ", and this user's role locks the picker to Use" : ''}.`,
+		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Use & build (everything Use does, plus changes). How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' || ctx.useMode === 'view_only' ? ", and this user's role locks the picker to Use" : ''}.`,
 		"- The sliders button next to the model picker opens Assistant settings. Its Permissions section shows what the user's role lets them change and what you can change for them; point them there when they ask what they are allowed to do."
 	)
 	return lines.join('\n')
@@ -3767,9 +3779,9 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		// Ungated, unlike the test runs: this executes the DEPLOYED item under the user's own
-		// permissions, the one run an operator's token allows. `run_flow` likewise.
-		requires: NONE,
+		// Gated on `run` alone, unlike the test runs: this executes the DEPLOYED item under the
+		// user's own permissions, the one run an operator's token allows. `run_flow` likewise.
+		requires: RUN,
 		def: runScriptToolDef,
 		readOnlySafe: true,
 		fn: async (ctx) => {
@@ -3802,7 +3814,7 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		requires: NONE,
+		requires: RUN,
 		def: runFlowToolDef,
 		readOnlySafe: true,
 		fn: async (ctx) => {
@@ -3832,7 +3844,7 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		requires: NONE,
+		requires: RUN,
 		def: runAgentToolDef,
 		readOnlySafe: true,
 		fn: async (ctx) => {
