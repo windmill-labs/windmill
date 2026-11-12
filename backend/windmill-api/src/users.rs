@@ -428,7 +428,7 @@ async fn rename_user(
     ))
 }
 
-const TRIGGER_TABLES: [&str; 11] = [
+pub(crate) const TRIGGER_TABLES: [&str; 11] = [
     "http_trigger",
     "websocket_trigger",
     "kafka_trigger",

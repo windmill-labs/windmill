@@ -1297,6 +1297,10 @@ async fn test_rename_moves_run_as_of_schedules_and_triggers(
            VALUES ('test-workspace', 'f/ops/nightly', 'test-user-2', NOW(), '0 * * * *', 'UTC', true, 'f/ops/job', false, 'test2@windmill.dev', 'u/test-user-2', '{}');
          INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, permissioned_as, edited_at, extra_perms, http_method, authentication_method, mode)
            VALUES ('test-workspace', 'u/test-user-2/hook', '/hook', 'hook', 'u/test-user-2/job', false, 'test-user-2', 'u/test-user-2', NOW(), '{"u/test-user-2": true}', 'post', 'none', 'enabled');
+         INSERT INTO kafka_trigger (workspace_id, path, kafka_resource_path, topics, group_id, script_path, is_flow, edited_by, permissioned_as)
+           VALUES ('test-workspace', 'u/test-user-2/k', 'f/ops/kafka', '{t}', 'g', 'f/ops/job', false, 'test-user-2', 'u/test-user-2');
+         INSERT INTO kafka_pending_commits (workspace_id, kafka_trigger_path, topic, partition, "offset")
+           VALUES ('test-workspace', 'u/test-user-2/k', 't', 0, 1);
          INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, default_permissioned_as)
            VALUES ('test-workspace', 'ops', 'ops', '{}', '{}', 'test-user',
                    '[{"path_glob": "a/*", "permissioned_as": "u/test-user"}, {"path_glob": "*", "permissioned_as": "u/test-user-2"}]');"#,
@@ -1335,6 +1339,12 @@ async fn test_rename_moves_run_as_of_schedules_and_triggers(
             json!({ "u/alice": true })
         )
     );
+
+    let pending_commit: String =
+        sqlx::query_scalar("SELECT kafka_trigger_path FROM kafka_pending_commits")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(pending_commit, "u/alice/k");
 
     let rules: serde_json::Value = sqlx::query_scalar(
         "SELECT default_permissioned_as FROM folder WHERE workspace_id = 'test-workspace' AND name = 'ops'",
