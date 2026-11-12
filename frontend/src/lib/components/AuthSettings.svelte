@@ -183,18 +183,20 @@
 		)
 	}
 
-	function setSharesCc(name: string, on: boolean) {
+	/** A built-in provider offers bring-your-own client credentials from the registry
+	 * alone, so its entry carries the grant only to share. A custom provider keeps the
+	 * grant when sharing stops: it is what lets users bring their own. */
+	function setSharesCc(name: string, on: boolean, custom: boolean) {
 		if (!oauths?.[name]) return
-		if (on) setGrant(name, 'client_credentials', true)
+		if (on || !custom) setGrant(name, 'client_credentials', on)
 		oauths[name]['share_client_credentials'] = on
 	}
 
-	/** Custom providers only: a registry provider offers bring-your-own client
-	 * credentials whatever its instance entry says. */
+	/** Custom providers only: users connect with their own client ID and secret. */
 	function setServerToServer(name: string, on: boolean) {
 		if (!oauths?.[name]) return
 		setGrant(name, 'client_credentials', on)
-		if (on) oauths[name]['share_client_credentials'] = false
+		oauths[name]['share_client_credentials'] = false
 	}
 
 	let testingCc: Record<string, boolean> = $state({})
@@ -233,8 +235,10 @@
 			newOauths[name] = {
 				id: '',
 				secret: '',
-				grant_types: registryCcOnly(name) ? ['client_credentials'] : ['authorization_code'],
-				...(registryCcCapable(name) ? { share_client_credentials: false } : {})
+				// A built-in client-credentials-only entry exists only to offer one-click connections.
+				...(registryCcOnly(name)
+					? { grant_types: ['client_credentials'], share_client_credentials: true }
+					: { grant_types: ['authorization_code'] })
 			}
 			oauths = newOauths
 			dropdownOpen = false
@@ -545,6 +549,8 @@
 						{@const custom = !windmillBuiltins.includes(k)}
 						{@const lastGrant = grants(k).length === 1 ? grants(k)[0] : undefined}
 						{@const providerName = resourceTypeDisplayName(k)}
+							{@const authCode = grants(k).includes('authorization_code')}
+							{@const shared = sharesCc(k)}
 						<div class="flex flex-col gap-2 pb-6">
 							<div class="flex flex-row items-center gap-2">
 								<IconComponent size={24} width="24" height="24" class="shrink-0" />
@@ -566,137 +572,147 @@
 								/>
 							</div>
 							<div class="p-4 border rounded-md flex flex-col gap-6">
-								<label>
-									<span class="text-primary font-semibold text-xs">Client Id</span>
-									<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
-								</label>
-								<label for="{k}_client_secret_oauth">
-									<span class="text-primary font-semibold text-xs">Client Secret</span>
-									<Password
-										id="{k}_client_secret_oauth"
-										placeholder="Client Secret"
-										bind:password={oauths[k]['secret']}
-									/>
-								</label>
-								<div class="flex flex-col gap-1">
-									<span class="text-primary font-semibold text-xs">Redirect URL</span>
-									{#if !baseUrl}
-										<Alert type="warning" title="No instance base url configured" size="xs">
-											Set it in Core settings. The redirect url is built from it, and {k} needs the exact
-											value.
-										</Alert>
-									{:else}
-										<ClipboardPanel content="{baseUrl}/oauth/callback/{k}" size="sm" />
-									{/if}
-									{#if baseUrlMismatch}
-										<Alert
-											type="warning"
-											title="Does not match the url you are on ({browserOrigin})"
-											size="xs"
-										>
-											This is built from the instance base url. Update it in Core settings if it is
-											wrong, or {k} will reject the callback.
-										</Alert>
-									{/if}
-								</div>
+								{#if k === 'azure_oauth' || custom || connectConfigTemplates[k]}
+									<div class="flex flex-col gap-3">
+										<span class="text-xs font-semibold text-emphasis">Provider</span>
+										{#if k === 'azure_oauth'}
+											<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
+										{:else if custom}
+											<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
+										{/if}
+										{#if connectConfigTemplates[k]}
+											{@const tmpl = connectConfigTemplates[k]}
+											<label class="block">
+												<span class="text-primary font-semibold text-xs flex gap-2 items-center">
+													{#if tmpl.help_url}
+														<a href={tmpl.help_url} target="_blank">{tmpl.label}</a><ExternalLink
+															size={12}
+														/>
+													{:else}
+														{tmpl.label}
+													{/if}
+												</span>
+												<input
+													type="text"
+													placeholder={tmpl.placeholder}
+													required={true}
+													bind:value={instanceInputs[k]}
+												/>
+											</label>
+										{/if}
+									</div>
+								{/if}
 								<div class="flex flex-col gap-3">
-									<span class="text-xs font-semibold text-emphasis">Connections</span>
+									<span class="text-xs font-semibold text-emphasis">How users connect</span>
 									{#if !registryCcOnly(k)}
 										<div class="flex flex-col gap-1">
 											<Toggle
 												size="xs"
 												options={{ right: 'Authorization code' }}
-												checked={grants(k).includes('authorization_code')}
-												disabled={lastGrant === 'authorization_code'}
+												checked={authCode}
+												disabled={custom ? lastGrant === 'authorization_code' : authCode && !shared}
 												on:change={(e) => setGrant(k, 'authorization_code', e.detail)}
 											/>
 											<span class="text-2xs text-secondary"
-												>Each user authorizes {providerName} with their own account. The connection acts
-												as them.</span
+												>Users log in to {providerName} through this instance's app. Each connection
+												acts as the user who logged in.</span
+											>
+										</div>
+									{/if}
+									{#if custom}
+										<div class="flex flex-col gap-1">
+											<Toggle
+												size="xs"
+												options={{ right: 'Client credentials with their own app' }}
+												checked={grants(k).includes('client_credentials')}
+												disabled={shared || lastGrant === 'client_credentials'}
+												on:change={(e) => setServerToServer(k, e.detail)}
+											/>
+											<span class="text-2xs text-secondary"
+												>Users enter the client ID and secret of their own app, sent to the token URL
+												above. The connection acts as that app.</span
 											>
 										</div>
 									{/if}
 									{#if custom || registryCcCapable(k)}
 										<div class="flex flex-col gap-1">
-											{#if custom}
-												<Toggle
-													size="xs"
-													options={{ right: 'Client credentials' }}
-													checked={grants(k).includes('client_credentials')}
-													disabled={lastGrant === 'client_credentials'}
-													on:change={(e) => setServerToServer(k, e.detail)}
-												/>
-											{:else}
-												<span class="text-xs text-primary">Client credentials</span>
-											{/if}
+											<Toggle
+												size="xs"
+												options={{ right: "Client credentials with this instance's app" }}
+												checked={shared}
+												disabled={!custom && shared && !authCode}
+												on:change={(e) => setSharesCc(k, e.detail, custom)}
+											/>
 											<span class="text-2xs text-secondary"
-												>The connection sends a client ID and secret to {providerName}'s token URL
-												and acts as that app, not as a user. Users can always connect with their own
-												client ID and secret.</span
+												>Users connect in one click, without entering anything. The connection acts as
+												this instance's app.</span
 											>
+											{#if shared}
+												<Alert type="warning" title="Anyone can act as this app" size="xs">
+													Any user with write access in any workspace can create a resource that acts as
+													this app's client ID, without seeing its secret.
+												</Alert>
+											{/if}
 										</div>
-										{#if registryCcCapable(k) || grants(k).includes('client_credentials')}
-											<div class="flex flex-col gap-1 pl-4 border-l">
-												<Toggle
-													size="xs"
-													options={{
-														right: "Let users connect with this instance's client ID and secret"
-													}}
-													checked={sharesCc(k)}
-													on:change={(e) => setSharesCc(k, e.detail)}
-												/>
-												{#if sharesCc(k) && !(oauths[k]['id'] && oauths[k]['secret'])}
-													<span class="text-2xs text-secondary"
-														>Fill the client ID and secret above to offer them.</span
+									{/if}
+								</div>
+								{#if authCode || shared}
+									<div class="flex flex-col gap-3">
+										<span class="text-xs font-semibold text-emphasis">This instance's app</span>
+										<label>
+											<span class="text-primary font-semibold text-xs">Client Id</span>
+											<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
+										</label>
+										<label for="{k}_client_secret_oauth">
+											<span class="text-primary font-semibold text-xs">Client Secret</span>
+											<Password
+												id="{k}_client_secret_oauth"
+												placeholder="Client Secret"
+												bind:password={oauths[k]['secret']}
+											/>
+										</label>
+										{#if authCode}
+											<div class="flex flex-col gap-1">
+												<span class="text-primary font-semibold text-xs">Redirect URL</span>
+												{#if !baseUrl}
+													<Alert type="warning" title="No instance base url configured" size="xs">
+														Set it in Core settings. The redirect url is built from it, and {k} needs the
+														exact value.
+													</Alert>
+												{:else}
+													<ClipboardPanel content="{baseUrl}/oauth/callback/{k}" size="sm" />
+												{/if}
+												{#if baseUrlMismatch}
+													<Alert
+														type="warning"
+														title="Does not match the url you are on ({browserOrigin})"
+														size="xs"
 													>
-												{:else if sharesCc(k)}
-													<Alert type="warning" title="Anyone can act as this app" size="xs">
-														Any user with write access in any workspace can create a resource that
-														acts as this app's client ID, without seeing its secret.
+														This is built from the instance base url. Update it in Core settings if it
+														is wrong, or {k} will reject the callback.
 													</Alert>
 												{/if}
 											</div>
 										{/if}
-									{/if}
-								</div>
-								{#if k === 'azure_oauth'}
-									<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
-								{:else if !windmillBuiltins.includes(k) && k != 'slack'}
-									<CustomOauth bind:connect_config={oauths[k]['connect_config']} />
-								{/if}
-								{#if connectConfigTemplates[k]}
-									{@const tmpl = connectConfigTemplates[k]}
-									<label class="block pb-2">
-										<span class="text-primary font-semibold text-xs flex gap-2 items-center">
-											{#if tmpl.help_url}
-												<a href={tmpl.help_url} target="_blank">{tmpl.label}</a><ExternalLink
-													size={12}
-												/>
-											{:else}
-												{tmpl.label}
-											{/if}
-										</span>
-										<input
-											type="text"
-											placeholder={tmpl.placeholder}
-											required={true}
-											bind:value={instanceInputs[k]}
-										/>
-									</label>
-								{/if}
-								{#if $enterpriseLicense && sharesCc(k) && oauths[k]['id'] && oauths[k]['secret']}
-									<div class="flex flex-row items-center gap-2">
-										<Button
-											variant="default"
-											unifiedSize="sm"
-											loading={testingCc[k]}
-											onclick={() => testClientCredentials(k)}
-										>
-											Test client credentials
-										</Button>
-										<span class="text-2xs text-secondary"
-											>Requests a token from {providerName} with this client ID and secret.</span
-										>
+										{#if shared && !(oauths[k]['id'] && oauths[k]['secret'])}
+											<span class="text-2xs text-secondary"
+												>One-click connections need this client ID and secret.</span
+											>
+										{:else if $enterpriseLicense && shared}
+											<div class="flex flex-row items-center gap-2">
+												<Button
+													variant="default"
+													unifiedSize="sm"
+													loading={testingCc[k]}
+													onclick={() => testClientCredentials(k)}
+												>
+													Test client credentials
+												</Button>
+												<span class="text-2xs text-secondary"
+													>Requests a token from {providerName} with this client ID and secret.</span
+												>
+											</div>
+										{/if}
 									</div>
 								{/if}
 								{#if k === 'gworkspace'}
