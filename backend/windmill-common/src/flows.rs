@@ -245,6 +245,9 @@ pub struct ComposedFlowRefs {
     pub tags: Vec<String>,
     /// Every workspace runnable a step references, as `(is_flow, path)`.
     pub runnables: Vec<(bool, String)>,
+    /// Every Hub script or flow a step references, for the caller to check it may name: a Hub
+    /// path has no workspace row the readability check of `runnables` could find.
+    pub hub_runnables: Vec<RunnableRef>,
     /// Version-pinned script steps, as `(path, hash)`.
     pub pinned_scripts: Vec<(String, ScriptHash)>,
     /// The `ai_agent` resources that agent steps link.
@@ -345,16 +348,14 @@ fn check_module_value_is_composition_only(
         }
         FlowModuleValue::Identity => {}
         FlowModuleValue::Script { path, hash, tag_override, .. } => {
-            check_composable_path(path, false, id)?;
             push_tag(tag_override);
-            refs.runnables.push((false, path.clone()));
+            push_runnable(refs, path, false)?;
             if let Some(hash) = hash {
                 refs.pinned_scripts.push((path.clone(), *hash));
             }
         }
         FlowModuleValue::Flow { path, .. } => {
-            check_composable_path(path, true, id)?;
-            refs.runnables.push((true, path.clone()));
+            push_runnable(refs, path, true)?;
         }
         FlowModuleValue::ForloopFlow { modules, modules_node, .. }
         | FlowModuleValue::WhileloopFlow { modules, modules_node, .. } => {
@@ -427,17 +428,15 @@ fn refused(id: &str, what: &str) -> Error {
     ))
 }
 
-fn check_composable_path(path: &str, is_flow: bool, id: &str) -> Result<(), Error> {
-    if !path.is_empty()
-        && RunnableRef::from_path(path, is_flow)?
-            .path()
-            .starts_with("hub/")
-    {
-        return Err(Error::PermissionDenied(format!(
-            "Step {id}: hub runnables are not available to operators with builder rights. Deploy \
-             it to the workspace first."
-        )));
+fn push_runnable(refs: &mut ComposedFlowRefs, path: &str, is_flow: bool) -> Result<(), Error> {
+    if !path.is_empty() {
+        let runnable = RunnableRef::from_path(path, is_flow)?;
+        if runnable.path().starts_with("hub/") {
+            refs.hub_runnables.push(runnable);
+            return Ok(());
+        }
     }
+    refs.runnables.push((is_flow, path.to_string()));
     Ok(())
 }
 
@@ -595,22 +594,22 @@ mod tests {
     }
 
     #[test]
-    fn composition_check_rejects_hub_runnables() {
+    fn composition_check_collects_hub_runnables() {
         for (kind, path) in [
             ("script", "hub/1234/thing"),
             ("script", "/hub/1234/thing"),
             ("flow", "hub/flows/1234/thing"),
             ("flow", "/hub/flows/1234/thing"),
-            // Parses as a workspace flow path, so only the Hub check refuses it.
+            // Parses as a workspace flow path, so only the path prefix marks it as Hub.
             ("flow", "hub/1234/thing"),
         ] {
             let value = serde_json::json!({"modules": [{"id": "a",
                 "value": {"type": kind, "path": path}}]});
-            assert!(
-                matches!(
-                    check_flow_is_composition_only(&flow(value)),
-                    Err(Error::PermissionDenied(_))
-                ),
+            let refs = check_flow_is_composition_only(&flow(value)).unwrap();
+            assert!(refs.runnables.is_empty(), "{kind} {path}");
+            assert_eq!(
+                refs.hub_runnables,
+                vec![RunnableRef::from_path(path, kind == "flow").unwrap()],
                 "{kind} {path}"
             );
         }
