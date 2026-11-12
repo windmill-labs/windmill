@@ -177,9 +177,31 @@ impl ChosenBy {
     }
 }
 
+/// Refuses a Hub script or flow named by a member whose role cannot write code, preset handlers
+/// excepted. Gated on the path, not `hub_id()`: a flow at `hub/123` has none.
+pub async fn check_can_name_runnable(
+    origin: &RunOrigin<'_>,
+    runnable: &RunnableRef,
+    db: &DB,
+    w_id: &str,
+) -> error::Result<()> {
+    let RunOrigin::NamedBy(authed) = origin else {
+        return Ok(());
+    };
+    if !runnable.path().starts_with("hub/") || runnable.preset_handler().is_some() {
+        return Ok(());
+    }
+    if crate::roles::caller_capabilities(db, w_id, authed).await?.code {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(
+        "Hub scripts and flows require a role that can write code. Ask a developer to deploy it to the workspace.".to_string(),
+    ))
+}
+
 pub async fn script_path_to_payload<'e>(
     script: &RunnableRef,
-    _origin: RunOrigin<'_>,
+    origin: RunOrigin<'_>,
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: DB,
     w_id: &str,
@@ -192,6 +214,7 @@ pub async fn script_path_to_payload<'e>(
     Option<i32>,
     Option<OnBehalfOf>,
 )> {
+    check_can_name_runnable(&origin, script, &db, w_id).await?;
     let script_path = script.path();
     let (job_payload, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
         if let Some(hub_id) = script.hub_id() {
@@ -284,6 +307,7 @@ pub async fn runnable_ref_to_payload(
     let (payload, tag, _, _, _, on_behalf_of) = if !runnable.is_flow() {
         script_path_to_payload(runnable, origin, None, db.clone(), w_id, Some(true)).await?
     } else {
+        check_can_name_runnable(&origin, runnable, db, w_id).await?;
         let path = runnable.path().to_string();
         if let Some(hub_id) = runnable.hub_id() {
             let hub_flow = get_full_hub_flow_by_id(hub_id, &HTTP_CLIENT, Some(db)).await?;
