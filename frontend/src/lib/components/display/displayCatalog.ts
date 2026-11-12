@@ -130,6 +130,35 @@ export const fenceSchema = z.union([
 ])
 
 export type FenceResult = z.infer<typeof fenceSchema>
+export type FenceItem = z.infer<typeof fenceItemSchema>
+export type FenceTable = Exclude<FenceItem, { chart: unknown }>
+
+/** The items a fence value renders, in order. */
+export function fenceItems(value: FenceResult): FenceItem[] {
+	return 'render_all' in value ? value.render_all : [value]
+}
+
+type Cell = string | number | boolean | null
+
+/** The columns and rows of a catalog table value, in the order the table renders them. */
+export function tableRows(item: FenceTable): { columns: string[]; rows: Cell[][] } {
+	if ('table-row' in item) {
+		const [header, ...rows] = item['table-row']
+		return { columns: header.map((c) => String(c ?? '')), rows }
+	}
+	if ('table-col' in item) {
+		const cols = item['table-col']
+		const columns = Object.keys(cols)
+		const length = Math.max(0, ...columns.map((c) => cols[c].length))
+		return {
+			columns,
+			rows: Array.from({ length }, (_, i) => columns.map((c) => cols[c][i] ?? null))
+		}
+	}
+	const objects = item['table-row-object']
+	const columns = [...new Set(objects.flatMap((o) => Object.keys(o)))]
+	return { columns, rows: objects.map((o) => columns.map((c) => o[c] ?? null)) }
+}
 
 export function isChartResult(result: unknown): result is { chart: ChartBody } {
 	return chartSchema.safeParse(result).success

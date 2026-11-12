@@ -120,12 +120,13 @@ async function imagesSettled(doc: Document): Promise<void> {
 	await Promise.race([Promise.all(pending), new Promise((resolve) => setTimeout(resolve, 10_000))])
 }
 
-/** Mermaid draws asynchronously; printing before it lands puts the diagram source in the PDF.
- * A diagram that fails to parse settles too (as its source), so this waits only on renders
- * still in flight; the cap covers one that never returns. */
+/** Mermaid draws asynchronously, and display blocks load their renderer on demand; printing
+ * before they land puts their source in the PDF. One that fails to parse settles too (as its
+ * source), so this waits only on renders still in flight; the cap covers one that never returns. */
 async function diagramsSettled(doc: Document): Promise<void> {
 	const deadline = Date.now() + 10_000
-	while (doc.querySelector('[data-mermaid-pending="true"]') && Date.now() < deadline) {
+	const pending = '[data-mermaid-pending="true"], [data-display-pending="true"]'
+	while (doc.querySelector(pending) && Date.now() < deadline) {
 		await new Promise((resolve) => setTimeout(resolve, 100))
 	}
 }

@@ -16,6 +16,11 @@ describe('display catalog', () => {
 		)
 		expect(bad.ok).toBe(false)
 		expect(!bad.ok && bad.error).toContain('column "count" is not in any row of data')
+		const pie = parseFence(
+			JSON.stringify({ chart: { type: 'pie', data: rows, x: 'status', y: ['runs', 'status'] } })
+		)
+		expect(!pie.ok && pie.error).toContain('a pie chart takes exactly one y column')
+		expect(!pie.ok && pie.error).toContain('y column "status" must hold numbers')
 	})
 
 	// The fence renders on the public shared-session page, which must issue no request.
