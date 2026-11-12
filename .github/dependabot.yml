@@ -14,7 +14,7 @@ updates:
   # Maintain dependencies for GitHub Actions (also updates .github/workflows/actions.lock).
   # The cooldown lets a compromised release be yanked before we pick it up.
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories: ["/", "/.github/actions/*"]
     schedule:
       interval: "weekly"
     cooldown:
