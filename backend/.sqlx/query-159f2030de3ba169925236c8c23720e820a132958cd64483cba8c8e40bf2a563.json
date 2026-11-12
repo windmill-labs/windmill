@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE volume SET generation = generation + 1 - generation % 2\n                     WHERE workspace_id = $1 AND name = $2 AND leased_by = $3 AND lease_until > now()\n                     RETURNING name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "159f2030de3ba169925236c8c23720e820a132958cd64483cba8c8e40bf2a563"
+}

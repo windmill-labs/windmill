@@ -17671,6 +17671,7 @@ name = "windmill-worker-volumes"
 version = "1.871.1"
 dependencies = [
  "bytes",
+ "fs4",
  "futures",
  "lazy_static",
  "md-5 0.10.6",

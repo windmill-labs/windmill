@@ -528,6 +528,89 @@ export function main() {
     Ok(())
 }
 
+/// An agent worker's `volume:ro` pull takes no lease, waits for a write in progress to close,
+/// and writes nothing back.
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_agent_worker_read_only_volume(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let (_client, port, _server) = init_client_agent_mode(db.clone()).await;
+
+    let storage_dir = tempfile::tempdir()?;
+    let lfs_config = json!({
+        "type": "FilesystemStorage",
+        "root_path": storage_dir.path().to_string_lossy(),
+        "public_resource": null,
+        "advanced_permissions": null,
+        "volume_storage": "primary"
+    });
+    sqlx::query!(
+        "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = 'test-workspace'",
+        lfs_config,
+    )
+    .execute(&db)
+    .await?;
+    let vol_dir = storage_dir.path().join("volumes/test-workspace/test-vol");
+    std::fs::create_dir_all(&vol_dir)?;
+    std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
+
+    sqlx::query!(
+        "INSERT INTO volume (workspace_id, name, size_bytes, created_by, lease_until, leased_by, generation)
+         VALUES ('test-workspace', 'test-vol', 0, 'test-user', now() + interval '1 hour', 'other-worker', 1)"
+    )
+    .execute(&db)
+    .await?;
+    let db_c = db.clone();
+    let hello = vol_dir.join("hello.txt");
+    let writer = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        std::fs::write(&hello, b"hello after the write").unwrap();
+        sqlx::query!(
+            "UPDATE volume SET generation = 2 WHERE workspace_id = 'test-workspace' AND name = 'test-vol'"
+        )
+        .execute(&db_c)
+        .await
+    });
+
+    let code = r#"// volume:ro test-vol data
+import { readFileSync, writeFileSync } from "fs";
+
+export function main() {
+    const content = readFileSync("data/hello.txt", "utf-8");
+    writeFileSync("data/output.txt", "discarded");
+    return { read_content: content };
+}"#;
+    let uuid = RunJob::from(JobPayload::Code(bun_code(code)))
+        .push(&db)
+        .await;
+    let listener = listen_for_completed_jobs(&db).await;
+    let conn = testing_http_connection_with_tags(
+        port,
+        vec!["bun".into(), "flow".into(), "dependency".into()],
+    )
+    .await;
+    in_test_worker(conn, listener.find(&uuid), port).await;
+    writer.await??;
+
+    let result = completed_job(uuid, &db).await;
+    assert!(result.success, "job should succeed: {:?}", result.result);
+    assert_eq!(
+        result.json_result().unwrap()["read_content"],
+        json!("hello after the write"),
+        "the pull must wait for the write in progress"
+    );
+    assert!(
+        !vol_dir.join("output.txt").exists(),
+        "a read-only mount must not write back"
+    );
+    let leased_by = sqlx::query_scalar!(
+        "SELECT leased_by FROM volume WHERE workspace_id = 'test-workspace' AND name = 'test-vol'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(leased_by.as_deref(), Some("other-worker"));
+    Ok(())
+}
+
 /// Test the volume release endpoint (error/cancel path).
 #[cfg(feature = "parquet")]
 #[sqlx::test(fixtures("base"))]

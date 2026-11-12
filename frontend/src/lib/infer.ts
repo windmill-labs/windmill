@@ -219,9 +219,10 @@ function parseVolumeAnnotations(code: string, commentPrefix: string): AssetWithA
 		if (!trimmed || trimmed.slice(0, 5).toLowerCase() === '<?php') continue
 		if (!trimmed.startsWith(commentPrefix)) break
 		const after = trimmed.slice(commentPrefix.length).trim()
-		const match = after.match(/^volume:\s*(\S+)/)
+		// `volume:ro <name>`; with a space after the colon, `ro` is the volume's name
+		const match = after.match(/^volume:(ro(?=\s))?\s*(\S+)/)
 		if (match) {
-			volumes.push({ kind: 'volume', path: match[1], access_type: 'rw' })
+			volumes.push({ kind: 'volume', path: match[2], access_type: match[1] ? 'r' : 'rw' })
 		}
 	}
 	return volumes

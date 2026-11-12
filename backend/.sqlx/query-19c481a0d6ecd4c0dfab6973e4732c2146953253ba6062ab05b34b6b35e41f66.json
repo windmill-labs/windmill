@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE volume\n         SET size_bytes = $3, file_count = $4,\n             updated_at = now(), updated_by = $5, last_used_at = now(),\n             lease_until = NULL, leased_by = NULL, generation = generation + generation % 2\n         WHERE workspace_id = $1 AND name = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int4",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "19c481a0d6ecd4c0dfab6973e4732c2146953253ba6062ab05b34b6b35e41f66"
+}

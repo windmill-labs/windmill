@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.permissioned_as FROM v2_job j JOIN v2_job_queue q ON q.id = j.id\n         WHERE j.id = $1 AND j.workspace_id = $2 AND q.running",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c2bc80574da3ea7366222f4c9ebce15d4a8ccd89f20ca26b0a9a50196c5816c6"
+}
