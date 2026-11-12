@@ -46,7 +46,8 @@ pub fn workspaced_service() -> Router {
 pub struct DraftListItem {
     pub kind: UserDraftItemKind,
     pub path: String,
-    /// Best-effort, read from the draft JSON's `summary` field when present.
+    /// Best-effort, read from the draft JSON's `summary` field when present, or its
+    /// `description` for an agent's draft.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     /// User-typed friendly path read from the draft JSON's `draft_path` (set by

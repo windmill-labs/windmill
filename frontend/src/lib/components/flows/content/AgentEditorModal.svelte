@@ -972,8 +972,9 @@
 	</ConfirmationModal>
 {/if}
 
-<!-- A page is left by navigating, which the close above never sees. -->
-{#if layout === 'page'}
+<!-- Leaving the page or reloading it, which the close above never sees: wherever the auto-save
+     toggle can park an edit. -->
+{#if layout !== 'pane'}
 	<UnsavedConfirmationModal
 		showAutosaveTips
 		hasUnsavedChanges={() =>
