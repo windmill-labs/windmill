@@ -216,8 +216,19 @@ async function drawDiagrams(html: string): Promise<string> {
 	return template.innerHTML
 }
 
+/** `html` with its ```wm-display fences drawn as images and tables. */
+async function drawDisplays(html: string): Promise<string> {
+	if (!html.includes('language-wm-display')) return html
+	// Built in the template's inert document, like the diagrams.
+	const template = document.createElement('template')
+	template.innerHTML = html
+	const { drawDisplayFences } = await import('$lib/components/display/displayExport')
+	await drawDisplayFences(template.content)
+	return template.innerHTML
+}
+
 /** The page a download gets: `artifactHtmlDocument` with its diagrams drawn and fonts embedded. */
 export async function artifactHtmlFile(name: string, content: string): Promise<string> {
-	const html = await drawDiagrams(renderArtifactHtml(content))
+	const html = await drawDisplays(await drawDiagrams(renderArtifactHtml(content)))
 	return htmlPage(name, html, { fontCss: await artifactFontCss(html) })
 }
