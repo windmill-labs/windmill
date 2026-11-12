@@ -178,6 +178,7 @@ pub async fn trigger_dependents_to_recompute_dependencies_in_the_background(
                 permissioned_as.as_str(),
                 &db,
                 vec![],
+                false,
             )
             .await
             {

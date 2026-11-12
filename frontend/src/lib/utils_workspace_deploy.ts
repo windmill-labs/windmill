@@ -200,8 +200,11 @@ function makeProvider(
 	 * outright, and a script is given the target's head as `parent_hash`, which is what makes an
 	 * otherwise identical `createScript` an update.
 	 */
-	conflict?: DeployConflict
+	conflict?: DeployConflict,
+	/** See `DeployItemParams.skipCiTests`. */
+	skipCiTests?: boolean
 ): DeployProvider {
+	const ci = skipCiTests ? { skipCiTests: true } : {}
 	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T =>
 		onBehalfOfPrincipal ? { ...requestBody, on_behalf_of: onBehalfOfPrincipal } : requestBody
 	const withPolicyIdentity = <T extends Record<string, any>>(app: T): T =>
@@ -222,17 +225,25 @@ function makeProvider(
 		existsFolder: (p) => FolderService.existsFolder(p),
 		getFlowByPath: (p) => FlowService.getFlowByPath(p),
 		createFlow: (p) =>
-			FlowService.createFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+			FlowService.createFlow({ ...p, ...ci, requestBody: withPermissionedAs(p.requestBody) }),
 		updateFlow: (p) =>
 			conflict
 				? refuseUpdate()
-				: FlowService.updateFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+				: FlowService.updateFlow({
+						...p,
+						...ci,
+						requestBody: withPermissionedAs(p.requestBody)
+					}),
 		archiveFlowByPath: (p) => FlowService.archiveFlowByPath(p),
 		getScriptByPath: (p) => ScriptService.getScriptByPath(p),
 		createScript: (p) =>
 			conflict && p.requestBody.parent_hash
 				? refuseUpdate()
-				: ScriptService.createScript({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+				: ScriptService.createScript({
+						...p,
+						...ci,
+						requestBody: withPermissionedAs(p.requestBody)
+					}),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
 		getAppByPath: (p) => AppService.getAppByPath(p),
 		createApp: (p) =>
@@ -261,8 +272,8 @@ function makeProvider(
 		updateVariable: (p) => VariableService.updateVariable(p),
 		deleteVariable: (p) => VariableService.deleteVariable(p),
 		getResource: (p) => ResourceService.getResource(p),
-		createResource: (p) => ResourceService.createResource(p),
-		updateResource: (p) => ResourceService.updateResource(p),
+		createResource: (p) => ResourceService.createResource({ ...p, ...ci }),
+		updateResource: (p) => ResourceService.updateResource({ ...p, ...ci }),
 		deleteResource: (p) => ResourceService.deleteResource(p),
 		getResourceType: (p) => ResourceService.getResourceType(p),
 		createResourceType: (p) => ResourceService.createResourceType(p),
@@ -351,6 +362,12 @@ export interface DeployItemParams {
 	 * a payload must state about where it landed needs it — a GCP or Azure push trigger's endpoint.
 	 */
 	targetBaseUrl?: string
+	/**
+	 * Hold back the CI tests this deploy would queue. A caller deploying several items in a row
+	 * sets it and queues them once with `triggerCiTestsForBatch` after the last one; nothing else
+	 * queues them.
+	 */
+	skipCiTests?: boolean
 }
 
 /**
@@ -370,7 +387,8 @@ export async function deployItem(
 		onBehalfOf,
 		onBehalfOfPrincipal,
 		createOnly,
-		targetBaseUrl
+		targetBaseUrl,
+		skipCiTests
 	} = params
 
 	if (kind === 'trigger') {
@@ -412,7 +430,7 @@ export async function deployItem(
 
 	const conflict: DeployConflict | undefined = createOnly ? { hit: false } : undefined
 	const result = await sharedDeployItem(
-		makeProvider(onBehalfOfPrincipal, conflict),
+		makeProvider(onBehalfOfPrincipal, conflict, skipCiTests),
 		kind as DeployKind,
 		path,
 		workspaceFrom,
@@ -420,6 +438,31 @@ export async function deployItem(
 		onBehalfOf
 	)
 	return conflict?.hit ? { ...result, conflict: true } : result
+}
+
+const CI_TEST_BATCH_POLL_MS = 2000
+const CI_TEST_BATCH_MAX_WAIT_MS = 10 * 60 * 1000
+
+/**
+ * Queue the CI tests of items deployed with `skipCiTests`, once the server reports none of
+ * them is still being locked; after `CI_TEST_BATCH_MAX_WAIT_MS` they are queued regardless,
+ * so a stuck lock job cannot leave the batch untested.
+ */
+export async function triggerCiTestsForBatch(
+	workspace: string,
+	items: { kind: 'script' | 'flow' | 'resource'; path: string }[]
+): Promise<string[]> {
+	if (items.length === 0) return []
+	const deadline = Date.now() + CI_TEST_BATCH_MAX_WAIT_MS
+	while (true) {
+		const ignorePending = Date.now() >= deadline
+		const res = await ScriptService.triggerCiTestsBatch({
+			workspace,
+			requestBody: { items, ignore_pending: ignorePending }
+		})
+		if (res.pending.length === 0 || ignorePending) return res.job_ids
+		await new Promise((r) => setTimeout(r, CI_TEST_BATCH_POLL_MS))
+	}
 }
 
 /**
@@ -780,7 +823,10 @@ function roleRefusal(
 	kind: Kind | UserDraftItemKind,
 	caps: RoleCapabilities
 ): DeployPermission | undefined {
-	if (!ROLE_GATED_KINDS.has(kind) || roleCanAuthor(kind === 'data_pipeline' ? 'script' : kind, caps))
+	if (
+		!ROLE_GATED_KINDS.has(kind) ||
+		roleCanAuthor(kind === 'data_pipeline' ? 'script' : kind, caps)
+	)
 		return undefined
 	return {
 		ok: false,
@@ -909,7 +955,12 @@ export async function checkDeployPermission(
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
-		if (!capabilitiesIn(me, get(userWorkspaces).find((w) => w.id === workspace)).code) {
+		if (
+			!capabilitiesIn(
+				me,
+				get(userWorkspaces).find((w) => w.id === workspace)
+			).code
+		) {
 			return {
 				ok: false,
 				reason: "Your role in this workspace can't deploy",

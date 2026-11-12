@@ -14,6 +14,12 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
+import {
+  ciTestBatchDeployed,
+  ciTestBatchSkip,
+  closeCiTestBatch,
+  openCiTestBatch,
+} from "../../core/ci_test_batch.ts";
 import { RETIRED_SETTINGS, SETTINGS_MANAGED_ONLY_WHEN_PRESENT } from "../../core/settings.ts";
 import * as path from "node:path";
 import { sep as SEP } from "node:path";
@@ -5983,6 +5989,7 @@ export async function push(
     // push. Reported at the end, and the push exits non-zero for them.
     const failedChanges: { path: string; error: string }[] = [];
 
+    openCiTestBatch();
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
     // Process folder.meta groups first (sequentially), then items in parallel.
@@ -6805,8 +6812,10 @@ export async function push(
                 await wmill.updateResource({
                   workspace: workspace.workspaceId,
                   path: removeType(target, "resource"),
+                  ...ciTestBatchSkip(),
                   requestBody: { ws_specific: change.wsSpecific },
                 });
+                ciTestBatchDeployed("resource", removeType(target, "resource"));
               } else if (change.kind === "variable") {
                 await wmill.updateVariable({
                   workspace: workspace.workspaceId,
@@ -6824,15 +6833,25 @@ export async function push(
 
         pool.add(promise);
         // Remove from pool when complete
-        promise.then(() => {
+        // Both outcomes: a rejection left unhandled here kills the process before the
+        // failure path below can close the CI test batch.
+        const done = () => {
           pool.delete(promise);
           if (isFolderGroup) folderPhaseRemaining--;
-        });
+        };
+        promise.then(done, done);
       }
 
       // Wait for at least one task to complete before continuing
       if (pool.size > 0) {
-        await Promise.race(pool);
+        try {
+          await Promise.race(pool);
+        } catch (e) {
+          // The items deployed before the failure held their tests back too.
+          await Promise.allSettled([...pool]);
+          await closeCiTestBatch(workspace.workspaceId);
+          throw e;
+        }
       }
     }
     try {
@@ -6860,6 +6879,7 @@ export async function push(
       pushStartedAt,
       changes.map((c) => c.path.replaceAll(SEP, "/")),
     );
+    await closeCiTestBatch(workspace.workspaceId);
     if (!opts.jsonOutput) {
       for (const f of lockJobs.failed) {
         log.warn(

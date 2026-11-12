@@ -9264,6 +9264,7 @@ paths:
       summary: create resource
       operationId: createResource
       x-mcp-tool: true
+      x-mcp-tool-include-query-params: [update_if_exists]
       tags:
         - resource
       parameters:
@@ -9273,6 +9274,7 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: new resource
         required: true
@@ -9343,11 +9345,13 @@ paths:
       summary: update resource
       operationId: updateResource
       x-mcp-tool: true
+      x-mcp-tool-include-query-params: []
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: updated resource
         required: true
@@ -11483,10 +11487,12 @@ paths:
         - schema
       x-mcp-tool-opaque-fields:
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: Partially filled script
         required: true
@@ -11525,11 +11531,13 @@ paths:
         - schema
       x-mcp-tool-opaque-fields:
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: The new version of the script, whose `path` is where it should end up.
         required: true
@@ -12293,6 +12301,59 @@ paths:
                   items:
                     $ref: "#/components/schemas/CiTestResult"
 
+  /w/{workspace}/scripts/trigger_ci_tests_batch:
+    post:
+      summary: queue the CI tests of a batch of deploys
+      description: |
+        Queues the CI tests of items deployed with `skip_ci_tests`, plus those of the scripts
+        importing them, once nothing those tests read (the tested items, the test scripts and
+        their imports) still has a dependency job queued or running. While one does, nothing is
+        queued and `pending` lists those paths: call again later, or pass `ignore_pending` to
+        queue them anyway. The tests run as the caller, who must be able to deploy each item.
+      operationId: triggerCiTestsBatch
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        type: string
+                        enum: [script, flow, resource]
+                    required: [path, kind]
+                ignore_pending:
+                  type: boolean
+              required: [items]
+      responses:
+        "200":
+          description: the paths still pending, and the CI test jobs queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: array
+                    items:
+                      type: string
+                  job_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                required: [pending, job_ids]
   /w/{workspace}/scripts/check_schema_contracts:
     post:
       summary: check a script's asset references against captured producer schemas
@@ -13696,10 +13757,12 @@ paths:
       x-mcp-tool-opaque-fields:
         - value
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - flow
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: Partially filled flow
         required: true
@@ -13739,11 +13802,13 @@ paths:
       x-mcp-tool-opaque-fields:
         - value
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - flow
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: Partially filled flow
         required: true
@@ -29160,6 +29225,12 @@ components:
       required: true
       schema:
         type: string
+    SkipCiTests:
+      name: skip_ci_tests
+      description: Do not queue the CI tests of this deploy. Set by a caller deploying several items in a row, which queues them with triggerCiTestsBatch once the whole batch has landed.
+      in: query
+      schema:
+        type: boolean
     TablePreviewS3ResourcePath:
       name: s3_resource_path
       description: Read the file from this object storage resource instead of the workspace storage.
