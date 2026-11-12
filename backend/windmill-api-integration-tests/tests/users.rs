@@ -1451,6 +1451,72 @@ async fn test_rename_group_prefixed_member_keeps_group_run_as(
     Ok(())
 }
 
+/// Same rule for the runnables that carry their principal themselves: scripts, flows, drafts,
+/// apps and agents running as `g/ops` stay the group's. The agent sits in a workspace the
+/// member is not in, which is what the instance-wide sweep reaches.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_group_prefixed_member_keeps_group_runnables(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"UPDATE usr SET username = 'group-ops' WHERE email = 'test2@windmill.dev';
+         UPDATE password SET username = 'group-ops' WHERE email = 'test2@windmill.dev';
+         INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user');
+         INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of, on_behalf_of_email)
+           VALUES ('test-workspace', 'f/ops/job', 96001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'g/ops', 'group-ops@windmill.dev');
+         INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, schema, extra_perms, on_behalf_of, on_behalf_of_email)
+           VALUES ('test-workspace', 'f/ops/flow', '', '', '{"modules": []}', 'test-user', NOW(), '{}', '{}', 'g/ops', 'group-ops@windmill.dev');
+         INSERT INTO draft (workspace_id, path, typ, value, email)
+           VALUES ('test-workspace', 'f/ops/job', 'script', '{"on_behalf_of": "g/ops", "on_behalf_of_email": "group-ops@windmill.dev"}', 'test@windmill.dev'),
+                  ('test-workspace', 'f/ops/app', 'app', '{"policy": {"on_behalf_of": "g/ops", "on_behalf_of_email": "test2@windmill.dev"}}', 'test@windmill.dev');
+         INSERT INTO app (workspace_id, path, summary, policy, versions)
+           VALUES ('test-workspace', 'f/ops/app', '', '{"on_behalf_of": "g/ops", "on_behalf_of_email": "test2@windmill.dev"}', '{}');
+         INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+           VALUES ('other-workspace', 'f/ops/agent', '{"run_on_behalf_of": true, "on_behalf_of": "g/ops"}', 'ai_agent', 'test-user');"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let principals: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT 'script', on_behalf_of FROM script WHERE path = 'f/ops/job'
+         UNION ALL SELECT 'flow', on_behalf_of FROM flow WHERE path = 'f/ops/flow'
+         UNION ALL SELECT 'draft ' || typ, COALESCE(value->>'on_behalf_of', value->'policy'->>'on_behalf_of')
+           FROM draft WHERE path LIKE 'f/ops/%'
+         UNION ALL SELECT 'app', policy->>'on_behalf_of' FROM app WHERE path = 'f/ops/app'
+         UNION ALL SELECT 'agent', value->>'on_behalf_of' FROM resource WHERE path = 'f/ops/agent'
+         ORDER BY 1",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        principals,
+        [
+            "agent",
+            "app",
+            "draft app",
+            "draft script",
+            "flow",
+            "script"
+        ]
+        .map(|k| (k.to_string(), Some("g/ops".to_string())))
+        .to_vec()
+    );
+
+    Ok(())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_generated_username_skips_anonymous(db: Pool<Postgres>) -> anyhow::Result<()> {
     let mut tx = db.begin().await?;

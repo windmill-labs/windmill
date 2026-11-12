@@ -109,6 +109,14 @@ pub fn username_to_permissioned_as(user: &str) -> String {
     format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
 }
 
+/// The principal that what a user runs as is theirs to carry along (rename) or hand over
+/// (offboarding), or `None` for a legacy `group-*` username: that canonicalizes to the group it
+/// names, and what runs as the group outlives any one member.
+pub fn username_to_own_permissioned_as(user: &str) -> Option<String> {
+    let principal = username_to_permissioned_as(user);
+    (!principal.starts_with(PERMISSIONED_AS_GROUP_PREFIX)).then_some(principal)
+}
+
 /// Borrowed key for zero-allocation cache lookups via `Equivalent<(String, String)>`.
 #[derive(Hash)]
 struct EmailCacheKey<'a>(&'a str, &'a str);

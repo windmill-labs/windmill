@@ -130,15 +130,9 @@ struct WorkspaceReassignment {
 
 // ---- Preview helpers ----
 
-/// The principal a departing member's runnables run as, or `None` when none of them are theirs
-/// to hand over. `usr.username` is constrained to `[\w-]+`, so a member is `u/{username}`, except
-/// a legacy `group-*` username, which canonicalizes to the group it names: what runs under that
-/// principal runs as the group, which outlives the member. `None` binds NULL, which the
-/// `on_behalf_of = $n` queries then match nowhere.
+/// `None` binds NULL, which the `on_behalf_of = $n` queries then match nowhere.
 fn departing_principal(username: &str) -> Option<String> {
-    use windmill_common::users::{username_to_permissioned_as, PERMISSIONED_AS_GROUP_PREFIX};
-    let principal = username_to_permissioned_as(username);
-    (!principal.starts_with(PERMISSIONED_AS_GROUP_PREFIX)).then_some(principal)
+    windmill_common::users::username_to_own_permissioned_as(username)
 }
 
 async fn get_offboard_preview(
