@@ -638,46 +638,88 @@ const PLAIN_CONTENT_TYPES: [&str; 9] = [
 ];
 
 /// `windmill_headers` a workspace without a paid plan may not set on Windmill Cloud. Each turns
-/// our domain into something other than a data API: a redirect, a page (a `Content-Type` here
-/// overrides the JSON body's own), a file download, a native login prompt, or a cookie or
-/// cleared site data on it.
-const PAID_ONLY_HEADERS: [&str; 7] = [
+/// our domain into something other than a data API: a redirect, a file download, a native login
+/// prompt, or a cookie or cleared site data on it. `Content-Type` is checked by value instead:
+/// set there it overrides the JSON body's own.
+const PAID_ONLY_HEADERS: [&str; 6] = [
     "location",
     "refresh",
-    "content-type",
     "content-disposition",
     "www-authenticate",
     "set-cookie",
     "clear-site-data",
 ];
 
-/// Whether serving this composite result would make our domain serve a web page, a redirect or
-/// any of [`PAID_ONLY_HEADERS`], which a free cloud workspace may not do.
-fn needs_paid_plan(
+fn content_type_allowed(ct: &str) -> bool {
+    // A browser reads a comma-separated Content-Type as a list and uses its last valid type,
+    // so `text/plain, text/html` renders as HTML.
+    if ct.contains(',') {
+        return false;
+    }
+    let media_type = ct.split(';').next().unwrap_or("").trim();
+    PLAIN_CONTENT_TYPES
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case(media_type))
+}
+
+fn content_type_hint(ct: &str) -> String {
+    let ct = ct.to_ascii_lowercase();
+    if ct.contains(',') {
+        "Set a single content type.".to_string()
+    } else if ct.contains("svg") {
+        "Render the image as image/png instead.".to_string()
+    } else {
+        format!(
+            "Allowed content types are {}.",
+            PLAIN_CONTENT_TYPES.join(", ")
+        )
+    }
+}
+
+/// Why serving this composite result would make our domain serve a web page, a redirect or one
+/// of [`PAID_ONLY_HEADERS`], which a free cloud workspace may not do, with how to fix it.
+/// `None` when it serves data only.
+fn paid_plan_refusal(
     status_code: Option<u16>,
     content_type: Option<&str>,
     headers: Option<&HashMap<String, String>>,
-) -> bool {
-    // A browser reads a comma-separated Content-Type as a list and uses its last valid type,
-    // so `text/plain, text/html` renders as HTML.
-    let media_type_allowed = |ct: &str| {
-        if ct.contains(',') {
-            return false;
-        }
-        let media_type = ct.split(';').next().unwrap_or("").trim();
-        PLAIN_CONTENT_TYPES
+) -> Option<String> {
+    if let Some(c) = status_code.filter(|c| (300..400).contains(c)) {
+        return Some(format!(
+            "windmill_status_code {c} is a redirect. Return the URL in the result instead."
+        ));
+    }
+    if let Some(ct) = content_type.filter(|ct| !content_type_allowed(ct)) {
+        return Some(format!(
+            "windmill_content_type \"{ct}\" is not allowed. {}",
+            content_type_hint(ct)
+        ));
+    }
+    for (k, v) in headers.into_iter().flatten() {
+        let name = k.trim();
+        if name.eq_ignore_ascii_case("content-type") {
+            if !content_type_allowed(v) {
+                return Some(format!(
+                    "windmill_headers \"{k}: {v}\" is not allowed. {}",
+                    content_type_hint(v)
+                ));
+            }
+        } else if PAID_ONLY_HEADERS
             .iter()
-            .any(|t| t.eq_ignore_ascii_case(media_type))
-    };
-    status_code.is_some_and(|c| (300..400).contains(&c))
-        || content_type.is_some_and(|ct| !media_type_allowed(ct))
-        || headers.is_some_and(|h| {
-            h.keys().any(|k| {
-                PAID_ONLY_HEADERS
-                    .iter()
-                    .any(|n| n.eq_ignore_ascii_case(k.trim()))
-            })
-        })
+            .any(|n| n.eq_ignore_ascii_case(name))
+        {
+            let hint = if ["location", "refresh"]
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case(name))
+            {
+                " Return the URL in the result instead."
+            } else {
+                ""
+            };
+            return Some(format!("windmill_headers \"{k}\" is not allowed.{hint}"));
+        }
+    }
+    None
 }
 
 /// [`result_to_response`] for a response served over HTTP, with the workspace's plan applied.
@@ -692,11 +734,12 @@ pub async fn result_to_http_response(
 ) -> error::Result<Response> {
     let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
     let needs_plan = composite_result.as_ref().is_some_and(|c| {
-        needs_paid_plan(
+        paid_plan_refusal(
             c.windmill_status_code,
             c.windmill_content_type.as_deref(),
             c.windmill_headers.as_ref(),
         )
+        .is_some()
     });
     let rich_responses_allowed =
         !needs_plan || windmill_common::workspaces::paid_features_allowed(db, w_id).await?;
@@ -704,7 +747,7 @@ pub async fn result_to_http_response(
 }
 
 /// Shapes a job result into a response. `rich_responses_allowed: false` refuses a result that
-/// [`needs_paid_plan`]; HTTP callers get it from [`result_to_http_response`].
+/// [`paid_plan_refusal`] refuses; HTTP callers get it from [`result_to_http_response`].
 pub fn result_to_response(
     result: Box<RawValue>,
     success: bool,
@@ -728,20 +771,18 @@ fn composite_to_response(
             windmill_content_transfer_encoding,
             result: result_value,
         }) => {
-            if !rich_responses_allowed
-                && needs_paid_plan(
+            if !rich_responses_allowed {
+                if let Some(reason) = paid_plan_refusal(
                     windmill_status_code,
                     windmill_content_type.as_deref(),
                     windmill_headers.as_ref(),
-                )
-            {
-                return Err(Error::BadRequest(
-                    "The job ran, but its response was refused: custom HTML responses, \
-                     redirects and these response headers require a paid plan on Windmill \
-                     Cloud. Upgrade this workspace in Workspace Settings > Premium plans, or \
-                     return JSON or plain text."
-                        .to_string(),
-                ));
+                ) {
+                    return Err(Error::BadRequest(format!(
+                        "The job ran, but its response was refused: {reason} Web pages, \
+                         redirects and some response headers require a paid plan on Windmill \
+                         Cloud: upgrade this workspace in Workspace Settings > Premium plans."
+                    )));
+                }
             }
             if windmill_content_type.is_none()
                 && windmill_status_code.is_none()
@@ -1652,7 +1693,8 @@ mod result_to_response_tests {
             r#"{"wm_content_type":"text/plain","wm_headers":{"Content-Disposition":"attachment; filename=\"x.exe\""},"result":"x"}"#,
             r#"{"wm_status_code":401,"wm_headers":{"WWW-Authenticate":"Basic realm=\"login\""}}"#,
             r#"{"wm_content_type":"text/plain; charset=utf-8, text/html","result":"<h1>hi</h1>"}"#,
-            r#"{"wm_headers":{"Set-Cookie":"token=x; Path=/"},"result":{"a":1}}"#,
+            r#"{"wm_headers":{"set-cookie":"token=x; Path=/"},"result":{"a":1}}"#,
+            r#"{"wm_headers":{"content-type":"image/svg+xml"},"result":"<svg/>"}"#,
             r#"{"wm_headers":{"Clear-Site-Data":"\"cookies\""},"result":{"a":1}}"#,
         ];
         for json in refused {
@@ -1674,6 +1716,7 @@ mod result_to_response_tests {
             r#"{"wm_content_type":"image/png","wm_content_transfer_encoding":"base64","result":"aGk="}"#,
             r#"{"wm_status_code":201,"wm_headers":{"x-custom":"1"},"result":{"a":1}}"#,
             r#"{"wm_status_code":400,"result":"bad"}"#,
+            r#"{"wm_headers":{"content-type":"image/gif"},"result":"R0lGODlh"}"#,
         ];
         for json in allowed {
             assert!(
@@ -1681,5 +1724,17 @@ mod result_to_response_tests {
                 "must be allowed: {json}"
             );
         }
+
+        let Err(Error::BadRequest(msg)) = result_to_response(
+            raw(r#"{"wm_headers":{"content-type":"image/svg+xml"},"result":"<svg/>"}"#),
+            true,
+            false,
+        ) else {
+            panic!("svg must be refused");
+        };
+        assert!(
+            msg.contains("\"content-type: image/svg+xml\"") && msg.contains("image/png"),
+            "error must name the refused key and value and suggest a fix: {msg}"
+        );
     }
 }
