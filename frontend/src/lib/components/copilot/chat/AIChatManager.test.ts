@@ -1271,6 +1271,106 @@ describe('AIChatManager queued messages', () => {
 		expect(input.prependText).toHaveBeenCalledWith('line one\nline two', [], [])
 	})
 
+	// Taken into the running turn, the message must not go out again as the next turn, and
+	// its bubble must point at its place in the stored history (editing it rewinds there).
+	it('sends a message marked to go without stopping into the running turn, once', async () => {
+		let taken: unknown
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			manager.queueMessage('use Postgres instead')
+			manager.sendQueuedMidTurn()
+			config.addedMessages.push(
+				{
+					role: 'assistant',
+					content: '',
+					tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'x', arguments: '{}' } }]
+				},
+				{ role: 'tool', tool_call_id: 'call_1', content: 'ok' }
+			)
+			taken = config.takeMidTurnMessage()
+			config.addedMessages.push(taken, { role: 'assistant', content: 'done' })
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		const manager = createManager(createInputMock())
+
+		await manager.sendRequest({ instructions: 'build it' })
+
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(1)
+		expect(manager.queuedMessage).toBe('')
+		expect(JSON.stringify(taken)).toContain('use Postgres instead')
+		const bubble = manager.displayMessages.find(
+			(m) => m.role === 'user' && m.content === 'use Postgres instead'
+		) as { index: number } | undefined
+		expect(manager.messages[bubble!.index]).toEqual(taken)
+	})
+
+	// A failed turn keeps the queue; its mark must not carry the message into the next turn.
+	it('drops the mark of a turn that fails, keeping the message queued', async () => {
+		const manager = createManager(createInputMock())
+		mocks.runChatLoop.mockImplementationOnce(async () => {
+			manager.queueMessage('use Postgres instead')
+			manager.sendQueuedMidTurn()
+			throw new Error('provider down')
+		})
+		let taken: unknown = 'not called'
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			config.addedMessages.push(
+				{
+					role: 'assistant',
+					content: '',
+					tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'x', arguments: '{}' } }]
+				},
+				{ role: 'tool', tool_call_id: 'call_1', content: 'ok' }
+			)
+			taken = config.takeMidTurnMessage()
+			throw new Error('provider down')
+		})
+
+		await manager.sendRequest({ instructions: 'build it' })
+		expect(manager.queuedMessage).toBe('use Postgres instead')
+		expect(manager.queuedSendsMidTurn).toBe(false)
+
+		await manager.sendRequest({ instructions: 'try again' })
+		expect(taken).toBeUndefined()
+		expect(manager.queuedMessage).toBe('use Postgres instead')
+	})
+
+	it('holds a marked message after the user rejects a tool call, sending it after the turn', async () => {
+		const manager = createManager(createInputMock())
+		let taken: unknown = 'not called'
+		let markedAfter: boolean | undefined
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			config.addedMessages.push(
+				{
+					role: 'assistant',
+					content: '',
+					tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'x', arguments: '{}' } }]
+				},
+				{ role: 'tool', tool_call_id: 'call_1', content: 'Tool execution was cancelled by user' }
+			)
+			manager.applyToolStatus('call_1', { declinedByUser: true })
+			manager.queueMessage('also tell me the capital of Peru')
+			manager.sendQueuedMidTurn()
+			taken = config.takeMidTurnMessage()
+			markedAfter = manager.queuedSendsMidTurn
+			return { addedMessages: config.addedMessages }
+		})
+		replyWith('Lima')
+
+		await manager.sendRequest({ instructions: 'deploy it' })
+		expect(taken).toBeUndefined()
+		expect(markedAfter).toBe(false)
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(2)
+		expect(
+			manager.displayMessages.some(
+				(m) => m.role === 'user' && m.content === 'also tell me the capital of Peru'
+			)
+		).toBe(true)
+	})
+
 	const img = (n: string): AttachedImage => ({
 		dataUrl: `data:image/png;base64,${n}`,
 		mediaType: 'image/png',
@@ -1293,6 +1393,25 @@ describe('AIChatManager queued messages', () => {
 		)
 		expect(autoSent && 'images' in autoSent ? autoSent.images : undefined).toEqual([img('a')])
 		expect(manager.queuedImages).toEqual([])
+	})
+
+	it('does not mark a queued image for a model that cannot read it', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'groq', model: 'llama-3.3-70b-versatile' })
+		let marked: boolean | undefined
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			manager.queueMessage('what is in it', [img('a')])
+			manager.sendQueuedMidTurn()
+			marked = manager.queuedSendsMidTurn
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages.push(message)
+			return { addedMessages: [message] }
+		})
+		replyWith('ok')
+
+		await manager.sendRequest({ instructions: 'work' })
+		expect(marked).toBe(false)
 	})
 
 	// Attaching is refused on a text-only model, but the model can be switched

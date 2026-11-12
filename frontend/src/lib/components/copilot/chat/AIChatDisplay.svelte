@@ -184,6 +184,7 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
+	let composerFocused = $state(false)
 	let assistantSettings: AssistantSettingsModal | undefined = $state()
 	// The "+" menu's skill and MCP rows: enough state to check and flip one, with
 	// everything else about them behind the assistant settings modal.
@@ -1140,7 +1141,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			</div>
 		{/if}
 		<div>
-			<QueuedMessageChip />
+			<QueuedMessageChip {composerFocused} onFocusComposer={() => aiChatInput?.focusInput()} />
 			{#if chatHost.mode === AIMode.GLOBAL && !chatHost.isSessionChat}
 				<!-- Standalone Jobs bar for the global side-panel chat. In /sessions the
 				     Jobs segment lives inside the session bar (SessionChangesBar). -->
@@ -1180,6 +1181,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				collapsed={composerCollapsed}
 				chatIcon={starterLayout}
 				{onSent}
+				onComposerFocusChange={(focused) => (composerFocused = focused)}
 				clearHint={!starterLayout && clearHintShown}
 			>
 				{#snippet collapsedControls()}

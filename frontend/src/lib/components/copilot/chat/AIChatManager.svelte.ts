@@ -276,6 +276,10 @@ const COMPACT_COMMAND_RE = /^\/compact\s*$/
 // resets to a fresh chat (the "New chat" action), instead of sending a turn.
 const CLEAR_COMMAND_NAME = 'clear'
 const CLEAR_COMMAND_RE = /^\/clear\s*$/
+function isLocalCommand(text: string): boolean {
+	const trimmed = text.trim()
+	return COMPACT_COMMAND_RE.test(trimmed) || CLEAR_COMMAND_RE.test(trimmed)
+}
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
@@ -502,6 +506,8 @@ export class AIChatManager implements ChatViewHost {
 	// affordances apply here. See ChatViewHost for hosts where they don't.
 	supportsModelSettings = true
 	supportsMessageEditing = true
+	readonly stopSendsQueuedMessage = true
+	readonly supportsMidTurnMessages = true
 	// The copilot turn is the attachments themselves when there is no text.
 	requiresMessageText = false
 	// Attachments and linked folders are GLOBAL-mode affordances. Declared as
@@ -554,6 +560,33 @@ export class AIChatManager implements ChatViewHost {
 	// what was selected at queue time (e.g. an inline element prompt submitted mid-
 	// stream) rather than the live selection, which may change before the flush.
 	queuedContext = $state<ContextElement[] | undefined>(undefined)
+	// The turn `sendQueuedMidTurn` marked the queue for, by its abort controller: a turn
+	// that ends without taking the queue (an error, a failed compaction) leaves it
+	// queued, and the mark must not carry it into the next turn.
+	#queueSendsMidTurnIn = $state<AbortController | undefined>(undefined)
+	get queuedSendsMidTurn(): boolean {
+		return (
+			this.loading &&
+			this.#queueSendsMidTurnIn !== undefined &&
+			this.#queueSendsMidTurnIn === this.abortController &&
+			!this.#queueWaitsForTurnEnd()
+		)
+	}
+	/** A queue the turn-start send would refuse or trim: it goes out with that send, after
+	 * the turn. `/compact` and `/clear` act on the whole conversation. Read live, since the
+	 * queue and the session's model can change after the mark. */
+	#queueWaitsForTurnEnd(): boolean {
+		if (isLocalCommand(this.queuedMessage)) return true
+		if (
+			(this.queuedImages.length > 0 || this.queuedFiles.length > 0) &&
+			this.mode !== AIMode.GLOBAL
+		)
+			return true
+		const model = this.currentModel
+		return (
+			this.queuedImages.length > 0 && !!model && !modelSupportsVision(model.provider, model.model)
+		)
+	}
 	get queuedMessage(): string {
 		return this.#queuedDraft.text
 	}
@@ -2664,12 +2697,22 @@ export class AIChatManager implements ChatViewHost {
 			context: this.queuedContext
 		}
 		this.queuedContext = undefined
+		this.#queueSendsMidTurnIn = undefined
 		return taken
 	}
 
 	#clearQueue() {
 		this.#queuedDraft.clear()
 		this.queuedContext = undefined
+		this.#queueSendsMidTurnIn = undefined
+	}
+
+	/** Ctrl+Enter while a turn runs: the queued message goes into that turn as soon as its
+	 * running tool calls finish (`#takeMidTurnMessage`), instead of after the turn. */
+	sendQueuedMidTurn() {
+		if (!this.loading || !this.#hasQueuedMessage()) return
+		if (this.#queueWaitsForTurnEnd()) return
+		this.#queueSendsMidTurnIn = this.abortController
 	}
 
 	/** Put a taken queue back after an auto-send bailed before becoming a turn.
@@ -3529,7 +3572,8 @@ export class AIChatManager implements ChatViewHost {
 		addedMessages,
 		systemMessage: systemMessageOverride,
 		onWebSearchUnavailable,
-		onBeforeIteration
+		onBeforeIteration,
+		takeMidTurnMessage
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -3542,6 +3586,7 @@ export class AIChatManager implements ChatViewHost {
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
 		onBeforeIteration?: ChatLoopConfig['onBeforeIteration']
+		takeMidTurnMessage?: ChatLoopConfig['takeMidTurnMessage']
 	}) => {
 		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
 		this.pendingToolImages.clear()
@@ -3563,6 +3608,7 @@ export class AIChatManager implements ChatViewHost {
 			const result = await runChatLoop({
 				messages,
 				addedMessages,
+				takeMidTurnMessage,
 				get systemMessage() {
 					let base = systemMessageOverride ?? self.systemMessage
 					// Inject the attached-files roster at request time (re-read each iteration)
@@ -3801,6 +3847,125 @@ export class AIChatManager implements ChatViewHost {
 	 * sending and queueing tests this as well. */
 	get sendPending(): boolean {
 		return this.#sendsAwaitingReady > 0
+	}
+
+	/** The message the model gets for `text`, framed for the current mode. Message-attached
+	 * files travel as references: the prompt lists them by id and the model reads them with
+	 * the file tools, so they are registered before the request goes out. A failed
+	 * registration must not block the send — the reference reads as missing instead. */
+	#buildUserMessage(
+		text: string,
+		context: ContextElement[],
+		images: AttachedImage[],
+		files: AttachedTextFile[]
+	): ChatCompletionMessageParam {
+		if (this.mode === AIMode.GLOBAL && files.length > 0) {
+			try {
+				this.attachedFiles.registerMessageFiles(files as (AttachedTextFile & { id: string })[])
+			} catch (e) {
+				console.error('Failed to register message-attached files', e)
+			}
+		}
+		switch (this.mode) {
+			case AIMode.FLOW:
+				return prepareFlowUserMessage(
+					text,
+					this.flowAiChatHelpers!.getFlowAndSelectedId(),
+					context,
+					this.flowAiChatHelpers!.inlineScriptSession,
+					{ flowInputsLocked: !this.flowAiChatHelpers!.canEditFlowInputs() }
+				)
+			case AIMode.NAVIGATOR:
+				return prepareNavigatorUserMessage(text)
+			case AIMode.ASK:
+				return prepareAskUserMessage(text)
+			case AIMode.SCRIPT:
+				return prepareScriptUserMessage(text, context)
+			case AIMode.API:
+				return prepareApiUserMessage(text)
+			case AIMode.GLOBAL:
+				return prepareGlobalUserMessage(text, context, {
+					workspace: this.operatingWorkspace,
+					activePreview: this.activePreviewResolver?.(),
+					activeEditor: this.activeEditorResolver?.(),
+					images,
+					files,
+					resourceTypeSync: this.resourceTypeSync
+				})
+			case AIMode.APP:
+				return prepareAppUserMessage(text, this.appAiChatHelpers?.getSelectedContext(), context)
+		}
+	}
+
+	/** The user rejected a tool call of the latest step. A user message read after a rejection
+	 * makes the model retry the rejected call whatever the framing or the tool result say, so
+	 * the queue waits: the model answers the rejection alone and the queue goes after the turn. */
+	#lastStepDeclined(collectedMessages: ChatCompletionMessageParam[]): boolean {
+		const step = collectedMessages.findLast((m) => m.role === 'assistant' && m.tool_calls?.length)
+		if (step?.role !== 'assistant' || !step.tool_calls) return false
+		const ids = new Set(step.tool_calls.map((c) => c.id))
+		return this.displayMessages.some(
+			(m) => m.role === 'tool' && ids.has(m.tool_call_id) && m.declinedByUser === true
+		)
+	}
+
+	/** The queued message as the next message of the running turn, once `sendQueuedMidTurn`
+	 * marked it. Taken only after the turn has output that a stop keeps (`hasUsableOutput`
+	 * in `sendRequestImpl`): a turn rolled back as unsent would drop the message with it. */
+	#takeMidTurnMessage(
+		collectedMessages: ChatCompletionMessageParam[]
+	): ChatCompletionMessageParam | undefined {
+		if (!this.queuedSendsMidTurn || !this.#hasQueuedMessage()) return undefined
+		if (this.abortController?.signal.aborted) return undefined
+		if (truncateToToolPairedPrefix(collectedMessages).length === 0) return undefined
+		if (this.#lastStepDeclined(collectedMessages)) {
+			// Unmarked, so the chip stops promising a mid-turn send.
+			this.#queueSendsMidTurnIn = undefined
+			return undefined
+		}
+
+		const { draft, context = [] } = this.#takeQueue()
+		// Pinned at enqueue, so consumed from the live selection as any pinned send does.
+		for (const c of context) {
+			if (c.type === 'app_dom_selector') {
+				this.contextManager?.removeSelectedDomElement(c.selector, c.appPath)
+			}
+		}
+		if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
+			this.contextManager?.updateContextOnRequest({})
+		}
+		const files = withAttachedTextFileIds(draft.files)
+		const text =
+			draft.text.trim() || draft.images.length > 0 ? draft.text : '(the user sent an empty message)'
+		// Unframed, models read the message as a new request and drop the task in progress.
+		const message = this.#buildUserMessage(
+			`The user sent this message while you were working:\n${this.expandGlobalSkillCommand(text)}\n\nAddress it as you continue the task in progress. It may add to, change or cancel that task: do what it asks.`,
+			context,
+			draft.images,
+			files
+		)
+		this.displayMessages = [
+			...this.displayMessages,
+			{
+				role: 'user',
+				content: draft.text,
+				images: draft.images.length > 0 ? draft.images : undefined,
+				files: files.length > 0 ? files : undefined,
+				contextElements:
+					this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
+						? context
+						: undefined,
+				// The loop appends the message to the turn, which the turn's end appends to
+				// the stored history.
+				index: this.messages.length + collectedMessages.length
+			}
+		]
+		logFeatureUsage('ai_chat', 'send_without_stopping', {
+			key: this.mode,
+			entityId: this.historyManager.getCurrentChatId(),
+			workspace: this.operatingWorkspace
+		})
+		return message
 	}
 
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
@@ -4473,63 +4638,12 @@ export class AIChatManager implements ChatViewHost {
 				throw new Error('No script options passed')
 			}
 
-			// Message-attached files travel as references: the prompt lists them by id
-			// and the model reads their content via the file tools. Register them in
-			// the store before the request goes out so this turn's reads can already
-			// see them. Registration failure must not block the send — the reference
-			// just reads as missing and the model reports it.
-			if (this.mode === AIMode.GLOBAL && files.length > 0) {
-				try {
-					this.attachedFiles.registerMessageFiles(files as (AttachedTextFile & { id: string })[])
-				} catch (e) {
-					console.error('Failed to register message-attached files', e)
-				}
-			}
-
-			let userMessage: ChatCompletionMessageParam = {
-				role: 'user',
-				content: ''
-			}
-			switch (this.mode) {
-				case AIMode.FLOW:
-					userMessage = prepareFlowUserMessage(
-						oldInstructions,
-						this.flowAiChatHelpers!.getFlowAndSelectedId(),
-						oldSelectedContext,
-						this.flowAiChatHelpers!.inlineScriptSession,
-						{ flowInputsLocked: !this.flowAiChatHelpers!.canEditFlowInputs() }
-					)
-					break
-				case AIMode.NAVIGATOR:
-					userMessage = prepareNavigatorUserMessage(oldInstructions)
-					break
-				case AIMode.ASK:
-					userMessage = prepareAskUserMessage(oldInstructions)
-					break
-				case AIMode.SCRIPT:
-					userMessage = prepareScriptUserMessage(oldInstructions, oldSelectedContext)
-					break
-				case AIMode.API:
-					userMessage = prepareApiUserMessage(oldInstructions)
-					break
-				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
-						workspace: this.operatingWorkspace,
-						activePreview: this.activePreviewResolver?.(),
-						activeEditor: this.activeEditorResolver?.(),
-						images: sentImages,
-						files: files,
-						resourceTypeSync: this.resourceTypeSync
-					})
-					break
-				case AIMode.APP:
-					userMessage = prepareAppUserMessage(
-						oldInstructions,
-						this.appAiChatHelpers?.getSelectedContext(),
-						oldSelectedContext
-					)
-					break
-			}
+			const userMessage = this.#buildUserMessage(
+				modelInstructions,
+				oldSelectedContext,
+				sentImages,
+				files
+			)
 
 			// Size of the request about to go out: contextTokens (provider report
 			// when current, fresh chars/4 estimate otherwise) plus the message
@@ -4705,6 +4819,7 @@ export class AIChatManager implements ChatViewHost {
 			const result = await this.chatRequest({
 				...params,
 				addedMessages: collectedMessages,
+				takeMidTurnMessage: () => this.#takeMidTurnMessage(collectedMessages),
 				onWebSearchUnavailable: () => {
 					webSearchUnavailable = true
 				},
