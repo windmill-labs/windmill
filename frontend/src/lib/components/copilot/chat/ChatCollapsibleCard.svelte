@@ -80,12 +80,15 @@
 
 <div class={twMerge('font-mono text-xs', className)}>
 	{#snippet labelText(highlight: boolean)}
+		<!-- One line, cut with an ellipsis: a long name (a script summary) wrapping would push the
+		     status and chevron off the row's single line. -->
 		<span
 			class={twMerge(
-				'text-secondary font-medium text-2xs',
+				'text-secondary font-medium text-2xs truncate min-w-0',
 				labelClass,
 				highlight && 'text-emphasis'
 			)}
+			title={highlight ? undefined : `${shown.prefix ? `${shown.prefix} ` : ''}${shown.label}`}
 		>
 			{#if shown.prefix}<span class="font-normal text-secondary">{shown.prefix}</span
 				>&nbsp;{/if}{shown.label}
