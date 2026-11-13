@@ -130,6 +130,26 @@ async fn test_view_only_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
         .json()
         .await?;
     assert!(cancelled.is_empty(), "cancelled {cancelled:?}");
+    // A suspended run is queued under its own job kind and held to the same rule.
+    let suspended = admin
+        .post(format!(
+            "http://localhost:{port}/api/w/{WS}/jobs/run/p/f/vo/s?suspended_mode=true"
+        ))
+        .json(&json!({}))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert_eq!(
+        post(
+            &viewer,
+            port,
+            &format!("jobs_u/queue/cancel/{suspended}"),
+            json!({})
+        )
+        .await?,
+        403
+    );
 
     // Grants add up: an item grant that runs lifts the folder's view-only one.
     let item_grant = json!({"owner": "u/test-user-2", "level": "run"});

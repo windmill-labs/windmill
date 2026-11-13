@@ -946,24 +946,11 @@ async fn run_queued_job_now(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<String> {
     require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
-    if let Some(job) = sqlx::query!(
-        "SELECT created_by, runnable_path, kind AS \"kind: JobKind\" FROM v2_job
-        WHERE id = $1 AND workspace_id = $2",
-        id,
-        &w_id,
-    )
-    .fetch_optional(&db)
-    .await?
+    if let Some(path) = others_runs_without_run(&db, &authed, &w_id, &[id])
+        .await?
+        .remove(&id)
     {
-        require_run_on_others_job(
-            &db,
-            &authed,
-            &w_id,
-            &job.created_by,
-            job.kind,
-            job.runnable_path,
-        )
-        .await?;
+        return Err(run_access_refused(&path));
     }
     refuse_upcoming_schedule_tick(&db, &w_id, id).await?;
 
@@ -2378,16 +2365,14 @@ async fn require_job_cancel_access(
     w_id: &str,
     job_id: &Uuid,
 ) -> error::Result<()> {
-    let job = sqlx::query!(
-        "SELECT created_by, runnable_path, kind AS \"kind: JobKind\" FROM v2_job
-        WHERE id = $1 AND workspace_id = $2",
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
         job_id,
         w_id,
     )
     .fetch_optional(db)
     .await?
     .ok_or_else(|| Error::NotFound(format!("Job {job_id} not found")))?;
-    let created_by = job.created_by;
     let read_confined = !windmill_api_auth::scopes::has_job_cancel_grant(authed.scopes.as_deref());
     require_job_access(
         db,
@@ -2400,7 +2385,12 @@ async fn require_job_cancel_access(
         read_confined,
     )
     .await?;
-    require_run_on_others_job(db, authed, w_id, &created_by, job.kind, job.runnable_path).await?;
+    if let Some(path) = others_runs_without_run(db, authed, w_id, &[*job_id])
+        .await?
+        .remove(job_id)
+    {
+        return Err(run_access_refused(&path));
+    }
     require_job_within_cancel_scope(db, authed, w_id, *job_id).await
 }
 
@@ -2421,80 +2411,117 @@ async fn require_preview_label_runnable(
     }
 }
 
-/// Stopping or hurrying someone else's run of a deployed runnable takes the right to start it:
-/// reading the run is not enough.
-async fn require_run_on_others_job(
+/// The runnable a job starts, as its ACL names it.
+struct JobRunnable {
+    id: Uuid,
+    created_by: String,
+    target: Option<(RunnableAclKind, String)>,
+}
+
+/// One query for all `ids`. A saved agent's run is a flow preview under its path (its chat turns
+/// under `<agent>.chat`), a script or flow wrapped for retries or an error handler a single-step
+/// flow, and a preview's path the label `require_preview_label_runnable` checks; recognized as
+/// `require_job_within_read_scope` does.
+async fn job_runnables(db: &DB, w_id: &str, ids: &[Uuid]) -> error::Result<Vec<JobRunnable>> {
+    let rows = sqlx::query!(
+        r#"SELECT j.id AS "id!", j.created_by AS "created_by!",
+                CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\.chat$', '')
+                    ELSE j.runnable_path END AS runnable_path,
+                CASE
+                    WHEN a.agent THEN 'agent'
+                    WHEN j.kind IN ('script', 'script_hub', 'unassigned_script', 'preview')
+                        THEN 'script'
+                    WHEN j.kind IN ('flow', 'unassigned_flow', 'flowpreview') THEN 'flow'
+                    WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN
+                        CASE WHEN COALESCE(
+                                (SELECT m->'value'->>'type'
+                                    FROM jsonb_array_elements(j.raw_flow->'modules') m
+                                    WHERE m->>'id' IN ('a', 'main')
+                                    LIMIT 1),
+                                'script'
+                            ) = 'flow' THEN 'flow' ELSE 'script' END
+                END AS acl_kind
+            FROM v2_job j,
+            LATERAL (SELECT j.kind = 'flowpreview'
+                AND j.raw_flow->'modules'->1 IS NULL
+                AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a
+            WHERE j.id = ANY($1) AND j.workspace_id = $2"#,
+        ids,
+        w_id,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let kind = match r.acl_kind.as_deref() {
+                Some("agent") => Some(RunnableAclKind::Agent),
+                Some("script") => Some(RunnableAclKind::Script),
+                Some("flow") => Some(RunnableAclKind::Flow),
+                _ => None,
+            };
+            JobRunnable { id: r.id, created_by: r.created_by, target: kind.zip(r.runnable_path) }
+        })
+        .collect())
+}
+
+/// `require_can_run` on what the job runs, for a route that starts it again.
+#[cfg(feature = "enterprise")]
+async fn require_can_run_job(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,
-    created_by: &str,
-    kind: JobKind,
-    runnable_path: Option<String>,
+    id: Uuid,
 ) -> error::Result<()> {
-    match runnable_path {
-        Some(path) if created_by != authed.username => {
-            require_can_run_job_path(db, authed, w_id, kind, &path).await
+    for job in job_runnables(db, w_id, &[id]).await? {
+        if let Some((kind, path)) = job.target {
+            require_can_run(db, &authed.to_authed_ref(), w_id, kind, &path).await?;
         }
-        _ => Ok(()),
     }
+    Ok(())
 }
 
-/// [`require_run_on_others_job`] as a yes or no, for a selection that skips what it may not stop.
-async fn may_stop_job(db: &DB, authed: &ApiAuthed, w_id: &str, id: Uuid) -> error::Result<bool> {
-    let Some(job) = sqlx::query!(
-        "SELECT created_by, runnable_path, kind AS \"kind: JobKind\" FROM v2_job
-        WHERE id = $1 AND workspace_id = $2",
-        id,
-        w_id,
-    )
-    .fetch_optional(db)
-    .await?
-    else {
-        return Ok(true);
-    };
-    match require_run_on_others_job(
-        db,
-        authed,
-        w_id,
-        &job.created_by,
-        job.kind,
-        job.runnable_path,
-    )
-    .await
-    {
-        Ok(()) => Ok(true),
-        Err(Error::PermissionDenied(_)) => Ok(false),
-        Err(e) => Err(e),
-    }
-}
-
-/// `require_can_run` on the runnable a job's path names, for a job of `kind`.
-async fn require_can_run_job_path(
+/// Of `ids`, the runs of others the caller may not stop or hurry, with the path they lack run on:
+/// that takes the right to start them, reading them is not enough.
+async fn others_runs_without_run(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,
-    kind: JobKind,
-    path: &str,
-) -> error::Result<()> {
-    // A flow preview is a flow editor's run or a saved agent's (its chat turns under
-    // `<agent>.chat`), and a single-step flow wraps a script or a flow for retries or an error
-    // handler. Whichever lets the caller run passes.
-    let candidates: &[RunnableAclKind] = match kind {
-        JobKind::Script | JobKind::Preview => &[RunnableAclKind::Script],
-        JobKind::Flow => &[RunnableAclKind::Flow],
-        JobKind::FlowPreview => &[RunnableAclKind::Flow, RunnableAclKind::Agent],
-        JobKind::SingleStepFlow => &[RunnableAclKind::Script, RunnableAclKind::Flow],
-        _ => return Ok(()),
-    };
-    let path = path.strip_suffix(".chat").unwrap_or(path);
-    let mut result = Ok(());
-    for kind in candidates {
-        result = require_can_run(db, &authed.to_authed_ref(), w_id, *kind, path).await;
-        if result.is_ok() {
-            break;
+    ids: &[Uuid],
+) -> error::Result<HashMap<Uuid, String>> {
+    let mut refused = HashMap::new();
+    if authed.is_admin {
+        return Ok(refused);
+    }
+    let mut checked: HashMap<(RunnableAclKind, String), bool> = HashMap::new();
+    for job in job_runnables(db, w_id, ids).await? {
+        let Some(target) = job.target.filter(|_| job.created_by != authed.username) else {
+            continue;
+        };
+        let may_run = match checked.get(&target) {
+            Some(may_run) => *may_run,
+            None => {
+                let may_run =
+                    match require_can_run(db, &authed.to_authed_ref(), w_id, target.0, &target.1)
+                        .await
+                    {
+                        Ok(()) => true,
+                        Err(Error::PermissionDenied(_)) => false,
+                        Err(e) => return Err(e),
+                    };
+                checked.insert(target.clone(), may_run);
+                may_run
+            }
+        };
+        if !may_run {
+            refused.insert(job.id, target.1);
         }
     }
-    result
+    Ok(refused)
+}
+
+fn run_access_refused(path: &str) -> Error {
+    Error::PermissionDenied(format!("You do not have run access to {path}"))
 }
 
 /// Whether a validated approval token should grant the job-read bypass. The token alone
@@ -4714,25 +4741,38 @@ async fn cancel_selection(
     let force_cancel = query.force_cancel.unwrap_or(false);
     let mut jobs_by_workspace: HashMap<String, Vec<Uuid>> = HashMap::new();
     for row in rows {
-        // Dropped like a job the caller cannot read: stopping another member's run takes run on
-        // it, checked on the job a force cancel actually kills too.
-        if !authed.is_admin {
-            let target = if force_cancel {
-                force_cancel_target(&db, &row.workspace_id, row.id).await?
-            } else {
-                row.id
-            };
-            if !may_stop_job(&db, &authed, &row.workspace_id, row.id).await?
-                || (target != row.id
-                    && !may_stop_job(&db, &authed, &row.workspace_id, target).await?)
-            {
-                continue;
-            }
-        }
         jobs_by_workspace
             .entry(row.workspace_id)
             .or_default()
             .push(row.id);
+    }
+    // A run of another member the caller may not stop is dropped, like one they cannot read,
+    // checked on the job a force cancel actually kills too.
+    if !authed.is_admin {
+        for (workspace_id, ids) in jobs_by_workspace.iter_mut() {
+            let mut targets = Vec::with_capacity(ids.len());
+            for id in ids.iter() {
+                targets.push(if force_cancel {
+                    force_cancel_target(&db, workspace_id, *id).await?
+                } else {
+                    *id
+                });
+            }
+            let refused = others_runs_without_run(
+                &db,
+                &authed,
+                workspace_id,
+                &[ids.as_slice(), targets.as_slice()].concat(),
+            )
+            .await?;
+            let kept = ids
+                .iter()
+                .zip(&targets)
+                .filter(|(id, target)| !refused.contains_key(id) && !refused.contains_key(target))
+                .map(|(id, _)| *id)
+                .collect();
+            *ids = kept;
+        }
     }
 
     let mut cancelled = Vec::new();
@@ -7762,7 +7802,7 @@ pub async fn restart_flow(
         .script_path
         .with_context(|| "No flow path set for completed flow job")?;
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
-    require_can_run_job_path(&db, &authed, &w_id, completed_job.kind, &flow_path).await?;
+    require_can_run_job(&db, &authed, &w_id, job_id).await?;
     let mut run_query = run_query;
     drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
     // A restarted flow preview reruns the value its request supplied, while a flow preview

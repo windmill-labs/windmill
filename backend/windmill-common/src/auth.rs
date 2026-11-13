@@ -191,7 +191,7 @@ const RUN_PERMS_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(
 /// does not cache what it found after the cache was cleared.
 static RUN_PERMS_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-#[derive(Clone, Copy, Debug, Hash)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum RunnableAclKind {
     Script,
     Flow,
