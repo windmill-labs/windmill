@@ -4907,6 +4907,25 @@ async fn handle_dedicated_bunnative(
                             (result, success, preprocessed, logs)
                         };
 
+                        let result = if success {
+                            result
+                        } else {
+                            let flow_path = crate::common::parent_flow_path(job.parent_job, &db.into())
+                                .await
+                                .unwrap_or_else(|e| {
+                                    tracing::warn!("could not fetch flow path of job {id}: {e:#}");
+                                    None
+                                });
+                            crate::js_eval::add_step_context(
+                                &result,
+                                job.flow_step_id.as_deref(),
+                                Some(&id.to_string()),
+                                flow_path.as_deref(),
+                            )
+                            .map(Arc::new)
+                            .unwrap_or(result)
+                        };
+
                         append_logs(&id, &job.workspace_id, logs, &db.into()).await;
                         job_completed_tx.send_job(JobCompleted {
                             job: MiniCompletedJob::from(job),
