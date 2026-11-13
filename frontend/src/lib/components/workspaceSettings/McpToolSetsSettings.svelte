@@ -2,10 +2,21 @@
 	import type { GetSettingsResponse } from '$lib/gen'
 	import { randomUUID } from '$lib/utils/uuid'
 
-	export type McpToolSetRow = { id: string; name: string; scope: string; instructions: string }
+	export type McpToolSetRow = {
+		id: string
+		name: string
+		scope: string
+		instructions: string
+		runHistory: boolean
+	}
 	export type McpToolSetsType = { sets: McpToolSetRow[] }
 
-	type StoredSet = { scripts?: string[]; flows?: string[]; instructions?: string }
+	type StoredSet = {
+		scripts?: string[]
+		flows?: string[]
+		instructions?: string
+		run_history?: boolean
+	}
 
 	export function convertMcpToolSetsFromBackend(
 		stored: GetSettingsResponse['mcp_tool_sets']
@@ -20,7 +31,8 @@
 				]
 					.filter(Boolean)
 					.join(' '),
-				instructions: set.instructions ?? ''
+				instructions: set.instructions ?? '',
+				runHistory: set.run_history ?? false
 			}))
 		}
 	}
@@ -52,7 +64,12 @@
 				}
 			}
 			if (scripts.length === 0 && flows.length === 0) throw `${name} selects no scripts or flows`
-			out[name] = { scripts, flows, instructions: row.instructions.trim() || undefined }
+			out[name] = {
+				scripts,
+				flows,
+				instructions: row.instructions.trim() || undefined,
+				run_history: row.runHistory || undefined
+			}
 		}
 		return out
 	}
@@ -65,6 +82,7 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import McpScopeSelector from '../mcp/McpScopeSelector.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
+	import Toggle from '../Toggle.svelte'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import { WorkspaceService } from '$lib/gen'
@@ -85,7 +103,12 @@
 	} = $props()
 
 	const strip = (s: McpToolSetsType) =>
-		s.sets.map(({ name, scope, instructions }) => ({ name, scope, instructions }))
+		s.sets.map(({ name, scope, instructions, runHistory }) => ({
+			name,
+			scope,
+			instructions,
+			runHistory
+		}))
 	let hasUnsavedChanges = $derived(
 		JSON.stringify(strip(mcpToolSets)) !== JSON.stringify(strip(mcpToolSetsSaved))
 	)
@@ -161,6 +184,15 @@
 					}}
 				/>
 			</div>
+			<Toggle
+				bind:checked={set.runHistory}
+				options={{
+					right: 'Run history',
+					rightTooltip:
+						"Also offer list_runs and get_run, limited to the runs of this set's scripts and flows that the member can see."
+				}}
+				size="xs"
+			/>
 			<div class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">URL</span>
 				<ClipboardPanel content={setUrl(set.name)} />
@@ -175,7 +207,7 @@
 			onclick={() => {
 				mcpToolSets.sets = [
 					...mcpToolSets.sets,
-					{ id: randomUUID(), name: '', scope: '', instructions: '' }
+					{ id: randomUUID(), name: '', scope: '', instructions: '', runHistory: false }
 				]
 			}}
 		>

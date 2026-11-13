@@ -28,6 +28,68 @@ pub struct McpToolSet {
     /// Added to the server's instructions for clients connected to this set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
+    /// Also serve `list_runs` and `get_run`, confined to the runs of the set's scripts and flows.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub run_history: bool,
+}
+
+/// What a caller signed in to a tool set is confined to, read from its expanded scopes.
+pub struct ToolSetSelection {
+    scripts: Vec<String>,
+    flows: Vec<String>,
+}
+
+/// `None` for a caller signed in to no tool set.
+pub fn tool_set_selection(scopes: &[String]) -> Option<ToolSetSelection> {
+    tool_set_of(scopes)?;
+    let patterns = |prefix: &str| -> Vec<String> {
+        scopes
+            .iter()
+            .filter_map(|s| s.strip_prefix(prefix))
+            .flat_map(|list| list.split(','))
+            .filter(|p| !p.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    Some(ToolSetSelection { scripts: patterns("mcp:scripts:"), flows: patterns("mcp:flows:") })
+}
+
+impl ToolSetSelection {
+    /// Whether a run of `kind` (`script` or `flow`, as jobs name them) at `path` is in the set.
+    pub fn allows(&self, kind: &str, path: &str) -> bool {
+        let patterns = match kind {
+            "script" => &self.scripts,
+            "flow" => &self.flows,
+            _ => return false,
+        };
+        patterns.iter().any(|p| {
+            p == "*"
+                || p == path
+                || p.strip_suffix("/*").is_some_and(|prefix| {
+                    path.strip_prefix(prefix)
+                        .is_some_and(|rest| rest.starts_with('/'))
+                })
+        })
+    }
+
+    /// The set's exact paths and its subtrees' prefixes (`f/ops/`), to narrow a runs query before
+    /// `allows` filters it; `None` when the set reaches every path. Two lists, as the jobs API
+    /// ANDs its exact and prefix filters, and a prefix for an exact path would also match its
+    /// longer siblings (`f/a/x` starts `f/a/xy`).
+    pub fn path_filters(&self) -> Option<(Vec<String>, Vec<String>)> {
+        let all = self.scripts.iter().chain(&self.flows);
+        if all.clone().any(|p| p == "*") {
+            return None;
+        }
+        let (subtrees, exact): (Vec<&String>, Vec<&String>) = all.partition(|p| p.ends_with("/*"));
+        Some((
+            exact.into_iter().cloned().collect(),
+            subtrees
+                .into_iter()
+                .map(|p| p.trim_end_matches('*').to_string())
+                .collect(),
+        ))
+    }
 }
 
 /// By name, as stored in `workspace_settings.mcp_tool_sets`.
@@ -161,6 +223,7 @@ mod tests {
                 scripts: paths.iter().map(|p| p.to_string()).collect(),
                 flows: vec![],
                 instructions: None,
+                run_history: false,
             },
         )])
     }
@@ -209,5 +272,29 @@ mod tests {
                 "mcp:set:support"
             ]
         );
+    }
+
+    #[test]
+    fn run_tools_reach_only_the_sets_runs() {
+        let scopes: Vec<String> = [
+            "mcp:set:support",
+            "mcp:scripts:f/ops/*,f/a/x",
+            "mcp:flows:f/a/sync",
+        ]
+        .map(String::from)
+        .to_vec();
+        let set = tool_set_selection(&scopes).unwrap();
+        assert!(set.allows("script", "f/ops/check"));
+        assert!(set.allows("flow", "f/a/sync"));
+        // The prefixes a runs query is narrowed by match these; `allows` must not.
+        assert!(!set.allows("script", "f/a/xy"));
+        assert!(!set.allows("script", "f/opsx/check"));
+        assert!(!set.allows("flow", "f/a/x"));
+        assert!(!set.allows("singlestepflow", "f/ops/check"));
+        assert!(tool_set_selection(&["mcp:scripts:f/ops/*".to_string()]).is_none());
+        // An exact path is not queried as a prefix, which would also match its longer siblings.
+        let (exact, prefixes) = set.path_filters().unwrap();
+        assert_eq!(exact, ["f/a/x", "f/a/sync"]);
+        assert_eq!(prefixes, ["f/ops/"]);
     }
 }
