@@ -260,8 +260,11 @@ pub async fn require_can_run(
 
     let can_run = sqlx::query_scalar!(
         "WITH item AS (
-            SELECT extra_perms, view_only FROM script
+            -- The newest version only: a script reusing a retired path starts with no grants,
+            -- and the retired versions' must not run it.
+            (SELECT extra_perms, view_only FROM script
                 WHERE $5 = 'script' AND workspace_id = $1 AND path = $2
+                ORDER BY created_at DESC LIMIT 1)
             UNION ALL SELECT extra_perms, view_only FROM flow
                 WHERE $5 = 'flow' AND workspace_id = $1 AND path = $2
             UNION ALL SELECT extra_perms, view_only FROM resource

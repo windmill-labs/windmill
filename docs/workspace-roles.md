@@ -65,9 +65,11 @@ write are: an item-level view-only grant does not withhold what the folder lets 
 
 `windmill_common::auth::require_can_run` enforces it, on top of the RLS read and of the role's
 `run`, at each place that starts a deployed runnable for a caller: the run routes, restart, cancel
-and run-now of someone else's run, previews labelled with the path, agent and eval runs, and the
-saving and firing of schedules and triggers. Flow steps, subflows and agent tools are not checked,
-as only the top-level run needs it. Its positive answers are cached, so every write that can take
+and run-now of someone else's run, previews labelled with the path, agent and eval runs, the
+saving of schedules and triggers, and the firing of triggers, which fetch their target as their
+owner on every fire. A schedule's later runs are not re-checked, as they were never re-checked
+for read either: demoting its owner does not stop it. Flow steps, subflows and agent tools are not
+checked, as only the top-level run needs it. Its positive answers are cached, so every write that can take
 run away calls `notify_run_perms_change`. Anything that copies one of those rows (a new script
 version, a rename, a fork, a workspace rename) must copy `view_only` too: a copy that drops it
 turns its viewers into runners.

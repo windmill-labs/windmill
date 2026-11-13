@@ -218,18 +218,19 @@ async fn add_granular_acl(
     } else {
         ""
     };
-    let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
+    let sql = format!(
         "UPDATE {table} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
          true){set_view_only} WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
-    ))
-    .bind(vec![owner.clone()])
-    .bind(write.unwrap_or(false))
-    .bind(path)
-    .bind(&w_id)
-    .bind(&owner)
-    .bind(level == AclLevel::Read)
-    .fetch_optional(&mut *tx)
-    .await?;
+    );
+    let mut query = sqlx::query_scalar::<_, serde_json::Value>(&sql)
+        .bind(vec![owner.clone()])
+        .bind(write.unwrap_or(false))
+        .bind(path)
+        .bind(&w_id);
+    if has_run_level {
+        query = query.bind(&owner).bind(level == AclLevel::Read);
+    }
+    let obj_o = query.fetch_optional(&mut *tx).await?;
 
     let _ = not_found_if_none(obj_o, &kind, &path)?;
 

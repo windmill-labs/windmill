@@ -99,9 +99,9 @@ export function folderPermissionDiff(
 	// `previousRole === 'admin'` is what makes it a handle: `callerOwners` lists every group
 	// the caller belongs to, and one holding only a viewer or writer row is not in `owners`,
 	// so removing it is an ordinary call that should not queue behind the fatal one.
+	// The `setAcl` that follows an admin's demotion to viewer goes with it: sent before it, the
+	// member is still an owner and the grant is refused.
 	const revokesCaller = (call: FolderPermissionCall) =>
-		(call.kind === 'demoteAdmin' || call.kind === 'remove') &&
-		(callerOwners?.includes(call.owner) ?? false) &&
-		previousRole.get(call.owner) === 'admin'
+		(callerOwners?.includes(call.owner) ?? false) && previousRole.get(call.owner) === 'admin'
 	return [...calls.filter((c) => !revokesCaller(c)), ...calls.filter(revokesCaller)]
 }

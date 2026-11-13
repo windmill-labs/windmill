@@ -45,10 +45,16 @@ describe('folderPermissionDiff', () => {
 	})
 
 	// `removeowner` leaves a grant that runs, so a view-only one needs a second call.
-	it('admin → viewer demotes, then withholds run', () => {
-		expect(folderPermissionDiff([member('admin')], [member('viewer')])).toEqual([
+	it('admin → viewer demotes, then withholds run, last when it is the caller', () => {
+		const expected = [
 			{ kind: 'demoteAdmin', owner: 'u/alice', write: false },
 			{ kind: 'setAcl', owner: 'u/alice', level: 'read' }
+		]
+		expect(folderPermissionDiff([member('admin')], [member('viewer')])).toEqual(expected)
+		const bob = { owner_name: 'u/bob', role: 'runner' as const }
+		expect(folderPermissionDiff([member('admin')], [member('viewer'), bob], ['u/alice'])).toEqual([
+			{ kind: 'setAcl', owner: 'u/bob', level: 'run' },
+			...expected
 		])
 	})
 

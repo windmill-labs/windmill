@@ -460,7 +460,7 @@ pub async fn deploy_relocked_version(
     sqlx::query!("
     INSERT INTO script
     (workspace_id, hash, path, parent_hashes, summary, description, content, \
-    created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+    created_by, schema, is_template, extra_perms, view_only, lock, language, kind, tag, \
     envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
@@ -468,7 +468,7 @@ pub async fn deploy_relocked_version(
     job_token_scopes, lock_error_logs, created_at)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
-            content, created_by, schema, is_template, extra_perms, $4::text, language, kind, tag, \
+            content, created_by, schema, is_template, extra_perms, view_only, $4::text, language, kind, tag, \
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \

@@ -540,6 +540,10 @@ async fn require_can_run_target(
     workspace_id: &str,
     base: &crate::types::BaseTriggerData,
 ) -> Result<()> {
+    // A static HTTP route has no runnable.
+    if base.script_path.is_empty() {
+        return Ok(());
+    }
     let kind = if base.is_flow {
         windmill_common::auth::RunnableAclKind::Flow
     } else {

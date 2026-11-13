@@ -2431,9 +2431,13 @@ async fn require_run_on_others_job(
     kind: JobKind,
     runnable_path: Option<String>,
 ) -> error::Result<()> {
+    // A saved agent runs as a flow preview under its own path, and a script wrapped for retries
+    // or an error handler as a single-step flow under the script's; a preview's path is the label
+    // `require_preview_label_runnable` holds to the same rule.
     let acl_kind = match kind {
-        JobKind::Script => RunnableAclKind::Script,
+        JobKind::Script | JobKind::Preview | JobKind::SingleStepFlow => RunnableAclKind::Script,
         JobKind::Flow => RunnableAclKind::Flow,
+        JobKind::FlowPreview => RunnableAclKind::Agent,
         _ => return Ok(()),
     };
     match runnable_path {

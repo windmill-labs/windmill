@@ -93,6 +93,12 @@ async fn test_view_only_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
         post(&runner, port, "jobs/run/p/f/vo/s", json!({})).await?,
         201
     );
+    // The run just cached for the runner must not outlive their demotion.
+    assert_eq!(grant("u/test-user-3", json!({"level": "read"})).await?, 200);
+    assert_eq!(
+        post(&runner, port, "jobs/run/p/f/vo/s", json!({})).await?,
+        403
+    );
 
     // Grants add up: an item grant that runs lifts the folder's view-only one.
     let item_grant = json!({"owner": "u/test-user-2", "level": "run"});
@@ -103,6 +109,15 @@ async fn test_view_only_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(
         post(&viewer, port, "jobs/run/p/f/vo/s", json!({})).await?,
         201
+    );
+
+    // Kinds without a run level share as before.
+    let var = json!({"path": "u/test-user/v", "value": "x", "is_secret": false, "description": ""});
+    assert_eq!(post(&admin, port, "variables/create", var).await?, 201);
+    let share = json!({"owner": "u/test-user-2", "write": false});
+    assert_eq!(
+        post(&admin, port, "acls/add/variable/u/test-user/v", share).await?,
+        200
     );
 
     // An item-level view-only grant, kept by the next version of the script.
