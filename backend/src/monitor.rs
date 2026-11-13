@@ -361,7 +361,7 @@ pub async fn initial_load(
             }
         });
 
-        // Workspace fairness (cloud-only). The percentage/duration/min knobs apply
+        // Workspace fairness (Enterprise). The percentage/duration/min knobs apply
         // *before* the enabled flag so that `apply_workspace_fairness_enabled` reads
         // current values when re-storing the pull queries, which declaration order gives us.
         pass.setting(

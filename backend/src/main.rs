@@ -689,13 +689,16 @@ async fn windmill_main() -> anyhow::Result<()> {
         _ => {}
     }
 
-    // Before `num_workers`: it reads `WORKER_GROUP`, which an agent authenticating with a
-    // workload identity token only learns from the server.
-    // Without the EE fairness code no workspace is ever overloaded, so the worker would idle forever.
-    if *windmill_common::worker::WORKSPACE_FAIRNESS_RESERVE_WORKER && !cfg!(feature = "private") {
+    // Fairness needs an Enterprise license, which a CE build (`private` included) never has, so
+    // no workspace would ever be overloaded and the worker would idle forever.
+    if *windmill_common::worker::WORKSPACE_FAIRNESS_RESERVE_WORKER && !cfg!(feature = "enterprise")
+    {
         eprintln!("WORKSPACE_FAIRNESS_RESERVE_WORKER requires an Enterprise build");
         std::process::exit(1);
     }
+
+    // Before `num_workers`: it reads `WORKER_GROUP`, which an agent authenticating with a
+    // workload identity token only learns from the server.
     let agent_setup = if mode == Mode::Agent {
         // An agent pulls through the server with its own query, which the reserve gate never sees.
         if *windmill_common::worker::WORKSPACE_FAIRNESS_RESERVE_WORKER {
