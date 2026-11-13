@@ -567,8 +567,6 @@ export async function pushWorkspaceSettings(
   }
 }
 
-/** Applies settings.yaml server-side, which owns the rules for what an omitted or null setting
- * means. Returns false on a server that predates the settings document. */
 function unreadableSecret(secret: unknown): boolean {
   return (
     typeof secret === "string" &&
@@ -599,6 +597,8 @@ async function documentKeepsRedactedWebhook(workspace: string): Promise<boolean>
   }
 }
 
+/** Applies settings.yaml server-side, which owns the rules for what an omitted or null setting
+ * means. Returns false on a server that predates the settings document. */
 async function applySettingsDocument(
   workspace: string,
   document: SimplifiedSettings,
