@@ -375,7 +375,7 @@ pub async fn uv_pip_compile(
         if let Some(exclude_newer) = uv_exclude_newer.as_deref() {
             args.extend(["--exclude-newer", exclude_newer]);
         }
-        tracing::debug!("uv args: {:?}", args);
+        tracing::debug!("uv args: {:?}", redact_index_urls(&args));
 
         #[cfg(windows)]
         let uv_cmd = "uv";
@@ -2488,7 +2488,10 @@ async fn spawn_uv_install(
             envs.push(("SSL_CERT_FILE", cert_path));
         }
 
-        tracing::debug!("uv pip install command: {:?}", command_args);
+        tracing::debug!(
+            "uv pip install command: {:?}",
+            redact_index_urls(&command_args)
+        );
 
         #[cfg(unix)]
         {
@@ -4172,4 +4175,16 @@ mod tests {
         drop(f2);
         let _ = std::fs::remove_file(&lock_path);
     }
+}
+
+/// Index URLs routinely embed `user:token@`, so the value after an index flag is not logged.
+fn redact_index_urls<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut redact_next = false;
+    args.iter()
+        .map(|a| {
+            let out = if redact_next { "<redacted>" } else { a };
+            redact_next = matches!(*a, "--index-url" | "--extra-index-url");
+            out
+        })
+        .collect()
 }
