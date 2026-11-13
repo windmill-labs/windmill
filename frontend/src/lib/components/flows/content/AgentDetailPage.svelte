@@ -6,7 +6,8 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
 	import AgentUsePanel from '$lib/components/flows/content/AgentUsePanel.svelte'
-	import { SlackAgentsService } from '$lib/gen'
+	import { ResourceService, SlackAgentsService } from '$lib/gen'
+	import { canRun } from '$lib/utils'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import { interceptNav } from '$lib/components/details/interceptNav'
 	import { useOperatingWorkspaceHref } from '$lib/components/operatingWorkspace.svelte'
@@ -106,6 +107,17 @@
 		await onNavigate('/apps_raw/add')
 	}
 	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
+
+	// The agent's grants, for whether this user may run it or only view it.
+	const grants = resource(
+		() => [ws, path, reloaded] as const,
+		async ([w, p]) => (w ? await ResourceService.getResource({ workspace: w, path: p }) : undefined)
+	)
+	let viewOnly = $derived(
+		!!grants.current &&
+			!!operatingUser.current &&
+			!canRun(path, grants.current.extra_perms, grants.current.view_only, operatingUser.current)
+	)
 
 	// Recorded once the agent is in: a path with nothing deployed never loads one. Not from a
 	// session's tab, as a script's page in one records nothing either.
@@ -420,6 +432,7 @@
 					</div>
 				{/if}
 				<RunForm
+					{viewOnly}
 					runnable={{ schema, path }}
 					runAction={(scheduledFor, runArgs) => {
 						pressed = { call: pendingRun, schema }

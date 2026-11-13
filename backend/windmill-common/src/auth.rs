@@ -180,6 +180,116 @@ lazy_static::lazy_static! {
     // Cache for script hash permissions - (ApiAuthed hash, script_hash) -> permission result
     pub static ref HASH_PERMS_CACHE: PermsCache = PermsCache::new();
     pub static ref FLOW_PERMS_CACHE: PermsCache = PermsCache::new();
+    // (caller perms hash, runnable hash) -> the caller may run it
+    static ref RUN_PERMS_CACHE: PermsCache = PermsCache::new();
+}
+
+#[derive(Clone, Copy, Debug, Hash)]
+pub enum RunnableAclKind {
+    Script,
+    Flow,
+    /// A saved AI agent, a `resource` of type `ai_agent`.
+    Agent,
+}
+
+impl RunnableAclKind {
+    fn table(self) -> &'static str {
+        match self {
+            Self::Script => "script",
+            Self::Flow => "flow",
+            Self::Agent => "resource",
+        }
+    }
+}
+
+pub const RUN_PERMS_CHANGE_CHANNEL: &str = "notify_run_perms_change";
+
+/// Run access is cached until an ACL changes, so every write that can take run away (a view-only
+/// grant, a removed grant, a folder whose grants are replaced) must call this in its transaction,
+/// then [`invalidate_run_perms_cache`] once committed.
+pub async fn notify_run_perms_change(conn: &mut sqlx::PgConnection) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO notify_event (channel, payload) VALUES ($1, '')",
+        RUN_PERMS_CHANGE_CHANNEL
+    )
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
+pub fn invalidate_run_perms_cache() {
+    RUN_PERMS_CACHE.0.clear();
+}
+
+/// Whether the caller may start `path`, as opposed to only reading it. Readers run unless every
+/// grant they read it through is view-only (`view_only` of the item or of its folder): run is the
+/// union of the grants, as read and write are. Call it on top of the read check the fetch of the
+/// runnable already does, and of the role's `run` capability, which stays the ceiling.
+pub async fn require_can_run(
+    db: &DB,
+    authed: &AuthedRef<'_>,
+    w_id: &str,
+    kind: RunnableAclKind,
+    path: &str,
+) -> Result<()> {
+    if *authed.is_admin || path.starts_with("hub/") {
+        return Ok(());
+    }
+    let mut segments = path.split('/');
+    let (prefix, owner) = (segments.next(), segments.next());
+    match (prefix, owner) {
+        (Some("u"), Some(u)) if u == authed.username => return Ok(()),
+        (Some("g"), Some(g)) if authed.groups.iter().any(|x| x == g) => return Ok(()),
+        _ => (),
+    }
+    let mut hasher = DefaultHasher::new();
+    (w_id, kind, path).hash(&mut hasher);
+    let key = hasher.finish();
+    let (cached, authed_hash) = RUN_PERMS_CACHE.check_perms_in_cache(authed, key);
+    if cached {
+        return Ok(());
+    }
+
+    let folder = (prefix == Some("f")).then_some(owner).flatten();
+    let mut principals = authed
+        .groups
+        .iter()
+        .map(|g| format!("g/{g}"))
+        .collect::<Vec<_>>();
+    principals.push(format!("u/{}", authed.username));
+
+    let can_run = sqlx::query_scalar!(
+        "WITH item AS (
+            SELECT extra_perms, view_only FROM script
+                WHERE $5 = 'script' AND workspace_id = $1 AND path = $2
+            UNION ALL SELECT extra_perms, view_only FROM flow
+                WHERE $5 = 'flow' AND workspace_id = $1 AND path = $2
+            UNION ALL SELECT extra_perms, view_only FROM resource
+                WHERE $5 = 'resource' AND workspace_id = $1 AND path = $2
+        )
+        SELECT EXISTS (
+            SELECT 1 FROM item WHERE acl_grants_run(item.extra_perms, item.view_only, $4)
+        ) OR EXISTS (
+            SELECT 1 FROM folder f
+            WHERE f.workspace_id = $1 AND f.name = $3
+                AND (f.owners::text[] && $4 OR acl_grants_run(f.extra_perms, f.view_only, $4))
+        ) AS \"can_run!\"",
+        w_id,
+        path,
+        folder,
+        &principals[..],
+        kind.table(),
+    )
+    .fetch_one(db)
+    .await?;
+
+    if !can_run {
+        return Err(Error::PermissionDenied(format!(
+            "You do not have run access to {path}"
+        )));
+    }
+    RUN_PERMS_CACHE.insert(authed_hash, key);
+    Ok(())
 }
 
 pub struct PermsCache(Cache<(u64, u64), ()>, AtomicI64);
@@ -669,6 +779,31 @@ pub async fn get_folders_for_user<'e, E: sqlx::PgExecutor<'e>>(
     .map(|x| (x.name, x.write.unwrap_or(false), x.owner.unwrap_or(false)))
     .collect();
 
+    Ok(folders)
+}
+
+/// The folders the user reads only through view-only grants: what a UI needs to hide run
+/// affordances, which `require_can_run` enforces.
+pub async fn get_view_only_folders_for_user<'e, E: sqlx::PgExecutor<'e>>(
+    w_id: &str,
+    username: &str,
+    groups: &[String],
+    db: E,
+) -> Result<Vec<String>> {
+    let mut perms = groups
+        .iter()
+        .map(|x| format!("g/{}", x))
+        .collect::<Vec<_>>();
+    perms.push(format!("u/{}", username));
+    let folders = sqlx::query_scalar!(
+        "SELECT name FROM folder
+        WHERE workspace_id = $2 AND extra_perms ?| $1 AND cardinality(view_only) > 0
+            AND NOT owners::text[] && $1 AND NOT acl_grants_run(extra_perms, view_only, $1)",
+        &perms[..],
+        w_id,
+    )
+    .fetch_all(db)
+    .await?;
     Ok(folders)
 }
 

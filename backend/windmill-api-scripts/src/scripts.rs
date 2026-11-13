@@ -203,6 +203,7 @@ async fn list_scripts(
             "o.created_at as created_at",
             "archived",
             "extra_perms",
+            "o.view_only",
             if !lq.without_description.unwrap_or(false) {
                 "description"
             } else {
@@ -454,6 +455,7 @@ async fn list_scripts(
                 created_at: row.created_at,
                 archived: false,
                 extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                view_only: vec![],
                 language,
                 starred: false,
                 tag: v.get("tag").and_then(|s| s.as_str()).map(|s| s.to_string()),
@@ -1544,6 +1546,7 @@ async fn create_script_internal<'c>(
     struct ParentInfo {
         p_hashes: Vec<i64>,
         perms: serde_json::Value,
+        view_only: Vec<String>,
         p_path: String,
     }
     // When auto_parent is set, resolve parent_hash to the current head for this path
@@ -1826,6 +1829,11 @@ async fn create_script_internal<'c>(
                     } else {
                         ps.extra_perms
                     },
+                    view_only: if parent_adopted_from_retired_path {
+                        vec![]
+                    } else {
+                        ps.view_only
+                    },
                     p_path: ps.path,
                 })),
             };
@@ -1845,6 +1853,10 @@ async fn create_script_internal<'c>(
         .as_ref()
         .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
+    let view_only = parent_hashes_and_perms
+        .as_ref()
+        .map(|v| v.view_only.clone())
+        .unwrap_or_default();
     // A dbt lock names a manifest digest and engine versions that only a
     // dependency job can determine, and that job is also what publishes the
     // script's manifest graph. Honouring a supplied one would skip it, leaving
@@ -2385,6 +2397,16 @@ async fn create_script_internal<'c>(
     )
     .execute(&mut *tx)
     .await?;
+    if !view_only.is_empty() {
+        sqlx::query!(
+            "UPDATE script SET view_only = $1 WHERE hash = $2 AND workspace_id = $3",
+            &view_only,
+            &hash.0,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     windmill_common::scopes::log_job_token_scopes_deploy(
         "script",
         resolved_job_token_scopes.as_deref(),

@@ -123,6 +123,8 @@ struct ScriptMetadata {
     pub job_token_scopes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "is_empty_extra_perms")]
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub view_only: Vec<String>,
 }
 
 /// `syncBehavior` as the CLI writes it (`"v1"`); anything unparseable is v0, matching
@@ -479,6 +481,16 @@ where
                     obj.remove("extra_perms");
                 }
             }
+            // Only meaningful beside `extra_perms`, and omitted while empty so files exported
+            // before view-only grants existed stay unchanged.
+            if !obj.contains_key("extra_perms")
+                || obj
+                    .get("view_only")
+                    .and_then(|v| v.as_array())
+                    .is_some_and(|a| a.is_empty())
+            {
+                obj.remove("view_only");
+            }
             if obj
                 .get("default_permissioned_as")
                 .and_then(|v| v.as_array())
@@ -740,7 +752,7 @@ pub(crate) async fn tarball_workspace(
     .flatten();
 
     {
-        let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels FROM folder WHERE workspace_id = $1")
+        let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, view_only, summary, edited_at, created_by, default_permissioned_as, labels FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
             .fetch_all(&mut *tx)
             .await?;
@@ -876,6 +888,11 @@ pub(crate) async fn tarball_workspace(
                 } else {
                     serde_json::Value::Null
                 },
+                view_only: if matches!(new_kinds_extra_perms, ExtraPermsBehavior::KeepIfNonEmpty) {
+                    script.view_only
+                } else {
+                    vec![]
+                },
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -887,7 +904,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
              Resource,
-             "SELECT workspace_id, path, value, description, resource_type, extra_perms, created_by, edited_at, labels FROM resource WHERE workspace_id = $1 AND resource_type <> ALL($2)",
+             "SELECT workspace_id, path, value, description, resource_type, extra_perms, view_only, created_by, edited_at, labels FROM resource WHERE workspace_id = $1 AND resource_type <> ALL($2)",
              &w_id,
              &windmill_store::resources::INTERNAL_RESOURCE_TYPES.map(|t| t.to_string())[..]
          )
@@ -934,7 +951,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.view_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
              WHERE flow.workspace_id = $1 AND flow.archived = false",

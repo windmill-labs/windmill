@@ -532,6 +532,29 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     router
 }
 
+/// A trigger fires its target as whoever saved it, so saving one is starting runs of the target:
+/// a view-only reader of the target may not.
+async fn require_can_run_target(
+    db: &DB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    base: &crate::types::BaseTriggerData,
+) -> Result<()> {
+    let kind = if base.is_flow {
+        windmill_common::auth::RunnableAclKind::Flow
+    } else {
+        windmill_common::auth::RunnableAclKind::Script
+    };
+    windmill_common::auth::require_can_run(
+        db,
+        &authed.to_authed_ref(),
+        workspace_id,
+        kind,
+        &base.script_path,
+    )
+    .await
+}
+
 async fn create_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
@@ -558,6 +581,7 @@ async fn create_trigger<T: TriggerCrud>(
 
     new_trigger.error_handling.validate()?;
     new_trigger.base.normalize_script_path()?;
+    require_can_run_target(&db, &authed, &workspace_id, &new_trigger.base).await?;
 
     handler
         .validate_new(&db, &workspace_id, &new_trigger.config)
@@ -831,6 +855,7 @@ async fn update_trigger<T: TriggerCrud>(
 
     edit_trigger.error_handling.validate()?;
     edit_trigger.base.normalize_script_path()?;
+    require_can_run_target(&db, &authed, &workspace_id, &edit_trigger.base).await?;
 
     handler
         .validate_edit(&db, &workspace_id, &edit_trigger.config, path)

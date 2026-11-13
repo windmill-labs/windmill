@@ -2,8 +2,15 @@ import { deepEqual } from 'fast-equals'
 import type { FolderDefaultPermissionedAs } from '$lib/gen'
 
 /** What a member may hold on a folder. `admin` is the `owners` array server-side; `writer`
- *  and `viewer` are the `true`/`false` entries of `extra_perms`. */
-export type FolderRole = 'viewer' | 'writer' | 'admin'
+ *  and `runner` are the `true`/`false` entries of `extra_perms`, and `viewer` a `false` entry
+ *  also listed in `view_only`. */
+export type FolderRole = 'viewer' | 'runner' | 'writer' | 'admin'
+
+export type AclLevel = 'read' | 'run' | 'write'
+
+export function aclLevelOf(role: Exclude<FolderRole, 'admin'>): AclLevel {
+	return role === 'writer' ? 'write' : role === 'viewer' ? 'read' : 'run'
+}
 
 export type FolderMember = { owner_name: string; role: FolderRole }
 
@@ -42,8 +49,8 @@ export type FolderPermissionCall =
 	/** `removeowner` with a write flag: takes the member out of `owners` and sets their
 	 *  level. The only way down from admin. */
 	| { kind: 'demoteAdmin'; owner: string; write: boolean }
-	/** `acls/add`: sets `extra_perms[owner]`, for a member who is not an admin. */
-	| { kind: 'setAcl'; owner: string; write: boolean }
+	/** `acls/add`: sets `extra_perms[owner]` and `view_only`, for a member who is not an admin. */
+	| { kind: 'setAcl'; owner: string; level: AclLevel }
 	/** Both removals. `removeowner` without a write only drops the member from `owners`,
 	 *  leaving their `extra_perms` entry — alone it demotes an admin rather than removing
 	 *  them, so the ACL delete is not optional. */
@@ -74,8 +81,12 @@ export function folderPermissionDiff(
 				owner: member.owner_name,
 				write: member.role === 'writer'
 			})
+			// `removeowner` leaves a read grant that runs.
+			if (member.role === 'viewer') {
+				calls.push({ kind: 'setAcl', owner: member.owner_name, level: 'read' })
+			}
 		} else {
-			calls.push({ kind: 'setAcl', owner: member.owner_name, write: member.role === 'writer' })
+			calls.push({ kind: 'setAcl', owner: member.owner_name, level: aclLevelOf(member.role) })
 		}
 	}
 

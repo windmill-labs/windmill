@@ -8066,8 +8066,8 @@ async fn clone_folders(
     target_workspace_id: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels)
-         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, view_only, summary, edited_at, created_by, default_permissioned_as, labels)
+         SELECT $2, name, display_name, owners, extra_perms, view_only, summary, edited_at, created_by, default_permissioned_as, labels
          FROM folder
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -8248,13 +8248,13 @@ async fn clone_resources(
     let repoint = (!windmill_common::can_preserve_on_behalf_of(authed))
         .then(|| username_to_permissioned_as(&authed.username));
     sqlx::query!(
-        "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
+        "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, view_only, edited_at, created_by)
          SELECT $2, path,
                 CASE WHEN $3::text IS NOT NULL AND resource_type = 'ai_agent'
                           AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
                      THEN jsonb_set(value, '{on_behalf_of}', to_jsonb($3::text))
                      ELSE value END,
-                description, resource_type, extra_perms, edited_at, created_by
+                description, resource_type, extra_perms, view_only, edited_at, created_by
          FROM resource
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -8384,7 +8384,7 @@ async fn clone_scripts(
         r#"INSERT INTO script (
             workspace_id, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag,
+            extra_perms, view_only, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -8394,7 +8394,7 @@ async fn clone_scripts(
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
             created_by, created_at, archived, schema, deleted, is_template,
-            extra_perms, lock, lock_error_logs, language, kind, tag,
+            extra_perms, view_only, lock, lock_error_logs, language, kind, tag,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
@@ -8821,13 +8821,13 @@ async fn clone_flows(
     sqlx::query!(
         "INSERT INTO flow (
             workspace_id, path, summary, description, value, edited_by, edited_at,
-            archived, schema, extra_perms, dependency_job, tag,
+            archived, schema, extra_perms, view_only, dependency_job, tag,
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
             concurrency_key, versions, on_behalf_of, on_behalf_of_email, lock_error_logs,
             job_token_scopes
         )
         SELECT $2, path, summary, description, value, edited_by, edited_at,
-               archived, schema, extra_perms, NULL, tag,
+               archived, schema, extra_perms, view_only, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
                concurrency_key, ARRAY[]::bigint[],
                -- Same predicate as clone_scripts.

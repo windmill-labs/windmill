@@ -139,6 +139,7 @@ async fn prefetch_cached_script_inner(
         deleted: script.deleted,
         is_template: script.is_template,
         extra_perms: script.extra_perms,
+        view_only: script.view_only,
         lock: script.lock,
         lock_error_logs: script.lock_error_logs,
         language: script.language,

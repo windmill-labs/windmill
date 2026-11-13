@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_by, runnable_path, kind AS \"kind: JobKind\" FROM v2_job\n        WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7cf892212983388211fc217b50b71c2ee4c27c3741aff5ff5f62518a65df2424"
+}

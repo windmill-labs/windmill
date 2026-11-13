@@ -450,8 +450,8 @@ pub(crate) async fn change_workspace_id(
     info!("Duplicating flow table rows");
     sqlx::query!(
         "INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs, job_token_scopes)
-        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs, job_token_scopes
+            (workspace_id, path, summary, description, archived, extra_perms, view_only, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs, job_token_scopes)
+        SELECT $1, path, summary, description, archived, extra_perms, view_only, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs, job_token_scopes
             FROM flow WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -696,8 +696,8 @@ pub(crate) async fn change_workspace_id(
     // Duplicate folders with new workspace id (FK constraint)
     info!("Duplicating folder table rows");
     sqlx::query!(
-        "INSERT INTO folder (name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels) \
-         SELECT name, $1, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels \
+        "INSERT INTO folder (name, workspace_id, display_name, owners, extra_perms, view_only, summary, edited_at, created_by, default_permissioned_as, labels) \
+         SELECT name, $1, display_name, owners, extra_perms, view_only, summary, edited_at, created_by, default_permissioned_as, labels \
          FROM folder WHERE workspace_id = $2",
         &rw.new_id,
         &old_id

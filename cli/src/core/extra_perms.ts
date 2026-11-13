@@ -104,6 +104,11 @@ export async function applyExtraPermsDiff(
   path: string,
   local: unknown,
   remote: unknown,
+  /** `view_only` of the yaml: the read grants that do not include running. Absent is "no
+   *  opinion" on that distinction, like an absent `extra_perms`, so a file written before it
+   *  existed neither promotes nor demotes anyone. */
+  localViewOnly?: unknown,
+  remoteViewOnly?: unknown,
 ): Promise<number> {
   // Absent local field = "no opinion" — never call /acls/* in this case.
   // Crucially, this protects users who don't track ACLs in source from having
@@ -123,10 +128,22 @@ export async function applyExtraPermsDiff(
   const localPerms = localN.perms;
   const remotePerms = remoteN.perms;
 
-  const toGrant: Array<[string, boolean]> = [];
+  const localVO = Array.isArray(localViewOnly)
+    ? new Set(localViewOnly.filter((x): x is string => typeof x === "string"))
+    : undefined;
+  const remoteVO = new Set(
+    Array.isArray(remoteViewOnly)
+      ? remoteViewOnly.filter((x): x is string => typeof x === "string")
+      : [],
+  );
+
+  const toGrant: Array<[string, boolean, "read" | "run" | undefined]> = [];
   for (const [owner, write] of Object.entries(localPerms)) {
-    if (!(owner in remotePerms) || remotePerms[owner] !== write) {
-      toGrant.push([owner, write]);
+    const level = write || !localVO ? undefined : localVO.has(owner) ? "read" : "run";
+    const levelDrift =
+      level !== undefined && owner in remotePerms && (level === "read") !== remoteVO.has(owner);
+    if (!(owner in remotePerms) || remotePerms[owner] !== write || levelDrift) {
+      toGrant.push([owner, write, level]);
     }
   }
 
@@ -143,14 +160,14 @@ export async function applyExtraPermsDiff(
   }
 
   let calls = 0;
-  for (const [owner, write] of toGrant) {
-    const access = write ? "write" : "read";
+  for (const [owner, write, level] of toGrant) {
+    const access = write ? "write" : level === "read" ? "view only" : "read";
     try {
       await wmill.addGranularAcls({
         workspace,
         kind,
         path,
-        requestBody: { owner, write },
+        requestBody: level ? { owner, write, level } : { owner, write },
       });
       log.info(
         colors.green(

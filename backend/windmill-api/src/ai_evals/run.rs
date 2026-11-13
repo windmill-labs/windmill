@@ -569,6 +569,14 @@ pub async fn run_experiment(
     let mut subject = payload.subject;
     let draft = validate_subject(&subject)?;
     let config = resolve_subject(&authed, &db, &user_db, &w_id, &mut subject, draft).await?;
+    windmill_common::auth::require_can_run(
+        &db,
+        &authed.to_authed_ref(),
+        &w_id,
+        windmill_common::auth::RunnableAclKind::Agent,
+        &subject.path,
+    )
+    .await?;
 
     // One snapshot of the dataset: the scorers and the cases a run records must be the same
     // revision, or a Save landing between two reads files a run under cases and columns that never

@@ -51,6 +51,7 @@
 	let shareDialog: ShareDialog | undefined = $state()
 
 	let linkedVarPaths: string[] = $state([])
+	let isAgent = $state(false)
 	let alsoApplyToLinked: boolean = $state(true)
 
 	function collectVarRefs(value: unknown): string[] {
@@ -69,6 +70,7 @@
 	}
 
 	async function loadLinkedVarPaths() {
+		isAgent = false
 		if (kind !== 'resource') {
 			linkedVarPaths = []
 			return
@@ -81,6 +83,7 @@
 			})
 			if (path !== currentPath) return
 			linkedVarPaths = collectVarRefs(resource.value)
+			isAgent = resource.resource_type === 'ai_agent'
 		} catch {
 			if (path !== currentPath) return
 			linkedVarPaths = []
@@ -129,6 +132,7 @@
 					{path}
 					alsoApplyTo={alsoApplyToLinked ? linkedVarPaths : []}
 					{isOwnerOverride}
+					runLevel={kind === 'resource' ? isAgent : undefined}
 					onChange={() => dispatch('change', { path, kind })}
 				/>
 			{/key}

@@ -88,14 +88,32 @@ const KINDS: [&str; 21] = [
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/get/{*path}", get(get_granular_acls))
+        .route("/get_view_only/{*path}", get(get_granular_acls_view_only))
         .route("/add/{*path}", post(add_granular_acl))
         .route("/remove/{*path}", post(remove_granular_acl))
 }
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum AclLevel {
+    /// View only: no run.
+    Read,
+    Run,
+    Write,
+}
+
+/// Kinds whose ACL tells reading from running (`view_only`). On every other kind a read grant is
+/// all there is.
+const RUN_LEVEL_KINDS: [&str; 4] = ["script", "flow", "resource", "folder"];
 
 #[derive(Serialize, Deserialize)]
 pub struct GranularAcl {
     pub owner: String,
     pub write: Option<bool>,
+    /// Takes precedence over `write`. Without it, `write: false` grants run: what a read grant
+    /// has always allowed, so a client that predates levels keeps granting what it granted.
+    #[serde(default)]
+    pub level: Option<AclLevel>,
 }
 
 async fn add_granular_acl(
@@ -103,9 +121,15 @@ async fn add_granular_acl(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(GranularAcl { owner, write }): Json<GranularAcl>,
+    Json(GranularAcl { owner, write, level }): Json<GranularAcl>,
 ) -> Result<String> {
     crate::check_demo_workspace_restriction(&authed, &w_id, "Sharing")?;
+    let level = level.unwrap_or(if write == Some(true) {
+        AclLevel::Write
+    } else {
+        AclLevel::Run
+    });
+    let write = Some(level == AclLevel::Write);
     let path = path.to_path();
 
     let (kind, path) = path
@@ -114,6 +138,13 @@ async fn add_granular_acl(
 
     if !KINDS.contains(&kind) {
         return Err(Error::BadRequest("Invalid kind".to_string()));
+    }
+    let has_run_level = RUN_LEVEL_KINDS.contains(&kind);
+    if level == AclLevel::Read && !has_run_level {
+        return Err(Error::BadRequest(format!(
+            "A view-only grant only applies to {}",
+            RUN_LEVEL_KINDS.join(", ")
+        )));
     }
 
     if let Some(manage_kind) = manage_kind_for_acl_kind(kind) {
@@ -181,24 +212,36 @@ async fn add_granular_acl(
     // DeployedObject::RawApp so the worker writes back `<path>.raw_app.json`.
     let table = if kind == "raw_app" { "app" } else { kind };
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
+    let set_view_only = if has_run_level {
+        ", view_only = CASE WHEN $6 THEN array_append(array_remove(view_only, $5), $5) \
+         ELSE array_remove(view_only, $5) END"
+    } else {
+        ""
+    };
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "UPDATE {table} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
-         true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
+         true){set_view_only} WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
     ))
     .bind(vec![owner.clone()])
     .bind(write.unwrap_or(false))
     .bind(path)
     .bind(&w_id)
+    .bind(&owner)
+    .bind(level == AclLevel::Read)
     .fetch_optional(&mut *tx)
     .await?;
 
     let _ = not_found_if_none(obj_o, &kind, &path)?;
 
+    if has_run_level {
+        windmill_common::auth::notify_run_perms_change(&mut *tx).await?;
+    }
+
     if kind == "folder" {
-        let change_type = if write.unwrap_or(false) {
-            "grant_write"
-        } else {
-            "grant_read"
+        let change_type = match level {
+            AclLevel::Write => "grant_write",
+            AclLevel::Run => "grant_read",
+            AclLevel::Read => "grant_view_only",
         };
         crate::folders::log_folder_permission_change(
             &mut *tx,
@@ -229,10 +272,10 @@ async fn add_granular_acl(
         // ACLable kind. Folder/group already wrote a dedicated history row
         // above; everything else (script/flow/app/raw_app/resource/...) lands
         // in the general audit_log table here.
-        let access = if write.unwrap_or(false) {
-            "write"
-        } else {
-            "read"
+        let access = match level {
+            AclLevel::Write => "write",
+            AclLevel::Run => "read",
+            AclLevel::Read => "view_only",
         };
         let action = format!("{}.grant_acl", prefix);
         audit_log(
@@ -255,6 +298,9 @@ async fn add_granular_acl(
     }
 
     tx.commit().await?;
+    if has_run_level {
+        windmill_common::auth::invalidate_run_perms_cache();
+    }
 
     match kind {
         "folder" => {
@@ -417,12 +463,18 @@ async fn remove_granular_acl(
     // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
     // LIMIT 1: `script` shares (workspace_id, path) across versions, so `old` can
     // return >1 row, which would break the scalar subquery in RETURNING.
+    let has_run_level = RUN_LEVEL_KINDS.contains(&kind);
+    let unset_view_only = if has_run_level {
+        ", view_only = array_remove(view_only, $1)"
+    } else {
+        ""
+    };
     let obj_o = sqlx::query_scalar::<_, bool>(&format!(
         "WITH old AS (
             SELECT extra_perms->$1 as old_write FROM {table}
             WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
         )
-        UPDATE {table} SET extra_perms = extra_perms - $1
+        UPDATE {table} SET extra_perms = extra_perms - $1{unset_view_only}
         WHERE {identifier} = $2 AND workspace_id = $3 AND extra_perms ? $1
         RETURNING (SELECT old_write FROM old LIMIT 1)::bool"
     ))
@@ -480,7 +532,13 @@ async fn remove_granular_acl(
             .await?;
         }
 
+        if has_run_level {
+            windmill_common::auth::notify_run_perms_change(&mut *tx).await?;
+        }
         tx.commit().await?;
+        if has_run_level {
+            windmill_common::auth::invalidate_run_perms_cache();
+        }
 
         match kind {
             "folder" => {
@@ -616,4 +674,35 @@ async fn get_granular_acls(
     tx.commit().await?;
 
     Ok(Json(obj))
+}
+
+/// The principals of `/acls/get` whose read grant does not include running: empty for every kind
+/// without a run level.
+async fn get_granular_acls_view_only(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<String>> {
+    let path = path.to_path();
+    let (kind, path) = path
+        .split_once('/')
+        .ok_or_else(|| Error::BadRequest("Invalid path or kind".to_string()))?;
+    if !KINDS.contains(&kind) {
+        return Err(Error::BadRequest("Invalid kind".to_string()));
+    }
+    if !RUN_LEVEL_KINDS.contains(&kind) {
+        return Ok(Json(vec![]));
+    }
+    let identifier = if kind == "folder" { "name" } else { "path" };
+    let mut tx = user_db.begin(&authed).await?;
+    // SAFETY: `kind` is one of `RUN_LEVEL_KINDS`.
+    let view_only = sqlx::query_scalar::<_, Vec<String>>(&format!(
+        "SELECT view_only FROM {kind} WHERE {identifier} = $1 AND workspace_id = $2 LIMIT 1"
+    ))
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(not_found_if_none(view_only, &kind, &path)?))
 }

@@ -325,7 +325,7 @@ pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
 /// Shared across all query sites so a schema change only needs one edit.
 pub const SCRIPT_COLUMNS: &str = concat!(
     "workspace_id, hash, path, parent_hashes, summary, description, content, ",
-    "created_by, created_at, archived, schema, deleted, is_template, extra_perms, ",
+    "created_by, created_at, archived, schema, deleted, is_template, extra_perms, view_only, ",
     "lock, lock_error_logs, language, kind, tag, envs, ",
     "dedicated_worker, ws_error_handler_muted, priority, cache_ttl, cache_ignore_s3_path, ",
     "timeout, delete_after_use, delete_after_secs, restart_unless_cancelled, ",
@@ -352,6 +352,10 @@ pub struct Script<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_template: Option<bool>,
     pub extra_perms: serde_json::Value,
+    /// Principals of `extra_perms` that may view but not run it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[sqlx(default)]
+    pub view_only: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
@@ -454,6 +458,10 @@ pub struct ListableScript {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub archived: bool,
     pub extra_perms: serde_json::Value,
+    /// Principals of `extra_perms` that may view but not run it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[sqlx(default)]
+    pub view_only: Vec<String>,
     pub language: ScriptLang,
     pub starred: bool,
     pub tag: Option<String>,

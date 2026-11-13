@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE folder SET view_only = ARRAY(\n            SELECT v FROM unnest(view_only) v WHERE extra_perms->>v = 'false'\n        ) WHERE name = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "410ca1d957cbd4f10c6c215f911416534453510861774c9529c2624f7c271c33"
+}

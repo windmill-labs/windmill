@@ -87,6 +87,10 @@
 			sendUserToast('Your role cannot run scripts, flows or AI agents in this workspace', true)
 			return
 		}
+		if (viewOnly) {
+			sendUserToast(VIEW_ONLY_NOTE, true)
+			return
+		}
 		// An editor whose text does not parse never wrote it to `args`, so running now would send
 		// the last value that did parse. Flush first: a keystroke still inside the editor debounce
 		// has not been parsed yet, and per-field editors parse it in an effect, hence the tick.
@@ -148,6 +152,9 @@
 		 * for JSON or back mounts a `password` widget, which mints from the literal it opens
 		 * on regardless of being disabled. */
 		runRefusal?: string
+		/** The user may view this runnable but not run it (a view-only grant): the form stays
+		 * fillable, and running is refused as it is for a role that cannot run. */
+		viewOnly?: boolean
 		runAction: (
 			scheduledForStr: string | undefined,
 			args: Record<string, any>,
@@ -182,6 +189,7 @@
 		runnable,
 		runAction,
 		runRefusal = undefined,
+		viewOnly = false,
 		buttonText = 'Run',
 		schedulable = true,
 		detailed = true,
@@ -202,7 +210,10 @@
 
 	const argsReadonly = $derived(!!runRefusal)
 	const roleCaps = useRoleCapabilities()
-	const runDisabled = $derived((!isValid && !jsonView) || argsReadonly || !$roleCaps.run)
+	const runDisabled = $derived(
+		(!isValid && !jsonView) || argsReadonly || !$roleCaps.run || viewOnly
+	)
+	const VIEW_ONLY_NOTE = 'You can view this and its runs but not run it.'
 
 	let showPsCommonParams = $derived(
 		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
@@ -490,6 +501,10 @@
 	{#if !$roleCaps.run}
 		<div class="flex-row-reverse flex w-full text-secondary text-xs mt-1">
 			Your role can view runs but not start them in this workspace.
+		</div>
+	{:else if viewOnly}
+		<div class="flex-row-reverse flex w-full text-secondary text-xs mt-1">
+			{VIEW_ONLY_NOTE}
 		</div>
 	{/if}
 	{#if blockedByUnparseable}
