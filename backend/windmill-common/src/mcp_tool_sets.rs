@@ -72,17 +72,23 @@ impl ToolSetSelection {
         })
     }
 
-    /// Path prefixes covering the whole set, to narrow a runs query before `allows` filters it;
-    /// `None` when the set reaches every path.
-    pub fn path_prefixes(&self) -> Option<Vec<String>> {
+    /// The set's exact paths and its subtrees' prefixes (`f/ops/`), to narrow a runs query before
+    /// `allows` filters it; `None` when the set reaches every path. Two lists, as the jobs API
+    /// ANDs its exact and prefix filters, and a prefix for an exact path would also match its
+    /// longer siblings (`f/a/x` starts `f/a/xy`).
+    pub fn path_filters(&self) -> Option<(Vec<String>, Vec<String>)> {
         let all = self.scripts.iter().chain(&self.flows);
         if all.clone().any(|p| p == "*") {
             return None;
         }
-        Some(
-            all.map(|p| p.strip_suffix('*').unwrap_or(p).to_string())
+        let (subtrees, exact): (Vec<&String>, Vec<&String>) = all.partition(|p| p.ends_with("/*"));
+        Some((
+            exact.into_iter().cloned().collect(),
+            subtrees
+                .into_iter()
+                .map(|p| p.trim_end_matches('*').to_string())
                 .collect(),
-        )
+        ))
     }
 }
 
@@ -286,5 +292,9 @@ mod tests {
         assert!(!set.allows("flow", "f/a/x"));
         assert!(!set.allows("singlestepflow", "f/ops/check"));
         assert!(tool_set_selection(&["mcp:scripts:f/ops/*".to_string()]).is_none());
+        // An exact path is not queried as a prefix, which would also match its longer siblings.
+        let (exact, prefixes) = set.path_filters().unwrap();
+        assert_eq!(exact, ["f/a/x", "f/a/sync"]);
+        assert_eq!(prefixes, ["f/ops/"]);
     }
 }

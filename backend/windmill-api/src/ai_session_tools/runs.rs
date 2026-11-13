@@ -1851,13 +1851,6 @@ async fn list_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         // the page before the set's filter below drops them.
         query.push_str("&job_kinds=script,flow");
     }
-    if let Some(prefixes) = set
-        .as_ref()
-        .filter(|_| path.is_none())
-        .and_then(ToolSetSelection::path_prefixes)
-    {
-        query.push_str(&format!("&script_path_start={}", enc(&prefixes.join(","))));
-    }
     for (param, arg) in [
         ("script_path_exact", "path"),
         ("created_by", "created_by"),
@@ -1872,13 +1865,34 @@ async fn list_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             query.push_str(&format!("&{flag}={value}"));
         }
     }
-    let jobs = ctx.get(&ctx.ws(&format!("jobs/list?{query}"))).await?;
-    let runs: Vec<Value> = jobs
-        .as_array()
+    let queries = match set
+        .as_ref()
+        .filter(|_| path.is_none())
+        .and_then(ToolSetSelection::path_filters)
+    {
+        Some((exact, prefixes)) => [
+            ("script_path_exact", exact),
+            ("script_path_start", prefixes),
+        ]
         .into_iter()
-        .flatten()
-        // The prefixes match more than the set's patterns: `f/a/x` also starts `f/a/xy`.
+        .filter(|(_, paths)| !paths.is_empty())
+        .map(|(param, paths)| format!("{query}&{param}={}", enc(&paths.join(","))))
+        .collect(),
+        None => vec![query],
+    };
+    let mut jobs: Vec<Value> = Vec::new();
+    for query in queries {
+        let page = ctx.get(&ctx.ws(&format!("jobs/list?{query}"))).await?;
+        jobs.extend(page.as_array().into_iter().flatten().cloned());
+    }
+    // Newest first across both queries; ISO timestamps sort as text.
+    jobs.sort_by(|a, b| b["created_at"].as_str().cmp(&a["created_at"].as_str()));
+    jobs.dedup_by(|a, b| a["id"] == b["id"]);
+    let runs: Vec<Value> = jobs
+        .iter()
+        // A prefix's `_` is a LIKE wildcard, and the kinds of a set's paths still need checking.
         .filter(|job| set.as_ref().is_none_or(|set| in_set(set, job)))
+        .take(limit as usize)
         .map(|job| Value::Object(summarize_run(job)))
         .collect();
     Ok(pretty(&Value::Array(runs)))

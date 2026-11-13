@@ -177,7 +177,8 @@ pub(super) struct McpContext<A> {
 }
 
 /// The session's run tools a tool set with run history serves; their handlers confine them to
-/// the set's runs.
+/// the set's runs. Reserved for every token, so a runnable keeps one name whether or not a set
+/// turns run history on.
 const RUN_HISTORY_TOOLS: &[&str] = &["list_runs", "get_run"];
 
 impl<B: McpBackend> Runner<B> {
@@ -690,8 +691,6 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                     .list_tools_single(&auth, &workspace_id, &scope_config, read_only)
                     .await?;
                 if run_history {
-                    list.tools
-                        .retain(|t| !RUN_HISTORY_TOOLS.contains(&t.name.as_ref()));
                     list.tools.extend(
                         self.backend
                             .session_tools(SessionAccess::ReadOnly)
@@ -852,7 +851,11 @@ impl<B: McpBackend> Runner<B> {
             .filter(|(t, p)| !scope_config.granular || scope_config.is_allowed(t, p))
             .collect();
         let endpoint_tools = self.backend.all_endpoint_tools();
-        let reserved: HashSet<&str> = endpoint_tools.iter().map(|t| t.name.as_ref()).collect();
+        let reserved: HashSet<&str> = endpoint_tools
+            .iter()
+            .map(|t| t.name.as_ref())
+            .chain(RUN_HISTORY_TOOLS.iter().copied())
+            .collect();
         let pairs: Vec<(&str, &str)> = items.iter().map(|(t, p)| (*t, p.as_str())).collect();
         let names = assign_tool_names(&pairs, &reserved);
         Ok(items
