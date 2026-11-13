@@ -240,10 +240,16 @@ export async function pushWorkspaceSettings(
   for (const key of SETTINGS_MANAGED_ONLY_WHEN_PRESENT) {
     delete (localSettings as any)[key];
   }
-  const secret = localSettings.slack_oauth_client_secret;
-  const slackSecretUnreadable =
+  const unreadableSecret = (secret: unknown) =>
     typeof secret === "string" &&
     (secret.startsWith("$encrypted:") || secret === "__SENSITIVE_AND_UNCHANGED__");
+  const webhookUnreadable = unreadableSecret(localSettings.webhook);
+  if (webhookUnreadable) {
+    log.warn(
+      "Leaving the webhook unchanged: this server cannot read an encrypted or redacted webhook URL. Upgrade it, or write the URL in plain text."
+    );
+  }
+  const slackSecretUnreadable = unreadableSecret(localSettings.slack_oauth_client_secret);
   if (slackSecretUnreadable) {
     log.warn(
       "Leaving the Slack OAuth client and secret unchanged: this server cannot read an encrypted or redacted secret. Upgrade it, or write the secret in plain text."
@@ -301,7 +307,7 @@ export async function pushWorkspaceSettings(
   }
   log.debug(`Workspace settings are not up-to-date, updating...`);
 
-  if (localSettings.webhook !== settings.webhook) {
+  if (!webhookUnreadable && localSettings.webhook !== settings.webhook) {
     log.debug(`Updating webhook...`);
     await wmill.editWebhook({
       workspace,
