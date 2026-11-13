@@ -26,6 +26,34 @@ function options(extra: Partial<ChatOptions>, fetch: ChatOptions['fetch']): Chat
 }
 
 describe('createChat with local history', () => {
+  test('marks a turn waiting on background tools until the agent streams again', async () => {
+    const { fetch } = fetchMock(run, (c) =>
+      c.url.pathname === streamPath
+        ? sseTimed([
+            {
+              type: 'update',
+              new_result_stream: ndjson({ type: 'token_delta', content: 'On it' }, { type: 'background_wait' }),
+              stream_offset: 1
+            },
+            200,
+            {
+              type: 'update',
+              new_result_stream: ndjson({ type: 'token_delta', content: ' and done' }),
+              stream_offset: 2,
+              completed: true,
+              only_result: { windmill_chat_answer: 'On it and done' }
+            }
+          ])
+        : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    const sent = chat.sendMessage('go')
+    await until(() => chat.getState().waitingOnBackground === true, 'the background wait')
+    expect(chat.getState().status).toBe('streaming')
+    await sent
+    expect(chat.getState().waitingOnBackground).toBeFalsy()
+  })
+
   test('streams text and tool calls, then finalizes and persists the turn', async () => {
     const storage = memoryStorage()
     const { fetch, calls } = fetchMock(run, (c) =>
@@ -952,6 +980,182 @@ describe('createChat with server history', () => {
       ['user', 'hi', 'row-61'],
       ['tool', 'Used lookup tool', 'row-62'],
       ['assistant', 'Answer', 'row-63']
+    ])
+  })
+
+  test('reads a row of a call that went to the background as a call of that tool', async () => {
+    const { fetch } = fetchMock((c) =>
+      c.url.pathname.endsWith('/messages')
+        ? json([
+            messageRow(1, 'user', 'go'),
+            messageRow(2, 'tool', 'Started report in the background', { job_id: 'bg-1' }),
+            messageRow(3, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-2' })
+          ])
+        : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    expect(chat.getState().messages.map((m) => m.tool?.name)).toEqual([undefined, 'report', 'export'])
+  })
+
+  test.each([true, false])('a row read after a background result streamed in keeps how it went (success: %p)', async (success) => {
+    let reads = 0
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sseTimed([
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'tool_call', call_id: 'c1', function_name: 'export' },
+                  { type: 'background_wait' }
+                ),
+                stream_offset: 2
+              },
+              50,
+              {
+                type: 'update',
+                new_result_stream: ndjson({
+                  type: 'tool_result',
+                  call_id: 'c1',
+                  function_name: 'export',
+                  result: '"ok"',
+                  success
+                }),
+                stream_offset: 3
+              },
+              600,
+              {
+                type: 'update',
+                new_result_stream: ndjson({ type: 'token_delta', content: 'Done' }),
+                stream_offset: 4,
+                completed: true,
+                only_result: { output: 'Done', messages: [] }
+              }
+            ])
+          : undefined,
+      async (c) => {
+        if (c.method !== 'GET' || !c.url.pathname.endsWith('/messages')) return undefined
+        // The read the wait starts answers after the result streamed in.
+        if (reads++ === 0) await new Promise((resolve) => setTimeout(resolve, 300))
+        return json([
+          messageRow(1, 'user', 'go'),
+          messageRow(2, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-1' })
+        ])
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    const sent = chat.sendMessage('go')
+    await until(() => reads > 0, 'the read')
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    const call = chat.getState().messages.find((m) => m.role === 'tool')
+    expect([call?.content, call?.tool?.status, call?.success]).toEqual([
+      'Moved export to the background after 5s',
+      success ? 'success' : 'error',
+      success
+    ])
+    await sent
+  })
+
+  test('a background result streams onto the card its row was read into while waiting', async () => {
+    let waited = false
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sseTimed([
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'tool_call', call_id: 'c1', function_name: 'export' },
+                  { type: 'background_wait' }
+                ),
+                stream_offset: 2
+              },
+              100,
+              {
+                type: 'update',
+                new_result_stream: ndjson(
+                  { type: 'tool_result', call_id: 'c1', function_name: 'export', result: '"ok"', success: true },
+                  { type: 'token_delta', content: 'Done' }
+                ),
+                stream_offset: 4,
+                completed: true,
+                only_result: { output: 'Done', messages: [] }
+              }
+            ])
+          : undefined,
+      (c) => {
+        if (c.method !== 'GET' || !c.url.pathname.endsWith('/messages')) return undefined
+        if (!waited) {
+          waited = true
+          return json([
+            messageRow(1, 'user', 'go'),
+            messageRow(2, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-1' })
+          ])
+        }
+        return json([
+          messageRow(1, 'user', 'go'),
+          messageRow(2, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-1' }),
+          messageRow(3, 'tool', 'Used export tool', { job_id: 'bg-1', tool_result: '"ok"' }),
+          messageRow(4, 'assistant', 'Done')
+        ])
+      }
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('go')
+    // The call's card, filled by the stream and still worded as its row, then the result's row,
+    // which a display folds into that card by job.
+    const tools = chat.getState().messages.filter((m) => m.role === 'tool')
+    expect(tools.map((m) => [m.content, m.tool?.callId, m.tool?.result])).toEqual([
+      ['Moved export to the background after 5s', 'c1', '"ok"'],
+      ['Used export tool', undefined, '"ok"']
+    ])
+  })
+
+  test('repeated background calls of one tool each keep their own result', async () => {
+    const call = (id: string) => ({ type: 'tool_call', call_id: id, function_name: 'export' })
+    const result = (id: string, r: string) => ({
+      type: 'tool_result',
+      call_id: id,
+      function_name: 'export',
+      result: r,
+      success: true
+    })
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson(call('c1'), result('c1', '"A"'), call('c2'), result('c2', '"B"')),
+                stream_offset: 4,
+                completed: true,
+                only_result: { output: 'Done', messages: [] }
+              }
+            ])
+          : undefined,
+      (c) =>
+        c.method === 'GET' && c.url.pathname.endsWith('/messages')
+          ? json([
+              messageRow(1, 'user', 'go'),
+              messageRow(2, 'tool', 'Started export in the background', { job_id: 'bg-1' }),
+              messageRow(3, 'tool', 'Used export tool', { job_id: 'bg-1', tool_result: '"A"' }),
+              messageRow(4, 'tool', 'Started export in the background', { job_id: 'bg-2' }),
+              messageRow(5, 'tool', 'Used export tool', { job_id: 'bg-2', tool_result: '"B"' })
+            ])
+          : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('go')
+    const tools = chat.getState().messages.filter((m) => m.role === 'tool')
+    expect(tools.map((m) => [m.jobId, m.tool?.callId, m.tool?.result])).toEqual([
+      ['bg-1', 'c1', '"A"'],
+      ['bg-1', undefined, '"A"'],
+      ['bg-2', 'c2', '"B"'],
+      ['bg-2', undefined, '"B"']
     ])
   })
 

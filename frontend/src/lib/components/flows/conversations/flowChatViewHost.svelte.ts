@@ -146,6 +146,20 @@ export type DisplayLookups = {
 	revealed?: (message: ChatMessage) => Revealed | undefined
 	/** The approval or question the running turn's agent waits on. */
 	request?: AgentRequest
+	/** The running turn's agent answered and waits on tools running in the background: the calls
+	 *  it shows as running are those. */
+	backgroundWait?: boolean
+}
+
+/** The row the worker writes when a call goes to the background. Its result is a later row of
+ *  the same job, which this call's card shows in its place. */
+const BACKGROUND_START =
+	/^(?:Started .+ in the background|Moved .+ to the background( after (\d+)s)?)$/
+
+/** How long a call ran before it moved to the background, for its card. */
+function movedAfter(content: string): string {
+	const secs = BACKGROUND_START.exec(content)?.[2]
+	return secs ? ` (took over ${secs}s)` : ''
 }
 
 const QUESTION_CALL = /^ask_question(_\d+)?$/
@@ -260,7 +274,66 @@ export function toDisplayMessages(
 	}
 	const request = lookups.request
 	let requestShown = false
-	const shown = messages.flatMap((message, i): DisplayMessage[] => {
+	// A background call's result row, by the index of the row that started it.
+	const backgroundResults = new Map<number, number>()
+	const backgroundStarts = new Map<string, number>()
+	messages.forEach((message, i) => {
+		if (message.role !== 'tool' || !message.jobId) return
+		const start = backgroundStarts.get(message.jobId)
+		if (start !== undefined) backgroundResults.set(start, i)
+		else if (BACKGROUND_START.test(message.content)) backgroundStarts.set(message.jobId, i)
+	})
+	const shownElsewhere = new Set(backgroundResults.values())
+	const shown = messages.flatMap((row, i): DisplayMessage[] => {
+		// Where results came back, a bubble says why the agent goes on, as the session chat's
+		// auto-resume does; the results themselves are on their calls' cards.
+		if (shownElsewhere.has(i)) {
+			if (shownElsewhere.has(i - 1)) return []
+			let count = 1
+			while (shownElsewhere.has(i + count)) count++
+			return [
+				{
+					role: 'user',
+					index: -1,
+					synthetic: true,
+					content:
+						count === 1
+							? 'A background job just finished.'
+							: `${count} background jobs just finished.`
+				}
+			]
+		}
+		const resultRow = backgroundResults.get(i)
+		const started =
+			row.role === 'tool' && resultRow === undefined && BACKGROUND_START.test(row.content)
+		// Its result streamed in ahead of the row that stores it: shown as that row will be.
+		const streamedBack = started && !!row.tool && row.tool.status !== 'running'
+		// The result in the call's place, with the thinking that led to the call, stored on the
+		// row that started it.
+		const message =
+			resultRow !== undefined
+				? { ...messages[resultRow], id: row.id, reasoning: row.reasoning }
+				: streamedBack
+					? {
+							...row,
+							content:
+								row.success === false
+									? `Error executing ${row.tool!.name}`
+									: `Used ${row.tool!.name} tool`
+						}
+					: row
+		// Started in the background, its result not in yet. Once the turn that started it is no
+		// longer running, it never will be: its agent was stopped and its job with it. A later turn
+		// running does not bring it back.
+		const backgroundStart = started && !streamedBack
+		const ownTurnRunning = busy && (i > latestUser || !!row.pending)
+		const backgroundUnfinished = backgroundStart && !ownTurnRunning
+		const inBackground =
+			(backgroundStart && ownTurnRunning) ||
+			(message.role === 'tool' &&
+				!!lookups.backgroundWait &&
+				!!message.pending &&
+				message.tool?.status === 'running')
 		switch (message.role) {
 			case 'user': {
 				const index = userIndex++
@@ -305,7 +378,9 @@ export function toDisplayMessages(
 				// worker stored them on the row. A row stored without them shows its name and job.
 				const toolName = message.tool?.name
 				const parameters = parseToolPayload(message.tool?.arguments)
-				const result = parseToolPayload(message.tool?.result)
+				// A call started in the background stores, as its result, what the model was told
+				// about it; its card shows the real result once it comes back.
+				const result = backgroundStart ? undefined : parseToolPayload(message.tool?.result)
 				const failed = message.success === false
 				// A call the turn finished without, stopped or lost before its row was written. The
 				// call a structured answer streams as never gets a result of its own, the answer
@@ -313,7 +388,7 @@ export function toDisplayMessages(
 				const unfinished =
 					message.tool &&
 					!message.pending &&
-					!message.content &&
+					(!message.content || backgroundUnfinished) &&
 					!STRUCTURED_OUTPUT_CALL.test(message.tool.name)
 						? `${message.tool.name} did not finish`
 						: undefined
@@ -322,7 +397,12 @@ export function toDisplayMessages(
 					tool_call_id: message.id,
 					// The card's header is the row's text, which the server only words once the
 					// tool has returned; until then the row says what is running.
-					content: message.content || unfinished || (toolName ? `Running ${toolName}` : ''),
+					content: inBackground
+						? `Running ${toolName ?? 'tool'} in the background${movedAfter(message.content)}`
+						: (backgroundUnfinished && unfinished) ||
+							message.content ||
+							unfinished ||
+							(toolName ? `Running ${toolName}` : ''),
 					// Withheld for the copilot's two plan-mode names: `toolName` is what makes
 					// ToolExecutionDisplay render a plan card, and an agent tool that happened to
 					// share one would silently become one.
@@ -331,7 +411,7 @@ export function toDisplayMessages(
 					result,
 					showDetails: parameters !== undefined || result !== undefined,
 					error: failed ? (toolErrorText(result) ?? message.content) : unfinished,
-					isLoading: message.pending && message.tool?.status === 'running',
+					isLoading: inBackground || (message.pending && message.tool?.status === 'running'),
 					jobId: message.jobId
 				}
 				if (request && i > latestUser && call.isLoading && holds(request, toolName)) {
@@ -538,7 +618,8 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		toDisplayMessages(this.#state.messages, isBusy(this.#state.status), this.#stoppedTurns, {
 			workspace: this.#options.workspace?.(),
 			revealed: (message) => this.#revealed[message.id],
-			request: this.#agentRequest?.action
+			request: this.#agentRequest?.action,
+			backgroundWait: this.backgroundWait
 		})
 	)
 
@@ -575,6 +656,9 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	}
 	get loading(): boolean {
 		return isBusy(this.#state.status)
+	}
+	get backgroundWait(): boolean {
+		return isBusy(this.#state.status) && !!this.#state.waitingOnBackground
 	}
 	// No transcript restore to wait for: a flow chat renders from its rows.
 	sendPending = false

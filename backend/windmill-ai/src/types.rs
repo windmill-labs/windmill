@@ -65,6 +65,9 @@ pub struct Tool {
     /// Set on the built-in question tool, which the worker answers by parking the agent until
     /// someone answers or this many seconds pass.
     pub question_timeout_secs: Option<u32>,
+    /// A flow module tool whose call is answered once its job is queued (`Some(0)`) or, unfinished,
+    /// this many seconds after; see `AgentTool::background`.
+    pub background_after_secs: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -553,6 +556,9 @@ pub enum StreamingEvent {
     ToolExecution { call_id: String, function_name: String },
     /// Tool execution result
     ToolResult { call_id: String, function_name: String, result: String, success: bool },
+    /// The agent has answered and waits, without a worker, on tools still running in the
+    /// background: nothing more streams until one of them finishes and wakes it.
+    BackgroundWait,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

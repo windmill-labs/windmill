@@ -328,7 +328,9 @@ class ChatImpl implements Chat {
       this.#failTurn(turn, e)
     } finally {
       if (this.#turn === turn) this.#turn = undefined
-      if (this.#state.runningJobId === turn.jobId) this.#set({ runningJobId: undefined })
+      if (this.#state.runningJobId === turn.jobId) {
+        this.#set({ runningJobId: undefined, waitingOnBackground: undefined })
+      }
     }
     if (nextTurn) await this.resumeTurn(nextTurn)
   }
@@ -644,15 +646,21 @@ class ChatImpl implements Chat {
       patch: Partial<ToolInvocation> & { content?: string; success?: boolean }
     ) => {
       const { content, success, ...toolPatch } = patch
-      // Only this turn's tool messages are pending; a provider may reuse call ids across turns.
+      // Only this turn's: a provider may reuse call ids across turns. Those are the pending
+      // ones and those past the latest question, which a mid-turn row read settles while the
+      // call still waits on its background job.
+      let asked = messages.length - 1
+      while (asked >= 0 && messages[asked].role !== 'user') asked--
       const i = messages.findIndex(
-        (m) => m.pending && m.role === 'tool' && m.tool?.callId === callId
+        (m, j) => (m.pending || j > asked) && m.role === 'tool' && m.tool?.callId === callId
       )
       if (i >= 0) {
         const existing = messages[i]
         messages[i] = {
           ...existing,
-          content: content ?? existing.content,
+          // A stored row keeps its text: one that says the call went to the background is what
+          // its later result row is matched to.
+          content: existing.seq === undefined ? content ?? existing.content : existing.content,
           success: success ?? existing.success,
           tool: { ...existing.tool!, ...toolPatch }
         }
@@ -697,7 +705,10 @@ class ChatImpl implements Chat {
         })
       }
     }
+    // Anything the agent streams after it means it woke up.
+    let waitingOnBackground = false
     for (const event of events) {
+      waitingOnBackground = event.type === 'background_wait'
       switch (event.type) {
         case 'token_delta':
           turn.streamedText = true
@@ -729,7 +740,17 @@ class ChatImpl implements Chat {
           break
       }
     }
-    this.#set({ messages, status: 'streaming' })
+    const startsWaiting = waitingOnBackground && !this.#state.waitingOnBackground
+    this.#set({ messages, status: 'streaming', waitingOnBackground })
+    // Rows are otherwise read when the turn ends, which a wait on background jobs postpones; the
+    // rows of the calls it waits on are written by then, and say how each went to the background.
+    if (startsWaiting && this.#state.history === 'server') {
+      this.#rowsAfterLastSeq(turn.conversationId, turn.controller.signal)
+        .then((rows) => {
+          if (this.#turnActive(turn)) this.#mergeRows(rows)
+        })
+        .catch(() => {})
+    }
   }
 
   async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<RunningTurn | undefined> {
@@ -977,8 +998,15 @@ class ChatImpl implements Chat {
     for (const row of rows.map(fromRow)) {
       if (known.has(row.id)) continue
       known.add(row.id)
+      // The result of a call whose background start is already held is that call's own row:
+      // matched by tool name, it would take a later call of the same tool's place.
+      const backgroundResult =
+        row.role === 'tool' &&
+        row.jobId !== undefined &&
+        messages.some((m) => m.seq !== undefined && m.jobId === row.jobId && BACKGROUND_START.test(m.content))
       let i = messages.findIndex(
         (m) =>
+          !backgroundResult &&
           m.seq === undefined &&
           m.role === row.role &&
           (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
@@ -996,9 +1024,13 @@ class ChatImpl implements Chat {
       }
       if (i >= 0) {
         const m = messages[i]
+        // A row saying the call went to the background, read after its result streamed in,
+        // does not set it running again nor undo how it went.
+        const outrun = row.tool?.status === 'running' && !!m.tool && m.tool.status !== 'running'
         messages[i] = {
           ...row,
           id: m.id,
+          success: outrun ? m.success : row.success,
           reasoning: m.reasoning ?? row.reasoning,
           // The stream's call wins where it has a value; a stream cut short leaves gaps the row fills.
           tool:
@@ -1007,7 +1039,7 @@ class ChatImpl implements Chat {
                   ...m.tool,
                   arguments: m.tool.arguments ?? row.tool?.arguments,
                   result: m.tool.result ?? row.tool?.result,
-                  status: row.tool?.status ?? m.tool.status
+                  status: outrun ? m.tool.status : (row.tool?.status ?? m.tool.status)
                 }
               : row.tool
         }
@@ -1135,10 +1167,21 @@ function latestSeq(messages: readonly ChatMessage[]): number {
   return messages.reduce((newest, m) => (m.seq !== undefined && m.seq > newest ? m.seq : newest), 0)
 }
 
+const BACKGROUND_START = /^(?:Started (.+) in the background|Moved (.+) to the background(?: after \d+s)?)$/
+
 function fromRow(row: FlowConversationMessage): ChatMessage {
+  // A call that went to the background: its result comes as a later row of the same job.
+  const background =
+    row.message_type === 'tool'
+      ? BACKGROUND_START.exec(row.content)
+          ?.slice(1)
+          .find((name) => name !== undefined)
+      : undefined
   const toolName =
     row.message_type === 'tool'
-      ? /^Used (.+) tool$/.exec(row.content)?.[1] ?? /^Error executing (.+)$/.exec(row.content)?.[1]
+      ? /^Used (.+) tool$/.exec(row.content)?.[1] ??
+        /^Error executing (.+)$/.exec(row.content)?.[1] ??
+        background
       : undefined
   const success = row.success ?? true
   return {
@@ -1160,7 +1203,7 @@ function fromRow(row: FlowConversationMessage): ChatMessage {
     tool: toolName
       ? {
           name: toolName,
-          status: success ? 'success' : 'error',
+          status: background ? 'running' : success ? 'success' : 'error',
           arguments: row.tool_arguments ?? undefined,
           result: row.tool_result ?? undefined
         }

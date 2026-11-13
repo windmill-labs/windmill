@@ -82,6 +82,12 @@ export interface ChatState {
   hasMoreMessages: boolean
   /** The flow job the running turn follows, once it is known. */
   runningJobId?: string
+  /**
+   * The running turn's AI agent has answered and waits, without a worker, on tools still running
+   * in the background: nothing streams until one finishes. Set by its `background_wait` event,
+   * cleared by the next event and when the turn ends.
+   */
+  waitingOnBackground?: boolean
 }
 
 export type TokenSource = string | (() => string | Promise<string>)
