@@ -142,7 +142,7 @@ workflows:
         - 'depot/setup-action@v1.7.2'
         - 'docker/login-action@v3.7.0'
         - 'docker/metadata-action@v5.10.0'
-        - 'docker/scout-action@v1.28.0'
+        - 'docker/scout-action@v1.29.0'
         - 'docker/setup-buildx-action@v2.10.0'
         - 'github/codeql-action@v4.39.3'
         - 'reggionick/s3-deploy@v4.0.0'
@@ -409,9 +409,9 @@ dependencies:
         commit: 'sha1-c299e40c65443455700f0fdfc63efafe5b349051'
         owner_id: 5429470
         repo_id: 306769011
-    'docker/scout-action@v1.28.0':
-        ref: 'v1.28.0'
-        commit: 'sha1-4bbf17a9da65a7b5497361bb407e88cc9548f69c'
+    'docker/scout-action@v1.29.0':
+        ref: 'v1.29.0'
+        commit: 'sha1-e7e2a72bf1485d10a58f30696b6c513b261ce4fa'
         owner_id: 5429470
         repo_id: 607129616
     'docker/setup-buildx-action@v2.10.0':
