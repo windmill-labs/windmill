@@ -7,7 +7,7 @@
 		DECISION_AI_PROVIDERS,
 		aiProviderDetails
 	} from './copilot/lib'
-	import type { AIProvider, ProviderConfig } from '$lib/gen'
+	import { ResourceService, type AIProvider, type ProviderConfig } from '$lib/gen'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import { aiResourceProvider } from './copilot/aiResourceProvider'
 	import Toggle from './Toggle.svelte'
@@ -58,10 +58,11 @@
 	const offeredProviders = Object.keys(
 		untrack(() => decision) ? DECISION_AI_PROVIDERS : AI_PROVIDERS
 	)
-	// Federated Anthropic resources authenticate the anthropic provider without a key of their own.
+	// Federated resources authenticate a provider without a key of their own.
 	const providerResourceTypes = [
 		...offeredProviders,
-		...(offeredProviders.includes('anthropic') ? ['anthropic_federated'] : [])
+		...(offeredProviders.includes('anthropic') ? ['anthropic_federated'] : []),
+		...(offeredProviders.includes('googleai') ? ['vertex_ai_federated'] : [])
 	].join(',')
 
 	if (!_uncheckedValue) {
@@ -145,10 +146,17 @@
 	 * effect on the picker's `valueType`, which also resolves for the value the field was opened on
 	 * and would rewrite a saved config just for being looked at.
 	 */
-	function onResourcePicked(_path: string | undefined, type: string | undefined) {
+	async function onResourcePicked(path: string | undefined, type: string | undefined) {
+		// A Vertex federated resource serves Claude or Gemini depending on its base URL.
+		const resourceValue =
+			type === 'vertex_ai_federated' && path
+				? await ResourceService.getResourceValue({ workspace: effectiveWorkspace, path }).catch(
+						() => undefined
+					)
+				: undefined
 		// An empty type is the placeholder the picker keeps for a saved path it could not find. It
 		// says nothing about the provider, so the kind stands.
-		const provider = aiResourceProvider(type)
+		const provider = aiResourceProvider(type, resourceValue as Record<string, any> | undefined)
 		if (!value || !provider || !offeredProviders.includes(provider)) {
 			return
 		}

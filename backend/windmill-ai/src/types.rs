@@ -289,8 +289,8 @@ pub struct ProviderResource {
     pub service_account_id: Option<String>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub workspace_id: Option<String>,
-    /// Google Cloud Workload Identity Federation on a Vertex AI resource, used when
-    /// it sets no `api_key`.
+    /// Set only by `vertex_ai_federated` resources, which authenticate to Vertex AI
+    /// through Google Cloud Workload Identity Federation.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub workload_identity_provider: Option<String>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
@@ -353,12 +353,15 @@ impl ProviderWithResource {
         let anthropic_federation = self.anthropic_federation()?;
         let vertex_workload_identity = VertexWorkloadIdentity::from_resource(
             &self.kind,
-            &self.resource.platform,
-            self.resource.api_key.as_deref(),
             self.resource.workload_identity_provider.as_deref(),
             self.resource.service_account_email.as_deref(),
             self.resource.workload_identity_audience.as_deref(),
         )?;
+        let platform = if vertex_workload_identity.is_some() {
+            AIPlatform::GoogleVertexAi
+        } else {
+            self.resource.platform.clone()
+        };
         let base_url = if self.kind == AIProvider::AWSBedrock {
             String::new()
         } else if anthropic_federation.is_some() {
@@ -390,7 +393,7 @@ impl ProviderWithResource {
             oidc_role_arn: self.resource.oidc_role_arn.clone(),
             anthropic_federation,
             vertex_workload_identity,
-            platform: self.resource.platform.clone(),
+            platform,
             custom_headers: self.resource.headers.clone(),
         })
     }

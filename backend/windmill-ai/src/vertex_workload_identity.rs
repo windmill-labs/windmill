@@ -10,7 +10,7 @@ use serde::Deserialize;
 use windmill_common::client::AuthedClient;
 use windmill_common::error::Error;
 
-use crate::ai_providers::{AIPlatform, AIProvider};
+use crate::ai_providers::AIProvider;
 use crate::credentials::ProviderCredentials;
 
 pub const GCP_STS_TOKEN_URL: &str = "https://sts.googleapis.com/v1/token";
@@ -48,13 +48,11 @@ pub struct VertexWorkloadIdentity {
 }
 
 impl VertexWorkloadIdentity {
-    /// The workload identity settings of a resource, or `None` when it does not
-    /// federate. An `api_key` takes precedence, so a resource can carry both and
-    /// the explicit key keeps winning.
+    /// The workload identity settings of a `vertex_ai_federated` resource, or `None`
+    /// for any other: only `workload_identity_provider` identifies one. Such a
+    /// resource is always on Vertex, so callers set the platform from the result.
     pub fn from_resource(
         provider: &AIProvider,
-        platform: &AIPlatform,
-        api_key: Option<&str>,
         workload_identity_provider: Option<&str>,
         service_account_email: Option<&str>,
         audience: Option<&str>,
@@ -64,18 +62,13 @@ impl VertexWorkloadIdentity {
                 .filter(|v| !v.is_empty())
                 .map(str::to_string)
         };
-        if non_empty(api_key).is_some() {
-            return Ok(None);
-        }
         let Some(pool_provider) = non_empty(workload_identity_provider) else {
             return Ok(None);
         };
-        if !matches!(provider, AIProvider::Anthropic | AIProvider::GoogleAI)
-            || *platform != AIPlatform::GoogleVertexAi
-        {
+        if !matches!(provider, AIProvider::Anthropic | AIProvider::GoogleAI) {
             return Err(Error::BadRequest(format!(
-                "workload_identity_provider authenticates to Vertex AI: it needs an Anthropic or \
-                 Google AI resource with platform google_vertex_ai, not {provider:?} on {platform:?}"
+                "A vertex_ai_federated resource can only be used for the Anthropic or Google AI \
+                 provider, not {provider:?}"
             )));
         }
 
@@ -307,28 +300,10 @@ mod tests {
         "projects/123/locations/global/workloadIdentityPools/pool/providers/windmill";
 
     fn vertex(
-        api_key: Option<&str>,
         provider: Option<&str>,
         email: Option<&str>,
     ) -> Result<Option<VertexWorkloadIdentity>, Error> {
-        VertexWorkloadIdentity::from_resource(
-            &AIProvider::GoogleAI,
-            &AIPlatform::GoogleVertexAi,
-            api_key,
-            provider,
-            email,
-            None,
-        )
-    }
-
-    #[test]
-    fn an_api_key_wins_over_workload_identity() {
-        assert!(vertex(Some("ya29.token"), Some(PROVIDER), None)
-            .unwrap()
-            .is_none());
-        // Cleared fields arrive as empty strings.
-        assert!(vertex(Some(""), Some(PROVIDER), None).unwrap().is_some());
-        assert!(vertex(None, Some(""), None).unwrap().is_none());
+        VertexWorkloadIdentity::from_resource(&AIProvider::GoogleAI, provider, email, None)
     }
 
     #[test]
@@ -338,22 +313,22 @@ mod tests {
             format!("//iam.googleapis.com/{PROVIDER}"),
             format!("https://iam.googleapis.com/{PROVIDER}"),
         ] {
-            let identity = vertex(None, Some(&form), None).unwrap().unwrap();
+            let identity = vertex(Some(&form), None).unwrap().unwrap();
             assert_eq!(identity.provider, PROVIDER);
             assert_eq!(
                 identity.oidc_audience(),
                 format!("https://iam.googleapis.com/{PROVIDER}")
             );
         }
-        assert!(vertex(None, Some("projects/123/providers/windmill"), None).is_err());
+        assert!(vertex(Some("projects/123/providers/windmill"), None).is_err());
     }
 
     #[test]
     fn service_account_email_cannot_escape_its_path_segment() {
         let sa = "vertex@my-project.iam.gserviceaccount.com";
-        assert!(vertex(None, Some(PROVIDER), Some(sa)).is_ok());
-        assert!(vertex(None, Some(PROVIDER), Some("a@b/../../other")).is_err());
-        assert!(vertex(None, Some(PROVIDER), Some("a@b?x=1")).is_err());
+        assert!(vertex(Some(PROVIDER), Some(sa)).is_ok());
+        assert!(vertex(Some(PROVIDER), Some("a@b/../../other")).is_err());
+        assert!(vertex(Some(PROVIDER), Some("a@b?x=1")).is_err());
     }
 
     #[test]

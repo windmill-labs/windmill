@@ -258,8 +258,8 @@ struct AIStandardResource {
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     headers: HashMap<String, String>,
-    /// Google Cloud Workload Identity Federation on a Vertex AI resource, used when
-    /// it sets no `api_key`.
+    /// Set only by `vertex_ai_federated` resources, which authenticate to Vertex AI
+    /// through Google Cloud Workload Identity Federation.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     workload_identity_provider: Option<String>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
@@ -430,12 +430,15 @@ async fn resolve_provider_credentials(
             .await?;
             let vertex_workload_identity = VertexWorkloadIdentity::from_resource(
                 provider,
-                &resource.platform,
-                api_key.as_deref(),
                 workload_identity_provider.as_deref(),
                 service_account_email.as_deref(),
                 workload_identity_audience.as_deref(),
             )?;
+            let platform = if vertex_workload_identity.is_some() {
+                AIPlatform::GoogleVertexAi
+            } else {
+                resource.platform
+            };
 
             Ok(ProviderCredentials {
                 provider: provider.clone(),
@@ -451,7 +454,7 @@ async fn resolve_provider_credentials(
                 oidc_role_arn,
                 anthropic_federation: None,
                 vertex_workload_identity,
-                platform: resource.platform,
+                platform,
                 custom_headers: resource.headers,
             })
         }

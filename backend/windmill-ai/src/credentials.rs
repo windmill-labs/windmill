@@ -37,8 +37,8 @@ pub struct ProviderCredentials {
     /// resource. The API proxy exchanges an OIDC token minted for the requesting
     /// user for a short-lived access token, which then goes out as `access_token`.
     pub anthropic_federation: Option<AnthropicFederation>,
-    /// Google Cloud Workload Identity Federation settings of a Vertex resource with
-    /// no `api_key`. The OIDC token is exchanged for a Google access token, sent as
+    /// Google Cloud Workload Identity Federation settings, from a `vertex_ai_federated`
+    /// resource. The OIDC token is exchanged for a Google access token, sent as
     /// the Vertex bearer token: by the API proxy for the requesting user, by the
     /// worker for the job.
     pub vertex_workload_identity: Option<VertexWorkloadIdentity>,

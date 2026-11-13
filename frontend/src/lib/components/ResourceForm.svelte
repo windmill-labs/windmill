@@ -95,7 +95,7 @@
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
-	let aiProvider = $derived(aiResourceProvider(resource_type))
+	let aiProvider = $derived(aiResourceProvider(resource_type, args))
 
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')

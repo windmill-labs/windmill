@@ -536,8 +536,10 @@
 												? 'openai_client_credentials_oauth'
 												: provider}
 											additionalResourceTypes={provider === 'anthropic'
-												? ['anthropic_federated']
-												: []}
+												? ['anthropic_federated', 'vertex_ai_federated']
+												: provider === 'googleai'
+													? ['vertex_ai_federated']
+													: []}
 											initialValue={aiProviders[provider].resource_path}
 											bind:value={
 												() => aiProviders[provider].resource_path || undefined,
