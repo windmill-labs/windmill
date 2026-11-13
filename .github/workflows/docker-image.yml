@@ -449,7 +449,7 @@ jobs:
           trivy() { docker run --rm -v "$RUNNER_TEMP/trivy-cache:/root/.cache/trivy" -v "$PWD/scan:/out" "$TRIVY_IMAGE" "$@"; }
           trivy image -q --platform linux/amd64 \
             --scanners vuln --format json -o /out/full.json "$IMAGE_REF"
-          .github/scripts/kernel-headers-vex.sh \
+          .github/scripts/image-vex.sh \
             "https://github.com/windmill-labs/windmill/releases/tag/${GITHUB_REF_NAME}#${{ matrix.image }}" \
             scan/full.json > "scan/${{ matrix.image }}.openvex.json"
           trivy image -q --platform linux/amd64 \
