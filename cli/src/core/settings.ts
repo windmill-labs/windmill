@@ -232,6 +232,20 @@ export async function pushWorkspaceSettings(
     delete localSettings.datatable_permissions;
   }
 
+  if (
+    unreadableSecret(localSettings.webhook) &&
+    !(await documentKeepsRedactedWebhook(workspace))
+  ) {
+    log.warn(
+      "Leaving the webhook unchanged: this server stores the webhook URL in plain text and cannot read an encrypted or redacted one. Upgrade it, or write the URL in plain text."
+    );
+    const remote = await wmill.getWorkspaceSettingsDocument({ workspace });
+    if (typeof remote.webhook === "string") {
+      localSettings.webhook = remote.webhook;
+    } else {
+      delete localSettings.webhook;
+    }
+  }
   if (await applySettingsDocument(workspace, localSettings)) {
     return;
   }
@@ -240,9 +254,6 @@ export async function pushWorkspaceSettings(
   for (const key of SETTINGS_MANAGED_ONLY_WHEN_PRESENT) {
     delete (localSettings as any)[key];
   }
-  const unreadableSecret = (secret: unknown) =>
-    typeof secret === "string" &&
-    (secret.startsWith("$encrypted:") || secret === "__SENSITIVE_AND_UNCHANGED__");
   const webhookUnreadable = unreadableSecret(localSettings.webhook);
   if (webhookUnreadable) {
     log.warn(
@@ -558,6 +569,36 @@ export async function pushWorkspaceSettings(
 
 /** Applies settings.yaml server-side, which owns the rules for what an omitted or null setting
  * means. Returns false on a server that predates the settings document. */
+function unreadableSecret(secret: unknown): boolean {
+  return (
+    typeof secret === "string" &&
+    (secret.startsWith("$encrypted:") || secret === "__SENSITIVE_AND_UNCHANGED__")
+  );
+}
+
+/**
+ * Whether the settings document treats the webhook URL as a secret: a server whose document
+ * predates that plans the placeholder as a new URL, which its webhook endpoint then refuses.
+ * True for a server without the document, whose fallback path handles the secret itself.
+ */
+async function documentKeepsRedactedWebhook(workspace: string): Promise<boolean> {
+  try {
+    const result = await wmill.applyWorkspaceSettingsDocument({
+      workspace,
+      requestBody: {
+        document: { webhook: "__SENSITIVE_AND_UNCHANGED__" },
+        dry_run: true,
+      },
+    });
+    return !result.changes.some((c) => c.key === "webhook");
+  } catch (err: any) {
+    if (err?.status === 404 && !err?.body) {
+      return true;
+    }
+    throw new Error(`Failed to read workspace settings: ${err?.body ?? err}`);
+  }
+}
+
 async function applySettingsDocument(
   workspace: string,
   document: SimplifiedSettings,
