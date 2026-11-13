@@ -472,6 +472,8 @@
 	function selectType(key: string) {
 		connectClient = key
 		resourceType = typeOfKey(key)
+		// The path form names it after the type, so one generated for another type must go.
+		path = ''
 		resetClientCredentialsState()
 		next()
 	}
@@ -547,6 +549,24 @@
 		popularity = byPopularity(hub, local)
 	}
 
+	/** What each configured provider connects with in one click, for the list's badges. Only
+	 * `get_connect` knows whether client credentials are shared, so it is asked per provider,
+	 * off the list's critical path: the rows render first and gain their badges as they land. */
+	let connectBadges: Record<string, { signIn: boolean; oneClick: boolean }> = $state({})
+
+	function loadConnectBadges(names: string[]) {
+		for (const name of names) {
+			OauthService.getOauthConnect({ client: name })
+				.then((c) => {
+					connectBadges[name] = {
+						signIn: c.grant_types?.includes('authorization_code') ?? true,
+						oneClick: c.client_credentials_configured ?? false
+					}
+				})
+				.catch(() => {})
+		}
+	}
+
 	async function loadConnects() {
 		if (!connects) {
 			try {
@@ -555,6 +575,7 @@
 				)
 				connects = list.map((x) => x.name)
 				connectsInfo = Object.fromEntries(list.map((x) => [x.name, x]))
+				loadConnectBadges(list.filter((x) => x.has_shared_credentials).map((x) => x.name))
 			} catch (e) {
 				connects = []
 				connectsInfo = {}
@@ -1290,20 +1311,19 @@
 		bind:filteredItems={filteredConnectsManual}
 		f={(x) => resourceTypeSearchText(x.key, resourceTypeDescriptions[x.key])}
 	/>
+	<!-- Only once a provider with a real choice of method is picked: with manual entry as the
+	     only way in, the form is the whole flow and a stepper would only add noise. -->
 	{#snippet wizardSteps()}
-		{#if !native}
+		{#if !native && methodStepShown}
 			<div class="shrink-0 mb-6 flex justify-center">
 				<Stepper
-					tabs={step > 1 && manual
+					tabs={manual
 						? ['Resource type', 'Authentication', 'Details']
 						: ['Resource type', 'Authentication', 'Connect', 'Save']}
 					small
 					selectedIndex={stepIndex}
 					maxReachedIndex={stepIndex}
-					disabledIndices={[
-						...(openedOnType ? [0] : []),
-						...(step > 1 && !methodStepShown ? [1] : [])
-					]}
+					disabledIndices={openedOnType ? [0] : []}
 					on:click={(e) => goToStep(e.detail.index)}
 				/>
 			</div>
@@ -1320,7 +1340,6 @@
 			onkeydown={onListKeydown}
 			onpointermove={highlight.pointerMoved}
 		>
-			{@render wizardSteps()}
 			<div class="shrink-0 pb-4">
 				<div class="relative w-full">
 					<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
@@ -1341,14 +1360,18 @@
 
 			{#snippet resourceButton(key: string, index: number)}
 				{@const configured = isSharedConnect(key)}
+				{@const badges = connectBadges[key]}
 				{#snippet icon()}
 					<IconedResourceType name={key} silent width="20px" height="20px" />
 				{/snippet}
 				{#snippet title()}
 					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
 					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
-					{#if configured}
-						<Badge verySmall class="px-2 shrink-0">OAuth configured</Badge>
+					{#if badges?.signIn}
+						<Badge verySmall class="px-2 shrink-0">Log in with your account</Badge>
+					{/if}
+					{#if badges?.oneClick}
+						<Badge verySmall class="px-2 shrink-0">One-click setup</Badge>
 					{/if}
 				{/snippet}
 				{#snippet subtitle()}
