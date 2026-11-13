@@ -166,8 +166,9 @@
 {#if artifact}
 	<div class="h-full min-h-0 overflow-auto bg-surface-tertiary px-8">
 		<!-- Full height only for the source editor: the rendered document's sticky top fade sticks
-		     only while its parent box lasts, so that box must grow with the text. -->
-		<div class="mx-auto max-w-4xl {source ? 'h-full' : ''}">
+		     only while its parent box lasts, so that box must grow with the text. No width cap for
+		     the document either: it sets its own column, and a wide table grows past it. -->
+		<div class={source ? 'h-full max-w-4xl' : ''}>
 			<ArtifactBody content={artifact.content} {source} pre={MermaidCodeBlock} />
 		</div>
 	</div>

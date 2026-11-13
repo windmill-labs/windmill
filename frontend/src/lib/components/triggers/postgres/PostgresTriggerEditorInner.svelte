@@ -412,7 +412,7 @@
 		replication_slot_name = cfg?.replication_slot_name
 		permsPath = path
 		permsForWrite = cfg?.extra_perms
-		transaction_to_track = [...cfg?.publication?.transaction_to_track]
+		transaction_to_track = [...(cfg?.publication?.transaction_to_track ?? [])]
 		relations = cfg?.publication?.table_to_track ?? []
 		errorHandler = handlerDraftFromStored(
 			'error',
@@ -893,7 +893,13 @@
 								{#snippet content()}
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
-											<RelationPicker {can_write} bind:pg14 bind:relations disabled={!can_write} />
+											<RelationPicker
+												{can_write}
+												bind:pg14
+												bind:relations
+												{transaction_to_track}
+												disabled={!can_write}
+											/>
 										</TabContent>
 										<TabContent value="advanced">
 											<div class="flex flex-col gap-6"
@@ -1004,6 +1010,7 @@
 															bind:pg14
 															{can_write}
 															bind:relations
+															{transaction_to_track}
 															disabled={!can_write}
 														/>
 													</div>

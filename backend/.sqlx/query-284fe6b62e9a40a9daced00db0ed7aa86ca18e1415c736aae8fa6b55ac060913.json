@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                result AS \"result: sqlx::types::Json<Box<RawValue>>\",\n                result_columns,\n                status IN ('success', 'skipped') AS \"success!\",\n                status = 'skipped' AS \"is_skipped!\",\n                created_by AS \"created_by!\"\n            FROM v2_job_completed c\n                JOIN v2_job j USING (id)\n            WHERE c.id = $1 AND c.workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "result: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "result_columns",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 2,
+        "name": "success!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_skipped!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null,
+      null,
+      false
+    ]
+  },
+  "hash": "284fe6b62e9a40a9daced00db0ed7aa86ca18e1415c736aae8fa6b55ac060913"
+}

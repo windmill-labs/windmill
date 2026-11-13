@@ -15,9 +15,9 @@ use windmill_common::{
 use windmill_api_auth::ApiAuthed;
 
 use crate::{
-    get_workspace_integration, map_external_error,
+    decrypt_oauth_data, map_external_error,
     nextcloud::{NextCloudEventType, OcsResponse},
-    picker_connection, ConnectionQuery, External, ServiceName,
+    picker_connection, ConnectionQuery, External, OAuthConfig, ServiceName,
 };
 
 async fn list_available_events<T: External>(
@@ -37,17 +37,17 @@ async fn list_available_events<T: External>(
         query.connection_path.as_deref(),
     )
     .await?;
-    let integration = get_workspace_integration(&db, &workspace_id, ServiceName::Nextcloud).await?;
-
-    let base_url = integration
-        .oauth_data
-        .get("base_url")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let connection: OAuthConfig = decrypt_oauth_data(
+        &db,
+        &workspace_id,
+        ServiceName::Nextcloud,
+        Some(&connection_path),
+    )
+    .await?;
 
     let url = format!(
         "{}/ocs/v2.php/apps/integration_windmill/api/v1/list/events",
-        base_url,
+        connection.base_url,
     );
 
     let mut headers = HashMap::new();

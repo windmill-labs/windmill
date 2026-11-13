@@ -140,6 +140,7 @@ function readMessage(m: Record<string, unknown>, index: number): DisplayMessage 
 				tool_call_id: str(m.tool_call_id) ?? `shared-${index}`,
 				content,
 				toolName: str(m.toolName),
+				readsAgent: m.readsAgent === true,
 				parameters: m.parameters,
 				result: m.result,
 				logs: str(m.logs),

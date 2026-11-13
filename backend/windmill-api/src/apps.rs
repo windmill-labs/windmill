@@ -68,6 +68,7 @@ use windmill_common::{
     jobs::{
         normalize_nul_in_args, resolve_delete_after_secs, runnable_ref_to_payload,
         sanitize_untrusted_args, schedule_job_deletion, JobPayload, JobTriggerKind, RawCode,
+        RunOrigin,
     },
     runnable_ref::RunnableRef,
     scripts::ScriptLang,
@@ -376,6 +377,23 @@ fn refuse_guest_mode_where_unavailable(
         "app {path} cannot be set to Guests: {}",
         windmill_common::workspaces::GUESTS_UNAVAILABLE_MESSAGE
     )))
+}
+
+/// Whether this workspace may deploy apps that stay public (`Anonymous`). On the
+/// cloud that takes a paid plan, resolved through the fork/dev root; no workspace
+/// admin can lift it, unlike `RestrictAnonymousAppDeployment`. Every deploy that
+/// leaves an app public is refused, not only the transition into it, so a free
+/// workspace's existing public apps stay frozen until it upgrades.
+async fn public_apps_allowed(db: &DB, w_id: &str) -> Result<bool> {
+    windmill_common::workspaces::paid_features_allowed(db, w_id).await
+}
+
+fn public_app_requires_plan(path: &str) -> Error {
+    Error::BadRequest(format!(
+        "app {path} is public (accessible without login), which requires a paid plan on \
+         Windmill Cloud. Upgrade this workspace in Workspace Settings > Premium plans to publish \
+         or update public apps, or change who can open the app."
+    ))
 }
 
 /// Gate a viewer on the app's `execution_mode`, as far as can be decided without an
@@ -2381,7 +2399,6 @@ fn check_operator_composed_app(
 
     referenced.sort();
     referenced.dedup();
-    refuse_hub_runnables(&referenced)?;
     Ok(referenced)
 }
 
@@ -2441,25 +2458,6 @@ fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(AppRunnableKind
         .collect())
 }
 
-fn refuse_hub_runnables(referenced: &[(AppRunnableKind, String)]) -> Result<()> {
-    for (kind, path) in referenced {
-        let hub = match kind {
-            AppRunnableKind::Agent => path.starts_with("hub/"),
-            AppRunnableKind::Script | AppRunnableKind::Flow => {
-                RunnableRef::from_path(path, *kind == AppRunnableKind::Flow)?
-                    .path()
-                    .starts_with("hub/")
-            }
-        };
-        if hub {
-            return Err(Error::PermissionDenied(format!(
-                "Operators with builder rights cannot reference the hub runnable {path}. Deploy it to the workspace first."
-            )));
-        }
-    }
-    Ok(())
-}
-
 /// Runs on every app write by an operator with builder rights, from inside the create/update
 /// internals so both raw-app endpoints are covered by one check.
 ///
@@ -2488,7 +2486,22 @@ pub(crate) async fn validate_operator_composed_app(
         }
     }
     let referenced = check_operator_composed_app(write, raw_app, value, policy)?;
-    require_runnables_readable(authed, db, user_db, w_id, referenced).await
+    // A Hub path has no workspace row to be readable in: it is held to the rule for naming one.
+    let mut in_workspace = Vec::with_capacity(referenced.len());
+    for (kind, path) in referenced {
+        if kind != AppRunnableKind::Agent {
+            let runnable = RunnableRef::from_path(&path, kind == AppRunnableKind::Flow)?;
+            if runnable.path().starts_with("hub/") {
+                windmill_api_auth::composed::check_builder_can_name_hub(
+                    &runnable, authed, db, w_id,
+                )
+                .await?;
+                continue;
+            }
+        }
+        in_workspace.push((kind, path));
+    }
+    require_runnables_readable(authed, db, user_db, w_id, in_workspace).await
 }
 
 fn policy_runs_as_another(policy: &Policy, authed: &ApiAuthed) -> bool {
@@ -2852,6 +2865,11 @@ async fn create_app_internal<'a>(
             return Err(Error::BadRequest(
                 "Summary must be less than 300 characters on cloud".to_string(),
             ));
+        }
+        if app.policy.execution_mode() == ExecutionMode::Anonymous
+            && !public_apps_allowed(&db, w_id).await?
+        {
+            return Err(public_app_requires_plan(&app.path));
         }
     }
     // Resolve the on-behalf-of defaults on the (non-RLS) pool *before* opening
@@ -3878,6 +3896,10 @@ async fn update_app_internal<'a>(
         }
     }
 
+    // Resolved before the transaction for the reason above; checked against the row
+    // as written, once every field below has landed.
+    let public_apps_allowed = public_apps_allowed(&db, w_id).await?;
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     // `app_version.raw_app` is set by whichever endpoint writes the version, so a
@@ -4232,6 +4254,19 @@ async fn update_app_internal<'a>(
             )));
         }
     };
+    if !public_apps_allowed
+        && sqlx::query_scalar!(
+            "SELECT policy->>'execution_mode' = 'anonymous' FROM app
+             WHERE path = $1 AND workspace_id = $2",
+            npath,
+            w_id
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false)
+    {
+        return Err(public_app_requires_plan(&npath));
+    }
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
     // path instead of wiping it as part of the deploy. Only wipe the deployer's
     // own draft (plus the legacy NULL-email row) — see create_app_internal.
@@ -4612,6 +4647,9 @@ async fn execute_component(
     // tag from the deployed policy and ignore the request body.
     let is_preview = payload.force_viewer_static_fields.is_some();
     let is_inline = payload.raw_code.is_some();
+    // Whether the caller, rather than the deployed app, chose `payload.path`: always in preview,
+    // and in run mode when a Viewer app falls back to a runnable its policy does not declare.
+    let mut caller_named_path = is_preview;
 
     // Preview mode runs request-supplied code as a `Viewer`-mode job (the
     // app-editor equivalent of `/jobs/run/preview`), so it enforces the same
@@ -4632,15 +4670,11 @@ async fn execute_component(
         })?;
         // A builder testing the app it is composing only ever previews a deployed runnable
         // (`path`), confined below to what it may read. Inline `raw_code`, which an `id` also
-        // requires, is authoring code, so it stays closed to every operator. So is a hub
-        // path, which `require_path_read_access_for_preview` admits for everyone and
-        // `runnable_ref_to_payload` then downloads and enqueues: it is exactly the
-        // unreviewed code the composition check refuses in a flow.
-        let previews_hub = preview_path.is_some_and(|p| p.starts_with("hub/"));
+        // requires, is authoring code, so it stays closed to every operator. A hub path,
+        // which `require_path_read_access_for_preview` admits for everyone, is held further on
+        // to `check_can_name_runnable`, as it is when a builder saves it as a step.
         let caps = caller_capabilities(&db, &w_id, authed).await?;
-        if !caps.code
-            && (caps.apps == AuthorLevel::None || payload.raw_code.is_some() || previews_hub)
-        {
+        if !caps.code && (caps.apps == AuthorLevel::None || payload.raw_code.is_some()) {
             return Err(Error::PermissionDenied(
                 "Your role cannot run preview jobs in this workspace".to_string(),
             ));
@@ -4879,7 +4913,10 @@ async fn execute_component(
                                 triggerables_v2.get(&format!("{}:{p}", payload.component))
                             })
                         })
-                        .or(Some(&policy_triggerables_default)),
+                        .or_else(|| {
+                            caller_named_path = true;
+                            Some(&policy_triggerables_default)
+                        }),
                     _ => None,
                 })
                 .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
@@ -5114,7 +5151,18 @@ async fn execute_component(
                 )
             }
             // flow or script:
-            (Some(runnable), None, None) => runnable_ref_to_payload(&runnable, &db, &w_id).await?,
+            (Some(runnable), None, None) => {
+                let origin = match opt_authed.as_ref() {
+                    Some(viewer) if caller_named_path => RunOrigin::NamedBy(viewer.to_authed_ref()),
+                    None if caller_named_path => {
+                        return Err(Error::NotAuthorized(
+                            "Required to be authed in viewer mode".to_string(),
+                        ))
+                    }
+                    _ => RunOrigin::Deployed,
+                };
+                runnable_ref_to_payload(&runnable, origin, &db, &w_id).await?
+            }
             // inline script: "preview" mode, or run mode without an entry in the
             // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
             (None, Some(raw_code), None) => {
@@ -7173,7 +7221,7 @@ mod embed_token_tests {
 #[cfg(test)]
 mod operator_app_tests {
     use super::{check_operator_composed_app, AppRunnableKind, BuilderAppWrite, Policy};
-    use windmill_common::error::{Error, Result};
+    use windmill_common::error::Result;
     use windmill_common::worker::to_raw_value;
 
     fn builder_policy(triggerables_v2: serde_json::Value) -> Policy {
@@ -7216,22 +7264,24 @@ mod operator_app_tests {
             vec![(AppRunnableKind::Script, "f/x/s".to_string())]
         );
 
-        // A hub reference is unreviewed code, refused like it is in a flow.
-        for key in [
-            "a:script/hub/1/x",
-            "a:script//hub/1/x",
-            "a:flow//hub/flows/1/x",
-            // Parses as a workspace flow path, so only the Hub check refuses it.
-            "a:flow/hub/1/x",
+        // A hub reference is reported, for the caller to hold to the rule for naming one.
+        for (key, kind, path) in [
+            ("a:script/hub/1/x", AppRunnableKind::Script, "hub/1/x"),
+            ("a:script//hub/1/x", AppRunnableKind::Script, "/hub/1/x"),
+            (
+                "a:flow//hub/flows/1/x",
+                AppRunnableKind::Flow,
+                "/hub/flows/1/x",
+            ),
+            ("a:flow/hub/1/x", AppRunnableKind::Flow, "hub/1/x"),
         ] {
             let mut policy = builder_policy(
                 serde_json::json!({ key: {"static_inputs": {}, "one_of_inputs": {}} }),
             );
             assert!(
-                matches!(
-                    composed_app(clean.clone(), &mut policy),
-                    Err(Error::PermissionDenied(_))
-                ),
+                composed_app(clean.clone(), &mut policy)
+                    .unwrap()
+                    .contains(&(kind, path.to_string())),
                 "{key}"
             );
         }
@@ -7281,7 +7331,10 @@ mod operator_app_tests {
             vec![(AppRunnableKind::Agent, "f/x/bot".to_string())]
         );
         let mut policy = builder_policy(serde_json::json!({}));
-        assert!(composed_app(path_runnable("hub/1/x", "hubscript"), &mut policy).is_err());
+        assert_eq!(
+            composed_app(path_runnable("hub/1/x", "hubscript"), &mut policy).unwrap(),
+            vec![(AppRunnableKind::Script, "hub/1/x".to_string())]
+        );
 
         // `execute_component` looks up `<component>:<path>` with an unrestricted component, so a
         // second colon must not hide the path from validation: `x:y:script/hub/…` resolves at run
@@ -7289,7 +7342,9 @@ mod operator_app_tests {
         let mut policy = builder_policy(
             serde_json::json!({"x:y:script/hub/123/foo": {"static_inputs": {}, "one_of_inputs": {}}}),
         );
-        assert!(composed_app(clean.clone(), &mut policy).is_err());
+        assert!(composed_app(clean.clone(), &mut policy)
+            .unwrap()
+            .contains(&(AppRunnableKind::Script, "hub/123/foo".to_string())));
         let mut policy = builder_policy(
             serde_json::json!({"x:y:script/f/x/s": {"static_inputs": {}, "one_of_inputs": {}}}),
         );

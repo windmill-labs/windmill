@@ -11,7 +11,8 @@ import {
 	LayoutDashboard,
 	MousePointer2,
 	Folder,
-	Play
+	Play,
+	Bot
 } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 import type { ScriptLang } from '$lib/gen/types.gen'
@@ -35,6 +36,7 @@ export const ContextIconMap = {
 	workspace_script: Code2,
 	workspace_flow: BarsStaggered,
 	workspace_app: LayoutDashboard,
+	workspace_agent: Bot,
 	workspace_folder: Folder,
 	workspace_run: Play,
 	// Fallback — the badge renders attached_file with the per-extension file icon.
@@ -292,6 +294,14 @@ export interface WorkspaceAppElement {
 	summary?: string
 }
 
+/** Workspace agent context element — reference to a saved AI agent (an `ai_agent` resource). */
+export interface WorkspaceAgentElement {
+	type: 'workspace_agent'
+	path: string
+	title: string
+	summary?: string
+}
+
 /** Workspace folder context element — everything under a path prefix: a folder (`f/team`, or a
  * subfolder of an owner) or a user's own items (`u/alice`). Its items are read by the chat on
  * demand like any other workspace reference. */
@@ -393,6 +403,7 @@ export type ContextElement = (
 	| WorkspaceScriptElement
 	| WorkspaceFlowElement
 	| WorkspaceAppElement
+	| WorkspaceAgentElement
 	| WorkspaceFolderElement
 	| WorkspaceRunElement
 	| AttachedFileElement
@@ -418,6 +429,7 @@ export type MentionContext = Extract<
 			| 'workspace_script'
 			| 'workspace_flow'
 			| 'workspace_app'
+			| 'workspace_agent'
 			| 'workspace_folder'
 			| 'workspace_run'
 	}
@@ -428,6 +440,7 @@ export function isMentionContext(c: ContextElement): c is MentionContext {
 		c.type === 'workspace_script' ||
 		c.type === 'workspace_flow' ||
 		c.type === 'workspace_app' ||
+		c.type === 'workspace_agent' ||
 		c.type === 'workspace_folder' ||
 		c.type === 'workspace_run'
 	)

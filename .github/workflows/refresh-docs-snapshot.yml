@@ -17,12 +17,12 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v2.2.2
         id: app
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           token: ${{ steps.app.outputs.token }}
       - name: Fetch + re-gzip docs snapshot
@@ -37,7 +37,7 @@ jobs:
           pages=$(gzip -dc llms-full.txt.gz | grep -c '^Source:' || true)
           echo "pages in snapshot: $pages"
           test "${pages:-0}" -ge 200
-      - uses: peter-evans/create-pull-request@v6
+      - uses: peter-evans/create-pull-request@v6.1.0
         with:
           token: ${{ steps.app.outputs.token }}
           branch: chore/refresh-docs-snapshot

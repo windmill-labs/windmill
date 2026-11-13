@@ -172,10 +172,10 @@ impl AIProvider {
         matches!(self, AIProvider::TypeSafe | AIProvider::Cloudflare)
     }
 
-    /// A provider an AI decision runs on: the decision providers, and OpenAI, whose Decisions
-    /// API sits next to its chat routes on the same resource.
+    /// A provider an AI decision runs on: the decision providers, and OpenAI and Google AI, whose
+    /// Decisions APIs sit next to their chat routes on the same resource.
     pub fn runs_decisions(&self) -> bool {
-        self.is_decision_provider() || matches!(self, AIProvider::OpenAI)
+        self.is_decision_provider() || matches!(self, AIProvider::OpenAI | AIProvider::GoogleAI)
     }
 
     /// Get the base URL for the AI provider

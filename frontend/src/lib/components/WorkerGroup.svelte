@@ -493,6 +493,12 @@
 			Workers finish their running job, shut down gracefully and are expected to be restarted by
 			their supervisor.</span
 		>
+		{#if activeWorkers > 1 && (pendingConfig?.dedicated_worker != undefined || (pendingConfig?.dedicated_workers?.length ?? 0) > 0)}
+			<Alert size="xs" type="info" title="Dedicated workers restart one at a time">
+				A worker restarts only once the one restarting before it is back up (up to 5 minutes), so
+				the group keeps serving jobs. Workers waiting their turn keep the old config.
+			</Alert>
+		{/if}
 		<span>Pausing or resuming a worker group alone does not restart its workers.</span>
 	</div>
 </ConfirmationModal>
@@ -859,19 +865,42 @@
 		{:else if selected == 'dedicated'}
 			<div class="flex flex-col gap-4">
 				{#if $superadmin || $devopsRole}
-					<div class="py-2">
-						<Alert
-							size="xs"
-							type="info"
-							title="The 'dedicated worker' runtime setting of the runnables must be enabled to be selected here"
-						/>
-					</div>
+					<Alert
+						size="xs"
+						type="info"
+						title="The 'dedicated worker' runtime setting of the runnables must be enabled to be selected here"
+					/>
 				{/if}
 
-				<p class="text-xs text-secondary"
-					>Workers will get killed upon detecting changes. It is assumed they are in an environment
-					where the supervisor will restart them.</p
-				>
+				<div class="flex items-center gap-1 text-xs text-secondary">
+					Most changes restart the workers, which must be brought back by a supervisor.
+					<Tooltip>
+						{#snippet text()}
+							<div class="flex flex-col gap-2 text-left">
+								<div>
+									<div class="font-semibold">Config changes</div>
+									<ul class="list-disc pl-4">
+										<li>Restart the workers one at a time (pausing aside)</li>
+										<li>A cache clear restarts them all at once</li>
+									</ul>
+								</div>
+								<div>
+									<div class="font-semibold">Script deploys</div>
+									<ul class="list-disc pl-4">
+										<li
+											>A new version of a listed script reloads in place, shared runners included</li
+										>
+										<li
+											>Workers restart when the scripts they run, or how those scripts share a
+											runner, change</li
+										>
+										<li>Any deploy restarts them if the group serves a flow</li>
+									</ul>
+								</div>
+							</div>
+						{/snippet}
+					</Tooltip>
+				</div>
 
 				{#if nconfig !== undefined}
 					<DedicatedWorkersSelector

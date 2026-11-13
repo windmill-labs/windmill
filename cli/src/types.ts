@@ -328,7 +328,8 @@ export function parseFromFile(p: string): any {
 export function parseDatatableMigrationPath(p: string):
   | { datatable: string; timestamp: number; name: string; kind: "up" | "down" }
   | undefined {
-  const parts = p.split("/");
+  // Local paths carry the platform separator (`\` on Windows).
+  const parts = p.split(/[\\/]/);
   if (
     parts[0] !== "migrations" ||
     parts[1] !== "datatable" ||

@@ -39,6 +39,9 @@ export const STARTER_PLACEHOLDER = 'Ask about this workspace, or describe what t
 /** The same, for a session held in Use, which builds nothing. */
 export const USE_STARTER_PLACEHOLDER = 'Ask about this workspace, or run what it holds…'
 
+/** The same, for a session whose user's role cannot run either. */
+export const READ_STARTER_PLACEHOLDER = 'Ask about this workspace…'
+
 /** A caret or selected range in the composer's text. */
 export type ComposerSelection = { start: number; end: number }
 

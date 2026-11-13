@@ -281,6 +281,11 @@
 			<div class="mb-6 flex flex-col gap-1">
 				<McpAccessPicker
 					workspaceId={scopeWorkspaceId ?? ''}
+					workspaces={isGateway
+						? allWorkspaces
+							? memberWorkspaces.map((w) => w.value)
+							: pickedWorkspaces
+						: [workspaceId]}
 					initialScopes={requestedScopes}
 					bind:scopes
 					bind:access={() => access, setAccess}

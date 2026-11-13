@@ -665,6 +665,7 @@ export async function deployItem(
           requestBody: {
             path,
             value,
+            resource_type: resource.resource_type,
             description: resource.description ?? "",
             labels: resource.labels,
             ...agentPreserve,
@@ -695,6 +696,11 @@ export async function deployItem(
           requestBody: {
             schema: rt.schema,
             description: rt.description ?? "",
+            is_fileset: rt.is_fileset ?? false,
+            // An omitted extension or name is left unchanged, so an unset one is sent as null
+            // to clear what the target has.
+            format_extension: rt.format_extension ?? null,
+            display_name: rt.display_name ?? null,
           },
         });
       } else {
@@ -704,6 +710,9 @@ export async function deployItem(
             name: rt.name,
             schema: rt.schema,
             description: rt.description ?? "",
+            is_fileset: rt.is_fileset,
+            format_extension: rt.format_extension,
+            display_name: rt.display_name,
           },
         });
       }
@@ -718,6 +727,7 @@ export async function deployItem(
           workspace: workspaceTo,
           name,
           requestBody: {
+            display_name: folder.display_name,
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
@@ -731,6 +741,7 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             name,
+            display_name: folder.display_name,
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
@@ -916,6 +927,7 @@ export async function getItemValue(
       return {
         summary: flow.summary,
         description: flow.description,
+        schema: flow.schema,
         value: flow.value,
         job_token_scopes: flow.job_token_scopes ?? null,
       };
@@ -926,6 +938,7 @@ export async function getItemValue(
         lock: script.lock,
         schema: script.schema,
         summary: script.summary,
+        description: script.description,
         language: script.language,
         job_token_scopes: script.job_token_scopes ?? null,
       };
@@ -945,15 +958,25 @@ export async function getItemValue(
       };
     } else if (kind === "resource") {
       const resource = await provider.getResource({ workspace, path });
+      let value = resource.value;
       // Each workspace resolves its own agent identity, which a deploy never copies.
-      if (resource.resource_type === "ai_agent" && resource.value) {
-        const { on_behalf_of: _, ...value } = resource.value;
-        return value;
+      if (resource.resource_type === "ai_agent" && value) {
+        const { on_behalf_of: _, ...rest } = value;
+        value = rest;
       }
-      return resource.value;
+      return {
+        value,
+        description: resource.description,
+        resource_type: resource.resource_type,
+      };
     } else if (kind === "resource_type") {
       const rt = await provider.getResourceType({ workspace, path });
-      return rt.schema;
+      return {
+        schema: rt.schema,
+        description: rt.description,
+        format_extension: rt.format_extension,
+        is_fileset: rt.is_fileset,
+      };
     } else if (kind === "folder") {
       const folder = await provider.getFolder({
         workspace,
@@ -961,6 +984,7 @@ export async function getItemValue(
       });
       return {
         name: folder.name,
+        display_name: folder.display_name,
         owners: folder.owners,
         extra_perms: folder.extra_perms,
         summary: folder.summary,

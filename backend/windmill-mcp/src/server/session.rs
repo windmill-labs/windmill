@@ -284,9 +284,23 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
         if let McpMode::Multi(_) = caller.mode {
             tools.push(get_workspace_context_tool());
         }
+        let mut access = access(&caller.auth, &caller.scope);
+        // A bound token's one workspace decides its toolset as it decides its instructions:
+        // a role there that cannot run gets the read-only tools.
+        if let McpMode::Single(bound) = &caller.mode {
+            if access != SessionAccess::ReadOnly
+                && !self
+                    .backend
+                    .can_run(&caller.auth, bound)
+                    .await
+                    .unwrap_or(true)
+            {
+                access = SessionAccess::ReadOnly;
+            }
+        }
         tools.extend(
             self.backend
-                .session_tools(access(&caller.auth, &caller.scope))
+                .session_tools(access)
                 .into_iter()
                 .map(with_workspace_id_arg),
         );

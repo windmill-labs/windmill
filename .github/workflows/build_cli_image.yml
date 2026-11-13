@@ -22,13 +22,13 @@ jobs:
     if: github.event_name == 'push' || !startsWith(github.ref, 'refs/tags/')
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
-      - uses: depot/setup-action@v1
+      - uses: depot/setup-action@v1.7.2
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -39,7 +39,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -47,7 +47,7 @@ jobs:
 
       - name: Build and push publicly
         id: docker_build
-        uses: depot/build-push-action@v1
+        uses: depot/build-push-action@v1.19.0
         with:
           file: "./docker/DockerfileCli"
           platforms: linux/amd64,linux/arm64
@@ -62,7 +62,7 @@ jobs:
 
       - name: Sign and attest release image
         if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: ./.github/actions/sign-attest-image
+        uses: $/.github/actions/sign-attest-image
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           digest: ${{ steps.docker_build.outputs.digest }}

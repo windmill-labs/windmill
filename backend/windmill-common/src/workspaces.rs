@@ -408,26 +408,44 @@ impl GitRepositorySettings {
             .unwrap_or(LATEST_GIT_SYNC_SCRIPT_PATH)
     }
 
-    pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
-        let path = self.effective_script_path();
-        // example: "hub/28102/sync-script-to-git-repo-windmill"
-        let current = path
-            .split("/") // -> ["hub" "28102" "sync-script-to-git-repo-windmill"]
-            .skip(1) // omit "hub"
-            .next() // get numeric id
-            .ok_or(Error::InternalErr(format!(
-                "cannot get script version id from: {}",
-                path
-            )))?
-            .parse()
-            .unwrap_or_else(|e| {
-                tracing::warn!("cannot get script version id from: {}. e: {e}", path);
-
-                u32::MAX
-            });
-
-        Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
+    /// The path a deployment callback job is queued with.
+    pub fn callback_path(&self) -> String {
+        sync_callback_path(self.script_path.as_deref())
     }
+
+    pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
+        Ok(sync_script_meets_min_version(
+            &self.callback_path(),
+            min_version,
+        ))
+    }
+}
+
+/// The path a git sync script (`None` for the latest one) is queued with: parsed when it
+/// parses. A setting that doesn't parse is kept as written, so its callback is still queued and
+/// fails visibly in the workspace's runs instead of the repository silently not syncing.
+pub fn sync_callback_path(script_path: Option<&str>) -> String {
+    let raw = script_path.unwrap_or(LATEST_GIT_SYNC_SCRIPT_PATH);
+    crate::runnable_ref::RunnableRef::from_path(raw, false)
+        .map_or_else(|_| raw.to_string(), |script| script.path().to_string())
+}
+
+/// Whether the git sync script queued at `path` (from [`sync_callback_path`]) is at least
+/// `min_version`. Never fails, so one repository's setting cannot stop the others' dispatch.
+pub fn sync_script_meets_min_version(path: &str, min_version: u32) -> bool {
+    // Reading the queued path makes `/hub/28102/…` hub 28102. Not `hub_id()`: a workspace path
+    // keeps its second segment as version (`f/28000/…`).
+    let current = path
+        .split('/')
+        .nth(1)
+        .and_then(|id| id.parse().ok())
+        .unwrap_or_else(|| {
+            tracing::warn!("cannot get script version id from: {}", path);
+
+            u32::MAX
+        });
+
+    current >= min_version // this works on assumption that all scripts in hub have sequential ids
 }
 
 /// How auto-pull triggers are delivered for a repository.
@@ -1081,6 +1099,18 @@ pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats>
 #[cfg(feature = "cloud")]
 pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
     Ok(billable_seats(db, w_id).await?.seats)
+}
+
+/// Whether a workspace may use what Windmill Cloud reserves for paid plans (public apps, HTML
+/// and redirect job responses). Resolved through the fork/dev root; always true off the cloud.
+/// Reads billing state on the unrestricted pool: callers must already have authorized the
+/// request for `w_id`.
+pub async fn paid_features_allowed(_db: &crate::DB, _w_id: &str) -> Result<bool> {
+    #[cfg(feature = "cloud")]
+    if *crate::worker::CLOUD_HOSTED {
+        return Ok(get_team_plan_status(_db, _w_id).await?.premium);
+    }
+    Ok(true)
 }
 
 #[cfg(feature = "cloud")]
@@ -3935,6 +3965,27 @@ mod tests {
 
     fn tenants(list: &[&str]) -> DataTableRoleTenants {
         DataTableRoleTenants { tenants: list.iter().map(|t| t.to_string()).collect() }
+    }
+
+    #[test]
+    fn sync_script_version_is_the_second_segment_of_the_queued_path() {
+        let meets = |p, min| sync_script_meets_min_version(&sync_callback_path(p), min);
+        assert!(meets(None, 28956));
+        assert!(!meets(Some("hub/28102/sync"), 28103));
+        assert!(!meets(Some("/hub/28102/sync"), 28103));
+        assert!(meets(Some("/hub/28103/sync"), 28103));
+        assert!(!meets(Some("f/28000/sync"), 28103));
+        assert!(meets(Some("u/admin/sync"), 28103));
+        assert!(meets(Some("sync"), 28103));
+        assert!(meets(Some("//hub/28102/sync"), 28103));
+        assert_eq!(
+            sync_callback_path(Some("/hub/28102/sync")),
+            "hub/28102/sync"
+        );
+        assert_eq!(
+            sync_callback_path(Some("//hub/28102/sync")),
+            "//hub/28102/sync"
+        );
     }
 
     #[cfg(all(feature = "private", feature = "enterprise"))]

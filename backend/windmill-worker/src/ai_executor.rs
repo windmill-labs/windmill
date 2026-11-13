@@ -1758,7 +1758,7 @@ pub async fn run_agent(
                 function: ToolDefFunction {
                     name: unique_tool_name,
                     description: Some(
-                        "This tool MUST be used last to return a structured JSON object as the final output."
+                        "Return the final answer. Always finish by calling this tool exactly once with the answer as its input, instead of replying in plain text."
                             .to_string(),
                     ),
                     parameters: to_raw_value(&schema),
@@ -2966,7 +2966,7 @@ async fn handle_ai_decision(
     let args = serde_json::from_str::<AIDecisionArgs>(&serde_json::to_string(local_args)?)?;
     if !args.provider.kind.runs_decisions() {
         return Err(Error::BadRequest(format!(
-            "An AI decision runs on a TypeSafe, Cloudflare or OpenAI resource, not {:?}",
+            "An AI decision runs on a TypeSafe, Cloudflare, OpenAI or Google AI resource, not {:?}",
             args.provider.kind
         )));
     }

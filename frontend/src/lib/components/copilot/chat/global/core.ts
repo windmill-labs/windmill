@@ -64,7 +64,7 @@ import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
 import { modelSupportsVision } from '../../modelConfig'
-import { tryGetCurrentModel } from '$lib/aiStore'
+import { tryGetCurrentModel, type SessionAi } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
 import { isCloudHosted } from '$lib/cloud'
 import { BROWSER } from 'esm-env'
@@ -94,7 +94,8 @@ import {
 	getRawAppPrompt,
 	getResourcePrompt,
 	getAgentPrompt,
-	getScriptPrompt
+	getScriptPrompt,
+	getDisplayPrompt
 } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -178,6 +179,7 @@ import {
 	isReadOnlyAccess,
 	DEPLOY,
 	NONE,
+	RUN,
 	RUN_FLOW_PREVIEW,
 	RUN_PREVIEW,
 	WRITE_APP_DRAFT,
@@ -283,7 +285,14 @@ const INSTRUCTION_SUBJECTS = [
 // annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
 // `workspace_settings` is the settings document an admin reads and changes.
 // `agent` is a resource of type `ai_agent`, with authoring guidance of its own.
-const INSTRUCTION_SUBJECTS_EXTRA = ['agent', 'datatable', 'pipeline', 'workspace_settings'] as const
+// `display` is the rich-result format: tables and charts a return value renders as.
+const INSTRUCTION_SUBJECTS_EXTRA = [
+	'agent',
+	'datatable',
+	'pipeline',
+	'workspace_settings',
+	'display'
+] as const
 export const ALL_INSTRUCTION_SUBJECTS = [
 	...INSTRUCTION_SUBJECTS,
 	...INSTRUCTION_SUBJECTS_EXTRA
@@ -354,7 +363,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or "workspace_settings" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, "workspace_settings" for the keys and rules of the workspace settings (admins only), or "display" for the tables and charts a return value renders as. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -1561,6 +1570,7 @@ function accessFlags(access: SessionAccess | undefined) {
 	)
 	const canRunPreview = !access || access.has('run_preview')
 	const canRunFlowPreview = !access || access.has('run_flow_preview')
+	const canRun = !access || access.has('run')
 	// A role may code without composing flows, so the flow test tool is named only where it ships.
 	const testRunTools = canRunFlowPreview
 		? 'test_run_script, test_run_flow, or test_run_step'
@@ -1593,6 +1603,7 @@ function accessFlags(access: SessionAccess | undefined) {
 		refusedCode,
 		canRunPreview,
 		canRunFlowPreview,
+		canRun,
 		testRunTools,
 		canManageSchedules,
 		canManageTriggers,
@@ -1635,6 +1646,7 @@ const buildGlobalSystemPrompt = (
 		refusedCode,
 		canRunPreview,
 		canRunFlowPreview,
+		canRun,
 		testRunTools,
 		canManageSchedules,
 		canManageTriggers,
@@ -1719,9 +1731,13 @@ const buildGlobalSystemPrompt = (
 		`
 - A request to run a flow goes to test_run_flow, which prefers the draft and needs no deployment. Use run_flow only when the user names the deployed version, and run_script for any script: those run the DEPLOYED item under this user's own permissions, so read it with read_workspace_item version: "deployed" first so the arguments match the deployed schema. Each shows the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat.`
 	)}${when(
-		!canRunPreview && !canRunFlowPreview,
+		!canRunPreview && !canRunFlowPreview && canRun,
 		`
 - run_script and run_flow are how you run anything here: they run the DEPLOYED item under this user's own permissions, and show them an argument form prefilled with what you sent. Read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every argument you can infer rather than asking for it in chat.`
+	)}${when(
+		!canRun,
+		`
+- This user's role cannot run scripts, flows or agents here: when they ask for a run, say plainly that you cannot start it, and suggest asking a workspace admin, who can grant their role more.`
 	)}`
 
 	const intro = `You are Windmill's global workspace assistant.
@@ -1732,7 +1748,7 @@ ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
 		: readOnly
-			? "Use tools to inspect workspace items, the workspace's run history and its data, and to run items that are already deployed. This session is read-only: you cannot create, edit, deploy or delete anything here, nor test-run code that is not deployed. When the user asks for such a change, say plainly that it cannot be made in this session, and tell them how to make it as the session context below says, rather than describing steps as if you had made it."
+			? `Use tools to inspect workspace items, the workspace's run history and its data${canRun ? ', and to run items that are already deployed' : ''}. This session is read-only: you cannot create, edit, deploy or delete anything here, nor test-run code that is not deployed. When the user asks for such a change, say plainly that it cannot be made in this session, and tell them how to make it as the session context below says, rather than describing steps as if you had made it.`
 			: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
 					canManageSchedules,
 					' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
@@ -1781,6 +1797,7 @@ ${
 Rules:${draftsOnlyRule}
 ${findItemsRule}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
+- To show a chart or a sortable table in a reply or an artifact, write a \`\`\`wm-display fenced block holding one JSON value in the chart or table format of get_instructions with subject "display" (read it first). Reach for it when a chart answers the question better than prose or a markdown table; keep small tables as markdown.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
 		// An agent draft is a resource draft that the server checks under the flow builder right.
 		canDraftResources && canWriteFlowDraft,
@@ -1791,7 +1808,7 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 	)}${when(
 		canRunFlowPreview,
 		' Test an agent, its draft included, with test_run_agent.'
-	)} Run a deployed agent with run_agent, never with run_flow or run_script.
+	)}${when(canRun, ' Run a deployed agent with run_agent, never with run_flow or run_script.')}
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${deployRule}${when(
 		canWriteAnyDraft,
 		`
@@ -2314,6 +2331,8 @@ export function getInstructions(
 			return getPipelineInstructions()
 		case 'workspace_settings':
 			return getWorkspaceSettingsPrompt()
+		case 'display':
+			return getDisplayPrompt()
 	}
 }
 
@@ -2346,8 +2365,8 @@ export type SessionPromptContext = {
 	/** The family's dev workspace, where a read-only session sends the user to make changes. */
 	devWorkspace?: { id: string; name: string }
 	/** Why the session is in Use mode, where the workspace itself is not protected: the user
-	 * picked it, or their role builds nothing there. */
-	useMode?: 'chosen' | 'role'
+	 * picked it, their role builds nothing there, or their role cannot run there. */
+	useMode?: 'chosen' | 'role' | 'view_only'
 }
 
 /** Session-state guidance appended to the global system prompt so the model
@@ -2382,7 +2401,7 @@ export function getSessionContextPromptSection(
 		!readOnly && (canDeploy || unruledKinds.length) ? 'deploy_workspace_item' : 'A deploy'
 	const targets = (
 		readOnly
-			? ['reads', 'runs']
+			? ['reads', (!access || access.has('run')) && 'runs']
 			: ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
 	)
 		.filter(Boolean)
@@ -2430,6 +2449,10 @@ export function getSessionContextPromptSection(
 		lines.push(
 			"- The user put this session in Use mode with the composer's mode picker, so it is READ-ONLY until they switch. To make a change, call `enter_build_mode`, which asks them to switch to Use & build, or `enter_plan_mode` to agree on the change first; without those tools, ask them to switch the picker."
 		)
+	} else if (readOnly && ctx.useMode === 'view_only') {
+		lines.push(
+			`- This user's workspace role cannot run scripts, flows or agents here. That role, not this session, is why the session is held in Use mode and is READ-ONLY: it reads the workspace's items, runs and data, and nothing else. When they ask for a run or a change, say that their role does not allow it, and that a workspace admin can grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Their mode picker shows Plan and Use & build greyed out, so never suggest switching modes.`
+		)
 	} else if (readOnly && ctx.useMode === 'role') {
 		lines.push(
 			`- This user's workspace role cannot create or change scripts, flows, apps, schedules or triggers, neither through you nor by hand anywhere in the workspace. That role, not this session, is why the session is held in Use mode and is READ-ONLY. When they ask for one, say that their role does not allow it, and that a workspace admin can create it for them or grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Do not write its code or give steps: they can use neither. Their mode picker shows Plan and Use & build greyed out, so never suggest switching modes. Resources and variables are the exception: every role creates and edits those by hand, outside this session, on the workspace's own Resources and Variables pages.`
@@ -2450,7 +2473,7 @@ export function getSessionContextPromptSection(
 	}
 	lines.push(
 		'- Sessions are saved: the sidebar lists them under AI Sessions, and the user can reopen any of them.',
-		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Use & build (everything Use does, plus changes). How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' ? ", and this user's role locks the picker to Use" : ''}.`,
+		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Use & build (everything Use does, plus changes). How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' || ctx.useMode === 'view_only' ? ", and this user's role locks the picker to Use" : ''}.`,
 		"- The sliders button next to the model picker opens Assistant settings. Its Permissions section shows what the user's role lets them change and what you can change for them; point them there when they ask what they are allowed to do."
 	)
 	return lines.join('\n')
@@ -3553,10 +3576,13 @@ export const globalTools: SessionTool<{}>[] = [
 			} else if (read.success === false) {
 				toolCallbacks.setToolStatus(toolId, { content: read.error, error: read.error })
 			} else {
+				const readsAgent = read.value?.resource_type === 'ai_agent'
+				const noun = readsAgent ? 'agent' : type
 				toolCallbacks.setToolStatus(toolId, {
 					content: read.isDraft
-						? `Read draft ${type} "${parsed.path}"`
-						: `Read ${type} "${parsed.path}"`
+						? `Read draft ${noun} "${parsed.path}"`
+						: `Read ${noun} "${parsed.path}"`,
+					readsAgent
 				})
 			}
 			return text
@@ -3753,9 +3779,9 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		// Ungated, unlike the test runs: this executes the DEPLOYED item under the user's own
-		// permissions, the one run an operator's token allows. `run_flow` likewise.
-		requires: NONE,
+		// Gated on `run` alone, unlike the test runs: this executes the DEPLOYED item under the
+		// user's own permissions, the one run an operator's token allows. `run_flow` likewise.
+		requires: RUN,
 		def: runScriptToolDef,
 		readOnlySafe: true,
 		fn: async (ctx) => {
@@ -3788,7 +3814,7 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		requires: NONE,
+		requires: RUN,
 		def: runFlowToolDef,
 		readOnlySafe: true,
 		fn: async (ctx) => {
@@ -3818,7 +3844,7 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		requires: NONE,
+		requires: RUN,
 		def: runAgentToolDef,
 		readOnlySafe: true,
 		fn: async (ctx) => {
@@ -4563,7 +4589,8 @@ export const globalTools: SessionTool<{}>[] = [
 			// A known text-only model would reject the follow-up image message and fail
 			// the turn, so refuse before capturing rather than buffer an image it can
 			// never read. The model is re-read here because it can change between turns.
-			const model = tryGetCurrentModel()
+			const sessionAi = (ctx.helpers as GlobalToolHelpers | undefined)?.sessionAi
+			const model = sessionAi ? sessionAi().model : tryGetCurrentModel()
 			if (model && !modelSupportsVision(model.provider, model.model)) {
 				const cannotSee = `${model.model} cannot read images, so a screenshot would be discarded. Ask the user to describe what looks wrong, or to switch to a model that supports images.`
 				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
@@ -4691,6 +4718,8 @@ export type GlobalToolHelpers = SessionToolHelpers & {
 	// (possibly forked) workspace while $workspaceStore stays on the navigation workspace,
 	// so permission gating (open_page) must read this, not the global store.
 	operatingWorkspace?: string
+	// The session's model and its workspace's AI config, rather than the tab's.
+	sessionAi?: () => SessionAi
 	// Wired only for session chats (see AIChatManager): the artifact tools are session-gated.
 	artifacts?: SessionArtifactsStore
 	getChatId?: () => string | undefined
@@ -7009,8 +7038,12 @@ async function deployDraft(
 		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
 	}
 
+	const noun =
+		type === 'resource' && (draft.value as CreateResource).resource_type === 'ai_agent'
+			? 'agent'
+			: type
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deploying ${type} "${path}"...`
+		content: `Deploying ${noun} "${path}"...`
 	})
 
 	let actions: ToolDisplayAction[] | undefined
@@ -7361,7 +7394,7 @@ async function deployDraft(
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
-		content: `Deployed ${type} "${path}"`,
+		content: `Deployed ${noun} "${path}"`,
 		result: 'Deployed',
 		actions
 	})
@@ -7589,6 +7622,10 @@ export function prepareGlobalUserMessage(
 			}
 			if (context.type === 'workspace_run') {
 				content += `- type: run, id: ${context.id}, of: ${context.path} (read it: get_run with id "${context.id}")\n`
+				continue
+			}
+			if (context.type === 'workspace_agent') {
+				content += `- type: agent, path: ${context.path} (an \`ai_agent\` resource)\n`
 				continue
 			}
 			const itemType =

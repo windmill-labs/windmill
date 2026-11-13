@@ -96,6 +96,9 @@ export type PageHeaderContent = {
 	 *  running in a fork. The breadcrumb then names that workspace, and its fork part shows only
 	 *  when it really is a fork. */
 	actingWorkspaceId?: string
+	/** Offered a workspace picked in the breadcrumb before the app switches to it; true means
+	 *  the page took the pick over and no switch happens. */
+	onPickWorkspace?: (id: string, landOnHome: boolean) => boolean
 	/** Width in px, at the right of the viewport, that this page owns from the top down — a
 	 *  session's side panel. The band stops there instead of running over it, and the band floats
 	 *  above the page rather than pushing it down, so that column starts at the top. */
@@ -186,6 +189,7 @@ export const pageHeader = {
 			if (c.afterName !== undefined) merged.afterName = c.afterName
 			if (c.contexts !== undefined) merged.contexts = c.contexts
 			if (c.actingWorkspaceId !== undefined) merged.actingWorkspaceId = c.actingWorkspaceId
+			if (c.onPickWorkspace !== undefined) merged.onPickWorkspace = c.onPickWorkspace
 			if (c.barRightInset !== undefined) merged.barRightInset = c.barRightInset
 			if (c.actionsFlexible !== undefined) merged.actionsFlexible = c.actionsFlexible
 			if (c.actionsFill !== undefined) merged.actionsFill = c.actionsFill

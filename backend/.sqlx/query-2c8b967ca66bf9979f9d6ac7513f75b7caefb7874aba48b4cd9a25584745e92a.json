@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.path, r.created_by AS \"owner?\", false AS \"workspace!\",\n           COALESCE(a.is_workspace_integration, false) AS \"managed!\", a.scopes AS \"scopes?\",\n           NULL::text[] AS \"missing_scopes?\"\n         FROM variable v\n         JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path\n         LEFT JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account\n         WHERE v.workspace_id = $1 AND r.resource_type = $2\n         ORDER BY v.path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "managed!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "scopes?",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 5,
+        "name": "missing_scopes?",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "2c8b967ca66bf9979f9d6ac7513f75b7caefb7874aba48b4cd9a25584745e92a"
+}

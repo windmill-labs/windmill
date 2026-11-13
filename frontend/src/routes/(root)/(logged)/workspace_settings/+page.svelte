@@ -86,7 +86,6 @@
 	import { untrack } from 'svelte'
 	import { resource } from 'runed'
 	import NativeOAuthCallback from '$lib/components/triggers/native/NativeOAuthCallback.svelte'
-	import { nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
@@ -920,7 +919,7 @@
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
 			deployUiSettings = {
 				include_path:
-					(settings.deploy_ui.include_path?.length ?? 0 > 0)
+					(settings.deploy_ui.include_path?.length ?? 0) > 0
 						? (settings.deploy_ui.include_path ?? [])
 						: [],
 				include_type: {
@@ -1624,9 +1623,9 @@
 				},
 				{
 					id: 'native_triggers',
-					label: 'Native triggers',
+					label: 'Integration triggers',
 					aiId: 'workspace-settings-integrations',
-					aiDescription: 'Workspace integrations for native triggers'
+					aiDescription: 'Workspace integrations for integration triggers'
 				}
 			]
 		},
@@ -1769,7 +1768,7 @@
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
 	{#if nativeOAuthService}
-		<NativeOAuthCallback redirectUri={nativeOAuthRedirectUri(nativeOAuthService)} />
+		<NativeOAuthCallback />
 	{:else if canAdmin || isForkOwner}
 		<!-- No title of its own: the band already says which workspace's settings these are, and the
 		     two controls that sat beside the title are the page's actions. The panes below scroll

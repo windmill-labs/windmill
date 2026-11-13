@@ -14,6 +14,7 @@ import {
 	type ReasoningProviderModel
 } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
+import type { CopilotInfo } from '$lib/aiStore'
 import { modelSupportsVision, usesAnthropicMessagesApi } from '../modelConfig'
 import { boundImagePartBytes, stripImagePartsFromMessages } from './imageUtils'
 import {
@@ -49,6 +50,8 @@ export interface ChatLoopConfig {
 	modelProvider: ReasoningProviderModel
 	clients: ChatClients
 	workspace: string
+	/** `workspace`'s AI config when it is not the tab's (an AI session). */
+	info?: CopilotInfo
 	/**
 	 * Enable provider-native web search. Defaults to true for compatible providers
 	 * and is re-read each iteration so model/provider changes take effect. Explicit
@@ -68,6 +71,13 @@ export interface ChatLoopConfig {
 	onReasoningSummaryUnavailable?: () => void
 	/** Return a pending user message to inject between iterations, or undefined. */
 	getPendingUserMessage?: () => ChatCompletionUserMessageParam | undefined
+	/**
+	 * A message the user sent while this turn runs, for the model to read in the same turn.
+	 * Asked before every request but the first, when each tool call so far has its result.
+	 * Unlike `getPendingUserMessage`, the message joins `messages` and `addedMessages`, so
+	 * the following requests and the stored history keep it.
+	 */
+	takeMidTurnMessage?: () => ChatCompletionMessageParam | undefined
 	/**
 	 * Optional caller-owned accumulator for the messages produced this run —
 	 * lets the caller recover partial output if the loop throws or is aborted.
@@ -371,6 +381,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		callbacks,
 		clients,
 		workspace,
+		info,
 		maxIterations,
 		onSkipResponsesApi,
 		onReasoningSummaryUnavailable,
@@ -423,6 +434,13 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		iterationModel = modelProvider
 		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
 		const webSearch = sendsWebSearch(workspace, modelProvider, config.webSearch ?? true)
+
+		// Before `onBeforeIteration`, so its compaction check measures the message too.
+		const midTurnMessage = iterations > 1 ? config.takeMidTurnMessage?.() : undefined
+		if (midTurnMessage) {
+			messages.push(midTurnMessage)
+			addedMessages.push(midTurnMessage)
+		}
 
 		if (onBeforeIteration) {
 			await onBeforeIteration(modelProvider, lastIterationUsage)
@@ -502,7 +520,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						webSearch: useWebSearch,
 						reasoningEffort,
 						reasoningSummary,
-						promptCacheKey: usePromptCacheKey ? promptCacheKey : undefined
+						promptCacheKey: usePromptCacheKey ? promptCacheKey : undefined,
+						info
 					}
 				)
 				const continueCompletion = await parseOpenAIResponsesCompletion(
@@ -595,7 +614,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					forceCompletions: true,
 					forceModelProvider: modelProvider,
 					openaiClient: clients.openai,
-					reasoningEffort
+					reasoningEffort,
+					info
 				})
 				const continueCompletion = await parseOpenAICompletion(
 					completion,
@@ -618,7 +638,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					forceModelProvider: modelProvider,
 					anthropicClient: clients.anthropic,
 					webSearch: useWebSearch,
-					reasoningEffort
+					reasoningEffort,
+					info
 				})
 				if (!completion) {
 					return true
@@ -657,7 +678,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				forceModelProvider: modelProvider,
 				openaiClient: clients.openai,
 				reasoningEffort,
-				promptCaching: true
+				promptCaching: true,
+				info
 			})
 			if (completion) {
 				const continueCompletion = await parseOpenAICompletion(

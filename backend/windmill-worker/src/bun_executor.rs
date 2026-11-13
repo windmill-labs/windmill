@@ -3516,7 +3516,7 @@ pub async fn handle_wac_v2_output(
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
-    use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, RawCode};
+    use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, RawCode, RunOrigin};
     use windmill_common::runnable_ref::RunnableRef;
     use windmill_common::runnable_settings::{
         ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
@@ -3797,6 +3797,7 @@ pub async fn handle_wac_v2_output(
                         // Resolve script path to job payload (handles hash, lang, etc.)
                         let (payload, _, _, _, _, on_behalf_of) = script_path_to_payload(
                             &script,
+                            RunOrigin::Deployed,
                             None, // no authed db for background workers
                             db.clone(),
                             &job.workspace_id,
@@ -4657,7 +4658,7 @@ async fn handle_dedicated_bunnative(
     _w_id: &str,
     script_path: &str,
     db: &DB,
-    jobs_rx: Receiver<DedicatedWorkerJob>,
+    jobs_rx: &mut Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     job_completed_tx: JobCompletedSender,
     client: &windmill_common::client::AuthedClient,
@@ -4729,10 +4730,20 @@ async fn handle_dedicated_bunnative(
             )
         });
 
+        let mut killpill_rx = killpill_rx;
+        // Counted as up once its isolate is ready, as subprocesses are on their "start" line:
+        // `spawn` returns before initialization. A failed init is reported to the first job.
+        let mut init_err = tokio::select! {
+            _ = killpill_rx.recv() => return Ok(()),
+            r = warm.wait_ready() => r.err(),
+        };
+        if init_err.is_none() {
+            crate::worker::STARTED_DEDICATED_PROCESSES
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+
         let init_log = format!("dedicated worker nativets: {worker_name}\n\n");
         let alive = true;
-        let mut killpill_rx = killpill_rx;
-        let mut jobs_rx = jobs_rx;
         loop {
             tokio::select! {
                 biased;
@@ -4764,7 +4775,11 @@ async fn handle_dedicated_bunnative(
                         // Run the job: preprocess if needed, then execute main.
                         // Uses a labeled block to unify error handling with a single JobCompleted send.
                         let (result, success, preprocessed_args, logs) = 'job: {
-                            if let Err(e) = warm.wait_ready().await {
+                            let ready = match init_err.take() {
+                                Some(e) => Err(e),
+                                None => warm.wait_ready().await,
+                            };
+                            if let Err(e) = ready {
                                 break 'job (
                                     Arc::new(to_raw_value(&serde_json::json!({"message": format!("isolate init failed: {e}"), "name": "Error"}))),
                                     false, None, init_log.clone(),
@@ -4920,7 +4935,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<DedicatedWorkerJob>,
+    jobs_rx: &mut Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     client: windmill_common::client::AuthedClient,
     concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,

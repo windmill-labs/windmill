@@ -41,6 +41,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 		ContextIconMap,
 		withFolderContextLeaves,
 		type ContextElement,
+		type WorkspaceAgentElement,
 		type WorkspaceAppElement,
 		type WorkspaceFlowElement,
 		type WorkspaceScriptElement
@@ -100,12 +101,12 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	}
 
 	// Workspace state shared with WorkspaceItemDrillPicker via the loader.
-	// Flows and scripts everywhere; raw apps only in GLOBAL chat, where the
-	// raw-app tool surface lets the model act on the reference. Visual apps stay
+	// Flows and scripts everywhere; raw apps and agents only in GLOBAL chat, where
+	// its tools let the model act on the reference. Visual apps stay
 	// excluded — they're frontends, not code units (filtered out below, where the
 	// 'app' kind is narrowed to raw apps before tree-building).
 	const WORKSPACE_KINDS = $derived<WorkspaceItemKind[]>(
-		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app'] : ['flow', 'script']
+		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app', 'agent'] : ['flow', 'script']
 	)
 	const loader = useWorkspaceItemsLoader(
 		() => $operatingWorkspace,
@@ -322,6 +323,15 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 				// Only raw apps reach here (the tree is narrowed in `loadedForTree`).
 				const element: WorkspaceAppElement & { deletable: boolean } = {
 					type: 'workspace_app',
+					path: d.path,
+					title: d.path,
+					summary: d.summary,
+					deletable: true
+				}
+				onSelectWorkspaceItem(element)
+			} else if (d.kind === 'agent') {
+				const element: WorkspaceAgentElement & { deletable: boolean } = {
+					type: 'workspace_agent',
 					path: d.path,
 					title: d.path,
 					summary: d.summary,

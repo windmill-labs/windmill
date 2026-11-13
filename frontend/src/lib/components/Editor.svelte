@@ -120,6 +120,7 @@
 	import { MarkerSeverity } from 'monaco-editor'
 	import { resource, useDebounce, watch } from 'runed'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { registerPendingEditor } from './pendingEditorFlush'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	// import EditorTheme from './EditorTheme.svelte'
@@ -276,6 +277,10 @@
 	// rather than via getAiChatManager(), which collapses "no session" into the
 	// singleton — the distinction is what tells ⌘L whether a pane exists to open.
 	const sessionScopedChatManager = getContext<AIChatManager | undefined>('aiChatManager')
+	// Autocomplete in a session's editor follows the session's workspace, not the tab's.
+	const completionInfo = $derived(
+		sessionScopedChatManager ? sessionScopedChatManager.aiInfo : $copilotInfo
+	)
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	let fetchedDbSchema: DBSchema | undefined = $state(undefined)
@@ -493,6 +498,14 @@
 		}
 		changeChainStart = undefined
 	}
+
+	// Same guards as the unmount flush below: only when a keystroke is actually pending.
+	const unregisterPending = registerPendingEditor({
+		flushPendingChanges: () => {
+			if (editor && timeoutModel !== undefined) flushPendingChanges()
+		}
+	})
+	onDestroy(unregisterPending)
 
 	export function append(code: string): void {
 		if (editor) {
@@ -1008,7 +1021,11 @@
 		if (autocompletor) {
 			autocompletor.dispose()
 		}
-		autocompletor = new Autocompletor(editor, scriptLang, { workflowAsCode })
+		const session = sessionScopedChatManager
+		autocompletor = new Autocompletor(editor, scriptLang, {
+			workflowAsCode,
+			sessionTarget: session ? () => session.loadedSessionAiTarget : undefined
+		})
 	}
 
 	const outputChannel = {
@@ -2082,9 +2099,9 @@
 	})
 	$effect(() => {
 		const currentWorkflowAsCode = workflowAsCode
-		$copilotInfo.enabled &&
+		completionInfo?.enabled &&
 			$codeCompletionSessionEnabled &&
-			Autocompletor.isProviderModelSupported($copilotInfo.codeCompletionModel) &&
+			Autocompletor.isProviderModelSupported(completionInfo.codeCompletionModel) &&
 			initialized &&
 			editor &&
 			scriptLang &&
@@ -2094,7 +2111,7 @@
 		$copilotInfo.enabled && initialized && editor && untrack(() => editor && addChatHandler(editor))
 	})
 	$effect(() => {
-		;(!$codeCompletionSessionEnabled || !$copilotInfo.enabled) && autocompletor?.dispose()
+		;(!$codeCompletionSessionEnabled || !completionInfo?.enabled) && autocompletor?.dispose()
 	})
 	$effect(() => {
 		if (yContent && awareness && model && editor) {

@@ -117,11 +117,11 @@
 	}
 </script>
 
-<div class="space-y-4 p-4 border rounded-lg">
+<div class="space-y-4 p-4 border rounded-md bg-surface-tertiary">
 	<div class="flex items-center gap-2 mb-4">
 		<Globe class="text-primary" size={20} />
 		<div>
-			<p class="text-sm font-medium text-emphasis">Generic HTTP store configuration</p>
+			<p class="text-sm font-semibold text-emphasis">Generic HTTP store configuration</p>
 			<p class="text-xs text-secondary"
 				>Read secrets from any secret store with an HTTP API. Windmill only reads: values are
 				managed in the store. To reference a secret, save a secret variable with an empty value, and
@@ -150,7 +150,7 @@
 			<label for="http_store_ca" class="block text-xs font-semibold text-emphasis"
 				>CA bundle path (optional)</label
 			>
-			<span class="text-2xs text-secondary"
+			<span class="text-xs text-secondary"
 				>PEM file of extra CAs trusted for the store's server certificate, re-read when it changes</span
 			>
 			<TextInput
@@ -183,7 +183,7 @@
 				size="xs"
 				options={{ right: 'Skip TLS certificate verification' }}
 			/>
-			<span class="text-2xs text-secondary"
+			<span class="text-xs text-secondary"
 				>Only enable for self-signed certificates in development.</span
 			>
 		</div>
@@ -193,7 +193,7 @@
 			<label for="http_store_path" class="block text-xs font-semibold text-emphasis"
 				>Path template</label
 			>
-			<span class="text-2xs text-secondary"
+			<span class="text-xs text-secondary"
 				>Appended to the base URL. <code>{'{workspace}'}</code> and <code>{'{path}'}</code> must each
 				appear here or in a query value, so that workspaces cannot read each other's secrets.</span
 			>
@@ -219,7 +219,7 @@
 		</div>
 		<div class="flex flex-col gap-1">
 			<span class="block text-xs font-semibold text-emphasis">Path encoding</span>
-			<span class="text-2xs text-secondary"
+			<span class="text-xs text-secondary"
 				>How a variable path becomes the store key: <code>{EXAMPLE_PATH}</code> →
 				<code>{exampleKey}</code></span
 			>
@@ -244,7 +244,7 @@
 			<label for="http_store_pointer" class="block text-xs font-semibold text-emphasis"
 				>Value pointer (optional)</label
 			>
-			<span class="text-2xs text-secondary"
+			<span class="text-xs text-secondary"
 				>JSON pointer to the value in the response, e.g. <code>/data/value</code>. Empty means the
 				whole body is the value.</span
 			>
@@ -268,7 +268,7 @@
 		</div>
 
 		<span class="block text-xs font-semibold text-emphasis pt-4 border-t">Authentication</span>
-		<span class="text-2xs text-secondary"
+		<span class="text-xs text-secondary"
 			>Credential files must be mounted on servers and workers; agent workers never read them.</span
 		>
 		<ToggleButtonGroup
@@ -289,7 +289,7 @@
 			{/snippet}
 		</ToggleButtonGroup>
 		{#if cfg().auth?.type === 'StaticHeader'}
-			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
+			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-md">
 				<label for="http_store_header_name" class="block text-xs font-semibold text-emphasis"
 					>Header name</label
 				>
@@ -301,7 +301,7 @@
 				<Password bind:password={$values['secret_backend'].auth.header_value} small {disabled} />
 			</div>
 		{:else if cfg().auth?.type === 'BearerTokenFile'}
-			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
+			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-md">
 				<label for="http_store_token_path" class="block text-xs font-semibold text-emphasis"
 					>Token file path</label
 				>
@@ -317,7 +317,7 @@
 				<label for="http_store_token_header" class="block text-xs font-semibold text-emphasis"
 					>Header name and prefix (optional)</label
 				>
-				<span class="text-2xs text-secondary"
+				<span class="text-xs text-secondary"
 					>The prefix goes before the token. Left empty, it is <code>Bearer </code> for the Authorization
 					header and nothing for any other header.</span
 				>
@@ -339,7 +339,7 @@
 				<label for="http_store_token_reload" class="block text-xs font-semibold text-emphasis"
 					>Reload interval in seconds (optional)</label
 				>
-				<span class="text-2xs text-secondary"
+				<span class="text-xs text-secondary"
 					>The file is re-read at this interval, and sooner after a 401 (default 60)</span
 				>
 				<TextInput
@@ -356,11 +356,11 @@
 				/>
 			</div>
 		{:else if cfg().auth?.type === 'ClientCertificate'}
-			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
+			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-md">
 				<label for="http_store_cert_path" class="block text-xs font-semibold text-emphasis"
 					>Certificate path</label
 				>
-				<span class="text-2xs text-secondary"
+				<span class="text-xs text-secondary"
 					>PEM file with the client certificate, optionally followed by its intermediates</span
 				>
 				<TextInput
@@ -387,7 +387,7 @@
 				<label for="http_store_cert_reload" class="block text-xs font-semibold text-emphasis"
 					>Reload interval in seconds (optional)</label
 				>
-				<span class="text-2xs text-secondary"
+				<span class="text-xs text-secondary"
 					>The files are re-read at this interval, and sooner after a failed connection (default
 					300). A new certificate is only used once its key matches.</span
 				>
@@ -419,7 +419,7 @@
 
 	<div class="flex flex-col gap-4 pt-4 border-t">
 		<span class="block text-xs font-semibold text-emphasis">Test connection</span>
-		<span class="text-2xs text-secondary"
+		<span class="text-xs text-secondary"
 			>Reads one secret that exists in the store, given as the workspace and variable path that map
 			to it. The value is not shown.</span
 		>
@@ -436,7 +436,7 @@
 		<div>
 			<Button
 				unifiedSize="md"
-				variant="accent"
+				variant="default"
 				onclick={testConnection}
 				disabled={disabled ||
 					!isConfigValid() ||
@@ -449,7 +449,7 @@
 		</div>
 		<div class="flex flex-col gap-2 pt-4 border-t">
 			<span class="block text-xs font-semibold text-emphasis">Secret migration</span>
-			<div class="p-3 border rounded-lg">
+			<div class="p-3 border rounded-md">
 				<div class="flex items-center gap-2 mb-2"
 					><Globe size={16} /><ArrowLeft size={16} /><Database size={16} /></div
 				>
