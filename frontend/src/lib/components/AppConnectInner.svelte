@@ -23,7 +23,7 @@
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
-	import { createEventDispatcher, onDestroy, tick } from 'svelte'
+	import { createEventDispatcher, onDestroy, tick, untrack } from 'svelte'
 	import Path from './Path.svelte'
 	import { Badge, ListRow, RadioCard, Skeleton } from './common'
 	import Stepper from './common/stepper/Stepper.svelte'
@@ -413,6 +413,8 @@
 	}
 
 	function selectMethod(m: ConnectMethod) {
+		// Re-picking the current method after Back keeps the scopes the user edited.
+		if (m === method) return
 		method = m
 		manual = m === 'manual'
 		useClientCredentials = m === 'cc_shared' || m === 'cc_byo'
@@ -554,6 +556,15 @@
 	 * off the list's critical path: the rows render first and gain their badges as they land. */
 	let connectBadges: Record<string, { signIn: boolean; oneClick: boolean }> = $state({})
 
+	// Fetched only once the list is on screen: a drawer opened on one type never shows it.
+	let badgesRequested = false
+	$effect(() => {
+		if (step == 1 && connects && !badgesRequested) {
+			badgesRequested = true
+			loadConnectBadges(untrack(() => connects!.filter(isSharedConnect)))
+		}
+	})
+
 	function loadConnectBadges(names: string[]) {
 		for (const name of names) {
 			OauthService.getOauthConnect({ client: name })
@@ -575,7 +586,7 @@
 				)
 				connects = list.map((x) => x.name)
 				connectsInfo = Object.fromEntries(list.map((x) => [x.name, x]))
-				loadConnectBadges(list.filter((x) => x.has_shared_credentials).map((x) => x.name))
+				badgesRequested = false
 			} catch (e) {
 				connects = []
 				connectsInfo = {}
