@@ -100,6 +100,37 @@ async fn test_view_only_grants(db: Pool<Postgres>) -> anyhow::Result<()> {
         403
     );
 
+    // The viewer reads the admin's queued run but cannot stop it, one by one or in a selection.
+    let job = admin
+        .post(format!(
+            "http://localhost:{port}/api/w/{WS}/jobs/run/p/f/vo/s?scheduled_for=2100-01-01T00:00:00Z"
+        ))
+        .json(&json!({}))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert_eq!(
+        post(
+            &viewer,
+            port,
+            &format!("jobs_u/queue/cancel/{job}"),
+            json!({})
+        )
+        .await?,
+        403
+    );
+    let cancelled: Vec<String> = viewer
+        .post(format!(
+            "http://localhost:{port}/api/w/{WS}/jobs/queue/cancel_selection"
+        ))
+        .json(&json!([job]))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert!(cancelled.is_empty(), "cancelled {cancelled:?}");
+
     // Grants add up: an item grant that runs lifts the folder's view-only one.
     let item_grant = json!({"owner": "u/test-user-2", "level": "run"});
     assert_eq!(

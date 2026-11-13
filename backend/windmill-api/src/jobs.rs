@@ -2431,9 +2431,54 @@ async fn require_run_on_others_job(
     kind: JobKind,
     runnable_path: Option<String>,
 ) -> error::Result<()> {
-    // The kinds a job's path may name: a flow preview is a flow editor's run or a saved agent's
-    // (its chat turns under `<agent>.chat`), and a single-step flow wraps a script or a flow for
-    // retries or an error handler. Whichever lets the caller run passes.
+    match runnable_path {
+        Some(path) if created_by != authed.username => {
+            require_can_run_job_path(db, authed, w_id, kind, &path).await
+        }
+        _ => Ok(()),
+    }
+}
+
+/// [`require_run_on_others_job`] as a yes or no, for a selection that skips what it may not stop.
+async fn may_stop_job(db: &DB, authed: &ApiAuthed, w_id: &str, id: Uuid) -> error::Result<bool> {
+    let Some(job) = sqlx::query!(
+        "SELECT created_by, runnable_path, kind AS \"kind: JobKind\" FROM v2_job
+        WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        return Ok(true);
+    };
+    match require_run_on_others_job(
+        db,
+        authed,
+        w_id,
+        &job.created_by,
+        job.kind,
+        job.runnable_path,
+    )
+    .await
+    {
+        Ok(()) => Ok(true),
+        Err(Error::PermissionDenied(_)) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// `require_can_run` on the runnable a job's path names, for a job of `kind`.
+async fn require_can_run_job_path(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    kind: JobKind,
+    path: &str,
+) -> error::Result<()> {
+    // A flow preview is a flow editor's run or a saved agent's (its chat turns under
+    // `<agent>.chat`), and a single-step flow wraps a script or a flow for retries or an error
+    // handler. Whichever lets the caller run passes.
     let candidates: &[RunnableAclKind] = match kind {
         JobKind::Script | JobKind::Preview => &[RunnableAclKind::Script],
         JobKind::Flow => &[RunnableAclKind::Flow],
@@ -2441,10 +2486,7 @@ async fn require_run_on_others_job(
         JobKind::SingleStepFlow => &[RunnableAclKind::Script, RunnableAclKind::Flow],
         _ => return Ok(()),
     };
-    let Some(path) = runnable_path.filter(|_| created_by != authed.username) else {
-        return Ok(());
-    };
-    let path = path.strip_suffix(".chat").unwrap_or(&path);
+    let path = path.strip_suffix(".chat").unwrap_or(path);
     let mut result = Ok(());
     for kind in candidates {
         result = require_can_run(db, &authed.to_authed_ref(), w_id, *kind, path).await;
@@ -4669,15 +4711,30 @@ async fn cancel_selection(
     // workspace so cross-workspace selections (all_workspaces=true) aren't
     // silently dropped. In single-workspace mode the SQL filter above ensures
     // this collapses to a single call.
+    let force_cancel = query.force_cancel.unwrap_or(false);
     let mut jobs_by_workspace: HashMap<String, Vec<Uuid>> = HashMap::new();
     for row in rows {
+        // Dropped like a job the caller cannot read: stopping another member's run takes run on
+        // it, checked on the job a force cancel actually kills too.
+        if !authed.is_admin {
+            let target = if force_cancel {
+                force_cancel_target(&db, &row.workspace_id, row.id).await?
+            } else {
+                row.id
+            };
+            if !may_stop_job(&db, &authed, &row.workspace_id, row.id).await?
+                || (target != row.id
+                    && !may_stop_job(&db, &authed, &row.workspace_id, target).await?)
+            {
+                continue;
+            }
+        }
         jobs_by_workspace
             .entry(row.workspace_id)
             .or_default()
             .push(row.id);
     }
 
-    let force_cancel = query.force_cancel.unwrap_or(false);
     let mut cancelled = Vec::new();
     for (workspace_id, ids) in jobs_by_workspace {
         let ids =
@@ -7705,14 +7762,7 @@ pub async fn restart_flow(
         .script_path
         .with_context(|| "No flow path set for completed flow job")?;
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
-    require_can_run(
-        &db,
-        &authed.to_authed_ref(),
-        &w_id,
-        RunnableAclKind::Flow,
-        &flow_path,
-    )
-    .await?;
+    require_can_run_job_path(&db, &authed, &w_id, completed_job.kind, &flow_path).await?;
     let mut run_query = run_query;
     drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
     // A restarted flow preview reruns the value its request supplied, while a flow preview

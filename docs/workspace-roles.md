@@ -70,7 +70,8 @@ saving of schedules and triggers, and the firing of triggers, which fetch their 
 owner on every fire. A schedule's later runs are not re-checked, as they were never re-checked
 for read either: demoting its owner does not stop it. Flow steps, subflows and agent tools are not
 checked, as only the top-level run needs it. Its positive answers are cached, so every write that can take
-run away calls `notify_run_perms_change`. Anything that copies one of those rows (a new script
+run away calls `notify_run_perms_change`; the cache's 60s expiry bounds what that cannot see, such
+as an item deleted and recreated without the grant. Anything that copies one of those rows (a new script
 version, a rename, a fork, a workspace rename) must copy `view_only` too: a copy that drops it
 turns its viewers into runners.
 

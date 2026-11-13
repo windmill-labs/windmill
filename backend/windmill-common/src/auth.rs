@@ -180,9 +180,16 @@ lazy_static::lazy_static! {
     // Cache for script hash permissions - (ApiAuthed hash, script_hash) -> permission result
     pub static ref HASH_PERMS_CACHE: PermsCache = PermsCache::new();
     pub static ref FLOW_PERMS_CACHE: PermsCache = PermsCache::new();
-    // (caller perms hash, runnable hash) -> the caller may run it
-    static ref RUN_PERMS_CACHE: PermsCache = PermsCache::new();
+    // (caller perms hash, runnable hash) -> when the caller was found able to run it
+    static ref RUN_PERMS_CACHE: Cache<(u64, u64), std::time::Instant> = Cache::new(10000);
 }
+
+/// Bounds what the invalidation cannot see: an item deleted and recreated at the same path
+/// without the grant that let the caller run it.
+const RUN_PERMS_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+/// Bumped by every invalidation, so a check that read the grants before a demotion committed
+/// does not cache what it found after the cache was cleared.
+static RUN_PERMS_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, Hash)]
 pub enum RunnableAclKind {
@@ -218,7 +225,8 @@ pub async fn notify_run_perms_change(conn: &mut sqlx::PgConnection) -> Result<()
 }
 
 pub fn invalidate_run_perms_cache() {
-    RUN_PERMS_CACHE.0.clear();
+    RUN_PERMS_GENERATION.fetch_add(1, Ordering::SeqCst);
+    RUN_PERMS_CACHE.clear();
 }
 
 /// Whether the caller may start `path`, as opposed to only reading it. Readers run unless every
@@ -245,10 +253,14 @@ pub async fn require_can_run(
     let mut hasher = DefaultHasher::new();
     (w_id, kind, path).hash(&mut hasher);
     let key = hasher.finish();
-    let (cached, authed_hash) = RUN_PERMS_CACHE.check_perms_in_cache(authed, key);
-    if cached {
+    let cache_key = (PermsCache::compute_hash(authed), key);
+    if RUN_PERMS_CACHE
+        .get(&cache_key)
+        .is_some_and(|at| at.elapsed() < RUN_PERMS_CACHE_TTL)
+    {
         return Ok(());
     }
+    let generation = RUN_PERMS_GENERATION.load(Ordering::SeqCst);
 
     let folder = (prefix == Some("f")).then_some(owner).flatten();
     let mut principals = authed
@@ -291,7 +303,9 @@ pub async fn require_can_run(
             "You do not have run access to {path}"
         )));
     }
-    RUN_PERMS_CACHE.insert(authed_hash, key);
+    if RUN_PERMS_GENERATION.load(Ordering::SeqCst) == generation {
+        RUN_PERMS_CACHE.insert(cache_key, std::time::Instant::now());
+    }
     Ok(())
 }
 
