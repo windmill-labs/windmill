@@ -17,7 +17,7 @@ jobs:
   cargo_test_windows:
     runs-on: blacksmith-16vcpu-windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       - name: Read EE repo commit hash
         shell: pwsh
@@ -26,7 +26,7 @@ jobs:
           echo "ee_repo_ref=$ee_repo_ref" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Checkout windmill-ee-private repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.4.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -47,7 +47,7 @@ jobs:
           database: windmill
           port: 5432
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
@@ -57,33 +57,33 @@ jobs:
           # and the build_windows_worker_ release build, not this test job.
           rustflags: ""
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4.3.1
         with:
           dotnet-version: "9.0.x"
 
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2.0.5
         with:
           # Pin to the Deno version shipped in the full runtime image (docker/DockerfileFull) so CI
           # tests what production runs, instead of floating on the latest v2.x.
           deno-version: 2.2.1
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: 1.21.5
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: 1.4.4
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "20"
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v7.6.0
         with:
           version: "0.13.6"
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@2.40.0
         with:
           php-version: "8.3"
           tools: composer

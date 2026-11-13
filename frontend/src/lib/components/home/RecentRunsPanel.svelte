@@ -150,7 +150,7 @@
 		/>
 	</div>
 
-	<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-2.5">
+	<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain scrollbar-subtle -mx-2.5">
 		{#if !data && runs.loading}
 			<Skeleton class="px-2.5" layout={LOADING_LAYOUT} />
 		{:else if !data && runs.failed}

@@ -186,11 +186,11 @@
 			: []
 	)
 	const dockCounts = $derived(badgeCounts(dockItems))
-	// An agent is a resource the draft list cannot tell apart, but it has an icon of its own.
+	// A draft row says whether it is an agent's; a deployed row with no draft left is read for it.
 	// Keyed on the joined paths so a re-derived list doesn't re-fetch.
 	const resourcePaths = $derived(
 		dockItems
-			.filter((i) => i.deployKind === 'resource')
+			.filter((i) => i.deployKind === 'resource' && !i.hasDraft)
 			.map((i) => i.path)
 			.join('\n')
 	)
@@ -210,7 +210,7 @@
 		}
 	)
 	const isAgentRow = (item: DeployItem) =>
-		item.deployKind === 'resource' && (agentPaths.current?.has(item.path) ?? false)
+		item.agent || (item.deployKind === 'resource' && (agentPaths.current?.has(item.path) ?? false))
 
 	// Deletion-only fork chat: the mask has entries but every one failed the
 	// (resolved) existence check — the chat's edits were deletions, which have no

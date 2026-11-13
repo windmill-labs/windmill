@@ -14,7 +14,7 @@ use crate::common::types::{
     McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
     WorkspaceId,
 };
-use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
+use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter, RunOutcome};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
@@ -85,6 +85,55 @@ pub(super) fn truncate_tool_result(text: String) -> String {
     let mut truncated = text[..end].to_string();
     truncated.push_str("\n\n[truncated — result exceeded 25,000 token limit]");
     truncated
+}
+
+const MAX_PARTIAL_RESULT_BYTES: usize = 2_000;
+
+/// A failed run as a tool execution error: the error's name and message, the run to open, and a
+/// short excerpt of whatever else the result holds. The stack trace is left to the run's page.
+fn failed_run_result(
+    tool_type: &str,
+    job_id: &str,
+    run_url: &str,
+    mut result: Value,
+) -> CallToolResult {
+    let mut headline = None;
+    if let Some(obj) = result.as_object_mut() {
+        if let Some(Value::Object(error)) = obj.get_mut("error") {
+            let name = error.remove("name");
+            let message = error.remove("message");
+            error.remove("stack");
+            if error.get("job_id").and_then(Value::as_str) == Some(job_id) {
+                error.remove("job_id");
+            }
+            let [name, message] = [&name, &message].map(|v| v.as_ref().and_then(Value::as_str));
+            headline = match (name, message) {
+                (Some(n), Some(m)) => Some(format!("{n}: {m}")),
+                (n, m) => n.or(m).map(str::to_string),
+            };
+            if error.is_empty() {
+                obj.remove("error");
+            }
+        }
+    }
+    // The run id comes first so that truncating a huge message never cuts it off.
+    let mut text = format!("The {tool_type} failed. Run id: {job_id} ({run_url})");
+    if let Some(h) = headline {
+        text.push_str(&format!("\n{h}"));
+    }
+    if !matches!(&result, Value::Object(o) if o.is_empty()) && !result.is_null() {
+        let mut rest = result.to_string();
+        if rest.len() > MAX_PARTIAL_RESULT_BYTES {
+            let mut end = MAX_PARTIAL_RESULT_BYTES;
+            while !rest.is_char_boundary(end) {
+                end -= 1;
+            }
+            rest.truncate(end);
+            rest.push_str("… [truncated, the full result is on the run]");
+        }
+        text.push_str(&format!("\nPartial result: {rest}"));
+    }
+    CallToolResult::error(vec![ContentBlock::text(truncate_tool_result(text))])
 }
 
 /// MCP Server Runner - generic over the backend implementation
@@ -758,10 +807,10 @@ impl<B: McpBackend> Runner<B> {
 
         let mut tools = Vec::new();
 
-        // Read-only tokens cannot run scripts/flows/hub-scripts (running is a
-        // mutating action), so skip the script/flow/hub/resource fetches
-        // entirely — they would only be discarded below.
-        if !read_only {
+        // Read-only tokens and roles without the run capability cannot run
+        // scripts/flows/hub-scripts, so skip the script/flow/hub/resource fetches.
+        let can_run = !read_only && self.backend.can_run(auth, workspace_id).await?;
+        if can_run {
             // For granular tokens, push the scope patterns into the SQL query so
             // in-scope items survive the fetch cap (see `PathFilter`). The Rust
             // filter below still runs as a defense-in-depth check. Non-granular
@@ -878,16 +927,23 @@ impl<B: McpBackend> Runner<B> {
             }
         }
 
-        // Add endpoint tools from the generated MCP tools, filtered by scope.
-        // Uses the same run-by-path-aware gate as multi-workspace mode so a
-        // granular token only sees runScriptByPath / runFlowByPath when it can
-        // actually run scripts / flows.
+        // Add endpoint tools from the generated MCP tools, filtered by scope with
+        // the same run-by-path-aware gate as multi-workspace mode. The run endpoints
+        // are also left out for a role the jobs router's run gate would refuse.
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
             if !endpoint_tool_in_scope(scope_config, &endpoint_tool) {
                 continue;
             }
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
+                continue;
+            }
+            if !can_run
+                && matches!(
+                    endpoint_tool.name.as_ref(),
+                    "runScriptByPath" | "runFlowByPath" | "runScriptPreviewAndWaitResult"
+                )
+            {
                 continue;
             }
 
@@ -1098,11 +1154,16 @@ impl<B: McpBackend> Runner<B> {
         };
 
         match result {
-            Ok(value) => Ok(CallToolResult::success(vec![ContentBlock::text(
-                truncate_tool_result(
-                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
-                ),
-            )])),
+            Ok(RunOutcome::Success(value)) => {
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    truncate_tool_result(
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
+                    ),
+                )]))
+            }
+            Ok(RunOutcome::Failed { job_id, run_url, result }) => {
+                Ok(failed_run_result(tool_type, &job_id, &run_url, result))
+            }
             Err(e) => Err(ErrorData::internal_error(
                 format!("Failed to run {}: {}", tool_type, e.message),
                 None,
@@ -1605,5 +1666,29 @@ mod tests {
             false
         )
         .is_ok());
+    }
+
+    #[test]
+    fn failed_run_is_a_tool_error_without_the_stack() {
+        let result = json!({ "error": {
+            "name": "Error",
+            "message": "boom",
+            "stack": "Error: boom\n    at main (/tmp/main.ts:2:9)",
+            "step_id": "a",
+            "job_id": "0192-id",
+        }});
+        let res = failed_run_result("script", "0192-id", "http://wm/run/0192-id", result);
+        assert_eq!(res.is_error, Some(true));
+        let text = res.content[0].as_text().unwrap().text.clone();
+        assert!(text.contains("Error: boom"), "{text}");
+        assert!(text.contains("0192-id"), "{text}");
+        assert!(text.contains(r#"{"error":{"step_id":"a"}}"#), "{text}");
+        assert!(!text.contains("main.ts"), "{text}");
+
+        let huge = json!({ "error": { "name": "Error", "message": "x".repeat(200_000) } });
+        let res = failed_run_result("script", "0192-id", "http://wm/run/0192-id", huge);
+        let text = &res.content[0].as_text().unwrap().text;
+        assert!(text.len() < MAX_TOOL_RESULT_BYTES + 100, "{}", text.len());
+        assert!(text.contains("0192-id"));
     }
 }

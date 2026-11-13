@@ -1,0 +1,133 @@
+name: Publish to MCP Registry
+
+# Publishes .github/mcp-registry/server.json (name io.github.windmill-labs/windmill)
+# to the official MCP Registry (registry.modelcontextprotocol.io). GitHub OIDC from
+# a repository owned by windmill-labs grants the io.github.windmill-labs/* namespace,
+# so no PAT or secret is needed.
+#
+# Manual only. With publish=false (the default) it only stamps the version and
+# validates. With publish=true it also logs in and publishes, and only from main.
+# Each version can be published once; use the current Windmill release version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, e.g. 1.868.0 (current Windmill release). Each version can be published once."
+        required: true
+        type: string
+      publish:
+        description: "Publish to the registry (false = validate only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-mcp-registry
+  cancel-in-progress: false
+
+env:
+  # Bump deliberately; the binary is verified against the release workflow's Sigstore identity.
+  MCP_PUBLISHER_VERSION: v1.8.9
+  SERVER_JSON: .github/mcp-registry/server.json
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Set version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must look like 1.868.0"
+            exit 1
+          fi
+          jq --arg v "$version" '.version = $v' "$SERVER_JSON" > "$RUNNER_TEMP/server.json"
+          mv "$RUNNER_TEMP/server.json" "$SERVER_JSON"
+          jq -r '.name + " " + .version' "$SERVER_JSON"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+          rm -f "$archive" "$archive.sigstore.json"
+
+      - name: Validate server.json
+        run: ./mcp-publisher validate "$SERVER_JSON"
+
+      - name: Refuse to publish from a branch other than main
+        if: ${{ inputs.publish && github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::publish=true is only allowed when dispatched on main"
+          exit 1
+
+  publish:
+    needs: validate
+    if: ${{ inputs.publish && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC login to the MCP Registry
+    steps:
+      - uses: actions/checkout@v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Set version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          jq --arg v "$version" '.version = $v' "$SERVER_JSON" > "$RUNNER_TEMP/server.json"
+          mv "$RUNNER_TEMP/server.json" "$SERVER_JSON"
+          jq -r '.name + " " + .version' "$SERVER_JSON"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+          rm -f "$archive" "$archive.sigstore.json"
+
+      - name: Log in with GitHub OIDC
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish
+        run: ./mcp-publisher publish "$SERVER_JSON"

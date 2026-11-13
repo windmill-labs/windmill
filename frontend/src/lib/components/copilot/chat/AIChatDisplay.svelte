@@ -57,6 +57,7 @@
 	import { chatItemKey, createChatItemGrouper } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
 	import {
+		READ_STARTER_PLACEHOLDER,
 		STARTER_PLACEHOLDER,
 		USE_STARTER_PLACEHOLDER,
 		type ComposerSelection
@@ -184,6 +185,7 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
+	let composerFocused = $state(false)
 	let assistantSettings: AssistantSettingsModal | undefined = $state()
 	// The "+" menu's skill and MCP rows: enough state to check and flip one, with
 	// everything else about them behind the assistant settings modal.
@@ -242,8 +244,9 @@
 	// flow's tool rows have their own job, and a stopped turn can end on a tool row.
 	// None in a turn still running, paused on the user included (their reply lands as a tool
 	// result, so a row shown during the pause would vanish again): which answer ends the turn is
-	// unknown until it does, and one followed by a tool call would leave the row's blank gap above
-	// it. A manual compaction loads without a turn of its own, so the last turn keeps its row.
+	// unknown until it does, and the row draws into the gap below its answer, over a following
+	// tool call. A manual compaction loads without a turn of its own, so the last turn keeps its
+	// row.
 	const showsAnswerActions = $derived.by(() => {
 		const shows: boolean[] = new Array(messages.length).fill(false)
 		const answeredLater = new Set<string | undefined>()
@@ -988,7 +991,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{#if item.kind === 'group'}
 							<div
 								class={twMerge(
-									'mb-1 min-w-0 text-sm px-2 text-primary',
+									'mb-2 min-w-0 text-sm px-2 text-primary',
 									item.entries.at(-1)?.index === messages.length - 1 && '!mb-12'
 								)}
 							>
@@ -1140,7 +1143,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			</div>
 		{/if}
 		<div>
-			<QueuedMessageChip />
+			<QueuedMessageChip {composerFocused} onFocusComposer={() => aiChatInput?.focusInput()} />
 			{#if chatHost.mode === AIMode.GLOBAL && !chatHost.isSessionChat}
 				<!-- Standalone Jobs bar for the global side-panel chat. In /sessions the
 				     Jobs segment lives inside the session bar (SessionChangesBar). -->
@@ -1164,9 +1167,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:selectedContext
 				{availableContext}
 				placeholder={starterLayout
-					? heldInUse
-						? USE_STARTER_PLACEHOLDER
-						: STARTER_PLACEHOLDER
+					? workModeLock?.readsOnly
+						? READ_STARTER_PLACEHOLDER
+						: heldInUse
+							? USE_STARTER_PLACEHOLDER
+							: STARTER_PLACEHOLDER
 					: placeholder}
 				{initialInstructions}
 				{onDraftChange}
@@ -1180,6 +1185,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				collapsed={composerCollapsed}
 				chatIcon={starterLayout}
 				{onSent}
+				onComposerFocusChange={(focused) => (composerFocused = focused)}
 				clearHint={!starterLayout && clearHintShown}
 			>
 				{#snippet collapsedControls()}

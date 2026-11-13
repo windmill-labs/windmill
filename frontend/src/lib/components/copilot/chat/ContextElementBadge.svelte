@@ -38,6 +38,7 @@
 	const COMPACT_TYPES = new Set([
 		'app_dom_selector',
 		'workspace_app',
+		'workspace_agent',
 		'workspace_script',
 		'workspace_flow',
 		'attached_file'

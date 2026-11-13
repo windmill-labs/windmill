@@ -44,7 +44,7 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, TriggerKindLabel,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, RunOrigin, TriggerKindLabel,
     ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_ref::RunnableRef;
@@ -4249,24 +4249,26 @@ async fn push_next_flow_job(
                     };
 
                     resume_messages.push(to_raw_value(&js));
-                    audit_log(
-                        &mut *tx,
-                        &audit_author,
-                        "jobs.suspend_resume",
-                        ActionKind::Update,
-                        &flow_job.workspace_id,
-                        flow_job.runnable_path.as_deref(),
-                        Some(HashMap::from([
-                            ("approved", "false"),
-                            ("job_id", flow_job.id.to_string().as_str()),
-                            (
-                                "details",
-                                "Suspend timed out without approval but can continue",
-                            ),
-                        ])),
-                    )
-                    .warn_after_seconds(3)
-                    .await?;
+                    if is_disapproved.is_none() {
+                        audit_log(
+                            &mut *tx,
+                            &audit_author,
+                            "jobs.suspend_resume",
+                            ActionKind::Update,
+                            &flow_job.workspace_id,
+                            flow_job.runnable_path.as_deref(),
+                            Some(HashMap::from([
+                                ("approved", "false"),
+                                ("job_id", flow_job.id.to_string().as_str()),
+                                (
+                                    "details",
+                                    "Suspend timed out without approval but can continue",
+                                ),
+                            ])),
+                        )
+                        .warn_after_seconds(3)
+                        .await?;
+                    }
                 }
 
                 sqlx::query!(
@@ -7005,6 +7007,7 @@ pub async fn script_to_payload(
             let (jp, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
                 script_path_to_payload(
                     &script,
+                    RunOrigin::Deployed,
                     None,
                     db.clone(),
                     &flow_job.workspace_id,

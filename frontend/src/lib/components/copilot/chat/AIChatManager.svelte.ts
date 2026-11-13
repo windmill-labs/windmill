@@ -59,6 +59,7 @@ import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
 import { AI_PROVIDERS, workspaceAIClients, getStreamedCompletionText } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { logDisplayBlocks } from '$lib/components/display/displayTelemetry'
 import { modelSupportsVision } from '../modelConfig'
 import { getEffectiveModelContextWindow } from '../modelConfig'
 import {
@@ -153,6 +154,7 @@ import { resolveSessionAccess } from './global/sessionAccess'
 import {
 	canBuild,
 	isReadOnlyAccess,
+	NO_RUN_ACCESS,
 	USE_MODE_ACCESS,
 	type SessionAccess,
 	type SessionTool
@@ -275,6 +277,10 @@ const COMPACT_COMMAND_RE = /^\/compact\s*$/
 // resets to a fresh chat (the "New chat" action), instead of sending a turn.
 const CLEAR_COMMAND_NAME = 'clear'
 const CLEAR_COMMAND_RE = /^\/clear\s*$/
+function isLocalCommand(text: string): boolean {
+	const trimmed = text.trim()
+	return COMPACT_COMMAND_RE.test(trimmed) || CLEAR_COMMAND_RE.test(trimmed)
+}
 const AI_AUTONOMY_MODE_STORAGE_KEY = 'ai-chat-autonomy-mode'
 const LEGACY_AUTO_ACCEPT_TOOL_CONFIRMATIONS_STORAGE_KEY = 'ai-chat-yolo-mode'
 const WEB_SEARCH_ERROR_HINT =
@@ -501,6 +507,8 @@ export class AIChatManager implements ChatViewHost {
 	// affordances apply here. See ChatViewHost for hosts where they don't.
 	supportsModelSettings = true
 	supportsMessageEditing = true
+	readonly stopSendsQueuedMessage = true
+	readonly supportsMidTurnMessages = true
 	// The copilot turn is the attachments themselves when there is no text.
 	requiresMessageText = false
 	// Attachments and linked folders are GLOBAL-mode affordances. Declared as
@@ -553,6 +561,33 @@ export class AIChatManager implements ChatViewHost {
 	// what was selected at queue time (e.g. an inline element prompt submitted mid-
 	// stream) rather than the live selection, which may change before the flush.
 	queuedContext = $state<ContextElement[] | undefined>(undefined)
+	// The turn `sendQueuedMidTurn` marked the queue for, by its abort controller: a turn
+	// that ends without taking the queue (an error, a failed compaction) leaves it
+	// queued, and the mark must not carry it into the next turn.
+	#queueSendsMidTurnIn = $state<AbortController | undefined>(undefined)
+	get queuedSendsMidTurn(): boolean {
+		return (
+			this.loading &&
+			this.#queueSendsMidTurnIn !== undefined &&
+			this.#queueSendsMidTurnIn === this.abortController &&
+			!this.#queueWaitsForTurnEnd()
+		)
+	}
+	/** A queue the turn-start send would refuse or trim: it goes out with that send, after
+	 * the turn. `/compact` and `/clear` act on the whole conversation. Read live, since the
+	 * queue and the session's model can change after the mark. */
+	#queueWaitsForTurnEnd(): boolean {
+		if (isLocalCommand(this.queuedMessage)) return true
+		if (
+			(this.queuedImages.length > 0 || this.queuedFiles.length > 0) &&
+			this.mode !== AIMode.GLOBAL
+		)
+			return true
+		const model = this.currentModel
+		return (
+			this.queuedImages.length > 0 && !!model && !modelSupportsVision(model.provider, model.model)
+		)
+	}
 	get queuedMessage(): string {
 		return this.#queuedDraft.text
 	}
@@ -574,6 +609,18 @@ export class AIChatManager implements ChatViewHost {
 	// when the chat is idle, an auto-resume turn started for them (see
 	// #maybeAutoResumeFromJobs). Ephemeral like queuedMessage — not persisted.
 	pendingJobNotes = $state<string[]>([])
+	// Notes about something that happened outside a turn, delivered with the job notes.
+	// Persisted on the chat record, unlike the job notes, because nothing re-derives
+	// them after a reload.
+	#modelNotes: string[] = []
+	/** Tell the model about something that happened outside a turn, on its next turn. */
+	async queueModelNote(note: string) {
+		this.#modelNotes = [...this.#modelNotes, note]
+		await this.historyManager.setModelNotes(
+			this.historyManager.getCurrentChatId(),
+			this.#modelNotes
+		)
+	}
 	// Guards #maybeAutoResumeFromJobs against re-entering while its own turn spins up.
 	#autoResuming = false
 	#jobPollTimer: ReturnType<typeof setTimeout> | undefined = undefined
@@ -788,6 +835,12 @@ export class AIChatManager implements ChatViewHost {
 	/** Use, Plan or Build. A session keeps its own: the runtime seeds it from the session record
 	 * and stores each change through `onWorkModeChanged`. */
 	workMode = $state<AIWorkMode>(AIWorkMode.BUILD)
+	/** The session is moving into a fork. Its editors stay closed meanwhile: an edit would save a
+	 * draft in the workspace being left, after the move listed what it brings along. */
+	moving = $state(false)
+	/** A move into a fork has started: no turn starts until it ends, retries and edits included.
+	 * Set before `moving`, which waits for the editors to hand over their pending edits. */
+	moveStarted = $state(false)
 	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
 	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
@@ -808,8 +861,9 @@ export class AIChatManager implements ChatViewHost {
 	)
 	/** Why the chat is in Use; undefined in Plan and Build. A protected workspace's access builds
 	 * nothing too, so it is told apart from the role first. */
-	#useReason = $derived.by((): 'protected' | 'role' | 'chosen' | undefined => {
+	#useReason = $derived.by((): 'protected' | 'view_only' | 'role' | 'chosen' | undefined => {
 		if (!this.useModeActive) return undefined
+		if (this.sessionAccess && !this.sessionAccess.has('run')) return 'view_only'
 		if (isReadOnlyAccess(this.sessionAccess)) return 'protected'
 		return this.#useOnly ? 'role' : 'chosen'
 	})
@@ -826,7 +880,13 @@ export class AIChatManager implements ChatViewHost {
 		return this.useModeActive || this.planModeActive ? undefined : ENTER_USE_MODE_TOOL
 	})
 	/** What the tools and the prompt are built for. */
-	#toolAccess = $derived(this.useModeActive ? USE_MODE_ACCESS : this.sessionAccess)
+	#toolAccess = $derived(
+		!this.useModeActive
+			? this.sessionAccess
+			: this.#useReason === 'view_only'
+				? NO_RUN_ACCESS
+				: USE_MODE_ACCESS
+	)
 	// The posture's own state — its two tools, the plan document and the planning round.
 	// Everything it needs from this manager goes through the host above.
 	planMode = new PlanModeController(planModeHostFor(this))
@@ -1365,6 +1425,7 @@ export class AIChatManager implements ChatViewHost {
 		if (pending.length === 0) return
 
 		let anyTerminal = false
+		let anyStreaming = false
 		for (const job of pending) {
 			try {
 				// Its own output first, so a run that detached out of the inline wait keeps
@@ -1377,6 +1438,7 @@ export class AIChatManager implements ChatViewHost {
 				}
 				const update = await reader.poll()
 				if (gen !== this.#jobPollGeneration) return
+				if (update?.streamed && !update.completed) anyStreaming = true
 				// Only what this reader has collected: the patch is spread over the card, so
 				// naming a field it has nothing for erases output already on it.
 				if (update?.logs || update?.resultStream) {
@@ -1469,9 +1531,11 @@ export class AIChatManager implements ChatViewHost {
 			void this.#persistBackgroundJobs()
 		}
 
-		// Reschedule while anything is still in flight, backing off up to 5s.
+		// Reschedule while anything is still in flight, backing off up to 5s — except after a
+		// poll that brought new stream output: the card shows the partial as it arrives, and
+		// at 5s that reads as a freeze then a jump of a thousand characters.
 		if (this.backgroundJobs.some((j) => j.detached && this.isJobNonTerminal(j.status))) {
-			this.#jobPollDelay = Math.min(this.#jobPollDelay + 1000, 5000)
+			this.#jobPollDelay = anyStreaming ? 1000 : Math.min(this.#jobPollDelay + 1000, 5000)
 			this.#scheduleJobPoll()
 		}
 
@@ -1540,8 +1604,21 @@ export class AIChatManager implements ChatViewHost {
 		}, 5_000)
 	}
 
+	#autoResumeHolds = 0
+	/** Keep background-job completions from starting a turn until the returned release runs. */
+	holdAutoResume(): () => void {
+		this.#autoResumeHolds++
+		let released = false
+		return () => {
+			if (released) return
+			released = true
+			this.#autoResumeHolds--
+			void this.#maybeAutoResumeFromJobs()
+		}
+	}
+
 	async #maybeAutoResumeFromJobs() {
-		if (this.#autoResuming) return
+		if (this.#autoResuming || this.#autoResumeHolds > 0) return
 		// Global/sessions chat only (the only mode with a jobs tray + preamble).
 		if (this.mode !== AIMode.GLOBAL) return
 		// Mid-turn: the notes will ride that turn's preamble, so don't start another.
@@ -1599,6 +1676,7 @@ export class AIChatManager implements ChatViewHost {
 		this.#jobUpdateReaders.clear()
 		this.backgroundJobs = []
 		this.pendingJobNotes = []
+		this.#modelNotes = []
 	}
 
 	/** Merge a status patch into the tool card identified by tool_call_id, or
@@ -2631,12 +2709,22 @@ export class AIChatManager implements ChatViewHost {
 			context: this.queuedContext
 		}
 		this.queuedContext = undefined
+		this.#queueSendsMidTurnIn = undefined
 		return taken
 	}
 
 	#clearQueue() {
 		this.#queuedDraft.clear()
 		this.queuedContext = undefined
+		this.#queueSendsMidTurnIn = undefined
+	}
+
+	/** Ctrl+Enter while a turn runs: the queued message goes into that turn as soon as its
+	 * running tool calls finish (`#takeMidTurnMessage`), instead of after the turn. */
+	sendQueuedMidTurn() {
+		if (!this.loading || !this.#hasQueuedMessage()) return
+		if (this.#queueWaitsForTurnEnd()) return
+		this.#queueSendsMidTurnIn = this.abortController
 	}
 
 	/** Put a taken queue back after an auto-send bailed before becoming a turn.
@@ -3496,7 +3584,8 @@ export class AIChatManager implements ChatViewHost {
 		addedMessages,
 		systemMessage: systemMessageOverride,
 		onWebSearchUnavailable,
-		onBeforeIteration
+		onBeforeIteration,
+		takeMidTurnMessage
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -3509,6 +3598,7 @@ export class AIChatManager implements ChatViewHost {
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
 		onBeforeIteration?: ChatLoopConfig['onBeforeIteration']
+		takeMidTurnMessage?: ChatLoopConfig['takeMidTurnMessage']
 	}) => {
 		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
 		this.pendingToolImages.clear()
@@ -3530,6 +3620,7 @@ export class AIChatManager implements ChatViewHost {
 			const result = await runChatLoop({
 				messages,
 				addedMessages,
+				takeMidTurnMessage,
 				get systemMessage() {
 					let base = systemMessageOverride ?? self.systemMessage
 					// Inject the attached-files roster at request time (re-read each iteration)
@@ -3770,6 +3861,125 @@ export class AIChatManager implements ChatViewHost {
 		return this.#sendsAwaitingReady > 0
 	}
 
+	/** The message the model gets for `text`, framed for the current mode. Message-attached
+	 * files travel as references: the prompt lists them by id and the model reads them with
+	 * the file tools, so they are registered before the request goes out. A failed
+	 * registration must not block the send — the reference reads as missing instead. */
+	#buildUserMessage(
+		text: string,
+		context: ContextElement[],
+		images: AttachedImage[],
+		files: AttachedTextFile[]
+	): ChatCompletionMessageParam {
+		if (this.mode === AIMode.GLOBAL && files.length > 0) {
+			try {
+				this.attachedFiles.registerMessageFiles(files as (AttachedTextFile & { id: string })[])
+			} catch (e) {
+				console.error('Failed to register message-attached files', e)
+			}
+		}
+		switch (this.mode) {
+			case AIMode.FLOW:
+				return prepareFlowUserMessage(
+					text,
+					this.flowAiChatHelpers!.getFlowAndSelectedId(),
+					context,
+					this.flowAiChatHelpers!.inlineScriptSession,
+					{ flowInputsLocked: !this.flowAiChatHelpers!.canEditFlowInputs() }
+				)
+			case AIMode.NAVIGATOR:
+				return prepareNavigatorUserMessage(text)
+			case AIMode.ASK:
+				return prepareAskUserMessage(text)
+			case AIMode.SCRIPT:
+				return prepareScriptUserMessage(text, context)
+			case AIMode.API:
+				return prepareApiUserMessage(text)
+			case AIMode.GLOBAL:
+				return prepareGlobalUserMessage(text, context, {
+					workspace: this.operatingWorkspace,
+					activePreview: this.activePreviewResolver?.(),
+					activeEditor: this.activeEditorResolver?.(),
+					images,
+					files,
+					resourceTypeSync: this.resourceTypeSync
+				})
+			case AIMode.APP:
+				return prepareAppUserMessage(text, this.appAiChatHelpers?.getSelectedContext(), context)
+		}
+	}
+
+	/** The user rejected a tool call of the latest step. A user message read after a rejection
+	 * makes the model retry the rejected call whatever the framing or the tool result say, so
+	 * the queue waits: the model answers the rejection alone and the queue goes after the turn. */
+	#lastStepDeclined(collectedMessages: ChatCompletionMessageParam[]): boolean {
+		const step = collectedMessages.findLast((m) => m.role === 'assistant' && m.tool_calls?.length)
+		if (step?.role !== 'assistant' || !step.tool_calls) return false
+		const ids = new Set(step.tool_calls.map((c) => c.id))
+		return this.displayMessages.some(
+			(m) => m.role === 'tool' && ids.has(m.tool_call_id) && m.declinedByUser === true
+		)
+	}
+
+	/** The queued message as the next message of the running turn, once `sendQueuedMidTurn`
+	 * marked it. Taken only after the turn has output that a stop keeps (`hasUsableOutput`
+	 * in `sendRequestImpl`): a turn rolled back as unsent would drop the message with it. */
+	#takeMidTurnMessage(
+		collectedMessages: ChatCompletionMessageParam[]
+	): ChatCompletionMessageParam | undefined {
+		if (!this.queuedSendsMidTurn || !this.#hasQueuedMessage()) return undefined
+		if (this.abortController?.signal.aborted) return undefined
+		if (truncateToToolPairedPrefix(collectedMessages).length === 0) return undefined
+		if (this.#lastStepDeclined(collectedMessages)) {
+			// Unmarked, so the chip stops promising a mid-turn send.
+			this.#queueSendsMidTurnIn = undefined
+			return undefined
+		}
+
+		const { draft, context = [] } = this.#takeQueue()
+		// Pinned at enqueue, so consumed from the live selection as any pinned send does.
+		for (const c of context) {
+			if (c.type === 'app_dom_selector') {
+				this.contextManager?.removeSelectedDomElement(c.selector, c.appPath)
+			}
+		}
+		if (this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW) {
+			this.contextManager?.updateContextOnRequest({})
+		}
+		const files = withAttachedTextFileIds(draft.files)
+		const text =
+			draft.text.trim() || draft.images.length > 0 ? draft.text : '(the user sent an empty message)'
+		// Unframed, models read the message as a new request and drop the task in progress.
+		const message = this.#buildUserMessage(
+			`The user sent this message while you were working:\n${this.expandGlobalSkillCommand(text)}\n\nAddress it as you continue the task in progress. It may add to, change or cancel that task: do what it asks.`,
+			context,
+			draft.images,
+			files
+		)
+		this.displayMessages = [
+			...this.displayMessages,
+			{
+				role: 'user',
+				content: draft.text,
+				images: draft.images.length > 0 ? draft.images : undefined,
+				files: files.length > 0 ? files : undefined,
+				contextElements:
+					this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.GLOBAL
+						? context
+						: undefined,
+				// The loop appends the message to the turn, which the turn's end appends to
+				// the stored history.
+				index: this.messages.length + collectedMessages.length
+			}
+		]
+		logFeatureUsage('ai_chat', 'send_without_stopping', {
+			key: this.mode,
+			entityId: this.historyManager.getCurrentChatId(),
+			workspace: this.operatingWorkspace
+		})
+		return message
+	}
+
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
 		if (this.#ready) {
 			this.#sendsAwaitingReady++
@@ -3802,7 +4012,9 @@ export class AIChatManager implements ChatViewHost {
 		// false`), and a copy here would double it. Paste tokens are expanded
 		// into the text, as the queue does, because the restore lanes carry no
 		// pastes.
-		if (this.runHeldElsewhere) {
+		// A move into a fork holds turns the same way: one started now would act on the
+		// workspace being left. The composer is locked then, but a retry or an edit is not.
+		if (this.runHeldElsewhere || this.moveStarted) {
 			if (options.synthetic) {
 				// Client-authored prompt (a job auto-resume), not user input: nothing
 				// to hand back and no toast. Releasing the staged text un-blocks the
@@ -3820,7 +4032,12 @@ export class AIChatManager implements ChatViewHost {
 						options.files
 					)
 				}
-				sendUserToast('This session is running in another tab. Your message was kept.', true)
+				sendUserToast(
+					this.moveStarted
+						? 'This session is moving to another workspace. Your message was kept.'
+						: 'This session is running in another tab. Your message was kept.',
+					true
+				)
 			}
 			return false
 		}
@@ -4411,11 +4628,18 @@ export class AIChatManager implements ChatViewHost {
 			// turn (notify-only wake). Folded into the model-facing text only — the
 			// display bubble keeps this.instructions, and no extra message is added, so
 			// the display↔messages index pairing above stays intact. Ephemeral.
+			const notes = [...this.#modelNotes, ...this.pendingJobNotes]
 			const jobNotesPreamble =
-				this.mode === AIMode.GLOBAL && this.pendingJobNotes.length > 0
-					? this.pendingJobNotes.join('\n\n') + '\n\n'
-					: ''
-			if (jobNotesPreamble) this.pendingJobNotes = []
+				this.mode === AIMode.GLOBAL && notes.length > 0 ? notes.join('\n\n') + '\n\n' : ''
+			if (jobNotesPreamble) {
+				this.pendingJobNotes = []
+				if (this.#modelNotes.length > 0) {
+					this.#modelNotes = []
+					void this.historyManager
+						.setModelNotes(this.historyManager.getCurrentChatId(), [])
+						.catch((e) => console.error('Failed to clear model notes', e))
+				}
+			}
 			const modelInstructions =
 				this.mode === AIMode.GLOBAL
 					? jobNotesPreamble + this.expandGlobalSkillCommand(oldInstructions)
@@ -4426,63 +4650,12 @@ export class AIChatManager implements ChatViewHost {
 				throw new Error('No script options passed')
 			}
 
-			// Message-attached files travel as references: the prompt lists them by id
-			// and the model reads their content via the file tools. Register them in
-			// the store before the request goes out so this turn's reads can already
-			// see them. Registration failure must not block the send — the reference
-			// just reads as missing and the model reports it.
-			if (this.mode === AIMode.GLOBAL && files.length > 0) {
-				try {
-					this.attachedFiles.registerMessageFiles(files as (AttachedTextFile & { id: string })[])
-				} catch (e) {
-					console.error('Failed to register message-attached files', e)
-				}
-			}
-
-			let userMessage: ChatCompletionMessageParam = {
-				role: 'user',
-				content: ''
-			}
-			switch (this.mode) {
-				case AIMode.FLOW:
-					userMessage = prepareFlowUserMessage(
-						oldInstructions,
-						this.flowAiChatHelpers!.getFlowAndSelectedId(),
-						oldSelectedContext,
-						this.flowAiChatHelpers!.inlineScriptSession,
-						{ flowInputsLocked: !this.flowAiChatHelpers!.canEditFlowInputs() }
-					)
-					break
-				case AIMode.NAVIGATOR:
-					userMessage = prepareNavigatorUserMessage(oldInstructions)
-					break
-				case AIMode.ASK:
-					userMessage = prepareAskUserMessage(oldInstructions)
-					break
-				case AIMode.SCRIPT:
-					userMessage = prepareScriptUserMessage(oldInstructions, oldSelectedContext)
-					break
-				case AIMode.API:
-					userMessage = prepareApiUserMessage(oldInstructions)
-					break
-				case AIMode.GLOBAL:
-					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
-						workspace: this.operatingWorkspace,
-						activePreview: this.activePreviewResolver?.(),
-						activeEditor: this.activeEditorResolver?.(),
-						images: sentImages,
-						files: files,
-						resourceTypeSync: this.resourceTypeSync
-					})
-					break
-				case AIMode.APP:
-					userMessage = prepareAppUserMessage(
-						oldInstructions,
-						this.appAiChatHelpers?.getSelectedContext(),
-						oldSelectedContext
-					)
-					break
-			}
+			const userMessage = this.#buildUserMessage(
+				modelInstructions,
+				oldSelectedContext,
+				sentImages,
+				files
+			)
 
 			// Size of the request about to go out: contextTokens (provider report
 			// when current, fresh chars/4 estimate otherwise) plus the message
@@ -4571,6 +4744,7 @@ export class AIChatManager implements ChatViewHost {
 						// deduped in commitInterruptedTurn.
 						if (this.currentReply) {
 							partialReply = this.currentReply
+							logDisplayBlocks(this.currentReply)
 						}
 						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
@@ -4657,6 +4831,7 @@ export class AIChatManager implements ChatViewHost {
 			const result = await this.chatRequest({
 				...params,
 				addedMessages: collectedMessages,
+				takeMidTurnMessage: () => this.#takeMidTurnMessage(collectedMessages),
 				onWebSearchUnavailable: () => {
 					webSearchUnavailable = true
 				},
@@ -5008,7 +5183,7 @@ export class AIChatManager implements ChatViewHost {
 		// nothing yet, so there is nothing to restore. Un-submitted context-chip
 		// edits are the one loss — the chips re-seed from the untouched message
 		// on the next edit.
-		if (this.runHeldElsewhere) {
+		if (this.runHeldElsewhere || this.moveStarted) {
 			if (newContent !== undefined) {
 				this.restoreToInput(
 					expanded(chatDraft(newContent, pastes ?? [])),
@@ -5017,7 +5192,12 @@ export class AIChatManager implements ChatViewHost {
 				)
 			}
 			// "Text", not "message": chip edits are the part that does not survive.
-			sendUserToast('This session is running in another tab. Your text was kept.', true)
+			sendUserToast(
+				this.moveStarted
+					? 'This session is moving to another workspace. Your text was kept.'
+					: 'This session is running in another tab. Your text was kept.',
+				true
+			)
 			return
 		}
 
@@ -5171,6 +5351,7 @@ export class AIChatManager implements ChatViewHost {
 				if (this.isJobNonTerminal(j.status)) j.detached = true
 			}
 			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
+			this.#modelNotes = chat.modelNotes ?? []
 			// Reloading resolves no card on its own. Settle every one the poller above
 			// will not reach, whoever wrote it — a record from a build that stored cards
 			// without their jobs would otherwise restore one that spins forever.

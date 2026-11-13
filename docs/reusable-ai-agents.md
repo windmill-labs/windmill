@@ -222,8 +222,26 @@ Both live in `windmill-worker/src/ai/pause.rs`.
 
 The agent editor edits the resource through a **per-user resource draft** (`draft` table,
 `item_kind = 'resource'`), autosaved by `useAgentDraft` and deployed by the editor's own Deploy
-button. It is the same draft row the generic resource editor writes and the Review & Deploy page
-lists, so an agent can be deployed from any of them.
+button. It is the same draft row the resource editor's *Edit as JSON* view writes and the Review &
+Deploy page lists, so an agent can be deployed from any of them. `/drafts/list` reports a resource
+draft's `resource_type` (the deployed row's, which a deploy keeps, else the one the draft names), so
+a listing tells an agent's draft apart without reading it; for an agent it also reports the
+description as the summary and the path the draft names as `draft_path`.
+
+Agent drafts are private to their author, like every resource draft: a resource draft can hold a
+credential, and sharing is decided by draft kind (`shares_drafts_across_users`).
+
+The agent editor carries the same draft controls as the script and flow editors: the autosave
+indicator (save state, *Reset to deployed*, the auto-save toggle), a *Diff* button, Ctrl/Cmd+S, and
+the draft prompts (`DraftEditorModals`: a refused save, a draft older than the last deploy). With
+auto-save off, closing the dialog or leaving the page asks before dropping edits that were never
+saved. A session's tab has nothing that could ask, so there the agent saves every edit whatever the
+toggle says, and its indicator leaves the toggle out.
+
+A draft never carries the identity the agent runs as, so every write of one restates the deployed
+agent's `on_behalf_of` with `preserve_on_behalf_of`: a draft deploy, the session's
+`deploy_workspace_item` and *Edit as JSON*'s Save. The server keeps it for a caller allowed to keep
+another identity; anyone else's write makes it theirs.
 
 A flow does not wait for that deploy to see the draft:
 

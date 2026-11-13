@@ -244,12 +244,7 @@ impl Windmill {
                     value,
                     is_secret,
                     description: "".to_owned(),
-                    account: None,
-                    is_oauth: None,
-                    expires_at: None,
-                    value_valid_until: None,
-                    labels: None,
-                    ws_specific: None,
+                    ..Default::default()
                 },
                 None,
             )
@@ -260,13 +255,8 @@ impl Windmill {
                 &self.workspace,
                 path,
                 windmill_api::models::EditVariable {
-                    path: None,
                     value: Some(value),
-                    is_secret: None,
-                    description: None,
-                    value_valid_until: None,
-                    labels: None,
-                    ws_specific: None,
+                    ..Default::default()
                 },
                 None,
             )
@@ -410,13 +400,11 @@ impl Windmill {
                 windmill_api::models::CreateResource {
                     path: path.to_owned(),
                     value,
-                    description: None,
                     resource_type: resource_type.to_owned(),
-                    labels: None,
-                    ws_specific: None,
-                    preserve_on_behalf_of: None,
+                    ..Default::default()
                 },
                 // Some(true),
+                None,
                 None,
             )
             .await?;
@@ -426,14 +414,11 @@ impl Windmill {
                 &self.workspace,
                 path,
                 EditResource {
-                    path: None,
-                    description: None,
                     value: Some(value),
                     resource_type: Some(resource_type.to_owned()),
-                    labels: None,
-                    ws_specific: None,
-                    preserve_on_behalf_of: None,
+                    ..Default::default()
                 },
+                None,
             )
             .await?;
         }
@@ -870,6 +855,7 @@ impl Windmill {
                         job_id,
                         windmill_api::models::CancelQueuedJobRequest {
                             reason: Some("reached timeout".into()),
+                            ..Default::default()
                         },
                     )
                     .await?;
@@ -880,6 +866,7 @@ impl Windmill {
                 result,
                 success,
                 started,
+                ..
             } = job_api::get_completed_job_result_maybe(
                 &self.client_config,
                 &self.workspace,
@@ -1064,6 +1051,7 @@ impl Windmill {
                 windmill_api::models::SetJobProgressRequest {
                     percent: Some(value as i32),
                     flow_job_id: flow_id,
+                    ..Default::default()
                 },
             )
             .await?;

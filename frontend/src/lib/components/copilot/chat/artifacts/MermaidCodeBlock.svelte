@@ -2,5 +2,6 @@
 	import MarkdownCodeBlock from '$lib/components/MarkdownCodeBlock.svelte'
 </script>
 
-<!-- A `pre` renderer for ArtifactBody: the shared code block, with ```mermaid fences drawn. -->
-<MarkdownCodeBlock renderMermaid />
+<!-- A `pre` renderer for ArtifactBody: the shared code block, with ```mermaid fences drawn and
+     ```wm-display fences rendered. -->
+<MarkdownCodeBlock renderMermaid renderDisplay />

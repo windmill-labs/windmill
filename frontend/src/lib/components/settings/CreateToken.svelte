@@ -332,6 +332,9 @@
 		{/if}
 		<McpAccessPicker
 			workspaceId={scopeWorkspaceId}
+			workspaces={mcpAllWorkspaces
+				? ($usersWorkspaceStore?.workspaces ?? []).map((w) => w.id)
+				: mcpWorkspaces}
 			bind:scopes={mcpScopes}
 			bind:access={() => mcpAccess, setMcpAccess}
 		>

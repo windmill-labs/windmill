@@ -25,7 +25,9 @@
 
 	// EditorHeader's `kind` prop is 'flow' | 'script' | 'app'; raw apps are
 	// flagged via the `raw_app` boolean so the picker routes to /apps_raw/...
-	const headerKind: WorkspaceItemKind = $derived(kind === 'raw_app' ? 'app' : kind)
+	const headerKind: Exclude<WorkspaceItemKind, 'agent'> = $derived(
+		kind === 'raw_app' ? 'app' : kind
+	)
 	const isRawApp = $derived(kind === 'raw_app')
 
 	// Local read-only mirrors so EditorHeader's bind:* doesn't write back into

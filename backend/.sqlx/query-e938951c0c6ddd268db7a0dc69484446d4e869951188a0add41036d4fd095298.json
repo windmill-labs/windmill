@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT generation, coalesce(lease_until > now(), false) AS \"write_live!\"\n             FROM volume WHERE workspace_id = $1 AND name = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "write_live!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "e938951c0c6ddd268db7a0dc69484446d4e869951188a0add41036d4fd095298"
+}

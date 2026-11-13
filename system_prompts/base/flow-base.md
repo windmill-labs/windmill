@@ -198,7 +198,7 @@ server's own tool names, so none is name-checked at all — leave those summarie
 
 ## AI Decision Modules
 
-An `aidecision` module asks a decision model (TypeSafe's Jev, Cloudflare's Clef or OpenAI's Decisions API) typed questions about a `state` and
+An `aidecision` module asks a decision model (TypeSafe's Jev, Cloudflare's Clef, or OpenAI's or Gemini's Decisions API) typed questions about a `state` and
 answers each with calibrated probabilities instead of text. Prefer it over an `aiagent` when the step
 is a judgment (classify, route, score or a yes/no check) that needs no tools and no free text: it
 is faster, cheaper, and its answers have a fixed shape.
@@ -237,8 +237,9 @@ is faster, cheaper, and its answers have a fixed shape.
 ```
 
 - `provider.kind` is `typesafe` (`model` `jev-latest` unless a version is pinned), `cloudflare`
-  (`model` `clef`, or `clef-flash` for faster answers) or `openai` (`model` `gpt-6-luna`, never a
-  chat model); the resource is of that same type
+  (`model` `clef`, or `clef-flash` for faster answers), `openai` (`model` `gpt-6-luna`, never a
+  chat model) or `googleai` (`model` `gemini-decision-1`, never a chat model); the resource is of
+  that same type
 - `state` is the content to evaluate: usually a text, such as the message to classify. To combine
   several values, pass an object with descriptive keys holding only what the questions need
   (`({ message: flow_input.message, plan: results.get_account.plan })`); an array of strings also works
@@ -258,6 +259,10 @@ is faster, cheaper, and its answers have a fixed shape.
   refuses to answer fails the step. A `state` that is
   an array of user messages (`[{ role: "user", content: [{ type: "input_text", text }, { type: "input_image", image_url: "data:image/png;base64,..." }] }]`)
   is sent as is, which is how an image is evaluated; any other object or array is sent as JSON text
+- On `googleai` the `questions` and answers are the same as on `typesafe`. If Gemini blocks the
+  input, the step fails. A `state` that is a Gemini content block or an array of them (`[{ type: "text", text }, { type: "image", mime_type: "image/png", data: "<base64>" }]`,
+  where `image`, `audio`, `video` and `document` blocks take `data` or `uri`) is sent as is, which
+  is how an image or a document is evaluated; any other object or array is sent as JSON text
 
 ### Branching on the Answers
 

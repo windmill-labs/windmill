@@ -72,6 +72,13 @@ export interface ChatLoopConfig {
 	/** Return a pending user message to inject between iterations, or undefined. */
 	getPendingUserMessage?: () => ChatCompletionUserMessageParam | undefined
 	/**
+	 * A message the user sent while this turn runs, for the model to read in the same turn.
+	 * Asked before every request but the first, when each tool call so far has its result.
+	 * Unlike `getPendingUserMessage`, the message joins `messages` and `addedMessages`, so
+	 * the following requests and the stored history keep it.
+	 */
+	takeMidTurnMessage?: () => ChatCompletionMessageParam | undefined
+	/**
 	 * Optional caller-owned accumulator for the messages produced this run —
 	 * lets the caller recover partial output if the loop throws or is aborted.
 	 */
@@ -427,6 +434,13 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		iterationModel = modelProvider
 		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
 		const webSearch = sendsWebSearch(workspace, modelProvider, config.webSearch ?? true)
+
+		// Before `onBeforeIteration`, so its compaction check measures the message too.
+		const midTurnMessage = iterations > 1 ? config.takeMidTurnMessage?.() : undefined
+		if (midTurnMessage) {
+			messages.push(midTurnMessage)
+			addedMessages.push(midTurnMessage)
+		}
 
 		if (onBeforeIteration) {
 			await onBeforeIteration(modelProvider, lastIterationUsage)

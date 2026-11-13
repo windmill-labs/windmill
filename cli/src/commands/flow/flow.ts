@@ -4,6 +4,7 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
+import { ciTestBatchDeployed, ciTestBatchSkip } from "../../core/ci_test_batch.ts";
 import { dirname, sep as SEP, resolve as pathResolve } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
@@ -296,6 +297,7 @@ export async function pushFlow(
       await wmill.updateFlow({
         workspace: workspace,
         path: remotePath.replaceAll(SEP, "/"),
+        ...ciTestBatchSkip(),
         requestBody: {
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
@@ -306,12 +308,14 @@ export async function pushFlow(
           skip_draft_deletion: true,
         },
       });
+      ciTestBatchDeployed("flow", remotePath.replaceAll(SEP, "/"));
     }
   } else {
     log.info(colors.bold.yellow("Creating new flow..."));
     try {
       await wmill.createFlow({
         workspace: workspace,
+        ...ciTestBatchSkip(),
         requestBody: {
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
@@ -328,6 +332,7 @@ export async function pushFlow(
         `Failed to create flow ${remotePath}: ${e.body ?? e.message}`
       );
     }
+    ciTestBatchDeployed("flow", remotePath.replaceAll(SEP, "/"));
   }
 
   // Independent of whether the flow body changed, sync extra_perms via /acls/*.

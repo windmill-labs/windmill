@@ -144,11 +144,11 @@
 		return kind
 	}
 
-	// Only scripts, flows and raw apps can be context, so another card keeps its menu while the
-	// composer is open; an `app` card is a visual one until the hover's lookup says otherwise.
+	// A visual app cannot be context, so its card keeps its menu while the composer is open; an
+	// `app` card is a visual one until the hover's lookup says otherwise.
 	function canMention(item: Entry): boolean {
 		if (item.kind === 'app') return appKinds.get(`${workspace}/${item.path}`) === 'raw_app'
-		return item.kind !== 'agent'
+		return true
 	}
 
 	function contextElementFor(item: Entry, kind: RecentKind) {
@@ -189,13 +189,17 @@
 				displayName: 'Duplicate/Fork',
 				icon: GitFork,
 				href: `/${base}/add?template=${item.path}`,
-				hide: !showEditButtons || !$roleCapabilities.code || kind === 'agent'
+				// Agents are authored without code, by whoever may build flows.
+				hide:
+					!showEditButtons ||
+					(kind === 'agent' ? !editRights.roleCanAuthor(kind) : !$roleCapabilities.code)
 			},
 			{
 				displayName: 'Share',
 				icon: UserPlus,
-				action: () => kind !== 'agent' && void openShare(item.path, kind),
-				hide: kind === 'agent' || !editRights.roleCanAuthor(kind)
+				// An agent's permissions are its resource's.
+				action: () => void openShare(item.path, kind === 'agent' ? 'resource' : kind),
+				hide: !editRights.roleCanAuthor(kind)
 			},
 			{
 				displayName: 'View runs',
@@ -427,16 +431,22 @@
 			tabindex="-1"
 			aria-hidden="true"
 		></a>
-		<!-- After the filler, so the badges line up down the column whatever the title's length. -->
+		<!-- After the filler, so the badges line up down the column whatever the title's length.
+		     The listing names no owners for an agent's draft, which is private to the reader. -->
 		{#if draft}
 			<span class="shrink-0 inline-flex">
 				<DraftBadge
 					is_draft={draft.mine && !draft.legacy_draft}
 					draft_only={draft.draft_only}
-					draft_users={draft.draft_users}
+					draft_users={draft.kind === 'resource'
+						? draft.mine
+							? [{ username: $userStore?.username }]
+							: []
+						: draft.draft_users}
 					currentUsername={$userStore?.username}
 					{workspace}
 					itemKind={draft.kind}
+					agent={draft.kind === 'resource'}
 					path={draft.path}
 					onMigrated={drafts.refresh}
 				/>

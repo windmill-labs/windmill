@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM git_sync_pr_check_head\n             WHERE workspace_id = $1 AND repo_resource_path = $2 AND pr_number <> ALL($3)\n               AND checked_at < $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8Array",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "566a8179a5f0d0d1a22aad7fee51156ea200f06b15c16856f61f0a13bea1fa34"
+}

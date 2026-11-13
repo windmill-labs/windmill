@@ -577,6 +577,7 @@ def main():
             "u/test-user",
             &db,
             vec![],
+            false,
         )
         .await?;
 
@@ -631,6 +632,7 @@ def main():
             "u/test-user",
             &db,
             vec![],
+            false,
         )
         .await?;
 

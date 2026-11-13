@@ -11,6 +11,7 @@ import { readStoredChat } from '$lib/components/copilot/chat/HistoryManager.svel
 import { getCurrentUserEmail } from '$lib/userScopedStorage'
 import { onRemoteTurnEnd } from './sessionSync.svelte'
 import {
+	adoptStoredSessionWorkspace,
 	deleteSession as deleteSessionState,
 	noteRemoteStateChange,
 	sessionState,
@@ -77,7 +78,10 @@ onRemoteTurnEnd((sessionId, chatId) => {
 })
 
 async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<void> {
+	// The other tab may have moved the session to a fork (it brackets the move like a turn).
+	const moved = await adoptStoredSessionWorkspace(sessionId)
 	const runtime = runtimes.get(sessionId)
+	if (moved) runtime?.manager.rebuildGlobalSystemMessage()
 	if (!runtime) {
 		// The driving tab may have rotated to a new chat; follow it, or the next
 		// read and a later runtime would open the old one.

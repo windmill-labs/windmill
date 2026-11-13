@@ -190,7 +190,8 @@
 		mounted && $styleStore && untrack(() => writeStyle())
 	})
 	$effect(() => {
-		mounted && (!value || value) && untrack(() => parseStyle())
+		value
+		mounted && untrack(() => parseStyle())
 	})
 	$effect(() => {
 		$app && untrack(() => setTopColors())

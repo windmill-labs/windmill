@@ -6972,7 +6972,10 @@ mount {{
     if !volume_mounts.is_empty() {
         let vol_summary: Vec<String> = volume_mounts
             .iter()
-            .map(|v| format!("'{}' -> {}", v.name, v.target))
+            .map(|v| {
+                let mode = if v.read_only { " (read-only)" } else { "" };
+                format!("'{}' -> {}{mode}", v.name, v.target)
+            })
             .collect();
         append_logs(
             &job.id,
