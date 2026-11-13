@@ -1371,9 +1371,9 @@ async fn test_rename_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<(
     let port = server.addr.port();
 
     sqlx::raw_sql(
-        r#"INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms, on_failure, on_recovery, on_success)
+        r#"INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms, on_failure, on_recovery, on_success, dynamic_skip)
            VALUES ('test-workspace', 'f/ops/nightly', 'test-user', NOW(), '0 * * * *', 'UTC', true, 'f/ops/job', false, 'test@windmill.dev', 'u/test-user', '{}',
-                   'script/u/test-user-2/on_fail', 'flow/u/test-user-2/on_recover', 'script/u/test-user/on_success');
+                   'script/u/test-user-2/on_fail', 'flow/u/test-user-2/on_recover', 'script/u/test-user/on_success', 'u/test-user-2/skip');
          INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, permissioned_as, edited_at, extra_perms, http_method, authentication_method, mode, error_handler_path)
            VALUES ('test-workspace', 'f/ops/hook', '/hook', 'hook', 'f/ops/job', false, 'test-user', 'u/test-user', NOW(), '{}', 'post', 'none', 'enabled', 'u/test-user-2/trigger_err');
          INSERT INTO kafka_trigger (workspace_id, path, kafka_resource_path, topics, group_id, script_path, is_flow, edited_by, permissioned_as, error_handler_path)
@@ -1395,8 +1395,8 @@ async fn test_rename_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<(
     .await?;
     assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
 
-    let schedule: (String, String, String) = sqlx::query_as(
-        "SELECT on_failure, on_recovery, on_success FROM schedule
+    let schedule: (String, String, String, String) = sqlx::query_as(
+        "SELECT on_failure, on_recovery, on_success, dynamic_skip FROM schedule
          WHERE workspace_id = 'test-workspace' AND path = 'f/ops/nightly'",
     )
     .fetch_one(&db)
@@ -1406,7 +1406,8 @@ async fn test_rename_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<(
         (
             "script/u/alice/on_fail".into(),
             "flow/u/alice/on_recover".into(),
-            "script/u/test-user/on_success".into()
+            "script/u/test-user/on_success".into(),
+            "u/alice/skip".into()
         )
     );
 

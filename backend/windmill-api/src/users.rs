@@ -468,8 +468,8 @@ async fn move_run_as_principal(
 
 /// Moves the handlers that name a runnable under `old_prefix` (e.g. `u/alice/`) to the same path
 /// under `new_prefix`, in the form each column stores: schedule handlers and the workspace
-/// handlers' `path` carry a `script/` or `flow/` kind, a trigger's error handler is a bare script
-/// path. A handler left on the old path fails exactly when it fires.
+/// handlers' `path` carry a `script/` or `flow/` kind, a schedule's skip handler and a trigger's
+/// error handler are bare script paths. A handler left on the old path fails exactly when it fires.
 pub(crate) async fn move_handler_paths(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
@@ -496,11 +496,12 @@ pub(crate) async fn move_handler_paths(
 
     // SAFETY: the interpolated column names are literals from this function.
     sqlx::query(&format!(
-        "UPDATE schedule SET on_failure = {}, on_recovery = {}, on_success = {}
-         WHERE workspace_id = $3 AND ({} OR {} OR {})",
+        "UPDATE schedule SET on_failure = {}, on_recovery = {}, on_success = {}, dynamic_skip = {}
+         WHERE workspace_id = $3 AND ({} OR {} OR {} OR starts_with(dynamic_skip, $1))",
         moved_kind("on_failure"),
         moved_kind("on_recovery"),
         moved_kind("on_success"),
+        moved("dynamic_skip"),
         names_old("on_failure"),
         names_old("on_recovery"),
         names_old("on_success"),
