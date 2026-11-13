@@ -18,13 +18,15 @@ async fn item_shares_show_runs(db: Pool<Postgres>) -> anyhow::Result<()> {
             ('test-workspace', 4, 'f/ops/hidden_runs', '', '', '', 'test-user', 'deno', '{"u/bob": false}'),
             ('other', 5, 'f/ops/private', '', '', '', 'test-user', 'deno', '{"u/bob": false}');
         INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, extra_perms) VALUES
-            ('test-workspace', 'f/ops/flow_to_bob', '', '', '{"modules": []}', 'test-user', '{"u/bob": true}');
+            ('test-workspace', 'f/ops/flow_to_bob', '', '', '{"modules": []}', 'test-user', '{"u/bob": true}'),
+            ('test-workspace', 'f/ops/to_bob', '', '', '{"modules": []}', 'test-user', '{}');
         INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, kind, runnable_path, visible_to_owner) VALUES
             (gen_random_uuid(), 'test-workspace', 'carol', 'u/carol', 'script', 'f/ops/to_bob', true),
             (gen_random_uuid(), 'test-workspace', 'carol', 'u/carol', 'script', 'f/ops/to_team', true),
             (gen_random_uuid(), 'test-workspace', 'carol', 'u/carol', 'script', 'f/ops/private', true),
             (gen_random_uuid(), 'test-workspace', 'carol', 'u/carol', 'script', 'f/ops/hidden_runs', false),
-            (gen_random_uuid(), 'test-workspace', 'carol', 'u/carol', 'flow', 'f/ops/flow_to_bob', true);
+            (gen_random_uuid(), 'test-workspace', 'carol', 'u/carol', 'flow', 'f/ops/flow_to_bob', true),
+            (gen_random_uuid(), 'test-workspace', 'carol', 'u/carol', 'flow', 'f/ops/to_bob', true);
         "#,
     )
     .execute(&db)
@@ -46,7 +48,7 @@ async fn item_shares_show_runs(db: Pool<Postgres>) -> anyhow::Result<()> {
                 .execute(&mut *tx)
                 .await?;
             let paths: Vec<String> = sqlx::query_scalar(
-                "SELECT runnable_path FROM v2_job WHERE workspace_id = 'test-workspace' ORDER BY runnable_path",
+                "SELECT kind::text || ' ' || runnable_path FROM v2_job WHERE workspace_id = 'test-workspace' ORDER BY 1",
             )
             .fetch_all(&mut *tx)
             .await?;
@@ -54,11 +56,19 @@ async fn item_shares_show_runs(db: Pool<Postgres>) -> anyhow::Result<()> {
         }
     };
 
-    // `f/ops/private` is shared with bob only in another workspace, where `bob` is someone else.
-    assert_eq!(visible("all").await?, ["f/ops/flow_to_bob", "f/ops/to_bob"]);
+    // `f/ops/private` is shared with bob only in another workspace, and the flow at
+    // `f/ops/to_bob` is not shared although the script at that path is.
+    assert_eq!(
+        visible("all").await?,
+        ["flow f/ops/flow_to_bob", "script f/ops/to_bob"]
+    );
     assert_eq!(
         visible("all,team").await?,
-        ["f/ops/flow_to_bob", "f/ops/to_bob", "f/ops/to_team"]
+        [
+            "flow f/ops/flow_to_bob",
+            "script f/ops/to_bob",
+            "script f/ops/to_team"
+        ]
     );
     Ok(())
 }
