@@ -8,11 +8,16 @@
 	import Row from './table/Row.svelte'
 	import RowIcon from './common/table/RowIcon.svelte'
 	import { Tooltip } from './meltComponents'
+	import Popover from './meltComponents/Popover.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
 	import { GranularAclService, type PrincipalAccess } from '$lib/gen'
 	import { useOperatingWorkspace } from './operatingWorkspace.svelte'
+	import { sendUserToast } from '$lib/toast'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { pluralize } from '$lib/utils'
+	import { pluralize, type Item } from '$lib/utils'
 	import { itemHref } from './offboarding-utils'
+	import GrantNavigator, { navigatorMaxHeight } from './access/GrantNavigator.svelte'
+	import { KIND_LABELS, setGrant, type GrantLevel } from './access/access'
 	import {
 		buildAccessTree,
 		flattenAccessTree,
@@ -27,6 +32,9 @@
 		ExternalLink,
 		Folder,
 		FolderTree,
+		Loader2,
+		Lock,
+		Plus,
 		User,
 		Users
 	} from 'lucide-svelte'
@@ -39,26 +47,6 @@
 	// A short list opens fully, so every item shows at once. A longer one starts at its folders.
 	const OPEN_UP_TO = 30
 
-	const KIND_LABELS: Record<string, string> = {
-		script: 'Script',
-		flow: 'Flow',
-		app: 'App',
-		resource: 'Resource',
-		variable: 'Variable',
-		schedule: 'Schedule',
-		http_trigger: 'HTTP route',
-		websocket_trigger: 'WebSocket trigger',
-		kafka_trigger: 'Kafka trigger',
-		nats_trigger: 'NATS trigger',
-		postgres_trigger: 'Postgres trigger',
-		mqtt_trigger: 'MQTT trigger',
-		amqp_trigger: 'AMQP trigger',
-		gcp_trigger: 'GCP Pub/Sub trigger',
-		azure_trigger: 'Azure trigger',
-		sqs_trigger: 'SQS trigger',
-		email_trigger: 'Email trigger'
-	}
-
 	let drawer: Drawer | undefined = $state()
 	let principal = $state('')
 	let access: PrincipalAccess | undefined = $state()
@@ -69,6 +57,15 @@
 	/** Rows opened or closed by hand, by path prefix. The rest follow `expandAll`. */
 	let openState: Record<string, boolean> = $state({})
 	let expandAll: boolean | undefined = $state()
+	let grantOpen = $state(false)
+	let navigator: GrantNavigator | undefined = $state()
+	/** The row menu that is open, as `kind:path`. */
+	let openMenu: string | undefined = $state()
+	/** The row whose grant is being written, as `kind:path`. Its menu would otherwise send the
+	 * same change again before the tree reloads with the new level. */
+	let changing: string | undefined = $state()
+	let grantPopover: Popover | undefined = $state()
+	let grantAnchor: HTMLElement | undefined = $state()
 	// Responses are not ordered: a slow answer for the previous principal must not land on this one.
 	let requestId = 0
 
@@ -81,19 +78,91 @@
 		nbDisplayed = PAGE
 		openState = {}
 		expandAll = undefined
+		grantOpen = false
 		drawer?.openDrawer()
 		logFeatureUsage('access_view', 'opened', { key: target })
+		await reload()
+	}
+
+	async function reload(): Promise<void> {
 		const id = ++requestId
 		try {
 			const result = await GranularAclService.getPrincipalAccess({
 				workspace: $operatingWorkspace!,
-				principal: nextPrincipal
+				principal
 			})
 			if (id === requestId) access = result
 		} catch (e) {
 			if (id === requestId) error = e?.body ?? String(e)
 		}
 	}
+
+	function setGrantOpen(next: boolean) {
+		if (next) placeGrantPopover()
+		grantOpen = next
+		if (next) logFeatureUsage('access_view', 'grant_opened')
+	}
+
+	// The side is picked once, for the navigator's tallest height: melt fits the popover to the room
+	// on the side it first lands on, so a list that grows later would never flip on its own.
+	function placeGrantPopover() {
+		if (!grantAnchor) return
+		const rect = grantAnchor.getBoundingClientRect()
+		const gutter = 8
+		const spaceBelow = window.innerHeight - rect.bottom - gutter
+		const spaceAbove = rect.top - gutter
+		const below = navigatorMaxHeight() <= spaceBelow || spaceBelow >= spaceAbove
+		grantPopover?.updatePositioning({
+			placement: below ? 'bottom-end' : 'top-end',
+			strategy: 'absolute',
+			gutter,
+			overflowPadding: 16,
+			flip: false,
+			fitViewport: true,
+			overlap: false
+		})
+	}
+
+	/** The principal's own entry on an item: `true` for write, `false` for read. */
+	function ownItemGrant(item: AccessItem): boolean | undefined {
+		const reason = item.reasons.find((r) =>
+			isGroup ? r.type === 'group' && r.group === name : r.type === 'user'
+		)
+		return reason ? !!reason.write : undefined
+	}
+
+	async function changeGrant(kind: string, path: string, level: GrantLevel) {
+		if (changing) return
+		changing = `${kind}:${path}`
+		try {
+			await setGrant($operatingWorkspace!, kind, path, principal, level)
+		} catch (e) {
+			const what = kind === 'folder' ? `f/${path}` : path
+			sendUserToast(`Could not change access to ${what}: ${e?.body ?? e}`, true)
+		}
+		await reload()
+		changing = undefined
+	}
+
+	/** `current` is the grant's level: `true` for write, `false` for read. */
+	function grantActions(kind: string, path: string, current: boolean): Item[] {
+		return [
+			{
+				displayName: 'Read',
+				disabled: current === false,
+				action: () => changeGrant(kind, path, 'read')
+			},
+			{
+				displayName: 'Write',
+				disabled: current === true,
+				action: () => changeGrant(kind, path, 'write')
+			},
+			{ displayName: 'Remove', type: 'delete', action: () => changeGrant(kind, path, 'none') }
+		]
+	}
+
+	// The tree's folder rows carry no grant of their own, so the menu reads it from here.
+	const foldersByName = $derived(new Map((access?.folders ?? []).map((f) => [f.name, f])))
 
 	const name = $derived(principal.slice(2))
 	const isGroup = $derived(principal.startsWith('g/'))
@@ -163,11 +232,27 @@
 		return `${principal} is a member of ${node.key}, so ${principal} can write every item under ${node.key}/, including items added later.`
 	}
 
-	/** Grants on the item itself. What its folder or space gives is said once, on that row. */
+	/** Grants on the item itself, which decide whether its level reads as its own. */
 	function itemGrants(item: AccessItem): string[] {
 		return item.reasons.flatMap((r) =>
 			r.type === 'user' ? ['Shared directly'] : r.type === 'group' ? [viaLabel(`g/${r.group}`)] : []
 		)
+	}
+
+	/** Every reason the item is held: its own grants, then its folder or space. */
+	function itemReasons(item: AccessItem): string[] {
+		const labels = item.reasons.map((r) =>
+			r.type === 'user'
+				? 'Shared directly'
+				: r.type === 'group'
+					? viaLabel(`g/${r.group}`)
+					: r.type === 'folder'
+						? `Through f/${r.folder}`
+						: r.type === 'group_path'
+							? `Through g/${r.group}`
+							: 'Own path'
+		)
+		return [...new Set(labels)]
 	}
 
 	function levelClass(item: AccessItem, grants: string[], owner: AccessOwnerNode): string {
@@ -205,6 +290,49 @@
 	</button>
 {/snippet}
 
+{#snippet grantMenu(kind: string, path: string, current: boolean, blocked: string | undefined)}
+	{#if blocked}
+		<Tooltip>
+			<Lock size={14} class="text-secondary" aria-label={blocked} />
+			{#snippet text()}{blocked}{/snippet}
+		</Tooltip>
+	{:else if changing === `${kind}:${path}`}
+		<span class="flex size-5 items-center justify-center -my-0.5" role="status" aria-label="Saving">
+			<Loader2 size={14} class="animate-spin text-secondary" />
+		</span>
+	{:else}
+		{@const key = `${kind}:${path}`}
+		<DropdownV2
+			disabled={!!changing}
+			size="xs"
+			fixedHeight={false}
+			class="-my-0.5"
+			items={grantActions(kind, path, current)}
+			bind:open={
+				() => openMenu === key,
+				(next) => {
+					if (next) openMenu = key
+					else if (openMenu === key) openMenu = undefined
+				}
+			}
+		/>
+	{/if}
+{/snippet}
+
+<!-- The drawer answers Escape on window too, and `preventEscape` is read after a popover or menu
+     has already closed, so with the Grant popover or a row menu open its Escape is taken here
+     before either sees it. The navigator's own dialog or row dropdown closes first. -->
+<svelte:window
+	onkeydowncapture={(e) => {
+		if (e.key !== 'Escape' || (!grantOpen && !openMenu)) return
+		e.stopPropagation()
+		e.preventDefault()
+		if (grantOpen && navigator?.escape(e.target)) return
+		grantOpen = false
+		openMenu = undefined
+	}}
+/>
+
 <Drawer bind:this={drawer} size="1000px">
 	<DrawerContent title={`Access of ${principal}`} on:close={() => drawer?.closeDrawer()}>
 		<div class="flex flex-col gap-6">
@@ -213,8 +341,8 @@
 					What members of g/{name} can read through this group alone, and which grant gives each item.
 					Members may reach more through their own grants and other groups.
 				{:else}
-					What {principal} can read, and which grant gives each item. Jobs that run as
-					{principal} read exactly this set.
+					What {principal} can read, and which grant gives each item.
+					{#if access && !access.is_admin}Jobs that run as {principal} read exactly this set.{/if}
 				{/if}
 			</p>
 
@@ -242,6 +370,36 @@
 				{/if}
 
 				<Section label={`Items (${access.items.length})`} small>
+					{#snippet action()}
+						<div bind:this={grantAnchor}>
+							<Popover
+								bind:this={grantPopover}
+								placement="bottom-end"
+								usePointerDownOutside
+								disableFocusTrap
+								closeOnOtherPopoverOpen
+								bind:isOpen={() => grantOpen, setGrantOpen}
+								openFocus="[data-workspace-picker-search]"
+								contentClasses="flex flex-col overflow-hidden"
+							>
+								{#snippet trigger()}
+									<Button
+										variant="default"
+										unifiedSize="sm"
+										nonCaptureEvent
+										startIcon={{ icon: Plus }}
+									>
+										Grant
+									</Button>
+								{/snippet}
+								{#snippet content()}
+									{#if access}
+										<GrantNavigator bind:this={navigator} {principal} {access} onChange={reload} />
+									{/if}
+								{/snippet}
+							</Popover>
+						</div>
+					{/snippet}
 					<div class="flex flex-col gap-2">
 						<div class="flex gap-2 items-center">
 							<TextInput
@@ -280,7 +438,8 @@
 									<tr>
 										<Cell head first>Name</Cell>
 										<Cell head>Access</Cell>
-										<Cell head last>Granted by</Cell>
+										<Cell head>Granted by</Cell>
+										<Cell head last actions />
 									</tr>
 								</Head>
 								<tbody>
@@ -335,7 +494,15 @@
 														{#snippet text()}{ownerExplanation(node)}{/snippet}
 													</Tooltip>
 												</Cell>
-												<Cell last>{ownerGrant(node)}</Cell>
+												<Cell>{ownerGrant(node)}</Cell>
+												<Cell last actions shouldStopPropagation>
+													{@const folder = node.key.startsWith('f/')
+														? foldersByName.get(node.key.slice(2))
+														: undefined}
+													{#if folder && !folder.owner && folder.grant != undefined}
+														{@render grantMenu('folder', folder.name, folder.grant, folder.blocked)}
+													{/if}
+												</Cell>
 											</Row>
 										{:else if row.type === 'subfolder'}
 											<Row hoverable on:click={() => toggle(row.node.key, row.open)}>
@@ -351,7 +518,8 @@
 													</div>
 												</Cell>
 												<Cell></Cell>
-												<Cell last></Cell>
+												<Cell></Cell>
+												<Cell last actions></Cell>
 											</Row>
 										{:else}
 											{@const item = row.item}
@@ -388,7 +556,13 @@
 														>{item.write ? 'Write' : 'Read'}</span
 													>
 												</Cell>
-												<Cell last>{grants.join(', ')}</Cell>
+												<Cell>{itemReasons(item).join(', ')}</Cell>
+												<Cell last actions>
+													{@const own = ownItemGrant(item)}
+													{#if own !== undefined}
+														{@render grantMenu(item.kind, item.path, own, item.blocked)}
+													{/if}
+												</Cell>
 											</tr>
 										{/if}
 									{/each}

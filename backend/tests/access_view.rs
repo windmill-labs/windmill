@@ -1,5 +1,8 @@
 //! Another member's access lists paths the caller may not be able to read, so only a workspace
 //! admin may ask for it.
+//!
+//! The auth cache is process-wide and keyed by workspace and token, so a test that gives
+//! test-user-2 other groups or folders than another test does signs in with a token of its own.
 
 use sqlx::{Pool, Postgres};
 
@@ -61,6 +64,71 @@ async fn test_member_cannot_read_another_members_access(db: Pool<Postgres>) -> a
         .send()
         .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    Ok(())
+}
+
+/// The navigator writes grants with the kind it is given, and `acls/add` sends a full-code app's
+/// change to git sync only under `raw_app`. `blocked` must refuse what `acls/add` would refuse.
+#[sqlx::test(fixtures("base"))]
+async fn test_browse_items_kind_and_blocked(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::raw_sql(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by)
+            VALUES ('test-workspace', 'fin', 'fin', '{u/test-user}', '{\"u/test-user-2\": false}', 'test-user');
+         INSERT INTO app (id, workspace_id, path, summary, policy, versions, extra_perms)
+            VALUES (1, 'test-workspace', 'f/fin/dash', '', '{}', '{1}', '{}');
+         INSERT INTO app_version (id, app_id, value, created_by, raw_app)
+            VALUES (1, 1, '{}', 'test-user', true);
+         INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin)
+            VALUES (encode(sha256('BROWSE_TOKEN'::bytea), 'hex'), 'BROWSE_TOK', 'BROWSE_TOKEN',
+                    'test2@windmill.dev', 'browse', false);",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let url = format!(
+        "http://localhost:{}/api/w/test-workspace/access/browse_items",
+        server.addr.port()
+    );
+    let browse = |token: &str| {
+        reqwest::Client::new()
+            .get(&url)
+            .query(&[("principal", "u/test-user-2"), ("prefix", "f/fin/")])
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+    };
+
+    let member: serde_json::Value = browse("BROWSE_TOKEN")
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(
+        member["items"],
+        serde_json::json!([{
+            "kind": "raw_app",
+            "path": "f/fin/dash",
+            "grant": null,
+            "blocked": "Only admins of the workspace or of f/fin can share it"
+        }])
+    );
+
+    let admin: serde_json::Value = browse("SECRET_TOKEN")
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    assert_eq!(admin["items"][0]["blocked"], serde_json::Value::Null);
+
+    // A mistyped principal is refused rather than listed as holding nothing.
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .query(&[("principal", "g/does_not_exist")])
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 404, "{}", resp.text().await?);
 
     Ok(())
 }

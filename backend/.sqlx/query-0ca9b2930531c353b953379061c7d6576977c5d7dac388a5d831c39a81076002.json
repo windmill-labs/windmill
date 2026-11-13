@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name, (extra_perms ->> $2)::boolean AS \"grant\",\n            $2 = ANY(owners) AS \"target_owner!\", NULL::text AS blocked\n         FROM folder WHERE workspace_id = $1 ORDER BY name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "grant",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "target_owner!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "blocked",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "0ca9b2930531c353b953379061c7d6576977c5d7dac388a5d831c39a81076002"
+}
