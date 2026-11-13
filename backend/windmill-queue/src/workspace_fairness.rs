@@ -255,7 +255,7 @@
 //! worker themselves) leaves no pull to steer, for as long as those jobs run.
 //! A worker started with `WORKSPACE_FAIRNESS_RESERVE_WORKER=true` pulls
 //! nothing while the overloaded set is empty, and otherwise only the fairness
-//! query, with no fallback and no suspended-job resume. It stays idle rather
+//! queries (ordinary and suspended-resume), with no fallback. It stays idle rather
 //! than serving everyone while nothing is capped: a burst landing before the
 //! refresh flags its workspace would otherwise take it too. Fairness must be
 //! enabled, or the set stays empty and a reserve worker never pulls.

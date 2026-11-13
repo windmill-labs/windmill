@@ -85,8 +85,8 @@ use windmill_common::{
     worker::{
         to_raw_value, CLOUD_HOSTED, DEPENDENCY_JOB_TAG, DISABLE_FLOW_SCRIPT, NO_LOGS,
         PREVIEW_TAGS_OVERRIDE, WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS,
-        WORKER_SUSPENDED_PULL_QUERY, WORKSPACE_FAIRNESS_OVERLOADED,
-        WORKSPACE_FAIRNESS_RESERVE_WORKER,
+        WORKER_SUSPENDED_PULL_QUERY, WORKER_SUSPENDED_PULL_QUERY_FAIRNESS,
+        WORKSPACE_FAIRNESS_OVERLOADED, WORKSPACE_FAIRNESS_RESERVE_WORKER,
     },
     DB, METRICS_ENABLED,
 };
@@ -5168,16 +5168,28 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             return Ok((None, false));
         }
-        // The suspended query does not filter by workspace, so a reserve worker would resume
-        // the overloaded workspace's parked jobs.
-        let r = if suspend_first && !*WORKSPACE_FAIRNESS_RESERVE_WORKER {
+        let r = if !suspend_first {
+            None
+        } else if *WORKSPACE_FAIRNESS_RESERVE_WORKER {
+            // Parked WAC parents and parallelism-capped flow branches resume only through this
+            // pull, so a reserve must resume the ones it started, but never the overloaded
+            // workspace's.
+            let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
+            if overloaded.is_empty() {
+                None
+            } else {
+                sqlx::query_as::<_, PulledJob>(&WORKER_SUSPENDED_PULL_QUERY_FAIRNESS.load())
+                    .bind(worker_name)
+                    .bind(overloaded.as_slice())
+                    .fetch_optional(db)
+                    .await?
+            }
+        } else {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)
                 .bind(worker_name)
                 .fetch_optional(db)
                 .await?
-        } else {
-            None
         };
 
         if r.is_none() {

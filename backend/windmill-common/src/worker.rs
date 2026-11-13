@@ -494,6 +494,7 @@ lazy_static::lazy_static! {
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKER_PULL_QUERIES_FAIRNESS: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKER_SUSPENDED_PULL_QUERY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
+    pub static ref WORKER_SUSPENDED_PULL_QUERY_FAIRNESS: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
 
     // Workspace fairness (cloud-only). When enabled, a workspace whose footprint over the rolling
     // `WORKSPACE_FAIRNESS_DURATION_SECS` window represents >= `WORKSPACE_FAIRNESS_MAX_PERCENT`% of
@@ -522,9 +523,7 @@ lazy_static::lazy_static! {
     /// that are not. See "Reserve workers" in `windmill_queue::workspace_fairness`.
     pub static ref WORKSPACE_FAIRNESS_RESERVE_WORKER: bool =
         std::env::var("WORKSPACE_FAIRNESS_RESERVE_WORKER")
-            .ok()
-            .and_then(|x| x.parse::<bool>().ok())
-            .unwrap_or(false);
+            .is_ok_and(|x| x == "1" || x.eq_ignore_ascii_case("true"));
 
     /// Cloud-only ceiling on the number of jobs queued behind a single concurrency key.
     /// A concurrency-limited key drains at most `concurrent_limit` jobs per window, so a
@@ -887,17 +886,36 @@ pub fn make_suspended_pull_query(tags: &[String]) -> String {
         tags.iter().map(|x| format!("'{x}'")).join(", ")
     ))
 }
-// pub async fn make_suspended
+/// [`make_suspended_pull_query`] leaving out the workspaces bound as `$2::text[]`.
+pub(crate) fn make_suspended_pull_query_fairness(tags: &[String]) -> String {
+    format_pull_query(format!(
+        "SELECT id
+        FROM v2_job_queue
+        WHERE suspend_until IS NOT NULL
+          AND (CASE WHEN suspend <= 0 THEN '-infinity'::timestamptz ELSE suspend_until END) <= now()
+          AND tag IN ({})
+          AND workspace_id <> ALL($2::text[])
+        ORDER BY priority DESC NULLS LAST, created_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1",
+        tags.iter().map(|x| format!("'{x}'")).join(", ")
+    ))
+}
+
 pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
     // An empty tag list must clear the query: keeping the previous one would leave a reloaded
     // worker pulling suspended jobs for tags it no longer listens to.
-    let query = if wc.worker_tags.is_empty() {
+    let (query, fairness_query) = if wc.worker_tags.is_empty() {
         tracing::error!("Empty tags in worker tags, pulling no suspended jobs");
-        String::new()
+        (String::new(), String::new())
     } else {
-        make_suspended_pull_query(&wc.worker_tags)
+        (
+            make_suspended_pull_query(&wc.worker_tags),
+            make_suspended_pull_query_fairness(&wc.worker_tags),
+        )
     };
     WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
+    WORKER_SUSPENDED_PULL_QUERY_FAIRNESS.store(std::sync::Arc::new(fairness_query));
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
