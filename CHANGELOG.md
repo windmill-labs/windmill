@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.872.0](https://github.com/windmill-labs/windmill/compare/v1.871.1...v1.872.0) (2026-11-13)
+
+
+### Features
+
+* background tools for ai agent steps ([#11827](https://github.com/windmill-labs/windmill/issues/11827)) ([10a8577](https://github.com/windmill-labs/windmill/commit/10a8577fab558d4c76cc7526a6a4c63bee9040e8))
+* clarify OAuth connect levels and client credential sharing ([#11820](https://github.com/windmill-labs/windmill/issues/11820)) ([59a8657](https://github.com/windmill-labs/windmill/commit/59a8657426419c6734bc1e6e65c201c5c7309b9a))
+* mount volumes read-only without the exclusive lease ([#12410](https://github.com/windmill-labs/windmill/issues/12410)) ([70711be](https://github.com/windmill-labs/windmill/commit/70711bec68915ecea06834c356957cf3ffdd40cd))
+* one turn per memory id, a new message takes over a parked turn ([#11831](https://github.com/windmill-labs/windmill/issues/11831)) ([792e66a](https://github.com/windmill-labs/windmill/commit/792e66a30a5d90cb574300225e3f2f404b9165c8))
+
+
+### Bug Fixes
+
+* drop the unreachable oneshot map_err rejected by rustc 1.100 ([#12407](https://github.com/windmill-labs/windmill/issues/12407)) ([1645285](https://github.com/windmill-labs/windmill/commit/164528563dd2de4b294b29bbd807b2b3e86b5c52))
+* stop backend-test rust cache from bloating and filling the runner disk ([#12411](https://github.com/windmill-labs/windmill/issues/12411)) ([bc613cf](https://github.com/windmill-labs/windmill/commit/bc613cf41d41f61631c9ae999fc8d10cf3c8813a))
+
 ## [1.871.1](https://github.com/windmill-labs/windmill/compare/v1.871.0...v1.871.1) (2026-11-12)
 
 
