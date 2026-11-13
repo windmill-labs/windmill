@@ -655,6 +655,18 @@ pub static DEDICATED_WORKER_RELOAD: std::sync::LazyLock<tokio::sync::Notify> =
     std::sync::LazyLock::new(tokio::sync::Notify::new);
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
+/// The server's error message, which callers match on to tell a retryable refusal (a volume
+/// leased or being written by another worker) from a failure.
+async fn agent_error_body(response: reqwest::Response) -> String {
+    response
+        .text()
+        .await
+        .unwrap_or_default()
+        .chars()
+        .take(1000)
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct HttpClient {
     pub client: ClientWithMiddleware,
@@ -693,11 +705,12 @@ impl HttpClient {
         if status.is_success() {
             Ok(response.json().await?)
         } else {
-            Err(anyhow::anyhow!(format!(
-                "HTTP agent request POST {} failed {}",
+            Err(anyhow::anyhow!(
+                "HTTP agent request POST {} failed {}: {}",
                 url,
-                response.status()
-            )))
+                status,
+                agent_error_body(response).await
+            ))
         }
     }
 
@@ -713,11 +726,12 @@ impl HttpClient {
         if status.is_success() {
             Ok(response.json().await?)
         } else {
-            Err(anyhow::anyhow!(format!(
-                "HTTP agent request GET {} failed {}",
+            Err(anyhow::anyhow!(
+                "HTTP agent request GET {} failed {}: {}",
                 url,
-                response.status()
-            )))
+                status,
+                agent_error_body(response).await
+            ))
         }
     }
 
@@ -3962,7 +3976,10 @@ mod tests {
     #[test]
     fn dedicated_worker_patterns_are_script_folders() {
         assert_eq!(dedicated_worker_pattern_prefix("f/dw/*"), Some("f/dw/"));
-        assert_eq!(dedicated_worker_pattern_prefix("u/alice/*"), Some("u/alice/"));
+        assert_eq!(
+            dedicated_worker_pattern_prefix("u/alice/*"),
+            Some("u/alice/")
+        );
         assert_eq!(dedicated_worker_pattern_prefix("f/dw/script"), None);
         assert_eq!(dedicated_worker_pattern_prefix("f/dw*"), None);
         assert_eq!(dedicated_worker_pattern_prefix("/*"), None);
