@@ -5173,7 +5173,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
         } else if *WORKSPACE_FAIRNESS_RESERVE_WORKER {
             // Parked WAC parents and parallelism-capped flow branches resume only through this
             // pull, so a reserve must resume the ones it started, but never the overloaded
-            // workspace's.
+            // workspace's. Refreshed here too: after a successful resume the worker keeps
+            // resuming first, and would never reach the refresh below.
+            crate::workspace_fairness::maybe_refresh_overloaded(db);
             let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
             if overloaded.is_empty() {
                 None

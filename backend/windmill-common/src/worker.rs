@@ -874,27 +874,22 @@ fn format_pull_query(peek: String) -> String {
 // sync with `queue_suspended_v2` (migration 20260826202939): if it no longer matches, the
 // test silently reverts to a heap filter over every suspended row on every worker poll.
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
-    format_pull_query(format!(
-        "SELECT id
-        FROM v2_job_queue
-        WHERE suspend_until IS NOT NULL
-          AND (CASE WHEN suspend <= 0 THEN '-infinity'::timestamptz ELSE suspend_until END) <= now()
-          AND tag IN ({})
-        ORDER BY priority DESC NULLS LAST, created_at
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1",
-        tags.iter().map(|x| format!("'{x}'")).join(", ")
-    ))
+    suspended_pull_query(tags, "")
 }
+
 /// [`make_suspended_pull_query`] leaving out the workspaces bound as `$2::text[]`.
-pub(crate) fn make_suspended_pull_query_fairness(tags: &[String]) -> String {
+pub fn make_suspended_pull_query_fairness(tags: &[String]) -> String {
+    suspended_pull_query(tags, "AND workspace_id <> ALL($2::text[])")
+}
+
+fn suspended_pull_query(tags: &[String], extra_filter: &str) -> String {
     format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
         WHERE suspend_until IS NOT NULL
           AND (CASE WHEN suspend <= 0 THEN '-infinity'::timestamptz ELSE suspend_until END) <= now()
           AND tag IN ({})
-          AND workspace_id <> ALL($2::text[])
+          {extra_filter}
         ORDER BY priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
