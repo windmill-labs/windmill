@@ -369,6 +369,43 @@
 		</div>
 	{:else}
 		<div class="space-y-4">
+			<div class="border border-light rounded-md p-4 bg-surface-tertiary flex flex-col gap-3">
+				<div class="flex items-center gap-3">
+					<div class="flex flex-col flex-1 min-w-0">
+						<div class="text-sm font-semibold text-emphasis">Instance OAuth clients</div>
+						<div class="text-xs text-secondary">Resources for these services connect through them</div>
+					</div>
+					{#if $superadmin}
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							href="/#superadmin-settings?tab=oauth"
+						>
+							Manage instance OAuth clients
+						</Button>
+					{/if}
+				</div>
+				{#if otherInstanceClients.length > 0}
+					<div class="flex flex-wrap gap-x-4 gap-y-2">
+						{#each otherInstanceClients as client}
+							<div class="flex items-center gap-1.5 text-xs text-primary">
+								<IconedResourceType name={client} silent width="16px" height="16px" />
+								{resourceTypeDisplayName(client)}
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="text-xs text-primary">
+						The instance has no OAuth client for services beyond those below.
+					</div>
+				{/if}
+				{#if !$superadmin}
+					<div class="text-xs text-secondary">
+						To connect another service through OAuth, ask an instance admin to add its client.
+					</div>
+				{/if}
+			</div>
+
 			{#each Object.entries(supportedServices) as [serviceName, config]}
 				{@const integration = getIntegrationByService(serviceName)}
 				{@const workspaceApp = hasWorkspaceApp(integration)}
@@ -528,47 +565,6 @@
 					</OAuthClientConfig>
 				</div>
 			{/each}
-
-			<div class="border border-light rounded-md p-4 bg-surface-tertiary flex flex-col gap-3">
-				<div class="flex items-center gap-3">
-					<div class="flex flex-col flex-1 min-w-0">
-						<div class="text-sm font-semibold text-emphasis">Other services</div>
-						<div class="text-xs text-secondary">Resources</div>
-					</div>
-					{#if $superadmin}
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							href="/#superadmin-settings?tab=oauth"
-						>
-							Manage instance OAuth clients
-						</Button>
-					{/if}
-				</div>
-				{#if otherInstanceClients.length > 0}
-					<div class="flex items-start gap-1.5 text-xs text-primary">
-						<Check size={14} class="shrink-0 mt-0.5" />
-						<span>Configured by instance. Resources for these services connect through the instance's clients.</span>
-					</div>
-					<div class="flex flex-wrap gap-x-4 gap-y-2">
-						{#each otherInstanceClients as client}
-							<div class="flex items-center gap-1.5 text-xs text-primary">
-								<IconedResourceType name={client} silent width="16px" height="16px" />
-								{resourceTypeDisplayName(client)}
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="text-xs text-primary">
-						The instance has no OAuth client for other services yet.
-					</div>
-				{/if}
-				{#if !$superadmin}
-					<div class="text-xs text-secondary">
-						To connect another service through OAuth, ask an instance admin to add its client.
-					</div>
-				{/if}
-			</div>
 		</div>
 	{/if}
 </div>
