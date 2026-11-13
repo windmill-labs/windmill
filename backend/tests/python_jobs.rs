@@ -176,7 +176,7 @@ mod dedicated_worker_protocol_python {
                 ("f/ok", "def main(x: int):\n    return x * 2\n"),
                 (
                     "f/err",
-                    "def main(msg: str):\n    e = Exception(msg)\n    e.status_code = 429\n    raise e\n",
+                    "def main(msg: str):\n    e = Exception(msg)\n    e.status_code = 429\n    e.info = {}\n    e.info['self'] = e.info\n    raise e\n",
                 ),
             ],
             vec![
@@ -198,7 +198,10 @@ mod dedicated_worker_protocol_python {
         assert_eq!(results[0], Ok(serde_json::json!(10)));
         let err = results[1].as_ref().unwrap_err();
         assert_eq!(err["message"], "boom");
-        assert_eq!(err["extra"], serde_json::json!({ "status_code": 429 }));
+        assert_eq!(
+            err["extra"],
+            serde_json::json!({ "status_code": 429, "info": "[unserializable]" })
+        );
         assert_eq!(results[2], Ok(serde_json::json!(20)));
     }
 

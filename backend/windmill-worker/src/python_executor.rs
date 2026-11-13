@@ -1625,6 +1625,19 @@ def error_json(e, tb):
     extra = getattr(e, '__dict__', None)
     if extra:
         err['extra'] = extra
+    try:
+        return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+    except Exception:
+        pass
+    # A cyclic attribute would raise here and end the process every later job runs in.
+    safe = {{}}
+    for k, v in extra.items():
+        try:
+            json.dumps(v, default=str)
+            safe[k] = v
+        except Exception:
+            safe[k] = '[unserializable]'
+    err['extra'] = safe
     return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
 
 def to_b_64(v: bytes):
