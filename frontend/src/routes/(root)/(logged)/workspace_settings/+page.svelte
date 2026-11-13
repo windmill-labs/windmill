@@ -1623,9 +1623,9 @@
 				},
 				{
 					id: 'native_triggers',
-					label: 'Integration triggers',
+					label: 'OAuth apps',
 					aiId: 'workspace-settings-integrations',
-					aiDescription: 'Workspace integrations for integration triggers'
+					aiDescription: 'Workspace OAuth apps used by resources and integration triggers'
 				}
 			]
 		},

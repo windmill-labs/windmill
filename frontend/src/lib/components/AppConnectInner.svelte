@@ -78,6 +78,9 @@
 		fillPath?: string
 		/** Scopes the caller needs, requested on top of the provider's defaults. */
 		requiredScopes?: string[]
+		/** Connect through the workspace's OAuth app even when it does not serve resources: a
+		 * trigger's connection, or a reconnect of one made through it. */
+		viaWorkspaceApp?: boolean
 	}
 
 	let {
@@ -89,7 +92,8 @@
 		express = false,
 		workspace = undefined,
 		fillPath = undefined,
-		requiredScopes = []
+		requiredScopes = [],
+		viaWorkspaceApp = false
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
@@ -113,9 +117,9 @@
 	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
 	let connects: string[] | undefined = $state(undefined)
-	/** Resource types this workspace connects through its own OAuth app, which takes precedence
-	 * over the instance's for them. */
-	let workspaceApps: string[] = $state([])
+	/** Resource types with a workspace OAuth app, and whether it serves resources too. */
+	let workspaceApps: { resourceType: string; forResources: boolean }[] = $state([])
+	let instanceConnects: string[] = $state([])
 	/** Per-provider instance-entry metadata, keyed by provider name. */
 	let connectsInfo: Record<
 		string,
@@ -135,9 +139,13 @@
 	// and stored on `account.client` so token refresh hits the right endpoint.
 	let connectClient: string = $state('')
 	/** The workspace app's service when the current connection goes through it. */
-	let workspaceAppService = $derived(
-		workspaceApps.includes(connectClient) ? serviceForResourceType(connectClient) : undefined
-	)
+	let workspaceAppService = $derived.by(() => {
+		const app = workspaceApps.find((a) => a.resourceType === connectClient)
+		// An app kept for triggers still connects a type the instance has no client for.
+		const usable =
+			app && (app.forResources || viaWorkspaceApp || !instanceConnects.includes(connectClient))
+		return usable ? serviceForResourceType(connectClient) : undefined
+	})
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
 	let resourceTypeDescriptions: Record<string, string> = $state({})
@@ -512,9 +520,14 @@
 			const apps = WorkspaceIntegrationService.listNativeTriggerWorkspaceApps({
 				workspace: effectiveWorkspace
 			})
-				.then((services) => services.map((s) => NATIVE_TRIGGER_SERVICES[s].resourceType))
+				.then((apps) =>
+					apps.map((a) => ({
+						resourceType: NATIVE_TRIGGER_SERVICES[a.service_name].resourceType,
+						forResources: a.for_resources
+					}))
+				)
 				// Absent from builds without integration triggers.
-				.catch(() => [] as string[])
+				.catch(() => [])
 			try {
 				const list = (await OauthService.listOauthConnects()).filter(
 					(x) => x.name != 'supabase_wizard'
@@ -526,8 +539,9 @@
 				connectsInfo = {}
 				console.error('Error loading OAuth connects', e)
 			}
+			instanceConnects = connects
 			workspaceApps = await apps
-			connects = [...new Set([...connects, ...workspaceApps])]
+			connects = [...new Set([...connects, ...workspaceApps.map((a) => a.resourceType)])]
 		}
 	}
 

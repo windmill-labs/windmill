@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_integrations\n           SET oauth_data = oauth_data || '{\"for_resources\": true}'::jsonb, updated_at = now()\n           WHERE workspace_id = $1 AND service_name = $2 AND oauth_data IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google",
+                "github"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3371768f8fef28176b5d4fc319c5a7df8da63d5805479e17ade568dc8185596b"
+}

@@ -21523,7 +21523,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/NativeServiceName"
+                  $ref: "#/components/schemas/NativeTriggerWorkspaceApp"
 
   /w/{workspace}/native_triggers/integrations/{service_name}/required_scopes:
     get:
@@ -21596,6 +21596,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/use_for_resources:
+    post:
+      summary: let resources connect through the workspace OAuth app too
+      operationId: useNativeTriggerAppForResources
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: the app now serves resources too
 
   /w/{workspace}/native_triggers/integrations/{service_name}/generate_connect_url:
     post:
@@ -34050,6 +34067,9 @@ components:
         client:
           type: string
           description: OAuth client the linked account refreshes through
+        is_workspace_integration:
+          type: boolean
+          description: The linked account was connected through the workspace's own OAuth app
         created_by:
           type: string
         edited_at:
@@ -40943,10 +40963,27 @@ components:
           description: >-
             The redirect URI registered on the OAuth app. Absent for an app saved before it was
             stored, which uses the workspace settings page.
+        for_resources:
+          type: boolean
+          description: >-
+            Resources connect through the app too. Read-only: a new app gets it, an existing
+            one keeps its value, and useNativeTriggerAppForResources turns it on.
       required:
         - client_id
         - client_secret
         - base_url
+
+    NativeTriggerWorkspaceApp:
+      type: object
+      properties:
+        service_name:
+          $ref: "#/components/schemas/NativeServiceName"
+        for_resources:
+          type: boolean
+          description: Resources connect through the app too, not only triggers
+      required:
+        - service_name
+        - for_resources
 
     WebhookEvent:
       type: object

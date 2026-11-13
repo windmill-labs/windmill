@@ -29,6 +29,7 @@
 			base_url: string
 			instance_shared?: boolean
 			redirect_uri?: string
+			for_resources?: boolean
 		} | null
 	}
 
@@ -48,7 +49,7 @@
 		nextcloud: {
 			name: 'nextcloud',
 			displayName: 'Nextcloud',
-			description: 'File events',
+			description: 'Resources and file triggers',
 			icon: NextcloudIcon,
 			docsUrl: 'https://www.windmill.dev/docs/integrations/nextcloud',
 			setupInstructions: [
@@ -60,7 +61,7 @@
 		google: {
 			name: 'google',
 			displayName: 'Google',
-			description: 'Drive and Calendar changes',
+			description: 'Resources, and Drive and Calendar triggers',
 			icon: GoogleIcon,
 			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#google-triggers',
 			requiresBaseUrl: false,
@@ -77,7 +78,7 @@
 		github: {
 			name: 'github',
 			displayName: 'GitHub',
-			description: 'Repository events',
+			description: 'Resources and repository triggers',
 			icon: GithubIcon,
 			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#github-triggers',
 			requiresBaseUrl: false,
@@ -291,6 +292,26 @@
 		)
 	}
 
+	async function useForResources(serviceName: string) {
+		if (!$workspaceStore) return
+		const displayName = supportedServices[serviceName]?.displayName
+		const confirmed = await confirmationModal.ask({
+			title: `Use the ${displayName} app for resources too?`,
+			confirmationText: 'Use for resources',
+			children: `New ${displayName} resources, and reconnected ones, will connect through the workspace's app instead of the instance's. Existing resources keep the app they were connected with. This can't be turned off.`
+		})
+		if (!confirmed) return
+		try {
+			await WorkspaceIntegrationService.useNativeTriggerAppForResources({
+				workspace: $workspaceStore,
+				serviceName: serviceName as NativeServiceName
+			})
+			await loadIntegrations()
+		} catch (err: any) {
+			sendUserToast(`Failed to update the ${displayName} app: ${err.body ?? err.message}`, true)
+		}
+	}
+
 	function getIntegrationByService(serviceName: string): WorkspaceIntegration | null {
 		return integrations.find((integration) => integration.service_name === serviceName) || null
 	}
@@ -305,8 +326,8 @@
 
 <div class="flex flex-col">
 	<SettingsPageHeader
-		title="Integration triggers"
-		description="Configure the OAuth app of each service. Members connect their own account when creating a trigger, or use the shared account, and each trigger acts as the account it was created with."
+		title="OAuth apps"
+		description="Choose the OAuth app each service connects through: the workspace's own, or the instance's. Resources and triggers for that service connect through it. Members connect their own account, or create triggers with the shared account, and each trigger acts as the account it was created with."
 		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
 
@@ -370,16 +391,39 @@
 
 					{#if !workspaceApp && !usesInstanceApp}
 						<div class="text-xs text-primary">
-							Not configured. Members can't create {config.displayName} triggers yet.
+							Not configured. Members can't connect {config.displayName} accounts yet.
 						</div>
 					{:else}
+						{@const triggersOnly =
+							workspaceApp &&
+							!integration?.oauth_data?.for_resources &&
+							instanceSharingAvailable[serviceName]}
 						<div class="flex items-start gap-1.5 text-xs text-primary">
 							<Check size={14} class="shrink-0 mt-0.5" />
 							<span>
 								{workspaceApp ? 'Configured in workspace.' : 'Configured by instance.'}
-								Members connect their own {config.displayName} account when they create a trigger.
+								{triggersOnly ? 'Triggers' : 'Resources and triggers'} connect through this app.
 							</span>
 						</div>
+
+						{#if triggersOnly}
+							<Alert type="info" title="Resources connect through the instance's app">
+								<div class="flex flex-col gap-2 items-start">
+									<span>
+										This app was set up for triggers only. New {config.displayName} resources can
+										connect through it too. Existing resources keep the app they were connected
+										with.
+									</span>
+									<Button
+										unifiedSize="sm"
+										variant="default"
+										onclick={() => useForResources(serviceName)}
+									>
+										Also use for resources
+									</Button>
+								</div>
+							</Alert>
+						{/if}
 
 						{#if serviceName === 'nextcloud' && !workspaceConnection}
 							<Alert

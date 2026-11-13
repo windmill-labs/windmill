@@ -20,6 +20,7 @@
 	 *  fills is a property of the click, and a prop would go stale between two different rows. */
 	let fillPath: string | undefined = $state(undefined)
 	let requiredScopes: string[] = $state([])
+	let viaWorkspaceApp = $state(false)
 
 	let drawer: Drawer | undefined = $state()
 	let resourceType = $state('')
@@ -32,10 +33,18 @@
 
 	let rtToLoad: string | undefined = $state('')
 	/** `fill` connects into a resource that already exists, instead of creating one; filling an
-	 *  OAuth resource reconnects it in place. `scopes` are requested on top of the defaults. */
-	export async function open(rt?: string, fill?: string, scopes: string[] = []) {
+	 *  OAuth resource reconnects it in place. `scopes` are requested on top of the defaults.
+	 *  `workspaceApp` connects through the workspace's OAuth app even when it serves triggers
+	 *  only. */
+	export async function open(
+		rt?: string,
+		fill?: string,
+		scopes: string[] = [],
+		workspaceApp = false
+	) {
 		fillPath = fill
 		requiredScopes = scopes
+		viaWorkspaceApp = workspaceApp
 		handedOff = false
 		rtToLoad = rt
 		drawer?.openDrawer?.()
@@ -102,6 +111,7 @@
 			{workspace}
 			{fillPath}
 			{requiredScopes}
+			{viaWorkspaceApp}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">

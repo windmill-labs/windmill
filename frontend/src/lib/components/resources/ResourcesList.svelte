@@ -1252,7 +1252,7 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, scopes, client, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, scopes, client, is_workspace_integration, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
 										{@const canWrite =
@@ -1499,7 +1499,8 @@
 																				appConnect?.open?.(
 																					client?.endsWith('_sandbox') ? client : resource_type,
 																					path,
-																					scopes ?? []
+																					scopes ?? [],
+																					is_workspace_integration ?? false
 																				)
 																		}
 																	]

@@ -182,6 +182,17 @@ pub struct WorkspaceOAuthConfig {
     /// The redirect URI registered on the workspace app; empty for one saved before it was kept.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub redirect_uri: String,
+    /// Resources connect through the app too, not only triggers. Absent on an app saved when
+    /// it served triggers alone, so upgrading never moves its workspace's resources onto it.
+    #[serde(default)]
+    pub for_resources: bool,
+}
+
+#[cfg(feature = "native_trigger")]
+#[derive(Debug, Serialize)]
+pub struct WorkspaceApp {
+    pub service_name: ServiceName,
+    pub for_resources: bool,
 }
 
 #[cfg(feature = "native_trigger")]
@@ -781,7 +792,7 @@ pub async fn create_workspace_integration(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, service_name)): Path<(String, ServiceName)>,
-    Json(oauth_data): Json<WorkspaceOAuthConfig>,
+    Json(mut oauth_data): Json<WorkspaceOAuthConfig>,
 ) -> Result<()> {
     require_admin(authed.is_admin, &workspace_id)?;
     // Only a page that finishes the connection is worth registering. The origin is whatever the
@@ -804,6 +815,27 @@ pub async fn create_workspace_integration(
     }
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Editing an app keeps what it serves; a new app serves resources and triggers.
+    let previous = sqlx::query_scalar!(
+        r#"
+        SELECT
+            oauth_data
+        FROM
+            workspace_integrations
+        WHERE
+            workspace_id = $1 AND
+            service_name = $2
+        "#,
+        workspace_id,
+        service_name as ServiceName
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    .and_then(|v| serde_json::from_value::<WorkspaceOAuthConfig>(v).ok())
+    .filter(|c| !c.instance_shared && !c.client_id.is_empty());
+    oauth_data.for_resources = previous.map_or(true, |p| p.for_resources);
 
     crate::store_workspace_integration(
         &mut tx,
@@ -961,18 +993,44 @@ async fn list_workspace_apps(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
-) -> JsonResult<Vec<ServiceName>> {
+) -> JsonResult<Vec<WorkspaceApp>> {
     use strum::IntoEnumIterator;
-    let mut services = vec![];
+    let mut apps = vec![];
     for service_name in ServiceName::iter() {
-        if workspace_app(&db, &workspace_id, service_name)
-            .await?
-            .is_some()
-        {
-            services.push(service_name);
+        if let Some(app) = workspace_app(&db, &workspace_id, service_name).await? {
+            apps.push(WorkspaceApp { service_name, for_resources: app.for_resources });
         }
     }
-    Ok(Json(services))
+    Ok(Json(apps))
+}
+
+/// Let resources connect through an app saved when it served triggers alone. There is no way
+/// back: the resources connected since then refresh through the app.
+#[cfg(feature = "native_trigger")]
+async fn use_for_resources(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((workspace_id, service_name)): Path<(String, ServiceName)>,
+) -> Result<()> {
+    require_admin(authed.is_admin, &workspace_id)?;
+    let mut tx = user_db.begin(&authed).await?;
+    let updated = sqlx::query!(
+        r#"UPDATE workspace_integrations
+           SET oauth_data = oauth_data || '{"for_resources": true}'::jsonb, updated_at = now()
+           WHERE workspace_id = $1 AND service_name = $2 AND oauth_data IS NOT NULL"#,
+        workspace_id,
+        service_name as ServiceName
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(Error::NotFound(format!(
+            "This workspace has no {service_name} OAuth app"
+        )));
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 #[cfg(feature = "native_trigger")]
@@ -1201,6 +1259,7 @@ pub fn workspaced_service() -> Router {
         .route("/{service_name}/required_scopes", get(required_scopes))
         .route("/{service_name}/exists", get(integration_exist))
         .route("/{service_name}/create", post(create_workspace_integration))
+        .route("/{service_name}/use_for_resources", post(use_for_resources))
         .route(
             "/{service_name}/generate_connect_url",
             post(generate_connect_url),

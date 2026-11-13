@@ -198,6 +198,10 @@ pub struct ListableResource {
     /// again (a `_sandbox` client included).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client: Option<String>,
+    /// The linked account came through the workspace's own OAuth app, which a reconnect uses
+    /// again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_workspace_integration: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time.
@@ -378,6 +382,7 @@ async fn list_resources(
             "account.refresh_error",
             "account.scopes",
             "account.client",
+            "account.is_workspace_integration",
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
@@ -582,6 +587,7 @@ async fn list_resources(
                 account: None,
                 scopes: None,
                 client: None,
+                is_workspace_integration: None,
                 labels,
                 // No deployed row to inherit folder labels from.
                 inherited_labels: None,
@@ -617,6 +623,7 @@ async fn get_resource(
         folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",
         (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
         account.refresh_error, account.scopes as \"scopes?\", account.client as \"client?\",
+        account.is_workspace_integration as \"is_workspace_integration?\",
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
         variable.account,

@@ -89,7 +89,7 @@
 	}
 
 	function connect() {
-		connectDrawer?.open(resourceType, undefined, requiredScopes)
+		connectDrawer?.open(resourceType, undefined, requiredScopes, true)
 	}
 
 	async function onConnected(path: string) {
@@ -109,9 +109,12 @@
 			})
 			if (!confirmed) return
 		}
-		connectDrawer?.open(resourceType, c.path, [
-			...new Set([...requiredScopes, ...(c.scopes ?? [])])
-		])
+		connectDrawer?.open(
+			resourceType,
+			c.path,
+			[...new Set([...requiredScopes, ...(c.scopes ?? [])])],
+			true
+		)
 	}
 
 	async function disconnect(path: string) {
