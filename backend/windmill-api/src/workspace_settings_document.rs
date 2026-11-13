@@ -81,6 +81,7 @@ struct SettingsRow {
     slack_oauth_client_secret: Option<String>,
     ducklake: Option<Value>,
     dbt_warehouses: Option<Value>,
+    mcp_tool_sets: Option<Value>,
     deploy_ui: Option<Value>,
     teams_command_script: Option<String>,
     public_app_execution_limit_per_minute: Option<i32>,
@@ -355,7 +356,7 @@ pub async fn load_settings_document(
              ai_config, large_file_storage,
              git_sync, default_app, default_scripts, workspace.name AS name, mute_critical_alerts,
              color, operator_settings, datatable, slack_team_id, slack_name, slack_command_script,
-             slack_oauth_client_id, slack_oauth_client_secret, ducklake, dbt_warehouses, deploy_ui,
+             slack_oauth_client_id, slack_oauth_client_secret, ducklake, dbt_warehouses, mcp_tool_sets, deploy_ui,
              teams_command_script, public_app_execution_limit_per_minute,
              guest_jwt_public_key, guest_jwt_jwks_url, error_handler_fallback_to_instance_alerts,
              add_admins_and_developers_to_forks
@@ -416,7 +417,7 @@ pub async fn load_settings_document(
     // In the order `wmill sync pull` has always written settings.yaml. A key that predates the
     // document and is not marked `always` is written only when set, as it always was; a key
     // added since is always written, so a pulled file states it and from then on manages it.
-    let entries: [(&str, Option<Value>, bool); 33] = [
+    let entries: [(&str, Option<Value>, bool); 34] = [
         ("auto_invite", row.auto_invite, false),
         ("webhook", webhook.map(Value::String), false),
         ("webhook_events", row.webhook_events.map(|e| json!(e)), true),
@@ -465,6 +466,7 @@ pub async fn load_settings_document(
         ),
         ("ducklake", row.ducklake, true),
         ("dbt_warehouses", row.dbt_warehouses, true),
+        ("mcp_tool_sets", row.mcp_tool_sets, true),
         ("deploy_ui", row.deploy_ui, true),
         (
             "teams_command_script",
@@ -771,6 +773,7 @@ const KNOWN_KEYS: &[&str] = &[
     "slack_oauth_client_secret",
     "ducklake",
     "dbt_warehouses",
+    "mcp_tool_sets",
     "deploy_ui",
     "teams_command_script",
     "public_app_execution_limit_per_minute",
@@ -1626,6 +1629,14 @@ fn plan_document(
         dbt,
         Target::Edit(SettingsEdit::DbtWarehouses),
         |v| json!({ "dbt_warehouses": v }),
+    );
+
+    let mcp_tool_sets = p.managed("mcp_tool_sets");
+    p.simple(
+        "mcp_tool_sets",
+        mcp_tool_sets,
+        Target::Edit(SettingsEdit::McpToolSets),
+        |v| json!({ "mcp_tool_sets": v }),
     );
 
     let deploy_ui = p.managed("deploy_ui");

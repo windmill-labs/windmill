@@ -3,6 +3,8 @@
 //! Contains utilities for parsing and matching MCP token scopes to determine
 //! which scripts, flows, and endpoints a token has access to.
 
+use windmill_common::mcp_tool_sets::SET_SCOPE_PREFIX;
+
 /// Configuration for MCP scopes parsed from token scopes
 #[derive(Debug, Clone, Default)]
 pub struct McpScopeConfig {
@@ -31,6 +33,10 @@ pub struct McpScopeConfig {
     /// No endpoint tools on any URL: set by `mcp:read_only`, `mcp:read_run` and
     /// `mcp:runnables_as_tools`, and by the server on `/api/mcp` for a selection.
     pub no_endpoints: bool,
+    /// Named tool sets (`mcp:set:<name>`). The scope selects nothing itself: the server adds the
+    /// set's paths as `mcp:scripts:`/`mcp:flows:` on each request, so an unexpanded set token
+    /// reaches no runnable.
+    pub sets: Vec<String>,
 }
 
 impl McpScopeConfig {
@@ -104,6 +110,9 @@ impl McpScopeConfig {
             return true;
         }
         if requested.all {
+            return false;
+        }
+        if !requested.sets.iter().all(|s| self.sets.contains(s)) {
             return false;
         }
         if requested.favorites && !self.favorites {
@@ -243,6 +252,12 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
             continue;
         }
 
+        if let Some(name) = scope.strip_prefix(SET_SCOPE_PREFIX) {
+            config.sets.push(name.to_string());
+            config.no_endpoints = true;
+            continue;
+        }
+
         if let Some(ids) = scope.strip_prefix("mcp:workspaces:") {
             config
                 .workspaces
@@ -330,6 +345,19 @@ fn resource_matches_pattern(resource_path: &str, pattern: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tool_set_is_approved_only_by_a_holder_of_it() {
+        let parse = |s: &[&str]| {
+            parse_mcp_scopes(&s.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+        };
+        let set = parse(&["mcp:set:support"]);
+        assert!(set.no_endpoints && set.scripts.is_empty() && set.flows.is_empty());
+        assert!(!parse(&["mcp:scripts:f/x/*"]).contains(&set));
+        assert!(!parse(&["mcp:set:other"]).contains(&set));
+        assert!(parse(&["mcp:set:support"]).contains(&set));
+        assert!(parse(&["mcp:all"]).contains(&set));
+    }
 
     #[test]
     fn test_parse_legacy_scopes() {

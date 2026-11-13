@@ -4447,6 +4447,8 @@ paths:
                     $ref: "#/components/schemas/DucklakeSettings"
                   dbt_warehouses:
                     $ref: "#/components/schemas/DbtWarehouses"
+                  mcp_tool_sets:
+                    $ref: "#/components/schemas/McpToolSets"
                   datatable:
                     $ref: "#/components/schemas/DataTableSettings"
                   git_sync:
@@ -5602,6 +5604,31 @@ paths:
               properties:
                 dbt_warehouses:
                   $ref: "#/components/schemas/DbtWarehouses"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/edit_mcp_tool_sets:
+    post:
+      summary: edit the workspace's MCP tool sets
+      operationId: editMcpToolSets
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: MCP tool sets, by name
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mcp_tool_sets:
+                  $ref: "#/components/schemas/McpToolSets"
       responses:
         "200":
           description: status
@@ -39064,6 +39091,26 @@ components:
             type: string
         required:
           - resource_path
+
+    McpToolSets:
+      type: object
+      description: >-
+        Named selections of scripts and flows, each served at
+        /api/mcp/w/{workspace}/s/{name}/mcp. A member signed in to a set gets the
+        scripts and flows of the set they can run, as tools.
+      additionalProperties:
+        type: object
+        properties:
+          scripts:
+            type: array
+            items:
+              type: string
+          flows:
+            type: array
+            items:
+              type: string
+          instructions:
+            type: string
 
     DbtWarehouseConnection:
       type: object

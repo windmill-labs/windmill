@@ -70,6 +70,7 @@ export interface SimplifiedSettings {
   slack_oauth_client_secret?: string;
   ducklake?: any;
   dbt_warehouses?: any;
+  mcp_tool_sets?: any;
   deploy_ui?: any;
   teams_command_script?: string | null;
   public_app_execution_limit_per_minute?: number | null;
@@ -86,6 +87,7 @@ export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
   "datatable_permissions",
   "ducklake",
   "dbt_warehouses",
+  "mcp_tool_sets",
   "deploy_ui",
   "teams_command_script",
   "public_app_execution_limit_per_minute",

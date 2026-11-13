@@ -138,6 +138,7 @@ pub fn workspaced_service() -> Router {
             post(edit_large_file_storage_config),
         )
         .route("/edit_dbt_warehouses", post(edit_dbt_warehouses))
+        .route("/edit_mcp_tool_sets", post(edit_mcp_tool_sets))
         .route("/edit_ducklake_config", post(edit_ducklake_config))
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/list_datatables", get(list_datatables))
@@ -319,6 +320,8 @@ pub struct WorkspaceSettings {
     /// Pointers to the resources dbt scripts run against by default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dbt_warehouses: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_tool_sets: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1201,6 +1204,7 @@ async fn get_settings(
             webhook_events,
             ai_config,
             dbt_warehouses,
+            mcp_tool_sets,
             large_file_storage,
             datatable,
             ducklake,
@@ -2272,6 +2276,49 @@ async fn edit_dbt_warehouses(
     .await?;
     tx.commit().await?;
     Ok("Updated the workspace's dbt warehouses".to_string())
+}
+
+#[derive(serde::Deserialize)]
+struct EditMcpToolSets {
+    mcp_tool_sets: Option<windmill_common::mcp_tool_sets::McpToolSets>,
+}
+
+/// The workspace's named MCP tool sets, each served at `/api/mcp/w/{workspace}/s/{name}/mcp`.
+async fn edit_mcp_tool_sets(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(new_config): Json<EditMcpToolSets>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let sets = new_config.mcp_tool_sets.filter(|s| !s.is_empty());
+    if let Some(sets) = sets.as_ref() {
+        windmill_common::mcp_tool_sets::validate_tool_sets(sets)?;
+    }
+    let value = sets
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| Error::internal_err(format!("serializing the MCP tool sets: {e}")))?;
+    let mut tx = db.begin().await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_mcp_tool_sets",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("mcp_tool_sets", format!("{value:?}").as_str())].into()),
+    )
+    .await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET mcp_tool_sets = $1 WHERE workspace_id = $2",
+        value,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok("Updated the workspace's MCP tool sets".to_string())
 }
 
 /// A fork's isolated storage is purged at deletion from the storage recorded at creation: under
@@ -7973,6 +8020,7 @@ async fn update_workspace_settings(
             large_file_storage = source_ws.large_file_storage,
             ducklake = source_ws.ducklake,
             dbt_warehouses = source_ws.dbt_warehouses,
+            mcp_tool_sets = source_ws.mcp_tool_sets,
             datatable = source_ws.datatable,
             git_app_installations = source_ws.git_app_installations,
             add_admins_and_developers_to_forks = source_ws.add_admins_and_developers_to_forks
@@ -15885,6 +15933,7 @@ pub enum SettingsEdit {
     DeleteSlackOAuth,
     Ducklake,
     DbtWarehouses,
+    McpToolSets,
     DeployUi,
     GuestJwtKey,
     PublicAppRateLimit,
@@ -15957,6 +16006,7 @@ pub async fn apply_settings_edit(
         DeleteSlackOAuth => delete_slack_oauth_config(a, d, p).await?,
         Ducklake => edit_ducklake_config(a, d, p, settings_edit_body(edit, body)?).await?,
         DbtWarehouses => edit_dbt_warehouses(a, d, p, settings_edit_body(edit, body)?).await?,
+        McpToolSets => edit_mcp_tool_sets(a, d, p, settings_edit_body(edit, body)?).await?,
         #[cfg(feature = "enterprise")]
         DeployUi => edit_deploy_ui_config(a, d, p, settings_edit_body(edit, body)?).await?,
         #[cfg(not(feature = "enterprise"))]

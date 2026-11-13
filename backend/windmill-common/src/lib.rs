@@ -98,6 +98,7 @@ pub mod job_provenance;
 pub mod jobs;
 pub mod jwt;
 pub mod login_rate_limit;
+pub mod mcp_tool_sets;
 pub mod more_serde;
 pub mod oauth2;
 #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]

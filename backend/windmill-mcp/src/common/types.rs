@@ -27,6 +27,11 @@ pub struct MultiWorkspaceMcp;
 #[derive(Clone, Debug)]
 pub struct NoEndpointTools;
 
+/// What the admin wrote for the tool set a connection is signed in to, added to the tools
+/// server's instructions.
+#[derive(Clone, Debug)]
+pub struct ToolSetInstructions(pub String);
+
 /// Raw bearer token wrapper for Axum extensions. In multi-workspace mode the
 /// runner needs the raw token to re-resolve auth for each requested workspace.
 #[derive(Clone, Debug)]

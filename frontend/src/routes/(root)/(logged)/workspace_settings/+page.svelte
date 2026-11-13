@@ -91,6 +91,11 @@
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
 	} from '$lib/components/workspaceSettings/DbtSettings.svelte'
+	import McpToolSetsSettings, {
+		convertMcpToolSetsFromBackend,
+		discardMcpToolSets,
+		type McpToolSetsType
+	} from '$lib/components/workspaceSettings/McpToolSetsSettings.svelte'
 	import DucklakeSettings, {
 		convertDucklakeSettingsFromBackend,
 		type DucklakeSettingsType
@@ -362,6 +367,8 @@
 
 	let dbtSettings: DbtSettingsType = $state({ warehouses: [] })
 	let dbtSavedSettings: DbtSettingsType = $state(untrack(() => dbtSettings))
+	let mcpToolSets: McpToolSetsType = $state({ sets: [] })
+	let mcpToolSetsSaved: McpToolSetsType = $state(untrack(() => mcpToolSets))
 	let ducklakeSettings: DucklakeSettingsType = $state({ ducklakes: [] })
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
@@ -587,6 +594,7 @@
 			| 'volume_storage'
 			| 'ducklake'
 			| 'dbt'
+			| 'mcp_tool_sets'
 			| 'git_sync'
 			| 'default_app'
 			| 'native_triggers'
@@ -913,6 +921,8 @@
 		dataTableSettings = convertDataTableSettingsFromBackend(settings.datatable)
 		dbtSettings = convertDbtSettingsFromBackend(settings.dbt_warehouses)
 		dbtSavedSettings = clone(dbtSettings)
+		mcpToolSets = convertMcpToolSetsFromBackend(settings.mcp_tool_sets)
+		mcpToolSetsSaved = clone(mcpToolSets)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 
@@ -1451,6 +1461,11 @@
 				return getDucklakeSettingsInitialAndModifiedValues()
 			case 'dbt':
 				return getDbtSettingsInitialAndModifiedValues()
+			case 'mcp_tool_sets':
+				return {
+					savedValue: { mcpToolSets: mcpToolSetsSaved },
+					modifiedValue: { mcpToolSets }
+				}
 			case 'dev_workspace':
 				return getDeploySettingsInitialAndModifiedValues()
 			case 'webhook':
@@ -1541,6 +1556,9 @@
 			case 'dbt':
 				dbtSettings = clone(dbtSavedSettings)
 				break
+			case 'mcp_tool_sets':
+				mcpToolSets = discardMcpToolSets(mcpToolSetsSaved)
+				break
 			case 'default_app':
 				discardDefaultAppSettingsChanges()
 				break
@@ -1568,6 +1586,12 @@
 					label: 'Windmill AI',
 					aiId: 'workspace-settings-ai',
 					aiDescription: 'Windmill AI workspace settings'
+				},
+				{
+					id: 'mcp_tool_sets',
+					label: 'MCP tool sets',
+					aiId: 'workspace-settings-mcp-tool-sets',
+					aiDescription: 'Named selections of scripts and flows served at their own MCP URL'
 				},
 				{
 					id: 'premium',
@@ -2715,6 +2739,14 @@ export async function main(
 								}}
 								onDiscard={() => {
 									s3ResourceSettings = clone(s3ResourceSavedSettings)
+								}}
+							/>
+						{:else if tab == 'mcp_tool_sets'}
+							<McpToolSetsSettings
+								bind:mcpToolSets
+								bind:mcpToolSetsSaved
+								onDiscard={() => {
+									mcpToolSets = discardMcpToolSets(mcpToolSetsSaved)
 								}}
 							/>
 						{:else if tab == 'dbt'}

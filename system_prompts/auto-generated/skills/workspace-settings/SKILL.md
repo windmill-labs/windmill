@@ -50,6 +50,7 @@ write a secret you were not given: keep the placeholder.
 | `protection_rules` | `{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...], fork_role_mapping?: { <role here>: <role in its forks> } } }`, rules among `DisableDirectDeployment`, `DisableWorkspaceForking`, `RestrictDeployToDeployers`, `RestrictAnonymousAppDeployment`, `RestrictPublicRunSharing`, `RestrictGuestAppDeployment`, `RequireIsolatedForks`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
 | `ducklake` | `{ ducklakes: { <name>: { catalog, storage, ... } } }`. |
 | `dbt_warehouses` | dbt warehouse connections. |
+| `mcp_tool_sets` | `{ <name>: { scripts?: [paths], flows?: [paths], instructions? } }`: selections of scripts and flows, each served at `/api/mcp/w/<workspace>/s/<name>/mcp`. Paths are exact or end in `/*`. A member signed in to a set gets the ones they can run. |
 | `default_app` | Path of the app shown as the workspace home. |
 | `default_scripts` | `{ order?, hidden?, default_script_content? }` for the script language picker. |
 | `deploy_ui` | `{ include_path?, include_type? }`: what the deploy-to-workspace UI offers. |
@@ -77,7 +78,7 @@ With `includeSettings: true` in `wmill.yaml`, `wmill sync pull` writes the docum
 `settings.yaml`, secrets encrypted with the workspace key (plaintext only with `plainSecrets`), and
 `wmill sync push` applies it. Unlike a partial apply, a push treats the file as the whole
 document: a setting the file omits is cleared, except `operator_settings`, `role_overrides`, `color`, the auto-invite
-instance groups, and the keys `ducklake`, `dbt_warehouses`, `deploy_ui`, `teams_command_script`,
+instance groups, and the keys `ducklake`, `dbt_warehouses`, `mcp_tool_sets`, `deploy_ui`, `teams_command_script`,
 `public_app_execution_limit_per_minute`, `guest_jwt_public_key`, `guest_jwt_jwks_url`,
 `error_handler_fallback_to_instance_alerts` and
 `add_admins_and_developers_to_forks`, which are managed only when the file states them.

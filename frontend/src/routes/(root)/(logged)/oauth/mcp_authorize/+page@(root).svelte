@@ -13,6 +13,7 @@
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { listEveryWorkspace } from '$lib/mcpAuth'
 	import { sendUserToast } from '$lib/toast'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import Check from 'lucide-svelte/icons/check'
 
 	// Get OAuth params from URL
@@ -32,7 +33,9 @@
 		askedScopes.includes('mcp:read_run')
 			? askedScopes.filter((s) => s !== 'mcp:read_only' && s !== 'mcp:read_run')
 			: askedScopes
-	let scopes = $state<string[]>([])
+	// A tool set's URL asks for that set, which its workspace's admins chose: nothing to pick.
+	const toolSet = askedScopes.find((s) => s.startsWith('mcp:set:'))?.slice('mcp:set:'.length)
+	let scopes = $state<string[]>(toolSet ? [`mcp:set:${toolSet}`, 'mcp:runnables_as_tools'] : [])
 	let access = $state<McpAccess>()
 	let oauthState = page.url.searchParams.get('state') || ''
 	let codeChallenge = page.url.searchParams.get('code_challenge') || ''
@@ -176,6 +179,7 @@
 					params.set('state', data.state)
 				}
 				const url = `${redirectUri}?${params.toString()}`
+				if (toolSet) logFeatureUsage('mcp_tool_set', 'connected')
 				success = true
 				successRedirectUrl = url
 				loading = false
@@ -278,33 +282,40 @@
 				</div>
 			{/if}
 
-			<div class="mb-6 flex flex-col gap-1">
-				<McpAccessPicker
-					workspaceId={scopeWorkspaceId ?? ''}
-					workspaces={isGateway
-						? allWorkspaces
-							? memberWorkspaces.map((w) => w.value)
-							: pickedWorkspaces
-						: [workspaceId]}
-					initialScopes={requestedScopes}
-					bind:scopes
-					bind:access={() => access, setAccess}
-				>
-					{#snippet afterAccess()}
-						{#if isSuperAdmin}
-							<Toggle
-								bind:checked={() => superAdmin, setSuperAdmin}
-								options={{
-									right: 'Superadmin rights',
-									rightTooltip:
-										'The token carries your superadmin rights: admin in every workspace of the instance, including ones you are not a member of.'
-								}}
-								size="xs"
-							/>
-						{/if}
-					{/snippet}
-				</McpAccessPicker>
-			</div>
+			{#if toolSet}
+				<p class="mb-6 text-center text-xs text-secondary">
+					It gets the <span class="font-semibold text-emphasis">{toolSet}</span> tool set: the scripts
+					and flows its admins put in it that you can run, each as a tool.
+				</p>
+			{:else}
+				<div class="mb-6 flex flex-col gap-1">
+					<McpAccessPicker
+						workspaceId={scopeWorkspaceId ?? ''}
+						workspaces={isGateway
+							? allWorkspaces
+								? memberWorkspaces.map((w) => w.value)
+								: pickedWorkspaces
+							: [workspaceId]}
+						initialScopes={requestedScopes}
+						bind:scopes
+						bind:access={() => access, setAccess}
+					>
+						{#snippet afterAccess()}
+							{#if isSuperAdmin}
+								<Toggle
+									bind:checked={() => superAdmin, setSuperAdmin}
+									options={{
+										right: 'Superadmin rights',
+										rightTooltip:
+											'The token carries your superadmin rights: admin in every workspace of the instance, including ones you are not a member of.'
+									}}
+									size="xs"
+								/>
+							{/if}
+						{/snippet}
+					</McpAccessPicker>
+				</div>
+			{/if}
 
 			<div class="flex flex-row justify-around gap-x-4">
 				<Button variant="border" size="lg" disabled={loading} onClick={onDeny}>Deny</Button>
