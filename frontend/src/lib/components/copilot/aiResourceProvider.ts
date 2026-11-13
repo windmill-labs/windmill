@@ -18,6 +18,14 @@ export const AI_RESOURCE_TYPE_ALTERNATIVES: Record<
 	}
 }
 
+/** The provider a Vertex AI endpoint serves, read off its `publishers/<publisher>` segment. */
+export function vertexPublisherProvider(baseUrl: unknown): AIProvider | undefined {
+	if (typeof baseUrl !== 'string') return undefined
+	if (baseUrl.includes('/publishers/anthropic/')) return 'anthropic'
+	if (baseUrl.includes('/publishers/google/')) return 'googleai'
+	return undefined
+}
+
 /** The AI provider a resource of this type holds credentials for, if any. A
  *  `vertex_ai_federated` resource serves both Claude and Gemini, so its provider is the publisher
  *  its `base_url` names, Google when it names none yet. */
@@ -28,8 +36,7 @@ export function aiResourceProvider(
 	if (resourceType === 'openai_client_credentials_oauth') return 'openai'
 	if (resourceType === 'anthropic_federated') return 'anthropic'
 	if (resourceType === 'vertex_ai_federated') {
-		const baseUrl = typeof value?.base_url === 'string' ? value.base_url : ''
-		return baseUrl.includes('/publishers/anthropic/') ? 'anthropic' : 'googleai'
+		return vertexPublisherProvider(value?.base_url) ?? 'googleai'
 	}
 	return resourceType && Object.hasOwn(AI_PROVIDERS, resourceType)
 		? (resourceType as AIProvider)
