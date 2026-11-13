@@ -2418,13 +2418,14 @@ struct JobRunnable {
     target: Option<(RunnableAclKind, String)>,
 }
 
-/// One query for all `ids`. A saved agent's run is a flow preview under its path (its chat turns
-/// under `<agent>.chat`), a script or flow wrapped for retries or an error handler a single-step
-/// flow, and a preview's path the label `require_preview_label_runnable` checks; recognized as
-/// `require_job_within_read_scope` does.
+/// One query for all `ids`. A step of a run (a flow's module, a branch, a workflow-as-code child)
+/// stands for the run it belongs to, as only the top level needs run. A saved agent's run is a
+/// flow preview under its path (its chat turns under `<agent>.chat`), a script or flow wrapped
+/// for retries or an error handler a single-step flow, and a preview's path the label
+/// `require_preview_label_runnable` checks; recognized as `require_job_within_read_scope` does.
 async fn job_runnables(db: &DB, w_id: &str, ids: &[Uuid]) -> error::Result<Vec<JobRunnable>> {
     let rows = sqlx::query!(
-        r#"SELECT j.id AS "id!", j.created_by AS "created_by!",
+        r#"SELECT s.id AS "id!", j.created_by AS "created_by!",
                 CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\.chat$', '')
                     ELSE j.runnable_path END AS runnable_path,
                 CASE
@@ -2441,11 +2442,13 @@ async fn job_runnables(db: &DB, w_id: &str, ids: &[Uuid]) -> error::Result<Vec<J
                                 'script'
                             ) = 'flow' THEN 'flow' ELSE 'script' END
                 END AS acl_kind
-            FROM v2_job j,
+            FROM v2_job s
+            JOIN v2_job j ON j.id = COALESCE(s.root_job, s.flow_innermost_root_job, s.parent_job, s.id)
+                AND j.workspace_id = s.workspace_id,
             LATERAL (SELECT j.kind = 'flowpreview'
                 AND j.raw_flow->'modules'->1 IS NULL
                 AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a
-            WHERE j.id = ANY($1) AND j.workspace_id = $2"#,
+            WHERE s.id = ANY($1) AND s.workspace_id = $2"#,
         ids,
         w_id,
     )
