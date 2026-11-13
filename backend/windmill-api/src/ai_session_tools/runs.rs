@@ -1862,7 +1862,14 @@ async fn list_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     }
     // A flow's inline steps run at paths under the flow's, so a set's queries name the kind too.
     let queries: Vec<String> = match (&set, path) {
-        (Some(_), Some(_)) => vec![format!("{query}&job_kinds=script,flow")],
+        (Some(set), Some(path)) => {
+            // Only the kinds the set holds at this path: a script and a flow can share one.
+            let kinds: Vec<&str> = ["script", "flow"]
+                .into_iter()
+                .filter(|kind| set.allows(kind, path))
+                .collect();
+            vec![format!("{query}&job_kinds={}", kinds.join(","))]
+        }
         (Some(set), None) => set
             .run_queries()
             .into_iter()
