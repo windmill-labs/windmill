@@ -1619,6 +1619,27 @@ from datetime import datetime, date
 
 scripts = {{}}
 
+# `step_id`, `job_id` and `flow_path` are per job, so the worker adds them, not this process.
+def error_json(e, tb):
+    err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
+    extra = getattr(e, '__dict__', None)
+    if extra:
+        err['extra'] = extra
+    try:
+        return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+    except Exception:
+        pass
+    # A cyclic attribute would raise here and end the process every later job runs in.
+    safe = {{}}
+    for k, v in extra.items():
+        try:
+            json.dumps(v, default=str)
+            safe[k] = v
+        except Exception:
+            safe[k] = '[unserializable]'
+    err['extra'] = safe
+    return json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
+
 def to_b_64(v: bytes):
     b64 = base64.b64encode(v)
     return b64.decode('ascii')
@@ -1677,7 +1698,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1705,7 +1726,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1723,7 +1744,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue
@@ -1751,7 +1772,7 @@ for line in sys.stdin:
         except BaseException as e:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             tb = traceback.format_tb(exc_traceback)
-            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            err_json = error_json(e, tb)
             sys.stdout.write("wm_res[error]:" + err_json + "\n")
         sys.stdout.flush()
         continue

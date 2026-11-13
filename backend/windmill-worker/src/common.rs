@@ -526,6 +526,23 @@ pub fn capitalize(s: &str) -> String {
     }
 }
 
+/// `WM_FLOW_PATH` of a job: the path of the flow it is a step of.
+pub async fn parent_flow_path(
+    parent_job: Option<uuid::Uuid>,
+    db: &Connection,
+) -> Result<Option<String>, Error> {
+    match (parent_job, db) {
+        (Some(uuid), Connection::Sql(db)) => Ok(sqlx::query_scalar!(
+            "SELECT runnable_path FROM v2_job WHERE id = $1",
+            uuid
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()),
+        _ => Ok(None),
+    }
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn get_reserved_variables(
     job: &MiniPulledJob,
@@ -535,18 +552,8 @@ pub async fn get_reserved_variables(
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if parent_runnable_path.is_some() {
         parent_runnable_path
-    } else if let Some(uuid) = job.parent_job {
-        match db {
-            Connection::Sql(db) => {
-                sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", uuid)
-                    .fetch_optional(db)
-                    .await?
-                    .flatten()
-            }
-            Connection::Http(_) => None,
-        }
     } else {
-        None
+        parent_flow_path(job.parent_job, db).await?
     };
 
     let tested_runnable = match (&job.trigger_kind, &job.trigger) {
