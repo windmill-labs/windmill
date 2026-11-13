@@ -570,7 +570,7 @@
 						{@const credsSet = !!(oauths[k]['id'] && oauths[k]['secret'])}
 						{@const ccDesc = custom
 							? 'Users connect as this app without entering anything or seeing its secret.'
-							: 'Users connect as this app without entering anything or seeing its secret. Their own client credentials work either way.'}
+							: 'Users connect as this app without entering anything or seeing its secret. Users can still connect with their own client credentials.'}
 						<div class="flex flex-col gap-2 pb-6">
 							<div class="flex flex-row items-center gap-2">
 								<IconComponent size={24} width="24" height="24" class="shrink-0" />
@@ -627,19 +627,22 @@
 									</div>
 								{/if}
 								{#if custom}
-									<!-- Sharing needs the client credentials grant, so turning this off stops sharing too. -->
-									<div class="flex flex-col gap-1">
-										<Toggle
-											size="xs"
-											options={{ right: 'Supports client credentials' }}
-											checked={ownCc}
-											on:change={(e) => setServerToServer(k, e.detail)}
-										/>
-										<span class="text-2xs text-secondary"
-											>The provider accepts the client credentials grant. Users can connect with
-											their own client ID and secret.</span
-										>
-									</div>
+									{@const supportsDesc =
+										'The provider accepts the client credentials grant. Users can connect with their own client ID and secret.'}
+									<!-- Sharing needs the client credentials grant, so it is fixed while sharing is on. -->
+									{#if shared}
+										{@render fixedWay('Supports client credentials', supportsDesc)}
+									{:else}
+										<div class="flex flex-col gap-1">
+											<Toggle
+												size="xs"
+												options={{ right: 'Supports client credentials' }}
+												checked={ownCc}
+												on:change={(e) => setServerToServer(k, e.detail)}
+											/>
+											<span class="text-2xs text-secondary">{supportsDesc}</span>
+										</div>
+									{/if}
 								{/if}
 								<div class="flex flex-col gap-3">
 									<span class="text-xs font-semibold text-emphasis">OAuth app</span>
@@ -752,7 +755,8 @@
 											{/if}
 										{/if}
 										{#if !single && grants(k).length === 0}
-											<span class="text-2xs text-red-500">Turn on a way to save this provider.</span
+											<span class="text-2xs text-red-500"
+												>Turn on at least one option to save this provider.</span
 											>
 										{/if}
 									</div>
