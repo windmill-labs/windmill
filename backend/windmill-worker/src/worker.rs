@@ -4027,21 +4027,32 @@ pub async fn run_worker(
                     let restricted = job.job_token_scopes.is_some();
 
                     if !dedicated_workers.is_empty() && !fails_before_running && !restricted {
-                        let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
-                            // For flow steps inside branches/loops, runnable_path includes
-                            // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
-                            // worker map is keyed by flow_root/step_id (e.g. f/flow/a).
-                            // When nesting segments are present, use flow_root + flow_step_id
-                            // to construct the correct key.
-                            let key =
-                                if let Some(flow_root) = crate::common::extract_flow_root(path) {
+                        let dedicated_worker_tx = job
+                            .runnable_path
+                            .as_ref()
+                            .and_then(|path| {
+                                // For flow steps inside branches/loops, runnable_path includes
+                                // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
+                                // worker map is keyed by flow_root/step_id (e.g. f/flow/a).
+                                // When nesting segments are present, use flow_root + flow_step_id
+                                // to construct the correct key.
+                                let key = if let Some(flow_root) =
+                                    crate::common::extract_flow_root(path)
+                                {
                                     let step_id = job.flow_step_id.as_deref().unwrap_or("");
                                     format!("{}:{}/{}", job.workspace_id, flow_root, step_id)
                                 } else {
                                     format!("{}:{}", job.workspace_id, path)
                                 };
-                            dedicated_workers.get(&key)
-                        });
+                                dedicated_workers.get(&key)
+                            })
+                            .or_else(|| {
+                                dedicated_workers.get(&crate::common::flow_script_step_runner_key(
+                                    &job.tag,
+                                    job.flow_step_id.as_deref()?,
+                                    job.runnable_id?,
+                                ))
+                            });
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {
                             let dedicated_job = DedicatedWorkerJob {
                                 job: Arc::new(job.job()),
