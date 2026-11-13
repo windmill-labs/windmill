@@ -518,6 +518,14 @@ lazy_static::lazy_static! {
     /// `should_admit_capped` is moot and "admit all" is the correct no-op.
     pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
 
+    /// Pulls nothing while no workspace is overloaded, and otherwise only jobs of the workspaces
+    /// that are not. See "Reserve workers" in `windmill_queue::workspace_fairness`.
+    pub static ref WORKSPACE_FAIRNESS_RESERVE_WORKER: bool =
+        std::env::var("WORKSPACE_FAIRNESS_RESERVE_WORKER")
+            .ok()
+            .and_then(|x| x.parse::<bool>().ok())
+            .unwrap_or(false);
+
     /// Cloud-only ceiling on the number of jobs queued behind a single concurrency key.
     /// A concurrency-limited key drains at most `concurrent_limit` jobs per window, so a
     /// producer pushing faster than that grows an unbounded backlog that no amount of
