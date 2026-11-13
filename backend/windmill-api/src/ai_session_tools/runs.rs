@@ -1846,6 +1846,11 @@ async fn list_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .unwrap_or(30)
         .clamp(1, 100);
     let mut query = format!("per_page={limit}");
+    if set.is_some() {
+        // A flow's inline steps run at paths under the flow's: unfiltered, they would fill
+        // the page before the set's filter below drops them.
+        query.push_str("&job_kinds=script,flow");
+    }
     if let Some(prefixes) = set
         .as_ref()
         .filter(|_| path.is_none())

@@ -80,3 +80,74 @@ async fn tool_set_narrows_to_what_the_member_can_see(db: Pool<Postgres>) -> anyh
     );
     Ok(())
 }
+
+async fn call(
+    port: u16,
+    path: &str,
+    token: &str,
+    name: &str,
+    args: Value,
+) -> anyhow::Result<String> {
+    let body = reqwest::Client::new()
+        .post(format!("http://localhost:{port}{path}"))
+        .bearer_auth(token)
+        .header("accept", "application/json, text/event-stream")
+        .header("mcp-protocol-version", "2025-06-18")
+        .json(&json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                      "params": {"name": name, "arguments": args}}))
+        .send()
+        .await?
+        .text()
+        .await?;
+    Ok(body)
+}
+
+/// The set's run tools read only the set's runs, though the member may see others.
+#[sqlx::test(fixtures("base"))]
+async fn run_history_stays_in_the_set(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+    sqlx::raw_sql(
+        r#"
+        INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES
+            ('test-workspace', 'ops', 'ops', ARRAY['u/test-user'], '{"u/test-user-3": false}'),
+            ('test-workspace', 'internal', 'internal', ARRAY['u/test-user'], '{"u/test-user-3": false}');
+        INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, kind, runnable_path) VALUES
+            ('11111111-0000-0000-0000-000000000001', 'test-workspace', 'test-user', 'u/test-user', 'script', 'f/ops/check_order'),
+            ('11111111-0000-0000-0000-000000000002', 'test-workspace', 'test-user', 'u/test-user', 'script', 'f/internal/secret');
+        INSERT INTO v2_job_completed (id, workspace_id, duration_ms, status) VALUES
+            ('11111111-0000-0000-0000-000000000001', 'test-workspace', 1, 'success'),
+            ('11111111-0000-0000-0000-000000000002', 'test-workspace', 1, 'success');
+        UPDATE workspace_settings
+           SET mcp_tool_sets = '{"support": {"scripts": ["f/ops/*"], "run_history": true}}'
+         WHERE workspace_id = 'test-workspace';
+        INSERT INTO token (token_hash, token_prefix, email, label, super_admin, scopes, workspace_id) VALUES
+            (encode(sha256('RUN_SET_TOKEN'::bytea), 'hex'), 'RUN_SET_TO', 'test3@windmill.dev', 'mcp', false,
+             ARRAY['mcp:set:support', 'mcp:runnables_as_tools'], 'test-workspace');
+        "#,
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start_mcp(db.clone()).await?;
+    let port = server.addr.port();
+    const SET_URL: &str = "/api/mcp/w/test-workspace/s/support/mcp";
+
+    let listed = call(port, SET_URL, "RUN_SET_TOKEN", "list_runs", json!({})).await?;
+    assert!(listed.contains("f/ops/check_order"), "{listed}");
+    assert!(!listed.contains("f/internal/secret"), "{listed}");
+
+    let outside = call(
+        port,
+        SET_URL,
+        "RUN_SET_TOKEN",
+        "get_run",
+        json!({"id": "11111111-0000-0000-0000-000000000002"}),
+    )
+    .await?;
+    assert!(
+        outside.contains("not in this connection's tool set"),
+        "{outside}"
+    );
+    Ok(())
+}
