@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.873.1](https://github.com/windmill-labs/windmill/compare/v1.873.0...v1.873.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* keep static input references in raw-app source deploy policies ([#12428](https://github.com/windmill-labs/windmill/issues/12428)) ([a64dc9a](https://github.com/windmill-labs/windmill/commit/a64dc9a5605dc297f28f8f7afd15e06fc9d17ce3))
+* keep step_id, job_id, flow_path and extra on dedicated worker errors ([#12417](https://github.com/windmill-labs/windmill/issues/12417)) ([3b860d5](https://github.com/windmill-labs/windmill/commit/3b860d549e3819f6a849704737742b6c00377252))
+* revoke api tokens and mcp oauth grants on leave_instance ([#12430](https://github.com/windmill-labs/windmill/issues/12430)) ([2c39bf0](https://github.com/windmill-labs/windmill/commit/2c39bf044a04ca20f2f076ecc79d64f341f35261))
+* run dedicated flow script steps on their runners ([#12419](https://github.com/windmill-labs/windmill/issues/12419)) ([f738a4b](https://github.com/windmill-labs/windmill/commit/f738a4bad4e211ded0a39d48722544f9321e0190))
+
+## [1.873.0](https://github.com/windmill-labs/windmill/compare/v1.872.0...v1.873.0) (2026-11-13)
+
+
+### Features
+
+* show session status or unread count on the folded AI sessions section ([#12351](https://github.com/windmill-labs/windmill/issues/12351)) ([16fe0b2](https://github.com/windmill-labs/windmill/commit/16fe0b2e7450ddfe8bf9a101dbf6d414c5ed0405))
+* vertex_ai_federated resource type for workload identity federation ([#12416](https://github.com/windmill-labs/windmill/issues/12416)) ([c93a173](https://github.com/windmill-labs/windmill/commit/c93a17396c818b04951940e324057c8b8ae03a3c))
+
+
+### Bug Fixes
+
+* keep the (edit) suffix visible on truncated session tabs ([#12384](https://github.com/windmill-labs/windmill/issues/12384)) ([18224a2](https://github.com/windmill-labs/windmill/commit/18224a2cd86fe84421e8e5a51112a46db900bcd5))
+* stop logging credential-bearing instance setting values ([#12413](https://github.com/windmill-labs/windmill/issues/12413)) ([b2793f2](https://github.com/windmill-labs/windmill/commit/b2793f2aca67c650fd7f41d273f4b21761f903c5))
+
+## [1.872.0](https://github.com/windmill-labs/windmill/compare/v1.871.1...v1.872.0) (2026-11-13)
+
+
+### Features
+
+* background tools for ai agent steps ([#11827](https://github.com/windmill-labs/windmill/issues/11827)) ([10a8577](https://github.com/windmill-labs/windmill/commit/10a8577fab558d4c76cc7526a6a4c63bee9040e8))
+* clarify OAuth connect levels and client credential sharing ([#11820](https://github.com/windmill-labs/windmill/issues/11820)) ([59a8657](https://github.com/windmill-labs/windmill/commit/59a8657426419c6734bc1e6e65c201c5c7309b9a))
+* mount volumes read-only without the exclusive lease ([#12410](https://github.com/windmill-labs/windmill/issues/12410)) ([70711be](https://github.com/windmill-labs/windmill/commit/70711bec68915ecea06834c356957cf3ffdd40cd))
+* one turn per memory id, a new message takes over a parked turn ([#11831](https://github.com/windmill-labs/windmill/issues/11831)) ([792e66a](https://github.com/windmill-labs/windmill/commit/792e66a30a5d90cb574300225e3f2f404b9165c8))
+
+
+### Bug Fixes
+
+* drop the unreachable oneshot map_err rejected by rustc 1.100 ([#12407](https://github.com/windmill-labs/windmill/issues/12407)) ([1645285](https://github.com/windmill-labs/windmill/commit/164528563dd2de4b294b29bbd807b2b3e86b5c52))
+* stop backend-test rust cache from bloating and filling the runner disk ([#12411](https://github.com/windmill-labs/windmill/issues/12411)) ([bc613cf](https://github.com/windmill-labs/windmill/commit/bc613cf41d41f61631c9ae999fc8d10cf3c8813a))
+
 ## [1.871.1](https://github.com/windmill-labs/windmill/compare/v1.871.0...v1.871.1) (2026-11-12)
 
 

@@ -82,6 +82,12 @@ export interface ChatState {
   hasMoreMessages: boolean
   /** The flow job the running turn follows, once it is known. */
   runningJobId?: string
+  /**
+   * The running turn's AI agent has answered and waits, without a worker, on tools still running
+   * in the background: nothing streams until one finishes. Set by its `background_wait` event,
+   * cleared by the next event and when the turn ends.
+   */
+  waitingOnBackground?: boolean
 }
 
 export type TokenSource = string | (() => string | Promise<string>)
@@ -196,6 +202,15 @@ export interface SendMessageOptions {
   attachments?: AttachmentUpload[]
   /** Required with `attachments`, which also need message text. With `multiple: false`, more than one attachment is refused before anything uploads. */
   attachmentsInput?: AttachmentsInput
+  /**
+   * Send although the chat is still following a turn. The server takes the message when that
+   * turn's AI agent is parked (it answered while background jobs run, or waits on an approval or
+   * a question): it ends that turn, dropping its open request, and carries its background jobs
+   * over to this one, which the chat then follows. While the turn works it is refused with a
+   * `TurnRunningError` and the chat keeps following it. Not with `attachments`, and one at a time:
+   * a second one is refused while the first waits for the server.
+   */
+  overRunningTurn?: boolean
 }
 
 export interface Chat {

@@ -3378,8 +3378,7 @@ pub async fn reload_sandbox_image_default_registry_setting(conn: &Connection) {
 
 pub async fn reload_sandbox_registry_auth_setting(conn: &Connection) {
     // Secret-aware: the value is a raw docker/podman auth.json with credentials, so
-    // it must never be logged. Load directly (the generic reload_option_setting path
-    // logs the value via load_option_setting_value) and only log a redacted message.
+    // it must never be logged. Load directly and only log a redacted message.
     match load_value_from_global_settings_with_conn(conn, SANDBOX_REGISTRY_AUTH_SETTING, true).await
     {
         Ok(q) => apply_sandbox_registry_auth_setting(q).await,
@@ -3448,7 +3447,10 @@ async fn resolve_license_key_value(conn: &Connection, quiet: bool) -> anyhow::Re
             }
             value = v;
         } else {
-            tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q);
+            tracing::error!(
+                "Could not parse LICENSE_KEY found: {}",
+                loggable_setting_value(&q)
+            );
         }
     };
     Ok(value)
@@ -3900,6 +3902,20 @@ pub async fn load_option_setting_value<T: FromStr + DeserializeOwned>(
     Ok(parse_option_setting_value(q, setting_name, std_env_var))
 }
 
+/// What a settings loader may print of a value. Credentials (registry tokens, `.npmrc`, index
+/// URLs with basic auth, `settings.xml`, PATs) all live in string or object settings, so only
+/// scalars are printed: a deny-list of secret setting names would leak each new one added.
+fn loggable_setting_value(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            v.to_string()
+        }
+        serde_json::Value::String(s) => format!("<redacted string, {} bytes>", s.len()),
+        serde_json::Value::Array(a) => format!("<redacted array, {} items>", a.len()),
+        serde_json::Value::Object(o) => format!("<redacted object, {} keys>", o.len()),
+    }
+}
+
 /// The half of [`load_option_setting_value`] after the read, so [`SettingsPass`] can parse a
 /// value it already fetched.
 pub fn parse_option_setting_value<T: FromStr + DeserializeOwned>(
@@ -3920,10 +3936,16 @@ pub fn parse_option_setting_value<T: FromStr + DeserializeOwned>(
 
     if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<T>(q.clone()) {
-            tracing::info!("Loaded setting {setting_name} from db config: {:#?}", &q);
+            tracing::info!(
+                "Loaded setting {setting_name} from db config: {}",
+                loggable_setting_value(&q)
+            );
             value = Some(v)
         } else {
-            tracing::error!("Could not parse {setting_name} found: {:#?}", &q);
+            tracing::error!(
+                "Could not parse {setting_name} found: {}",
+                loggable_setting_value(&q)
+            );
         }
     };
 
@@ -4046,7 +4068,10 @@ pub fn parse_url_list_setting_value(
             );
             value = if urls.is_empty() { None } else { Some(urls) };
         } else {
-            tracing::error!("Could not parse {} found: {:#?}", setting_name, &q);
+            tracing::error!(
+                "Could not parse {setting_name} found: {}",
+                loggable_setting_value(&q)
+            );
         }
     }
 
@@ -4107,10 +4132,16 @@ pub fn parse_setting_value<T: FromStr + DeserializeOwned + Display>(
 
     if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<T>(q.clone()) {
-            tracing::info!("Loaded setting {setting_name} from db config: {:#?}", &q);
+            tracing::info!(
+                "Loaded setting {setting_name} from db config: {}",
+                loggable_setting_value(&q)
+            );
             value = transformer(v);
         } else {
-            tracing::error!("Could not parse {setting_name} found: {:#?}", &q);
+            tracing::error!(
+                "Could not parse {setting_name} found: {}",
+                loggable_setting_value(&q)
+            );
         }
     };
 
@@ -4261,8 +4292,11 @@ pub async fn monitor_db(
                 if let Err(e) = cleanup_flow_iterator_data_orphaned_jobs(&db).await {
                     tracing::error!("Error cleaning up flow_iterator_data: {:?}", e);
                 }
-                if let Err(e) = cleanup_ai_agent_checkpoint_orphaned_jobs(&db).await {
-                    tracing::error!("Error cleaning up ai_agent_checkpoint: {:?}", e);
+                if let Err(e) = cleanup_ai_agent_orphaned_rows(&db).await {
+                    tracing::error!(
+                        "Error cleaning up AI agent checkpoints and memory claims: {:?}",
+                        e
+                    );
                 }
             }
         }
@@ -4578,6 +4612,17 @@ pub async fn monitor_db(
         }
     };
 
+    // Every pass: a parked AI agent waits on this for its background tool jobs.
+    let wake_ai_agents_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = wake_ai_agents_with_finished_background_jobs(&db).await {
+                    tracing::error!("Error waking AI agents on background jobs: {:?}", e);
+                }
+            }
+        }
+    };
+
     // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     let stranded_jobs_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
@@ -4732,6 +4777,7 @@ pub async fn monitor_db(
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
         stranded_jobs_f,
+        wake_ai_agents_f,
     );
 }
 
@@ -6105,14 +6151,25 @@ pub async fn apply_base_url_setting(
     #[cfg(feature = "oauth2")]
     let oauths = if conn.as_sql().is_some() {
         if let Some(q) = q_oauth {
-            if let Ok(v) = serde_json::from_value::<
-                Option<HashMap<String, windmill_api::oauth2_oss::OAuthClient>>,
-            >(q.clone())
-            {
-                v
-            } else {
-                tracing::error!("Could not parse oauth setting as a json, found: {:#?}", &q);
-                None
+            // Entry by entry, so that one entry that does not parse drops only itself.
+            match serde_json::from_value::<Option<HashMap<String, serde_json::Value>>>(q) {
+                Ok(v) => v.map(|entries| {
+                    entries
+                        .into_iter()
+                        .filter_map(|(name, raw)| {
+                            serde_json::from_value::<windmill_api::oauth2_oss::OAuthClient>(raw)
+                                .map_err(|e| {
+                                    tracing::error!("Skipping invalid OAuth client {name}: {e}")
+                                })
+                                .ok()
+                                .map(|c| (name, c))
+                        })
+                        .collect()
+                }),
+                Err(e) => {
+                    tracing::error!("Could not parse oauth setting as a json object: {e}");
+                    None
+                }
             }
         } else {
             None
@@ -7870,10 +7927,30 @@ async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+/// Zero the `suspend` of each parked AI agent with a completed job in its `waiting_on`, so the
+/// suspended pull takes it back. Each job is listed by one park only, and an agent no longer
+/// parked (`suspend_until` cleared by its pull) is left alone.
+async fn wake_ai_agents_with_finished_background_jobs(db: &DB) -> error::Result<()> {
+    let woken = sqlx::query!(
+        "UPDATE v2_job_queue q SET suspend = 0
+         FROM ai_agent_checkpoint c
+         WHERE c.waiting_on <> '{}' AND q.id = c.job_id
+           AND q.suspend > 0 AND q.suspend_until IS NOT NULL
+           AND EXISTS (SELECT 1 FROM v2_job_completed jc WHERE jc.id = ANY(c.waiting_on))",
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+    if woken > 0 {
+        tracing::info!("Woke {woken} AI agents whose background tool jobs finished");
+    }
+    Ok(())
+}
+
 /// A parked agent cancelled from outside, or a worker that died mid-segment, never deletes its
 /// checkpoint itself.
-async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()> {
-    let deleted = sqlx::query(
+async fn cleanup_ai_agent_orphaned_rows(db: &DB) -> error::Result<()> {
+    let deleted = sqlx::query!(
         "DELETE FROM ai_agent_checkpoint c
          WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = c.job_id)",
     )
@@ -7882,6 +7959,38 @@ async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()>
     .rows_affected();
     if deleted > 0 {
         tracing::info!("Cleaned up {deleted} orphaned ai_agent_checkpoint rows");
+    }
+    // A memory id's claim is free once its run left the queue; deleting it only keeps the table
+    // to the memory ids in use.
+    // Matched on the job too: a claim taken over while this waits on its row lock no longer
+    // names that job when the delete re-reads it, so it is kept.
+    // Background jobs handed to a run that ended before its agent adopted them (stopped while an
+    // earlier step ran, say) are cancelled with it.
+    let mut tx = db.begin().await?;
+    let released = sqlx::query_scalar!(
+        "DELETE FROM ai_memory_turn t
+         USING (SELECT workspace_id, memory_id, job_id FROM ai_memory_turn s
+                WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = s.job_id)) stale
+         WHERE t.workspace_id = stale.workspace_id AND t.memory_id = stale.memory_id
+           AND t.job_id = stale.job_id
+         RETURNING t.handed_jobs",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut cancelled = 0;
+    for handed_jobs in released.iter().flatten() {
+        cancelled += windmill_common::flow_conversations::cancel_unadopted_handed_jobs(
+            &mut *tx,
+            handed_jobs,
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    if !released.is_empty() {
+        tracing::info!(
+            "Cleaned up {} released ai_memory_turn rows, cancelling {cancelled} background jobs no turn adopted",
+            released.len()
+        );
     }
     Ok(())
 }
@@ -8383,5 +8492,25 @@ mod canceled_zombie_flow_tests {
         .await?;
         assert!(parent_pinged);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod loggable_setting_value_tests {
+    use super::loggable_setting_value;
+    use serde_json::json;
+
+    #[test]
+    fn never_prints_string_or_structured_values() {
+        let token = "ghp_secret_token";
+        for v in [
+            json!(format!("[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}")),
+            json!({ "registry": { "token": token } }),
+            json!([token]),
+        ] {
+            assert!(!loggable_setting_value(&v).contains(token));
+        }
+        assert_eq!(loggable_setting_value(&json!(3600)), "3600");
+        assert_eq!(loggable_setting_value(&json!(true)), "true");
     }
 }

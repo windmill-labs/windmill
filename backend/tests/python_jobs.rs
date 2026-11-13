@@ -51,7 +51,7 @@ mod dedicated_worker_protocol_python {
     fn run_py_multi_script_test(
         scripts: &[(&str, &str)],
         jobs: Vec<MultiScriptJob>,
-    ) -> Vec<Result<serde_json::Value, String>> {
+    ) -> Vec<Result<serde_json::Value, serde_json::Value>> {
         let temp_dir = tempfile::tempdir().unwrap();
         create_py_worker_files(temp_dir.path(), scripts);
 
@@ -87,13 +87,7 @@ mod dedicated_worker_protocol_python {
 
             match parse_dedicated_worker_line(response.trim()) {
                 DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
-                DedicatedWorkerResult::Error(err) => {
-                    let msg = err["message"]
-                        .as_str()
-                        .unwrap_or("Unknown error")
-                        .to_string();
-                    results.push(Err(msg));
-                }
+                DedicatedWorkerResult::Error(err) => results.push(Err(err)),
                 other => panic!("Unexpected response: {:?}", other),
             }
         }
@@ -108,7 +102,7 @@ mod dedicated_worker_protocol_python {
         script_path: &str,
         content: &str,
         jobs: Vec<serde_json::Value>,
-    ) -> Vec<Result<serde_json::Value, String>> {
+    ) -> Vec<Result<serde_json::Value, serde_json::Value>> {
         run_py_multi_script_test(
             &[(script_path, content)],
             jobs.into_iter()
@@ -180,7 +174,10 @@ mod dedicated_worker_protocol_python {
         let results = run_py_multi_script_test(
             &[
                 ("f/ok", "def main(x: int):\n    return x * 2\n"),
-                ("f/err", "def main(msg: str):\n    raise Exception(msg)\n"),
+                (
+                    "f/err",
+                    "def main(msg: str):\n    e = Exception(msg)\n    e.status_code = 429\n    e.info = {}\n    e.info['self'] = e.info\n    raise e\n",
+                ),
             ],
             vec![
                 MultiScriptJob {
@@ -199,8 +196,12 @@ mod dedicated_worker_protocol_python {
         );
         assert_eq!(results.len(), 3);
         assert_eq!(results[0], Ok(serde_json::json!(10)));
-        assert!(results[1].is_err());
-        assert_eq!(results[1], Err("boom".to_string()));
+        let err = results[1].as_ref().unwrap_err();
+        assert_eq!(err["message"], "boom");
+        assert_eq!(
+            err["extra"],
+            serde_json::json!({ "status_code": 429, "info": "[unserializable]" })
+        );
         assert_eq!(results[2], Ok(serde_json::json!(20)));
     }
 
@@ -214,10 +215,9 @@ mod dedicated_worker_protocol_python {
             }],
         );
         assert_eq!(results.len(), 1);
-        assert!(results[0].is_err());
-        assert!(results[0]
-            .as_ref()
-            .unwrap_err()
+        assert!(results[0].as_ref().unwrap_err()["message"]
+            .as_str()
+            .unwrap()
             .contains("Script not found"));
     }
 

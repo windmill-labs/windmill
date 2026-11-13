@@ -345,8 +345,11 @@
 
 	// Also shown for a run held by another tab, labeled with where it is: the
 	// dots say a turn is in flight even before the reader reaches the footer
-	// note. Remote runs pause nothing and offer no Stop — this tab can't cancel.
-	const showTypingIndicator = $derived(chatHost.loading || chatHost.runHeldElsewhere)
+	// note. Remote runs pause nothing and offer no Stop — this tab can't cancel. A turn
+	// that answered and waits on background work writes nothing, so it shows none.
+	const showTypingIndicator = $derived(
+		(chatHost.loading && !chatHost.backgroundWait) || chatHost.runHeldElsewhere
+	)
 
 	// The manual `@` context-picker button. Shown in SCRIPT/FLOW (workspace items +
 	// code blocks) and APP (datatables, frontend files). Hidden in GLOBAL — there

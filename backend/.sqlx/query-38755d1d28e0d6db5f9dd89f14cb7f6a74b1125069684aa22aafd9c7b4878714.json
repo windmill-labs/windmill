@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status SET\n                flow_status = jsonb_set(\n                    flow_status,\n                    array['modules', $2::int::TEXT, 'agent_actions_success'],\n                    COALESCE((\n                        SELECT jsonb_agg(e ORDER BY i)\n                        FROM jsonb_array_elements(\n                            flow_status->'modules'->$2::int->'agent_actions_success'\n                        ) WITH ORDINALITY AS t(e, i)\n                        WHERE i <= $3\n                    ), '[]'::jsonb) || CASE WHEN $4::bool IS NULL THEN '[]'::jsonb\n                        ELSE to_jsonb(ARRAY[$4::bool]) END\n                )\n            WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38755d1d28e0d6db5f9dd89f14cb7f6a74b1125069684aa22aafd9c7b4878714"
+}

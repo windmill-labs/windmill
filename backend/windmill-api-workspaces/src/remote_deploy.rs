@@ -462,9 +462,9 @@ async fn connect(
     // No lock against removals, target changes or key rotations: `load_connection` voids a row
     // that lands after one of them. A disconnect or a newer connect stamps the row itself, which
     // this one then leaves alone. Without a membership to bind to, the row is bound to the account
-    // through the credential making this request, which deleting the account removes (except
-    // through `leave_instance`, which leaves its tokens): the address could otherwise be deleted
-    // and taken by a new account while the remote call runs, and the foreign key would accept it.
+    // through the credential making this request, which deleting or leaving the account removes:
+    // the address could otherwise be deleted and taken by a new account while the remote call
+    // runs, and the foreign key would accept it.
     let mut tx = db.begin().await?;
     let connected_at = sqlx::query_scalar!(
         "INSERT INTO remote_deploy_token

@@ -55,6 +55,9 @@ export interface ChatViewHost {
 	 * pins away from the navigated one. */
 	readonly operatingWorkspace: string | undefined
 	loading: boolean
+	/** The turn has answered and waits on work running in the background: still `loading`, so
+	 * Stop stays, but nothing is being written. */
+	readonly backgroundWait?: boolean
 	/** A send waiting for the chat's transcript to be restored; queue behind it. */
 	sendPending: boolean
 	/** A turn this tab can neither follow nor stop, held by another tab on the same chat. */

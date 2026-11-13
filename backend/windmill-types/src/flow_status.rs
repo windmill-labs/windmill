@@ -198,7 +198,7 @@ struct UntaggedFlowStatusModule {
     failed_retries: Option<Vec<Uuid>>,
     skipped: Option<bool>,
     agent_actions: Option<Vec<AgentAction>>,
-    agent_actions_success: Option<Vec<bool>>,
+    agent_actions_success: Option<Vec<Option<bool>>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -284,7 +284,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
     Success {
         id: String,
@@ -306,7 +306,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
     Failure {
         id: String,
@@ -324,7 +324,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
 }
 
@@ -556,7 +556,7 @@ impl FlowStatusModule {
         }
     }
 
-    pub fn agent_actions_success(&self) -> Option<Vec<bool>> {
+    pub fn agent_actions_success(&self) -> Option<Vec<Option<bool>>> {
         match self {
             FlowStatusModule::InProgress { agent_actions_success, .. } => {
                 agent_actions_success.clone()

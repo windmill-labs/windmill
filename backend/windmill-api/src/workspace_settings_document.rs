@@ -41,7 +41,8 @@ use crate::db::ApiAuthed;
 pub const SENSITIVE_UNCHANGED: &str = "__SENSITIVE_AND_UNCHANGED__";
 use windmill_common::variables::SETTINGS_ENCRYPTED_PREFIX as ENCRYPTED_PREFIX;
 
-const SECRET_KEYS: &[&str] = &["slack_oauth_client_secret"];
+/// The webhook URL is a secret because it usually carries the receiver's token.
+const SECRET_KEYS: &[&str] = &["webhook", "slack_oauth_client_secret"];
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -366,17 +367,21 @@ pub async fn load_settings_document(
     .fetch_one(&mut *conn)
     .await?;
 
-    let slack_oauth_client_secret = match (row.slack_oauth_client_secret, secrets) {
-        (Some(s), SecretMode::Redacted) if !s.is_empty() => Some(SENSITIVE_UNCHANGED.to_string()),
-        (Some(s), SecretMode::Encrypted) if !s.is_empty() => {
-            let mc = build_crypt(db, w_id).await?;
-            Some(format!(
-                "{ENCRYPTED_PREFIX}{}",
-                mc.encrypt_str_deterministic(&s)
-            ))
-        }
+    let mc = match secrets {
+        SecretMode::Encrypted => Some(build_crypt(db, w_id).await?),
+        _ => None,
+    };
+    let secret = |v: Option<String>| match (v, &mc) {
+        (Some(s), _) if s.is_empty() => Some(s),
+        (Some(s), Some(mc)) => Some(format!(
+            "{ENCRYPTED_PREFIX}{}",
+            mc.encrypt_str_deterministic(&s)
+        )),
+        (Some(_), None) if secrets == SecretMode::Redacted => Some(SENSITIVE_UNCHANGED.to_string()),
         (s, _) => s,
     };
+    let webhook = secret(row.webhook);
+    let slack_oauth_client_secret = secret(row.slack_oauth_client_secret);
 
     let has_permissions = row
         .datatable
@@ -413,7 +418,7 @@ pub async fn load_settings_document(
     // added since is always written, so a pulled file states it and from then on manages it.
     let entries: [(&str, Option<Value>, bool); 33] = [
         ("auto_invite", row.auto_invite, false),
-        ("webhook", row.webhook.map(Value::String), false),
+        ("webhook", webhook.map(Value::String), false),
         ("webhook_events", row.webhook_events.map(|e| json!(e)), true),
         ("error_handler", row.error_handler, true),
         ("success_handler", row.success_handler, true),
@@ -2252,25 +2257,27 @@ mod tests {
     #[test]
     fn secrets_keep_their_value_for_the_placeholder_and_a_foreign_key() {
         let mc = WorkspaceCrypt::new("k");
-        let ours = format!(
-            "{ENCRYPTED_PREFIX}{}",
-            mc.encrypt_str_deterministic("sekret")
-        );
         let theirs = format!(
             "{ENCRYPTED_PREFIX}{}",
             WorkspaceCrypt::new("other").encrypt_str_deterministic("x")
         );
-        for secret in [SENSITIVE_UNCHANGED.to_string(), ours, theirs.clone()] {
-            let p = plan_document(
-                current(),
-                doc(json!({ "slack_oauth_client_secret": secret })),
-                false,
-                &mc,
-                &DatatableNames::default(),
-            )
-            .unwrap();
-            assert!(p.changes.is_empty(), "{secret}: {:?}", keys(&p));
-            assert_eq!(p.warnings.len(), usize::from(secret == theirs));
+        for (key, stored) in [
+            ("slack_oauth_client_secret", "sekret"),
+            ("webhook", "https://a"),
+        ] {
+            let ours = format!("{ENCRYPTED_PREFIX}{}", mc.encrypt_str_deterministic(stored));
+            for secret in [SENSITIVE_UNCHANGED.to_string(), ours, theirs.clone()] {
+                let p = plan_document(
+                    current(),
+                    doc(json!({ key: secret })),
+                    false,
+                    &mc,
+                    &DatatableNames::default(),
+                )
+                .unwrap();
+                assert!(p.changes.is_empty(), "{key} {secret}: {:?}", keys(&p));
+                assert_eq!(p.warnings.len(), usize::from(secret == theirs));
+            }
         }
     }
 

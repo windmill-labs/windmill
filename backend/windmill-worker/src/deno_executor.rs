@@ -749,7 +749,7 @@ pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> 
                 let res: any = await main(...[ {spread} ]);
                 console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
             }} catch (e) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}) + '\n');
             }}
             continue;
         }}"#
@@ -792,7 +792,7 @@ for await (const chunk of Deno.stdin.readable) {{
                 let res: any = await main(...[ {spread} ]);
                 console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
             }} catch (e) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}) + '\n');
             }}
             continue;
         }}

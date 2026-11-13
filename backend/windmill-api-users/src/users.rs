@@ -1315,6 +1315,10 @@ async fn join_workspace<'c>(
 async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
+    revoke_mcp_oauth_grants(&mut *tx, &authed.email, None).await?;
+    sqlx::query!("DELETE FROM token WHERE email = $1", &authed.email)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
         .await?;

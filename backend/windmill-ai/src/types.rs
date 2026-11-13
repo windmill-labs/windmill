@@ -16,6 +16,7 @@ pub struct McpToolSource {
     pub resource_path: String,
 }
 
+use crate::vertex_workload_identity::VertexWorkloadIdentity;
 use crate::{
     ai_google::sanitize_schema_for_google,
     ai_providers::{empty_string_as_none, AIProvider},
@@ -65,6 +66,9 @@ pub struct Tool {
     /// Set on the built-in question tool, which the worker answers by parking the agent until
     /// someone answers or this many seconds pass.
     pub question_timeout_secs: Option<u32>,
+    /// A flow module tool whose call is answered once its job is queued (`Some(0)`) or, unfinished,
+    /// this many seconds after; see `AgentTool::background`.
+    pub background_after_secs: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -285,6 +289,14 @@ pub struct ProviderResource {
     pub service_account_id: Option<String>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub workspace_id: Option<String>,
+    /// Set only by `vertex_ai_federated` resources, which authenticate to Vertex AI
+    /// through Google Cloud Workload Identity Federation.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub workload_identity_provider: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub service_account_email: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub workload_identity_audience: Option<String>,
     /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub token: Option<String>,
@@ -339,6 +351,17 @@ impl ProviderWithResource {
     /// current job/workspace; this helper does not perform access checks.
     pub async fn to_provider_credentials(&self, db: &DB) -> Result<ProviderCredentials, Error> {
         let anthropic_federation = self.anthropic_federation()?;
+        let vertex_workload_identity = VertexWorkloadIdentity::from_resource(
+            &self.kind,
+            self.resource.workload_identity_provider.as_deref(),
+            self.resource.service_account_email.as_deref(),
+            self.resource.workload_identity_audience.as_deref(),
+        )?;
+        let platform = if vertex_workload_identity.is_some() {
+            AIPlatform::GoogleVertexAi
+        } else {
+            self.resource.platform.clone()
+        };
         let base_url = if self.kind == AIProvider::AWSBedrock {
             String::new()
         } else if anthropic_federation.is_some() {
@@ -369,7 +392,8 @@ impl ProviderWithResource {
             aws_session_token: self.resource.aws_session_token.clone(),
             oidc_role_arn: self.resource.oidc_role_arn.clone(),
             anthropic_federation,
-            platform: self.resource.platform.clone(),
+            vertex_workload_identity,
+            platform,
             custom_headers: self.resource.headers.clone(),
         })
     }
@@ -553,6 +577,9 @@ pub enum StreamingEvent {
     ToolExecution { call_id: String, function_name: String },
     /// Tool execution result
     ToolResult { call_id: String, function_name: String, result: String, success: bool },
+    /// The agent has answered and waits, without a worker, on tools still running in the
+    /// background: nothing more streams until one of them finishes and wakes it.
+    BackgroundWait,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

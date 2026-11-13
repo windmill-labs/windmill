@@ -245,6 +245,7 @@ interface ChatState {
   loadingMessages: boolean
   hasMoreMessages: boolean
   runningJobId?: string // the flow job the running turn follows
+  waitingOnBackground?: boolean // the agent answered and waits on tools running in the background
 }
 
 interface ChatMessage {
@@ -267,8 +268,11 @@ A turn goes `submitted` (the flow is queued) → `streaming` (the answer is arri
 `success` or `error`. A flow that fails still completes the turn: its error is the
 answer, an `assistant` message with `success: false`. `status: 'error'` (with `error`
 set) means the turn could not run or be followed at all, such as a refused request.
+An agent that answered while some of its tools still run in the background keeps its turn
+`streaming` with `waitingOnBackground` set until one of them finishes and wakes it: its answer
+is given, and those tools' messages stay `running` until their results arrive.
 
-Methods: `sendMessage(text, { inputs?, attachments?, attachmentsInput? })`, `stop()`,
+Methods: `sendMessage(text, { inputs?, attachments?, attachmentsInput?, overRunningTurn? })`, `stop()`,
 `newConversation()`, `selectConversation(id)`, `loadConversations({ page?, perPage?, kind? })`,
 `deleteConversation(id)`, `renameConversation(id, title)`, `loadOlderMessages()`,
 `resumeTurn(turn)`, `refreshMessages()` (reads what another tab added to the open
@@ -276,7 +280,11 @@ conversation), `destroy()`. `kind` lists the flow editor's test chats (`'test'`)
 own (`'deployed'`, the server's default) or both (`'all'`); each `Conversation` carries
 `isTest`. A rename keeps the conversation's place in the list. Switching conversations
 stops following the current answer; the flow keeps running and, with server history,
-its answer is there when you come back.
+its answer is there when you come back. `overRunningTurn` sends while a turn is still
+followed: the server takes the message when that turn's AI agent is parked (it answered while
+background jobs run, or waits on an approval or a question), ending that turn and carrying its
+background jobs over, and the chat follows the new one; while the turn works it is refused with a
+`TurnRunningError` and the chat keeps following it.
 
 ## Attachments
 

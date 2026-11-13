@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue q SET suspend = 0\n         FROM ai_agent_checkpoint c\n         WHERE c.waiting_on <> '{}' AND q.id = c.job_id\n           AND q.suspend > 0 AND q.suspend_until IS NOT NULL\n           AND EXISTS (SELECT 1 FROM v2_job_completed jc WHERE jc.id = ANY(c.waiting_on))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e63877925691e80d722f5fc4384c0ac00f6f4389224dca3feee1b879d4009f81"
+}

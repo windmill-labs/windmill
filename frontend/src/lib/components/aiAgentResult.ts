@@ -238,6 +238,10 @@ function isWellFormedEvent(event: AgentStreamEvent): boolean {
 	if (event.type === 'token_delta' || event.type === 'reasoning_token_delta') {
 		return typeof event.content === 'string'
 	}
+	// Says the agent waits on its background tools, which the run page shows on their rows.
+	if (event.type === 'background_wait') {
+		return false
+	}
 	return (
 		typeof event.call_id === 'string' &&
 		event.call_id !== '' &&
@@ -286,7 +290,7 @@ export function advanceAgentStream(
 	}
 	const stream: AgentStream = { ...previous.stream, entries: [...previous.stream.entries] }
 	for (const event of parseStreamEvents(raw.slice(previous.consumed, complete))) {
-		if (!isWellFormedEvent(event)) {
+		if (!isWellFormedEvent(event) || event.type === 'background_wait') {
 			continue
 		}
 		if (event.type === 'token_delta') {
