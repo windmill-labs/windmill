@@ -250,17 +250,11 @@ fn granting_scopes() -> Vec<String> {
     .to_vec()
 }
 
+/// No `mcp:set:` scope: a client that requests every listed scope would ask for a set by that
+/// literal name. A set's URL advertises its own.
 fn supported_scopes() -> Vec<String> {
     let mut scopes = granting_scopes();
-    scopes.extend(
-        [
-            "mcp:read_only",
-            "mcp:read_run",
-            "mcp:runnables_as_tools",
-            "mcp:set:*",
-        ]
-        .map(String::from),
-    );
+    scopes.extend(["mcp:read_only", "mcp:read_run", "mcp:runnables_as_tools"].map(String::from));
     scopes
 }
 
