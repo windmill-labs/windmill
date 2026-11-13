@@ -1376,8 +1376,9 @@ async fn test_rename_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<(
                    'script/u/test-user-2/on_fail', 'flow/u/test-user-2/on_recover', 'script/u/test-user/on_success', 'u/test-user-2/skip');
          INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, permissioned_as, edited_at, extra_perms, http_method, authentication_method, mode, error_handler_path)
            VALUES ('test-workspace', 'f/ops/hook', '/hook', 'hook', 'f/ops/job', false, 'test-user', 'u/test-user', NOW(), '{}', 'post', 'none', 'enabled', 'u/test-user-2/trigger_err');
-         INSERT INTO kafka_trigger (workspace_id, path, kafka_resource_path, topics, group_id, script_path, is_flow, edited_by, permissioned_as, error_handler_path)
-           VALUES ('test-workspace', 'f/ops/k', 'f/ops/kafka', '{t}', 'g', 'f/ops/job', false, 'test-user', 'u/test-user', 'u/test-user/trigger_err');
+         INSERT INTO kafka_trigger (workspace_id, path, kafka_resource_path, topics, group_id, script_path, is_flow, edited_by, permissioned_as, error_handler_path, server_id)
+           VALUES ('test-workspace', 'f/ops/k', 'f/ops/kafka', '{t}', 'g', 'f/ops/job', false, 'test-user', 'u/test-user', 'u/test-user/trigger_err', 'srv'),
+                  ('test-workspace', 'f/ops/k2', 'f/ops/kafka', '{t}', 'g', 'f/ops/job', false, 'test-user', 'u/test-user', 'u/test-user-2/trigger_err', 'srv');
          UPDATE workspace_settings SET
            error_handler = '{"path": "script/u/test-user-2/ws_err", "extra_args": {"channel": "ops"}, "muted_on_cancel": true}',
            success_handler = '{"path": "flow/u/test-user-2/ws_ok"}',
@@ -1417,12 +1418,24 @@ async fn test_rename_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<(
     .fetch_one(&db)
     .await?;
     assert_eq!(http, "u/alice/trigger_err");
-    let kafka: String = sqlx::query_scalar(
-        "SELECT error_handler_path FROM kafka_trigger WHERE workspace_id = 'test-workspace'",
+    // A listener whose handler moved must restart to load it; one whose handler stayed is left be.
+    let kafka: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT path, error_handler_path, server_id FROM kafka_trigger
+         WHERE workspace_id = 'test-workspace' ORDER BY path",
     )
-    .fetch_one(&db)
+    .fetch_all(&db)
     .await?;
-    assert_eq!(kafka, "u/test-user/trigger_err");
+    assert_eq!(
+        kafka,
+        vec![
+            (
+                "f/ops/k".into(),
+                "u/test-user/trigger_err".into(),
+                Some("srv".into())
+            ),
+            ("f/ops/k2".into(), "u/alice/trigger_err".into(), None),
+        ]
+    );
 
     let settings: (serde_json::Value, serde_json::Value, serde_json::Value) = sqlx::query_as(
         "SELECT error_handler, success_handler, variable_expiration_handler FROM workspace_settings

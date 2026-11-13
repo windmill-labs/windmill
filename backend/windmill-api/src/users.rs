@@ -514,8 +514,14 @@ pub(crate) async fn move_handler_paths(
 
     // SAFETY: `table` comes from the hardcoded `TRIGGER_TABLES`, not user input.
     for table in TRIGGER_TABLES {
+        // A listener keeps the config it started with and its ping does not compare the handler,
+        // so clearing `server_id` is what makes it restart on the rewritten path.
+        let restart = match table {
+            "http_trigger" | "email_trigger" => "",
+            _ => ", server_id = NULL",
+        };
         sqlx::query(&format!(
-            "UPDATE {table} SET error_handler_path = {}
+            "UPDATE {table} SET error_handler_path = {}{restart}
              WHERE workspace_id = $3 AND starts_with(error_handler_path, $1)",
             moved("error_handler_path"),
         ))
