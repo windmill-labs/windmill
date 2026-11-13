@@ -1,21 +1,42 @@
 import type { AIProvider } from '$lib/gen'
 import { AI_PROVIDERS } from './lib'
 
+/** Whether a resource of this type and value reaches Claude or Gemini through Vertex AI with an
+ *  access token it stores, which `vertex_ai_federated` would let it stop storing. */
+export function isTokenVertexResource(
+	resourceType: string | undefined,
+	value: Record<string, any> | undefined
+): boolean {
+	return (
+		(resourceType === 'anthropic' || resourceType === 'googleai') &&
+		value?.platform === 'google_vertex_ai'
+	)
+}
+
 /** A resource type that authenticates the same provider another way, offered as a switch when
- *  creating a resource of the first, since a picker scoped to a provider only creates its main type. */
-export const AI_RESOURCE_TYPE_ALTERNATIVES: Record<
-	string,
-	{ resourceType: string; label: string }
-> = {
-	anthropic: {
-		resourceType: 'anthropic_federated',
-		label: 'Authenticate with Workload Identity Federation instead of an API key'
-	},
-	anthropic_federated: { resourceType: 'anthropic', label: 'Use an API key instead' },
-	googleai: {
-		resourceType: 'vertex_ai_federated',
-		label: 'Use Vertex AI with Workload Identity Federation instead of an API key'
+ *  creating a resource of the first, since a picker scoped to a provider only creates its main
+ *  type. `carry` names the fields the switch keeps. */
+export function aiResourceTypeAlternative(
+	resourceType: string,
+	value: Record<string, any> | undefined
+): { resourceType: string; label: string; carry?: string[] } | undefined {
+	if (isTokenVertexResource(resourceType, value)) {
+		return {
+			resourceType: 'vertex_ai_federated',
+			label: 'Use Workload Identity Federation instead of an access token',
+			carry: ['base_url']
+		}
 	}
+	if (resourceType === 'anthropic') {
+		return {
+			resourceType: 'anthropic_federated',
+			label: 'Authenticate with Workload Identity Federation instead of an API key'
+		}
+	}
+	if (resourceType === 'anthropic_federated') {
+		return { resourceType: 'anthropic', label: 'Use an API key instead' }
+	}
+	return undefined
 }
 
 /** The provider a Vertex AI endpoint serves, read off its `publishers/<publisher>` segment. */
