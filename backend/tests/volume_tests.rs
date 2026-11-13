@@ -653,6 +653,11 @@ async fn run_volume_sql_worker_e2e(
 async fn test_read_only_volume_ignores_lease_and_waits_for_write(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
+    use windmill_common::min_version::{MIN_VERSION, MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES};
+    // The only test of this file that depends on the fleet's version
+    MIN_VERSION.store(std::sync::Arc::new(
+        MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES.version().clone(),
+    ));
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
