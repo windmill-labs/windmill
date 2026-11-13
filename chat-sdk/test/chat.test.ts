@@ -1308,6 +1308,51 @@ describe('createChat with server history', () => {
     ])
   })
 
+  test('repeated background calls of one tool each keep their own result', async () => {
+    const call = (id: string) => ({ type: 'tool_call', call_id: id, function_name: 'export' })
+    const result = (id: string, r: string) => ({
+      type: 'tool_result',
+      call_id: id,
+      function_name: 'export',
+      result: r,
+      success: true
+    })
+    const { fetch } = fetchMock(
+      run,
+      (c) =>
+        c.url.pathname === streamPath
+          ? sse([
+              {
+                type: 'update',
+                new_result_stream: ndjson(call('c1'), result('c1', '"A"'), call('c2'), result('c2', '"B"')),
+                stream_offset: 4,
+                completed: true,
+                only_result: { output: 'Done', messages: [] }
+              }
+            ])
+          : undefined,
+      (c) =>
+        c.method === 'GET' && c.url.pathname.endsWith('/messages')
+          ? json([
+              messageRow(1, 'user', 'go'),
+              messageRow(2, 'tool', 'Started export in the background', { job_id: 'bg-1' }),
+              messageRow(3, 'tool', 'Used export tool', { job_id: 'bg-1', tool_result: '"A"' }),
+              messageRow(4, 'tool', 'Started export in the background', { job_id: 'bg-2' }),
+              messageRow(5, 'tool', 'Used export tool', { job_id: 'bg-2', tool_result: '"B"' })
+            ])
+          : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.sendMessage('go')
+    const tools = chat.getState().messages.filter((m) => m.role === 'tool')
+    expect(tools.map((m) => [m.jobId, m.tool?.callId, m.tool?.result])).toEqual([
+      ['bg-1', 'c1', '"A"'],
+      ['bg-1', undefined, '"A"'],
+      ['bg-2', 'c2', '"B"'],
+      ['bg-2', undefined, '"B"']
+    ])
+  })
+
   test('a message refused because a turn is running leaves nothing behind and names that turn', async () => {
     const { fetch } = fetchMock(
       (c) =>

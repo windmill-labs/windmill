@@ -1049,8 +1049,15 @@ class ChatImpl implements Chat {
     for (const row of rows.map(fromRow)) {
       if (known.has(row.id)) continue
       known.add(row.id)
+      // The result of a call whose background start is already held is that call's own row:
+      // matched by tool name, it would take a later call of the same tool's place.
+      const backgroundResult =
+        row.role === 'tool' &&
+        row.jobId !== undefined &&
+        messages.some((m) => m.seq !== undefined && m.jobId === row.jobId && BACKGROUND_START.test(m.content))
       let i = messages.findIndex(
         (m) =>
+          !backgroundResult &&
           m.seq === undefined &&
           m.role === row.role &&
           (m.content === row.content || (row.tool !== undefined && m.tool?.name === row.tool.name))
@@ -1212,12 +1219,13 @@ function latestSeq(messages: readonly ChatMessage[]): number {
   return messages.reduce((newest, m) => (m.seq !== undefined && m.seq > newest ? m.seq : newest), 0)
 }
 
+const BACKGROUND_START = /^(?:Started (.+) in the background|Moved (.+) to the background(?: after \d+s)?)$/
+
 function fromRow(row: FlowConversationMessage): ChatMessage {
   // A call that went to the background: its result comes as a later row of the same job.
   const background =
     row.message_type === 'tool'
-      ? /^(?:Started (.+) in the background|Moved (.+) to the background(?: after \d+s)?)$/
-          .exec(row.content)
+      ? BACKGROUND_START.exec(row.content)
           ?.slice(1)
           .find((name) => name !== undefined)
       : undefined
