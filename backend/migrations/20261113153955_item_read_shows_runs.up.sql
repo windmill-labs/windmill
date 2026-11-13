@@ -10,7 +10,8 @@
 -- matched item through usr's primary key, as usr has no index on username alone.
 CREATE FUNCTION shared_runnable_keys() RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
-    SET search_path = public
+    -- Pinned to the schema the migration runs in, which is not `public` under PG_SCHEMA.
+    SET search_path FROM CURRENT
 AS $$
     WITH me AS (
         SELECT current_setting('session.user') AS username,
@@ -38,10 +39,11 @@ $$;
 -- user whose shared items rarely run makes the runs list scan the whole table (22 s at 1,000
 -- shared items on 3M jobs, against 1.4 s with the lookup).
 -- Only runs of the script or flow itself match: other kinds get no key, among them
--- `singlestepflow`, whose runnable_path may name either a script or a flow.
+-- `singlestepflow`, whose runnable_path may name either a script or a flow. SELECT only: it
+-- grants reading, and a FOR ALL policy would also be checked on every job a member pushes.
 CREATE POLICY see_item_extra_perms ON v2_job
     AS PERMISSIVE
-    FOR ALL
+    FOR SELECT
     TO windmill_user
     USING (
         visible_to_owner IS TRUE
