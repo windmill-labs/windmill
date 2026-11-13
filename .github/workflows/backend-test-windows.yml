@@ -79,7 +79,7 @@ jobs:
         with:
           node-version: "20"
 
-      - uses: astral-sh/setup-uv@v7.6.0
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           version: "0.13.8"
 
