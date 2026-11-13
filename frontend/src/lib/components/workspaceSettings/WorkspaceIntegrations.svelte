@@ -12,6 +12,7 @@
 	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
 	import {
 		OauthService,
+		ResourceService,
 		WorkspaceIntegrationService,
 		type NativeServiceName,
 		type NativeTriggerConnection
@@ -25,7 +26,10 @@
 		workspaceAppRedirectUri
 	} from '$lib/components/triggers/native/utils'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
+	import {
+		resourceTypeDisplayName,
+		setResourceTypeDisplayNames
+	} from '$lib/components/resourceTypeDisplay'
 
 	interface WorkspaceIntegration {
 		service_name: string
@@ -67,7 +71,7 @@
 		google: {
 			name: 'google',
 			displayName: 'Google',
-			description: 'Resources, and Drive and Calendar triggers',
+			description: 'Google Workspace resources, and Drive and Calendar triggers',
 			icon: GoogleIcon,
 			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#google-triggers',
 			requiresBaseUrl: false,
@@ -112,6 +116,11 @@
 
 	async function loadOtherInstanceClients() {
 		const listed = new Set(Object.values(NATIVE_TRIGGER_SERVICES).map((s) => s.resourceType))
+		if ($workspaceStore) {
+			ResourceService.listResourceType({ workspace: $workspaceStore })
+				.then(setResourceTypeDisplayNames)
+				.catch(() => {})
+		}
 		try {
 			otherInstanceClients = (await OauthService.listOauthConnects())
 				.filter((c) => c.has_shared_credentials && !listed.has(c.name) && c.name != 'supabase_wizard')
