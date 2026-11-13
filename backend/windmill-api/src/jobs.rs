@@ -1911,14 +1911,12 @@ async fn require_job_access(
     // The probe below (chain walk + an RLS-scoped transaction) is comparatively
     // expensive and the same (caller, job) is hit repeatedly — e.g. `getupdate`
     // polling of a run you can see but did not launch, or an admin watching many
-    // runs. Cache the boolean outcome. All job-side inputs to the decision
-    // (created_by, runnable_path, permissioned_as, visible_to_owner, flow lineage)
-    // are immutable after creation, and every mutable caller-side input
-    // (is_admin / username / username_override / groups / folders) is folded into
-    // the key — so a permission change yields a new key rather than a stale hit, and
-    // no TTL is needed (size-bounded LRU).
+    // runs. Cache the boolean outcome; see JOB_READ_ACCESS_CACHE for how long it holds.
     let cache_key = job_read_access_cache_key(authed, w_id, job_id);
-    let visible = if let Some(visible) = JOB_READ_ACCESS_CACHE.get(&cache_key) {
+    let cached = JOB_READ_ACCESS_CACHE
+        .get(&cache_key)
+        .filter(|(_, at)| at.elapsed() < JOB_READ_ACCESS_TTL);
+    let visible = if let Some((visible, _)) = cached {
         visible
     } else {
         // Visibility is inherited along the flow hierarchy: if you can read ANY flow
@@ -1942,7 +1940,7 @@ async fn require_job_access(
             == Some(true);
         tx.commit().await?;
 
-        JOB_READ_ACCESS_CACHE.insert(cache_key, visible);
+        JOB_READ_ACCESS_CACHE.insert(cache_key, (visible, Instant::now()));
         visible
     };
 
@@ -2283,11 +2281,13 @@ async fn require_opt_authed_job_read_access(
 lazy_static::lazy_static! {
     /// Caches the result of the `require_job_read_access` RLS visibility probe,
     /// keyed by the caller's authorization-relevant identity plus the job id (see
-    /// [`job_read_access_cache_key`]). No TTL: the cached decision is a pure function
-    /// of immutable job-side state and the caller-side state encoded in the key, so a
-    /// permission change re-keys rather than going stale. Size-bounded LRU.
-    static ref JOB_READ_ACCESS_CACHE: Cache<[u8; 32], bool> = Cache::new(50_000);
+    /// [`job_read_access_cache_key`]). A folder or group change re-keys, but a script or
+    /// flow shared or unshared item by item does not, so entries expire after
+    /// [`JOB_READ_ACCESS_TTL`], the same delay the auth cache gives folder changes.
+    static ref JOB_READ_ACCESS_CACHE: Cache<[u8; 32], (bool, Instant)> = Cache::new(50_000);
 }
+
+const JOB_READ_ACCESS_TTL: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Key for [`JOB_READ_ACCESS_CACHE`]: a SHA-256 over every caller-side input that
 /// affects job-read visibility (admin flag, username, username override, the sorted
