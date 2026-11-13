@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { superadmin, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -11,6 +11,7 @@
 	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
 	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
 	import {
+		OauthService,
 		WorkspaceIntegrationService,
 		type NativeServiceName,
 		type NativeTriggerConnection
@@ -19,7 +20,12 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import NativeConnectionPicker from '$lib/components/triggers/native/NativeConnectionPicker.svelte'
-	import { workspaceAppRedirectUri } from '$lib/components/triggers/native/utils'
+	import {
+		NATIVE_TRIGGER_SERVICES,
+		workspaceAppRedirectUri
+	} from '$lib/components/triggers/native/utils'
+	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
+	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
 
 	interface WorkspaceIntegration {
 		service_name: string
@@ -101,6 +107,20 @@
 		Object.fromEntries(Object.keys(supportedServices).map((s) => [s, false]))
 	)
 	let instanceSharingAvailable = $state<Record<string, boolean>>({})
+	/** Instance OAuth clients of the services without a card of their own. */
+	let otherInstanceClients = $state<string[]>([])
+
+	async function loadOtherInstanceClients() {
+		const listed = new Set(Object.values(NATIVE_TRIGGER_SERVICES).map((s) => s.resourceType))
+		try {
+			otherInstanceClients = (await OauthService.listOauthConnects())
+				.filter((c) => c.has_shared_credentials && !listed.has(c.name) && c.name != 'supabase_wizard')
+				.map((c) => c.name)
+				.sort()
+		} catch {
+			otherInstanceClients = []
+		}
+	}
 	let confirmationModal = createAsyncConfirmationModal()
 
 	async function loadIntegrations() {
@@ -320,6 +340,7 @@
 		if ($workspaceStore) {
 			loadIntegrations()
 			checkInstanceSharing()
+			loadOtherInstanceClients()
 		}
 	})
 </script>
@@ -498,6 +519,47 @@
 					</OAuthClientConfig>
 				</div>
 			{/each}
+
+			<div class="border border-light rounded-md p-4 bg-surface-tertiary flex flex-col gap-3">
+				<div class="flex items-center gap-3">
+					<div class="flex flex-col flex-1 min-w-0">
+						<div class="text-sm font-semibold text-emphasis">Other services</div>
+						<div class="text-xs text-secondary">Resources</div>
+					</div>
+					{#if $superadmin}
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							href="/#superadmin-settings?tab=oauth"
+						>
+							Manage instance OAuth clients
+						</Button>
+					{/if}
+				</div>
+				{#if otherInstanceClients.length > 0}
+					<div class="flex items-start gap-1.5 text-xs text-primary">
+						<Check size={14} class="shrink-0 mt-0.5" />
+						<span>Configured by instance. Resources for these services connect through the instance's clients.</span>
+					</div>
+					<div class="flex flex-wrap gap-x-4 gap-y-2">
+						{#each otherInstanceClients as client}
+							<div class="flex items-center gap-1.5 text-xs text-primary">
+								<IconedResourceType name={client} silent width="16px" height="16px" />
+								{resourceTypeDisplayName(client)}
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="text-xs text-primary">
+						The instance has no OAuth client for other services yet.
+					</div>
+				{/if}
+				{#if !$superadmin}
+					<div class="text-xs text-secondary">
+						To connect another service through OAuth, ask an instance admin to add its client.
+					</div>
+				{/if}
+			</div>
 		</div>
 	{/if}
 </div>
