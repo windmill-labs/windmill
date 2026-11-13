@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.873.0](https://github.com/windmill-labs/windmill/compare/v1.872.0...v1.873.0) (2026-11-13)
+
+
+### Features
+
+* show session status or unread count on the folded AI sessions section ([#12351](https://github.com/windmill-labs/windmill/issues/12351)) ([16fe0b2](https://github.com/windmill-labs/windmill/commit/16fe0b2e7450ddfe8bf9a101dbf6d414c5ed0405))
+* vertex_ai_federated resource type for workload identity federation ([#12416](https://github.com/windmill-labs/windmill/issues/12416)) ([c93a173](https://github.com/windmill-labs/windmill/commit/c93a17396c818b04951940e324057c8b8ae03a3c))
+
+
+### Bug Fixes
+
+* keep the (edit) suffix visible on truncated session tabs ([#12384](https://github.com/windmill-labs/windmill/issues/12384)) ([18224a2](https://github.com/windmill-labs/windmill/commit/18224a2cd86fe84421e8e5a51112a46db900bcd5))
+* stop logging credential-bearing instance setting values ([#12413](https://github.com/windmill-labs/windmill/issues/12413)) ([b2793f2](https://github.com/windmill-labs/windmill/commit/b2793f2aca67c650fd7f41d273f4b21761f903c5))
+
 ## [1.872.0](https://github.com/windmill-labs/windmill/compare/v1.871.1...v1.872.0) (2026-11-13)
 
 
