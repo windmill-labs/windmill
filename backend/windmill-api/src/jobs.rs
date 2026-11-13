@@ -2431,21 +2431,28 @@ async fn require_run_on_others_job(
     kind: JobKind,
     runnable_path: Option<String>,
 ) -> error::Result<()> {
-    // A saved agent runs as a flow preview under its own path, and a script wrapped for retries
-    // or an error handler as a single-step flow under the script's; a preview's path is the label
-    // `require_preview_label_runnable` holds to the same rule.
-    let acl_kind = match kind {
-        JobKind::Script | JobKind::Preview | JobKind::SingleStepFlow => RunnableAclKind::Script,
-        JobKind::Flow => RunnableAclKind::Flow,
-        JobKind::FlowPreview => RunnableAclKind::Agent,
+    // The kinds a job's path may name: a flow preview is a flow editor's run or a saved agent's
+    // (its chat turns under `<agent>.chat`), and a single-step flow wraps a script or a flow for
+    // retries or an error handler. Whichever lets the caller run passes.
+    let candidates: &[RunnableAclKind] = match kind {
+        JobKind::Script | JobKind::Preview => &[RunnableAclKind::Script],
+        JobKind::Flow => &[RunnableAclKind::Flow],
+        JobKind::FlowPreview => &[RunnableAclKind::Flow, RunnableAclKind::Agent],
+        JobKind::SingleStepFlow => &[RunnableAclKind::Script, RunnableAclKind::Flow],
         _ => return Ok(()),
     };
-    match runnable_path {
-        Some(path) if created_by != authed.username => {
-            require_can_run(db, &authed.to_authed_ref(), w_id, acl_kind, &path).await
+    let Some(path) = runnable_path.filter(|_| created_by != authed.username) else {
+        return Ok(());
+    };
+    let path = path.strip_suffix(".chat").unwrap_or(&path);
+    let mut result = Ok(());
+    for kind in candidates {
+        result = require_can_run(db, &authed.to_authed_ref(), w_id, *kind, path).await;
+        if result.is_ok() {
+            break;
         }
-        _ => Ok(()),
     }
+    result
 }
 
 /// Whether a validated approval token should grant the job-read bypass. The token alone
