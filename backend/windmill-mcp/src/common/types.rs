@@ -32,6 +32,10 @@ pub struct NoEndpointTools;
 #[derive(Clone, Debug)]
 pub struct ToolSetInstructions(pub String);
 
+/// Marker extension: the tool set a connection is signed in to also serves its run history.
+#[derive(Clone, Debug)]
+pub struct ToolSetRunHistory;
+
 /// Raw bearer token wrapper for Axum extensions. In multi-workspace mode the
 /// runner needs the raw token to re-resolve auth for each requested workspace.
 #[derive(Clone, Debug)]

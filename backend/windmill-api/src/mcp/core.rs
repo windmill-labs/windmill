@@ -43,7 +43,7 @@ use windmill_common::mcp_tool_sets::{
 use windmill_mcp::common::SESSION_SCOPE;
 use windmill_mcp::server::{
     LocalSessionManager, McpToken, MultiWorkspaceMcp, NoEndpointTools, Runner, SessionRunner,
-    StreamableHttpServerConfig, StreamableHttpService, ToolSetInstructions,
+    StreamableHttpServerConfig, StreamableHttpService, ToolSetInstructions, ToolSetRunHistory,
 };
 use windmill_mcp::WorkspaceId;
 
@@ -666,7 +666,13 @@ async fn expand_tool_set(db: &DB, request: &mut Request<axum::body::Body>) -> Re
         let held = authed.scopes.take().unwrap_or_default();
         authed.scopes = Some(expand_tool_set_scopes(&held, &name, set.as_ref()));
     }
-    if let Some(instructions) = set.and_then(|s| s.instructions) {
+    let Some(set) = set else {
+        return Ok(());
+    };
+    if set.run_history {
+        request.extensions_mut().insert(ToolSetRunHistory);
+    }
+    if let Some(instructions) = set.instructions {
         request
             .extensions_mut()
             .insert(ToolSetInstructions(instructions));

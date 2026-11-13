@@ -12,9 +12,11 @@ use crate::common::transform::{
 };
 use crate::common::types::{
     McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolSetInstructions,
-    ToolableItem, WorkspaceId,
+    ToolSetRunHistory, ToolableItem, WorkspaceId,
 };
-use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter, RunOutcome};
+use crate::server::backend::{
+    McpAuth, McpBackend, McpRequest, PathFilter, RunOutcome, SessionAccess,
+};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
@@ -170,7 +172,13 @@ pub(super) struct McpContext<A> {
     pub(super) headers: http::HeaderMap,
     /// See `McpScopeConfig::no_endpoints`.
     pub(super) no_endpoints: bool,
+    /// See `ToolSetRunHistory`.
+    pub(super) run_history: bool,
 }
+
+/// The session's run tools a tool set with run history serves; their handlers confine them to
+/// the set's runs.
+const RUN_HISTORY_TOOLS: &[&str] = &["list_runs", "get_run"];
 
 impl<B: McpBackend> Runner<B> {
     /// Create a new Runner with the given backend
@@ -244,6 +252,7 @@ impl<B: McpBackend> Runner<B> {
             mode,
             headers: http_parts.headers.clone(),
             no_endpoints: http_parts.extensions.get::<NoEndpointTools>().is_some(),
+            run_history: http_parts.extensions.get::<ToolSetRunHistory>().is_some(),
         })
     }
 }
@@ -663,7 +672,8 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let McpContext { auth, mode, no_endpoints, .. } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, no_endpoints, run_history, .. } =
+            Self::extract_context(&context)?;
 
         // Parse MCP scopes to determine what to expose
         let scopes = auth.scopes().unwrap_or(&[]);
@@ -676,8 +686,20 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
         match mode {
             McpMode::Single(workspace_id) => {
-                self.list_tools_single(&auth, &workspace_id, &scope_config, read_only)
-                    .await
+                let mut list = self
+                    .list_tools_single(&auth, &workspace_id, &scope_config, read_only)
+                    .await?;
+                if run_history {
+                    list.tools
+                        .retain(|t| !RUN_HISTORY_TOOLS.contains(&t.name.as_ref()));
+                    list.tools.extend(
+                        self.backend
+                            .session_tools(SessionAccess::ReadOnly)
+                            .into_iter()
+                            .filter(|t| RUN_HISTORY_TOOLS.contains(&t.name.as_ref())),
+                    );
+                }
+                Ok(list)
             }
             // Multi-workspace: expose the generic endpoint tools (each taking an
             // explicit workspace_id) plus list_workspaces. Per-workspace scripts
@@ -693,7 +715,29 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let McpContext { auth, mode, headers, no_endpoints } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, headers, no_endpoints, run_history } =
+            Self::extract_context(&context)?;
+        if let (true, McpMode::Single(workspace_id)) = (run_history, &mode) {
+            if RUN_HISTORY_TOOLS.contains(&request.name.as_ref()) {
+                let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
+                let result = self
+                    .backend
+                    .call_session_tool(
+                        &auth,
+                        workspace_id,
+                        &request.name,
+                        args,
+                        SessionAccess::ReadOnly,
+                        None,
+                    )
+                    .await;
+                let refusal = result.as_ref().err().map(|e| e.message.as_ref());
+                self.backend
+                    .after_tool_call(&auth, workspace_id, &request.name, refusal)
+                    .await;
+                return Ok(result?.into());
+            }
+        }
 
         // Parse MCP scopes for authorization
         let scopes = auth.scopes().unwrap_or(&[]);

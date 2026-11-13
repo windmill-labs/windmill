@@ -39111,6 +39111,11 @@ components:
               type: string
           instructions:
             type: string
+          run_history:
+            type: boolean
+            description: >-
+              Also serve list_runs and get_run, limited to the runs of the set's
+              scripts and flows.
 
     DbtWarehouseConnection:
       type: object

@@ -11,6 +11,7 @@ use super::workspace::{
     api_message, get_draft, infer_script_schema, load_flow, load_script_to_run, path_enc,
 };
 use super::{enc, js_head, js_len, js_tail, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
+use windmill_common::mcp_tool_sets::{tool_set_selection, ToolSetSelection};
 
 pub(super) const TOOLS: &[&str] = &[
     "test_run_script",
@@ -1826,13 +1827,32 @@ fn summarize_run(job: &Value) -> Map<String, Value> {
     out
 }
 
+/// The tool set a caller signed in to, whose runs alone its run tools reach.
+fn tool_set(ctx: &Ctx<'_>) -> Option<ToolSetSelection> {
+    tool_set_selection(ctx.auth.scopes.as_deref().unwrap_or_default())
+}
+
 async fn list_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let set = tool_set(ctx);
+    let path = opt_str_arg(args, "path");
+    if let (Some(set), Some(path)) = (&set, path) {
+        if !set.allows("script", path) && !set.allows("flow", path) {
+            return Err(format!("{path} is not in this connection's tool set"));
+        }
+    }
     let limit = args
         .get("limit")
         .and_then(Value::as_u64)
         .unwrap_or(30)
         .clamp(1, 100);
     let mut query = format!("per_page={limit}");
+    if let Some(prefixes) = set
+        .as_ref()
+        .filter(|_| path.is_none())
+        .and_then(ToolSetSelection::path_prefixes)
+    {
+        query.push_str(&format!("&script_path_start={}", enc(&prefixes.join(","))));
+    }
     for (param, arg) in [
         ("script_path_exact", "path"),
         ("created_by", "created_by"),
@@ -1852,6 +1872,8 @@ async fn list_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .as_array()
         .into_iter()
         .flatten()
+        // The prefixes match more than the set's patterns: `f/a/x` also starts `f/a/xy`.
+        .filter(|job| set.as_ref().is_none_or(|set| in_set(set, job)))
         .map(|job| Value::Object(summarize_run(job)))
         .collect();
     Ok(pretty(&Value::Array(runs)))
@@ -2229,7 +2251,39 @@ fn stringify(value: &Value) -> String {
     }
 }
 
+fn in_set(set: &ToolSetSelection, job: &Value) -> bool {
+    set.allows(
+        job["job_kind"].as_str().unwrap_or_default(),
+        job["script_path"].as_str().unwrap_or_default(),
+    )
+}
+
+/// A tool set's run tools read a run when it, or the flow run it is a step of, is in the set.
+async fn require_run_in_set(ctx: &Ctx<'_>, set: &ToolSetSelection, id: &str) -> Result<(), String> {
+    let mut id = id.to_string();
+    // A flow nests a few levels deep at most; the bound keeps a cycle from looping.
+    for _ in 0..16 {
+        let job = ctx
+            .get(&ctx.ws(&format!(
+                "jobs_u/get/{}?no_logs=true&no_code=true",
+                enc(&id)
+            )))
+            .await?;
+        if in_set(set, &job) {
+            return Ok(());
+        }
+        match job["parent_job"].as_str() {
+            Some(parent) => id = parent.to_string(),
+            None => break,
+        }
+    }
+    Err("This run is not in this connection's tool set".to_string())
+}
+
 async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    if let Some(set) = tool_set(ctx) {
+        require_run_in_set(ctx, &set, str_arg(args, "id")?).await?;
+    }
     read_run(ctx, args, false).await
 }
 

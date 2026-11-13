@@ -1634,7 +1634,7 @@ write a secret you were not given: keep the placeholder.
 | \`protection_rules\` | \`{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...], fork_role_mapping?: { <role here>: <role in its forks> } } }\`, rules among \`DisableDirectDeployment\`, \`DisableWorkspaceForking\`, \`RestrictDeployToDeployers\`, \`RestrictAnonymousAppDeployment\`, \`RestrictPublicRunSharing\`, \`RestrictGuestAppDeployment\`, \`RequireIsolatedForks\`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
 | \`ducklake\` | \`{ ducklakes: { <name>: { catalog, storage, ... } } }\`. |
 | \`dbt_warehouses\` | dbt warehouse connections. |
-| \`mcp_tool_sets\` | \`{ <name>: { scripts?: [paths], flows?: [paths], instructions? } }\`: selections of scripts and flows, each served at \`/api/mcp/w/<workspace>/s/<name>/mcp\`. Paths are exact or end in \`/*\`. A member signed in to a set gets the ones they can run. |
+| \`mcp_tool_sets\` | \`{ <name>: { scripts?: [paths], flows?: [paths], instructions?, run_history? } }\`: selections of scripts and flows, each served at \`/api/mcp/w/<workspace>/s/<name>/mcp\`. Paths are exact or end in \`/*\`. A member signed in to a set gets the ones they can run, and with \`run_history\` also \`list_runs\` and \`get_run\` over the set's runs. |
 | \`default_app\` | Path of the app shown as the workspace home. |
 | \`default_scripts\` | \`{ order?, hidden?, default_script_content? }\` for the script language picker. |
 | \`deploy_ui\` | \`{ include_path?, include_type? }\`: what the deploy-to-workspace UI offers. |
