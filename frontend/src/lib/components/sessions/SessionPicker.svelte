@@ -55,7 +55,8 @@
 		getRuntime,
 		getSessionChatPeek,
 		getSessionChatStatus,
-		removeSession
+		removeSession,
+		type SessionChatStatus
 	} from './sessionRuntimeRegistry.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
@@ -394,6 +395,34 @@
 	// collapsed-sidebar chat icon so the user sees there's pending
 	// AI activity in some session without expanding the sidebar.
 	const totalUnread = $derived(visibleSessions.reduce((acc, s) => acc + unreadFor(s), 0))
+
+	function statusFor(session: Session): SessionChatStatus {
+		const runtime = getRuntime(session.id)
+		return runtime
+			? getSessionChatStatus(runtime)
+			: (getSessionChatPeek(session.id)?.status ?? 'idle')
+	}
+
+	// The statuses a row shows over its resting mark, most urgent first: a session that needs
+	// the user (a question, a confirmation, a failure) outranks one still generating.
+	const LIVE_STATUS_ORDER: SessionChatStatus[] = [
+		'awaiting-answer',
+		'needs-confirmation',
+		'error',
+		'streaming'
+	]
+	// What the folded section shows for the sessions it hides: one mark only. A session that
+	// needs the user hides the unread count; the unread count hides a session generating.
+	const sectionStatus = $derived.by(() => {
+		let best: number = LIVE_STATUS_ORDER.length
+		for (const s of visibleSessions) {
+			const rank = LIVE_STATUS_ORDER.indexOf(statusFor(s))
+			if (rank !== -1 && rank < best) best = rank
+			if (best === 0) break
+		}
+		const status = LIVE_STATUS_ORDER[best]
+		return status === 'streaming' && totalUnread > 0 ? undefined : status
+	})
 
 	// Clear any persisted collapsed state while the list is empty. The
 	// empty-state header is a plain label with no toggle, so a collapse
@@ -814,6 +843,8 @@
 				onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
 				disabled={sessionState.hydrated && filteredSessions.length === 0}
 				notify={totalUnread > 0}
+				unreadCount={totalUnread}
+				status={sectionStatus}
 				actions={sectionOptions}
 				{isCollapsed}
 				onClose={() => {
@@ -877,10 +908,7 @@
 				<!-- The rail has no room for tree guides, but keeps the grouped rows' indent so a row
 					     stays put when a hover widens the rail. -->
 				{@const depth = rail ? undefined : treeDepth}
-				{@const runtime = getRuntime(session.id)}
-				{@const status = runtime
-					? getSessionChatStatus(runtime)
-					: (getSessionChatPeek(session.id)?.status ?? 'idle')}
+				{@const status = statusFor(session)}
 				{@const isSelected = session.id === activeRowId}
 				{@const isEditing = editingId === session.id}
 				{@const unread = unreadFor(session)}

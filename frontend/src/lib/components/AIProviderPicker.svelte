@@ -7,9 +7,14 @@
 		DECISION_AI_PROVIDERS,
 		aiProviderDetails
 	} from './copilot/lib'
-	import type { AIProvider, ProviderConfig } from '$lib/gen'
+	import {
+		ResourceService,
+		VariableService,
+		type AIProvider,
+		type ProviderConfig
+	} from '$lib/gen'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import { aiResourceProvider } from './copilot/aiResourceProvider'
+	import { aiResourceProvider, vertexPublisherProvider } from './copilot/aiResourceProvider'
 	import Toggle from './Toggle.svelte'
 	import { saveConfig, removeConfig, isSameAsStoredConfig } from './aiProviderStorage'
 	import AIReasoningEffortPicker from './AIReasoningEffortPicker.svelte'
@@ -58,10 +63,14 @@
 	const offeredProviders = Object.keys(
 		untrack(() => decision) ? DECISION_AI_PROVIDERS : AI_PROVIDERS
 	)
-	// Federated Anthropic resources authenticate the anthropic provider without a key of their own.
+	// Federated resources authenticate a provider without a key of their own.
 	const providerResourceTypes = [
 		...offeredProviders,
-		...(offeredProviders.includes('anthropic') ? ['anthropic_federated'] : [])
+		...(offeredProviders.includes('anthropic') ? ['anthropic_federated'] : []),
+		// Gemini decisions are served by the Gemini API only, never by Vertex.
+		...(offeredProviders.includes('googleai') && !untrack(() => decision)
+			? ['vertex_ai_federated']
+			: [])
 	].join(',')
 
 	if (!_uncheckedValue) {
@@ -140,15 +149,46 @@
 		}
 	}
 
+	let latestPick = 0
+
+	/** The provider a Vertex federated resource serves, Claude or Gemini depending on its base
+	 *  URL, which can be a variable. When the URL names no publisher, a Vertex provider already
+	 *  chosen is kept rather than guessed over. */
+	async function vertexResourceProvider(path: string): Promise<AIProvider> {
+		const workspace = effectiveWorkspace
+		let baseUrl = await ResourceService.getResourceValue({ workspace, path })
+			.then((v) => (v as Record<string, any> | undefined)?.base_url)
+			.catch(() => undefined)
+		if (typeof baseUrl === 'string' && baseUrl.startsWith('$var:')) {
+			baseUrl = await VariableService.getVariableValue({
+				workspace,
+				path: baseUrl.substring('$var:'.length)
+			}).catch(() => undefined)
+		}
+		const current = value?.kind
+		return (
+			vertexPublisherProvider(baseUrl) ??
+			(current === 'anthropic' || current === 'googleai' ? current : 'googleai')
+		)
+	}
+
 	/**
 	 * The provider kind follows the resource that was picked. Driven by the pick rather than by an
 	 * effect on the picker's `valueType`, which also resolves for the value the field was opened on
 	 * and would rewrite a saved config just for being looked at.
 	 */
-	function onResourcePicked(_path: string | undefined, type: string | undefined) {
+	async function onResourcePicked(path: string | undefined, type: string | undefined) {
+		const pick = ++latestPick
 		// An empty type is the placeholder the picker keeps for a saved path it could not find. It
 		// says nothing about the provider, so the kind stands.
-		const provider = aiResourceProvider(type)
+		const provider =
+			type === 'vertex_ai_federated' && path
+				? await vertexResourceProvider(path)
+				: aiResourceProvider(type)
+		// A later pick owns the kind.
+		if (pick !== latestPick) {
+			return
+		}
 		if (!value || !provider || !offeredProviders.includes(provider)) {
 			return
 		}
