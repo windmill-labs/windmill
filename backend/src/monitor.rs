@@ -3378,8 +3378,7 @@ pub async fn reload_sandbox_image_default_registry_setting(conn: &Connection) {
 
 pub async fn reload_sandbox_registry_auth_setting(conn: &Connection) {
     // Secret-aware: the value is a raw docker/podman auth.json with credentials, so
-    // it must never be logged. Load directly (the generic reload_option_setting path
-    // logs the value via load_option_setting_value) and only log a redacted message.
+    // it must never be logged. Load directly and only log a redacted message.
     match load_value_from_global_settings_with_conn(conn, SANDBOX_REGISTRY_AUTH_SETTING, true).await
     {
         Ok(q) => apply_sandbox_registry_auth_setting(q).await,
@@ -3448,7 +3447,10 @@ async fn resolve_license_key_value(conn: &Connection, quiet: bool) -> anyhow::Re
             }
             value = v;
         } else {
-            tracing::error!("Could not parse LICENSE_KEY found: {:#?}", &q);
+            tracing::error!(
+                "Could not parse LICENSE_KEY found: {}",
+                loggable_setting_value(&q)
+            );
         }
     };
     Ok(value)
@@ -3900,6 +3902,20 @@ pub async fn load_option_setting_value<T: FromStr + DeserializeOwned>(
     Ok(parse_option_setting_value(q, setting_name, std_env_var))
 }
 
+/// What a settings loader may print of a value. Credentials (registry tokens, `.npmrc`, index
+/// URLs with basic auth, `settings.xml`, PATs) all live in string or object settings, so only
+/// scalars are printed: a deny-list of secret setting names would leak each new one added.
+fn loggable_setting_value(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            v.to_string()
+        }
+        serde_json::Value::String(s) => format!("<redacted string, {} chars>", s.len()),
+        serde_json::Value::Array(a) => format!("<redacted array, {} items>", a.len()),
+        serde_json::Value::Object(o) => format!("<redacted object, {} keys>", o.len()),
+    }
+}
+
 /// The half of [`load_option_setting_value`] after the read, so [`SettingsPass`] can parse a
 /// value it already fetched.
 pub fn parse_option_setting_value<T: FromStr + DeserializeOwned>(
@@ -3920,10 +3936,16 @@ pub fn parse_option_setting_value<T: FromStr + DeserializeOwned>(
 
     if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<T>(q.clone()) {
-            tracing::info!("Loaded setting {setting_name} from db config: {:#?}", &q);
+            tracing::info!(
+                "Loaded setting {setting_name} from db config: {}",
+                loggable_setting_value(&q)
+            );
             value = Some(v)
         } else {
-            tracing::error!("Could not parse {setting_name} found: {:#?}", &q);
+            tracing::error!(
+                "Could not parse {setting_name} found: {}",
+                loggable_setting_value(&q)
+            );
         }
     };
 
@@ -4107,10 +4129,16 @@ pub fn parse_setting_value<T: FromStr + DeserializeOwned + Display>(
 
     if let Some(q) = q {
         if let Ok(v) = serde_json::from_value::<T>(q.clone()) {
-            tracing::info!("Loaded setting {setting_name} from db config: {:#?}", &q);
+            tracing::info!(
+                "Loaded setting {setting_name} from db config: {}",
+                loggable_setting_value(&q)
+            );
             value = transformer(v);
         } else {
-            tracing::error!("Could not parse {setting_name} found: {:#?}", &q);
+            tracing::error!(
+                "Could not parse {setting_name} found: {}",
+                loggable_setting_value(&q)
+            );
         }
     };
 
@@ -8461,5 +8489,25 @@ mod canceled_zombie_flow_tests {
         .await?;
         assert!(parent_pinged);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod loggable_setting_value_tests {
+    use super::loggable_setting_value;
+    use serde_json::json;
+
+    #[test]
+    fn never_prints_string_or_structured_values() {
+        let token = "ghp_secret_token";
+        for v in [
+            json!(format!("[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}")),
+            json!({ "registry": { "token": token } }),
+            json!([token]),
+        ] {
+            assert!(!loggable_setting_value(&v).contains(token));
+        }
+        assert_eq!(loggable_setting_value(&json!(3600)), "3600");
+        assert_eq!(loggable_setting_value(&json!(true)), "true");
     }
 }
