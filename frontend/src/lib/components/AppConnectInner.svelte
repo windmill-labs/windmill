@@ -1016,10 +1016,12 @@
 			}
 
 			let accountData: any = undefined
-			if (valueToken?.expires_in != undefined) {
+			// A workspace app's token keeps an account even when it never expires (GitHub): the
+			// account records the app, which a reconnect must go through again. It never refreshes.
+			if (valueToken?.expires_in != undefined || (valueToken && workspaceAppService)) {
 				accountData = {
 					refresh_token: valueToken.refresh_token ?? '',
-					expires_in: valueToken.expires_in,
+					expires_in: valueToken.expires_in ?? 100 * 365 * 24 * 3600,
 					// A workspace app's token refreshes through the app, found by its service.
 					client: workspaceAppService ?? connectClient,
 					is_workspace_integration: !!workspaceAppService,
