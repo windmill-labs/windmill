@@ -654,7 +654,15 @@ async fn test_read_only_volume_ignores_lease_and_waits_for_write(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     use windmill_common::min_version::{MIN_VERSION, MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES};
-    // The only test of this file that depends on the fleet's version
+    struct OnDrop<F: FnMut()>(F);
+    impl<F: FnMut()> Drop for OnDrop<F> {
+        fn drop(&mut self) {
+            (self.0)()
+        }
+    }
+    // Put back for the rest of the binary, panics included
+    let before = MIN_VERSION.load_full();
+    let _restore = OnDrop(move || MIN_VERSION.store(before.clone()));
     MIN_VERSION.store(std::sync::Arc::new(
         MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES.version().clone(),
     ));

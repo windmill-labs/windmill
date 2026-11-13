@@ -532,6 +532,16 @@ export function main() {
 #[cfg(all(feature = "parquet", feature = "enterprise"))]
 static FLEET_VERSION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+struct OnDrop<F: FnMut()>(F);
+
+#[cfg(all(feature = "parquet", feature = "enterprise"))]
+impl<F: FnMut()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        (self.0)()
+    }
+}
+
 /// An agent worker's `volume:ro` pull takes no lease, waits for a write in progress to close,
 /// and writes nothing back.
 #[cfg(all(feature = "parquet", feature = "enterprise"))]
@@ -563,6 +573,9 @@ async fn run_agent_read_only_volume(
 ) -> anyhow::Result<Option<String>> {
     use windmill_common::min_version::{MIN_VERSION, MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES};
     let _fleet = FLEET_VERSION.lock().await;
+    // Put back for the rest of the binary, panics included
+    let before = MIN_VERSION.load_full();
+    let _restore = OnDrop(move || MIN_VERSION.store(before.clone()));
     let mut fleet = MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES.version().clone();
     if !fleet_supports_lease_free {
         fleet.minor -= 1;
