@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.job_id, j.created_by, j.tag FROM ai_memory_turn t\n         JOIN v2_job_queue q ON q.id = t.job_id\n         JOIN v2_job j ON j.id = t.job_id\n         WHERE t.workspace_id = $1 AND t.memory_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "tag",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "dee2bb7623574d5cb38cba0f1687a7d2e030000f7a881eff50c307d77e44448e"
+}

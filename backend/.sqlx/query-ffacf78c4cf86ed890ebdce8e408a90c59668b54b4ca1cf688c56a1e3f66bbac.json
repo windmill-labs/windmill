@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT job_id, handed_jobs FROM ai_memory_turn WHERE workspace_id = $1 AND memory_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "handed_jobs",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "ffacf78c4cf86ed890ebdce8e408a90c59668b54b4ca1cf688c56a1e3f66bbac"
+}

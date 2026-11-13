@@ -3,12 +3,13 @@ use crate::ai::compaction::{
     Compactor,
 };
 use crate::ai::pause::{
-    answer_pause, load_checkpoint, park, question_timeout, question_tool, resume_without_approval,
-    AgentCheckpoint, Answer, ParkOutcome, PendingRequest, Resumed, QUESTION_ENABLED_NAME,
+    answer_pause, dropped_answer, dropped_messages, load_checkpoint, park, question_timeout,
+    question_tool, resume_without_approval, AgentCheckpoint, Answer, ParkOutcome, PendingRequest,
+    Resumed, QUESTION_ENABLED_NAME,
 };
 use crate::ai::tools::{
-    execute_tool_calls, take_finished_background_jobs, ApprovalGate, ToolAbortHandles,
-    ToolCallsOutcome, ToolExecutionContext,
+    execute_tool_calls, take_finished_background_jobs, ApprovalGate, BackgroundJob,
+    ToolAbortHandles, ToolCallsOutcome, ToolExecutionContext,
 };
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -430,7 +431,7 @@ fn note_unread_step_inputs(notes: &mut Vec<&'static str>, args: &AIAgentArgs) {
 /// an image prompt comes from the user message alone. An empty list is no conversation, except
 /// under a legacy `manual` memory, which ran on whatever list it held.
 fn has_prompt(
-    history: &HistorySource,
+    history: &HistorySource<'_>,
     has_user_message: bool,
     is_text_output: bool,
     legacy_list: bool,
@@ -1367,6 +1368,221 @@ pub async fn handle_ai_agent_job(
     result
 }
 
+/// Say in the job's logs when storage capacity cut what memory keeps.
+async fn log_memory_fit(
+    conn: &Connection,
+    job: &MiniPulledJob,
+    memory_to_save: Option<&[OpenAIMessage]>,
+    held: usize,
+) {
+    if memory_to_save.is_some_and(|tail| tail.len() < held) {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory exceeds storage capacity; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
+    } else if memory_to_save.is_none() {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
+    }
+}
+
+/// Write `memory_to_save` to the step's managed memory, if it keeps one.
+async fn persist_memory(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    memory_to_save: &[OpenAIMessage],
+) {
+    if let HistorySource::Managed { memory_id, bound } = history {
+        if let Some(step_id) = effective_flow_step_id {
+            if !memory_to_save.is_empty() {
+                let messages_to_persist = prepare_auto_memory_messages_for_persistence(
+                    memory_to_save,
+                    bound.messages_to_keep(),
+                );
+
+                match write_to_memory(
+                    db,
+                    &job.workspace_id,
+                    *memory_id,
+                    step_id,
+                    &messages_to_persist,
+                    matches!(bound, MemoryBound::LastMessages(_)),
+                )
+                .await
+                {
+                    // The conversation outgrew what the database holds and was cut
+                    // from its oldest message. Only the worker's own log says so
+                    // otherwise, so from the flow's side the agent simply starts the
+                    // next run having forgotten how this one began.
+                    Ok(dropped) if dropped > 0 => {
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            format!(
+                                "Memory does not fit the {}KB the database holds, so its \
+                                 {dropped} oldest messages were dropped. Configure instance \
+                                 object storage to keep the whole conversation.\n",
+                                MAX_MEMORY_SIZE_BYTES / 1000
+                            ),
+                            conn,
+                        )
+                        .await;
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to persist {} messages to memory for step {}: {}",
+                            messages_to_persist.len(),
+                            step_id,
+                            e
+                        );
+                        append_logs(&job.id, &job.workspace_id,
+                            "Agent memory could not be saved. The answer is preserved; the next run may load older memory.\n".to_string(), conn).await;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A stopped turn keeps what it reached instead of losing the whole exchange: every place it
+/// stops at has each tool call answered. No compaction runs here, since it would call the model
+/// while the cancel waits.
+async fn persist_memory_on_stop(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    output_type: &OutputType,
+    persist_capacity: Option<usize>,
+    handed_over: bool,
+    messages: &AgentHistory,
+) -> Error {
+    // A turn taken over leaves the memory to the run that took it.
+    if handed_over {
+        return Error::ExecutionErr("Job cancelled".to_string());
+    }
+    persist_memory_uncompacted(
+        db,
+        conn,
+        job,
+        history,
+        effective_flow_step_id,
+        output_type,
+        persist_capacity,
+        messages.context(),
+    )
+    .await;
+    Error::ExecutionErr("Job cancelled".to_string())
+}
+
+/// A parked turn saves its conversation, so that a new run of the same memory id taking it over
+/// reads it. An open request's calls read as dropped, which is what they become then. A turn that
+/// resumes instead saves again when it ends.
+async fn persist_memory_at_park(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    output_type: &OutputType,
+    persist_capacity: Option<usize>,
+    checkpoint: &AgentCheckpoint,
+    messages: &AgentHistory,
+) {
+    let mut context = messages.context().to_vec();
+    if let Some(pending) = &checkpoint.pending {
+        context.extend(dropped_messages(pending, &checkpoint.actions));
+    }
+    persist_memory_uncompacted(
+        db,
+        conn,
+        job,
+        history,
+        effective_flow_step_id,
+        output_type,
+        persist_capacity,
+        &context,
+    )
+    .await;
+}
+
+async fn persist_memory_uncompacted(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    output_type: &OutputType,
+    persist_capacity: Option<usize>,
+    context: &[OpenAIMessage],
+) {
+    if matches!(output_type, OutputType::Text) {
+        let memory_to_save = match persist_capacity {
+            Some(limit) => memory_within_capacity(context, limit),
+            None => Some(context),
+        };
+        log_memory_fit(conn, job, memory_to_save, context.len()).await;
+        if let Some(memory_to_save) = memory_to_save {
+            persist_memory(
+                db,
+                conn,
+                job,
+                history,
+                effective_flow_step_id,
+                memory_to_save,
+            )
+            .await;
+        }
+    }
+}
+
+/// The background jobs of a parked turn this run took over, for this step's agent to wait on.
+async fn adopt_handed_jobs(
+    db: &DB,
+    job: &MiniPulledJob,
+    memory_id: Uuid,
+    step_id: &str,
+) -> error::Result<Vec<BackgroundJob>> {
+    let jobs = sqlx::query_scalar!(
+        r#"UPDATE ai_memory_turn t SET handed_jobs = t.handed_jobs - $4::text
+         FROM (SELECT handed_jobs -> $4::text AS jobs FROM ai_memory_turn
+               WHERE workspace_id = $1 AND memory_id = $2 AND job_id = $3) old
+         WHERE t.workspace_id = $1 AND t.memory_id = $2 AND t.job_id = $3
+           AND t.handed_jobs ? $4::text
+         RETURNING old.jobs AS "jobs: sqlx::types::Json<Vec<BackgroundJob>>""#,
+        &job.workspace_id,
+        memory_id,
+        get_root_job_id(job),
+        step_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    let mut jobs = jobs.map(|j| j.0).unwrap_or_default();
+    for adopted in &mut jobs {
+        adopted.adopted = true;
+    }
+    // Under this agent, as the jobs it starts are: its cancel and its cleanup walk its children.
+    let ids: Vec<Uuid> = jobs.iter().map(|j| j.job_id).collect();
+    if !ids.is_empty() {
+        sqlx::query!(
+            "UPDATE v2_job SET parent_job = $2, root_job = $3, flow_innermost_root_job = $4
+             WHERE id = ANY($1) AND workspace_id = $5",
+            &ids,
+            job.id,
+            get_root_job_id(job),
+            job.flow_innermost_root_job.unwrap_or(job.id),
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(jobs)
+}
+
 /// Park the agent, as the error `run_agent` returns. `None` when a background job finished
 /// before the park was written, so the agent goes on instead; never for a park on an approval.
 async fn park_agent(
@@ -1507,6 +1723,17 @@ pub async fn run_agent(
     // Set when the job parked on a request or on background jobs and has been pulled again. Read
     // whatever the roster says now: a linked agent can lose a tool while one of its runs is parked.
     let resumed = match load_checkpoint(db, &job.id).await? {
+        Some(mut checkpoint) if checkpoint.handed_over => {
+            resume_without_approval(db, &job.id, &mut checkpoint.consumed_resume_rows).await?;
+            // Nothing is left to ask the model: the new run carries the conversation on.
+            checkpoint.background.clear();
+            checkpoint.answered = true;
+            let answer = checkpoint.pending.clone().map(|pending| {
+                let answer = dropped_answer(&pending, &checkpoint.actions);
+                (pending, answer, false)
+            });
+            Some((checkpoint, answer))
+        }
         Some(mut checkpoint) => {
             let answer = match checkpoint.pending.clone() {
                 Some(pending) => {
@@ -1703,6 +1930,12 @@ pub async fn run_agent(
     let mut answered = false;
     let mut keep_structured_answer = false;
     let was_resumed = resumed.is_some();
+    let handed_over = resumed.as_ref().is_some_and(|(c, _)| c.handed_over);
+    if let (None, Some(memory_id), Some(step_id)) =
+        (resumed.as_ref(), conversation_id, effective_flow_step_id)
+    {
+        background = adopt_handed_jobs(db, job, memory_id, step_id).await?;
+    }
     let (mut messages, mut actions, mut content, mut final_usage) = match resumed {
         Some((checkpoint, answer)) => {
             final_events_str = checkpoint.events;
@@ -1899,7 +2132,9 @@ pub async fn run_agent(
                     killpill_rx,
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
-                    omit_output_from_conversation,
+                    // Dropped for a turn that took over: in its chat, the row would land after
+                    // that turn's message. The run's own trace keeps the refusal.
+                    omit_output_from_conversation: omit_output_from_conversation || handed_over,
                     preserve_step_tags,
                     reasoning: None,
                     previous_result: &previous_result,
@@ -1935,8 +2170,20 @@ pub async fn run_agent(
     let mut i = first_iteration;
     while i < max_iterations {
         // Check if parent was canceled — stop iterating but let current tool calls finish
-        if *cancel_rx.borrow() {
-            return Err(Error::ExecutionErr("Job cancelled".to_string()));
+        let cancelled = *cancel_rx.borrow();
+        if cancelled {
+            return Err(persist_memory_on_stop(
+                db,
+                conn,
+                job,
+                &history,
+                effective_flow_step_id,
+                output_type,
+                persist_capacity,
+                handed_over,
+                &messages,
+            )
+            .await);
         }
 
         if !background.is_empty() {
@@ -1951,7 +2198,7 @@ pub async fn run_agent(
             }
             for finished in finished {
                 messages.push(finished.message());
-                if let Some(parent_job) = parent_job {
+                if let (false, Some(parent_job)) = (finished.job.adopted, parent_job) {
                     set_flow_status_module_action_success_at(
                         db,
                         parent_job,
@@ -2000,15 +2247,7 @@ pub async fn run_agent(
             }
             // The model has answered but background jobs still run: wait for one, without a
             // worker. This iteration runs again, starting with what finished.
-            if let Some(processor) = stream_event_processor.as_ref() {
-                processor
-                    .send(StreamingEvent::BackgroundWait, &mut final_events_str)
-                    .await?;
-            }
-            if let Some(handle) = stream_event_processor.take().and_then(|p| p.to_handle()) {
-                let _ = handle.await;
-            }
-            let checkpoint = AgentCheckpoint {
+            let mut checkpoint = AgentCheckpoint {
                 history: messages.checkpoint(),
                 actions: actions.clone(),
                 content: content.clone(),
@@ -2021,7 +2260,31 @@ pub async fn run_agent(
                 answered: true,
                 structured_answer: keep_structured_answer || used_structured_output_tool,
                 consumed_resume_rows: consumed_resume_rows.clone(),
+                handed_over: false,
             };
+            persist_memory_at_park(
+                db,
+                conn,
+                job,
+                &history,
+                effective_flow_step_id,
+                output_type,
+                persist_capacity,
+                &checkpoint,
+                &messages,
+            )
+            .await;
+            // Told once the memory is saved, which can take a while: a client sends its next
+            // message over the turn on it, and the claim refuses one until the park is written.
+            if let Some(processor) = stream_event_processor.as_ref() {
+                processor
+                    .send(StreamingEvent::BackgroundWait, &mut final_events_str)
+                    .await?;
+            }
+            if let Some(handle) = stream_event_processor.take().and_then(|p| p.to_handle()) {
+                let _ = handle.await;
+            }
+            checkpoint.events = final_events_str.clone();
             match park_agent(db, conn, job, &checkpoint, &cancel_rx).await {
                 Some(parked) => return Err(parked),
                 None => {
@@ -2405,11 +2668,23 @@ pub async fn run_agent(
                     )
                     .await;
                     let mut cancelled = cancel_rx.clone();
-                    tokio::select! {
-                        _ = tokio::time::sleep(delay) => {}
-                        Ok(_) = cancelled.wait_for(|cancelled| *cancelled) => {
-                            return Err(Error::ExecutionErr("Job cancelled".to_string()));
-                        }
+                    let stopped = tokio::select! {
+                        _ = tokio::time::sleep(delay) => false,
+                        Ok(_) = cancelled.wait_for(|cancelled| *cancelled) => true,
+                    };
+                    if stopped {
+                        return Err(persist_memory_on_stop(
+                            db,
+                            conn,
+                            job,
+                            &history,
+                            effective_flow_step_id,
+                            output_type,
+                            persist_capacity,
+                            handed_over,
+                            &messages,
+                        )
+                        .await);
                     }
                 }
             }
@@ -2717,7 +2992,20 @@ pub async fn run_agent(
                         answered: false,
                         structured_answer: keep_structured_answer,
                         consumed_resume_rows,
+                        handed_over: false,
                     };
+                    persist_memory_at_park(
+                        db,
+                        conn,
+                        job,
+                        &history,
+                        effective_flow_step_id,
+                        output_type,
+                        persist_capacity,
+                        &checkpoint,
+                        &messages,
+                    )
+                    .await;
                     let parked =
                         approval_park(park_agent(db, conn, job, &checkpoint, &cancel_rx).await);
                     // Written once parked: the run page offers an answer only for a request that
@@ -2737,8 +3025,20 @@ pub async fn run_agent(
                 }
 
                 // Check cancellation after tool calls complete to avoid a wasted LLM call
-                if *cancel_rx.borrow() {
-                    return Err(Error::ExecutionErr("Job cancelled".to_string()));
+                let cancelled = *cancel_rx.borrow();
+                if cancelled {
+                    return Err(persist_memory_on_stop(
+                        db,
+                        conn,
+                        job,
+                        &history,
+                        effective_flow_step_id,
+                        output_type,
+                        persist_capacity,
+                        handed_over,
+                        &messages,
+                    )
+                    .await);
                 }
             }
             ParsedResponse::Image { base64_data } => {
@@ -2799,6 +3099,8 @@ pub async fn run_agent(
         }
     }
 
+    // A turn taken over leaves the memory to the run that took it, which saved it at park.
+    let persist_capacity = persist_capacity.filter(|_| !handed_over);
     if let Some(capacity_bytes) =
         persist_capacity.filter(|limit| persisted_bytes(messages.context()) > *limit)
     {
@@ -2824,13 +3126,7 @@ pub async fn run_agent(
         Some(limit) => memory_within_capacity(messages.context(), limit),
         None => Some(messages.context()),
     };
-    if memory_to_save.is_some_and(|tail| tail.len() < messages.context().len()) {
-        append_logs(&job.id, &job.workspace_id,
-            "AI agent memory exceeds storage capacity after compaction; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
-    } else if memory_to_save.is_none() {
-        append_logs(&job.id, &job.workspace_id,
-            "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
-    }
+    log_memory_fit(conn, job, memory_to_save, messages.context().len()).await;
 
     // Return the final result
     let final_messages: Vec<Message> = messages
@@ -2877,59 +3173,18 @@ pub async fn run_agent(
     }
 
     // Storage limits affect only the saved suffix, never the returned execution history.
-    if let Some(memory_to_save) = memory_to_save.filter(|_| matches!(output_type, OutputType::Text))
+    if let Some(memory_to_save) =
+        memory_to_save.filter(|_| matches!(output_type, OutputType::Text) && !handed_over)
     {
-        if let HistorySource::Managed { memory_id, bound } = &history {
-            if let Some(step_id) = effective_flow_step_id {
-                if !memory_to_save.is_empty() {
-                    let messages_to_persist = prepare_auto_memory_messages_for_persistence(
-                        memory_to_save,
-                        bound.messages_to_keep(),
-                    );
-
-                    match write_to_memory(
-                        db,
-                        &job.workspace_id,
-                        *memory_id,
-                        step_id,
-                        &messages_to_persist,
-                        matches!(bound, MemoryBound::LastMessages(_)),
-                    )
-                    .await
-                    {
-                        // The conversation outgrew what the database holds and was cut
-                        // from its oldest message. Only the worker's own log says so
-                        // otherwise, so from the flow's side the agent simply starts the
-                        // next run having forgotten how this one began.
-                        Ok(dropped) if dropped > 0 => {
-                            append_logs(
-                                &job.id,
-                                &job.workspace_id,
-                                format!(
-                                    "Memory does not fit the {}KB the database holds, so its \
-                                     {dropped} oldest messages were dropped. Configure instance \
-                                     object storage to keep the whole conversation.\n",
-                                    MAX_MEMORY_SIZE_BYTES / 1000
-                                ),
-                                conn,
-                            )
-                            .await;
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to persist {} messages to memory for step {}: {}",
-                                messages_to_persist.len(),
-                                step_id,
-                                e
-                            );
-                            append_logs(&job.id, &job.workspace_id,
-                                "Agent memory could not be saved. The answer is preserved; the next run may load older memory.\n".to_string(), conn).await;
-                        }
-                    }
-                }
-            }
-        }
+        persist_memory(
+            db,
+            conn,
+            job,
+            &history,
+            effective_flow_step_id,
+            memory_to_save,
+        )
+        .await;
     }
 
     Ok(to_raw_value(&AIAgentResult {

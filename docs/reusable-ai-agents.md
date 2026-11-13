@@ -173,6 +173,42 @@ older editor baked into `memory` stays a fallback behind the run's id until the 
 *Keep as memory id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
 conversation id always took precedence there.
 
+## One running turn per memory id
+
+Two runs with the same memory id would each read the memory at start and the last to finish would
+overwrite the other's turn, so a run is refused while another one is working on its id.
+
+- **Claim.** `set_flow_memory_id` claims `ai_memory_turn (workspace_id, memory_id) -> job_id` in
+  the push transaction, for every run that carries a run memory id, chat or not. A claim whose job
+  is still in `v2_job_queue` refuses the push with a 409 whose body names the running turn; one
+  whose job left the queue is taken over, and the monitor deletes it. For a chat flow the
+  conversation check runs first, since its refusal carries the `user_seq` the chat follows. The
+  claim covers the run memory id only: a step's own `memory_id` is evaluated on the worker, after
+  the push, and stays unguarded.
+- **A parked run hands it over.** A holder whose agent parked (answered while its background jobs
+  run, or waiting on an approval or a question) as the run's last top-level step, where the run
+  is at, is not refused against: the new run takes the conversation (`hand_over_parked_turn`).
+  After that step the run ends, so nothing of it can write the memory or the chat beside the new
+  turn; a step after the agent, or one in a parallel branch, would, so such a run is refused as a
+  working one, its 409 saying why, and `take_over` stays the way through. Under the parked agent's queue row lock, its `suspend` is
+  zeroed and its checkpoint marked `handed_over`, which keeps the monitor's wake and an answer from
+  resuming it too. Its background jobs move onto the claim row (`handed_jobs`, by flow step id) and
+  the new run's agent of that step adopts them when it starts. The parked agent wakes, refuses an
+  open approval or skips a question without a chat row, and ends with the answer it had, writing
+  no memory: it saved its memory when it parked, with the open request's calls already reading as
+  left unanswered. The flow chat's own running-turn check lets a parked turn through the same way.
+- **Take over.** `take_over=true` on a run cancels the run holding the id, then waits up to 40s
+  for it to leave the queue before pushing (`take_over_memory_turn`). Only who started that run, or
+  an admin, can do it, and a restricted token only with an unconfined `jobs:cancel` scope, since a
+  uuid memory id is not confined to the flow being run. The holder is stopped before the new run is
+  validated, so a new run refused for another reason leaves the memory id with no turn. App runs
+  refuse `take_over`.
+- **History on stop.** A cancelled agent writes its managed memory before it returns, so the next
+  turn starts from what this one reached. Every place it stops at has each tool call answered; one
+  stopped before its first reply keeps the unanswered message, and the next turn's message follows
+  it. No compaction runs there, since it would call the model inside the cancel's
+  grace period. An agent cancelled while parked is completed without running, and saves nothing.
+
 ## Approval and questions
 
 Two things park the agent rather than run: a call of a tool with `requires_approval` (flow module

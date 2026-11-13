@@ -751,6 +751,10 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		}
 	}
 
+	awaitsAnswer(): boolean {
+		return this.#agentRequest !== undefined
+	}
+
 	cancel = () => {
 		const { messages, status } = this.#state
 		const turn = isBusy(status) ? [...messages].reverse().find((m) => m.role === 'user') : undefined
@@ -812,7 +816,10 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		files: AttachedTextFile[] = [],
 		blobs: AttachedBlob[] = []
 	) => {
-		this.#turns.queue(composerDraft(text, images, blobs, files))
+		const draft = composerDraft(text, images, blobs, files)
+		// Offered to the server first, which takes it over a parked turn; one it refuses is queued.
+		if (draft.attachments.length > 0) this.#turns.queue(draft)
+		else void this.#turns.send(draft)
 	}
 	/** Put the queued draft back in the composer, attachments included. */
 	dequeueMessage = () => {

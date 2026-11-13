@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ai_memory_turn SET job_id = $3, handed_jobs = $4\n             WHERE workspace_id = $1 AND memory_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "58ae943b41b2783c39597014654ca77562045bbef4dcd771820e744dea9c6b78"
+}

@@ -5324,9 +5324,6 @@ async fn execute_component(
             ),
         };
         let run_query = RunJobQuery { memory_id: Some(memory_id), ..Default::default() };
-        if let Some(key) = run_query.memory_key(&w_id, run_path) {
-            crate::jobs::set_flow_memory_id(&mut tx, uuid, key).await?;
-        }
         crate::jobs::file_chat_turn(
             &mut tx,
             &owner,
@@ -5342,6 +5339,9 @@ async fn execute_component(
             &args.args,
         )
         .await?;
+        if let Some(key) = run_query.memory_key(&w_id, run_path) {
+            crate::jobs::set_flow_memory_id(&mut tx, &w_id, uuid, key).await?;
+        }
     } else if let (Some(flow_path), Some(memory_id)) = (flow_path, memory_id) {
         // A flow keeping no conversation has no row to own its memory, so the key itself is
         // derived per app and viewer: no viewer can name another's memory.
@@ -5353,7 +5353,7 @@ async fn execute_component(
             flow_path,
             &format!("app:{path}:{viewer}:{memory_id}"),
         );
-        crate::jobs::set_flow_memory_id(&mut tx, uuid, key).await?;
+        crate::jobs::set_flow_memory_id(&mut tx, &w_id, uuid, key).await?;
     }
 
     tx.commit().await?;

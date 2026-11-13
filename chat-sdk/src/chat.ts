@@ -62,6 +62,8 @@ interface Turn {
   /** Id of the streaming assistant message; cleared when a tool call ends the round. */
   assistantId?: string
   streamedText: boolean
+  /** Sent over a running turn and stopped before the server answered: its run is cancelled. */
+  stopped?: boolean
 }
 
 export function createChat<W extends RawAppWmill>(options: TypedChatOptions<W>): Chat {
@@ -75,6 +77,8 @@ class ChatImpl implements Chat {
   readonly #listeners = new Set<(state: ChatState) => void>()
   #state: ChatState
   #turn: Turn | undefined
+  /** A message sent over the running turn, until the server takes or refuses it. */
+  #sentOver: Turn | undefined
   #page = 1
   /** The kind the caller last listed, so the refresh after a new turn lists the same rows. */
   #conversationKind: ConversationKind | undefined
@@ -130,8 +134,18 @@ class ChatImpl implements Chat {
       if (options.attachments?.length) throw new Error('windmill-chat: attachments need a message to go with them')
       return
     }
-    if (this.#turn) {
+    // Followed until the server takes this message, which it refuses while that turn works.
+    const running = this.#turn
+    if (running && !options.overRunningTurn) {
       throw new Error('windmill-chat: a message is already being answered; call stop() first')
+    }
+    if (running && options.attachments?.length) {
+      throw new Error('windmill-chat: attachments cannot be sent over a running turn')
+    }
+    // One at a time, even once the turn it was sent over has ended: taken late, it would replace
+    // the turn sent meanwhile. `stop()` and leaving the conversation cancel the send still waiting.
+    if (this.#sentOver) {
+      throw new Error('windmill-chat: a message sent over the running turn is still waiting for the server')
     }
     const attachments = options.attachments ?? []
     const attachmentsInput = options.attachmentsInput
@@ -156,8 +170,10 @@ class ChatImpl implements Chat {
       withdrawn: false,
       streamedText: false
     }
-    this.#turn = turn
-    this.#epoch++
+    if (!running) {
+      this.#turn = turn
+      this.#epoch++
+    }
 
     const timestamp = now()
     const conversation: Conversation = this.#state.conversations.find(
@@ -170,8 +186,7 @@ class ChatImpl implements Chat {
         ...this.#state.messages,
         { id: turn.userMessageId, role: 'user', content, success: true, createdAt: timestamp, pending: true }
       ],
-      status: 'submitted',
-      error: undefined
+      ...(running ? {} : { status: 'submitted' as const, error: undefined })
     })
 
     try {
@@ -200,15 +215,24 @@ class ChatImpl implements Chat {
       })
       this.#rememberConversation()
       const context = { memoryId: conversationId, conversationId, signal: turn.controller.signal }
+      if (running) this.#sentOver = turn
       turn.jobId = this.#config.run
         ? await this.#config.run(args, context)
         : await this.#api.runFlow(this.#config.flowPath, args, context)
+      // Stopped or left while the server answered: a `run` that ignores the signal still
+      // returns its job, which a stop cancels and a switch leaves running unfollowed.
+      if (running && turn.controller.signal.aborted) {
+        if (turn.stopped && !this.#config.follow) await this.#api.cancelJob(turn.jobId).catch(() => {})
+        throw abortError()
+      }
     } catch (e) {
       try {
         // Nothing of this message reached the server, whether the conversation was already
         // answering one sent elsewhere or an attachment never uploaded: the message is taken
         // back rather than shown as a failed turn, and the caller gets the reason.
-        if (e instanceof TurnRunningError || !turn.started) {
+        // Sent over a running turn, a message the server did not take goes back too: the turn
+        // on screen is that one, not this.
+        if (e instanceof TurnRunningError || !turn.started || running) {
           this.#withdrawTurn(turn)
           throw e
         }
@@ -219,6 +243,28 @@ class ChatImpl implements Chat {
       } finally {
         if (this.#turn === turn) this.#turn = undefined
       }
+    } finally {
+      if (this.#sentOver === turn) this.#sentOver = undefined
+    }
+    if (running) {
+      // A conversation left meanwhile has the run go on unfollowed, like a turn it was showing.
+      if (this.#state.conversationId !== conversationId) return
+      // The server handed this message the conversation: what the old turn showed stays as it is.
+      if (this.#turn) this.#detachTurn()
+      this.#turn = turn
+      this.#epoch++
+      const oldTurnStart = lastUserBefore(this.#state.messages, turn.userMessageId)
+      this.#set({
+        // A call of the old turn still running in the background stays open, its row read or
+        // not: the new turn adopts its job and streams its result to it.
+        messages: this.#state.messages.map((m, j) => {
+          const running = m.role === 'tool' && m.tool?.status === 'running'
+          if (running) return j > oldTurnStart ? { ...m, pending: true } : m
+          return m.pending && m.id !== turn.userMessageId ? { ...m, pending: false } : m
+        }),
+        status: 'submitted',
+        error: undefined
+      })
     }
     await this.#followTurn(turn, isNew)
   }
@@ -336,6 +382,11 @@ class ChatImpl implements Chat {
   }
 
   stop = async (): Promise<void> => {
+    const sentOver = this.#sentOver
+    if (sentOver) {
+      sentOver.stopped = true
+      sentOver.controller.abort()
+    }
     const turn = this.#turn
     if (!turn) return
     this.#detachTurn()
@@ -1136,6 +1187,7 @@ class ChatImpl implements Chat {
    */
   #leaveConversation(): void {
     this.#epoch++
+    this.#sentOver?.controller.abort()
     if (this.#turn) {
       this.#detachTurn()
       this.#set({ messages: finalized(this.#state.messages), status: 'idle' })
@@ -1234,6 +1286,14 @@ function assistantMessage(content: string, success: boolean, jobId: string | und
     jobId,
     pending: false
   }
+}
+
+/** Index of the latest user message before the one with `id`, the start of the turn it ends. */
+function lastUserBefore(messages: readonly ChatMessage[], id: string): number {
+  let j = messages.findIndex((m) => m.id === id)
+  if (j < 0) j = messages.length
+  while (--j >= 0 && messages[j].role !== 'user') {}
+  return j
 }
 
 function finalized(messages: ChatMessage[]): ChatMessage[] {

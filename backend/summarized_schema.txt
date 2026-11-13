@@ -41,6 +41,7 @@ ai_agent_checkpoint: job_id(uuid), workspace_id(char), checkpoint(jsonb), create
 ai_agent_memory: workspace_id(char), conversation_id(uuid), step_id(char), messages(jsonb), created_at(ts), updated_at(ts)
 ai_free_token_daily_usage: day(date), cost_nanos(bigint), updated_at(ts)
 ai_free_token_usage: email(char), cost_nanos(bigint), updated_at(ts)
+ai_memory_turn: workspace_id(char), memory_id(uuid), job_id(uuid)
 ai_shared_artifact: id(uuid), workspace_id(char), artifact_id(char), email(char), created_by(char), name(char), kind(char), version(int), content(text), shared_at(ts)
 ai_shared_session: id(uuid), workspace_id(char), session_id(char), email(char), created_by(char), name(char), is_public(bool), message_count(int), snapshot(text), shared_at(ts)
   FK: (workspace_id) -> workspace(id)

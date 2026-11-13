@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TurnRunningError, type Chat, type ChatMessage, type ChatState } from 'windmill-chat'
+import {
+	TurnRunningError,
+	type Chat,
+	type ChatMessage,
+	type ChatState,
+	type SendMessageOptions
+} from 'windmill-chat'
 import {
 	FlowChatViewHost,
 	toDisplayMessages,
@@ -64,7 +70,12 @@ function fakeChat(initial: ChatState = idleState()) {
 			listener(state)
 			return () => listeners.delete(listener)
 		},
-		sendMessage: vi.fn(async () => {}),
+		// Like the server for a turn that works: a message sent over it is refused.
+		sendMessage: vi.fn(async (_text: string, options?: SendMessageOptions) => {
+			if (options?.overRunningTurn) {
+				throw new TurnRunningError('running', { jobId: 'running-job', userSeq: 0 })
+			}
+		}),
 		resumeTurn: vi.fn(async () => {}),
 		stop: vi.fn(async () => {}),
 		newConversation: vi.fn(),
@@ -80,6 +91,10 @@ function fakeChat(initial: ChatState = idleState()) {
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+/** The sends that ran a turn, not the ones offered over a parked turn. */
+const realSends = (chat: ReturnType<typeof fakeChat>['chat']) =>
+	chat.sendMessage.mock.calls.filter(([, options]) => !options?.overRunningTurn)
 
 /** A host on its conversation's turns, the way the pool pairs them. */
 function hostOn(chat: Chat, options?: FlowChatViewHostOptions) {
@@ -593,10 +608,11 @@ describe('FlowChatViewHost', () => {
 		set({ status: 'streaming' })
 		host.queueMessage('first')
 		host.queueMessage('second')
+		await flush()
 		expect(host.queuedMessage).toBe('first\nsecond')
 		set({ status: 'idle' })
 		await flush()
-		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		expect(realSends(chat)).toHaveLength(1)
 		releaseTurn()
 		await flush()
 		expect(host.queuedMessage).toBe('')
@@ -608,7 +624,94 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
-	it('hands the queue back when a failed flow settles as idle', () => {
+	it('sends a message typed during a parked turn rather than queueing it', async () => {
+		const { chat } = fakeChat(
+			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })
+		)
+		// The server takes it: the turn's agent is parked.
+		chat.sendMessage.mockImplementationOnce(async () => {})
+		const host = hostOn(chat)
+		host.queueMessage('meanwhile')
+		await flush()
+		expect(chat.sendMessage).toHaveBeenCalledWith('meanwhile', {
+			inputs: undefined,
+			attachments: [],
+			attachmentsInput: undefined,
+			overRunningTurn: true
+		})
+		expect(host.queuedMessage).toBe('')
+		host.dispose()
+	})
+
+	it('queues what is typed while the turn works, and sends it over once the turn waits', async () => {
+		const { chat, set } = fakeChat(idleState({ status: 'streaming', runningJobId: 'working-job' }))
+		const host = hostOn(chat)
+		host.queueMessage('one')
+		host.queueMessage('two')
+		await flush()
+		// Not offered to the server, which would refuse it.
+		expect(chat.sendMessage).not.toHaveBeenCalled()
+		expect(host.queuedMessage).toBe('one\ntwo')
+		chat.sendMessage.mockImplementationOnce(async () => {})
+		set({ waitingOnBackground: true })
+		await flush()
+		expect(chat.sendMessage).toHaveBeenCalledWith(
+			'one\ntwo',
+			expect.objectContaining({ overRunningTurn: true })
+		)
+		expect(host.queuedMessage).toBe('')
+		host.dispose()
+	})
+
+	it('queues what is typed while a message sent over a turn that has since ended waits', async () => {
+		const { chat, set } = fakeChat(
+			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })
+		)
+		// The server has not answered yet.
+		chat.sendMessage.mockImplementationOnce(() => new Promise(() => {}))
+		const host = hostOn(chat)
+		host.queueMessage('one')
+		await flush()
+		set({ status: 'idle', runningJobId: undefined, waitingOnBackground: undefined })
+		host.queueMessage('two')
+		await flush()
+		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		expect(host.queuedMessage).toBe('two')
+		host.dispose()
+	})
+
+	it('sends again shortly when refused while the turn still says it waits', async () => {
+		const { chat } = fakeChat(
+			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })
+		)
+		const host = hostOn(chat)
+		// Refused: the agent said it waits before its park was written.
+		host.queueMessage('meanwhile')
+		await flush()
+		expect(host.queuedMessage).toBe('meanwhile')
+		chat.sendMessage.mockImplementationOnce(async () => {})
+		await new Promise((resolve) => setTimeout(resolve, 1100))
+		expect(chat.sendMessage).toHaveBeenCalledTimes(2)
+		expect(host.queuedMessage).toBe('')
+		host.dispose()
+	})
+
+	it('queues what is typed while a message waits on the server, behind it', async () => {
+		const { chat } = fakeChat(
+			idleState({ status: 'streaming', runningJobId: 'parked-job', waitingOnBackground: true })
+		)
+		const host = hostOn(chat)
+		host.queueMessage('one')
+		host.queueMessage('two')
+		await flush()
+		// Offered once, refused because the agent woke meanwhile, then queued ahead of what
+		// followed it.
+		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		expect(host.queuedMessage).toBe('one\ntwo')
+		host.dispose()
+	})
+
+	it('hands the queue back when a failed flow settles as idle', async () => {
 		const { chat, set } = fakeChat(
 			idleState({ status: 'streaming', messages: [message({ role: 'user', content: 'go' })] })
 		)
@@ -616,6 +719,7 @@ describe('FlowChatViewHost', () => {
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		host.queueMessage('later')
+		await flush()
 		// A failed flow is answered with its error and the status still returns to idle.
 		set({
 			status: 'idle',
@@ -625,7 +729,7 @@ describe('FlowChatViewHost', () => {
 			]
 		})
 		expect(prependText).toHaveBeenCalledWith('later', [], [], [])
-		expect(chat.sendMessage).not.toHaveBeenCalled()
+		expect(realSends(chat)).toHaveLength(0)
 		host.dispose()
 	})
 
@@ -636,11 +740,12 @@ describe('FlowChatViewHost', () => {
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		host.queueMessage('after deploy')
+		await flush()
 		// A deployment starts while the turn is still running; the composer is disabled.
 		deploying = true
 		set({ status: 'idle' })
 		await flush()
-		expect(chat.sendMessage).not.toHaveBeenCalled()
+		expect(realSends(chat)).toHaveLength(0)
 		expect(prependText).toHaveBeenCalledWith('after deploy', [], [], [])
 		expect(host.queuedMessage).toBe('')
 		host.dispose()
@@ -656,11 +761,12 @@ describe('FlowChatViewHost', () => {
 		void host.sendRequest({ instructions: 'start' })
 		set({ status: 'streaming' })
 		host.queueMessage('never')
+		await flush()
 		set({ status: 'idle' })
 		host.turns.dispose()
 		releaseTurn()
 		await flush()
-		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		expect(realSends(chat)).toHaveLength(1)
 	})
 
 	it('hands the text back when the chat refuses the turn', async () => {
@@ -750,6 +856,8 @@ describe('FlowChatViewHost', () => {
 		set({ status: 'idle' })
 		refuse(new TurnRunningError('still answering', { jobId: 'job-9', userSeq: 41 }))
 		await sent
+		// Flushed into the turn it now follows, offered over it and refused back into the queue.
+		await flush()
 		expect(host.queuedMessage).toBe('first\ncorrection')
 		host.dispose()
 	})
@@ -773,10 +881,11 @@ describe('FlowChatViewHost', () => {
 		host.dispose()
 	})
 
-	it('keeps text handed back while no composer is mounted for the next one', () => {
+	it('keeps text handed back while no composer is mounted for the next one', async () => {
 		const { chat } = fakeChat(idleState({ status: 'streaming' }))
 		const host = hostOn(chat)
 		host.queueMessage('typed before leaving')
+		await flush()
 		host.cancel()
 		// Held by the conversation's turns alone until a composer takes it, so the pool must
 		// not release it.
@@ -810,15 +919,17 @@ describe('FlowChatViewHost', () => {
 		const prependText = vi.fn()
 		host.setAiChatInput({ prependText } as any)
 		host.queueMessage('later')
+		await flush()
 		host.cancel()
 		expect(chat.stop).toHaveBeenCalled()
 		expect(prependText).toHaveBeenCalledWith('later', [], [], [])
 		expect(host.queuedMessage).toBe('')
 
 		host.queueMessage('after error')
+		await flush()
 		set({ status: 'error' })
 		expect(prependText).toHaveBeenLastCalledWith('after error', [], [], [])
-		expect(chat.sendMessage).not.toHaveBeenCalled()
+		expect(realSends(chat)).toHaveLength(0)
 		host.dispose()
 	})
 
@@ -904,10 +1015,11 @@ describe('FlowChatViewHost', () => {
 		void host.sendRequest({ instructions: 'A', blobs: [pdf] })
 		set({ status: 'submitted' })
 		host.queueMessage('B')
+		await flush()
 		set({ status: 'idle' })
 		refuse(new Error('upload failed (500)'))
 		await new Promise((resolve) => setTimeout(resolve, 0))
-		expect(chat.sendMessage).toHaveBeenCalledTimes(1)
+		expect(realSends(chat)).toHaveLength(1)
 		expect(host.queuedMessage).toBe('')
 		expect(prependText.mock.calls.map((c) => c[0])).toEqual(['B', 'A'])
 		expect(prependText).toHaveBeenLastCalledWith('A', [], [], [pdf])
