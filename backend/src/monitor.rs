@@ -982,6 +982,11 @@ pub async fn apply_workspace_fairness_enabled(value: Option<serde_json::Value>) 
         _ => false,
     };
     let prev = WORKSPACE_FAIRNESS_ENABLED.swap(new_enabled, Ordering::Relaxed);
+    if !new_enabled && *windmill_common::worker::WORKSPACE_FAIRNESS_RESERVE_WORKER {
+        tracing::warn!(
+            "fairness reserve worker stays idle: {WORKSPACE_FAIRNESS_ENABLED_SETTING} is off"
+        );
+    }
     // Re-store the pull queries so the fairness variants appear/disappear in
     // lockstep with the toggle.
     if prev != new_enabled {

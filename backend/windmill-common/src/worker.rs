@@ -496,7 +496,7 @@ lazy_static::lazy_static! {
     pub static ref WORKER_SUSPENDED_PULL_QUERY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
     pub static ref WORKER_SUSPENDED_PULL_QUERY_FAIRNESS: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
 
-    // Workspace fairness (cloud-only). When enabled, a workspace whose footprint over the rolling
+    // Workspace fairness (Enterprise). When enabled, a workspace whose footprint over the rolling
     // `WORKSPACE_FAIRNESS_DURATION_SECS` window represents >= `WORKSPACE_FAIRNESS_MAX_PERCENT`% of
     // all worker activity gets excluded from the pull query, freeing slots for other workspaces.
     // The list of overloaded workspaces is computed cluster-wide via a single coordinated UPDATE
