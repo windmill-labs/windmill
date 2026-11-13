@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.873.1](https://github.com/windmill-labs/windmill/compare/v1.873.0...v1.873.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* keep static input references in raw-app source deploy policies ([#12428](https://github.com/windmill-labs/windmill/issues/12428)) ([a64dc9a](https://github.com/windmill-labs/windmill/commit/a64dc9a5605dc297f28f8f7afd15e06fc9d17ce3))
+* keep step_id, job_id, flow_path and extra on dedicated worker errors ([#12417](https://github.com/windmill-labs/windmill/issues/12417)) ([3b860d5](https://github.com/windmill-labs/windmill/commit/3b860d549e3819f6a849704737742b6c00377252))
+* revoke api tokens and mcp oauth grants on leave_instance ([#12430](https://github.com/windmill-labs/windmill/issues/12430)) ([2c39bf0](https://github.com/windmill-labs/windmill/commit/2c39bf044a04ca20f2f076ecc79d64f341f35261))
+* run dedicated flow script steps on their runners ([#12419](https://github.com/windmill-labs/windmill/issues/12419)) ([f738a4b](https://github.com/windmill-labs/windmill/commit/f738a4bad4e211ded0a39d48722544f9321e0190))
+
 ## [1.873.0](https://github.com/windmill-labs/windmill/compare/v1.872.0...v1.873.0) (2026-11-13)
 
 
