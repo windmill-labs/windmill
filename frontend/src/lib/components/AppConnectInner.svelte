@@ -463,10 +463,15 @@
 		return entry ? (entry.cc_scopes ?? []) : instanceScopes
 	}
 
+	/** Only an instance OAuth client is a `_sandbox` alias of its parent type; a resource
+	 * type's own name may end in `_sandbox` too. */
+	function typeOfKey(key: string): string {
+		return connects?.includes(key) ? stripSandboxSuffix(key) : key
+	}
+
 	function selectType(key: string) {
 		connectClient = key
-		// Only an OAuth client row is a `_sandbox` alias; a resource type may end in it too.
-		resourceType = connectsManual?.some((x) => x.key == key) ? key : stripSandboxSuffix(key)
+		resourceType = typeOfKey(key)
 		resetClientCredentialsState()
 		next()
 	}
@@ -495,12 +500,12 @@
 		wsSpecific = false
 		const rawRt = rt ?? ''
 		connectClient = rawRt
-		resourceType = stripSandboxSuffix(rawRt)
 		valueToken = undefined
 
 		resetClientCredentialsState()
 
 		await loadConnects()
+		resourceType = typeOfKey(rawRt)
 		if (express) {
 			// Express drives the browser sign-in with no input, so it needs the instance's client.
 			if (!(connects?.includes(connectClient) ?? false)) {
@@ -593,7 +598,8 @@
 							(!!ccInstanceMeta && ccInstance.trim() == '')))) ||
 			step == 4 ||
 			(step == 5 && (pathError != '' || (!!native && !path))) ||
-			!isValid
+			// The manual form's own validity: it must not hold Next once the form is left.
+			(step == 3 && manual && !isValid)
 	})
 
 	run(() => {
@@ -1169,7 +1175,7 @@
 
 	function goToStep(index: number) {
 		const target = STEP_OF_INDEX[index]
-		if (target == 2 && !methodStepShown) return
+		if ((target == 2 && !methodStepShown) || (target == 1 && openedOnType)) return
 		while (step > target && canBackFrom(step)) back()
 	}
 
@@ -1294,7 +1300,10 @@
 					small
 					selectedIndex={stepIndex}
 					maxReachedIndex={stepIndex}
-					disabledIndices={step > 1 && !methodStepShown ? [1] : []}
+					disabledIndices={[
+						...(openedOnType ? [0] : []),
+						...(step > 1 && !methodStepShown ? [1] : [])
+					]}
 					on:click={(e) => goToStep(e.detail.index)}
 				/>
 			</div>
@@ -1454,7 +1463,7 @@
 				<Path
 					bind:error={pathError}
 					bind:path
-					initialPath=""
+					initialPath={fillPath ?? ''}
 					namePlaceholder={resourceType}
 					kind="resource"
 				/>
