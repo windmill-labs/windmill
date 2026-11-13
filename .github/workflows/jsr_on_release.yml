@@ -12,5 +12,5 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
       - run: cd typescript-client && ./publish.jsr.sh

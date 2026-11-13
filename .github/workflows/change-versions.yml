@@ -14,7 +14,7 @@ jobs:
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           token: ${{ steps.app.outputs.token }}
       - run: git config --system --add safe.directory /__w/windmill/windmill

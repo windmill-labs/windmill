@@ -26,12 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout windmill (source of truth)
-        uses: actions/checkout@v4.4.0
+        uses: actions/checkout@v7.0.1
         with:
           path: windmill
 
       - name: Checkout windmill-cli-docs (publish target)
-        uses: actions/checkout@v4.4.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-cli-docs
           path: windmill-cli-docs

@@ -46,7 +46,7 @@ jobs:
     outputs:
       digest: ${{ steps.docker_build.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.ref }}
           # GIT_VERSION is `git describe --tags`, which needs the history and
@@ -58,7 +58,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -122,7 +122,7 @@ jobs:
     outputs:
       digest: ${{ steps.digest.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.ref }}
           # GIT_VERSION is `git describe --tags`, which needs the history and
@@ -134,7 +134,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -229,7 +229,7 @@ jobs:
     env:
       ARCH: amd64
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       # The runner disk cannot hold the CE and EE images at once, so each image
       # is pulled, extracted from and removed before the next one is pulled.
@@ -314,7 +314,7 @@ jobs:
     runs-on: ubicloud
     needs: [build_ee]
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
@@ -342,7 +342,7 @@ jobs:
       github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/v'))  && (github.event_name != 'workflow_dispatch')
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
       - name: Login to registry
         uses: docker/login-action@v3.7.0
         with:
@@ -376,7 +376,7 @@ jobs:
       github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch') && (github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/v'))
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
       - name: Login to registry
         uses: docker/login-action@v3.7.0
         with:
@@ -429,7 +429,7 @@ jobs:
       # 0.69.3, pinned by digest so a republished tag cannot change what runs with release credentials.
       TRIVY_IMAGE: aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       - name: Login to registry
         uses: docker/login-action@v3.7.0
@@ -545,7 +545,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2.10.0
@@ -575,7 +575,7 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.ref }}
 
@@ -632,7 +632,7 @@ jobs:
     outputs:
       digest: ${{ steps.docker_build.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
@@ -687,7 +687,7 @@ jobs:
       digest: ${{ steps.docker_build.outputs.digest }}
 
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
@@ -741,7 +741,7 @@ jobs:
     needs: [build]
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
@@ -793,7 +793,7 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v2
