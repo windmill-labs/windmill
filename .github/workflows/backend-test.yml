@@ -98,6 +98,12 @@ jobs:
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
+          # ubicloud's cache is not scoped per branch, so a PR's save is restored by main and every
+          # other PR. Each save keeps the artifacts it restored, so PR saves grew the cache from
+          # ~2GB to ~8GB compressed and the restored target dir filled the runner's disk at link
+          # time. Save from main only; bump cache-key to drop a bloated cache.
+          cache-key: v2
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Fix stale v8 build cache
         working-directory: ./backend
         run: |
