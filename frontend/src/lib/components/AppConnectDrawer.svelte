@@ -29,6 +29,8 @@
 	let disabled = $state(false)
 	let isGoogleSignin = $state(false)
 	let manual = $state(true)
+	let actionLabel: string | undefined = $state(undefined)
+	let canGoBack: boolean | undefined = $state(undefined)
 
 	let appConnectInner: AppConnectInner | undefined = $state(undefined)
 
@@ -96,6 +98,8 @@
 			bind:isGoogleSignin
 			bind:disabled
 			bind:manual
+			bind:actionLabel
+			bind:canGoBack
 			on:close={drawer?.closeDrawer}
 			on:refresh
 			express={expressOAuthSetup}
@@ -105,9 +109,7 @@
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
-				<!-- Only when the user came through the type picker: opening the drawer for one
-				     resource type skips step 1, so Back would land on a list they never chose from. -->
-				{#if step > 1 && !rtToLoad}
+				{#if canGoBack}
 					<Button variant="default" unifiedSize="md" onClick={() => appConnectInner?.back()}>
 						Back
 					</Button>
@@ -121,13 +123,7 @@
 						{disabled}
 						onClick={() => appConnectInner?.next()}
 					>
-						{#if (step == 2 && !manual) || native}
-							Connect
-						{:else if step == 1}
-							Next
-						{:else}
-							Save
-						{/if}
+						{actionLabel ?? 'Next'}
 					</Button>
 				{/if}
 			</div>

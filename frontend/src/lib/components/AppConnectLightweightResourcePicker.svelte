@@ -18,6 +18,8 @@
 	let disabled = $state(false)
 	let manual = $state(true)
 	let isGoogleSignin = $state(false)
+	let actionLabel: string | undefined = $state(undefined)
+	let canGoBack: boolean | undefined = $state(undefined)
 
 	let appConnect: AppConnectInner | undefined = $state(undefined)
 
@@ -42,7 +44,7 @@
 	{#if !express}
 		<div class="flex flex-row-reverse w-full pb-2 shrink-0">
 			<div class="flex gap-2">
-				{#if step > 2}
+				{#if canGoBack}
 					<Button variant="default" unifiedSize="md" onClick={() => appConnect?.back()}>
 						Back
 					</Button>
@@ -52,13 +54,7 @@
 					<GoogleSigninButton {disabled} onClick={() => appConnect?.next()} />
 				{:else}
 					<Button variant="accent" unifiedSize="md" {disabled} onClick={() => appConnect?.next()}>
-						{#if step == 2 && !manual}
-							Connect
-						{:else if step == 1}
-							Next
-						{:else}
-							Save
-						{/if}
+						{actionLabel ?? 'Next'}
 					</Button>
 				{/if}
 			</div>
@@ -73,6 +69,8 @@
 			bind:disabled
 			bind:manual
 			bind:isGoogleSignin
+			bind:actionLabel
+			bind:canGoBack
 			on:error
 			on:refresh
 		/>
