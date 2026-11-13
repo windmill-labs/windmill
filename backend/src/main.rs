@@ -692,6 +692,14 @@ async fn windmill_main() -> anyhow::Result<()> {
     // Before `num_workers`: it reads `WORKER_GROUP`, which an agent authenticating with a
     // workload identity token only learns from the server.
     let agent_setup = if mode == Mode::Agent {
+        // An agent pulls through the server with its own query, which the reserve gate never sees.
+        if *windmill_common::worker::WORKSPACE_FAIRNESS_RESERVE_WORKER {
+            eprintln!(
+                "WORKSPACE_FAIRNESS_RESERVE_WORKER is not supported on agent workers: run reserve \
+                 workers with a database connection"
+            );
+            std::process::exit(1);
+        }
         let agent_config = match AgentConfig::from_env() {
             Ok(config) => config,
             Err(e) => {
