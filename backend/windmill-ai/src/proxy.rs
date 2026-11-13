@@ -286,6 +286,7 @@ mod tests {
             aws_session_token: None,
             oidc_role_arn: None,
             anthropic_federation: None,
+            vertex_workload_identity: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }

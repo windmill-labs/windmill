@@ -47,6 +47,9 @@ use windmill_ai::proxy::{
 };
 use windmill_ai::retry::send_with_retries;
 use windmill_ai::types::{OpenAIContent, OpenAIMessage};
+use windmill_ai::vertex_workload_identity::{
+    check_vertex_base_url, exchange_oidc_token, GcpAccessToken, VertexWorkloadIdentity,
+};
 use windmill_ai::web_search::{WebPage, WebSearchProvider, WebSearchResult};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::client::AuthedClient;
@@ -132,6 +135,10 @@ lazy_static::lazy_static! {
     /// federation settings, user email). Like BEDROCK_ASSUMED_ROLE_CACHE, an entry
     /// is never handed to another user than the one the OIDC token named.
     static ref ANTHROPIC_FEDERATED_TOKEN_CACHE: Cache<(String, AnthropicFederation, String), FederatedAccessToken> = Cache::new(500);
+
+    /// Google access tokens from a Vertex Workload Identity Federation exchange,
+    /// keyed like ANTHROPIC_FEDERATED_TOKEN_CACHE by (workspace, settings, user email).
+    static ref VERTEX_WORKLOAD_IDENTITY_TOKEN_CACHE: Cache<(String, VertexWorkloadIdentity, String), GcpAccessToken> = Cache::new(500);
 }
 
 #[cfg(feature = "bedrock")]
@@ -146,6 +153,8 @@ lazy_static::lazy_static! {
 pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {
     AI_REQUEST_CACHE.retain(|(cached_workspace_id, _), _| cached_workspace_id != workspace_id);
     ANTHROPIC_FEDERATED_TOKEN_CACHE
+        .retain(|(cached_workspace_id, _, _), _| cached_workspace_id != workspace_id);
+    VERTEX_WORKLOAD_IDENTITY_TOKEN_CACHE
         .retain(|(cached_workspace_id, _, _), _| cached_workspace_id != workspace_id);
     // Dropped alongside the credentials that named the role, so that changing a
     // workspace's AI settings does not leave a session assumed under the old ones
@@ -249,6 +258,14 @@ struct AIStandardResource {
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     headers: HashMap<String, String>,
+    /// Google Cloud Workload Identity Federation on a Vertex AI resource, used when
+    /// it sets no `api_key`.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    workload_identity_provider: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    service_account_email: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    workload_identity_audience: Option<String>,
     /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     token: Option<String>,
@@ -306,6 +323,19 @@ async fn resolve_var(
     match (user_db, authed) {
         (Some(udb), Some(auth)) => Ok(get_variable_or_self_as(path, db, udb, auth, w_id).await?),
         _ => Ok(get_variable_or_self(path, db, w_id).await?),
+    }
+}
+
+async fn resolve_optional_var(
+    value: Option<String>,
+    db: &DB,
+    w_id: &str,
+    user_db: Option<&UserDB>,
+    authed: Option<&ApiAuthed>,
+) -> Result<Option<String>> {
+    match value {
+        Some(value) => Ok(Some(resolve_var(value, db, w_id, user_db, authed).await?)),
+        None => Ok(None),
     }
 }
 
@@ -374,6 +404,38 @@ async fn resolve_provider_credentials(
             } else {
                 None
             };
+            let workload_identity_provider = resolve_optional_var(
+                resource.workload_identity_provider,
+                db,
+                w_id,
+                user_db.as_ref(),
+                authed,
+            )
+            .await?;
+            let service_account_email = resolve_optional_var(
+                resource.service_account_email,
+                db,
+                w_id,
+                user_db.as_ref(),
+                authed,
+            )
+            .await?;
+            let workload_identity_audience = resolve_optional_var(
+                resource.workload_identity_audience,
+                db,
+                w_id,
+                user_db.as_ref(),
+                authed,
+            )
+            .await?;
+            let vertex_workload_identity = VertexWorkloadIdentity::from_resource(
+                provider,
+                &resource.platform,
+                api_key.as_deref(),
+                workload_identity_provider.as_deref(),
+                service_account_email.as_deref(),
+                workload_identity_audience.as_deref(),
+            )?;
 
             Ok(ProviderCredentials {
                 provider: provider.clone(),
@@ -388,6 +450,7 @@ async fn resolve_provider_credentials(
                 aws_session_token,
                 oidc_role_arn,
                 anthropic_federation: None,
+                vertex_workload_identity,
                 platform: resource.platform,
                 custom_headers: resource.headers,
             })
@@ -427,6 +490,7 @@ async fn resolve_provider_credentials(
                     service_account_id: resource.service_account_id,
                     workspace_id: resource.workspace_id,
                 }),
+                vertex_workload_identity: None,
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
             })
@@ -453,6 +517,7 @@ async fn resolve_provider_credentials(
                 aws_session_token: None,
                 oidc_role_arn: None,
                 anthropic_federation: None,
+                vertex_workload_identity: None,
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
             })
@@ -667,6 +732,73 @@ async fn mint_anthropic_oidc_token(db: &DB, w_id: &str, authed: &ApiAuthed) -> R
         let _ = (db, w_id, authed);
         Err(Error::BadRequest(
             "Anthropic Workload Identity Federation through Windmill's OIDC provider requires an enterprise license"
+                .to_string(),
+        ))
+    }
+}
+
+/// Exchange an OIDC token minted for the requesting user for a Google access
+/// token, sent as the Vertex bearer token, when the resource authenticates through
+/// Workload Identity Federation. Runs after the workspace credential cache for the
+/// same reason the Anthropic exchange does: the token names the user.
+async fn resolve_vertex_workload_identity_credentials(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    credentials: &mut ProviderCredentials,
+) -> Result<()> {
+    let Some(identity) = credentials.vertex_workload_identity.as_ref() else {
+        return Ok(());
+    };
+    check_vertex_base_url(&credentials.base_url)?;
+
+    let cache_key = (w_id.to_string(), identity.clone(), authed.email.clone());
+    let token = match VERTEX_WORKLOAD_IDENTITY_TOKEN_CACHE
+        .get(&cache_key)
+        .filter(GcpAccessToken::is_fresh)
+    {
+        Some(cached) => cached,
+        None => {
+            let subject_token =
+                mint_vertex_oidc_token(db, w_id, authed, &identity.oidc_audience()).await?;
+            let token = exchange_oidc_token(identity, &subject_token).await?;
+            VERTEX_WORKLOAD_IDENTITY_TOKEN_CACHE.insert(cache_key, token.clone());
+            token
+        }
+    };
+
+    credentials.api_key = Some(token.access_token);
+    Ok(())
+}
+
+async fn mint_vertex_oidc_token(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    audience: &str,
+) -> Result<String> {
+    #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+    {
+        use windmill_ai::vertex_workload_identity::VERTEX_OIDC_TOKEN_LIFETIME_SECS;
+        use windmill_common::oidc_oss::{generate_id_token, OidcCaller, WorkspaceClaim};
+
+        let id_token = generate_id_token(
+            OidcCaller::GoogleVertex,
+            Some(db),
+            WorkspaceClaim { workspace: w_id.to_string() },
+            audience,
+            format!("{}::{}", authed.email, w_id),
+            Some(authed.email.clone()),
+            Some(VERTEX_OIDC_TOKEN_LIFETIME_SECS),
+        )
+        .await?;
+        Ok(id_token.to_string())
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "openidconnect", feature = "private")))]
+    {
+        let _ = (db, w_id, authed, audience);
+        Err(Error::BadRequest(
+            "Vertex AI Workload Identity Federation through Windmill's OIDC provider requires an enterprise license"
                 .to_string(),
         ))
     }
@@ -1514,6 +1646,7 @@ async fn complete(
     #[cfg(feature = "bedrock")]
     resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
     resolve_anthropic_federated_credentials(&db, &w_id, &authed, &mut credentials).await?;
+    resolve_vertex_workload_identity_credentials(&db, &w_id, &authed, &mut credentials).await?;
     // The query builders send the api key; only a federated Anthropic token has a way in.
     if credentials.access_token.is_some() && credentials.anthropic_federation.is_none() {
         return Err(Error::BadRequest(format!(
@@ -1624,6 +1757,7 @@ async fn global_proxy(
         aws_session_token: None,
         oidc_role_arn: None,
         anthropic_federation: None,
+        vertex_workload_identity: None,
         platform: AIPlatform::Standard,
         custom_headers: HashMap::new(),
     };
@@ -1814,6 +1948,7 @@ async fn proxy(
     #[cfg(feature = "bedrock")]
     resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
     resolve_anthropic_federated_credentials(&db, &w_id, &authed, &mut credentials).await?;
+    resolve_vertex_workload_identity_credentials(&db, &w_id, &authed, &mut credentials).await?;
 
     // Free tier: pin the model and clamp max_tokens server-side before forwarding,
     // since the request body is otherwise client-controlled.
@@ -2023,6 +2158,7 @@ mod tests {
             aws_session_token: None,
             oidc_role_arn: None,
             anthropic_federation: None,
+            vertex_workload_identity: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }
