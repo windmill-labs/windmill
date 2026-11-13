@@ -138,9 +138,8 @@
 		{ supports_client_credentials: boolean; has_shared_credentials: boolean }
 	> = $state({})
 
-	/** An instance entry with shared credentials (admin id+secret): connect with
-	 * no input. Shown under "Instance-configured"; bring-your-own-only providers
-	 * (no shared creds) are shown under "Others" instead. */
+	/** An instance entry with shared credentials (admin id+secret), which the browser
+	 * sign-in needs. Bring-your-own-only entries (no shared creds) are not one. */
 	function isSharedConnect(key: string): boolean {
 		return connectsInfo[key]?.has_shared_credentials ?? false
 	}
@@ -466,7 +465,8 @@
 
 	function selectType(key: string) {
 		connectClient = key
-		resourceType = stripSandboxSuffix(key)
+		// Only an OAuth client row is a `_sandbox` alias; a resource type may end in it too.
+		resourceType = connectsManual?.some((x) => x.key == key) ? key : stripSandboxSuffix(key)
 		resetClientCredentialsState()
 		next()
 	}
@@ -979,7 +979,8 @@
 			if (connectTemplate?.resource_mapping) {
 				const instanceKey = connectTemplate.extra_params_key ?? 'instance'
 				let instanceValue = extra_params.find(([key, _]) => key === instanceKey)?.[1] ?? ''
-				if (ccInstance.trim()) {
+				// Only the bring-your-own exchange used it: one typed before switching method is stale.
+				if (method === 'cc_byo' && ccInstance.trim()) {
 					const stripSuffix = connectTemplate.strip_suffix as string | undefined
 					let v = ccInstance
 						.trim()
