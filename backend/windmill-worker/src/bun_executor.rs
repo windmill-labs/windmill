@@ -257,6 +257,22 @@ BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
+// `step_id`, `job_id` and `flow_path` are per job, so the worker adds them, not this process.
+function errorJson(e) {{
+    const err = {{ message: e.message, name: e.name, stack: e.stack }};
+    const extra = {{}};
+    Object.getOwnPropertyNames(e).forEach((key) => {{
+        if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
+            return;
+        }}
+        extra[key] = e[key];
+    }});
+    if (Object.keys(extra).length > 0) {{
+        err["extra"] = extra;
+    }}
+    return {STRINGIFY_ERROR_JS};
+}}
+
 const scripts = new Map();
 {functions}
 {registrations}
@@ -287,7 +303,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             const res = await entry.module.main(...mainArgs);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+            console.log("wm_res[error]:" + errorJson(e));
         }}
         continue;
     }}
@@ -301,7 +317,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             const res = await entry.module.main(...args);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+            console.log("wm_res[error]:" + errorJson(e));
         }}
         continue;
     }}
@@ -335,7 +351,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             const res = await entry.module.main(...mainArgs);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+            console.log("wm_res[error]:" + errorJson(e));
         }}
         continue;
     }}
@@ -361,7 +377,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             const res = await entry.module.main(...args);
             console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
         }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
+            console.log("wm_res[error]:" + errorJson(e));
         }}
         continue;
     }}
