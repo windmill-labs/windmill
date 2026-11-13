@@ -627,24 +627,19 @@
 									</div>
 								{/if}
 								{#if custom}
-									{@const ownDesc =
-										'Users enter the client ID and secret of their own app, sent to the token URL above.'}
-									{#if shared}
-										{@render fixedWay(
-											'Their own client credentials',
-											`${ownDesc} Included with shared client credentials.`
-										)}
-									{:else}
-										<div class="flex flex-col gap-1">
-											<Toggle
-												size="xs"
-												options={{ right: 'Their own client credentials' }}
-												checked={ownCc}
-												on:change={(e) => setServerToServer(k, e.detail)}
-											/>
-											<span class="text-2xs text-secondary">{ownDesc}</span>
-										</div>
-									{/if}
+									<!-- Sharing needs the client credentials grant, so turning this off stops sharing too. -->
+									<div class="flex flex-col gap-1">
+										<Toggle
+											size="xs"
+											options={{ right: 'Supports client credentials' }}
+											checked={ownCc}
+											on:change={(e) => setServerToServer(k, e.detail)}
+										/>
+										<span class="text-2xs text-secondary"
+											>The provider accepts the client credentials grant. Users can connect with
+											their own client ID and secret.</span
+										>
+									</div>
 								{/if}
 								<div class="flex flex-col gap-3">
 									<span class="text-xs font-semibold text-emphasis">OAuth app</span>
@@ -667,9 +662,13 @@
 											>
 										{/if}
 									</div>
-									{#if authCode}
+									{#if !registryCcOnly(k)}
 										<div class="flex flex-col gap-1">
 											<span class="text-primary font-semibold text-xs">Redirect URL</span>
+											{#if !single}
+												<span class="text-2xs text-secondary">Only used by authorization code.</span
+												>
+											{/if}
 											{#if !baseUrl}
 												<Alert type="warning" title="No instance base url configured" size="xs">
 													Set it in Core settings. The redirect url is built from it, and {k} needs the
@@ -722,7 +721,7 @@
 												/>
 												<span class="text-2xs text-secondary">{ccDesc}</span>
 											</div>
-											{#if !shared && sharesCc(k, savedOauths)}
+											{#if !shared && sharesCc(k, savedOauths) && savedOauths[k]?.id && savedOauths[k]?.secret}
 												<!-- Shared resources fetch the instance's credentials at each refresh. -->
 												<Alert
 													type="warning"
@@ -730,7 +729,8 @@
 													size="xs"
 												>
 													Resources connected with these shared credentials fail at their next token
-													refresh. Users have to connect them again with their own client ID and secret.
+													refresh. Users have to connect them again with their own client ID and
+													secret.
 												</Alert>
 											{/if}
 										{/if}

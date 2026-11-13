@@ -325,9 +325,11 @@
 	// URLs). Replaces the old per-provider setup functions.
 	function setupTemplatedOauthUrls() {
 		// An entry with every way turned off (an empty grant list, unlike an absent one,
-		// which means authorization code) does nothing, so it is not saved.
+		// which means authorization code) does nothing, so it is not saved. One stored that
+		// way is kept: authorization code resources still refresh through it.
+		const isEmpty = (e: any) => Array.isArray(e?.grant_types) && e.grant_types.length === 0
 		for (const [name, entry] of Object.entries(oauths ?? {})) {
-			if (Array.isArray(entry?.grant_types) && entry.grant_types.length === 0) {
+			if (isEmpty(entry) && !isEmpty(initialOauths?.[name])) {
 				delete oauths[name]
 			}
 		}
