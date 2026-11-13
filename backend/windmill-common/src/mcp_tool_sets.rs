@@ -83,6 +83,8 @@ pub fn validate_tool_sets(sets: &McpToolSets) -> Result<()> {
     Ok(())
 }
 
+/// Read with the server's pool, whoever asks: callers must have authenticated the request for
+/// `w_id` already. A set only narrows the token it is read for, so it grants nothing by itself.
 pub async fn get_tool_set(db: &DB, w_id: &str, name: &str) -> Result<Option<McpToolSet>> {
     let value = sqlx::query_scalar!(
         "SELECT mcp_tool_sets -> $2 FROM workspace_settings WHERE workspace_id = $1",

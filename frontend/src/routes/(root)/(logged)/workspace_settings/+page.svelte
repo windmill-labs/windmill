@@ -93,6 +93,7 @@
 	} from '$lib/components/workspaceSettings/DbtSettings.svelte'
 	import McpToolSetsSettings, {
 		convertMcpToolSetsFromBackend,
+		discardMcpToolSets,
 		type McpToolSetsType
 	} from '$lib/components/workspaceSettings/McpToolSetsSettings.svelte'
 	import DucklakeSettings, {
@@ -1556,7 +1557,7 @@
 				dbtSettings = clone(dbtSavedSettings)
 				break
 			case 'mcp_tool_sets':
-				mcpToolSets = clone(mcpToolSetsSaved)
+				mcpToolSets = discardMcpToolSets(mcpToolSetsSaved)
 				break
 			case 'default_app':
 				discardDefaultAppSettingsChanges()
@@ -2745,7 +2746,7 @@ export async function main(
 								bind:mcpToolSets
 								bind:mcpToolSetsSaved
 								onDiscard={() => {
-									mcpToolSets = clone(mcpToolSetsSaved)
+									mcpToolSets = discardMcpToolSets(mcpToolSetsSaved)
 								}}
 							/>
 						{:else if tab == 'dbt'}

@@ -662,12 +662,19 @@ async fn expand_tool_set(db: &DB, request: &mut Request<axum::body::Body>) -> Re
     let set = get_tool_set(db, &w_id, &name)
         .await
         .map_err(|e| e.into_response())?;
-    let scopes = match &set {
+    let selection = match &set {
         Some(set) => tool_set_scopes(&name, set),
         None => vec![format!("{SET_SCOPE_PREFIX}{name}")],
     };
     if let Some(authed) = request.extensions_mut().get_mut::<ApiAuthed>() {
-        authed.scopes = Some(scopes);
+        // Only the MCP selection is the set's: other restrictions, a tag fence among them, stay.
+        let kept = authed
+            .scopes
+            .iter()
+            .flatten()
+            .filter(|s| !s.starts_with("mcp:"))
+            .cloned();
+        authed.scopes = Some(kept.chain(selection).collect());
     }
     if let Some(instructions) = set.and_then(|s| s.instructions) {
         request

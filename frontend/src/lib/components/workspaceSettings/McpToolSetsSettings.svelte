@@ -25,6 +25,12 @@
 		}
 	}
 
+	/** The saved sets with new row ids, so each row remounts: its scope selector reads the
+	 *  selection once, and would otherwise keep the discarded one. */
+	export function discardMcpToolSets(saved: McpToolSetsType): McpToolSetsType {
+		return { sets: saved.sets.map((s) => ({ ...s, id: randomUUID() })) }
+	}
+
 	export function convertMcpToolSetsToBackend(
 		settings: McpToolSetsType
 	): Record<string, StoredSet> {
