@@ -219,6 +219,7 @@
 			: undefined
 	)
 	let defaultName = $derived(tokenKind ? `${resourceType}_${tokenKind}` : resourceType)
+	let providerName = $derived(resourceTypeDisplayName(resourceType))
 	/** Last description filled in from `tokenKind`, replaced on reconnect unless the user edited it. */
 	let generatedDescription = ''
 
@@ -1485,7 +1486,7 @@
 					onclick={() => enableClientCredentials()}
 					class="text-xs font-normal text-accent w-fit -mt-4"
 				>
-					Acquire the token automatically via client credentials instead
+					Connect as an app with a client ID and secret instead
 				</button>
 			{/if}
 			{#if resourceTypeAlternative}
@@ -1531,16 +1532,11 @@
 						>Create a resource backed by an OAuth connection, whose token is fetched from the
 						external services and refreshed automatically if needed before expiration.</div
 					>
-					{#if ccBringYourOwn}
-						<button
-							onclick={() => {
-								manual = true
-								useClientCredentials = false
-							}}
-							class="text-xs font-normal text-accent w-fit mt-2"
-						>
-							Create resource manually instead
-						</button>
+					<!-- With client credentials, the Authentication section says whose identity applies. -->
+					{#if !supportsClientCredentials && !registryEntry()?.user_scopes}
+						<div class="text-xs text-secondary font-normal mt-1">
+							The connection acts as you, with your {providerName} account's access.
+						</div>
 					{/if}
 				</div>
 
@@ -1560,11 +1556,11 @@
 						{#if (ccOnly || ccBringYourOwn) && !signInNeedsInstanceClient}
 							<div class="text-xs text-secondary font-normal mb-2">
 								{#if useSharedInstanceCreds}
-									{resourceType} connects server-to-server using the credentials configured for this
-									instance.
+									{providerName} connects as the app your admin set up for this instance, not as you.
+									No input needed.
 								{:else}
-									{resourceType} connects server-to-server with the client credentials grant. Enter a
-									client ID and secret.
+									{providerName} connects as an app, not as you. Enter the client ID and secret of an
+									app registered in {providerName}.
 								{/if}
 							</div>
 						{:else}
@@ -1576,30 +1572,46 @@
 								aria-label="How to authenticate"
 							>
 								<RadioCard
-									label={`Sign in through ${resourceType}`}
+									label={`Log in with your ${providerName} account`}
 									description={signInNeedsInstanceClient
-										? `Authorization code grant. Needs an OAuth client for ${resourceType} in the instance settings, added by a superadmin.`
-										: 'Authorization code grant. Opens a browser window to log in and authorize. Connects as you.'}
+										? `Needs an OAuth client for ${providerName} in the instance settings, added by a superadmin.`
+										: 'Opens a browser window to authorize. The connection acts as you.'}
 									selected={!useClientCredentials}
 									onSelect={selectAuthCodeGrant}
 									disabled={signInNeedsInstanceClient}
-									badge={signInNeedsInstanceClient ? setupNeededBadge : undefined}
+									badge={authCodeBadge}
 								/>
-								{#snippet setupNeededBadge()}
-									<Badge verySmall class="px-2">Instance setup needed</Badge>
+								{#snippet authCodeBadge()}
+									<span class="text-2xs text-secondary font-normal">Authorization code</span>
+									{#if signInNeedsInstanceClient}
+										<Badge verySmall class="px-2">Instance setup needed</Badge>
+									{/if}
 								{/snippet}
 								<RadioCard
 									label={useSharedInstanceCreds
-										? 'Use the configured instance credentials'
-										: 'Use a client ID and secret'}
+										? "Connect as this instance's app"
+										: 'Connect as an app'}
 									description={useSharedInstanceCreds
-										? "Client credentials grant. Runs server-to-server with this instance's credentials. No input needed."
-										: 'Client credentials grant. Runs server-to-server. Best for automation or service accounts.'}
+										? 'Uses the app your admin set up. No input needed. The connection acts as that app, not as you.'
+										: `Enter the client ID and secret of an app registered in ${providerName}. The connection acts as that app, not as you.`}
 									selected={useClientCredentials}
 									onSelect={() => enableClientCredentials()}
+									badge={clientCredentialsBadge}
 								/>
+								{#snippet clientCredentialsBadge()}
+									<span class="text-2xs text-secondary font-normal">Client credentials</span>
+								{/snippet}
 							</div>
 						{/if}
+						<button
+							onclick={() => {
+								manual = true
+								useClientCredentials = false
+							}}
+							class="text-xs font-normal text-accent w-fit mb-2"
+						>
+							Create resource manually instead
+						</button>
 
 						{#if useClientCredentials && !useSharedInstanceCreds}
 							<form class="flex flex-col gap-6">

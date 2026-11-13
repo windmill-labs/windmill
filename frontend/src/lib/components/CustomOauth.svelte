@@ -6,7 +6,16 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 
-	let { connect_config = $bindable() } = $props()
+	let {
+		connect_config = $bindable(),
+		requireAuthUrl = false,
+		requireTokenUrl = false
+	}: {
+		connect_config: any
+		/** A way that is on needs this URL: an empty one is flagged under its field. */
+		requireAuthUrl?: boolean
+		requireTokenUrl?: boolean
+	} = $props()
 
 	run(() => {
 		if (!connect_config) {
@@ -35,6 +44,9 @@
 			placeholder="https://github.com/login/oauth/authorize"
 			bind:value={connect_config.auth_url}
 		/>
+		{#if requireAuthUrl && !connect_config.auth_url}
+			<span class="text-2xs text-red-500">Add the auth URL to use this provider.</span>
+		{/if}
 	</label>
 	<label class="flex flex-col gap-1">
 		<span class="text-emphasis font-semibold text-xs"> Token URL</span>
@@ -43,6 +55,9 @@
 			placeholder="https://github.com/login/oauth/access_token"
 			bind:value={connect_config.token_url}
 		/>
+		{#if requireTokenUrl && !connect_config.token_url}
+			<span class="text-2xs text-red-500">Add the token URL to use this provider.</span>
+		{/if}
 	</label>
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="flex flex-col gap-1">
