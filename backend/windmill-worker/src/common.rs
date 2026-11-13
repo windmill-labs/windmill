@@ -2173,6 +2173,17 @@ pub fn extract_flow_root(runnable_path: &str) -> Option<&str> {
         .and_then(|c| c.get(1).map(|m| m.as_str()))
 }
 
+/// Dedicated runner key of a dedicated flow's `type: script` step. Its job runs at the
+/// script's own path, so it is found by the flow's dedicated tag and its step id instead, and
+/// by the version it runs: a runner never reloads, so after a redeploy it must not serve it.
+pub fn flow_script_step_runner_key(
+    flow_tag: &str,
+    step_id: &str,
+    hash: windmill_common::scripts::ScriptHash,
+) -> String {
+    format!("{flow_tag}/{step_id}@{hash}")
+}
+
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
     configure_client(
         reqwest::ClientBuilder::new()
