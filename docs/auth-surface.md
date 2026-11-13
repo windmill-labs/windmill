@@ -18,13 +18,13 @@ Symbols, not line numbers, are cited: they drift less.
   token's 7 days therefore has no row left to delete: what ends a user's access calls
   `revoke_mcp_oauth_grants` (`windmill-api-users`), which also deletes grants without a live
   token and codes not yet exchanged — a password change or reset, disabling or deleting the
-  account, offboarding, SCIM deactivation and removal, and (for the grants bound to that
-  workspace) removal from a workspace. The grant lock (`lock_mcp_oauth_grants`) is the user's
-  `password` row, shared while issuing a grant and exclusive while revoking, because every path
+  account, leaving the instance, offboarding, SCIM deactivation and removal, and (for the
+  grants bound to that workspace) removal from a workspace. The grant lock
+  (`lock_mcp_oauth_grants`) is the user's `password` row, shared while issuing a grant and exclusive while revoking, because every path
   that changes a user locks that row before their tokens: a refresh takes it, then its
   access-token row, then its grant, the order the trigger also follows. A new path that writes a
-  user's tokens and may revoke must lock that row first too. `leave_workspace` and `leave_instance`
-  delete no tokens and revoke nothing.
+  user's tokens and may revoke must lock that row first too. `leave_workspace` deletes no tokens
+  and revokes nothing; `leave_instance` deletes every token of the account, as `delete_user` does.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.
@@ -140,11 +140,10 @@ Symbols, not line numbers, are cited: they drift less.
   the same (or the owner is a superadmin) and it decrypts. So a target set A → B → A, or a
   removal and re-add, voids it whatever the clocks say. A superadmin with no membership is bound
   through the credential making the request instead: the insert requires its `token` row to
-  still exist, and `delete_user`, offboarding and SCIM removal delete an account's tokens, so an
-  address deleted that way and re-created during the call does not inherit the connection (a JWT,
-  having no row, cannot connect a workspace its owner is not a member of). `leave_instance`
-  deletes only the `password` row, leaving the tokens and the memberships, which is not covered.
-  Neither is a member's connect across an account re-creation: an address is not expected to pass
+  still exist, and `delete_user`, `leave_instance`, offboarding and SCIM removal delete an
+  account's tokens, so an address deleted that way and re-created during the call does not
+  inherit the connection (a JWT, having no row, cannot connect a workspace its owner is not a
+  member of). A member's connect across an account re-creation is not covered: an address is not expected to pass
   to another person. A disconnect empties and stamps the row
   (inserting one if needed) rather than deleting it, `connected_at` is when a connect started,
   and the connect's upsert leaves a row stamped after that alone, so an older connect cannot undo
