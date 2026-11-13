@@ -8,6 +8,9 @@ async fn item_shares_show_runs(db: Pool<Postgres>) -> anyhow::Result<()> {
     sqlx::raw_sql(
         r#"
         INSERT INTO workspace (id, name, owner) VALUES ('other', 'other', 'test-user');
+        INSERT INTO password (email, login_type, verified) VALUES ('bob@windmill.dev', 'password', true);
+        INSERT INTO usr (workspace_id, email, username) VALUES
+            ('test-workspace', 'bob@windmill.dev', 'bob'), ('other', 'bob@windmill.dev', 'bob');
         INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, extra_perms) VALUES
             ('test-workspace', 1, 'f/ops/to_bob', '', '', '', 'test-user', 'deno', '{"u/bob": false}'),
             ('test-workspace', 2, 'f/ops/to_team', '', '', '', 'test-user', 'deno', '{"g/team": false}'),
