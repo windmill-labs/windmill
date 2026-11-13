@@ -746,7 +746,7 @@ registry = {}
                 .map(|x| format!("[install.scopes]\n{x}"))
                 .unwrap_or("".to_string())
         );
-        tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
+        tracing::debug!("Writing bunfig.toml ({} bytes)", bunfig_toml.len());
         let _ = write_file(&job_dir, BUN_CONFIG_FILE, &bunfig_toml)?;
     }
     Ok(())

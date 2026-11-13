@@ -3910,7 +3910,7 @@ fn loggable_setting_value(v: &serde_json::Value) -> String {
         serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
             v.to_string()
         }
-        serde_json::Value::String(s) => format!("<redacted string, {} chars>", s.len()),
+        serde_json::Value::String(s) => format!("<redacted string, {} bytes>", s.len()),
         serde_json::Value::Array(a) => format!("<redacted array, {} items>", a.len()),
         serde_json::Value::Object(o) => format!("<redacted object, {} keys>", o.len()),
     }
@@ -4068,7 +4068,10 @@ pub fn parse_url_list_setting_value(
             );
             value = if urls.is_empty() { None } else { Some(urls) };
         } else {
-            tracing::error!("Could not parse {} found: {:#?}", setting_name, &q);
+            tracing::error!(
+                "Could not parse {setting_name} found: {}",
+                loggable_setting_value(&q)
+            );
         }
     }
 
