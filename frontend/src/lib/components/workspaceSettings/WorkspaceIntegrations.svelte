@@ -407,21 +407,15 @@
 						</div>
 
 						{#if triggersOnly}
-							<Alert type="info" title="Resources connect through the instance's app">
-								<div class="flex flex-col gap-2 items-start">
-									<span>
-										This app was set up for triggers only. New {config.displayName} resources can
-										connect through it too. Existing resources keep the app they were connected
-										with.
-									</span>
-									<Button
-										unifiedSize="sm"
-										variant="default"
-										onclick={() => useForResources(serviceName)}
-									>
-										Also use for resources
-									</Button>
-								</div>
+							<Alert
+								type="info"
+								title="Resources connect through the instance's app"
+								actions={[
+									{ label: 'Also use for resources', onClick: () => useForResources(serviceName) }
+								]}
+							>
+								This app was set up for triggers only. New {config.displayName} resources can connect
+								through it too. Existing resources keep the app they were connected with.
 							</Alert>
 						{/if}
 
@@ -435,7 +429,7 @@
 						{/if}
 
 						<div class="flex flex-col gap-1">
-							<div class="text-xs font-semibold text-emphasis">Shared account</div>
+							<div class="text-xs font-semibold text-emphasis">Shared account for triggers</div>
 							<div class="text-xs text-secondary">
 								Members can create triggers as this account and pick from what it can access,
 								without seeing its token.
