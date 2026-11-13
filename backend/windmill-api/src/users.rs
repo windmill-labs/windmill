@@ -470,6 +470,7 @@ async fn move_run_as_principal(
 /// under `new_prefix`, in the form each column stores: schedule handlers and the workspace
 /// handlers' `path` carry a `script/` or `flow/` kind, a schedule's skip handler and a trigger's
 /// error handler are bare script paths. A handler left on the old path fails exactly when it fires.
+/// The Slack and Teams command scripts and the workspace's default app move the same way.
 pub(crate) async fn move_handler_paths(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
@@ -550,6 +551,33 @@ pub(crate) async fn move_handler_paths(
         .execute(&mut **tx)
         .await?;
     }
+
+    // The command scripts are read with `RunnableRef::from_setting`, which takes a bare script
+    // path as well as a prefixed one, so both forms are moved.
+    let moved_command = |col: &str| {
+        format!(
+            "CASE WHEN {} THEN {} ELSE {} END",
+            names_old(col),
+            moved_kind(col),
+            moved(col)
+        )
+    };
+    let names_command = |col: &str| format!("({} OR starts_with({col}, $1))", names_old(col));
+    sqlx::query(&format!(
+        "UPDATE workspace_settings
+         SET slack_command_script = {}, teams_command_script = {}, default_app = {}
+         WHERE workspace_id = $3 AND ({} OR {} OR starts_with(default_app, $1))",
+        moved_command("slack_command_script"),
+        moved_command("teams_command_script"),
+        moved("default_app"),
+        names_command("slack_command_script"),
+        names_command("teams_command_script"),
+    ))
+    .bind(old_prefix)
+    .bind(new_prefix)
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

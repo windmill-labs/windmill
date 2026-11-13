@@ -333,7 +333,9 @@ async fn test_offboard_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result
              WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/sched_shared';
            UPDATE http_trigger SET error_handler_path = 'u/test-user-2/script_b'
              WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/webhook_shared';
-           UPDATE workspace_settings SET error_handler = '{"path": "script/u/test-user-2/script_b", "muted_on_cancel": true}'
+           UPDATE workspace_settings SET error_handler = '{"path": "script/u/test-user-2/script_b", "muted_on_cancel": true}',
+               slack_command_script = 'u/test-user-2/script_a', teams_command_script = 'flow/u/test-user-2/flow_a',
+               default_app = 'u/test-user-2/app_a'
              WHERE workspace_id = 'test-workspace';"#,
     )
     .execute(&db)
@@ -379,6 +381,21 @@ async fn test_offboard_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result
     assert_eq!(
         error_handler,
         json!({ "path": "script/f/test-folder/script_b", "muted_on_cancel": true })
+    );
+
+    let commands: (String, String, String) = sqlx::query_as(
+        "SELECT slack_command_script, teams_command_script, default_app FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        commands,
+        (
+            "f/test-folder/script_a".into(),
+            "flow/f/test-folder/flow_a".into(),
+            "f/test-folder/app_a".into()
+        )
     );
 
     Ok(())

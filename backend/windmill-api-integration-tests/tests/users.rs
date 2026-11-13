@@ -1382,7 +1382,10 @@ async fn test_rename_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<(
          UPDATE workspace_settings SET
            error_handler = '{"path": "script/u/test-user-2/ws_err", "extra_args": {"channel": "ops"}, "muted_on_cancel": true}',
            success_handler = '{"path": "flow/u/test-user-2/ws_ok"}',
-           variable_expiration_handler = '{"path": "script/u/test-user/expiry", "notify_before_secs": 60}'
+           variable_expiration_handler = '{"path": "script/u/test-user/expiry", "notify_before_secs": 60}',
+           slack_command_script = 'script/u/test-user-2/slack_cmd',
+           teams_command_script = 'u/test-user/teams_cmd',
+           default_app = 'u/test-user-2/home'
          WHERE workspace_id = 'test-workspace';"#,
     )
     .execute(&db)
@@ -1449,6 +1452,21 @@ async fn test_rename_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<(
             json!({ "path": "script/u/alice/ws_err", "extra_args": { "channel": "ops" }, "muted_on_cancel": true }),
             json!({ "path": "flow/u/alice/ws_ok" }),
             json!({ "path": "script/u/test-user/expiry", "notify_before_secs": 60 })
+        )
+    );
+
+    let commands: (String, String, String) = sqlx::query_as(
+        "SELECT slack_command_script, teams_command_script, default_app FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        commands,
+        (
+            "script/u/alice/slack_cmd".into(),
+            "u/test-user/teams_cmd".into(),
+            "u/alice/home".into()
         )
     );
 
