@@ -141,8 +141,6 @@
 			})
 			sendUserToast('Key renewal successful')
 			reloadLicenseKey()
-		} catch (err) {
-			throw err
 		} finally {
 			reloadKeyrenewalAttemptInfo()
 			renewing = false

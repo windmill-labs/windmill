@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.windmill-labs/windmill",
+  "title": "Windmill",
+  "description": "Run Windmill scripts and flows and manage jobs, schedules, resources and variables.",
+  "repository": {
+    "url": "https://github.com/windmill-labs/windmill",
+    "source": "github"
+  },
+  "websiteUrl": "https://www.windmill.dev/docs/core_concepts/mcp",
+  "version": "1.868.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://app.windmill.dev/api/mcp/gateway"
+    },
+    {
+      "type": "streamable-http",
+      "url": "https://{windmill_host}/api/mcp/gateway",
+      "variables": {
+        "windmill_host": {
+          "description": "Host name of your self-hosted Windmill instance, for example windmill.example.com. The server authenticates with OAuth and asks you to pick a workspace.",
+          "isRequired": true
+        }
+      }
+    }
+  ]
+}

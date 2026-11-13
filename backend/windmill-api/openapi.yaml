@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.864.1
+  version: 1.871.1
   title: Windmill API
 
   contact:
@@ -271,12 +271,21 @@ paths:
         - name: before_id
           in: query
           description: >
-            only return logs with an id strictly lower than this one. Logs are ordered by
-            descending id, so this is a keyset cursor to stream a page in several batches
-            without paying a growing offset.
+            the id half of a keyset cursor. Logs are ordered by descending timestamp then
+            id: pass the last row's id here and its timestamp as before_id_timestamp to
+            stream a page in several batches without paying a growing offset. Alone, it
+            only filters on id < before_id, which can skip or repeat rows across pages.
           schema:
             type: integer
             format: int64
+        - name: before_id_timestamp
+          in: query
+          description: >
+            the timestamp of the row whose id is before_id: with it, only logs strictly
+            before that row in (timestamp, id) order are returned
+          schema:
+            type: string
+            format: date-time
         - name: all_workspaces
           in: query
           description: get audit logs for all workspaces
@@ -9255,6 +9264,7 @@ paths:
       summary: create resource
       operationId: createResource
       x-mcp-tool: true
+      x-mcp-tool-include-query-params: [update_if_exists]
       tags:
         - resource
       parameters:
@@ -9264,6 +9274,7 @@ paths:
           in: query
           schema:
             type: boolean
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: new resource
         required: true
@@ -9334,11 +9345,13 @@ paths:
       summary: update resource
       operationId: updateResource
       x-mcp-tool: true
+      x-mcp-tool-include-query-params: []
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: updated resource
         required: true
@@ -11139,10 +11152,13 @@ paths:
                       type: string
                     summary:
                       type: string
-                      description: Best-effort, read from the draft JSON's `summary` field when the editor shape carries one.
+                      description: Best-effort, read from the draft JSON's `summary` field when the editor shape carries one, or its `description` for an agent's draft.
                     draft_path:
                       type: string
                       description: User-typed friendly path from the draft JSON's `draft_path`, when set and different from the storage path (e.g. a never-deployed item parked at `u/{user}/draft_{uuid}`).
+                    resource_type:
+                      type: string
+                      description: A `resource` draft's type, the deployed row's when there is one, else the one the draft names. `ai_agent` marks an agent's draft.
                     draft_only:
                       type: boolean
                       description: No deployed counterpart exists at this path — the draft is the whole item.
@@ -11366,6 +11382,56 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/drafts/transfer:
+    post:
+      summary: copy the current user's drafts into another workspace of the family and/or remove them here
+      description: In one transaction, copies the authed user's own drafts of `items` into `target_workspace` (another workspace of this one's family, with the same root through `parent_workspace_id`) and, with `remove_from_source`, deletes them here. Without `target_workspace` it only removes. If the user already has a draft of any item in the target, nothing is written and the items are returned in `conflicts`, unless `replace_existing` is set. A user who can only compose flows or apps in the target is held to the same rules as a direct draft save there.
+      operationId: transferDrafts
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_workspace:
+                  type: string
+                items:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/DraftItemRef"
+                remove_from_source:
+                  type: boolean
+                replace_existing:
+                  type: boolean
+                  description: Overwrite the user's own drafts of `items` already in the target instead of returning them as conflicts.
+              required: [items]
+      responses:
+        "200":
+          description: transfer result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  copied:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DraftItemRef"
+                  removed:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DraftItemRef"
+                  conflicts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DraftItemRef"
+                required: [copied, removed, conflicts]
+
   /w/{workspace}/drafts/migrate_legacy/{kind}/{path}:
     post:
       summary: resolve a legacy (workspace-level) draft (admin only)
@@ -11424,10 +11490,12 @@ paths:
         - schema
       x-mcp-tool-opaque-fields:
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: Partially filled script
         required: true
@@ -11466,11 +11534,13 @@ paths:
         - schema
       x-mcp-tool-opaque-fields:
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: The new version of the script, whose `path` is where it should end up.
         required: true
@@ -12234,6 +12304,59 @@ paths:
                   items:
                     $ref: "#/components/schemas/CiTestResult"
 
+  /w/{workspace}/scripts/trigger_ci_tests_batch:
+    post:
+      summary: queue the CI tests of a batch of deploys
+      description: |
+        Queues the CI tests of items deployed with `skip_ci_tests`, plus those of the scripts
+        importing them, once nothing those tests read (the tested items, the test scripts and
+        their imports) still has a dependency job queued or running. While one does, nothing is
+        queued and `pending` lists those paths: call again later, or pass `ignore_pending` to
+        queue them anyway. The tests run as the caller, who must be able to deploy each item.
+      operationId: triggerCiTestsBatch
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        type: string
+                        enum: [script, flow, resource]
+                    required: [path, kind]
+                ignore_pending:
+                  type: boolean
+              required: [items]
+      responses:
+        "200":
+          description: the paths still pending, and the CI test jobs queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending:
+                    type: array
+                    items:
+                      type: string
+                  job_ids:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                required: [pending, job_ids]
   /w/{workspace}/scripts/check_schema_contracts:
     post:
       summary: check a script's asset references against captured producer schemas
@@ -13177,6 +13300,11 @@ paths:
           description: restrict to paths under this prefix
           schema:
             type: string
+        - name: paths
+          in: query
+          description: comma-separated exact paths, to list only the rows at one of them
+          schema:
+            type: string
         - name: label
           in: query
           schema:
@@ -13674,10 +13802,12 @@ paths:
       x-mcp-tool-opaque-fields:
         - value
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - flow
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: Partially filled flow
         required: true
@@ -13717,11 +13847,13 @@ paths:
       x-mcp-tool-opaque-fields:
         - value
         - schema
+      x-mcp-tool-include-query-params: []
       tags:
         - flow
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SkipCiTests"
       requestBody:
         description: Partially filled flow
         required: true
@@ -17875,6 +18007,11 @@ paths:
           required: false
           schema:
             type: string
+        - name: has_null_parent
+          description: has null parent
+          in: query
+          schema:
+            type: boolean
         - name: all_workspaces
           description: get jobs from all workspaces (only valid if request come from the `admins` workspace)
           in: query
@@ -19051,6 +19188,9 @@ paths:
                     type: boolean
                   started:
                     type: boolean
+                  is_skipped:
+                    type: boolean
+                    description: set when the job is completed; true if it ended as skipped (also counted as success)
                 required:
                   - completed
                   - result
@@ -21619,21 +21759,17 @@ paths:
             $ref: "#/components/schemas/NativeServiceName"
       requestBody:
         description: >-
-          redirect_uri, and where to save the connection (defaults to
-          u/{caller}/native_{resource_type}). Uses the workspace OAuth client, or the instance
-          one when the instance shares it.
+          Where to save the connection (defaults to u/{caller}/native_{resource_type}). Uses
+          the workspace OAuth client, or the instance one when the instance shares it, and the
+          redirect URI registered on that client.
         required: true
         content:
           application/json:
             schema:
               type: object
               properties:
-                redirect_uri:
-                  type: string
                 resource_path:
                   type: string
-              required:
-                - redirect_uri
       responses:
         "200":
           description: native trigger service connect url
@@ -21790,12 +21926,9 @@ paths:
                   type: string
                 state:
                   type: string
-                redirect_uri:
-                  type: string
               required:
                 - code
                 - state
-                - redirect_uri
       responses:
         "200":
           description: path of the saved connection
@@ -24509,6 +24642,9 @@ paths:
               properties:
                 name:
                   type: string
+                display_name:
+                  type: string
+                  description: Defaults to the name.
                 summary:
                   type: string
                 owners:
@@ -24552,6 +24688,8 @@ paths:
               type: object
               properties:
                 summary:
+                  type: string
+                display_name:
                   type: string
                 owners:
                   type: array
@@ -29166,6 +29304,12 @@ components:
       required: true
       schema:
         type: string
+    SkipCiTests:
+      name: skip_ci_tests
+      description: Do not queue the CI tests of this deploy. Set by a caller deploying several items in a row, which queues them with triggerCiTestsBatch once the whole batch has landed.
+      in: query
+      schema:
+        type: boolean
     TablePreviewS3ResourcePath:
       name: s3_resource_path
       description: Read the file from this object storage resource instead of the workspace storage.
@@ -30012,6 +30156,15 @@ components:
                   surfaced in the fork modal as "Last updated".
             required: [draft_saved_at]
       required: [is_draft]
+    DraftItemRef:
+      type: object
+      properties:
+        kind:
+          $ref: "#/components/schemas/UserDraftItemKind"
+        path:
+          type: string
+      required: [kind, path]
+
     UserDraftItemKind:
       type: string
       description: |
@@ -30458,7 +30611,10 @@ components:
           description: Mount path for the JWT auth method in Vault (optional, defaults to "jwt"). Set this when the JWT auth method is mounted at a non-default path, e.g. via `vault auth enable -path=<mount> jwt`.
         approle_role_id:
           type: string
-          description: AppRole role_id (optional). When set and no static token is given, Windmill logs in with AppRole; the secret_id is read from the `VAULT_APPROLE_SECRET_ID` environment variable of servers and workers.
+          description: AppRole role_id (optional). When set and no static token is given, Windmill logs in with AppRole.
+        approle_secret_id:
+          type: string
+          description: AppRole secret_id (optional). When empty, the `VAULT_APPROLE_SECRET_ID` environment variable of servers and workers is used; when that is unset too, no secret_id is sent (a role with `bind_secret_id=false`).
         approle_mount_path:
           type: string
           description: Mount path of the AppRole auth method (optional, defaults to "approle").
@@ -32304,6 +32460,9 @@ components:
           type: boolean
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
+        trigger_path:
+          type: string
+          description: Path of the trigger, schedule or app that started the job, if any
         worker:
           type: string
       required:
@@ -32450,6 +32609,9 @@ components:
             resolution outside enterprise
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
+        trigger_path:
+          type: string
+          description: Path of the trigger, schedule or app that started the job, if any
         worker:
           type: string
       required:
@@ -34038,6 +34200,11 @@ components:
           type: boolean
         account:
           type: number
+        scopes:
+          type: array
+          items:
+            type: string
+          description: OAuth scopes the linked account was connected with
         created_by:
           type: string
         edited_at:
@@ -37695,6 +37862,8 @@ components:
       properties:
         name:
           type: string
+        display_name:
+          type: string
         owners:
           type: array
           items:
@@ -40926,12 +41095,13 @@ components:
         redirect_uri:
           type: string
           format: uri
-          description: The OAuth redirect URI
+          description: >-
+            The redirect URI registered on the OAuth app. Absent for an app saved before it was
+            stored, which uses the workspace settings page.
       required:
         - client_id
         - client_secret
         - base_url
-        - redirect_uri
 
     WebhookEvent:
       type: object
@@ -41002,9 +41172,28 @@ components:
         workspace:
           type: boolean
           description: Whether this is the workspace connection, which every member may use
+        managed:
+          type: boolean
+          description: >-
+            Whether the integration trigger connect flow made it. Any other connection is a
+            resource connected from Resources, which triggers can use but only Resources can
+            replace or delete.
+        scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Scopes the account was connected with; absent when unknown
+        missing_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Scopes the service's triggers need that the account lacks; absent when unknown
       required:
         - path
         - workspace
+        - managed
 
     CreateTriggerResponse:
       type: object

@@ -26,7 +26,7 @@ use windmill_common::{
     db::UserDB,
     error::{Error, Result},
     global_settings::HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS,
-    jobs::JobTriggerKind,
+    jobs::{ChosenBy, JobTriggerKind},
     runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
     utils::{not_found_if_none, StripPath},
@@ -759,6 +759,10 @@ async fn route_job(
             &params,
             runnable_format,
             trigger.wrap_body,
+            matches!(
+                trigger.authentication_method,
+                AuthenticationMethod::Windmill
+            ),
         )
         .map(windmill_queue::PushArgsOwned::omit_untrusted_interpolation)
         .map_err(|e| e.into_response())?;
@@ -769,6 +773,7 @@ async fn route_job(
             &db,
             Some(user_db),
             authed,
+            ChosenBy::Deployed,
             &trigger.workspace_id,
             &runnable,
             args,
@@ -802,6 +807,7 @@ async fn route_job(
                 None,
                 Some(user_db.clone()),
                 authed.clone(),
+                ChosenBy::Deployed,
                 &trigger.workspace_id,
                 &runnable,
                 args,
@@ -864,6 +870,7 @@ async fn route_job(
             &db,
             Some(user_db),
             authed,
+            ChosenBy::Deployed,
             &trigger.workspace_id,
             &runnable,
             args,
@@ -881,6 +888,7 @@ async fn route_job(
             &db,
             Some(user_db),
             authed,
+            ChosenBy::Deployed,
             &trigger.workspace_id,
             &runnable,
             args,

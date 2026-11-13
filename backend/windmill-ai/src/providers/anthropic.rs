@@ -1,4 +1,7 @@
-use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
+use super::{
+    anthropic_model_rejects_sampling_params, force_claude_structured_output_tool,
+    REASONING_OFF_SENTINEL,
+};
 use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider, DISABLE_ANTHROPIC_PROMPT_CACHING},
@@ -653,8 +656,10 @@ impl AnthropicQueryBuilder {
         let should_use_structured_output =
             should_use_structured_output_tool(&self.provider_kind, args.model);
 
-        // Force tool usage when structured output is needed
-        let tool_choice = if should_use_structured_output && has_output_properties {
+        let tool_choice = if should_use_structured_output
+            && has_output_properties
+            && force_claude_structured_output_tool(args.model, args.reasoning_effort)
+        {
             Some(AnthropicToolChoice::any())
         } else {
             None

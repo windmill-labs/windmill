@@ -213,9 +213,14 @@ export interface AgentDraftOptions {
 	workspace: () => string | undefined
 	/** A missing row is a new agent to start empty, not a load failure. */
 	isNew?: () => boolean
+	/** The agent a new one copies, for a duplicate. */
+	template?: () => string | undefined
 	/** Only the deployed agent, as a page that runs it shows it: no draft is loaded, restored or
 	 *  written, and a write from another tab does not land here. */
 	deployedOnly?: () => boolean
+	/** Subject autosaves to the auto-save toggle. Only for an editor that asks before an unsaved
+	 *  edit is left behind; anywhere else every edit has to save. Read once. */
+	autosaveToggle?: boolean
 }
 
 export interface AgentDraftHandle {
@@ -234,9 +239,17 @@ export interface AgentDraftHandle {
 	/** Who the deployed agent runs as when run from its page; undefined when nothing is deployed
 	 *  or it runs as whoever runs it. */
 	readonly onBehalfOf: string | undefined
+	/** The load opened on this user's own draft. */
+	readonly loadedFromDraft: boolean
+	/** When the draft the load found was saved, and when the agent was last deployed: a draft older
+	 *  than that deploy is stale. */
+	readonly draftSavedAt: string | undefined
+	readonly deployedAt: string | undefined
 	/** Write the current state to the resource and drop the draft. Resolves to the path written,
 	 *  which differs from the one loaded when the draft renames the agent, or undefined on failure. */
 	deploy: (runAs?: AgentRunAs) => Promise<string | undefined>
+	/** Load the agent again, taking the server's draft over the one this tab holds. */
+	reload: () => Promise<void>
 }
 
 /**
@@ -257,9 +270,13 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 	 *  path stays, so a resource this editor refuses can neither restore its draft into the form nor
 	 *  have one autosaved from it. Set it through `refuse`, which also clears what was loaded. */
 	let refusal = $state<string | undefined>(undefined)
+	let loadedFromDraft = $state(false)
+	let draftSavedAt = $state<string | undefined>(undefined)
+	let deployedAt = $state<string | undefined>(undefined)
 
 	const sync = useTriggerDraftSync({
 		itemKind: 'resource',
+		canBeDisabled: opts.autosaveToggle,
 		// An empty path holds no draft handle, which is what keeps a deployed-only view off the draft.
 		path: () => (opts.deployedOnly?.() ? '' : (opts.path() ?? '')),
 		workspace: () => opts.workspace(),
@@ -309,16 +326,24 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 				refusal = undefined
 				return
 			}
-			const key = `${ws}:${path}`
-			if (loadedFor === key) return
-			loadedFor = key
-			loading = true
-			refusal = undefined
-			seedNewUntilInput = undefined
-			// The user alongside the resource, as the generic resource editor loads it: a session or
-			// fork editor operates on a workspace that is not the one being navigated, and groups,
-			// folders and the admin flag are all per workspace, so the nav user would answer for the
-			// wrong membership in both directions.
+			if (loadedFor === `${ws}:${path}`) return
+			void load(path, ws)
+		})
+	})
+
+	/** `replaceLocal` takes the server's draft over the one this tab holds, as a reload does: the
+	 *  restore otherwise puts this tab's back over what was just read. */
+	function load(path: string, ws: string, replaceLocal = false): Promise<void> {
+		const key = `${ws}:${path}`
+		loadedFor = key
+		loading = true
+		refusal = undefined
+		seedNewUntilInput = undefined
+		// The user alongside the resource, as the generic resource editor loads it: a session or
+		// fork editor operates on a workspace that is not the one being navigated, and groups,
+		// folders and the admin flag are all per workspace, so the nav user would answer for the
+		// wrong membership in both directions.
+		return (
 			Promise.all([
 				ResourceService.getResource({ workspace: ws, path, getDraft: !opts.deployedOnly?.() }),
 				getUserExt(ws).catch(() => undefined)
@@ -375,21 +400,29 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// `useTriggerDraftSync` intends: its Discard would otherwise reset to that synthetic
 						// value and delete the one row the agent lives in.
 						deployed = noDeployed ? undefined : deployedState
+						const overlay = r as {
+							draft?: AgentResourceState
+							draft_saved_at?: string
+							edited_at?: string
+						}
 						// Open on the draft when there is one, so the editor never flashes the deployed
 						// config before the autosave lands.
-						state =
-							((r as any).draft as AgentResourceState | undefined) ?? structuredClone(deployedState)
+						state = overlay.draft ?? structuredClone(deployedState)
+						loadedFromDraft = !!overlay.draft
+						draftSavedAt = overlay.draft_saved_at
+						deployedAt = noDeployed ? undefined : overlay.edited_at
 						// Adopt the row's timestamp as this tab's baseline. Without it the first save from
 						// each tab goes out with no `last_sync`, which the backend treats as unconditional
 						// and so silently overwrites another tab's newer draft. It also clears any parked
 						// conflict or failure for the key: a conflict is deliberately sticky (the retry
-						// keeps the same baseline), and nothing else mounts a resolver for `resource`
-						// drafts, so re-opening the agent is the only place it can be resolved.
+						// keeps the same baseline), so a load is what settles one.
 						if (!opts.deployedOnly?.()) {
-							UserDraftDbSyncer.recordRemoteSync(
-								{ workspace: ws, itemKind: 'resource', path },
-								(r as { draft_saved_at?: string }).draft_saved_at
-							)
+							const query = { workspace: ws, itemKind: 'resource' as const, path }
+							UserDraftDbSyncer.recordRemoteSync(query, overlay.draft_saved_at)
+							if (replaceLocal) {
+								UserDraftDbSyncer.dropPending(query)
+								UserDraft.seed('resource', path, $state.snapshot(state), { workspace: ws })
+							}
 						}
 						loading = false
 						await sync.maybeRestore()
@@ -403,7 +436,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// name minted after the seed below would differ from it, and the first click would
 						// save it.
 						if (opts.isNew?.() && (err as { status?: number })?.status === 404) {
-							const name = await freeAgentPath(ws)
+							const [name, from] = await Promise.all([freeAgentPath(ws), readTemplate(ws)])
 							if (loadedFor !== key) return
 							noDeployed = true
 							deployed = undefined
@@ -417,10 +450,10 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							)
 							state = {
 								path: name,
-								description: '',
+								description: from?.description ?? '',
 								// Opens on a working chat, the way a new agent is first tried. The editor says
 								// what memory is for, and how to turn it off, while it is on.
-								args: { memory: structuredClone(DEFAULT_AGENT_MEMORY) },
+								args: from?.args ?? { memory: structuredClone(DEFAULT_AGENT_MEMORY) },
 								resource_type: 'ai_agent',
 								wsSpecific: false
 							}
@@ -446,8 +479,33 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						refuse(`Could not load agent ${path}: ${err}`)
 					}
 				)
-		})
-	})
+		)
+	}
+
+	/** The deployed agent a duplicate starts from. Its identity stays behind: who the copy runs as
+	 *  is its own deploy's to decide. */
+	async function readTemplate(
+		ws: string
+	): Promise<{ description: string; args: AIAgentConfig } | undefined> {
+		const template = opts.template?.()
+		if (!template) return undefined
+		try {
+			const r = await ResourceService.getResource({ workspace: ws, path: template })
+			if (r.resource_type !== 'ai_agent') return undefined
+			const { on_behalf_of: _, ...args } = (r.value ?? {}) as AIAgentConfig & {
+				on_behalf_of?: string
+			}
+			return { description: r.description ?? '', args }
+		} catch {
+			return undefined
+		}
+	}
+
+	async function reload(): Promise<void> {
+		const path = opts.path()
+		const ws = opts.workspace()
+		if (path && ws) await load(path, ws, true)
+	}
 
 	async function deploy(runAs?: AgentRunAs): Promise<string | undefined> {
 		const ws = opts.workspace()
@@ -532,7 +590,17 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 		get onBehalfOf() {
 			return onBehalfOf
 		},
+		get loadedFromDraft() {
+			return loadedFromDraft
+		},
+		get draftSavedAt() {
+			return draftSavedAt
+		},
+		get deployedAt() {
+			return deployedAt
+		},
 		sync,
-		deploy
+		deploy,
+		reload
 	}
 }

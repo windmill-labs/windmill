@@ -34,7 +34,7 @@
 		// when it doesn't apply, in which case every owner is injected as before.
 		ownerCounts?: Record<string, number>
 		// The viewer's own username: their personal space is a fixture of the tree and
-		// stays even when empty, so they have somewhere to create into.
+		// stays even when empty, so they have somewhere to create into, unless `hideEmptySelf`.
 		selfUsername?: string
 		ownerLoad?: Record<
 			string,
@@ -64,6 +64,8 @@
 		keepEmptyFolders?: boolean
 		// Folders injected even when empty and `keepEmptyFolders` is off.
 		keptFolders?: string[]
+		// Drop `selfUsername`'s space too when it holds nothing, instead of keeping it as "0 items".
+		hideEmptySelf?: boolean
 	}
 
 	let {
@@ -92,7 +94,8 @@
 		ownerLead,
 		ownerDetail,
 		keepEmptyFolders = false,
-		keptFolders
+		keptFolders,
+		hideEmptySelf = false
 	}: Props = $props()
 
 	const unruled = inUnruledList()
@@ -121,6 +124,7 @@
 		selfUsername
 		keepEmptyFolders
 		keptFolders
+		hideEmptySelf
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
@@ -170,8 +174,9 @@
 				for (const username of allUsers) {
 					if (presentUsers.has(username)) continue
 					// Your own space is exempt from the drop: it's where you create, so it
-					// stays visible (as "0 items") when empty rather than disappearing.
-					if (username !== selfUsername && isEmptyOwner(`u/${username}`)) continue
+					// stays visible (as "0 items") when empty rather than disappearing, unless `hideEmptySelf`.
+					if ((hideEmptySelf || username !== selfUsername) && isEmptyOwner(`u/${username}`))
+						continue
 					presentUsers.add(username)
 					missingUsers.push({ username, items: [] })
 				}

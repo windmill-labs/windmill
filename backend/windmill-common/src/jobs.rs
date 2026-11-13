@@ -148,8 +148,60 @@ pub fn resolve_delete_after_secs(
     }
 }
 
+/// Who chose the path a job is resolved from. Deliberately has no default: every caller must say
+/// which it is.
+pub enum RunOrigin<'a> {
+    /// The person who chose the path, whose rights it is held to; usually, not always, the
+    /// identity the job runs as (a preview on behalf of another user, a run-as script).
+    NamedBy(AuthedRef<'a>),
+    /// The path is read from a row whose write was checked when it was saved, so it is not
+    /// re-checked here. Choose it only when that save-time check exists.
+    Deployed,
+}
+
+/// [`RunOrigin`] for a function that is handed the identity of the person who would have named
+/// the path: `Caller` resolves to `NamedBy` that identity. Never pass `Caller` with an identity
+/// other than that person's (a trigger's run-as user).
+#[derive(Clone, Copy)]
+pub enum ChosenBy {
+    Caller,
+    Deployed,
+}
+
+impl ChosenBy {
+    pub fn origin<'a>(self, caller: AuthedRef<'a>) -> RunOrigin<'a> {
+        match self {
+            ChosenBy::Caller => RunOrigin::NamedBy(caller),
+            ChosenBy::Deployed => RunOrigin::Deployed,
+        }
+    }
+}
+
+/// Refuses a Hub script or flow named by a member whose role cannot write code, preset handlers
+/// excepted. Gated on the path, not `hub_id()`: a flow at `hub/123` has none.
+pub async fn check_can_name_runnable(
+    origin: &RunOrigin<'_>,
+    runnable: &RunnableRef,
+    db: &DB,
+    w_id: &str,
+) -> error::Result<()> {
+    let RunOrigin::NamedBy(authed) = origin else {
+        return Ok(());
+    };
+    if !runnable.path().starts_with("hub/") || runnable.preset_handler().is_some() {
+        return Ok(());
+    }
+    if crate::roles::caller_capabilities(db, w_id, authed).await?.code {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(
+        "Hub scripts and flows require a role that can write code. Ask a developer to deploy it to the workspace.".to_string(),
+    ))
+}
+
 pub async fn script_path_to_payload<'e>(
     script: &RunnableRef,
+    origin: RunOrigin<'_>,
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: DB,
     w_id: &str,
@@ -162,6 +214,7 @@ pub async fn script_path_to_payload<'e>(
     Option<i32>,
     Option<OnBehalfOf>,
 )> {
+    check_can_name_runnable(&origin, script, &db, w_id).await?;
     let script_path = script.path();
     let (job_payload, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
         if let Some(hub_id) = script.hub_id() {
@@ -247,12 +300,14 @@ pub async fn script_path_to_payload<'e>(
 
 pub async fn runnable_ref_to_payload(
     runnable: &RunnableRef,
+    origin: RunOrigin<'_>,
     db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
     let (payload, tag, _, _, _, on_behalf_of) = if !runnable.is_flow() {
-        script_path_to_payload(runnable, None, db.clone(), w_id, Some(true)).await?
+        script_path_to_payload(runnable, origin, None, db.clone(), w_id, Some(true)).await?
     } else {
+        check_can_name_runnable(&origin, runnable, db, w_id).await?;
         let path = runnable.path().to_string();
         if let Some(hub_id) = runnable.hub_id() {
             let hub_flow = get_full_hub_flow_by_id(hub_id, &HTTP_CLIENT, Some(db)).await?;

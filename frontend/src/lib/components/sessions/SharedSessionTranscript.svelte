@@ -4,6 +4,7 @@
 	import AIChatMessage from '$lib/components/copilot/chat/AIChatMessage.svelte'
 	import ToolGroupDisplay from '$lib/components/copilot/chat/ToolGroupDisplay.svelte'
 	import ArtifactBody from '$lib/components/copilot/chat/artifacts/ArtifactBody.svelte'
+	import DisplayCodeBlock from '$lib/components/copilot/chat/artifacts/DisplayCodeBlock.svelte'
 	import { setChatViewHost } from '$lib/components/copilot/chat/chatViewHost'
 	import { readOnlyChatViewHost } from '$lib/components/copilot/chat/readOnlyChatViewHost.svelte'
 	import { chatItemKey, groupToolRuns } from '$lib/components/copilot/chat/toolGroups'
@@ -113,7 +114,11 @@
 <Drawer bind:this={drawer} size="900px">
 	<DrawerContent title={openArtifact?.name ?? 'Artifact'} on:close={() => drawer?.closeDrawer()}>
 		{#if openArtifact}
-			<ArtifactBody content={openArtifact.content} source={openArtifact.kind !== 'md'} />
+			<ArtifactBody
+				content={openArtifact.content}
+				source={openArtifact.kind !== 'md'}
+				pre={DisplayCodeBlock}
+			/>
 		{:else}
 			<span class="text-xs text-secondary">This artifact was not part of the share.</span>
 		{/if}

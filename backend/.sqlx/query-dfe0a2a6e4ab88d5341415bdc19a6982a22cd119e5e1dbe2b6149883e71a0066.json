@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO volume (workspace_id, name, size_bytes, created_by, lease_until, leased_by, generation)\n         VALUES ('test-workspace', 'test-vol', 0, 'test-user', now() + make_interval(secs => $1), 'other-worker', $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dfe0a2a6e4ab88d5341415bdc19a6982a22cd119e5e1dbe2b6149883e71a0066"
+}

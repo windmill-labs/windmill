@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM draft\n                 WHERE workspace_id = $1 AND email = $2\n                   AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab6c20641004ad0a93e379cd2287035261318b5c8401059c1c2c73a1b7e62e8b"
+}

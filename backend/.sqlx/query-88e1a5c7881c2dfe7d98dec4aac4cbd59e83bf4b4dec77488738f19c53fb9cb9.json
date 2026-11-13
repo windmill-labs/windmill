@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM dependency_map WHERE workspace_id = $1 AND importer_kind = 'script' AND importer_path = ANY($2) AND imported_path NOT LIKE 'dependencies/%') AS \"exists!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "88e1a5c7881c2dfe7d98dec4aac4cbd59e83bf4b4dec77488738f19c53fb9cb9"
+}

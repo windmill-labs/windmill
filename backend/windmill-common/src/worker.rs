@@ -33,6 +33,7 @@ use crate::{
     external_ip::UNKNOWN_IP,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
+    runnable_ref::RunnableRef,
     server::Smtp,
     utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array},
     KillpillSender, DB,
@@ -647,7 +648,25 @@ pub fn is_cloud_production_host() -> bool {
 /// Use this for hot-path checks (e.g. per-job dispatch) to avoid read-locking WORKER_CONFIG.
 pub static NATIVE_MODE_RESOLVED: AtomicBool = AtomicBool::new(false);
 
+/// Notified when a dedicated worker group's config is re-saved unchanged, which is how a deploy
+/// of one of its scripts reaches every worker of the group: they reload their dedicated
+/// subprocesses in place rather than restart.
+pub static DEDICATED_WORKER_RELOAD: std::sync::LazyLock<tokio::sync::Notify> =
+    std::sync::LazyLock::new(tokio::sync::Notify::new);
+
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
+/// The server's error message, which callers match on to tell a retryable refusal (a volume
+/// leased or being written by another worker) from a failure.
+async fn agent_error_body(response: reqwest::Response) -> String {
+    response
+        .text()
+        .await
+        .unwrap_or_default()
+        .chars()
+        .take(1000)
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct HttpClient {
     pub client: ClientWithMiddleware,
@@ -686,11 +705,12 @@ impl HttpClient {
         if status.is_success() {
             Ok(response.json().await?)
         } else {
-            Err(anyhow::anyhow!(format!(
-                "HTTP agent request POST {} failed {}",
+            Err(anyhow::anyhow!(
+                "HTTP agent request POST {} failed {}: {}",
                 url,
-                response.status()
-            )))
+                status,
+                agent_error_body(response).await
+            ))
         }
     }
 
@@ -706,11 +726,12 @@ impl HttpClient {
         if status.is_success() {
             Ok(response.json().await?)
         } else {
-            Err(anyhow::anyhow!(format!(
-                "HTTP agent request GET {} failed {}",
+            Err(anyhow::anyhow!(
+                "HTTP agent request GET {} failed {}: {}",
                 url,
-                response.status()
-            )))
+                status,
+                agent_error_body(response).await
+            ))
         }
     }
 
@@ -2169,6 +2190,82 @@ pub async fn set_worker_draining_query(worker_name: &str, db: &DB) -> anyhow::Re
     Ok(())
 }
 
+/// How long a dedicated worker's restart holds its group's turn at most: a successor that never
+/// reports ready must not block the group's other workers for longer.
+const DEDICATED_RESTART_TURN_SECS: f64 = 300.0;
+
+/// Restarts this worker once no other worker of its group is restarting, so that a change that
+/// reaches a whole dedicated worker group never takes all of its warm workers down at once.
+/// The turn is keyed on the host, which a supervisor's restart keeps, and is released by the
+/// next worker of this host once its dedicated subprocesses are up (`dedicated_worker_ready`).
+pub fn restart_dedicated_worker_in_turn(db: DB, killpill_tx: KillpillSender) {
+    tokio::spawn(async move {
+        let mut waiting = false;
+        loop {
+            match claim_dedicated_restart_turn(&db).await {
+                Ok(true) => break,
+                Ok(false) if !waiting => {
+                    tracing::info!("waiting for another worker of group {} to finish restarting before restarting", *WORKER_GROUP);
+                    waiting = true;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::error!(
+                        "could not take the dedicated worker restart turn, restarting now: {e:#}"
+                    );
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+        tracing::info!("Dedicated worker restarting, expecting to be restarted by supervisor.");
+        killpill_tx.send();
+    });
+}
+
+async fn claim_dedicated_restart_turn(db: &DB) -> sqlx::Result<bool> {
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('dedicated_restart_turn:' || $1))",
+        &*WORKER_GROUP
+    )
+    .execute(&mut *tx)
+    .await?;
+    let busy = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM worker_ping WHERE worker_group = $1 AND worker_instance <> $2
+            AND dedicated_restart_at > now() - make_interval(secs => $3)) AS "busy!""#,
+        &*WORKER_GROUP,
+        &*crate::utils::HOSTNAME,
+        DEDICATED_RESTART_TURN_SECS
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if !busy {
+        sqlx::query!(
+            "UPDATE worker_ping SET dedicated_restart_at = now() WHERE worker_group = $1 AND worker_instance = $2",
+            &*WORKER_GROUP,
+            &*crate::utils::HOSTNAME
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(!busy)
+}
+
+/// Releases the restart turn held by this host's previous worker of the group, if any.
+pub async fn dedicated_worker_ready(db: &DB) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET dedicated_restart_at = NULL
+            WHERE worker_group = $1 AND worker_instance = $2 AND dedicated_restart_at IS NOT NULL",
+        &*WORKER_GROUP,
+        &*crate::utils::HOSTNAME
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JobCancelled {
     pub canceled_by: String,
@@ -2522,6 +2619,49 @@ pub fn is_hashed_dedicated_worker_tag(tag: &str) -> bool {
     tag.len() == MAX_TAG_LEN && tag.as_bytes().get(MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN) == Some(&b'#')
 }
 
+/// The path prefix a `dedicated_workers` entry ending in `/*` (`f/dw/*`) stands for: every
+/// script under it, nested folders included. Flows are listed one by one.
+pub fn dedicated_worker_pattern_prefix(path: &str) -> Option<&str> {
+    path.strip_suffix('*')
+        .filter(|p| p.ends_with('/') && p.len() > 1 && !p.starts_with("flow/"))
+}
+
+/// `entries` with each pattern replaced by the scripts under it that a dedicated worker serves:
+/// those enabling `dedicated_worker` with an unrestricted job token, the only ones whose jobs
+/// get the dedicated tag on push. Reads every workspace's scripts unchecked: `entries` must come
+/// from a worker group config, which only an instance admin or devops user can write, never from a
+/// request.
+pub async fn expand_dedicated_workers(
+    db: &DB,
+    entries: &[WorkspacedPath],
+) -> error::Result<Vec<WorkspacedPath>> {
+    let mut out: Vec<WorkspacedPath> = vec![];
+    for wp in entries {
+        let Some(prefix) = dedicated_worker_pattern_prefix(&wp.path) else {
+            out.push(wp.clone());
+            continue;
+        };
+        let paths = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT path FROM script
+             WHERE workspace_id = $1 AND starts_with(path, $2) AND archived = false
+               AND dedicated_worker = true AND job_token_scopes IS NULL
+             ORDER BY path",
+        )
+        .bind(&wp.workspace_id)
+        .bind(prefix)
+        .fetch_all(db)
+        .await?;
+        out.extend(
+            paths
+                .into_iter()
+                .map(|path| WorkspacedPath { workspace_id: wp.workspace_id.clone(), path }),
+        );
+    }
+    let mut seen = HashSet::new();
+    out.retain(|wp| seen.insert((wp.workspace_id.clone(), wp.path.clone())));
+    Ok(out)
+}
+
 pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
     let full_tag = format!("{}:{}", workspace_id, path);
     if full_tag.len() <= MAX_TAG_LEN {
@@ -2588,12 +2728,7 @@ pub async fn load_worker_config(
                     "Invalid dedicated_worker format. Got {x}, expects <workspace_id>:<path>"
                 ));
             } else {
-                let workspace = splitted[0];
-                let script_path = splitted[1];
-                Ok(WorkspacedPath {
-                    workspace_id: workspace.to_string(),
-                    path: script_path.to_string(),
-                })
+                Ok(WorkspacedPath::dedicated(splitted[0], splitted[1]))
             }
         })
         .transpose()?;
@@ -2611,16 +2746,15 @@ pub async fn load_worker_config(
                             "Invalid dedicated_workers format. Got {x}, expects <workspace_id>:<path>"
                         ));
                     }
-                    let workspace = splitted[0];
-                    let script_path = splitted[1];
-                    Ok(WorkspacedPath {
-                        workspace_id: workspace.to_string(),
-                        path: script_path.to_string(),
-                    })
+                    Ok(WorkspacedPath::dedicated(splitted[0], splitted[1]))
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
         .transpose()?;
+    let dedicated_scripts = match dedicated_workers.as_deref() {
+        Some(dws) => Some(expand_dedicated_workers(db, dws).await?),
+        None => None,
+    };
     if *WORKER_GROUP == "default" && dedicated_worker.is_none() {
         let mut all_tags = config
             .worker_tags
@@ -2655,7 +2789,7 @@ pub async fn load_worker_config(
         .worker_tags
         .or_else(|| {
             // Check for multiple dedicated workers
-            if let Some(ref dws) = dedicated_workers.as_ref() {
+            if let Some(ref dws) = dedicated_scripts.as_ref() {
                 let mut dedi_tags: Vec<String> = dws
                     .iter()
                     .map(|dw| dedicated_worker_tag(&dw.workspace_id, &dw.path))
@@ -2974,6 +3108,26 @@ pub struct WorkspacedPath {
     pub path: String,
 }
 
+impl WorkspacedPath {
+    /// A dedicated worker setting's `<path>`, a flow written `flow/<path>`, read the way job
+    /// resolution reads it: the result is the path its jobs' dedicated tag is built from. A path
+    /// that does not parse is kept as written: its tag matches no job, and refusing it would stop
+    /// the worker serving the other entries of its group.
+    pub fn dedicated(workspace_id: &str, path: &str) -> Self {
+        let runnable = if path.starts_with("flow/") {
+            RunnableRef::from_prefixed(path)
+        } else {
+            RunnableRef::from_path(path, false)
+        };
+        let path = match runnable {
+            Ok(r) if r.is_flow() => format!("flow/{}", r.path()),
+            Ok(r) => r.path().to_string(),
+            Err(_) => path.to_string(),
+        };
+        Self { workspace_id: workspace_id.to_string(), path }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
@@ -3242,6 +3396,16 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn dedicated_path_is_read_like_a_job_path() {
+        let path = |p: &str| WorkspacedPath::dedicated("ws", p).path;
+        assert_eq!(path("/u/me/x"), "u/me/x");
+        assert_eq!(path("flow//f/a/b"), "flow/f/a/b");
+        assert_eq!(path("u/me/x"), "u/me/x");
+        assert_eq!(path("//u/me/x"), "//u/me/x");
+        assert_eq!(path("/f/dw/*"), "f/dw/*");
+    }
 
     #[test]
     fn whitelist_env_secret_heuristic() {
@@ -3807,6 +3971,19 @@ mod tests {
         assert!(!marked.applies_to_workspace(&chain(&["prod"])));
         assert!(!marked.applies_to_workspace(&fork));
         assert!(marked.applies_to_workspace(&chain(&["other"])));
+    }
+
+    #[test]
+    fn dedicated_worker_patterns_are_script_folders() {
+        assert_eq!(dedicated_worker_pattern_prefix("f/dw/*"), Some("f/dw/"));
+        assert_eq!(
+            dedicated_worker_pattern_prefix("u/alice/*"),
+            Some("u/alice/")
+        );
+        assert_eq!(dedicated_worker_pattern_prefix("f/dw/script"), None);
+        assert_eq!(dedicated_worker_pattern_prefix("f/dw*"), None);
+        assert_eq!(dedicated_worker_pattern_prefix("/*"), None);
+        assert_eq!(dedicated_worker_pattern_prefix("flow/f/dw/*"), None);
     }
 
     #[test]

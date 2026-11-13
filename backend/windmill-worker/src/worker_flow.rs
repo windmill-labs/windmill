@@ -23,7 +23,6 @@ use windmill_common::variables::{build_crypt_with_key_suffix, encrypt, Workspace
 use anyhow::Context;
 use async_once_cell::Lazy;
 use backon::{BackoffBuilder, ConstantBuilder, Retryable};
-use futures::TryFutureExt;
 use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -45,7 +44,7 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, TriggerKindLabel,
+    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, RunOrigin, TriggerKindLabel,
     ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_ref::RunnableRef;
@@ -515,9 +514,8 @@ pub async fn update_flow_status_after_job_completion_internal(
              ))
          })?;
 
-        let flow_data = cache::job::fetch_flow(db, &job_kind, script_hash)
-            .or_else(|_| cache::job::fetch_preview_flow(db, &flow, raw_flow))
-            .await?;
+        let flow_data =
+            cache::job::fetch_flow_or_preview(db, &job_kind, script_hash, &flow, raw_flow).await?;
         let flow_value = flow_data.value();
 
         let module_step = Step::from_i32_and_len(old_status.step, old_status.modules.len());
@@ -2946,13 +2944,15 @@ async fn fetch_root_flow_env(
     flow_job_id: Uuid,
     workspace_id: &str,
 ) -> Result<Option<HashMap<String, Box<RawValue>>>, sqlx::Error> {
+    // Versions are matched by id alone (a deleted flow's are set aside off its path); only
+    // these kinds hold a flow version in `runnable_id`.
     sqlx::query_scalar!(
-        r#"WITH RECURSIVE chain(id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, depth) AS (
-            SELECT id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, 0
+        r#"WITH RECURSIVE chain(id, parent_job, flow_innermost_root_job, runnable_id, kind, raw_flow, depth) AS (
+            SELECT id, parent_job, flow_innermost_root_job, runnable_id, kind, raw_flow, 0
             FROM v2_job
             WHERE id = $1 AND workspace_id = $2
             UNION ALL
-            SELECT j.id, j.parent_job, j.flow_innermost_root_job, j.runnable_id, j.runnable_path, j.raw_flow, c.depth + 1
+            SELECT j.id, j.parent_job, j.flow_innermost_root_job, j.runnable_id, j.kind, j.raw_flow, c.depth + 1
             FROM v2_job j
             JOIN chain c
                 ON j.id = COALESCE(c.flow_innermost_root_job, c.parent_job)
@@ -2968,7 +2968,7 @@ async fn fetch_root_flow_env(
          FROM chain
          LEFT JOIN flow_version
              ON flow_version.id = chain.runnable_id
-            AND flow_version.path = chain.runnable_path
+            AND chain.kind IN ('flow', 'unassigned_flow')
             AND flow_version.workspace_id = $2
          WHERE (CASE
                 WHEN flow_version.id IS NOT NULL THEN flow_version.value -> 'flow_env'
@@ -4249,24 +4249,26 @@ async fn push_next_flow_job(
                     };
 
                     resume_messages.push(to_raw_value(&js));
-                    audit_log(
-                        &mut *tx,
-                        &audit_author,
-                        "jobs.suspend_resume",
-                        ActionKind::Update,
-                        &flow_job.workspace_id,
-                        flow_job.runnable_path.as_deref(),
-                        Some(HashMap::from([
-                            ("approved", "false"),
-                            ("job_id", flow_job.id.to_string().as_str()),
-                            (
-                                "details",
-                                "Suspend timed out without approval but can continue",
-                            ),
-                        ])),
-                    )
-                    .warn_after_seconds(3)
-                    .await?;
+                    if is_disapproved.is_none() {
+                        audit_log(
+                            &mut *tx,
+                            &audit_author,
+                            "jobs.suspend_resume",
+                            ActionKind::Update,
+                            &flow_job.workspace_id,
+                            flow_job.runnable_path.as_deref(),
+                            Some(HashMap::from([
+                                ("approved", "false"),
+                                ("job_id", flow_job.id.to_string().as_str()),
+                                (
+                                    "details",
+                                    "Suspend timed out without approval but can continue",
+                                ),
+                            ])),
+                        )
+                        .warn_after_seconds(3)
+                        .await?;
+                    }
                 }
 
                 sqlx::query!(
@@ -7005,6 +7007,7 @@ pub async fn script_to_payload(
             let (jp, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
                 script_path_to_payload(
                     &script,
+                    RunOrigin::Deployed,
                     None,
                     db.clone(),
                     &flow_job.workspace_id,

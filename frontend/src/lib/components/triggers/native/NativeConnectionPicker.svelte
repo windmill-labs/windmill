@@ -132,13 +132,17 @@
 	}
 
 	// Members cannot write the workspace connection; the server refuses anyone else it does not own.
+	// A resource connected elsewhere is deleted from Resources, where its other uses are visible.
 	function canDisconnect(c: NativeTriggerConnection): boolean {
+		if (!c.managed) return false
 		if (operatingUser.current?.is_admin) return true
 		return !c.workspace && !!c.owner && c.owner === operatingUser.current?.username
 	}
 
-	// The server lets only the connection's owner or an admin replace it.
+	// The server lets only the connection's owner or an admin replace it, and never replaces a
+	// resource connected from Resources.
 	function canReconnect(c: NativeTriggerConnection): boolean {
+		if (!c.managed) return false
 		return (
 			!!operatingUser.current?.is_admin ||
 			(!!c.owner && c.owner === operatingUser.current?.username)
@@ -155,6 +159,7 @@
 		}
 		return list
 	})
+	const selected = $derived(connections?.find((c) => c.path === value))
 	const unusable = $derived(
 		connections !== undefined && !!value && !connections.some((c) => c.path === value)
 	)
@@ -230,6 +235,50 @@
 				</Button>
 			{/if}
 		</div>
+	{/if}
+	{#if selected?.missing_scopes?.length}
+		{@const missing = selected}
+		<Alert type="warning" title="This account is missing permissions" size="xs">
+			<div class="flex flex-col gap-2">
+				{#if missing.managed}
+					<span>
+						Triggers need {missing.missing_scopes?.join(', ')}. Reconnecting asks for them and keeps
+						what the account already has.
+					</span>
+				{:else}
+					<span>
+						Triggers need {missing.missing_scopes?.join(', ')}. This resource was connected from
+						Resources, so connect a new account that grants them.
+					</span>
+					<div>
+						<Button
+							unifiedSize="xs"
+							variant="default"
+							wrapperClasses="w-fit"
+							startIcon={{ icon: Plus }}
+							disabled={disabled || connecting}
+							onclick={() => connectDrawer?.open(getServiceConfig(service)?.resourceType)}
+						>
+							Connect a new account
+						</Button>
+					</div>
+				{/if}
+				{#if canReconnect(missing)}
+					<div>
+						<Button
+							unifiedSize="xs"
+							variant="default"
+							wrapperClasses="w-fit"
+							startIcon={{ icon: RefreshCw }}
+							disabled={connecting}
+							onclick={() => reconnect(missing)}
+						>
+							Reconnect
+						</Button>
+					</div>
+				{/if}
+			</div>
+		</Alert>
 	{/if}
 	{#if unusable}
 		<Alert type="warning" title="You cannot use this connection" size="xs">

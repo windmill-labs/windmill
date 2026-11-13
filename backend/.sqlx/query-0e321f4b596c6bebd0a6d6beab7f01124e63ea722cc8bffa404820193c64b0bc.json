@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO favorite (usr, workspace_id, path, favorite_kind)\n         SELECT f.usr, $2::varchar, f.path, f.favorite_kind\n         FROM favorite f\n         WHERE f.workspace_id = $1\n           AND (f.usr = $3 OR f.usr IN (SELECT username FROM usr WHERE workspace_id = $2))\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e321f4b596c6bebd0a6d6beab7f01124e63ea722cc8bffa404820193c64b0bc"
+}

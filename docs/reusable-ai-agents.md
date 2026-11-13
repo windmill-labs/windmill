@@ -8,6 +8,23 @@ agent, and edits to the agent propagate to every linked step.
 The `ai_agent` resource type is defined in the hub (windmill-integrations) and synced into
 every workspace via the standard cached-resource-type sync, like other built-in types.
 
+## Running an agent on its own
+
+A saved agent also runs without any flow of the author's: from its deployed page, through
+`POST /w/{workspace}/jobs/run/agent/{path}` (scope `jobs:run:agents:<path>`), from a Slack channel
+it is shared in, from a full-code app, and from the AI session's run tools. All of them go through
+`windmill-api/src/agent_runs.rs`, which reads the agent and runs it as a **one-step flow**
+(`agent_step_flow`, step id `__wm_agent_root`). Every run drops the agent's saved `memory_id` and
+`previous_messages` step inputs: the message, attachments and any `previous_messages` come from
+the run's input. A run with a `memory_id` is a turn of a conversation, filed under `<path>.chat`
+and run with chat input enabled. The agent editor's chat is different: it previews the draft as a
+flow preview of the same one step (`agentChatFlow`), not through `agent_runs.rs`.
+
+Since the run is a flow, everything written for flow runs and chat flows applies to it as well:
+conversations, the running-turn check, approvals and questions. A change to one of those paths
+must keep working for this one-step shape, and can be tested from the agent's deployed page as
+well as from a flow.
+
 ## Rigid linking
 
 `FlowModuleValue::AIAgent` has an optional `agent` field holding the resource path, plus a
@@ -273,8 +290,26 @@ while it ran, so it needs another worker free: with none, it only starts once th
 
 The agent editor edits the resource through a **per-user resource draft** (`draft` table,
 `item_kind = 'resource'`), autosaved by `useAgentDraft` and deployed by the editor's own Deploy
-button. It is the same draft row the generic resource editor writes and the Review & Deploy page
-lists, so an agent can be deployed from any of them.
+button. It is the same draft row the resource editor's *Edit as JSON* view writes and the Review &
+Deploy page lists, so an agent can be deployed from any of them. `/drafts/list` reports a resource
+draft's `resource_type` (the deployed row's, which a deploy keeps, else the one the draft names), so
+a listing tells an agent's draft apart without reading it; for an agent it also reports the
+description as the summary and the path the draft names as `draft_path`.
+
+Agent drafts are private to their author, like every resource draft: a resource draft can hold a
+credential, and sharing is decided by draft kind (`shares_drafts_across_users`).
+
+The agent editor carries the same draft controls as the script and flow editors: the autosave
+indicator (save state, *Reset to deployed*, the auto-save toggle), a *Diff* button, Ctrl/Cmd+S, and
+the draft prompts (`DraftEditorModals`: a refused save, a draft older than the last deploy). With
+auto-save off, closing the dialog or leaving the page asks before dropping edits that were never
+saved. A session's tab has nothing that could ask, so there the agent saves every edit whatever the
+toggle says, and its indicator leaves the toggle out.
+
+A draft never carries the identity the agent runs as, so every write of one restates the deployed
+agent's `on_behalf_of` with `preserve_on_behalf_of`: a draft deploy, the session's
+`deploy_workspace_item` and *Edit as JSON*'s Save. The server keeps it for a caller allowed to keep
+another identity; anyone else's write makes it theirs.
 
 A flow does not wait for that deploy to see the draft:
 

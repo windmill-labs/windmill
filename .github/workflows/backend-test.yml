@@ -44,32 +44,32 @@ jobs:
           --health-cmd "mysqladmin ping -h localhost" --health-interval 10s
           --health-timeout 5s --health-retries 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v4.4.0
+      - uses: actions/setup-dotnet@v4.3.1
         with:
           dotnet-version: "9.0.x"
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2.0.5
         with:
           # Pin to the Deno version shipped in the full runtime image (docker/DockerfileFull) so CI
           # tests what production runs, instead of floating on the latest v2.x.
           deno-version: 2.2.1
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version: 1.21.5
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: 1.4.4
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "24"
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v7.6.0
         with:
           version: "0.13.6"
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@2.40.0
         with:
           php-version: "8.3"
           tools: composer
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@v1.338.0
         with:
           ruby-version: "3.3"
           bundler-cache: false
@@ -94,7 +94,7 @@ jobs:
           echo "$PG_BIN" >> "$GITHUB_PATH"
           "$PG_BIN/pg_dump" --version
         working-directory: /
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
@@ -114,7 +114,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -237,7 +237,7 @@ jobs:
           fi
           echo "Verified: Package requires authentication for @windmill-test/private-pkg"
       - name: Cache DuckDB FFI module build
-        uses: actions/cache@v3
+        uses: actions/cache@v3.5.0
         with:
           path: ./backend/windmill-duckdb-ffi-internal/target
           key: ${{ runner.os }}-duckdb-ffi-${{ hashFiles('./backend/windmill-duckdb-ffi-internal/src/**/*.rs', './backend/windmill-duckdb-ffi-internal/Cargo.toml', './backend/windmill-duckdb-ffi-internal/Cargo.lock') }}

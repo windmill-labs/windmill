@@ -25,8 +25,8 @@ const MAX_PER_PAGE = 1000
 /**
  * Loads the newest audit logs, optionally streaming them in smaller batches so rows show up as
  * they arrive on instances where a full load takes a long time to come back, and appends older
- * ones on demand. Rows are ordered by descending id, so every batch after the first follows a
- * `before_id` cursor.
+ * ones on demand. Rows are ordered by descending timestamp then id, so every batch after the
+ * first follows a cursor on the last row's (timestamp, id).
  */
 export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 	let logs: AuditLog[] | undefined = $state()
@@ -45,12 +45,14 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 	function fetchBatch(
 		a: AuditLogsLoaderArgs,
 		limit: number,
-		beforeId: number | undefined
+		cursor: AuditLog | undefined
 	): CancelablePromise<AuditLog[]> {
 		return AuditService.listAuditLogs({
 			workspace: a.scope === 'instance' ? 'global' : a.workspace!,
 			perPage: limit,
-			beforeId,
+			beforeId: cursor?.id,
+			// Passed back as received: the server's microseconds would not survive a `Date`.
+			beforeIdTimestamp: cursor?.timestamp,
 			before: a.before,
 			after: a.after,
 			username: a.username === 'all' ? undefined : a.username,
@@ -105,8 +107,8 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 		const acc: AuditLog[] = []
 		let slowBatchToastShown = false
 
-		function loadBatch(beforeId: number | undefined): CancelablePromise<void> {
-			let fetch = fetchBatch(a, size, beforeId)
+		function loadBatch(cursor: AuditLog | undefined): CancelablePromise<void> {
+			let fetch = fetchBatch(a, size, cursor)
 			if (isBatched && size > 1) {
 				fetch = CancelablePromiseUtils.onTimeout(fetch, 4000, () => {
 					if (slowBatchToastShown) return
@@ -132,7 +134,7 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 					hasMore = acc.length >= total
 					return CancelablePromiseUtils.pure<void>(undefined)
 				}
-				return loadBatch(rows[rows.length - 1].id)
+				return loadBatch(rows[rows.length - 1])
 			})
 		}
 
@@ -221,8 +223,8 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 
 		// Rows are appended as each batch lands, so stopping keeps them and the next load-more
 		// continues from the last one.
-		function extraBatch(beforeId: number): CancelablePromise<void> {
-			return CancelablePromiseUtils.then(fetchBatch(a, size, beforeId), (rows) => {
+		function extraBatch(cursor: AuditLog): CancelablePromise<void> {
+			return CancelablePromiseUtils.then(fetchBatch(a, size, cursor), (rows) => {
 				const kept = rows.slice(0, total - appended)
 				appended += kept.length
 				logs = [...(logs ?? []), ...kept]
@@ -233,11 +235,11 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 					hasMore = false
 					return CancelablePromiseUtils.pure<void>(undefined)
 				}
-				return extraBatch(rows[rows.length - 1].id)
+				return extraBatch(rows[rows.length - 1])
 			})
 		}
 
-		let promise = CancelablePromiseUtils.onTimeout(extraBatch(last.id), 4000, () => {
+		let promise = CancelablePromiseUtils.onTimeout(extraBatch(last), 4000, () => {
 			const smaller = total > SMALL_BATCH_SIZE ? SMALL_BATCH_SIZE : 1
 			const offerBatches = size === total && total > 1
 			sendUserToast('Loading more audit logs is taking longer than expected...', 'warning', [

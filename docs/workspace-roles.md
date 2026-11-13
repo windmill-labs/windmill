@@ -46,8 +46,9 @@ prefixes is gated for free. It lets through the dependency-lock and dynamic-sele
 preview routes (`run/preview`, `run_inline/preview`, `run_wait_result/preview`) check `run` in
 their handlers instead, after the exemption that lets a running job's SDK send a data table query
 there, since jobs a view-only member owns still run as them. Callers that push
-without the router check `check_role_can_run` themselves: the MCP per-runnable tools, eval
-experiment runs and members-only Slack agent shares (which run as the asking member). Resuming or approving a suspended step is not a run. Schedules and triggers keep
+without the router check `check_role_can_run` themselves: the MCP per-runnable tools (which
+`tools/list` also omits for such a role, along with the run endpoint tools), eval
+experiment runs and members-only Slack agent shares (which run as the asking member). An MCP session token and the in-app AI session hold such a member to read-only, so neither offers a run tool. Resuming or approving a suspended step is not a run. Schedules and triggers keep
 their own rights, apps run their runnables on the app's policy and are not gated, and a job
 started by a schedule or trigger acts as its owner, so from inside it a view-only owner cannot
 start further runs through the API either.

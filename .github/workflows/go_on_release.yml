@@ -12,8 +12,8 @@ jobs:
   build_go_and_push_to_repo:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@v4.4.0
+      - uses: actions/setup-go@v7.0.0
       - name: install_jq
         run: |
           sudo apt-get update
@@ -27,7 +27,7 @@ jobs:
           go build
       - name: Pushes to another repository
         id: push_directory
-        uses: cpina/github-action-push-to-another-repository@55306faa4ed53b815ae49e564af8cfb359d32ae2 # v1.7.3
+        uses: cpina/github-action-push-to-another-repository@v1.7.3
         env:
           API_TOKEN_GITHUB: ${{ secrets.DENO_PAT }}
         with:
@@ -42,7 +42,7 @@ jobs:
     needs: [build_go_and_push_to_repo]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           repository: ${{ github.repository_owner }}/${{ env.repo }}
           token: ${{ secrets.DENO_PAT }}

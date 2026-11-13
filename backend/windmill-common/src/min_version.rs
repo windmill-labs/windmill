@@ -39,6 +39,11 @@ pub const MIN_VERSION_SUPPORTS_VARIABLE_VALUE_WIDENING: VC =
 // to accept one once this is met. Only worker versions are seen here, not servers. Must name
 // the release this ships in.
 pub const MIN_VERSION_SUPPORTS_ED25519_LICENSE: VC = vc(1, 838, 0, "Ed25519 license keys");
+// `volume:ro` mounts pull without the volume's lease and rely on every writer marking its
+// write in `volume.generation`. A worker that predates it writes without that mark, so a
+// lease-free pull overlapping its write would keep a mix of old and new files; until the
+// whole fleet has it, read-only mounts take the lease. Must name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES: VC = vc(1, 872, 0, "Lease-free volume reads");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

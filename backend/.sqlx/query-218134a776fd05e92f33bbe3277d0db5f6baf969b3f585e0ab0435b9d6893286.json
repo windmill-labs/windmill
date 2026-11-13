@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT j.runnable_path AS \"path!\" FROM v2_job_queue q\n         JOIN v2_job j ON j.id = q.id\n         WHERE q.workspace_id = $1\n           AND j.kind IN ('dependencies', 'flowdependencies')\n           AND j.runnable_path = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "218134a776fd05e92f33bbe3277d0db5f6baf969b3f585e0ab0435b9d6893286"
+}

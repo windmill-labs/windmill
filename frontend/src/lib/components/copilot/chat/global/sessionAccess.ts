@@ -9,7 +9,12 @@ import {
 	isRuleActiveInRulesets,
 	readProtectionRulesForWorkspace
 } from '$lib/workspaceProtectionRules.svelte'
-import { USE_MODE_ACCESS, type SessionAccess, type SessionCapability } from '../sessionCapabilities'
+import {
+	NO_RUN_ACCESS,
+	USE_MODE_ACCESS,
+	type SessionAccess,
+	type SessionCapability
+} from '../sessionCapabilities'
 
 const ALL_CAPABILITIES: SessionCapability[] = [
 	'write_draft',
@@ -29,6 +34,7 @@ const ALL_CAPABILITIES: SessionCapability[] = [
 	'manage_apps',
 	'manage_schedules',
 	'manage_triggers',
+	'run',
 	'admin',
 	'modify_workspace'
 ]
@@ -51,8 +57,9 @@ export function capabilitiesForRole(role: {
 	deployRulesPass: boolean
 	capabilities: RoleCapabilities
 }): SessionAccess {
-	const capabilities = new Set<SessionCapability>(['modify_workspace'])
 	const caps = role.isAdmin ? FULL_CAPABILITIES : role.capabilities
+	if (!caps.run) return NO_RUN_ACCESS
+	const capabilities = new Set<SessionCapability>(['modify_workspace', 'run'])
 	if (roleCanDraft('script', caps)) {
 		capabilities.add('write_draft')
 	}
@@ -112,7 +119,8 @@ export function capabilitiesForRole(role: {
  * and bypassers included, since production changes go through its dev workspace or a fork;
  * `RestrictDeployToDeployers` alone leaves its users their drafts. Unreadable rules protect too:
  * the server holds deploys to the rule but not drafts. The MCP server applies the same rule
- * (`workspace_access` in `backend/windmill-api/src/mcp/core.rs`): change both. */
+ * (`workspace_access` in `backend/windmill-api/src/mcp/core.rs`), and in `session_ctx_with` holds a
+ * role without `run` to reading only, as `capabilitiesForRole` does: change both. */
 function protects(rulesets: ProtectionRuleset[] | undefined): boolean {
 	return !rulesets || isRuleActiveInRulesets(rulesets, 'DisableDirectDeployment')
 }
@@ -155,18 +163,19 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		// `lookup_failed` covers a rejected request AND a body too malformed to map.
 		getWorkspaceRole(workspace)
 	])
-	if (protects(rulesets)) return USE_MODE_ACCESS
 	if (lookup.kind !== 'resolved') {
-		return fullSessionAccess()
+		return protects(rulesets) ? USE_MODE_ACCESS : fullSessionAccess()
 	}
 	const me = lookup.user
+	const capabilities = capabilitiesIn(
+		me,
+		get(userWorkspaces).find((w) => w.id === workspace)
+	)
+	if (protects(rulesets)) return capabilities.run ? USE_MODE_ACCESS : NO_RUN_ACCESS
 
 	return capabilitiesForRole({
 		isAdmin: !!me.is_admin || !!me.is_super_admin,
 		deployRulesPass: (await checkDeployRules(workspace, me, rulesets)).ok,
-		capabilities: capabilitiesIn(
-			me,
-			get(userWorkspaces).find((w) => w.id === workspace)
-		)
+		capabilities
 	})
 }

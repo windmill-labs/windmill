@@ -6,7 +6,10 @@
 //! - Stream event parsing
 //! - Helper utilities
 
-use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
+use super::{
+    anthropic_model_rejects_sampling_params, force_claude_structured_output_tool,
+    REASONING_OFF_SENTINEL,
+};
 use crate::{
     ai_bedrock::{
         bedrock_model_supports_prompt_caching, bedrock_stream_error,
@@ -1004,10 +1007,11 @@ impl BedrockQueryBuilder {
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
 
-        // Build tool configuration with optional ToolChoice
         let tool_config = build_tool_config(
             tools,
-            structured_output_tool_name.is_some(),
+            structured_output_tool_name.is_some()
+                && (!model.to_lowercase().contains("claude")
+                    || force_claude_structured_output_tool(model, reasoning_effort)),
             enable_prompt_caching,
         )?;
 

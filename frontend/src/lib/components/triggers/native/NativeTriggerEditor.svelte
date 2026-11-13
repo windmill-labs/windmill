@@ -609,7 +609,7 @@
 					<div class="text-red-500 text-xs space-y-2">
 						<div>Failed to load service configuration component for {service}.</div>
 						<div class="text-secondary">
-							Check that {serviceInfo?.serviceDisplayName} is configured in the native trigger settings.
+							Check that {serviceInfo?.serviceDisplayName} is configured in the integration trigger settings.
 						</div>
 						<Button
 							unifiedSize="xs"
@@ -617,7 +617,7 @@
 							href="/workspace_settings?tab=native_triggers"
 							target="_blank"
 						>
-							Native trigger settings
+							Integration trigger settings
 						</Button>
 					</div>
 				</Section>

@@ -58,8 +58,47 @@ pub struct TriggerRoute {
     pub mode: TriggerMode,
 }
 
+/// The routes of one HTTP method. Workspaced routes are looked up first, so a route a workspace
+/// serves under its own `/{workspace_id}/` prefix is never answered by an instance-wide route,
+/// whatever their patterns, and a conflict between the two cannot drop either.
+pub struct MethodRouter<T> {
+    workspaced: matchit::Router<T>,
+    instance_wide: matchit::Router<T>,
+}
+
+impl<T> Default for MethodRouter<T> {
+    fn default() -> Self {
+        Self { workspaced: matchit::Router::new(), instance_wide: matchit::Router::new() }
+    }
+}
+
+impl<T> MethodRouter<T> {
+    pub fn insert(
+        &mut self,
+        workspaced: bool,
+        path: String,
+        value: T,
+    ) -> std::result::Result<(), matchit::InsertError> {
+        if workspaced {
+            &mut self.workspaced
+        } else {
+            &mut self.instance_wide
+        }
+        .insert(path, value)
+    }
+
+    pub fn at<'m, 'p>(
+        &'m self,
+        path: &'p str,
+    ) -> std::result::Result<matchit::Match<'m, 'p, &'m T>, matchit::MatchError> {
+        self.workspaced
+            .at(path)
+            .or_else(|_| self.instance_wide.at(path))
+    }
+}
+
 pub struct RoutersCache {
-    pub routers: HashMap<HttpMethod, matchit::Router<TriggerRoute>>,
+    pub routers: HashMap<HttpMethod, MethodRouter<TriggerRoute>>,
     pub version: i64,
     /// `HTTP_ROUTERS_INVALIDATIONS` as of the moment these rows were read. A rebuild that
     /// started before an invalidation publishes a count behind the current one, which is what
@@ -343,21 +382,25 @@ pub async fn refresh_routers(
             .fetch_all(db)
             .await?;
 
-            let mut router = matchit::Router::new();
+            let mut router = MethodRouter::default();
             let http_route_workspaced =
                 HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             for trigger in triggers {
-                let full_path =
-                    if trigger.workspaced_route || *CLOUD_HOSTED || http_route_workspaced {
-                        format!("/{}/{}", trigger.workspace_id, trigger.route_path)
-                    } else {
-                        format!("/{}", trigger.route_path)
-                    };
+                let workspaced = trigger.workspaced_route || *CLOUD_HOSTED || http_route_workspaced;
+                let full_path = if workspaced {
+                    format!("/{}/{}", trigger.workspace_id, trigger.route_path)
+                } else {
+                    format!("/{}", trigger.route_path)
+                };
 
                 if trigger.is_static_website {
                     router
-                        .insert(format!("{}/*wm_subpath", full_path), trigger.clone())
+                        .insert(
+                            workspaced,
+                            format!("{}/*wm_subpath", full_path),
+                            trigger.clone(),
+                        )
                         .unwrap_or_else(|e| {
                             tracing::warn!(
                                 "Failed to consider HTTP route {}/*wm_subpath: {:?}",
@@ -367,7 +410,7 @@ pub async fn refresh_routers(
                         });
                 }
                 router
-                    .insert(full_path.clone(), trigger.clone())
+                    .insert(workspaced, full_path.clone(), trigger.clone())
                     .unwrap_or_else(|e| {
                         tracing::warn!("Failed to consider HTTP route {}: {:?}", full_path, e,);
                     });
@@ -491,6 +534,33 @@ mod tests {
     use windmill_common::global_settings::{
         validate_allowed_origins, MAX_ALLOWED_ORIGINS, MAX_ALLOWED_ORIGIN_LEN,
     };
+
+    #[test]
+    fn test_workspaced_route_takes_precedence_over_instance_wide() {
+        let mut router = MethodRouter::default();
+        router
+            .insert(false, "/ws/gh/myrepo".to_string(), "instance")
+            .unwrap();
+        router
+            .insert(false, "/ws/hooks/*rest".to_string(), "instance")
+            .unwrap();
+        router
+            .insert(true, "/ws/gh/:repo".to_string(), "ws")
+            .unwrap();
+        router
+            .insert(true, "/ws/hooks/:id".to_string(), "ws")
+            .unwrap();
+        router
+            .insert(false, "/other/:id".to_string(), "instance")
+            .unwrap();
+
+        let at = |path| router.at(path).map(|m| *m.value).ok();
+        assert_eq!(at("/ws/gh/myrepo"), Some("ws"));
+        assert_eq!(at("/ws/hooks/abc"), Some("ws"));
+        assert_eq!(at("/ws/hooks/abc/def"), Some("instance"));
+        assert_eq!(at("/other/1"), Some("instance"));
+        assert_eq!(at("/nothing"), None);
+    }
 
     #[test]
     fn test_request_type_backward_compatibility() {

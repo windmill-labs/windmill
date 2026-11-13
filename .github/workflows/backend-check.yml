@@ -13,14 +13,14 @@ jobs:
   check_oss:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
 
       - name: Install mold and clang
         run: sudo apt-get update && sudo apt-get install -y mold clang
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache: false
           toolchain: 1.97.0
@@ -32,7 +32,7 @@ jobs:
   check_oss_full:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
 
@@ -41,7 +41,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxml2-dev libxmlsec1-dev libkrb5-dev libsasl2-dev libcurl4-openssl-dev mold clang
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache: false
           toolchain: 1.97.0
@@ -55,7 +55,7 @@ jobs:
   check_ee:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
 
@@ -63,7 +63,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -78,7 +78,7 @@ jobs:
       - name: Install mold and clang
         run: sudo apt-get update && sudo apt-get install -y mold clang
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache: false
           toolchain: 1.97.0
@@ -90,7 +90,7 @@ jobs:
   check_ee_full:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
 
@@ -98,7 +98,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -115,7 +115,7 @@ jobs:
         run: |
           ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
