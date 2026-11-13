@@ -1184,6 +1184,14 @@ async fn offboard_user_from_workspace<'c>(
         .await?;
     }
 
+    crate::users::move_handler_paths(
+        tx,
+        w_id,
+        &format!("u/{username}/"),
+        &format!("{new_prefix}/"),
+    )
+    .await?;
+
     // NOTE: extra_perms cleanup, folder owners, favorites, inputs, captures,
     // and token deletion are handled by delete_workspace_user_internal when delete_user=true.
     // They are NOT done here for reassign-only (delete_user=false) since the user stays.
