@@ -105,9 +105,38 @@ pub fn tool_set_of(scopes: &[String]) -> Option<&str> {
     scopes.iter().find_map(|s| s.strip_prefix(SET_SCOPE_PREFIX))
 }
 
+/// The scopes a token signed in to set `name` acts with: the set's current selection in place of
+/// whatever selection it carried, and every other scope kept, as each only narrows it
+/// (`mcp:read_only`, `mcp:workspaces:`, a tag fence). `None` for a set that no longer exists.
+pub fn expand_tool_set_scopes(
+    held: &[String],
+    name: &str,
+    set: Option<&McpToolSet>,
+) -> Vec<String> {
+    const SELECTING: &[&str] = &[
+        "mcp:all",
+        "mcp:favorites",
+        "mcp:scripts:",
+        "mcp:flows:",
+        "mcp:endpoints:",
+        "mcp:hub:",
+        SET_SCOPE_PREFIX,
+        "mcp:runnables_as_tools",
+    ];
+    let kept = held
+        .iter()
+        .filter(|s| !SELECTING.iter().any(|p| s.starts_with(p)))
+        .cloned();
+    let selection = match set {
+        Some(set) => tool_set_scopes(name, set),
+        None => vec![format!("{SET_SCOPE_PREFIX}{name}")],
+    };
+    kept.chain(selection).collect()
+}
+
 /// What a token signed in to `name` acts with: the set as a selection of scripts and flows, with
 /// no endpoint tools.
-pub fn tool_set_scopes(name: &str, set: &McpToolSet) -> Vec<String> {
+fn tool_set_scopes(name: &str, set: &McpToolSet) -> Vec<String> {
     let mut scopes = vec![
         format!("{SET_SCOPE_PREFIX}{name}"),
         "mcp:runnables_as_tools".to_string(),
@@ -144,5 +173,41 @@ mod tests {
         }
         assert!(validate_tool_sets(&set(&[])).is_err());
         assert!(validate_tool_set_name("Support").is_err());
+    }
+
+    #[test]
+    fn expansion_replaces_the_selection_and_keeps_every_narrowing() {
+        let held: Vec<String> = [
+            "mcp:set:support",
+            "mcp:all",
+            "mcp:scripts:*",
+            "mcp:read_only",
+            "mcp:workspaces:a",
+            "if_jobs:filter_tags:deno",
+        ]
+        .map(String::from)
+        .to_vec();
+        let sets = set(&["f/ops/*"]);
+        let expanded = expand_tool_set_scopes(&held, "support", sets.get("support"));
+        assert_eq!(
+            expanded,
+            [
+                "mcp:read_only",
+                "mcp:workspaces:a",
+                "if_jobs:filter_tags:deno",
+                "mcp:set:support",
+                "mcp:runnables_as_tools",
+                "mcp:scripts:f/ops/*"
+            ]
+        );
+        assert_eq!(
+            expand_tool_set_scopes(&held, "support", None),
+            [
+                "mcp:read_only",
+                "mcp:workspaces:a",
+                "if_jobs:filter_tags:deno",
+                "mcp:set:support"
+            ]
+        );
     }
 }

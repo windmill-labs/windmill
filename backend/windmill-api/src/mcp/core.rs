@@ -38,7 +38,7 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 use windmill_common::mcp_tool_sets::{
-    get_tool_set, tool_set_of, tool_set_scopes, SET_SCOPE_PREFIX,
+    expand_tool_set_scopes, get_tool_set, tool_set_of, SET_SCOPE_PREFIX,
 };
 use windmill_mcp::common::SESSION_SCOPE;
 use windmill_mcp::server::{
@@ -662,19 +662,9 @@ async fn expand_tool_set(db: &DB, request: &mut Request<axum::body::Body>) -> Re
     let set = get_tool_set(db, &w_id, &name)
         .await
         .map_err(|e| e.into_response())?;
-    let selection = match &set {
-        Some(set) => tool_set_scopes(&name, set),
-        None => vec![format!("{SET_SCOPE_PREFIX}{name}")],
-    };
     if let Some(authed) = request.extensions_mut().get_mut::<ApiAuthed>() {
-        // Only the MCP selection is the set's: other restrictions, a tag fence among them, stay.
-        let kept = authed
-            .scopes
-            .iter()
-            .flatten()
-            .filter(|s| !s.starts_with("mcp:"))
-            .cloned();
-        authed.scopes = Some(kept.chain(selection).collect());
+        let held = authed.scopes.take().unwrap_or_default();
+        authed.scopes = Some(expand_tool_set_scopes(&held, &name, set.as_ref()));
     }
     if let Some(instructions) = set.and_then(|s| s.instructions) {
         request
