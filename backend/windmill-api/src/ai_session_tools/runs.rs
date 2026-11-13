@@ -1846,11 +1846,6 @@ async fn list_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .unwrap_or(30)
         .clamp(1, 100);
     let mut query = format!("per_page={limit}");
-    if set.is_some() {
-        // A flow's inline steps run at paths under the flow's: unfiltered, they would fill
-        // the page before the set's filter below drops them.
-        query.push_str("&job_kinds=script,flow");
-    }
     for (param, arg) in [
         ("script_path_exact", "path"),
         ("created_by", "created_by"),
@@ -1865,29 +1860,30 @@ async fn list_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             query.push_str(&format!("&{flag}={value}"));
         }
     }
-    let queries = match set
-        .as_ref()
-        .filter(|_| path.is_none())
-        .and_then(ToolSetSelection::path_filters)
-    {
-        Some((exact, prefixes)) => [
-            ("script_path_exact", exact),
-            ("script_path_start", prefixes),
-        ]
-        .into_iter()
-        .filter(|(_, paths)| !paths.is_empty())
-        .map(|(param, paths)| format!("{query}&{param}={}", enc(&paths.join(","))))
-        .collect(),
-        None => vec![query],
+    // A flow's inline steps run at paths under the flow's, so a set's queries name the kind too.
+    let queries: Vec<String> = match (&set, path) {
+        (Some(_), Some(_)) => vec![format!("{query}&job_kinds=script,flow")],
+        (Some(set), None) => set
+            .run_queries()
+            .into_iter()
+            .map(|(kind, filter)| match filter {
+                Some((param, paths)) => {
+                    format!("{query}&job_kinds={kind}&{param}={}", enc(&paths.join(",")))
+                }
+                None => format!("{query}&job_kinds={kind}"),
+            })
+            .collect(),
+        (None, _) => vec![query],
     };
     let mut jobs: Vec<Value> = Vec::new();
     for query in queries {
         let page = ctx.get(&ctx.ws(&format!("jobs/list?{query}"))).await?;
         jobs.extend(page.as_array().into_iter().flatten().cloned());
     }
-    // Newest first across both queries; ISO timestamps sort as text.
+    // Newest first across the queries; ISO timestamps sort as text.
     jobs.sort_by(|a, b| b["created_at"].as_str().cmp(&a["created_at"].as_str()));
-    jobs.dedup_by(|a, b| a["id"] == b["id"]);
+    let mut seen = std::collections::HashSet::new();
+    jobs.retain(|job| seen.insert(job["id"].as_str().unwrap_or_default().to_string()));
     let runs: Vec<Value> = jobs
         .iter()
         // A prefix's `_` is a LIKE wildcard, and the kinds of a set's paths still need checking.

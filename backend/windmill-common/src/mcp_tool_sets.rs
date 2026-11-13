@@ -72,23 +72,30 @@ impl ToolSetSelection {
         })
     }
 
-    /// The set's exact paths and its subtrees' prefixes (`f/ops/`), to narrow a runs query before
-    /// `allows` filters it; `None` when the set reaches every path. Two lists, as the jobs API
-    /// ANDs its exact and prefix filters, and a prefix for an exact path would also match its
-    /// longer siblings (`f/a/x` starts `f/a/xy`).
-    pub fn path_filters(&self) -> Option<(Vec<String>, Vec<String>)> {
-        let all = self.scripts.iter().chain(&self.flows);
-        if all.clone().any(|p| p == "*") {
-            return None;
+    /// The runs queries covering the set, as `(job kind, path filter)`: a page of one query is
+    /// then rarely emptied by `allows` before it reaches the caller. Each kind gets its own, so a
+    /// scripts-only set is not crowded out by the folder's flow runs; its exact paths and subtree
+    /// prefixes (`f/ops/`) are queried apart, as the jobs API ANDs the two filters and a prefix
+    /// for an exact path would also match its longer siblings. `None`: every path of that kind.
+    pub fn run_queries(&self) -> Vec<(&'static str, Option<(&'static str, Vec<String>)>)> {
+        let mut queries = Vec::new();
+        for (kind, patterns) in [("script", &self.scripts), ("flow", &self.flows)] {
+            if patterns.iter().any(|p| p == "*") {
+                queries.push((kind, None));
+                continue;
+            }
+            let (subtrees, exact): (Vec<&String>, Vec<&String>) =
+                patterns.iter().partition(|p| p.ends_with("/*"));
+            if !exact.is_empty() {
+                let exact = exact.into_iter().cloned().collect();
+                queries.push((kind, Some(("script_path_exact", exact))));
+            }
+            if !subtrees.is_empty() {
+                let prefixes = subtrees.iter().map(|p| p.trim_end_matches('*').to_string());
+                queries.push((kind, Some(("script_path_start", prefixes.collect()))));
+            }
         }
-        let (subtrees, exact): (Vec<&String>, Vec<&String>) = all.partition(|p| p.ends_with("/*"));
-        Some((
-            exact.into_iter().cloned().collect(),
-            subtrees
-                .into_iter()
-                .map(|p| p.trim_end_matches('*').to_string())
-                .collect(),
-        ))
+        queries
     }
 }
 
@@ -292,9 +299,17 @@ mod tests {
         assert!(!set.allows("flow", "f/a/x"));
         assert!(!set.allows("singlestepflow", "f/ops/check"));
         assert!(tool_set_selection(&["mcp:scripts:f/ops/*".to_string()]).is_none());
-        // An exact path is not queried as a prefix, which would also match its longer siblings.
-        let (exact, prefixes) = set.path_filters().unwrap();
-        assert_eq!(exact, ["f/a/x", "f/a/sync"]);
-        assert_eq!(prefixes, ["f/ops/"]);
+        // Each kind queries its own paths, and an exact path is never queried as a prefix.
+        let filter = |param: &'static str, paths: &[&str]| {
+            Some((param, paths.iter().map(|p| p.to_string()).collect()))
+        };
+        assert_eq!(
+            set.run_queries(),
+            [
+                ("script", filter("script_path_exact", &["f/a/x"])),
+                ("script", filter("script_path_start", &["f/ops/"])),
+                ("flow", filter("script_path_exact", &["f/a/sync"])),
+            ]
+        );
     }
 }
