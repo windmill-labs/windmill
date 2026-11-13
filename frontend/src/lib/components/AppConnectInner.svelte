@@ -54,7 +54,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import type { NativeConnect } from './triggers/native/utils'
-	import { AI_RESOURCE_TYPE_ALTERNATIVES } from './copilot/aiResourceProvider'
+	import { aiResourceTypeAlternative } from './copilot/aiResourceProvider'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -260,14 +260,21 @@
 		return registryEntryFor(connectClient, resourceType)
 	}
 
-	let resourceTypeAlternative = $derived(AI_RESOURCE_TYPE_ALTERNATIVES[resourceType])
+	let resourceTypeAlternative = $derived(aiResourceTypeAlternative(resourceType, args))
 
-	function switchToResourceType(rt: string) {
+	async function switchToResourceType(rt: string, carry: string[] = []) {
+		const carried = Object.fromEntries(
+			carry.filter((key) => args?.[key] !== undefined).map((key) => [key, args[key]])
+		)
 		connectClient = rt
 		resourceType = rt
 		linkedSecrets = []
 		args = {}
-		getResourceTypeInfo()
+		await getResourceTypeInfo()
+		// The form remounts on the new type's schema and starts from empty arguments, so the
+		// fields worth keeping go in after it has.
+		await tick()
+		args = { ...args, ...carried }
 	}
 
 	/** The static registry declares this provider supports client credentials */
@@ -1491,7 +1498,11 @@
 			{/if}
 			{#if resourceTypeAlternative}
 				<button
-					onclick={() => switchToResourceType(resourceTypeAlternative.resourceType)}
+					onclick={() =>
+						switchToResourceType(
+							resourceTypeAlternative.resourceType,
+							resourceTypeAlternative.carry
+						)}
 					class="text-xs font-normal text-accent w-fit -mt-4"
 				>
 					{resourceTypeAlternative.label}

@@ -2086,6 +2086,8 @@ pub async fn run_agent(
     let mut anthropic_federated_token: Option<
         windmill_ai::providers::anthropic::FederatedAccessToken,
     > = None;
+    let mut vertex_access_token: Option<windmill_ai::vertex_workload_identity::GcpAccessToken> =
+        None;
 
     if let (true, Some(parent_job)) = (was_resumed, parent_job) {
         // Rewritten whole rather than appended: a job restarted after its worker died resumes
@@ -2403,6 +2405,22 @@ pub async fn run_agent(
                             args.provider.get_model(),
                         ),
                     };
+
+                    // The exchanged token stands in for the resource's api key, which
+                    // `retain_effective_credentials` checks before keeping a credential header.
+                    let vertex_credentials =
+                        windmill_ai::vertex_workload_identity::refresh_vertex_access_token(
+                            &credentials,
+                            &mut vertex_access_token,
+                            client,
+                        )
+                        .await?
+                        .map(|token| windmill_ai::credentials::ProviderCredentials {
+                            api_key: Some(token.to_string()),
+                            ..credentials.clone()
+                        });
+                    let credentials = vertex_credentials.as_ref().unwrap_or(&credentials);
+                    let api_key = credentials.api_key.as_deref().unwrap_or(api_key);
 
                     // A worker cannot run the client credentials exchange, so an OAuth resource
                     // has no token here: the request would carry an empty credential and come
