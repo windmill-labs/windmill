@@ -29,6 +29,9 @@
 		 *  endpoints are left out, and since `mcp:all` is the full toolset, "All scripts/flows"
 		 *  is written as `mcp:scripts:* mcp:flows:*`. */
 		runnablesOnly?: boolean
+		/** A workspace tool set: no favorites, which are each member's own, and no hub scripts, as
+		 *  a set holds scripts and flows alone. Implies `runnablesOnly`. */
+		toolSet?: boolean
 	}
 
 	let {
@@ -36,8 +39,10 @@
 		scope = $bindable(),
 		initialScope,
 		readOnly = false,
-		runnablesOnly = false
+		runnablesOnly: _runnablesOnly = false,
+		toolSet = false
 	}: Props = $props()
+	const runnablesOnly = $derived(_runnablesOnly || toolSet)
 
 	// Mirrors ITEMS_FETCH_MAX_LIMIT in backend/windmill-api/src/mcp/utils.rs: the
 	// server exposes at most this many scripts and this many flows (per type) as
@@ -68,7 +73,9 @@
 
 	const parsedInitial = parseInitialScope(initialScope)
 
-	let selectedMode = $state<'favorites' | 'all' | 'folder' | 'custom'>(parsedInitial.mode)
+	let selectedMode = $state<'favorites' | 'all' | 'folder' | 'custom'>(
+		toolSet && parsedInitial.mode === 'favorites' ? 'folder' : parsedInitial.mode
+	)
 	let selectedFolders = $state<string[]>(parsedInitial.folders)
 	let allFolders = $state<string[]>([])
 	let loadingFolders = $state(false)
@@ -568,12 +575,14 @@
 		<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
 		<ToggleButtonGroup bind:selected={selectedMode} allowEmpty={false}>
 			{#snippet children({ item })}
-				<ToggleButton
-					{item}
-					value="favorites"
-					label="Favorites only"
-					tooltip="Make only your favorite scripts and flows available as tools"
-				/>
+				{#if !toolSet}
+					<ToggleButton
+						{item}
+						value="favorites"
+						label="Favorites only"
+						tooltip="Make only your favorite scripts and flows available as tools"
+					/>
+				{/if}
 				<ToggleButton
 					{item}
 					value="all"
@@ -617,7 +626,7 @@
 		</div>
 	{/if}
 
-	<div>
+	<div class:hidden={toolSet}>
 		<span class="block mb-1 text-emphasis text-xs font-semibold">Hub scripts (optional)</span>
 		{#if loadingApps}
 			<div>Loading...</div>

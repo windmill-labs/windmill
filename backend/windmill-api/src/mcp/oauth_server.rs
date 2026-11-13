@@ -20,7 +20,11 @@ use windmill_common::{
 
 use crate::db::ApiAuthed;
 use windmill_api_auth::forbid_elevated_job_token;
-use windmill_mcp::{common::SESSION_SCOPE, parse_mcp_scopes};
+use windmill_common::mcp_tool_sets::{get_tool_set, tool_set_of, SET_SCOPE_PREFIX};
+use windmill_mcp::{
+    common::{scope::RUNNABLES_AS_TOOLS_SCOPE, SESSION_SCOPE},
+    parse_mcp_scopes,
+};
 
 /// Token expiration for MCP OAuth tokens (1 week in seconds)
 const MCP_OAUTH_TOKEN_EXPIRATION_SECS: u64 = 7 * 24 * 60 * 60;
@@ -248,7 +252,15 @@ fn granting_scopes() -> Vec<String> {
 
 fn supported_scopes() -> Vec<String> {
     let mut scopes = granting_scopes();
-    scopes.extend(["mcp:read_only", "mcp:read_run", "mcp:runnables_as_tools"].map(String::from));
+    scopes.extend(
+        [
+            "mcp:read_only",
+            "mcp:read_run",
+            "mcp:runnables_as_tools",
+            "mcp:set:*",
+        ]
+        .map(String::from),
+    );
     scopes
 }
 
@@ -321,6 +333,22 @@ pub async fn protected_resource_metadata_by_path(
         &oauth_prefix,
         &base_url,
     ))
+}
+
+/// GET /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/s/:tool_set/mcp
+///
+/// Always names Windmill's own authorization server, external issuer or not: a tool set is
+/// signed in to through Windmill's consent page.
+pub async fn tool_set_protected_resource_metadata(
+    Path((workspace_id, tool_set)): Path<(String, String)>,
+) -> Json<ProtectedResourceMetadata> {
+    let base_url = BASE_URL.load();
+    Json(ProtectedResourceMetadata {
+        resource: format!("{base_url}/api/mcp/w/{workspace_id}/s/{tool_set}/mcp"),
+        authorization_servers: vec![format!("{base_url}/api/w/{workspace_id}/mcp/oauth/server")],
+        scopes_supported: Some(vec![format!("{SET_SCOPE_PREFIX}{tool_set}")]),
+        bearer_methods_supported: Some(vec!["header".to_string()]),
+    })
 }
 
 /// Schemes that a browser executes as script or uses to read local content. The
@@ -947,6 +975,35 @@ async fn oauth_approve_inner(
         .collect();
     if scopes.iter().any(|s| s == "mcp:all") && !scopes.iter().any(|s| s == SESSION_SCOPE) {
         scopes.push(SESSION_SCOPE.to_string());
+    }
+
+    // A tool set is resolved in the token's own workspace on every request, so its grant is
+    // that set alone, bound to the workspace it exists in.
+    if let Some(name) = tool_set_of(&scopes).map(str::to_string) {
+        let Some(workspace_id) = workspace_id else {
+            return Err(Error::BadRequest(
+                "A tool set belongs to one workspace: sign in from its URL".to_string(),
+            ));
+        };
+        if scopes
+            .iter()
+            .filter(|s| s.starts_with(SET_SCOPE_PREFIX))
+            .count()
+            > 1
+        {
+            return Err(Error::BadRequest(
+                "A connection signs in to one tool set".to_string(),
+            ));
+        }
+        if get_tool_set(db, workspace_id, &name).await?.is_none() {
+            return Err(Error::NotFound(format!(
+                "Workspace {workspace_id} has no MCP tool set `{name}`"
+            )));
+        }
+        scopes = vec![
+            format!("{SET_SCOPE_PREFIX}{name}"),
+            RUNNABLES_AS_TOOLS_SCOPE.to_string(),
+        ];
     }
 
     // The approver's own token bounds what it may grant: a scope-restricted MCP

@@ -37,10 +37,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
+use windmill_common::mcp_tool_sets::{
+    get_tool_set, tool_set_of, tool_set_scopes, SET_SCOPE_PREFIX,
+};
 use windmill_mcp::common::SESSION_SCOPE;
 use windmill_mcp::server::{
     LocalSessionManager, McpToken, MultiWorkspaceMcp, NoEndpointTools, Runner, SessionRunner,
-    StreamableHttpServerConfig, StreamableHttpService,
+    StreamableHttpServerConfig, StreamableHttpService, ToolSetInstructions,
 };
 use windmill_mcp::WorkspaceId;
 
@@ -606,6 +609,74 @@ fn serves_session_toolset(scopes: &[String]) -> bool {
 #[derive(Clone, Copy)]
 pub struct McpEndpoint(pub &'static str);
 
+/// The tool set a set URL serves: `/api/mcp/w/{workspace}/s/{tool_set}/mcp`.
+#[derive(Clone)]
+pub struct ToolSetEndpoint(pub String);
+
+/// Store a tool set URL's workspace and set in request extensions.
+pub async fn extract_tool_set_endpoint(
+    Path((workspace_id, tool_set)): Path<(String, String)>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    request.extensions_mut().insert(WorkspaceId(workspace_id));
+    request.extensions_mut().insert(ToolSetEndpoint(tool_set));
+    next.run(request).await
+}
+
+/// Puts the current paths of the tool set a token is signed in to in place of its scopes, so an
+/// admin's edit reaches open connections and a deleted set leaves no tool. On a set's URL, a
+/// token signed in to anything else is refused, which sends the client back to sign in.
+async fn expand_tool_set(db: &DB, request: &mut Request<axum::body::Body>) -> Result<(), Response> {
+    let served = request
+        .extensions()
+        .get::<ToolSetEndpoint>()
+        .map(|e| e.0.clone());
+    let held = request
+        .extensions()
+        .get::<ApiAuthed>()
+        .and_then(|a| a.scopes.as_deref())
+        .and_then(tool_set_of)
+        .map(str::to_string);
+    if let Some(served) = served {
+        if held.as_deref() != Some(served.as_str()) {
+            return Err((
+                axum::http::StatusCode::UNAUTHORIZED,
+                format!("This URL serves the MCP tool set `{served}`: sign in to it"),
+            )
+                .into_response());
+        }
+    }
+    let Some(name) = held else {
+        return Ok(());
+    };
+    request.extensions_mut().insert(NoEndpointTools);
+    // Without a bound workspace the token keeps its unexpanded scopes, which reach no runnable.
+    let Some(w_id) = request
+        .extensions()
+        .get::<WorkspaceId>()
+        .map(|w| w.0.clone())
+    else {
+        return Ok(());
+    };
+    let set = get_tool_set(db, &w_id, &name)
+        .await
+        .map_err(|e| e.into_response())?;
+    let scopes = match &set {
+        Some(set) => tool_set_scopes(&name, set),
+        None => vec![format!("{SET_SCOPE_PREFIX}{name}")],
+    };
+    if let Some(authed) = request.extensions_mut().get_mut::<ApiAuthed>() {
+        authed.scopes = Some(scopes);
+    }
+    if let Some(instructions) = set.and_then(|s| s.instructions) {
+        request
+            .extensions_mut()
+            .insert(ToolSetInstructions(instructions));
+    }
+    Ok(())
+}
+
 /// Extract workspace ID from path and store it in request extensions
 pub async fn extract_and_store_workspace_id(
     Path(params): Path<String>,
@@ -626,6 +697,10 @@ fn www_authenticate_value(base_url: &str, endpoint: &str) -> String {
     } else {
         "mcp:all"
     };
+    www_authenticate_with_scope(base_url, endpoint, scope)
+}
+
+fn www_authenticate_with_scope(base_url: &str, endpoint: &str, scope: &str) -> String {
     format!(
         "Bearer resource_metadata=\"{base_url}/.well-known/oauth-protected-resource{endpoint}\", \
          scope=\"{scope}\""
@@ -652,14 +727,24 @@ pub async fn add_www_authenticate_header(
             .body(axum::body::Body::from("Missing workspace_id in request"))
             .unwrap();
     };
+    let tool_set = request
+        .extensions()
+        .get::<ToolSetEndpoint>()
+        .map(|e| e.0.clone());
     let response = next.run(request).await;
 
     // Only add header to 401 Unauthorized responses
     if response.status() == StatusCode::UNAUTHORIZED {
         let base_url = BASE_URL.load();
 
-        let www_authenticate =
-            www_authenticate_value(&base_url, &format!("/api/mcp/w/{}/mcp", workspace_id));
+        let www_authenticate = match tool_set {
+            Some(set) => www_authenticate_with_scope(
+                &base_url,
+                &format!("/api/mcp/w/{workspace_id}/s/{set}/mcp"),
+                &format!("{SET_SCOPE_PREFIX}{set}"),
+            ),
+            None => www_authenticate_value(&base_url, &format!("/api/mcp/w/{}/mcp", workspace_id)),
+        };
 
         // Reconstruct response with the new header
         let (mut parts, body) = response.into_parts();
@@ -812,6 +897,7 @@ pub async fn setup_mcp_server(
     let cancellation_token = CancellationToken::new();
     let session_manager = Arc::new(LocalSessionManager::default());
 
+    let tool_set_db = db.clone();
     let backend = WindmillBackend::new(db, user_db, base_internal_url, auth_cache);
     let session_runner = SessionRunner::new(backend.clone());
     let runner = Runner::new(backend);
@@ -847,10 +933,15 @@ pub async fn setup_mcp_server(
         "/",
         axum::routing::any({
             let (service, session_service) = (service.clone(), session_service.clone());
-            move |request: Request<axum::body::Body>| {
+            let db = tool_set_db.clone();
+            move |mut request: Request<axum::body::Body>| {
                 let (service, session_service) = (service.clone(), session_service.clone());
+                let db = db.clone();
                 async move {
                     use tower::ServiceExt;
+                    if let Err(response) = expand_tool_set(&db, &mut request).await {
+                        return response;
+                    }
                     let session = request.extensions().get::<ApiAuthed>().is_some_and(|a| {
                         serves_session_toolset(a.scopes.as_deref().unwrap_or_default())
                     });
@@ -874,8 +965,12 @@ pub async fn setup_mcp_server(
         "/mcp",
         axum::routing::any(move |mut request: Request<axum::body::Body>| {
             let (service, session_service) = (service.clone(), session_service.clone());
+            let db = tool_set_db.clone();
             async move {
                 use tower::ServiceExt;
+                if let Err(response) = expand_tool_set(&db, &mut request).await {
+                    return response;
+                }
                 let response = if request.extensions().get::<McpSelection>().is_some() {
                     request.extensions_mut().insert(NoEndpointTools);
                     service.oneshot(request).await

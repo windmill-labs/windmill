@@ -11,8 +11,8 @@ use crate::common::transform::{
     short_name_last_segments,
 };
 use crate::common::types::{
-    McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
-    WorkspaceId,
+    McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolSetInstructions,
+    ToolableItem, WorkspaceId,
 };
 use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter, RunOutcome};
 use crate::server::endpoints::{
@@ -23,7 +23,7 @@ use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
-    Implementation, InitializeRequestParams, InitializeResult, ListPromptsResult,
+    DiscoverResult, Implementation, InitializeRequestParams, InitializeResult, ListPromptsResult,
     ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
     ProtocolVersion, ServerCapabilities, ServerInfo, SubscriptionFilter,
 };
@@ -176,6 +176,19 @@ impl<B: McpBackend> Runner<B> {
     /// Create a new Runner with the given backend
     pub fn new(backend: B) -> Self {
         Self { backend: Arc::new(backend), list_changes: Arc::default() }
+    }
+
+    /// The server's instructions, followed by those of the tool set the caller signed in to.
+    fn info_for(&self, context: &RequestContext<RoleServer>) -> ServerInfo {
+        let info = self.get_info();
+        let set = context
+            .extensions
+            .get::<HttpParts>()
+            .and_then(|parts| parts.extensions.get::<ToolSetInstructions>());
+        match (set, info.instructions.clone()) {
+            (Some(set), Some(own)) => info.with_instructions(format!("{own}\n\n{}", set.0)),
+            _ => info,
+        }
     }
 
     /// Extract authentication, the workspace mode and the HTTP request itself
@@ -568,7 +581,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, ErrorData> {
         context.peer.set_peer_info(request.clone());
-        let mut info = self.get_info();
+        let mut info = self.info_for(&context);
         if let Some(tools) = info.capabilities.tools.as_mut() {
             tools.list_changed = None;
         }
@@ -576,6 +589,16 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             info.protocol_version = request.protocol_version;
         }
         Ok(info)
+    }
+
+    async fn discover(
+        &self,
+        context: RequestContext<RoleServer>,
+    ) -> Result<DiscoverResult, ErrorData> {
+        Ok(DiscoverResult::from_server_info(
+            SUPPORTED_PROTOCOL_VERSIONS.to_vec(),
+            self.info_for(&context),
+        ))
     }
 
     /// `None` for a request that asks for nothing this server sends, so the client is
