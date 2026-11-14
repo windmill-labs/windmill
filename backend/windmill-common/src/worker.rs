@@ -322,7 +322,8 @@ pub struct WorkspaceFairnessState {
     /// before it existed, which leaves the admission atomic at its default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admission_ppm: Option<u32>,
-    /// When each workspace in `overloaded` was last capped, carried across refreshes.
+    /// When each workspace in `overloaded` entered the list in its current episode of being
+    /// capped, carried across refreshes until it leaves.
     #[serde(default)]
     pub capped_since: HashMap<String, chrono::DateTime<chrono::Utc>>,
 }
