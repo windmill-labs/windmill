@@ -3462,7 +3462,7 @@ pub async fn run_worker(
             WORKER_CONFIG.load()
         );
     }
-    if *windmill_common::worker::WORKSPACE_FAIRNESS_RESERVE_WORKER {
+    if WORKER_CONFIG.load().fairness_reserve {
         tracing::info!(
             worker = %worker_name, hostname = %hostname,
             "fairness reserve worker: pulls only while a workspace is overloaded, and only other workspaces' jobs"

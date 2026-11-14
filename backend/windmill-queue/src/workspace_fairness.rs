@@ -253,7 +253,7 @@
 //! Admission only steers what a worker pulls *next*. A workspace whose jobs
 //! already hold every worker (sync parents polling for children that need a
 //! worker themselves) leaves no pull to steer, for as long as those jobs run.
-//! A worker started with `WORKSPACE_FAIRNESS_RESERVE_WORKER=true` pulls
+//! A worker of a group whose config sets `fairness_reserve` pulls
 //! nothing while the overloaded set is empty, and otherwise only the fairness
 //! queries (ordinary and suspended-resume), with no fallback. It stays idle rather
 //! than serving everyone while nothing is capped: a burst landing before the

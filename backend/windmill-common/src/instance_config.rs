@@ -1023,6 +1023,10 @@ pub struct WorkerGroupConfig {
     /// The group listens to its tags suffixed with the dev workspace tag suffix, and only to them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub serves_dev_workspaces: Option<bool>,
+    /// Workers of the group pull only while workspace fairness caps a workspace, and only jobs
+    /// of the workspaces it does not cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fairness_reserve: Option<bool>,
     /// Object store this group's dependency cache uses instead of the instance one. Same shape
     /// as the instance `object_store_cache_config`.
     #[serde(skip_serializing_if = "Option::is_none")]

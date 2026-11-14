@@ -508,6 +508,7 @@ lazy_static::lazy_static! {
         native_mode: false,
         object_store_cache_config: Default::default(),
         paused: false,
+        fairness_reserve: false,
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
@@ -537,12 +538,6 @@ lazy_static::lazy_static! {
     /// classifies an overloaded set — before that, no workspace is capped so
     /// `should_admit_capped` is moot and "admit all" is the correct no-op.
     pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
-
-    /// Pulls nothing while no workspace is overloaded, and otherwise only jobs of the workspaces
-    /// that are not. See "Reserve workers" in `windmill_queue::workspace_fairness`.
-    pub static ref WORKSPACE_FAIRNESS_RESERVE_WORKER: bool =
-        std::env::var("WORKSPACE_FAIRNESS_RESERVE_WORKER")
-            .is_ok_and(|x| x == "1" || x.eq_ignore_ascii_case("true"));
 
     /// Cloud-only ceiling on the number of jobs queued behind a single concurrency key.
     /// A concurrency-limited key drains at most `concurrent_limit` jobs per window, so a
@@ -2964,6 +2959,17 @@ pub async fn load_worker_config(
     let native_mode = is_native_mode_from_env() || config.native_mode.unwrap_or(false);
     NATIVE_MODE_RESOLVED.store(native_mode, std::sync::atomic::Ordering::Relaxed);
 
+    // Fairness needs an Enterprise license, which a CE build (`private` included) never has, so
+    // no workspace would ever be overloaded and a reserve worker would idle forever.
+    let fairness_reserve = config.fairness_reserve.unwrap_or(false);
+    if fairness_reserve && !cfg!(feature = "enterprise") {
+        tracing::warn!(
+            "fairness_reserve is set on worker group {} but requires an Enterprise build, ignoring it",
+            *WORKER_GROUP
+        );
+    }
+    let fairness_reserve = fairness_reserve && cfg!(feature = "enterprise");
+
     Ok(WorkerConfig {
         worker_tags,
         priority_tags_sorted,
@@ -2987,6 +2993,7 @@ pub async fn load_worker_config(
         native_mode,
         object_store_cache_config: config.object_store_cache_config,
         paused: config.paused.unwrap_or(false),
+        fairness_reserve,
     })
 }
 
@@ -3187,6 +3194,7 @@ pub struct WorkerConfigOpt {
     pub object_store_cache_config: Option<serde_json::Value>,
     pub paused: Option<bool>,
     pub serves_dev_workspaces: Option<bool>,
+    pub fairness_reserve: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -3209,6 +3217,7 @@ impl Default for WorkerConfigOpt {
             object_store_cache_config: Default::default(),
             paused: Default::default(),
             serves_dev_workspaces: Default::default(),
+            fairness_reserve: Default::default(),
         }
     }
 }
@@ -3236,12 +3245,15 @@ pub struct WorkerConfig {
     /// The group pulls no job from the queue: its workers finish what they hold, keep pinging
     /// and leave queued jobs for when it is resumed.
     pub paused: bool,
+    /// Pulls nothing while no workspace is overloaded, and otherwise only jobs of the workspaces
+    /// that are not. See "Reserve workers" in `windmill_queue::workspace_fairness`.
+    pub fairness_reserve: bool,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, disable_job_proxy: {:?}, native_mode: {:?}, paused: {:?}, object_store_cache_config: {} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.disable_job_proxy, self.native_mode, self.paused,
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, disable_job_proxy: {:?}, native_mode: {:?}, paused: {:?}, fairness_reserve: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.disable_job_proxy, self.native_mode, self.paused, self.fairness_reserve,
         // holds bucket credentials
         self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }

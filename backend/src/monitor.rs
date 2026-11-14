@@ -465,6 +465,8 @@ pub async fn initial_load(
                     object_store_cache_config: None,
                     // nor whether it is paused: the server refuses it jobs instead
                     paused: false,
+                    // the server pulls for it with its own query, which the reserve gate never sees
+                    fairness_reserve: false,
                 }));
             }
         }
@@ -982,7 +984,7 @@ pub async fn apply_workspace_fairness_enabled(value: Option<serde_json::Value>) 
         _ => false,
     };
     let prev = WORKSPACE_FAIRNESS_ENABLED.swap(new_enabled, Ordering::Relaxed);
-    if !new_enabled && *windmill_common::worker::WORKSPACE_FAIRNESS_RESERVE_WORKER {
+    if !new_enabled && WORKER_CONFIG.load().fairness_reserve {
         tracing::warn!(
             "fairness reserve worker stays idle: {WORKSPACE_FAIRNESS_ENABLED_SETTING} is off"
         );
@@ -5984,14 +5986,16 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
 
-        // Pausing or resuming must not restart the workers, dedicated ones included: a reload
-        // whose only difference is the flag skips every restart below.
+        // Pausing or resuming, or flagging the group as a fairness reserve, must not restart the
+        // workers, dedicated ones included: a reload whose only difference is a flag skips every
+        // restart below.
         // Tags only decide what the workers pull, and the pull query is swapped below: a change
         // to them alone needs no restart either. A script toggled under a `dedicated_workers`
         // pattern comes in this way, its dependency job tagged for the group before it has a lock.
         let only_live_fields_changed = **wc != config
             && WorkerConfig {
                 paused: wc.paused,
+                fairness_reserve: wc.fairness_reserve,
                 worker_tags: wc.worker_tags.clone(),
                 priority_tags_sorted: wc.priority_tags_sorted.clone(),
                 ..config.clone()
@@ -6057,6 +6061,16 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                         tx.clone(),
                     );
                 }
+            }
+            if wc.fairness_reserve != config.fairness_reserve {
+                tracing::info!(
+                    "fairness reserve {}",
+                    if config.fairness_reserve {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                );
             }
             drop(wc);
 
