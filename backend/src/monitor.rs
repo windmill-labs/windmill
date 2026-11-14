@@ -6062,6 +6062,14 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                     );
                 }
             }
+            if config.fairness_reserve
+                && !wc.fairness_reserve
+                && !WORKSPACE_FAIRNESS_ENABLED.load(Ordering::Relaxed)
+            {
+                tracing::warn!(
+                    "fairness reserve worker stays idle: {WORKSPACE_FAIRNESS_ENABLED_SETTING} is off"
+                );
+            }
             if wc.fairness_reserve != config.fairness_reserve {
                 tracing::info!(
                     "fairness reserve {}",
