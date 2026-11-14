@@ -691,7 +691,9 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     // A worker that kept the variable would otherwise silently serve every workspace, the
     // overloaded one included.
-    if std::env::var_os("WORKSPACE_FAIRNESS_RESERVE_WORKER").is_some() {
+    if std::env::var("WORKSPACE_FAIRNESS_RESERVE_WORKER")
+        .is_ok_and(|x| x == "1" || x.eq_ignore_ascii_case("true"))
+    {
         eprintln!(
             "WORKSPACE_FAIRNESS_RESERVE_WORKER is no longer read: unset it and enable \"Fairness \
              reserve\" (fairness_reserve) in the worker group config instead"
