@@ -1432,7 +1432,7 @@ class Windmill:
         """
         nonce = random.randint(0, 1000000000)
         job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
-        params = {"approver": approver}
+        params = {"approver": approver} if approver is not None else {}
         if flow_level is not None:
             params["flow_level"] = flow_level
         return self.get(
