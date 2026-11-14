@@ -466,6 +466,121 @@ async fn move_run_as_principal(
     Ok(())
 }
 
+/// Moves the handlers that name a runnable under `old_prefix` (e.g. `u/alice/`) to the same path
+/// under `new_prefix`, in the form each column stores: schedule handlers and the workspace
+/// handlers' `path` carry a `script/` or `flow/` kind, a schedule's skip handler and a trigger's
+/// error handler are bare script paths. A handler left on the old path fails exactly when it fires.
+/// The Slack and Teams command scripts and the workspace's default app move the same way.
+pub(crate) async fn move_handler_paths(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    old_prefix: &str,
+    new_prefix: &str,
+) -> error::Result<()> {
+    // `starts_with` rather than `LIKE`/regex: a legacy email-shaped username carries `.` and `_`,
+    // which those would treat as wildcards and so rewrite another user's paths.
+    let moved = |col: &str| {
+        format!(
+            "CASE WHEN starts_with({col}, $1) THEN $2 || substr({col}, char_length($1) + 1) ELSE {col} END"
+        )
+    };
+    let moved_kind = |col: &str| {
+        format!(
+            "CASE WHEN starts_with({col}, 'script/' || $1) THEN 'script/' || $2 || substr({col}, char_length($1) + 8)
+                  WHEN starts_with({col}, 'flow/' || $1) THEN 'flow/' || $2 || substr({col}, char_length($1) + 6)
+                  ELSE {col} END"
+        )
+    };
+    let names_old = |col: &str| {
+        format!("(starts_with({col}, 'script/' || $1) OR starts_with({col}, 'flow/' || $1))")
+    };
+
+    // SAFETY: the interpolated column names are literals from this function.
+    sqlx::query(&format!(
+        "UPDATE schedule SET on_failure = {}, on_recovery = {}, on_success = {}, dynamic_skip = {}
+         WHERE workspace_id = $3 AND ({} OR {} OR {} OR starts_with(dynamic_skip, $1))",
+        moved_kind("on_failure"),
+        moved_kind("on_recovery"),
+        moved_kind("on_success"),
+        moved("dynamic_skip"),
+        names_old("on_failure"),
+        names_old("on_recovery"),
+        names_old("on_success"),
+    ))
+    .bind(old_prefix)
+    .bind(new_prefix)
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
+
+    // SAFETY: `table` comes from the hardcoded `TRIGGER_TABLES`, not user input.
+    for table in TRIGGER_TABLES {
+        // A listener keeps the config it started with and its ping does not compare the handler,
+        // so clearing `server_id` is what makes it restart on the rewritten path.
+        let restart = match table {
+            "http_trigger" | "email_trigger" => "",
+            _ => ", server_id = NULL",
+        };
+        sqlx::query(&format!(
+            "UPDATE {table} SET error_handler_path = {}{restart}
+             WHERE workspace_id = $3 AND starts_with(error_handler_path, $1)",
+            moved("error_handler_path"),
+        ))
+        .bind(old_prefix)
+        .bind(new_prefix)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    for setting in [
+        "error_handler",
+        "success_handler",
+        "variable_expiration_handler",
+    ] {
+        let path = format!("({setting}->>'path')");
+        sqlx::query(&format!(
+            "UPDATE workspace_settings SET {setting} = jsonb_set({setting}, '{{path}}', to_jsonb({}))
+             WHERE workspace_id = $3 AND {}",
+            moved_kind(&path),
+            names_old(&path),
+        ))
+        .bind(old_prefix)
+        .bind(new_prefix)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // The command scripts are read with `RunnableRef::from_setting`, which takes a bare script
+    // path as well as a prefixed one, so both forms are moved.
+    let moved_command = |col: &str| {
+        format!(
+            "CASE WHEN {} THEN {} ELSE {} END",
+            names_old(col),
+            moved_kind(col),
+            moved(col)
+        )
+    };
+    let names_command = |col: &str| format!("({} OR starts_with({col}, $1))", names_old(col));
+    sqlx::query(&format!(
+        "UPDATE workspace_settings
+         SET slack_command_script = {}, teams_command_script = {}, default_app = {}
+         WHERE workspace_id = $3 AND ({} OR {} OR starts_with(default_app, $1))",
+        moved_command("slack_command_script"),
+        moved_command("teams_command_script"),
+        moved("default_app"),
+        names_command("slack_command_script"),
+        names_command("teams_command_script"),
+    ))
+    .bind(old_prefix)
+    .bind(new_prefix)
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 async fn update_username_in_workpsace<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     db: &DB,
@@ -1056,6 +1171,8 @@ async fn update_username_in_workpsace<'c>(
         RunAsScope::Workspace(w_id),
     )
     .await?;
+
+    move_handler_paths(tx, w_id, &old_prefix, &new_prefix).await?;
 
     // ---- group_ ----
 

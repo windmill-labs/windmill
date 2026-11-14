@@ -1362,6 +1362,117 @@ async fn test_rename_moves_run_as_of_schedules_and_triggers(
     Ok(())
 }
 
+/// The rename moves the user's runnables, so every handler naming one must follow in the form its
+/// column stores, or it fails exactly when it fires. A handler under another user's path stays.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms, on_failure, on_recovery, on_success, dynamic_skip)
+           VALUES ('test-workspace', 'f/ops/nightly', 'test-user', NOW(), '0 * * * *', 'UTC', true, 'f/ops/job', false, 'test@windmill.dev', 'u/test-user', '{}',
+                   'script/u/test-user-2/on_fail', 'flow/u/test-user-2/on_recover', 'script/u/test-user/on_success', 'u/test-user-2/skip');
+         INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, permissioned_as, edited_at, extra_perms, http_method, authentication_method, mode, error_handler_path)
+           VALUES ('test-workspace', 'f/ops/hook', '/hook', 'hook', 'f/ops/job', false, 'test-user', 'u/test-user', NOW(), '{}', 'post', 'none', 'enabled', 'u/test-user-2/trigger_err');
+         INSERT INTO kafka_trigger (workspace_id, path, kafka_resource_path, topics, group_id, script_path, is_flow, edited_by, permissioned_as, error_handler_path, server_id)
+           VALUES ('test-workspace', 'f/ops/k', 'f/ops/kafka', '{t}', 'g', 'f/ops/job', false, 'test-user', 'u/test-user', 'u/test-user/trigger_err', 'srv'),
+                  ('test-workspace', 'f/ops/k2', 'f/ops/kafka', '{t}', 'g', 'f/ops/job', false, 'test-user', 'u/test-user', 'u/test-user-2/trigger_err', 'srv');
+         UPDATE workspace_settings SET
+           error_handler = '{"path": "script/u/test-user-2/ws_err", "extra_args": {"channel": "ops"}, "muted_on_cancel": true}',
+           success_handler = '{"path": "flow/u/test-user-2/ws_ok"}',
+           variable_expiration_handler = '{"path": "script/u/test-user/expiry", "notify_before_secs": 60}',
+           slack_command_script = 'script/u/test-user-2/slack_cmd',
+           teams_command_script = 'u/test-user/teams_cmd',
+           default_app = 'u/test-user-2/home'
+         WHERE workspace_id = 'test-workspace';"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let schedule: (String, String, String, String) = sqlx::query_as(
+        "SELECT on_failure, on_recovery, on_success, dynamic_skip FROM schedule
+         WHERE workspace_id = 'test-workspace' AND path = 'f/ops/nightly'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        schedule,
+        (
+            "script/u/alice/on_fail".into(),
+            "flow/u/alice/on_recover".into(),
+            "script/u/test-user/on_success".into(),
+            "u/alice/skip".into()
+        )
+    );
+
+    let http: String = sqlx::query_scalar(
+        "SELECT error_handler_path FROM http_trigger WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(http, "u/alice/trigger_err");
+    // A listener whose handler moved must restart to load it; one whose handler stayed is left be.
+    let kafka: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT path, error_handler_path, server_id FROM kafka_trigger
+         WHERE workspace_id = 'test-workspace' ORDER BY path",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        kafka,
+        vec![
+            (
+                "f/ops/k".into(),
+                "u/test-user/trigger_err".into(),
+                Some("srv".into())
+            ),
+            ("f/ops/k2".into(), "u/alice/trigger_err".into(), None),
+        ]
+    );
+
+    let settings: (serde_json::Value, serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "SELECT error_handler, success_handler, variable_expiration_handler FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        settings,
+        (
+            json!({ "path": "script/u/alice/ws_err", "extra_args": { "channel": "ops" }, "muted_on_cancel": true }),
+            json!({ "path": "flow/u/alice/ws_ok" }),
+            json!({ "path": "script/u/test-user/expiry", "notify_before_secs": 60 })
+        )
+    );
+
+    let commands: (String, String, String) = sqlx::query_as(
+        "SELECT slack_command_script, teams_command_script, default_app FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        commands,
+        (
+            "script/u/alice/slack_cmd".into(),
+            "u/test-user/teams_cmd".into(),
+            "u/alice/home".into()
+        )
+    );
+
+    Ok(())
+}
+
 /// Outside a superadmin's workspaces `u/{password.username}` resolves to them, so their rows there
 /// follow the rename — but not in a workspace where a member holds that name, where it was theirs.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]

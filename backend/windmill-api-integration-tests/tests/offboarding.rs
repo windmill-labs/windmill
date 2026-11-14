@@ -321,6 +321,86 @@ async fn test_offboard_to_folder(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Offboarding moves the user's runnables to the target, so handlers naming them must follow.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
+async fn test_offboard_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"UPDATE schedule SET on_failure = 'script/u/test-user-2/script_a', on_success = 'flow/u/test-user-2/flow_a'
+             WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/sched_shared';
+           UPDATE http_trigger SET error_handler_path = 'u/test-user-2/script_b'
+             WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/webhook_shared';
+           UPDATE workspace_settings SET error_handler = '{"path": "script/u/test-user-2/script_b", "muted_on_cancel": true}',
+               slack_command_script = 'u/test-user-2/script_a', teams_command_script = 'flow/u/test-user-2/flow_a',
+               default_app = 'u/test-user-2/app_a'
+             WHERE workspace_id = 'test-workspace';"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
+        .json(&json!({
+            "reassign_to": "f/test-folder",
+            "new_on_behalf_of_user": "test-user",
+            "delete_user": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "offboard: {}", resp.text().await?);
+
+    let schedule: (String, String) = sqlx::query_as(
+        "SELECT on_failure, on_success FROM schedule
+         WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/sched_shared'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        schedule,
+        (
+            "script/f/test-folder/script_a".into(),
+            "flow/f/test-folder/flow_a".into()
+        )
+    );
+
+    let trigger: String = sqlx::query_scalar(
+        "SELECT error_handler_path FROM http_trigger
+         WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/webhook_shared'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(trigger, "f/test-folder/script_b");
+
+    let error_handler: serde_json::Value = sqlx::query_scalar(
+        "SELECT error_handler FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        error_handler,
+        json!({ "path": "script/f/test-folder/script_b", "muted_on_cancel": true })
+    );
+
+    let commands: (String, String, String) = sqlx::query_as(
+        "SELECT slack_command_script, teams_command_script, default_app FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        commands,
+        (
+            "f/test-folder/script_a".into(),
+            "flow/f/test-folder/flow_a".into(),
+            "f/test-folder/app_a".into()
+        )
+    );
+
+    Ok(())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
 async fn test_offboard_reassign_only(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
