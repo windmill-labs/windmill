@@ -4,32 +4,32 @@
 version: 'v0.0.3'
 workflows:
     '.github/workflows/actions-lock.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/ai-agent-tests.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
         - 'actions/setup-python@v7.1.0'
         - 'actions/upload-artifact@v4.6.2'
         - 'oven-sh/setup-bun@v2.2.0'
     '.github/workflows/ai-evals-scheduled.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
         - 'actions/upload-artifact@v4.6.2'
         - 'oven-sh/setup-bun@v2.2.0'
     '.github/workflows/ai-evals-test.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
         - 'actions/upload-artifact@v4.6.2'
         - 'oven-sh/setup-bun@v2.2.0'
     '.github/workflows/backend-check.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/backend-test-windows.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-dotnet@v4.3.1'
         - 'actions/setup-go@v7.0.0'
         - 'actions/setup-node@v7.1.0'
@@ -41,7 +41,7 @@ workflows:
     '.github/workflows/backend-test.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
         - 'actions/cache@v3.5.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-dotnet@v4.3.1'
         - 'actions/setup-go@v7.0.0'
         - 'actions/setup-node@v7.1.0'
@@ -51,24 +51,24 @@ workflows:
         - 'ruby/setup-ruby@v1.338.0'
         - 'shivammathur/setup-php@2.40.0'
     '.github/workflows/benchmark.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/download-artifact@v4.3.0'
         - 'actions/upload-artifact@v4.6.2'
         - 'denoland/setup-deno@v2.0.5'
     '.github/workflows/build-caddy-l4-image.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'depot/build-push-action@v1.19.0'
         - 'depot/setup-action@v1.7.2'
         - 'docker/login-action@v3.7.0'
         - 'docker/metadata-action@v5.10.0'
     '.github/workflows/build-extra-image.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'depot/build-push-action@v1.19.0'
         - 'depot/setup-action@v1.7.2'
         - 'docker/login-action@v3.7.0'
         - 'docker/metadata-action@v5.10.0'
     '.github/workflows/build-publish-rh-image.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v4.6.2'
         - 'depot/build-push-action@v1.19.0'
         - 'depot/setup-action@v1.7.2'
@@ -76,7 +76,7 @@ workflows:
         - 'docker/metadata-action@v5.10.0'
         - 'imjasonh/setup-crane@v0.4'
     '.github/workflows/build-publish-rh8-image.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v4.6.2'
         - 'depot/build-push-action@v1.19.0'
         - 'depot/setup-action@v1.7.2'
@@ -85,7 +85,7 @@ workflows:
         - 'shrink/actions-docker-extract@v3.1.0'
     '.github/workflows/build_cli_image.yml':
         - 'actions/attest-build-provenance@v4.2.2'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'depot/build-push-action@v1.19.0'
         - 'depot/setup-action@v1.7.2'
         - 'docker/login-action@v3.7.0'
@@ -93,49 +93,49 @@ workflows:
         - 'sigstore/cosign-installer@v4.1.2'
     '.github/workflows/build_windows_worker_.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v4.6.2'
     '.github/workflows/change-versions.yml':
         - 'actions-rs/toolchain@v1.0.7'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/create-github-app-token@v2.2.2'
         - 'stefanzweifel/git-auto-commit-action@v5.2.0'
     '.github/workflows/check-docs-links.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
     '.github/workflows/check-empty-fixture.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/check-system-prompts.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-python@v7.1.0'
     '.github/workflows/check-write-access.yml':
         - 'actions/create-github-app-token@v2.2.2'
     '.github/workflows/claude-plan.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'anthropics/claude-code-action@v1.0.271'
     '.github/workflows/claude.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'anthropics/claude-code-action@v1.0.271'
     '.github/workflows/cli-tests.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
         - 'ikalnytskyi/action-setup-postgres@v6'
         - 'oven-sh/setup-bun@v2.2.0'
     '.github/workflows/codex-pr-review.yml':
-        - 'actions/checkout@v5.1.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/github-script@v7.1.0'
         - 'actions/setup-node@v7.1.0'
     '.github/workflows/discord-notification.yml': []
     '.github/workflows/docker-image-rpi4.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'depot/build-push-action@v1.19.0'
         - 'depot/setup-action@v1.7.2'
         - 'docker/login-action@v3.7.0'
         - 'docker/metadata-action@v5.10.0'
     '.github/workflows/docker-image.yml':
         - 'actions/attest-build-provenance@v4.2.2'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/upload-artifact@v4.6.2'
         - 'depot/bake-action@v1.13.0'
         - 'depot/build-push-action@v1.19.0'
@@ -150,57 +150,56 @@ workflows:
         - 'sigstore/cosign-installer@v4.1.2'
         - 'softprops/action-gh-release@v2.6.2'
     '.github/workflows/frontend-check.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
     '.github/workflows/gallery_on_release.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/git-commands.yaml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v3.7.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/create-github-app-token@v2.2.2'
         - 'actions/github-script@v6.4.1'
         - 'anthropics/claude-code-action@beta'
     '.github/workflows/git-sync-test.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
         - 'actions/upload-artifact@v4.6.2'
         - 'denoland/setup-deno@v2.0.5'
         - 'oven-sh/setup-bun@v2.2.0'
     '.github/workflows/go_on_release.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-go@v7.0.0'
         - 'cpina/github-action-push-to-another-repository@v1.7.3'
     '.github/workflows/helmchart_on_release.yml':
-        - 'actions/checkout@v3.7.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/create-github-app-token@v2.2.2'
     '.github/workflows/jsr_on_release.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/linear-claude.yaml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'anthropics/claude-code-action@beta'
     '.github/workflows/npm_on_release.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
         - 'oven-sh/setup-bun@v2.2.0'
     '.github/workflows/pi-pr-review.yml':
-        - 'actions/checkout@v5.1.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/github-script@v7.1.0'
         - 'actions/setup-node@v7.1.0'
     '.github/workflows/pr-ready-review.yml':
-        - 'actions/checkout@v5.1.0'
+        - 'actions/checkout@v7.0.1'
         - 'anthropics/claude-code-action@v1.0.271'
     '.github/workflows/pr-review-commands.yml': []
     '.github/workflows/publish-cli-docs.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-python@v7.1.0'
     '.github/workflows/publish-mcp-registry.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'sigstore/cosign-installer@v4.1.2'
     '.github/workflows/publish_extra.yml':
         - 'actions/attest-build-provenance@v4.2.2'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v4.4.0'
         - 'depot/build-push-action@v1.19.0'
         - 'depot/setup-action@v1.7.2'
@@ -212,24 +211,24 @@ workflows:
         - 'sigstore/cosign-installer@v4.1.2'
     '.github/workflows/publish_windows_worker.yml':
         - 'actions-rust-lang/setup-rust-toolchain@v1.17.0'
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'softprops/action-gh-release@v2.6.2'
     '.github/workflows/pypi_on_release.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
     '.github/workflows/refresh-docs-snapshot.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/create-github-app-token@v2.2.2'
         - 'peter-evans/create-pull-request@v6.1.0'
     '.github/workflows/release-please.yml':
         - 'googleapis/release-please-action@v5.0.0'
     '.github/workflows/rust-client-check.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'cachix/install-nix-action@v31.11.5'
     '.github/workflows/rust_on_release.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'cachix/install-nix-action@v31.11.5'
     '.github/workflows/sdk-tests.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
         - 'astral-sh/setup-uv@v10.3.3'
         - 'oven-sh/setup-bun@v2.2.0'
@@ -237,13 +236,13 @@ workflows:
     '.github/workflows/sign-cla.yml':
         - 'contributor-assistant/github-action@v2.6.1'
     '.github/workflows/validate-openapi.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
     '.github/workflows/weekly-pr-summary.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'anthropics/claude-code-action@v1.0.271'
     '.github/workflows/yaml-validator-tests.yml':
-        - 'actions/checkout@v4.4.0'
+        - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
 dependencies:
     'actions-rs/toolchain@v1.0.7':
@@ -275,19 +274,9 @@ dependencies:
         commit: 'sha1-6f8efc29b200d32929f49075959781ed54ec270c'
         owner_id: 44036562
         repo_id: 215566462
-    'actions/checkout@v3.7.0':
-        ref: 'v3.7.0'
-        commit: 'sha1-a37ce9120846195fa4ece8f58b268e6043cb2f26'
-        owner_id: 44036562
-        repo_id: 197814629
-    'actions/checkout@v4.4.0':
-        ref: 'v4.4.0'
-        commit: 'sha1-11d5960a326750d5838078e36cf38b85af677262'
-        owner_id: 44036562
-        repo_id: 197814629
-    'actions/checkout@v5.1.0':
-        ref: 'v5.1.0'
-        commit: 'sha1-fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
+    'actions/checkout@v7.0.1':
+        ref: 'v7.0.1'
+        commit: 'sha1-3d3c42e5aac5ba805825da76410c181273ba90b1'
         owner_id: 44036562
         repo_id: 197814629
     'actions/create-github-app-token@v2.2.2':

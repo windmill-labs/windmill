@@ -17,7 +17,7 @@ jobs:
   check_rust_client:
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
       - uses: cachix/install-nix-action@v31.11.5
       - name: Check rust client builds
         run: cd rust-client && nix develop ../ --command ./dev.nu --check

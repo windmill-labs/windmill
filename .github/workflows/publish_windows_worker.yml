@@ -15,7 +15,7 @@ jobs:
   cargo_build_windows:
     runs-on: blacksmith-16vcpu-windows-2025
     steps:
-      - uses: actions/checkout@v4.4.0
+      - uses: actions/checkout@v7.0.1
 
       - name: Read EE repo commit hash
         shell: pwsh
@@ -24,7 +24,7 @@ jobs:
           echo "ee_repo_ref=$ee_repo_ref" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Checkout windmill-ee-private repository
-        uses: actions/checkout@v4.4.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private

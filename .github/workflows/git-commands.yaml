@@ -63,14 +63,14 @@ jobs:
             })
 
       - name: Checkout repository
-        uses: actions/checkout@v3.7.0
+        uses: actions/checkout@v7.0.1
         with:
           token: ${{ steps.app.outputs.token }}
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Checkout windmill-ee-private
-        uses: actions/checkout@v3.7.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: windmill-ee-private
@@ -161,7 +161,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4.4.0
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -262,14 +262,14 @@ jobs:
             })
 
       - name: Checkout repository
-        uses: actions/checkout@v3.7.0
+        uses: actions/checkout@v7.0.1
         with:
           token: ${{ steps.app.outputs.token }}
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Checkout windmill-ee-private
-        uses: actions/checkout@v3.7.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: windmill-labs/windmill-ee-private
           path: windmill-ee-private
