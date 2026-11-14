@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.875.0](https://github.com/windmill-labs/windmill/compare/v1.874.0...v1.875.0) (2026-11-14)
+
+
+### Features
+
+* exact start and end of a fairness cap in its alerts ([#12438](https://github.com/windmill-labs/windmill/issues/12438)) ([df0e5cf](https://github.com/windmill-labs/windmill/commit/df0e5cf4c2e90e071594f962cb1c5ed9e9023754))
+* fairness reserve as a worker group setting, shown on the workers page ([#12435](https://github.com/windmill-labs/windmill/issues/12435)) ([5f8e002](https://github.com/windmill-labs/windmill/commit/5f8e0022b699f58836d1a24304debcc7d7611e1a))
+* show long step durations in hours and minutes on run timelines ([#12437](https://github.com/windmill-labs/windmill/issues/12437)) ([c6955ed](https://github.com/windmill-labs/windmill/commit/c6955ed4457c2bdb59fd3ffef4379ce05548c999))
+
+
+### Bug Fixes
+
+* keep shortcuts from opening home filters over global search ([#12439](https://github.com/windmill-labs/windmill/issues/12439)) ([d09336d](https://github.com/windmill-labs/windmill/commit/d09336d8df1814434d219e732421d2358e485890))
+
 ## [1.874.0](https://github.com/windmill-labs/windmill/compare/v1.873.1...v1.874.0) (2026-11-14)
 
 
