@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.874.0](https://github.com/windmill-labs/windmill/compare/v1.873.1...v1.874.0) (2026-11-14)
+
+
+### Features
+
+* fairness reserve workers that only serve non-overloaded workspaces ([#12431](https://github.com/windmill-labs/windmill/issues/12431)) ([df56c11](https://github.com/windmill-labs/windmill/commit/df56c111bb597bc9d3f99462c5d40e1b57e60def))
+* fairness-aware queue alerts and a capped-workspace alert ([#12432](https://github.com/windmill-labs/windmill/issues/12432)) ([9724f3b](https://github.com/windmill-labs/windmill/commit/9724f3bdf085c68e1b91c9655cbe01c3f2598bdd))
+
+
+### Bug Fixes
+
+* keep group run-as principals when renaming a group-* member ([#12409](https://github.com/windmill-labs/windmill/issues/12409)) ([fffef91](https://github.com/windmill-labs/windmill/commit/fffef918881ed5b098ac5552d6d9094950963e3a))
+* move handler paths when renaming or offboarding a user ([#12420](https://github.com/windmill-labs/windmill/issues/12420)) ([161ab6f](https://github.com/windmill-labs/windmill/commit/161ab6f581b2ea97f45812a903ae2fbebddc4184))
+
 ## [1.873.1](https://github.com/windmill-labs/windmill/compare/v1.873.0...v1.873.1) (2026-11-13)
 
 
