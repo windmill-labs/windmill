@@ -10,8 +10,19 @@ import {
 	getQueryStmtCountHeuristic,
 	isJobResolvable,
 	parseDbInputFromAssetSyntax,
-	apiErrorMessage
+	apiErrorMessage,
+	msToCompactDuration
 } from './utils'
+
+describe('msToCompactDuration', () => {
+	it('keeps the two largest units and drops a zero second unit', () => {
+		expect(msToCompactDuration(12_345, 1)).toBe('12.3s')
+		expect(msToCompactDuration(65_000)).toBe('1m 5s')
+		expect(msToCompactDuration(3 * 3_600_000 + 12 * 60_000 + 59_000)).toBe('3h 12m')
+		expect(msToCompactDuration(2 * 3_600_000)).toBe('2h')
+		expect(msToCompactDuration(26 * 3_600_000 + 5 * 60_000)).toBe('1d 2h')
+	})
+})
 
 // Mirrors the backend invariant that only failed or canceled rows can carry a resolution;
 // offering the action anywhere else would send ids the API then silently skips.

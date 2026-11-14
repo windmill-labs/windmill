@@ -468,8 +468,11 @@ input[type='time']::-webkit-calendar-picker-indicator {
 		opacity: 1;
 	}
 }
+/* No fill: a filled animation never ends for the compositor, so every faded element (Home's whole
+   scroll container among them) keeps a GPU layer for the page's lifetime. `from` paints on the
+   first frame anyway, and `to` is the resting style. */
 .wm-page-in {
-	animation: wm-page-in 500ms ease-out both;
+	animation: wm-page-in 500ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
 	.wm-page-in {

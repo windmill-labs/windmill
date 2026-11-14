@@ -25,7 +25,13 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
+	import {
+		clone,
+		isScriptPreview,
+		msToCompactDuration,
+		readFieldsRecursively,
+		truncateRev
+	} from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
 	import JobArgs from './JobArgs.svelte'
@@ -2289,7 +2295,7 @@
 																		{#if node.duration_ms}
 																			<Badge>
 																				<Hourglass class="mr-2" size={10} />
-																				{msToSec(node.duration_ms)} s
+																				{msToCompactDuration(node.duration_ms)}
 																			</Badge>
 																		{/if}
 																		{#if node.job_id && !isReplay}
