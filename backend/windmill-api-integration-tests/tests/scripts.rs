@@ -1032,5 +1032,29 @@ async fn test_list_search_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<
     assert!(unscoped.contains(&"f/allowed/foo".to_string()));
     assert!(unscoped.contains(&"f/private/bar".to_string()));
 
+    // `raw/h` reads content by hash alone, so it must check the script's path against the
+    // token's scope like its JSON twin `get/h` does.
+    for (path, expected) in [("f/allowed/foo", 200), ("f/private/bar", 403)] {
+        let hash = authed_get(port, "get/p", path)
+            .await
+            .json::<serde_json::Value>()
+            .await?["hash"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let resp = client()
+            .get(script_url(port, "raw/h", &format!("{hash}.ts")))
+            .header("Authorization", "Bearer SCOPED_TOKEN")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            expected,
+            "raw/h for {path}: {}",
+            resp.text().await?
+        );
+    }
+
     Ok(())
 }

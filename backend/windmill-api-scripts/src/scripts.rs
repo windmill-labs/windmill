@@ -1732,8 +1732,8 @@ async fn create_script_internal<'c>(
             if let Some(clashing_hash) = clashing_hash_o {
                 // Named only when the caller could already read it. The probe above has to be
                 // unscoped to be correct, but a hash alone reads a script's content back
-                // through `raw/h/{hash}`, which authorizes nothing per script — so echoing one
-                // the caller cannot see hands them a way to fetch it.
+                // through `raw/h/{hash}`, which checks the token's scope but no per-script ACL,
+                // so echoing one the caller cannot see hands them a way to fetch it.
                 let visible_to_caller = sqlx::query_scalar!(
                     "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
                     clashing_hash,
@@ -4103,6 +4103,7 @@ async fn get_script_by_hash(
 async fn raw_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, hash_str)): Path<(String, String)>,
+    Extension(authed): Extension<ApiAuthed>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
@@ -4110,6 +4111,8 @@ async fn raw_script_by_hash(
     })?)?);
     let r = get_script_by_hash_internal(&mut tx, &w_id, &hash, None).await?;
     tx.commit().await?;
+
+    check_scopes(&authed, || format!("scripts:read:{}", &r.script.path))?;
 
     Ok(r.script.content)
 }
