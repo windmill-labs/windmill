@@ -73,8 +73,8 @@
 			{@const narrow = len / total < 0.09}
 			{@const endPos =
 				started_at != undefined && min != undefined ? (started_at - min + len) / total : 1}
-			<!-- A narrow wait bar is directly followed by its execution bar, whose label would collide. -->
-			{#if !(narrow && gray)}
+			<!-- Once the job has started, a narrow wait bar is directly followed by its execution bar, whose label would collide. -->
+			{#if !(narrow && gray && !running)}
 				<span
 					title={msToReadableTime(len, 1)}
 					class={narrow
