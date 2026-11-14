@@ -37,6 +37,10 @@ and so is deleting an instance role that a workspace still overrides (the overri
 
 ## Runs
 
+Read access to a runnable shows its runs, whether it comes from the folder or from the script or
+flow being shared item by item (`see_item_extra_perms` on `v2_job`), unless the run was started
+invisible to its owner.
+
 `run` withdrawn makes a role view-only: its members see what folder and item rights grant,
 runs, logs and results included, and start nothing. `gate_role_runs` sits on the jobs router and
 refuses every path under `run/`, `run_wait_result/`, `run_and_stream/`, `run_inline/`, `restart/`
