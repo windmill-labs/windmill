@@ -354,6 +354,7 @@
 											{total}
 											{min}
 											gray
+											followedByBar={!!startedAt}
 											started_at={scheduledFor}
 											len={waitingLen < 100 ? 0 : waitingLen - 100}
 											running={!flowDone && startedAt == undefined}
