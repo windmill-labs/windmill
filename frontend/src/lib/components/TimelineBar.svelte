@@ -20,6 +20,8 @@
 		tooltip?: string
 		/** A thin bar with no duration inside it: the caller shows the duration elsewhere. */
 		compact?: boolean
+		/** Another bar starts where this one ends, so a narrow bar's outside label would collide with its label. */
+		followedByBar?: boolean
 	}
 
 	let {
@@ -35,7 +37,8 @@
 		spacerClass = '',
 		colorClass = undefined,
 		tooltip = undefined,
-		compact = false
+		compact = false,
+		followedByBar = false
 	}: Props = $props()
 </script>
 
@@ -73,8 +76,7 @@
 			{@const narrow = len / total < 0.09}
 			{@const endPos =
 				started_at != undefined && min != undefined ? (started_at - min + len) / total : 1}
-			<!-- Once the job has started, a narrow wait bar is directly followed by its execution bar, whose label would collide. -->
-			{#if !(narrow && gray && !running)}
+			{#if !(narrow && followedByBar)}
 				<span
 					title={msToReadableTime(len, 1)}
 					class={narrow
