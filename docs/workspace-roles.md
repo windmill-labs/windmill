@@ -53,6 +53,28 @@ their own rights, apps run their runnables on the app's policy and are not gated
 started by a schedule or trigger acts as its owner, so from inside it a view-only owner cannot
 start further runs through the API either.
 
+### View-only grants
+
+The same split exists per folder and per script, flow or AI agent: a read grant can withhold
+running (Viewer, below Runner and Writer). `extra_perms` keeps its `{principal: write}` booleans,
+which every RLS policy and client reads, and the principals whose read grant does not run are
+listed in a `view_only` column of `folder`, `script`, `flow` and `resource`. A grant made without a
+level (`write: false`, every grant from before levels) runs, and RLS is unchanged, so a viewer sees
+the item and, through its folder, its runs. Run is the union of a caller's grants, as read and
+write are: an item-level view-only grant does not withhold what the folder lets them run.
+
+`windmill_common::auth::require_can_run` enforces it, on top of the RLS read and of the role's
+`run`, at each place that starts a deployed runnable for a caller: the run routes, restart, cancel
+and run-now of someone else's run, previews labelled with the path, agent and eval runs, the
+saving of schedules and triggers, and the firing of triggers, which fetch their target as their
+owner on every fire. A schedule's later runs are not re-checked, as they were never re-checked
+for read either: demoting its owner does not stop it. Flow steps, subflows and agent tools are not
+checked, as only the top-level run needs it. Its positive answers are cached, so every write that can take
+run away calls `notify_run_perms_change`; the cache's 60s expiry bounds what that cannot see, such
+as an item deleted and recreated without the grant. Anything that copies one of those rows (a new script
+version, a rename, a fork, a workspace rename) must copy `view_only` too: a copy that drops it
+turns its viewers into runners.
+
 Unlike `fork`, withdrawing `run` makes a role restricted: it is an enforced gate on hot routes,
 and the fast path is what spares every unrestricted caller a role lookup on each run. It does not
 change seats: a role is a full seat by what it authors, not by whether it runs.

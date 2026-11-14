@@ -188,6 +188,21 @@ fn items_query(
     }
     sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
         .and_where("o.archived = false");
+    if !authed.is_admin {
+        // Only what the caller may run becomes a tool, the rule of
+        // `windmill_common::auth::require_can_run` in the RLS session's terms.
+        let principals =
+            "array_append(regexp_split_to_array(current_setting('session.pgroups'), ','), \
+             'u/' || current_setting('session.user'))";
+        sqlb.and_where(format!(
+            "(split_part(o.path, '/', 1) = 'u' AND split_part(o.path, '/', 2) = current_setting('session.user') \
+             OR split_part(o.path, '/', 1) = 'g' AND split_part(o.path, '/', 2) = ANY(regexp_split_to_array(current_setting('session.groups'), ',')) \
+             OR acl_grants_run(o.extra_perms, o.view_only, {principals}) \
+             OR EXISTS (SELECT 1 FROM folder f WHERE split_part(o.path, '/', 1) = 'f' \
+                 AND f.workspace_id = o.workspace_id AND f.name = split_part(o.path, '/', 2) \
+                 AND (f.owners::text[] && {principals} OR acl_grants_run(f.extra_perms, f.view_only, {principals}))))"
+        ));
+    }
 
     if item_type == "script" {
         // only exclude library scripts (no main function); pipeline, test, WAC,

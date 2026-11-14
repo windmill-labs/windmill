@@ -18,7 +18,7 @@ function baseline(): FolderDraft {
 		defaultPermissionedAs: [{ path_glob: '**', permissioned_as: 'u/admin' }],
 		perms: [
 			{ owner_name: 'u/admin', role: 'admin' },
-			{ owner_name: 'g/all', role: 'viewer' }
+			{ owner_name: 'g/all', role: 'runner' }
 		]
 	}
 }
@@ -28,14 +28,14 @@ describe('folderPermissionDiff', () => {
 	// `owners` and the other two in `extra_perms`, so leaving admin is the one transition that
 	// cannot go through the ACL endpoint.
 	const transitions: Array<[from: FolderRole | 'absent', to: FolderRole, expected: unknown]> = [
-		['absent', 'viewer', { kind: 'setAcl', owner: 'u/alice', write: false }],
-		['absent', 'writer', { kind: 'setAcl', owner: 'u/alice', write: true }],
+		['absent', 'runner', { kind: 'setAcl', owner: 'u/alice', level: 'run' }],
+		['absent', 'writer', { kind: 'setAcl', owner: 'u/alice', level: 'write' }],
 		['absent', 'admin', { kind: 'grantAdmin', owner: 'u/alice' }],
-		['viewer', 'writer', { kind: 'setAcl', owner: 'u/alice', write: true }],
-		['viewer', 'admin', { kind: 'grantAdmin', owner: 'u/alice' }],
-		['writer', 'viewer', { kind: 'setAcl', owner: 'u/alice', write: false }],
+		['runner', 'writer', { kind: 'setAcl', owner: 'u/alice', level: 'write' }],
+		['runner', 'admin', { kind: 'grantAdmin', owner: 'u/alice' }],
+		['writer', 'runner', { kind: 'setAcl', owner: 'u/alice', level: 'run' }],
 		['writer', 'admin', { kind: 'grantAdmin', owner: 'u/alice' }],
-		['admin', 'viewer', { kind: 'demoteAdmin', owner: 'u/alice', write: false }],
+		['admin', 'runner', { kind: 'demoteAdmin', owner: 'u/alice', write: false }],
 		['admin', 'writer', { kind: 'demoteAdmin', owner: 'u/alice', write: true }]
 	]
 
@@ -44,11 +44,25 @@ describe('folderPermissionDiff', () => {
 		expect(folderPermissionDiff(prev, [member(to)])).toEqual([expected])
 	})
 
-	it.each(['viewer', 'writer', 'admin'] as const)('%s → removed drops owner and acl', (role) => {
+	// `removeowner` leaves a grant that runs, so a view-only one needs a second call.
+	it('admin → viewer demotes, then withholds run, last when it is the caller', () => {
+		const expected = [
+			{ kind: 'demoteAdmin', owner: 'u/alice', write: false },
+			{ kind: 'setAcl', owner: 'u/alice', level: 'read' }
+		]
+		expect(folderPermissionDiff([member('admin')], [member('viewer')])).toEqual(expected)
+		const bob = { owner_name: 'u/bob', role: 'runner' as const }
+		expect(folderPermissionDiff([member('admin')], [member('viewer'), bob], ['u/alice'])).toEqual([
+			{ kind: 'setAcl', owner: 'u/bob', level: 'run' },
+			...expected
+		])
+	})
+
+	it.each(['runner', 'writer', 'admin'] as const)('%s → removed drops owner and acl', (role) => {
 		expect(folderPermissionDiff([member(role)], [])).toEqual([{ kind: 'remove', owner: 'u/alice' }])
 	})
 
-	it.each(['viewer', 'writer', 'admin'] as const)('%s unchanged calls nothing', (role) => {
+	it.each(['runner', 'writer', 'admin'] as const)('%s unchanged calls nothing', (role) => {
 		expect(folderPermissionDiff([member(role)], [member(role)])).toEqual([])
 	})
 
@@ -57,10 +71,10 @@ describe('folderPermissionDiff', () => {
 	it('gives up the caller own admin last', () => {
 		const prev: FolderMember[] = [
 			{ owner_name: 'g/ops', role: 'admin' },
-			{ owner_name: 'u/bob', role: 'viewer' }
+			{ owner_name: 'u/bob', role: 'runner' }
 		]
 		const next: FolderMember[] = [
-			{ owner_name: 'g/ops', role: 'viewer' },
+			{ owner_name: 'g/ops', role: 'runner' },
 			{ owner_name: 'u/bob', role: 'admin' }
 		]
 		expect(folderPermissionDiff(prev, next, ['u/alice', 'g/ops'])).toEqual([
@@ -74,7 +88,7 @@ describe('folderPermissionDiff', () => {
 	it('defers only the rows the caller is an admin through', () => {
 		const prev: FolderMember[] = [
 			{ owner_name: 'g/a', role: 'admin' },
-			{ owner_name: 'g/z', role: 'viewer' }
+			{ owner_name: 'g/z', role: 'runner' }
 		]
 		expect(folderPermissionDiff(prev, [], ['u/alice', 'g/a', 'g/z'])).toEqual([
 			{ kind: 'remove', owner: 'g/z' },
@@ -85,7 +99,7 @@ describe('folderPermissionDiff', () => {
 	it('touches only the members that changed', () => {
 		const prev: FolderMember[] = [
 			{ owner_name: 'u/admin', role: 'admin' },
-			{ owner_name: 'g/all', role: 'viewer' },
+			{ owner_name: 'g/all', role: 'runner' },
 			{ owner_name: 'g/ops', role: 'writer' }
 		]
 		const next: FolderMember[] = [
@@ -93,7 +107,7 @@ describe('folderPermissionDiff', () => {
 			{ owner_name: 'g/all', role: 'writer' }
 		]
 		expect(folderPermissionDiff(prev, next)).toEqual([
-			{ kind: 'setAcl', owner: 'g/all', write: true },
+			{ kind: 'setAcl', owner: 'g/all', level: 'write' },
 			{ kind: 'remove', owner: 'g/ops' }
 		])
 	})

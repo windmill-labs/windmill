@@ -1,7 +1,7 @@
 //! Running a saved AI agent from its own page, and the one-step flow its runs and evals share.
 //!
 //! The run is built here from the stored agent rather than sent by the client, which is what lets
-//! anyone who can read the agent run it, operators included, the way a deployed flow runs by path:
+//! anyone who can run the agent run it, operators included, the way a deployed flow runs by path:
 //! a preview takes arbitrary code, this takes only the run's inputs. It runs as the caller, or as
 //! the agent's `on_behalf_of` when its `run_on_behalf_of` is set; the server resolves
 //! `on_behalf_of` on every write of the agent.
@@ -68,10 +68,18 @@ pub(crate) async fn run_agent_as(
     #[cfg(feature = "enterprise")]
     crate::jobs::check_license_key_valid().await?;
 
-    // Read through the caller's own permissions: reading the agent is what allows running it.
+    // Read through the caller's own permissions, then held to a run grant on top.
     let chat = run_query.memory_id.is_some();
     let AgentTurn { flow_value, run_path, agent_obo } =
         agent_turn(authed, user_db, w_id, path, chat).await?;
+    windmill_common::auth::require_can_run(
+        db,
+        &authed.to_authed_ref(),
+        w_id,
+        windmill_common::auth::RunnableAclKind::Agent,
+        path,
+    )
+    .await?;
 
     take_over_memory_turn(db, authed, w_id, &run_path, run_query).await?;
     let on_behalf_of =
@@ -356,7 +364,11 @@ mod tests {
             ]
         }))
         .unwrap();
-        let keys: Vec<_> = run_attachments(&args).unwrap().into_iter().map(|f| f.s3).collect();
+        let keys: Vec<_> = run_attachments(&args)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.s3)
+            .collect();
         assert_eq!(keys, ["u/a/attached.png", "u/b/quoted.png"]);
     }
 }

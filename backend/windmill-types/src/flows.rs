@@ -29,6 +29,10 @@ pub struct Flow {
     pub archived: bool,
     pub schema: Option<Schema>,
     pub extra_perms: serde_json::Value,
+    /// Principals of `extra_perms` that may view but not run it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[sqlx(default)]
+    pub view_only: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -89,6 +93,10 @@ pub struct ListableFlow {
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub archived: bool,
     pub extra_perms: serde_json::Value,
+    /// Principals of `extra_perms` that may view but not run it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[sqlx(default)]
+    pub view_only: Vec<String>,
     pub starred: bool,
     /// `Some(true)` only on synthesised draft-only rows; `None` on deployed rows.
     /// See ListableScript in scripts.rs.

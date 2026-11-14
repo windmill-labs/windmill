@@ -249,6 +249,8 @@ pub struct UserInfo {
     pub folders_read: Vec<String>,
     pub folders: Vec<String>,
     pub folders_owners: Vec<String>,
+    /// Folders of `folders_read` read only through view-only grants: nothing in them runs.
+    pub folders_view_only: Vec<String>,
     pub name: Option<String>,
     pub is_service_account: bool,
     // True when this row is a superadmin viewing a workspace they are not a
@@ -794,6 +796,7 @@ async fn whoami(
             folders_read: vec![],
             folders: vec![],
             folders_owners: vec![],
+            folders_view_only: vec![],
             is_service_account: false,
             non_member: true,
         }));
@@ -847,6 +850,7 @@ async fn whoami(
                 .into_iter()
                 .filter_map(|x| if x.2 { Some(x.0) } else { None })
                 .collect(),
+            folders_view_only: vec![],
             is_service_account: false,
             non_member: true,
         }))
@@ -990,8 +994,12 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
     )
     .await?;
     let folders = get_folders_for_user(&w_id, username, &groups, db).await?;
+    let folders_view_only =
+        windmill_common::auth::get_view_only_folders_for_user(&w_id, username, &groups, db)
+            .await?;
 
     Ok(user.map(|usr| UserInfo {
+        folders_view_only,
         groups,
         workspace_id: usr.workspace_id,
         email: usr.email,
@@ -2608,8 +2616,14 @@ pub async fn delete_workspace_user_internal(
     ];
     // SAFETY: `table` comes from a hardcoded allowlist `extra_perms_tables`, not user input.
     for table in &extra_perms_tables {
+        // A `view_only` entry left behind would make a later grant to a re-added user view-only.
+        let view_only = if ["script", "flow", "resource", "folder"].contains(table) {
+            ", view_only = array_remove(view_only, 'u/' || $1)"
+        } else {
+            ""
+        };
         sqlx::query(&format!(
-            "UPDATE {table} SET extra_perms = extra_perms - ('u/' || $1) \
+            "UPDATE {table} SET extra_perms = extra_perms - ('u/' || $1){view_only} \
              WHERE extra_perms ? ('u/' || $1) AND workspace_id = $2"
         ))
         .bind(username_to_delete)

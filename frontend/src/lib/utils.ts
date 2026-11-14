@@ -1131,6 +1131,44 @@ export function canWrite(
 	return false
 }
 
+/**
+ * Whether the user may start `path` rather than only view it: they run unless every grant they
+ * read it through is view-only. Mirrors `require_can_run` on the server, which enforces it.
+ */
+export function canRun(
+	path: string,
+	extra_perms: Record<string, boolean> | undefined,
+	view_only: string[] | undefined,
+	user?: UserExt
+): boolean {
+	if (!user) {
+		return false
+	}
+	if (user.is_admin || user.is_super_admin || path.startsWith('hub/')) {
+		return true
+	}
+	if (
+		path.startsWith(`u/${user.username}/`) ||
+		user.pgroups.some((g) => path.startsWith(g + '/'))
+	) {
+		return true
+	}
+	const perms = extra_perms ?? {}
+	if (
+		[`u/${user.username}`, ...user.pgroups].some(
+			(p) => p in perms && (perms[p] || !(view_only ?? []).includes(p))
+		)
+	) {
+		return true
+	}
+	const folder = path.startsWith('f/') ? path.split('/')[1] : undefined
+	return (
+		folder != undefined &&
+		user.folders_read.includes(folder) &&
+		!(user.folders_view_only ?? []).includes(folder)
+	)
+}
+
 export function isOwner(
 	path: string,
 	user: UserExt | undefined,

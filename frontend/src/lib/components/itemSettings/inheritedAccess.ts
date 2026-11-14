@@ -4,6 +4,8 @@ export type AccessRow = {
 	/** `u/name` or `g/name`. */
 	name: string
 	write: boolean
+	/** A read grant that does not include running. */
+	viewOnly?: boolean
 }
 
 /** Who reaches an item through its path, and where that access comes from. */
@@ -91,7 +93,11 @@ export function inheritedAccess(
 		const owners = folder.owners.map((owner) => ({ name: owner, write: true })).sort(byName)
 		const members = Object.entries(folder.extra_perms ?? {})
 			.filter(([member]) => !folder.owners.includes(member))
-			.map(([member, write]) => ({ name: member, write: !!write }))
+			.map(([member, write]) => ({
+				name: member,
+				write: !!write,
+				viewOnly: !write && (folder.view_only ?? []).includes(member)
+			}))
 			.sort(byName)
 		return { source, rows: [...owners, ...members] }
 	}

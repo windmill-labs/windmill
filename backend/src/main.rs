@@ -1709,6 +1709,9 @@ async fn process_notify_event(
             );
             windmill_common::roles::invalidate_workspace_roles_cache(payload);
         }
+        c if c == windmill_common::auth::RUN_PERMS_CHANGE_CHANNEL => {
+            windmill_common::auth::invalidate_run_perms_cache();
+        }
         "notify_asset_producer_change" => {
             tracing::debug!(
                 "Asset producer change for workspace {}, invalidating producer-writes cache",
