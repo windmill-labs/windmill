@@ -3462,11 +3462,16 @@ pub async fn run_worker(
             WORKER_CONFIG.load()
         );
     }
-    if *windmill_common::worker::WORKSPACE_FAIRNESS_RESERVE_WORKER {
+    if WORKER_CONFIG.load().fairness_reserve {
         tracing::info!(
             worker = %worker_name, hostname = %hostname,
             "fairness reserve worker: pulls only while a workspace is overloaded, and only other workspaces' jobs"
         );
+        if !windmill_common::worker::WORKSPACE_FAIRNESS_ENABLED
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            tracing::warn!("fairness reserve worker stays idle: workspace fairness is off");
+        }
     }
 
     // Dedicated workers wait for the init script before installing their dependencies, so it has to

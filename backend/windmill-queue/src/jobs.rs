@@ -84,9 +84,9 @@ use windmill_common::{
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
         to_raw_value, CLOUD_HOSTED, DEPENDENCY_JOB_TAG, DISABLE_FLOW_SCRIPT, NO_LOGS,
-        PREVIEW_TAGS_OVERRIDE, WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS,
+        PREVIEW_TAGS_OVERRIDE, WORKER_CONFIG, WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS,
         WORKER_SUSPENDED_PULL_QUERY, WORKER_SUSPENDED_PULL_QUERY_FAIRNESS,
-        WORKSPACE_FAIRNESS_OVERLOADED, WORKSPACE_FAIRNESS_RESERVE_WORKER,
+        WORKSPACE_FAIRNESS_OVERLOADED,
     },
     DB, METRICS_ENABLED,
 };
@@ -5170,7 +5170,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
         }
         let r = if !suspend_first {
             None
-        } else if *WORKSPACE_FAIRNESS_RESERVE_WORKER {
+        } else if WORKER_CONFIG.load().fairness_reserve {
             // Parked WAC parents and parallelism-capped flow branches resume only through this
             // pull, so a reserve must resume the ones it started, but never the overloaded
             // workspace's. Refreshed here too: after a successful resume the worker keeps
@@ -5223,7 +5223,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             crate::workspace_fairness::maybe_refresh_overloaded(db);
             let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
             let fairness_active = !overloaded.is_empty();
-            let reserve = *WORKSPACE_FAIRNESS_RESERVE_WORKER;
+            let reserve = WORKER_CONFIG.load().fairness_reserve;
 
             if reserve && !fairness_active {
                 return Ok((None, false));
