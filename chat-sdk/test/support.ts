@@ -10,7 +10,7 @@ export interface RecordedCall {
   signal?: AbortSignal
 }
 
-export type Route = (call: RecordedCall) => Response | Promise<Response> | undefined
+export type Route = (call: RecordedCall) => Response | undefined | Promise<Response | undefined>
 
 /** A fetch whose responses come from the first route that answers; every call is recorded. */
 export function fetchMock(...routes: Route[]): { fetch: FetchLike; calls: RecordedCall[] } {
