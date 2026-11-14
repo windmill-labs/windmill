@@ -252,6 +252,29 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
 	}
 }
 
+/** A duration in its two largest units (`12.3s`, `4m 5s`, `3h 12m`, `2d 3h`), short enough for a
+ * label beside a bar; use msToReadableTime where the exact value is wanted. */
+export function msToCompactDuration(
+	ms: number | undefined,
+	maximumFractionDigits?: number
+): string {
+	if (ms === undefined) return '?'
+	if (ms < 60_000) return `${msToSec(ms, maximumFractionDigits)}s`
+
+	const seconds = Math.floor(ms / 1000)
+	const minutes = Math.floor(seconds / 60)
+	const hours = Math.floor(minutes / 60)
+	const days = Math.floor(hours / 24)
+
+	const [major, minor] =
+		days > 0
+			? [`${days}d`, hours % 24 ? `${hours % 24}h` : '']
+			: hours > 0
+				? [`${hours}h`, minutes % 60 ? `${minutes % 60}m` : '']
+				: [`${minutes}m`, seconds % 60 ? `${seconds % 60}s` : '']
+	return minor ? `${major} ${minor}` : major
+}
+
 export function msToReadableTimeShort(
 	ms: number | undefined,
 	maximumFractionDigits?: number

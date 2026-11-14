@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { displayDate, msToSec } from '$lib/utils'
+	import { displayDate, msToCompactDuration } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import TimelineBar from './TimelineBar.svelte'
 	import WaitTimeWarning from './common/waitTimeWarning/WaitTimeWarning.svelte'
@@ -167,10 +167,10 @@
 					</div>
 				{/if}
 				{#if max && min}
-					<span class="font-mono">{msToSec(max - min, 1)}s</span>
+					<span class="font-mono">{msToCompactDuration(max - min, 1)}</span>
 				{/if}
 				{#if !max && min}{#if now}
-						<span class="font-mono">{msToSec(now - min, 1)}s</span>
+						<span class="font-mono">{msToCompactDuration(now - min, 1)}</span>
 					{/if}<Loader2 size={14} class="animate-spin" />{/if}
 			</div>
 		</div>
@@ -213,7 +213,7 @@
 						</span>
 					{:else if compact && subItems?.[0]?.duration_ms != undefined}
 						<span class="text-2xs text-secondary font-mono">
-							{msToSec(subItems[0].duration_ms, 1)}s
+							{msToCompactDuration(subItems[0].duration_ms, 1)}
 						</span>
 					{/if}
 				</div>
@@ -272,7 +272,7 @@
 												{compact}
 												concat
 												colorClass="bg-purple-400/80"
-												tooltip={`Waiting for approval — ${msToSec(aw.len, 1)}s`}
+												tooltip={`Waiting for approval — ${msToCompactDuration(aw.len, 1)}`}
 												started_at={aw.start}
 												len={aw.len}
 												running={aw.running}

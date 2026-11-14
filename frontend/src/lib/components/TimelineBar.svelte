@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { msToSec } from '$lib/utils'
+	import { msToCompactDuration, msToReadableTime } from '$lib/utils'
 	import { ExternalLink } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 
@@ -73,15 +73,17 @@
 			{@const narrow = len / total < 0.09}
 			{@const endPos =
 				started_at != undefined && min != undefined ? (started_at - min + len) / total : 1}
-			{@const nearStart = endPos < 0.15}
-			<span
-				class={narrow
-					? nearStart
-						? 'absolute left-full ml-2 text-primary font-mono'
-						: 'absolute right-full mr-1 text-primary font-mono'
-					: 'font-mono'}
-				>{#if len}{msToSec(len, 1)}s{/if}</span
-			>
+			<!-- A narrow wait bar is directly followed by its execution bar, whose label would collide. -->
+			{#if !(narrow && gray)}
+				<span
+					title={msToReadableTime(len, 1)}
+					class={narrow
+						? endPos > 0.85
+							? 'absolute right-full mr-1 text-primary font-mono'
+							: 'absolute left-full ml-2 text-primary font-mono'
+						: 'font-mono truncate px-1'}>{msToCompactDuration(len, 1)}</span
+				>
+			{/if}
 		{/if}
 	</Popover>
 {/if}

@@ -5,7 +5,7 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import type { FailureModuleN } from '../../graphBuilder.svelte'
 	import { getNodeColorClasses, NODE } from '$lib/components/graph'
-	import { msToSec } from '$lib/utils'
+	import { msToCompactDuration } from '$lib/utils'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 
 	interface Props {
@@ -24,7 +24,7 @@
 		<div
 			class="absolute z-5 right-0 -top-4 mr-2 center-center text-2xs font-normal text-gray-400 dark:text-gray-500"
 		>
-			{msToSec(state.duration_ms)}s
+			{msToCompactDuration(state.duration_ms)}
 		</div>
 	{/if}
 	<div
