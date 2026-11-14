@@ -5,7 +5,7 @@
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import FlowModuleIcon from '../FlowModuleIcon.svelte'
 	import { prettyLanguage } from '$lib/common'
-	import { msToSec, type Item } from '$lib/utils'
+	import { msToCompactDuration, type Item } from '$lib/utils'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
 	import { type OnSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
 	import { describeStepSettings } from '$lib/components/flows/flowStepSettings'
@@ -150,7 +150,7 @@
 					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-16' : ''
 				)}
 			>
-				{msToSec(duration_ms)}s
+				{msToCompactDuration(duration_ms)}
 			</div>
 		{/if}
 		{#if sideAnnotation && sideAnnotation != ''}

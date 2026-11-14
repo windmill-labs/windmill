@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { displayDate, msToSec, emptyString } from '$lib/utils'
+	import { displayDate, msToCompactDuration, emptyString } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import { ChevronDown, ChevronRight, Loader2, Moon, ShieldCheck } from 'lucide-svelte'
@@ -179,13 +179,13 @@
 			<div class="col-span-11 pt-1 px-2 flex text-2xs text-secondary justify-between">
 				<div>{min ? displayDate(new Date(min), true) : ''}</div>
 				{#if max && min}
-					<div class="hidden lg:block">{msToSec(max - min)}s</div>
+					<div class="hidden lg:block">{msToCompactDuration(max - min, 1)}</div>
 				{/if}
 				<div class="flex gap-1 items-center font-mono">
 					{max ? displayDate(new Date(max), true) : ''}
 					{#if !max && min}
 						{#if now}
-							{msToSec(now - min, 3)}s
+							{msToCompactDuration(now - min, 1)}
 						{/if}
 						<Loader2 size={14} class="animate-spin" />
 					{/if}
@@ -264,7 +264,7 @@
 									</div>
 								{/if}
 							{:else}
-								<span class="text-tertiary">{msToSec(v.duration_ms ?? 0)}s</span>
+								<span class="text-tertiary">{msToCompactDuration(v.duration_ms ?? 0)}</span>
 							{/if}
 						</div>
 						{#if canApprove && selfApprovalDisabled && actingUser?.is_admin}
