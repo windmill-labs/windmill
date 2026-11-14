@@ -245,6 +245,7 @@
 											{min}
 											{compact}
 											gray
+											followedByBar={!!b.started_at}
 											spacerClass="bg-gray-100 dark:bg-gray-800/50 rounded-l-md"
 											started_at={b.created_at}
 											len={waitingLen < 100 ? 0 : waitingLen - 100}

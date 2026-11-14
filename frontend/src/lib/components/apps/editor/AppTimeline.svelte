@@ -149,6 +149,7 @@
 									{total}
 									{min}
 									gray
+									followedByBar={!!b.started_at}
 									started_at={b.created_at}
 									len={waitingLen < 100 ? 0 : waitingLen - 100}
 									running={b?.started_at == undefined}
