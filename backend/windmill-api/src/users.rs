@@ -305,8 +305,13 @@ async fn rename_user(
     // outside their workspaces has none, yet an app can name them: their principal is
     // `u/{password.username}`, which this rename just moved. Matching on the address as well
     // keeps a like-named member of some other workspace out of it.
-    if let Some(old_username) = old_instance_username.filter(|u| *u != ru.new_username) {
-        let old_principal = windmill_common::users::username_to_permissioned_as(&old_username);
+    if let Some((old_username, old_principal)) = old_instance_username
+        .filter(|u| *u != ru.new_username)
+        .and_then(|u| {
+            let principal = windmill_common::users::username_to_own_permissioned_as(&u)?;
+            Some((u, principal))
+        })
+    {
         let new_principal = windmill_common::users::username_to_permissioned_as(&ru.new_username);
         // An agent records no address, so a workspace where the name is a member's own is
         // left to the per-workspace sweep: there the principal is that member.
@@ -417,17 +422,14 @@ enum RunAsScope<'a> {
 /// Moves the run-as principal of schedules, triggers and folder default rules. A row left on
 /// the old principal no longer resolves: a schedule is disabled at its next push, a trigger
 /// fails when it fires, and a folder rule rejects every runnable it matches.
+/// `old_principal` must come from `username_to_own_permissioned_as`, never a group's.
 async fn move_run_as_principal(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     old_principal: &str,
     new_principal: &str,
     scope: RunAsScope<'_>,
 ) -> error::Result<()> {
-    // A legacy `group-*` username canonicalizes to the group it names: what runs as that group
-    // is the group's, not the member's, so it stays.
-    if old_principal.starts_with(windmill_common::users::PERMISSIONED_AS_GROUP_PREFIX) {
-        return Ok(());
-    }
+    debug_assert!(!old_principal.starts_with(windmill_common::users::PERMISSIONED_AS_GROUP_PREFIX));
     let (scope_sql, scope_bind) = match scope {
         RunAsScope::Workspace(w_id) => ("t.workspace_id = $3", w_id),
         RunAsScope::WithoutMember(username) => (
@@ -904,20 +906,6 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    // Canonicalised through `username_to_permissioned_as`, not `'u/' || name`: an
-    // email-shaped username is stored bare, so the prefixed form would miss those rows and
-    // leave them naming a user that no longer exists.
-    let old_principal = windmill_common::users::username_to_permissioned_as(old_username);
-    let new_principal = windmill_common::users::username_to_permissioned_as(new_username);
-    sqlx::query!(
-        "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
-        &new_principal,
-        &old_principal,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
     // ---- flows ----
     sqlx::query!(
         r#"INSERT INTO flow
@@ -999,15 +987,6 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query!(
-        "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
-        &new_principal,
-        &old_principal,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
     // ---- draft ----
     sqlx::query!(
         r#"UPDATE draft SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
@@ -1022,18 +1001,6 @@ async fn update_username_in_workpsace<'c>(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['path'], to_jsonb(REGEXP_REPLACE(value->>'path','u/' || $2 || '/(.*)','u/' || $1 || '/\1')))) WHERE value->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
-        w_id
-    ).execute(&mut **tx)
-    .await?;
-
-    // A draft carries the principal in its value, so a rename must reach it there too —
-    // deploying a draft that still names the old principal would be rejected as a pair naming
-    // somebody who no longer exists. Through the same canonical form as the columns above: a
-    // legacy `group-ops` username is named `g/ops`, which `'u/' || …` would never match.
-    sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text))) WHERE value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
-        &new_principal,
-        &old_principal,
         w_id
     ).execute(&mut **tx)
     .await?;
@@ -1069,7 +1036,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     // An app draft carries a copy of the deployed policy, so the rename must reach it
-    // there too — same reason as the script/flow draft sweep above.
+    // there too — same reason as the script/flow draft sweep below.
     sqlx::query!(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb('u/' || $1))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3"#,
         new_username,
@@ -1164,13 +1131,49 @@ async fn update_username_in_workpsace<'c>(
         .await?;
     }
 
-    move_run_as_principal(
-        tx,
-        &old_principal,
-        &new_principal,
-        RunAsScope::Workspace(w_id),
-    )
-    .await?;
+    // ---- run-as principal ----
+    // Canonicalised, not `'u/' || name`: an email-shaped username is stored bare, so the
+    // prefixed form would miss those rows and leave them naming a user that no longer exists.
+    if let Some(old_principal) =
+        windmill_common::users::username_to_own_permissioned_as(old_username)
+    {
+        let new_principal = windmill_common::users::username_to_permissioned_as(new_username);
+        sqlx::query!(
+            "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+            &new_principal,
+            &old_principal,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query!(
+            "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+            &new_principal,
+            &old_principal,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        // A draft carries the principal in its value: deploying one that still names the old
+        // principal would be rejected as a pair naming somebody who no longer exists.
+        sqlx::query!(
+            r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text))) WHERE value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+            &new_principal,
+            &old_principal,
+            w_id
+        ).execute(&mut **tx)
+        .await?;
+
+        move_run_as_principal(
+            tx,
+            &old_principal,
+            &new_principal,
+            RunAsScope::Workspace(w_id),
+        )
+        .await?;
+    }
 
     move_handler_paths(tx, w_id, &old_prefix, &new_prefix).await?;
 
