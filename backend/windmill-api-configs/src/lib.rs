@@ -292,6 +292,7 @@ async fn update_config(
     };
     let was_paused = is_set(previous.as_ref(), "paused");
     let was_serving_dev = is_set(previous.as_ref(), "serves_dev_workspaces");
+    let was_reserve = is_set(previous.as_ref(), "fairness_reserve");
     sqlx::query!(
         "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = EXCLUDED.config",
         &name,
@@ -327,6 +328,14 @@ async fn update_config(
                 "worker_group",
                 "dev_workspaces_toggle",
                 if serving_dev { "serve" } else { "stop" },
+            );
+        }
+        let reserve = is_set(Some(&config), "fairness_reserve");
+        if reserve != was_reserve {
+            windmill_common::feature_usage::log_feature_usage(
+                "worker_group",
+                "fairness_reserve_toggle",
+                if reserve { "enable" } else { "disable" },
             );
         }
     }
