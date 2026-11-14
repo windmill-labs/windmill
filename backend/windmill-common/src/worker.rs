@@ -308,6 +308,25 @@ pub fn max_job_duration_secs(cloud_premium_workspace: bool) -> u64 {
     }
 }
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
+
+/// `background_task_state` row the workspace fairness refresh writes [`WorkspaceFairnessState`]
+/// to. Only pulls drive the refresh, so a row whose `updated_at` is old means no worker has
+/// pulled lately, not that nothing is overloaded.
+pub const WORKSPACE_FAIRNESS_STATE_NAME: &str = "workspace_fairness";
+
+#[derive(Serialize, Deserialize, Default, Debug)]
+pub struct WorkspaceFairnessState {
+    #[serde(default)]
+    pub overloaded: Vec<String>,
+    /// Admission probability for capped pulls in parts per 10_000. Absent in rows written
+    /// before it existed, which leaves the admission atomic at its default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admission_ppm: Option<u32>,
+    /// When each workspace in `overloaded` entered the list in its current episode of being
+    /// capped, carried across refreshes until it leaves.
+    #[serde(default)]
+    pub capped_since: HashMap<String, chrono::DateTime<chrono::Utc>>,
+}
 /// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
 /// the setting is cleared or malformed.
 pub const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
