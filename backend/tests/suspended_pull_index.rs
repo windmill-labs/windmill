@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 use sqlx::{Pool, Postgres};
-use windmill_common::worker::make_suspended_pull_query;
+use windmill_common::worker::{make_suspended_pull_query, make_suspended_pull_query_fairness};
 
 /// Depth-first walk of an `EXPLAIN (FORMAT JSON)` plan tree.
 fn nodes(plan: &Value, out: &mut Vec<Value>) {
@@ -39,19 +39,34 @@ async fn suspended_pull_tests_resume_time_inside_the_index(
     let version: String = sqlx::query_scalar("SELECT version()")
         .fetch_one(&mut *conn)
         .await?;
+    let tags = ["flow".to_string()];
     // FORMAT JSON rather than the default: `Index Cond` and `Filter` are separate keys on the
     // node, so this does not ride on EXPLAIN's line layout staying put across a major bump.
-    let explained: Value = sqlx::query_scalar(&format!(
+    let plain: Value = sqlx::query_scalar(&format!(
         "EXPLAIN (FORMAT JSON) {}",
-        make_suspended_pull_query(&["flow".to_string()])
+        make_suspended_pull_query(&tags)
     ))
     .bind("test-worker")
     .fetch_one(&mut *conn)
     .await?;
+    // The variant fairness reserve workers resume through.
+    let fairness: Value = sqlx::query_scalar(&format!(
+        "EXPLAIN (FORMAT JSON) {}",
+        make_suspended_pull_query_fairness(&tags)
+    ))
+    .bind("test-worker")
+    .bind(vec!["overloaded-workspace".to_string()])
+    .fetch_one(&mut *conn)
+    .await?;
+    assert_resume_test_in_index(&plain, &version)?;
+    assert_resume_test_in_index(&fairness, &version)?;
+    Ok(())
+}
 
+fn assert_resume_test_in_index(explained: &Value, version: &str) -> anyhow::Result<()> {
     let mut all = vec![];
     nodes(&explained[0]["Plan"], &mut all);
-    let pretty = serde_json::to_string_pretty(&explained)?;
+    let pretty = serde_json::to_string_pretty(explained)?;
     let scan = all
         .iter()
         .find(|n| n["Index Name"] == "queue_suspended_v2")

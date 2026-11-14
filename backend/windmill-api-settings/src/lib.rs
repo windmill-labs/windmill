@@ -824,7 +824,7 @@ pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
     Ok(())
 }
 /// Returns true when `key` is one of the workspace-fairness settings whose
-/// writes must be gated to cloud only.
+/// writes require an Enterprise license.
 fn is_workspace_fairness_setting(key: &str) -> bool {
     matches!(
         key,

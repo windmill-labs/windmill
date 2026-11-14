@@ -143,9 +143,8 @@
 //! the first iteration: with `p_c` correctly tightened, victims do get the
 //! slot they need *when they exist*, and absent victims, falling back to
 //! the capped pool is the right behaviour (otherwise the cluster
-//! under-utilises itself for no benefit). Adding a reserve-capacity skip
-//! is a fine-tuning lever for bursty victim arrival patterns and is left
-//! as a follow-up.
+//! under-utilises itself for no benefit). Reserve capacity is opt-in per
+//! worker instead, see "Reserve workers" below.
 //!
 //! ### Degenerate cases
 //!
@@ -248,6 +247,18 @@
 //! cached state in one pull cycle (resetting `WORKSPACE_FAIRNESS_OVERLOADED`
 //! to empty and `WORKSPACE_FAIRNESS_ADMISSION_PPM` to 10_000 = "admit all"),
 //! so toggling the feature off without restarting workers is safe.
+//!
+//! ## 7. Reserve workers
+//!
+//! Admission only steers what a worker pulls *next*. A workspace whose jobs
+//! already hold every worker (sync parents polling for children that need a
+//! worker themselves) leaves no pull to steer, for as long as those jobs run.
+//! A worker started with `WORKSPACE_FAIRNESS_RESERVE_WORKER=true` pulls
+//! nothing while the overloaded set is empty, and otherwise only the fairness
+//! queries (ordinary and suspended-resume), with no fallback. It stays idle rather
+//! than serving everyone while nothing is capped: a burst landing before the
+//! refresh flags its workspace would otherwise take it too. Fairness must be
+//! enabled, or the set stays empty and a reserve worker never pulls.
 
 #[cfg(feature = "private")]
 #[allow(unused)]

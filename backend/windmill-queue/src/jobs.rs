@@ -85,7 +85,8 @@ use windmill_common::{
     worker::{
         to_raw_value, CLOUD_HOSTED, DEPENDENCY_JOB_TAG, DISABLE_FLOW_SCRIPT, NO_LOGS,
         PREVIEW_TAGS_OVERRIDE, WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS,
-        WORKER_SUSPENDED_PULL_QUERY, WORKSPACE_FAIRNESS_OVERLOADED,
+        WORKER_SUSPENDED_PULL_QUERY, WORKER_SUSPENDED_PULL_QUERY_FAIRNESS,
+        WORKSPACE_FAIRNESS_OVERLOADED, WORKSPACE_FAIRNESS_RESERVE_WORKER,
     },
     DB, METRICS_ENABLED,
 };
@@ -5167,14 +5168,30 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             return Ok((None, false));
         }
-        let r = if suspend_first {
+        let r = if !suspend_first {
+            None
+        } else if *WORKSPACE_FAIRNESS_RESERVE_WORKER {
+            // Parked WAC parents and parallelism-capped flow branches resume only through this
+            // pull, so a reserve must resume the ones it started, but never the overloaded
+            // workspace's. Refreshed here too: after a successful resume the worker keeps
+            // resuming first, and would never reach the refresh below.
+            crate::workspace_fairness::maybe_refresh_overloaded(db);
+            let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
+            if overloaded.is_empty() {
+                None
+            } else {
+                sqlx::query_as::<_, PulledJob>(&WORKER_SUSPENDED_PULL_QUERY_FAIRNESS.load())
+                    .bind(worker_name)
+                    .bind(overloaded.as_slice())
+                    .fetch_optional(db)
+                    .await?
+            }
+        } else {
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)
                 .bind(worker_name)
                 .fetch_optional(db)
                 .await?
-        } else {
-            None
         };
 
         if r.is_none() {
@@ -5206,8 +5223,13 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             crate::workspace_fairness::maybe_refresh_overloaded(db);
             let overloaded = WORKSPACE_FAIRNESS_OVERLOADED.load_full();
             let fairness_active = !overloaded.is_empty();
+            let reserve = *WORKSPACE_FAIRNESS_RESERVE_WORKER;
 
-            if fairness_active && !crate::workspace_fairness::should_admit_capped() {
+            if reserve && !fairness_active {
+                return Ok((None, false));
+            }
+
+            if fairness_active && (reserve || !crate::workspace_fairness::should_admit_capped()) {
                 let fairness_queries = WORKER_PULL_QUERIES_FAIRNESS.load();
                 let overloaded_slice: &[String] = overloaded.as_slice();
                 for query in fairness_queries.iter() {
@@ -5230,7 +5252,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
                 }
             }
 
-            if highest_priority_job.is_none() {
+            // A reserve worker never falls back: that fallback is how a capped workspace gets
+            // back onto a worker.
+            if highest_priority_job.is_none() && !reserve {
                 // Standard pull path. Also acts as the fallback when fairness
                 // filtered out every candidate: prefer running a capped
                 // workspace's job over leaving a worker idle. (The cap is
