@@ -1187,14 +1187,16 @@ export function isObviousOwner(path: string, user?: UserExt): boolean {
 	if (user.is_admin || user.is_super_admin) {
 		return true
 	}
-	let userOwner = `u/${user.username}`
+	// The trailing slash keeps folder `fin` from matching `f/finance/...`, and user
+	// `dev` from matching `u/devops/...`.
+	let userOwner = `u/${user.username}/`
 	if (path.startsWith(userOwner)) {
 		return true
 	}
-	if (user.pgroups.findIndex((x) => path.startsWith(x)) != -1) {
+	if (user.pgroups.findIndex((x) => path.startsWith(x + '/')) != -1) {
 		return true
 	}
-	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/')) != -1) {
 		return true
 	}
 	return false
