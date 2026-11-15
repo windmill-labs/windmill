@@ -525,7 +525,9 @@
 								setDirty()
 								meta.ownerKind = v
 								if (v === 'folder') {
-									meta.owner = folders?.[0]?.name ?? ''
+									// Prefer a folder the user can write to: a read-only one cannot
+									// be picked in the list and saving in it is refused.
+									meta.owner = (folders.find((f) => f.write) ?? folders[0])?.name ?? ''
 								} else {
 									// 'group' is unreachable here (Select only offers user/folder)
 									// but validateName still accepts it for forward-compat.
