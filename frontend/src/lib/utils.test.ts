@@ -618,5 +618,6 @@ describe('removeMarkdown', () => {
 		expect(removeMarkdown('**an** _ai_instruction_ for read-only use')).toBe(
 			'an ai_instruction for read-only use'
 		)
+		expect(removeMarkdown('a*b*c café-au-lait')).toBe('abc café-au-lait')
 	})
 })
