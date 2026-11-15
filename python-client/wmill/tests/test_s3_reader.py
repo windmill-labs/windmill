@@ -1,5 +1,9 @@
 """Unit tests for S3BufferedReader: no network or env needed."""
 
+import hashlib
+
+import pytest
+
 from wmill.s3_reader import S3BufferedReader, bytes_generator
 
 CHUNKS = [b"AAAAAAAAAA", b"BBBBBBBBBB", b"CCCCCCCCCC"]
@@ -95,3 +99,49 @@ def test_read1_stops_after_one_chunk():
     assert reader.read1(-1) == b"AAAAAAAAAA"
     assert reader.read1(4) == b"BBBB"
     assert counting.pulls == 2
+
+
+def test_readinto_preserves_remainder_and_handles_eof():
+    reader = make_reader([b"abc", b"defg", b"hij"])
+    with pytest.raises(TypeError):
+        reader.readinto(b"readonly")
+    target = bytearray(5)
+    assert reader.readinto(target) == 5
+    assert target == b"abcde"
+    assert reader.read(1) == b"f"
+    assert reader.readinto(memoryview(target)[:3]) == 3
+    assert target == b"ghide"
+    assert reader.readinto(target) == 1
+    assert target == b"jhide"
+    assert reader.readinto(target) == 0
+
+
+def test_readinto_empty_buffer_does_not_pull():
+    counting = CountingIterator(CHUNKS)
+    reader = make_reader(counting)
+    assert reader.readinto(bytearray()) == 0
+    assert counting.pulls == 0
+
+
+@pytest.mark.skipif(not hasattr(hashlib, "file_digest"), reason="requires Python 3.11+")
+def test_file_digest_reads_the_entire_stream():
+    reader = make_reader(CHUNKS)
+    assert hashlib.file_digest(reader, "sha256").digest() == hashlib.sha256(b"".join(CHUNKS)).digest()
+
+
+def test_readline_handles_chunk_boundaries_limits_and_eof():
+    reader = make_reader([b"name,", b"value\nalice,1\nb", b"ob,2"])
+    assert reader.readline(0) == b""
+    assert reader.readline(4) == b"name"
+    assert reader.readline() == b",value\n"
+    assert reader.readline(100) == b"alice,1\n"
+    assert reader.readline() == b"bob,2"
+    assert reader.readline() == b""
+
+
+def test_iteration_reads_csv_lines_without_draining_the_stream():
+    counting = CountingIterator([b"name,value\nalice,1\n", b"bob,2"])
+    reader = make_reader(counting)
+    assert next(iter(reader)) == b"name,value\n"
+    assert counting.pulls == 1
+    assert list(reader) == [b"alice,1\n", b"bob,2"]

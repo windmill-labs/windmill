@@ -79,11 +79,43 @@ class S3BufferedReader(BufferedReader):
         del self._buffer[:size]
         return result
 
+    def readable(self):
+        return True
+
     def readinto(self, buffer):
         view = memoryview(buffer).cast("B")
+        if view.readonly:
+            raise TypeError("readinto() argument must be a writable buffer")
         data = self.read(len(view))
         view[:len(data)] = data
         return len(data)
+
+    def readline(self, size=-1):
+        start = 0
+        while True:
+            end = len(self._buffer) if size < 0 else min(size, len(self._buffer))
+            newline = self._buffer.find(b"\n", start, end)
+            if newline >= 0:
+                end = newline + 1
+                break
+            if size >= 0 and end == size:
+                break
+            start = len(self._buffer)
+            self._fill(start + 1)
+            if len(self._buffer) == start:
+                break
+        result = bytes(self._buffer[:end])
+        del self._buffer[:end]
+        return result
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self.readline()
+        if not line:
+            raise StopIteration
+        return line
 
     def read1(self, size=-1):
         """Return up to `size` bytes, reading the underlying stream at most once.
