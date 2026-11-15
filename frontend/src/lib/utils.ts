@@ -605,7 +605,9 @@ export function groupBy<K, V>(
 }
 
 export function removeMarkdown(text: string): string {
-	return text.replace(/[[\*|\-|#\_]/g, '')
+	// `_` and `-` only where they are markup, not inside a word: `ai_instruction` and
+	// `read-only` in a description must stay as written.
+	return text.replace(/[[*|#]|(?<![\p{L}\p{N}])[-_]+|[-_]+(?![\p{L}\p{N}])/gu, '')
 }
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
