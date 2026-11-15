@@ -41,7 +41,12 @@
 	}
 
 	function onFolderSaved(name: string, created: boolean) {
-		if (created) $userStore?.folders.push(name)
+		if (created) {
+			// The creator owns the new folder, but the server only resends folders_owners on
+			// the next whoami: without this a non-admin's own new row stays locked until reload.
+			$userStore?.folders.push(name)
+			$userStore?.folders_owners.push(name)
+		}
 		// Returned, not fired: the drawer reports a failed reload, and it can only see one
 		// through the promise this hands back.
 		return loadFolders()
