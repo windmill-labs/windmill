@@ -10,6 +10,7 @@ import {
 	getQueryStmtCountHeuristic,
 	isJobResolvable,
 	parseDbInputFromAssetSyntax,
+	removeMarkdown,
 	apiErrorMessage,
 	msToCompactDuration
 } from './utils'
@@ -609,5 +610,13 @@ describe('apiErrorMessage', () => {
 
 	it('handles a plain Error', () => {
 		expect(apiErrorMessage(new Error('boom'))).toBe('boom')
+	})
+})
+
+describe('removeMarkdown', () => {
+	it('strips markup but keeps underscores and hyphens inside words', () => {
+		expect(removeMarkdown('**an** _ai_instruction_ for read-only use')).toBe(
+			'an ai_instruction for read-only use'
+		)
 	})
 })
