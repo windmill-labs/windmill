@@ -79,6 +79,12 @@ class S3BufferedReader(BufferedReader):
         del self._buffer[:size]
         return result
 
+    def readinto(self, buffer):
+        view = memoryview(buffer).cast("B")
+        data = self.read(len(view))
+        view[:len(data)] = data
+        return len(data)
+
     def read1(self, size=-1):
         """Return up to `size` bytes, reading the underlying stream at most once.
 
