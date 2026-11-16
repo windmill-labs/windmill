@@ -48,7 +48,9 @@
 
 	const ROLE_TOOLTIPS = {
 		viewer:
-			'A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder',
+			'A viewer of a folder sees all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder and the runs of its scripts, flows and agents, but cannot run them',
+		runner:
+			'A runner of a folder sees all the elements inside the folder and can run its scripts, flows and agents, but cannot edit them',
 		writer:
 			'A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder',
 		admin:
@@ -56,7 +58,7 @@
 	}
 
 	const MEMBERS_EXPLAINER =
-		"A member is a user or group with a role on this folder. The role applies to every script, flow, app, resource, variable and schedule inside it: viewers can read them, writers can also edit them, and admins can additionally manage the folder's members."
+		"A member is a user or group with a role on this folder. The role applies to every script, flow, app, resource, variable and schedule inside it: viewers can see them, runners can also run them, writers can also edit them, and admins can additionally manage the folder's members."
 
 	// Edits mutate `draft` only; `save()` is the sole writer to the backend, and `baseline` is
 	// what the folder held when it was loaded, so comparing the two gives both the dirty state
@@ -351,13 +353,15 @@
 			return 'admin'
 		} else if (writer) {
 			return 'writer'
-		} else {
+		} else if ((folder?.view_only ?? []).includes(x)) {
 			return 'viewer'
+		} else {
+			return 'runner'
 		}
 	}
 
 	let ownerKind: 'user' | 'group' = $state('user')
-	let newMemberRole: Role = $state('viewer')
+	let newMemberRole: Role = $state('runner')
 
 	// Set when the group editor is opened from the add-member form, so that saving returns
 	// there. Opened from a member row instead, that group is already a member and reopening
@@ -464,7 +468,11 @@
 						workspace,
 						path: name,
 						kind: 'folder',
-						requestBody: { owner: call.owner, write: call.write }
+						requestBody: {
+							owner: call.owner,
+							write: call.level === 'write',
+							level: call.level
+						}
 					})
 					break
 				case 'remove':
@@ -507,8 +515,9 @@
 						default_permissioned_as: next.defaultPermissionedAs,
 						owners: next.perms.filter((p) => p.role === 'admin').map((p) => p.owner_name),
 						extra_perms: Object.fromEntries(
-							next.perms.map((p) => [p.owner_name, p.role !== 'viewer'])
-						)
+							next.perms.map((p) => [p.owner_name, p.role === 'writer' || p.role === 'admin'])
+						),
+						view_only: next.perms.filter((p) => p.role === 'viewer').map((p) => p.owner_name)
 					}
 				})
 				sendUserToast(`Folder ${name} created`)
@@ -636,7 +645,7 @@
 					placement="bottom-end"
 					onClose={() => {
 						ownerItem = ''
-						newMemberRole = 'viewer'
+						newMemberRole = 'runner'
 					}}
 				>
 					{#snippet trigger()}
@@ -736,6 +745,13 @@
 											size="sm"
 										/>
 										<ToggleButton
+											value="runner"
+											label="Runner"
+											tooltip={ROLE_TOOLTIPS.runner}
+											{item}
+											size="sm"
+										/>
+										<ToggleButton
 											value="writer"
 											label="Writer"
 											tooltip={ROLE_TOOLTIPS.writer}
@@ -818,6 +834,14 @@
 														value="viewer"
 														label="Viewer"
 														tooltip={ROLE_TOOLTIPS.viewer}
+														{item}
+														size="sm"
+													/>
+
+													<ToggleButton
+														value="runner"
+														label="Runner"
+														tooltip={ROLE_TOOLTIPS.runner}
 														{item}
 														size="sm"
 													/>

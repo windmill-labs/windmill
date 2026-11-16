@@ -10,6 +10,7 @@
 	} from '$lib/gen'
 	import {
 		canWrite,
+		canRun,
 		defaultIfEmptyString,
 		emptyString,
 		urlParamsToObject,
@@ -153,6 +154,10 @@
 	// refuses an unknown user — with nothing to recompute it.
 	const can_write = $derived(
 		!!flow && !readOnly(workspace) && canWrite(flow.path, flow.extra_perms!, actingUser)
+	)
+	// Unknown until the acting user resolves: the form offers a run meanwhile.
+	const viewOnly = $derived(
+		!!flow && !!actingUser && !canRun(flow.path, flow.extra_perms, flow.view_only, actingUser)
 	)
 	const promptForAi = $derived((flow?.schema?.prompt_for_ai as string | undefined) ?? '')
 	let shareModal: ShareModal | undefined = $state()
@@ -943,6 +948,7 @@
 								{/if}
 
 								<RunForm
+									{viewOnly}
 									bind:scheduledForStr
 									bind:invisible_to_owner
 									bind:overrideTag

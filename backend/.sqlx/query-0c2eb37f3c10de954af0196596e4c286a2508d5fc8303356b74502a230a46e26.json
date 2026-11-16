@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, view_only, edited_at, created_by)\n         SELECT $2, path,\n                CASE WHEN $3::text IS NOT NULL AND resource_type = 'ai_agent'\n                          AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'\n                     THEN jsonb_set(value, '{on_behalf_of}', to_jsonb($3::text))\n                     ELSE value END,\n                description, resource_type, extra_perms, view_only, edited_at, created_by\n         FROM resource\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0c2eb37f3c10de954af0196596e4c286a2508d5fc8303356b74502a230a46e26"
+}

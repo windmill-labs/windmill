@@ -206,8 +206,10 @@ async fn restore_script(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -
         .and_then(|v| v.as_array())
         .ok_or_else(|| Error::internal_err("Invalid trash data for script"))?;
 
+    // The `view_only` default merged under each snapshot of a script, flow or resource: one
+    // trashed before the column existed lacks the key, which would insert NULL into it.
     for script in scripts {
-        sqlx::query("INSERT INTO script SELECT * FROM jsonb_populate_record(null::script, $1)")
+        sqlx::query("INSERT INTO script SELECT * FROM jsonb_populate_record(null::script, '{\"view_only\": []}'::jsonb || $1)")
             .bind(script)
             .execute(&mut *tx)
             .await
@@ -253,7 +255,7 @@ async fn restore_flow(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) -> 
         .get("row")
         .ok_or_else(|| Error::internal_err("Invalid trash data for flow"))?;
 
-    sqlx::query("INSERT INTO flow SELECT * FROM jsonb_populate_record(null::flow, $1)")
+    sqlx::query("INSERT INTO flow SELECT * FROM jsonb_populate_record(null::flow, '{\"view_only\": []}'::jsonb || $1)")
         .bind(row)
         .execute(&mut *tx)
         .await?;
@@ -425,7 +427,7 @@ async fn restore_variable(tx: &mut sqlx::PgConnection, item: &TrashItemWithData)
     if let Some(linked_resource) = data.get("linked_resource") {
         if !linked_resource.is_null() {
             sqlx::query(
-                "INSERT INTO resource SELECT * FROM jsonb_populate_record(null::resource, $1)
+                "INSERT INTO resource SELECT * FROM jsonb_populate_record(null::resource, '{\"view_only\": []}'::jsonb || $1)
                  ON CONFLICT DO NOTHING",
             )
             .bind(linked_resource)
@@ -460,7 +462,7 @@ async fn restore_resource(tx: &mut sqlx::PgConnection, item: &TrashItemWithData)
         .get("row")
         .ok_or_else(|| Error::internal_err("Invalid trash data for resource"))?;
 
-    sqlx::query("INSERT INTO resource SELECT * FROM jsonb_populate_record(null::resource, $1)")
+    sqlx::query("INSERT INTO resource SELECT * FROM jsonb_populate_record(null::resource, '{\"view_only\": []}'::jsonb || $1)")
         .bind(row)
         .execute(&mut *tx)
         .await?;

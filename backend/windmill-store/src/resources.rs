@@ -169,6 +169,10 @@ pub struct Resource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
+    /// Principals of `extra_perms` that may view but not run it (AI agents).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[sqlx(default)]
+    pub view_only: Vec<String>,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -183,6 +187,10 @@ pub struct ListableResource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
+    /// Principals of `extra_perms` that may view but not run it (AI agents).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[sqlx(default)]
+    pub view_only: Vec<String>,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub is_linked: Option<bool>,
@@ -371,6 +379,7 @@ async fn list_resources(
             "resource.description",
             "resource_type",
             "resource.extra_perms",
+            "resource.view_only",
             "(now() > account.expires_at) as is_expired",
             "variable.path IS NOT NULL as is_linked",
             "account.refresh_token != '' as is_refreshed",
@@ -573,6 +582,7 @@ async fn list_resources(
                 description,
                 resource_type,
                 extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                view_only: vec![],
                 created_by: None,
                 edited_at: Some(row.created_at),
                 is_linked: None,
@@ -612,7 +622,7 @@ async fn get_resource(
         ListableResource,
         // `null::bool` columns align with the struct fields; deployed rows are never draft-only.
         "SELECT resource.workspace_id, resource.path, resource.value, resource.description,
-        resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,
+        resource.resource_type, resource.extra_perms, resource.view_only, resource.created_by, resource.edited_at,
         resource.labels,
         folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",
         (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,

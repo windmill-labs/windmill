@@ -264,6 +264,27 @@ async fn validate_dynamic_skip<'c>(
     }
 }
 
+/// A schedule runs its target as whoever saved it, so saving one is starting runs of the target:
+/// a view-only reader of the target may not.
+async fn require_can_run_target(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    is_flow: bool,
+    script_path: &str,
+) -> Result<()> {
+    if script_path.is_empty() {
+        return Ok(());
+    }
+    let kind = if is_flow {
+        windmill_common::auth::RunnableAclKind::Flow
+    } else {
+        windmill_common::auth::RunnableAclKind::Script
+    };
+    windmill_common::auth::require_can_run(db, &authed.to_authed_ref(), w_id, kind, script_path)
+        .await
+}
+
 async fn create_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -282,6 +303,7 @@ async fn create_schedule(
     }
 
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
+    require_can_run_target(&db, &authed, &w_id, ns.is_flow, &ns.script_path).await?;
 
     #[cfg(not(feature = "enterprise"))]
     if ns.on_recovery.is_some() {
@@ -706,6 +728,8 @@ async fn edit_schedule(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
+
+    require_can_run_target(&db, &authed, &w_id, schedule.is_flow, &schedule.script_path).await?;
 
     // clear_schedule must come AFTER UPDATE schedule to maintain consistent lock ordering
     // (schedule row first, then v2_job_queue) and avoid deadlocks with concurrent operations

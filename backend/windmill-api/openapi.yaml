@@ -24686,6 +24686,11 @@ paths:
                 extra_perms:
                   additionalProperties:
                     type: boolean
+                view_only:
+                  type: array
+                  description: Principals of `extra_perms` that may view what the folder holds but not run it.
+                  items:
+                    type: string
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
                 labels:
@@ -24730,6 +24735,11 @@ paths:
                 extra_perms:
                   additionalProperties:
                     type: boolean
+                view_only:
+                  type: array
+                  description: Principals of `extra_perms` that may view what the folder holds but not run it. Omitted keeps the stored list.
+                  items:
+                    type: string
                 default_permissioned_as:
                   $ref: '#/components/schemas/FolderDefaultPermissionedAs'
                 labels:
@@ -25691,6 +25701,31 @@ paths:
                 additionalProperties:
                   type: boolean
 
+  /w/{workspace}/acls/get_view_only/{kind}/{path}:
+    get:
+      summary: get the principals of the granular acls that may view but not run
+      operationId: getGranularAclsViewOnly
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [script, flow, resource, folder]
+      responses:
+        "200":
+          description: principals with a view-only grant
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/acls/add/{kind}/{path}:
     post:
       summary: add granular acls
@@ -25741,6 +25776,13 @@ paths:
                   type: string
                 write:
                   type: boolean
+                level:
+                  type: string
+                  enum: [read, run, write]
+                  description: >
+                    Takes precedence over `write`. `read` grants viewing without running and
+                    applies to scripts, flows, resources (AI agents) and folders only. Without it,
+                    `write: false` grants run.
               required: [owner]
       responses:
         "200":
@@ -32048,6 +32090,11 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        view_only:
+          type: array
+          description: Principals of `extra_perms` that may view but not run it.
+          items:
+            type: string
         lock:
           type: string
         lock_error_logs:
@@ -33027,6 +33074,11 @@ components:
             type: string
         folders_owners:
           type: array
+          items:
+            type: string
+        folders_view_only:
+          type: array
+          description: Folders of `folders_read` read only through view-only grants, where nothing runs.
           items:
             type: string
         added_via:
@@ -34160,6 +34212,11 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        view_only:
+          type: array
+          description: Principals of `extra_perms` that may view but not run it.
+          items:
+            type: string
         created_by:
           type: string
         edited_at:
@@ -34222,6 +34279,11 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        view_only:
+          type: array
+          description: Principals of `extra_perms` that may view but not run it.
+          items:
+            type: string
         is_expired:
           type: boolean
         refresh_error:
@@ -37910,6 +37972,11 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        view_only:
+          type: array
+          description: Principals of `extra_perms` that may view but not run it.
+          items:
+            type: string
         summary:
           type: string
         created_by:
@@ -38433,6 +38500,11 @@ components:
           type: boolean
         extra_perms:
           $ref: "#/components/schemas/ExtraPerms"
+        view_only:
+          type: array
+          description: Principals of `extra_perms` that may view but not run it.
+          items:
+            type: string
         starred:
           type: boolean
         draft_only:

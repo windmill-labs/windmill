@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id AS \"id!\", j.created_by AS \"created_by!\",\n                CASE WHEN a.agent THEN regexp_replace(j.runnable_path, '\\.chat$', '')\n                    ELSE j.runnable_path END AS runnable_path,\n                CASE\n                    WHEN a.agent THEN 'agent'\n                    WHEN j.kind IN ('script', 'script_hub', 'unassigned_script', 'preview')\n                        THEN 'script'\n                    WHEN j.kind IN ('flow', 'unassigned_flow', 'flowpreview') THEN 'flow'\n                    WHEN j.kind IN ('singlestepflow', 'unassigned_singlestepflow') THEN\n                        CASE WHEN COALESCE(\n                                (SELECT m->'value'->>'type'\n                                    FROM jsonb_array_elements(j.raw_flow->'modules') m\n                                    WHERE m->>'id' IN ('a', 'main')\n                                    LIMIT 1),\n                                'script'\n                            ) = 'flow' THEN 'flow' ELSE 'script' END\n                END AS acl_kind\n            FROM v2_job s\n            -- A flow's step, of whatever kind, climbs. A run started from another job (the SDK's\n            -- `parent_job`, no `flow_step_id`) is still a run of its own runnable.\n            JOIN v2_job j ON j.workspace_id = s.workspace_id AND j.id = CASE\n                WHEN s.flow_step_id IS NULL AND s.kind IN ('script', 'script_hub',\n                    'unassigned_script', 'preview', 'flow', 'unassigned_flow', 'flowpreview',\n                    'singlestepflow', 'unassigned_singlestepflow')\n                    THEN s.id\n                ELSE COALESCE((SELECT r.id FROM v2_job r\n                    WHERE r.id = COALESCE(s.root_job, s.flow_innermost_root_job, s.parent_job)\n                        AND r.workspace_id = s.workspace_id), s.id)\n                END,\n            LATERAL (SELECT j.kind = 'flowpreview'\n                AND j.raw_flow->'modules'->1 IS NULL\n                AND j.raw_flow->'modules'->0->>'id' = '__wm_agent_root' AS agent) a\n            WHERE s.id = ANY($1) AND s.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "acl_kind",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "f033e3be9c4f77a5ec97b6805b3aad9872e76234f1f97ff0bbe1d4dc001461f2"
+}

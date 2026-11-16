@@ -169,6 +169,7 @@ async fn list_flows(
             "fv.created_at as edited_at",
             "archived",
             "extra_perms",
+            "o.view_only",
             "favorite.path IS NOT NULL as starred",
             "ws_error_handler_muted",
             "o.labels",
@@ -312,6 +313,7 @@ async fn list_flows(
                 edited_at: Some(row.created_at),
                 archived: false,
                 extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                view_only: vec![],
                 starred: false,
                 draft_only: Some(true),
                 ws_error_handler_muted: None,
@@ -1114,7 +1116,7 @@ async fn get_flow_version(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.view_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
@@ -1166,7 +1168,7 @@ async fn get_flow_version_by_id(
             flow.summary,
             flow.description,
             flow.archived,
-            flow.extra_perms,
+            flow.extra_perms, flow.view_only,
             flow.dedicated_worker,
             flow.tag,
             flow.ws_error_handler_muted,
@@ -1429,8 +1431,8 @@ async fn update_flow(
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, job_token_scopes)
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, job_token_scopes
+                (workspace_id, path, summary, description, archived, extra_perms, view_only, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, job_token_scopes)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, view_only, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, job_token_scopes
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -1882,7 +1884,7 @@ async fn get_flow_by_path(
             flow.summary, 
             flow.description, 
             flow.archived, 
-            flow.extra_perms,
+            flow.extra_perms, flow.view_only,
             flow.dedicated_worker,
             flow.tag, 
             flow.ws_error_handler_muted, 
@@ -1924,7 +1926,7 @@ async fn get_flow_by_path(
             flow.summary, 
             flow.description, 
             flow.archived, 
-            flow.extra_perms,
+            flow.extra_perms, flow.view_only,
             flow.dedicated_worker,
             flow.tag, 
             flow.ws_error_handler_muted, 

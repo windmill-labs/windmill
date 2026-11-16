@@ -28,6 +28,7 @@ use windmill_audit::{
     ActionKind,
 };
 use windmill_common::{
+    auth::{require_can_run, RunnableAclKind},
     db::{UserDB, UserDbWithAuthed},
     error::{self, Error},
     flow_conversations::{
@@ -1638,6 +1639,14 @@ pub async fn push_flow_job_by_path_into_queue<'c>(
     let flow_version_info =
         get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
             .await?;
+    require_can_run(
+        &db,
+        &authed.to_authed_ref(),
+        &w_id,
+        RunnableAclKind::Flow,
+        flow_path,
+    )
+    .await?;
 
     run_flow(
         &authed,
@@ -1689,6 +1698,14 @@ pub async fn push_script_job_by_path_into_queue<'c>(
             run_query.skip_preprocessor,
         )
         .await?;
+    require_can_run(
+        &db,
+        &authed.to_authed_ref(),
+        &w_id,
+        RunnableAclKind::Script,
+        script_path,
+    )
+    .await?;
     let resolved_delete_secs = resolve_delete_after_secs(delete_after_use, delete_after_secs);
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 

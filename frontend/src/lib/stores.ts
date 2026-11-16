@@ -36,6 +36,8 @@ export interface UserExt {
 	folders: string[]
 	folders_read: string[]
 	folders_owners: string[]
+	// folders of `folders_read` read only through view-only grants, where nothing runs
+	folders_view_only?: string[]
 	is_service_account?: boolean
 	impersonating_email?: string
 	// true when the user is a superadmin viewing a workspace they are not a member of

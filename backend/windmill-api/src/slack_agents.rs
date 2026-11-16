@@ -2,7 +2,7 @@
 //!
 //! An agent answers only in the Slack channels it is shared in, to the workspace members whose
 //! email matches the asker's Slack email, as Windmill would run it for them: through their own
-//! permissions, so only if they can read it. With `slack_anyone`, set in its settings and kept
+//! permissions, so only if they can run it (a view-only grant gets no answer). With `slack_anyone`, set in its settings and kept
 //! only while it runs on behalf of an identity, it answers anyone in those channels instead: the
 //! channel is the trust boundary, as Slack decides who is in it, and everyone runs it as that
 //! identity, who agreed to it by deploying the agent so. Who may share it is then only who may

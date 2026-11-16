@@ -19,6 +19,8 @@ export interface FolderFile {
   display_name: string | undefined;
   owners: Array<string> | undefined;
   extra_perms: { [record: string]: boolean } | undefined;
+  /** Principals of `extra_perms` that may view what the folder holds but not run it. */
+  view_only?: string[];
   default_permissioned_as?: Array<{ path_glob: string; permissioned_as: string }>;
   labels?: Array<string>;
 }

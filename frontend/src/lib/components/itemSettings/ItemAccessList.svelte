@@ -36,6 +36,9 @@
 		pending?: Record<string, boolean>
 		/** For an item whose name is not a path, such as a volume. */
 		isOwnerOverride?: boolean
+		/** Whether a read grant can withhold running (Viewer below Runner): scripts, flows and AI
+		 *  agents. Defaults from `kind`. */
+		runLevel?: boolean
 		onChange?: () => void
 	}
 
@@ -46,8 +49,15 @@
 		alsoApplyTo = [],
 		pending = $bindable(),
 		isOwnerOverride,
+		runLevel: runLevelProp,
 		onChange
 	}: Props = $props()
+
+	type Level = 'read' | 'run' | 'write'
+	// Not offered while the item is not deployed: a view-only grant needs the item to exist.
+	let runLevel = $derived(
+		pending === undefined && (runLevelProp ?? (kind === 'script' || kind === 'flow'))
+	)
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -77,6 +87,7 @@
 
 	let folder: Folder | undefined = $state()
 	let saved: Record<string, boolean> = $state({})
+	let viewOnly: string[] = $state([])
 	// Every user and group of the workspace, for the Add people picker: loaded on its first use,
 	// since it grows with the workspace and most opens of this list add no one.
 	let principals: string[] | undefined = $state()
@@ -91,6 +102,7 @@
 	type ListRow = {
 		name: string
 		write: boolean
+		viewOnly?: boolean
 		source: string
 		editable: boolean
 		/** The folder the access comes from. */
@@ -98,7 +110,13 @@
 	}
 	let ownRows: ListRow[] = $derived(
 		Object.entries(members)
-			.map(([name, write]) => ({ name, write, source: 'Extra permission', editable: true }))
+			.map(([name, write]) => ({
+				name,
+				write,
+				viewOnly: !write && viewOnly.includes(name),
+				source: 'Extra permission',
+				editable: true
+			}))
 			.sort(byName)
 	)
 	let inheritedRows: ListRow[] = $derived(
@@ -159,11 +177,23 @@
 
 	async function loadAcls() {
 		if (pending !== undefined) return
-		saved = await GranularAclService.getGranularAcls({
-			workspace: $operatingWorkspace!,
-			path,
-			kind: kind as any
-		})
+		const [acls, vo] = await Promise.all([
+			GranularAclService.getGranularAcls({
+				workspace: $operatingWorkspace!,
+				path,
+				kind: kind as any
+			}),
+			// Not gated on `runLevel`, which for a resource is only known once it has loaded.
+			kind === 'script' || kind === 'flow' || kind === 'resource'
+				? GranularAclService.getGranularAclsViewOnly({
+						workspace: $operatingWorkspace!,
+						path,
+						kind: kind as any
+					})
+				: Promise.resolve([])
+		])
+		saved = acls
+		viewOnly = vo
 		loadGroupSizes()
 	}
 
@@ -204,7 +234,8 @@
 		}
 	}
 
-	async function setMember(owner: string, write: boolean) {
+	async function setMember(owner: string, level: Level) {
+		const write = level === 'write'
 		if (pending !== undefined) {
 			pending = { ...pending, [owner]: write }
 			loadGroupSizes()
@@ -216,7 +247,8 @@
 					workspace: $operatingWorkspace!,
 					path: p,
 					kind: k as any,
-					requestBody: { owner, write }
+					// The linked variables of a resource have no run level.
+					requestBody: k === kind && runLevel ? { owner, write, level } : { owner, write }
 				})
 			)
 			onChange?.()
@@ -246,6 +278,12 @@
 			sendUserToast(`Could not remove ${owner}: ${err}`, true)
 		}
 		await loadAcls()
+	}
+
+	// Without a run level a read grant runs, and has always been called Viewer.
+	function roleOf(row: ListRow): string {
+		if (row.write) return 'Writer'
+		return runLevel && !row.viewOnly ? 'Runner' : 'Viewer'
 	}
 
 	let candidates = $derived(
@@ -309,7 +347,7 @@
 					const member = newMember
 					newMember = undefined
 					adding = false
-					await setMember(member, false)
+					await setMember(member, 'run')
 				}}
 			>
 				Add
@@ -396,11 +434,20 @@
 									items={[
 										{
 											displayName: 'Viewer',
-											action: () => row.write && setMember(row.name, false)
+											action: () =>
+												roleOf(row) !== 'Viewer' && setMember(row.name, runLevel ? 'read' : 'run')
 										},
+										...(runLevel
+											? [
+													{
+														displayName: 'Runner',
+														action: () => roleOf(row) !== 'Runner' && setMember(row.name, 'run')
+													}
+												]
+											: []),
 										{
 											displayName: 'Writer',
-											action: () => !row.write && setMember(row.name, true)
+											action: () => !row.write && setMember(row.name, 'write')
 										}
 									]}
 									placement="bottom-start"
@@ -413,13 +460,13 @@
 											endIcon={{ icon: ChevronDown }}
 											aria-label="Role of {row.name}"
 										>
-											{row.write ? 'Writer' : 'Viewer'}
+											{roleOf(row)}
 										</Button>
 									{/snippet}
 								</DropdownV2>
 							</div>
 						{:else}
-							<span class="text-secondary">{row.write ? 'Writer' : 'Viewer'}</span>
+							<span class="text-secondary">{roleOf(row)}</span>
 						{/if}
 					</Cell>
 					<Cell last actions>

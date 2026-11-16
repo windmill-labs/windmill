@@ -46,7 +46,8 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Workspace roles**: `docs/workspace-roles.md` — instance-defined roles with per-workspace
   overrides, the capabilities a role holds, why `ApiAuthed::is_operator` must be derived from the
-  role, and the `role_seat` table billing reads
+  role, the `role_seat` table billing reads, and the view-only grants on folders and items, which
+  every copy of a script, flow, agent or folder row must carry
 - **Operator write rights**: `docs/operator-write-rights.md` — which `operator_settings` flags are
   enforced rather than cosmetic, and why a right that is granted-unless-withdrawn needs `Option`
   fields and a jsonb merge rather than a serde default

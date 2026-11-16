@@ -930,6 +930,14 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
         )
         .await?
     };
+    windmill_common::auth::require_can_run(
+        &db,
+        &authed.to_authed_ref(),
+        &workspace_id,
+        windmill_common::auth::RunnableAclKind::Script,
+        script.path(),
+    )
+    .await?;
     let resolved_delete_secs = windmill_api_jobs::execution::resolve_delete_after_secs(
         delete_after_use,
         delete_after_secs,

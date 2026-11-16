@@ -277,10 +277,12 @@ export async function pushFlow(
   // step both for the up-to-date short-circuit and after the deploy.
   const {
     extra_perms: localPerms,
+    view_only: localViewOnly,
     job_token_scopes: localJobTokenScopes,
     ...localFlowBody
   } = localFlow as FlowFile & {
     extra_perms?: Record<string, boolean>;
+    view_only?: string[];
   };
   // Always sent, unlike the other settings: the server keeps a restriction the body omits,
   // so a flow.yaml without the key has to clear it explicitly.
@@ -349,6 +351,8 @@ export async function pushFlow(
     remotePath.replaceAll(SEP, "/"),
     localPerms,
     (flow as any)?.extra_perms,
+    localViewOnly,
+    (flow as any)?.view_only,
   );
 }
 
