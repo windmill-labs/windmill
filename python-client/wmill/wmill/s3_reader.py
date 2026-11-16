@@ -1,7 +1,31 @@
-from io import BufferedReader, BytesIO
-from typing import Optional, Union
+from io import BufferedReader, BytesIO, RawIOBase
+from typing import Iterator, Optional, Union
 
 import httpx
+
+
+class _HttpChunkStream(RawIOBase):
+    """Raw stream over the HTTP response's chunks, for BufferedReader to buffer."""
+
+    def __init__(self):
+        self.chunks: Optional[Iterator[bytes]] = None
+        self._pending = memoryview(b"")
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        if self.chunks is None:
+            raise ValueError("S3BufferedReader must be opened with `with` before reading")
+        while not self._pending:
+            try:
+                self._pending = memoryview(next(self.chunks))
+            except StopIteration:
+                return 0
+        n = min(len(buffer), len(self._pending))
+        buffer[:n] = self._pending[:n]
+        self._pending = self._pending[n:]
+        return n
 
 
 class S3BufferedReader(BufferedReader):
@@ -15,6 +39,11 @@ class S3BufferedReader(BufferedReader):
         storage: Optional storage backend identifier
     """
     def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: Optional[str], storage: Optional[str]):
+        # Every read, line and text-mode operation comes from BufferedReader
+        # itself; overriding them one by one leaves the rest of the file API
+        # failing on an uninitialized object.
+        self._raw = _HttpChunkStream()
+        super().__init__(self._raw)
         params = {
             "file_key": file_key,
         }
@@ -28,7 +57,6 @@ class S3BufferedReader(BufferedReader):
             params=params,
             timeout=None,
         )
-        self._buffer = bytearray()
 
     def __enter__(self):
         reader = self._context_manager.__enter__()
@@ -43,59 +71,11 @@ class S3BufferedReader(BufferedReader):
                 request=reader.request,
                 response=reader
             )
-        self._iterator = reader.iter_bytes()
+        self._raw.chunks = reader.iter_bytes()
         return self
 
-    def peek(self, size=0):
-        """Return buffered bytes without consuming them.
-
-        Reads the underlying stream at most once, so the amount returned may be
-        more or less than `size`.
-        """
-        if not self._buffer:
-            self._fill(1)
-        return bytes(self._buffer)
-
-    def _fill(self, limit):
-        # iter_bytes() yields whole HTTP chunks (~64KB), so a caller asking for
-        # `limit` bytes has to accumulate until the buffer holds that many.
-        # A negative limit means drain the stream.
-        while limit < 0 or len(self._buffer) < limit:
-            try:
-                self._buffer.extend(next(self._iterator))
-            except StopIteration:
-                break
-
-    def read(self, size=-1):
-        # BufferedReader.read(None) is documented as equivalent to read(-1).
-        if size is None:
-            size = -1
-        self._fill(size)
-        if size < 0:
-            result = bytes(self._buffer)
-            self._buffer.clear()
-            return result
-        result = bytes(self._buffer[:size])
-        del self._buffer[:size]
-        return result
-
-    def read1(self, size=-1):
-        """Return up to `size` bytes, reading the underlying stream at most once.
-
-        Unlike `read`, a negative `size` returns only what is already buffered
-        rather than draining the whole object.
-        """
-        if size == 0:
-            return b""
-        if not self._buffer:
-            self._fill(1)
-        if size is None or size < 0:
-            size = len(self._buffer)
-        result = bytes(self._buffer[:size])
-        del self._buffer[:size]
-        return result
-
     def __exit__(self, *args):
+        self.close()
         self._context_manager.__exit__(*args)
 
 
