@@ -621,6 +621,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
 		listLoadedAt = new Date(Date.now() - 5 * 60_000).toISOString()
 		lastHiddenSkippedTs = null
+		listGeneration++
 		if (shouldGetCount) {
 			getCount()
 		}
@@ -771,6 +772,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let lastQueueTs: string | undefined = undefined
 	let listLoadedAt: string | null = null
 	let lastHiddenSkippedTs: string | null = null
+	// Bumped on every reload, so a skipped-jobs response for an earlier listing (e.g. one
+	// that predates turning "Show skipped" on) cannot remove rows from the new one.
+	let listGeneration = 0
 
 	// With skipped jobs hidden, the refresh never returns a listed queued job that completes
 	// as skipped (e.g. debounced), so its row would stay as "Waiting executor" until a reload.
@@ -779,24 +783,35 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	async function dropQueuedRowsCompletedAsSkipped(maxTs: string | null) {
 		const queued = jobs?.filter((x) => x.type == 'QueuedJob') ?? []
 		if (queued.length == 0) return
+		const generation = listGeneration
 		// A listed queued row completes after the list was loaded, so `listLoadedAt` bounds the
 		// first scan. The cursor then moves on every response, empty ones included, so a job
 		// queued for hours does not make each refresh rescan its whole wait. The 5 minute
 		// margin absorbs browser/database skew; completed_after is inclusive.
 		let next = new Date(Date.now() - 5 * 60_000).toISOString()
-		const skipped = (
-			await fetchJobs({
-				completedBefore: maxTs,
-				completedAfter: lastHiddenSkippedTs ?? listLoadedAt,
-				onlySkipped: true
-			})
-		).filter((x): x is CompletedJob & { type: 'CompletedJob' } => x.type == 'CompletedJob')
-		for (const x of skipped) {
-			const ts = new Date(x.completed_at!).toISOString()
-			if (ts > next) next = ts
+		const after = lastHiddenSkippedTs ?? listLoadedAt
+		const skippedIds = new Set<string>()
+		// Pages come newest first, so the cursor may only pass the window once every page of it
+		// has been read: a cut-off older page would otherwise never be fetched again.
+		let before = maxTs
+		for (let page = 0; page < 10; page++) {
+			const res = (
+				await fetchJobs({ completedBefore: before, completedAfter: after, onlySkipped: true })
+			).filter((x): x is CompletedJob & { type: 'CompletedJob' } => x.type == 'CompletedJob')
+			if (generation != listGeneration) return
+			const sizeBefore = skippedIds.size
+			let oldest: string | undefined
+			for (const x of res) {
+				skippedIds.add(x.id)
+				const ts = new Date(x.completed_at!).toISOString()
+				if (ts > next) next = ts
+				if (!oldest || ts < oldest) oldest = ts
+			}
+			if (res.length < perPage || !oldest || skippedIds.size == sizeBefore) break
+			// completed_before is inclusive at millisecond precision; ids already seen are deduped.
+			before = new Date(new Date(oldest).getTime() + 1).toISOString()
 		}
 		if (!lastHiddenSkippedTs || next > lastHiddenSkippedTs) lastHiddenSkippedTs = next
-		const skippedIds = new Set(skipped.map((x) => x.id))
 		if (!queued.some((x) => skippedIds.has(x.id))) return
 		jobs = jobs?.filter((x) => !skippedIds.has(x.id))
 		if (extendedJobs) {
