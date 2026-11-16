@@ -1426,4 +1426,45 @@ def main(p: Point, name: str = "world"):
         }
         Ok(())
     }
+
+    #[test]
+    fn test_parse_python_sig_async_main_docstring_args() -> anyhow::Result<()> {
+        let code = r#"
+from enum import Enum
+
+class Color(str, Enum):
+    RED = 'red'
+    GREEN = 'green'
+
+async def main(color: Color = Color.RED, count: int = 1):
+    """
+    Run async main
+
+    Args:
+        color (Color): Color selection from Color enum
+        count: Number of items to process
+    """
+    return {"color": color, "count": count}
+"#;
+        let result = parse_python_signature(code, None, false)?;
+        assert_eq!(result.args.len(), 2);
+        assert_eq!(result.args[0].name, "color");
+        assert_eq!(
+            result.args[0].typ,
+            Typ::Str(Some(vec!["red".to_string(), "green".to_string()]))
+        );
+        assert_eq!(result.args[0].default, Some(json!("red")));
+        assert_eq!(
+            result.args[0].otyp,
+            Some("Color selection from Color enum".to_string())
+        );
+        assert_eq!(result.args[1].name, "count");
+        assert_eq!(result.args[1].typ, Typ::Int);
+        assert_eq!(result.args[1].default, Some(json!(1)));
+        assert_eq!(
+            result.args[1].otyp,
+            Some("Number of items to process".to_string())
+        );
+        Ok(())
+    }
 }
