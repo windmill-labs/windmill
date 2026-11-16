@@ -821,8 +821,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						let failed = false
 						// Taken before the request: the list can be reloaded while it is in flight,
 						// and only rows that were queued when it was sent can be judged by its answer.
+						// A created_after bound on the queue half could leave out older listed rows.
 						const queuedAtRequest =
-							!_args.skip && !isQueueOnly && maxTs == null
+							!_args.skip && !isQueueOnly && maxTs == null && queueTs == null
 								? new Set(jobs.filter((x) => x.type == 'QueuedJob').map((x) => x.id))
 								: new Set<string>()
 						newJobs = await fetchJobs(
