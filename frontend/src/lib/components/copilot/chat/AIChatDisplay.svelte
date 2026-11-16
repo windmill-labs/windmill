@@ -198,28 +198,43 @@
 
 	// Mounting a message parses its markdown, so a long transcript mounted at once blocks the
 	// page for every message in it. Only the tail is mounted when a transcript arrives; older
-	// items mount in batches as the reader scrolls toward them, and stay mounted. Counted from
-	// the head, so messages appended below and pages a host prepends above are both mounted.
+	// items mount in batches as the reader scrolls toward them, and stay mounted.
 	const TAIL_ITEMS = 30
 	const REVEAL_BATCH = 30
 	const REVEAL_MARGIN_PX = 600
-	// The first message tells transcripts apart: it stays put across a reload of the same chat
-	// and changes when the host swaps in another one.
 	const transcriptKey = $derived(messages[0]?.content)
-	let hiddenHead = $derived.by(() => {
-		transcriptKey
-		return untrack(() => Math.max(0, chatItems.length - TAIL_ITEMS))
+	// How many items are hidden, counted from the item holding message `first`.
+	let revealed = $state<{ first: string | undefined; hidden: number }>()
+	const hiddenHead = $derived.by(() => {
+		const first = transcriptKey
+		const r = revealed
+		return untrack(() => {
+			if (r && r.first === first) return r.hidden
+			// The message it was counted from moved down: a host prepended a page of older
+			// messages (the flow chat does), which stays hidden unless everything above was shown.
+			const moved = r ? messages.findIndex((m) => m.content === r.first) : -1
+			if (r && moved > 0) {
+				if (r.hidden === 0) return 0
+				return r.hidden + chatItems.findIndex((item) => chatItemStart(item) >= moved)
+			}
+			// Another transcript: the reload of the same chat keeps its first message.
+			return Math.max(0, chatItems.length - TAIL_ITEMS)
+		})
 	})
 	// Clamped so a swap the key misses (two chats opening with the same message) still shows the tail.
 	const shownFrom = $derived(Math.min(hiddenHead, Math.max(0, chatItems.length - TAIL_ITEMS)))
 	const shownItems = $derived(shownFrom > 0 ? chatItems.slice(shownFrom) : chatItems)
+
+	function chatItemStart(item: (typeof chatItems)[number]): number {
+		return item.kind === 'group' ? (item.entries[0]?.index ?? 0) : item.index
+	}
 
 	function revealOlder() {
 		if (!scrollElement || shownFrom === 0 || scrollElement.scrollTop >= REVEAL_MARGIN_PX) return
 		// Assigned from the distance to the bottom rather than added to, so it holds whether or
 		// not the browser's own scroll anchoring already moved the position.
 		const fromBottom = scrollElement.scrollHeight - scrollElement.scrollTop
-		hiddenHead = Math.max(0, shownFrom - REVEAL_BATCH)
+		revealed = { first: transcriptKey, hidden: Math.max(0, shownFrom - REVEAL_BATCH) }
 		flushSync()
 		scrollElement.scrollTop = scrollElement.scrollHeight - fromBottom
 	}
@@ -311,7 +326,8 @@
 				scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight
 			showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
 			// A tail too short to scroll fires no scroll event, so nothing else would mount the rest.
-			if (shownFrom > 0) requestAnimationFrame(revealOlder)
+			// Untracked: a reveal re-running this effect would scroll a following reader back down.
+			if (untrack(() => shownFrom) > 0) requestAnimationFrame(revealOlder)
 		}
 	})
 
@@ -329,7 +345,6 @@
 		// whose only event would otherwise be swallowed, leaving the arrow
 		// stuck visible after we already reached the bottom.
 		showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
-		revealOlder()
 		if (sticker.isOwnScroll()) {
 			return
 		}
@@ -338,6 +353,9 @@
 		} else {
 			chatHost.disableAutomaticScroll()
 		}
+		// After follow mode is settled, so the reveal cannot scroll a reader leaving the end back
+		// down; before the host's own paging, which waits until nothing here is left to mount.
+		revealOlder()
 		onTranscriptScroll?.()
 	}
 
