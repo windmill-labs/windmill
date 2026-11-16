@@ -293,30 +293,26 @@
 	// The sticky copy stays invisible until the real bubble reaches it: the copy sticks 16px
 	// earlier (the message's top margin), so at the hand-over both sit on the same pixels.
 	let pinnedUserIndex = $state(-1)
-	function stickyParts(index: number) {
-		const sticky = scrollElement?.querySelector<HTMLElement>(`[data-sticky-user="${index}"]`)
-		const bubble = scrollElement?.querySelector<HTMLElement>(`[data-user-bubble="${index}"]`)
-		return sticky && bubble ? { sticky, bubble } : undefined
+	// The message's wrapper always follows its sticky copy (see `messageRow`).
+	function bubbleOf(sticky: HTMLElement): HTMLElement | null | undefined {
+		return sticky.nextElementSibling?.querySelector<HTMLElement>('[data-user-bubble]')
 	}
 	function measurePinnedUserMessage() {
 		if (!stickyUserMessage || !scrollElement) return
 		let pinned = -1
 		for (const sticky of scrollElement.querySelectorAll<HTMLElement>('[data-sticky-user]')) {
-			const index = Number(sticky.dataset.stickyUser)
-			const parts = stickyParts(index)
-			if (!parts) continue
-			if (parts.bubble.getBoundingClientRect().top > sticky.getBoundingClientRect().top + 0.5) {
-				break
-			}
-			pinned = index
+			const bubble = bubbleOf(sticky)
+			if (!bubble) continue
+			if (bubble.getBoundingClientRect().top > sticky.getBoundingClientRect().top + 0.5) break
+			pinned = Number(sticky.dataset.stickyUser)
 		}
 		pinnedUserIndex = pinned
 	}
-	function scrollToUserMessage(index: number) {
-		const parts = stickyParts(index)
-		if (!scrollElement || !parts) return
-		const offset =
-			parts.bubble.getBoundingClientRect().top - parts.sticky.getBoundingClientRect().top - 16
+	function scrollToUserMessage(event: MouseEvent) {
+		const sticky = (event.currentTarget as HTMLElement).closest<HTMLElement>('[data-sticky-user]')
+		const bubble = sticky && bubbleOf(sticky)
+		if (!scrollElement || !sticky || !bubble) return
+		const offset = bubble.getBoundingClientRect().top - sticky.getBoundingClientRect().top - 16
 		scrollElement.scrollBy({ top: offset, behavior: 'smooth' })
 	}
 
@@ -1054,7 +1050,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										class="block w-full text-left text-xs font-normal px-3 py-2 bg-surface-accent-selected text-accent rounded-lg"
 										class:pointer-events-auto={pinned}
 										title="Scroll to this message"
-										onclick={() => scrollToUserMessage(messageIndex)}
+										onclick={scrollToUserMessage}
 									>
 										<span class="line-clamp-1 whitespace-pre-wrap break-words"
 											>{userMessageText(message)}</span
