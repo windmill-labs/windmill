@@ -303,10 +303,13 @@
 	function measurePinnedUserMessage() {
 		if (!stickyUserMessage || !scrollElement) return
 		let pinned = -1
-		for (const sticky of scrollElement.querySelectorAll<HTMLElement>('[data-sticky-user]')) {
-			const bubble = bubbleOf(sticky)
-			if (!bubble) continue
-			if (bubble.getBoundingClientRect().top > sticky.getBoundingClientRect().top + 0.5) break
+		const stickies = scrollElement.querySelectorAll<HTMLElement>('[data-sticky-user]')
+		for (const sticky of Array.from(stickies)) {
+			// A message being edited has no bubble: its own top keeps its turn measured, so an
+			// earlier turn's copy, already pushed out of view, is not taken as the pinned one.
+			const anchor = bubbleOf(sticky) ?? sticky.nextElementSibling?.firstElementChild
+			if (!anchor) continue
+			if (anchor.getBoundingClientRect().top > sticky.getBoundingClientRect().top + 0.5) break
 			pinned = Number(sticky.dataset.stickyUser)
 		}
 		pinnedUserIndex = pinned
