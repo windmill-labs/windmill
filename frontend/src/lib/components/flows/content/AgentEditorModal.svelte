@@ -424,15 +424,16 @@
 	}
 
 	// Only where the agent stands alone: opened from a flow's step, it is already in one. Linking
-	// a deployed agent as it is only reads it. Not for operators: the server refuses their flows
-	// a linked agent, and an inlined one's tools may hold code.
+	// a deployed agent as it is only reads it. Offered to whoever could build that flow by hand: a
+	// composing role may link an agent it can read, but an agent never deployed is inlined, and
+	// its tools may hold code the server refuses in a composed flow.
 	let offerFlow = $derived(
 		target?.host === undefined &&
 			draft?.state != undefined &&
 			!draft.loading &&
 			!refused &&
-			editRights.capabilities.code &&
 			editRights.roleCanAuthor('flow') &&
+			(!draft.noDeployed || editRights.capabilities.code) &&
 			(!readOnly || (!draft.noDeployed && !draft.sync.hasDraft))
 	)
 	let openingFlow = $state(false)

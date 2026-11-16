@@ -20,7 +20,6 @@ const SESSION_EDITORS = [
 // Components that read the navigation store on purpose, with why. Keep each reason true.
 const NAVIGATION_READERS: Record<string, string> = {
 	'ScriptBuilder.svelte': 'keeps its own tag list when it acts off the navigation workspace',
-	'FlowBuilder.svelte': 'falls back to `$userStore` only when it acts on the navigation workspace',
 	'WorkerTagSelect.svelte': 'the shared worker tag cache is navigation-scoped',
 	'WorkerTagPicker.svelte': 'the shared worker tag cache is navigation-scoped',
 	'flows/content/FlowModuleWorkerTagSelect.svelte':

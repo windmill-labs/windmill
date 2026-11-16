@@ -22,13 +22,7 @@
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
-	import {
-		enterpriseLicense,
-		userStore,
-		userWorkspaces,
-		usedTriggerKinds,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -674,9 +668,7 @@
 				// One lookup for the whole list: an agent lives in a folder, and the groups and admin
 				// flag that answer for it are per workspace, so the nav user would answer for the wrong
 				// membership when a session editor operates on another workspace.
-				const user =
-					(await getUserExt(opWorkspace ?? '')) ??
-					(opWorkspace === $workspaceStore ? $userStore : undefined)
+				const user = (await getUserExt(opWorkspace ?? '')) ?? operatingUser.in(opWorkspace)
 				const caps = capabilitiesIn(
 					user,
 					$userWorkspaces.find((w) => w.id === opWorkspace)
