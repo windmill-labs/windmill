@@ -87,10 +87,10 @@ export async function getWorkspaceByName(
   return undefined;
 }
 
-// When the current git branch is a fork branch (wm-fork/<base>/<id>) or matches
-// a wmill.yaml workspace's gitBranch, commands resolve the workspace from the
-// branch and ignore the active profile — surface that wherever we display the
-// active workspace, so users don't act on the wrong "Active:" line.
+// Without --workspace, commands only fall back to the active profile when
+// wmill.yaml defines no workspaces (resolveWorkspace in core/context.ts) —
+// surface what they target instead wherever we display the active workspace,
+// so users don't act on the wrong "Active:" line. Keep in step with that order.
 async function branchAutoTargetNote(
   opts: GlobalOptions
 ): Promise<string | undefined> {
@@ -101,31 +101,53 @@ async function branchAutoTargetNote(
     getCurrentGitBranch,
     getOriginalBranchForWorkspaceForks,
     getWorkspaceIdForWorkspaceForkFromBranchName,
+    isGitRepository,
   } = await import("../../utils/git.ts");
-  const branch = getCurrentGitBranch();
-  if (!branch) {
+  const {
+    readConfigFile,
+    findWorkspaceByGitBranch,
+    getEffectiveWorkspaceId,
+    getWorkspaceNames,
+  } = await import("../../core/conf.ts");
+  const config = await readConfigFile({ warnIfMissing: false });
+  const branch = isGitRepository() ? getCurrentGitBranch() : null;
+  const originalBranch = branch ? getOriginalBranchForWorkspaceForks(branch) : null;
+  const match = branch
+    ? findWorkspaceByGitBranch(config.workspaces, originalBranch ?? branch)
+    : undefined;
+
+  if (match?.[1].baseUrl) {
+    const [wsName, entry] = match;
+    if (originalBranch) {
+      const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch!);
+      return (
+        `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` on ${entry.baseUrl} here, regardless of the active profile. Use --workspace to override.`
+      );
+    }
+    return (
+      `Note: git branch \`${branch}\` matches workspace \`${wsName}\` in wmill.yaml — wmill commands here target \`${getEffectiveWorkspaceId(wsName, entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.`
+    );
+  }
+  if (originalBranch) {
+    // resolveWorkspace exits with its own error here.
     return undefined;
   }
-  if (getOriginalBranchForWorkspaceForks(branch)) {
-    const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch);
-    if (!forkWorkspaceId) {
+
+  const wsNames = getWorkspaceNames(config.workspaces);
+  if (wsNames.length === 1) {
+    if (!(config.workspaces as any)[wsNames[0]]?.baseUrl) {
       return undefined;
     }
     return (
-      `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` here, regardless of the active profile. Use --workspace to override.`
+      `Note: wmill.yaml defines a single workspace — wmill commands here target \`${wsNames[0]}\`, regardless of the active profile. Use --workspace to override.`
     );
   }
-  const { readConfigFile, findWorkspaceByGitBranch, getEffectiveWorkspaceId } =
-    await import("../../core/conf.ts");
-  const config = await readConfigFile({ warnIfMissing: false });
-  const match = findWorkspaceByGitBranch(config.workspaces, branch);
-  if (!match?.[1].baseUrl) {
-    return undefined;
+  if (wsNames.length > 1) {
+    return (
+      `Note: wmill.yaml defines workspaces ${wsNames.map((n) => `\`${n}\``).join(", ")}, none matching the current git branch — wmill commands here ask which one to use instead of using the active profile. Use --workspace to pick one.`
+    );
   }
-  const [wsName, entry] = match;
-  return (
-    `Note: git branch \`${branch}\` matches workspace \`${wsName}\` in wmill.yaml — wmill commands here target \`${getEffectiveWorkspaceId(wsName, entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.`
-  );
+  return undefined;
 }
 
 export async function list(opts: GlobalOptions) {
