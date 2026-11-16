@@ -168,7 +168,10 @@ fn filter_relevant_statements(code: &str) -> String {
     while let Some(line) = lines.next() {
         let trimmed = line.trim_start();
 
-        if trimmed.starts_with("class ") || trimmed.starts_with("def ") {
+        if trimmed.starts_with("class ")
+            || trimmed.starts_with("def ")
+            || trimmed.starts_with("async def ")
+        {
             result.push(line);
             let base_indent = line.len() - trimmed.len();
 
@@ -243,14 +246,12 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
                     }
                 }
             }
-            Stmt::FunctionDef(StmtFunctionDef {
-                name: func_name, body, is_async: false, ..
-            }) if has_docstring => {
-                if func_name.as_str() == main_name {
-                    if let Some(Stmt::Expr(expr_stmt)) = body.first() {
-                        if let Expr::StringLiteral(docstring) = expr_stmt.value.as_ref() {
-                            descriptions = parse_docstring_args(docstring.value.to_str());
-                        }
+            Stmt::FunctionDef(StmtFunctionDef { name: func_name, body, .. })
+                if has_docstring && func_name.as_str() == main_name =>
+            {
+                if let Some(Stmt::Expr(expr_stmt)) = body.first() {
+                    if let Expr::StringLiteral(docstring) = expr_stmt.value.as_ref() {
+                        descriptions = parse_docstring_args(docstring.value.to_str());
                     }
                 }
             }
