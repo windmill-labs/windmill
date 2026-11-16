@@ -296,18 +296,18 @@
 	// The sticky copy stays invisible until the real bubble reaches it: the copy sticks 16px
 	// earlier (the message's top margin), so at the hand-over both sit on the same pixels.
 	let pinnedUserIndex = $state(-1)
-	// The message's wrapper always follows its sticky copy (see `messageRow`).
-	function bubbleOf(sticky: HTMLElement): HTMLElement | null | undefined {
-		return sticky.nextElementSibling?.querySelector<HTMLElement>('[data-user-bubble]')
+	// The message's wrapper always follows its sticky copy (see `messageRow`). A message being
+	// edited has no bubble, so its own top stands in: its turn stays measured and keeps its copy.
+	function anchorOf(sticky: HTMLElement): Element | null | undefined {
+		const message = sticky.nextElementSibling
+		return message?.querySelector('[data-user-bubble]') ?? message?.firstElementChild
 	}
 	function measurePinnedUserMessage() {
 		if (!stickyUserMessage || !scrollElement) return
 		let pinned = -1
 		const stickies = scrollElement.querySelectorAll<HTMLElement>('[data-sticky-user]')
 		for (const sticky of Array.from(stickies)) {
-			// A message being edited has no bubble: its own top keeps its turn measured, so an
-			// earlier turn's copy, already pushed out of view, is not taken as the pinned one.
-			const anchor = bubbleOf(sticky) ?? sticky.nextElementSibling?.firstElementChild
+			const anchor = anchorOf(sticky)
 			if (!anchor) continue
 			if (anchor.getBoundingClientRect().top > sticky.getBoundingClientRect().top + 0.5) break
 			pinned = Number(sticky.dataset.stickyUser)
@@ -316,9 +316,9 @@
 	}
 	function scrollToUserMessage(event: MouseEvent) {
 		const sticky = (event.currentTarget as HTMLElement).closest<HTMLElement>('[data-sticky-user]')
-		const bubble = sticky && bubbleOf(sticky)
-		if (!scrollElement || !sticky || !bubble) return
-		const offset = bubble.getBoundingClientRect().top - sticky.getBoundingClientRect().top - 16
+		const anchor = sticky && anchorOf(sticky)
+		if (!scrollElement || !sticky || !anchor) return
+		const offset = anchor.getBoundingClientRect().top - sticky.getBoundingClientRect().top - 16
 		scrollElement.scrollBy({ top: offset, behavior: 'smooth' })
 	}
 
@@ -1038,8 +1038,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{@const hasStickyCopy =
 							stickyUserMessage && message.role === 'user' && message.content.trim() !== ''}
 						{#if hasStickyCopy}
-							{@const pinned =
-								pinnedUserIndex === messageIndex && editingMessageIndex !== messageIndex}
+							{@const pinned = pinnedUserIndex === messageIndex}
 							<!-- Keeps its full height (the bubble's one line) inside the turn, so the turn's
 							     end pushes it out; the message below takes that height back with -mt-8. -->
 							<div
@@ -1139,10 +1138,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				</div>
 			</div>
 			<!-- Sits below the scroll-to-latest button, which carries z-10. -->
-			<ScrollFade
-				scroller={scrollElement}
-				class={pinnedUserIndex >= 0 && editingMessageIndex !== pinnedUserIndex ? 'hidden' : ''}
-			/>
+			<ScrollFade scroller={scrollElement} class={pinnedUserIndex >= 0 ? 'hidden' : ''} />
 			{#if showScrollToLatest}
 				<div
 					transition:fade={{ duration: 120 }}
