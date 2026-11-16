@@ -1879,7 +1879,12 @@ pub async fn run_agent(
                 .map(str::to_string)
                 .unwrap_or_else(|| "unknown".to_string());
 
-            Some(get_transform_context(job, &previous_id, flow_status))
+            let mut id_context = get_transform_context(job, &previous_id, flow_status);
+            // The agent's own root names the calling agent for a nested agent.
+            if let Some(root) = flow_context.root_job_id {
+                id_context.root_flow_job = root;
+            }
+            Some(id_context)
         } else {
             None
         }

@@ -149,6 +149,8 @@ pub struct FlowContext {
     pub run_status: Option<FlowStatus>,
     /// Path of the flow the run started from, which scopes a string memory id.
     pub flow_path: Option<String>,
+    /// The root run, whose user state `flow_user_state` reads.
+    pub root_job_id: Option<Uuid>,
 }
 
 /// Read the context an agent step evaluates its tools in. `flow_input` and `results` are those of
@@ -164,7 +166,8 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob, flow_job_id: &Uuid) 
             f.args as "args: Json<HashMap<String, Box<RawValue>>>",
             fs.flow_status as "step_flow_status: Json<FlowStatus>",
             rs.flow_status as "run_status: Json<FlowStatus>",
-            r.runnable_path
+            r.runnable_path,
+            r.id as root_job_id
         FROM v2_job f
         LEFT JOIN v2_job_status fs ON fs.id = f.id
         INNER JOIN v2_job r
@@ -182,6 +185,7 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob, flow_job_id: &Uuid) 
             step_flow_status: row.step_flow_status.map(|j| j.0),
             run_status: row.run_status.map(|j| j.0),
             flow_path: row.runnable_path,
+            root_job_id: Some(row.root_job_id),
         },
         Ok(None) => {
             tracing::warn!(
