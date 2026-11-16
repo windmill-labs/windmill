@@ -87,26 +87,44 @@ export async function getWorkspaceByName(
   return undefined;
 }
 
-// When the current git branch is a fork branch (wm-fork/<base>/<id>), commands
-// resolve the fork workspace from the branch name and ignore the active
-// profile — surface that wherever we display the active workspace, so users
-// don't act on the wrong "Active:" line.
-async function forkBranchAutoTargetNote(): Promise<string | undefined> {
+// When the current git branch is a fork branch (wm-fork/<base>/<id>) or matches
+// a wmill.yaml workspace's gitBranch, commands resolve the workspace from the
+// branch and ignore the active profile — surface that wherever we display the
+// active workspace, so users don't act on the wrong "Active:" line.
+async function branchAutoTargetNote(
+  opts: GlobalOptions
+): Promise<string | undefined> {
+  if (opts.workspace) {
+    return undefined;
+  }
   const {
     getCurrentGitBranch,
     getOriginalBranchForWorkspaceForks,
     getWorkspaceIdForWorkspaceForkFromBranchName,
   } = await import("../../utils/git.ts");
   const branch = getCurrentGitBranch();
-  if (!branch || !getOriginalBranchForWorkspaceForks(branch)) {
+  if (!branch) {
     return undefined;
   }
-  const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch);
-  if (!forkWorkspaceId) {
+  if (getOriginalBranchForWorkspaceForks(branch)) {
+    const forkWorkspaceId = getWorkspaceIdForWorkspaceForkFromBranchName(branch);
+    if (!forkWorkspaceId) {
+      return undefined;
+    }
+    return (
+      `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` here, regardless of the active profile. Use --workspace to override.`
+    );
+  }
+  const { readConfigFile, findWorkspaceByGitBranch, getEffectiveWorkspaceId } =
+    await import("../../core/conf.ts");
+  const config = await readConfigFile({ warnIfMissing: false });
+  const match = findWorkspaceByGitBranch(config.workspaces, branch);
+  if (!match?.[1].baseUrl) {
     return undefined;
   }
+  const [wsName, entry] = match;
   return (
-    `Note: you are on fork branch \`${branch}\` — wmill commands automatically target the fork workspace \`${forkWorkspaceId}\` here, regardless of the active profile. Use --workspace to override.`
+    `Note: git branch \`${branch}\` matches workspace \`${wsName}\` in wmill.yaml — wmill commands here target \`${getEffectiveWorkspaceId(wsName, entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.`
   );
 }
 
@@ -132,9 +150,9 @@ export async function list(opts: GlobalOptions) {
 
   log.info("Active: " + colors.green.bold(activeName || "none"));
 
-  const forkNote = await forkBranchAutoTargetNote();
-  if (forkNote) {
-    log.info(colors.yellow(forkNote));
+  const branchNote = await branchAutoTargetNote(opts);
+  if (branchNote) {
+    log.info(colors.yellow(branchNote));
   }
 }
 
@@ -169,9 +187,9 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
       `Switched to workspace ${workspaceName} (${workspace?.workspaceId} on ${workspace?.remote})`
     )
   );
-  const forkNote = await forkBranchAutoTargetNote();
-  if (forkNote) {
-    log.info(colors.yellow(forkNote));
+  const branchNote = await branchAutoTargetNote(opts);
+  if (branchNote) {
+    log.info(colors.yellow(branchNote));
   }
   return;
 }
@@ -507,6 +525,10 @@ async function whoami(_opts: GlobalOptions) {
     }
   } else {
     log.info("Active: " + colors.green.bold(activeName || "none"));
+    const branchNote = await branchAutoTargetNote(_opts);
+    if (branchNote) {
+      log.info(colors.yellow(branchNote));
+    }
   }
 }
 
