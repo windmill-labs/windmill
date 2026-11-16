@@ -48,7 +48,6 @@
 	import { openAgentInFlow } from '../agentActions'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
-	import { userStore } from '$lib/stores'
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
@@ -432,7 +431,7 @@
 			draft?.state != undefined &&
 			!draft.loading &&
 			!refused &&
-			!$userStore?.operator &&
+			editRights.capabilities.code &&
 			editRights.roleCanAuthor('flow') &&
 			(!readOnly || (!draft.noDeployed && !draft.sync.hasDraft))
 	)

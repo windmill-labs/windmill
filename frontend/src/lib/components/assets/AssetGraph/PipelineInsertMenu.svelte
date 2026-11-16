@@ -64,7 +64,7 @@
 		loadDefaultScheduleAdvanced,
 		scheduleAdvancedCfg
 	} from '$lib/components/triggers/schedules/ScheduleAdvancedOptions.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { ArrowLeft, ChevronDown, CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { tick, untrack } from 'svelte'
 	import { arrowTabNav } from '$lib/attachments/arrowTabNav'
@@ -99,6 +99,8 @@
 		scheduleFor,
 		onSchedule
 	}: Props = $props()
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// When there's only one trigger kind, hide the Trigger column entirely
 	// and pre-select it so the user lands directly on the Language picker.
@@ -170,7 +172,7 @@
 	// A new schedule starts from the workspace's default handlers, as in the schedule
 	// drawer. The step cannot be confirmed until they are in.
 	function loadAdvancedDefaults() {
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		if (!ws || config.advancedDefaults !== 'unloaded') return
 		const target = config
 		target.advancedDefaults = 'loading'
@@ -619,7 +621,7 @@
 							     overwrite a handler picked while they load. -->
 							{#if config.advancedDefaults === 'loaded'}
 								<ScheduleAdvancedOptions
-									wsId={$workspaceStore}
+									wsId={$operatingWorkspace}
 									itemKind="script"
 									canWrite
 									bind:errorHandler={config.advanced.errorHandler}
