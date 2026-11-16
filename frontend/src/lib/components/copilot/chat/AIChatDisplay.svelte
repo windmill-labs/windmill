@@ -306,11 +306,22 @@
 		if (!stickyUserMessage || !scrollElement) return
 		let pinned = -1
 		const stickies = scrollElement.querySelectorAll<HTMLElement>('[data-sticky-user]')
+		const top = scrollElement.getBoundingClientRect().top
 		for (const sticky of Array.from(stickies)) {
-			const anchor = anchorOf(sticky)
+			const message = sticky.nextElementSibling
+			const bubble = message?.querySelector('[data-user-bubble]')
+			const anchor = bubble ?? message?.firstElementChild
 			if (!anchor) continue
-			if (anchor.getBoundingClientRect().top > sticky.getBoundingClientRect().top + 0.5) break
-			pinned = Number(sticky.dataset.stickyUser)
+			const stickyRect = sticky.getBoundingClientRect()
+			// An editor's root can start level with the copy (the first message has no top
+			// margin), so it counts only once it has slid under it.
+			const under = bubble
+				? anchor.getBoundingClientRect().top <= stickyRect.top + 0.5
+				: anchor.getBoundingClientRect().top < stickyRect.top - 0.5
+			if (!under) break
+			// A copy its turn has pushed out above the transcript pins nothing: a following turn
+			// without a copy of its own (attachments only) gets the normal top fade back.
+			pinned = stickyRect.bottom > top ? Number(sticky.dataset.stickyUser) : -1
 		}
 		pinnedUserIndex = pinned
 	}
