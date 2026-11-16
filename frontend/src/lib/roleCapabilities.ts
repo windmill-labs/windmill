@@ -5,8 +5,8 @@ import { capabilitiesRestricted, FULL_CAPABILITIES, VISIBILITY_KEYS } from '$lib
 /**
  * What a member's workspace role lets them author, manage and see: the frontend's copy of
  * `windmill_common::roles`, see `docs/workspace-roles.md`. Gate on these, never on
- * `UserExt.operator`, which only says "this role cannot write code" and so lets through a role
- * that may code but not, say, build apps.
+ * `UserExt.operator`: `whoami` sets it for any non-admin whose role is restricted in any way, so
+ * it cannot tell which right is missing (a role that may code but not build apps sets it too).
  */
 
 export type VisibilityKey = keyof RoleVisibility

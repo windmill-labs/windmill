@@ -48,7 +48,6 @@
 	import { openAgentInFlow } from '../agentActions'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
-	import { userStore } from '$lib/stores'
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
@@ -425,15 +424,16 @@
 	}
 
 	// Only where the agent stands alone: opened from a flow's step, it is already in one. Linking
-	// a deployed agent as it is only reads it. Not for operators: the server refuses their flows
-	// a linked agent, and an inlined one's tools may hold code.
+	// a deployed agent as it is only reads it. Offered to whoever could build that flow by hand: a
+	// composing role may link an agent it can read, but an agent never deployed is inlined, and
+	// its tools may hold code, which the server refuses in any flow written at the compose level.
 	let offerFlow = $derived(
 		target?.host === undefined &&
 			draft?.state != undefined &&
 			!draft.loading &&
 			!refused &&
-			!$userStore?.operator &&
 			editRights.roleCanAuthor('flow') &&
+			(!draft.noDeployed || editRights.capabilities.flows === 'full') &&
 			(!readOnly || (!draft.noDeployed && !draft.sync.hasDraft))
 	)
 	let openingFlow = $state(false)
