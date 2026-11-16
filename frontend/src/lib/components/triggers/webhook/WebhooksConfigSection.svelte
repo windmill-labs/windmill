@@ -300,8 +300,10 @@ function waitForJobCompletion(UUID) {
 		const conversation = chat
 			? '# Any string names a conversation: reuse it for follow-ups, pick a new one to start over.\nCONVERSATION=$(uuidgen)\n'
 			: ''
+		// A `'` in an argument would end the single-quoted BODY, so close, escape and reopen it.
+		const body = JSON.stringify(cleanedRunnableArgs ?? {}).replaceAll("'", "'\\''")
 		return `${conversation}TOKEN='${token}'
-${callMethod !== 'get' ? `BODY='${JSON.stringify(cleanedRunnableArgs ?? {})}'` : ''}
+${callMethod !== 'get' ? `BODY='${body}'` : ''}
 ${chat ? `URL="${urlWith('$CONVERSATION')}"` : `URL='${url}'`}
 ${requestType === 'sync' ? 'RESULT=$(' : requestType === 'async' ? 'UUID=$(' : ''}curl -s ${
 			callMethod != 'get' ? "-H 'Content-Type: application/json'" : ''
