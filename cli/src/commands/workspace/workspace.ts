@@ -2,6 +2,7 @@ import { writeFile, open as fsOpen } from "node:fs/promises";
 import { readTextFile } from "../../utils/utils.ts";
 import process from "node:process";
 import { GlobalOptions } from "../../types.ts";
+import type { WorkspaceEntryConfig } from "../../core/conf.ts";
 import {
   getActiveWorkspaceConfigFilePath,
   getWorkspaceConfigFilePath,
@@ -104,17 +105,34 @@ async function branchAutoTargetNote(
     isGitRepository,
   } = await import("../../utils/git.ts");
   const {
-    readConfigFile,
+    peekWorkspaces,
     findWorkspaceByGitBranch,
     getEffectiveWorkspaceId,
     getWorkspaceNames,
   } = await import("../../core/conf.ts");
-  const config = await readConfigFile({ warnIfMissing: false });
+  // Not readConfigFile: a note must never exit, throw or chdir the command.
+  const workspacesConf = await peekWorkspaces();
   const branch = isGitRepository() ? getCurrentGitBranch() : null;
   const originalBranch = branch ? getOriginalBranchForWorkspaceForks(branch) : null;
   const match = branch
-    ? findWorkspaceByGitBranch(config.workspaces, originalBranch ?? branch)
+    ? findWorkspaceByGitBranch(workspacesConf, originalBranch ?? branch)
     : undefined;
+
+  // Without a profile for the target, commands offer to create one and,
+  // when they cannot, may end up on the active profile after all.
+  const profiles = await allWorkspaces(opts.configDir);
+  const missingProfile = (wsName: string, entry: WorkspaceEntryConfig) => {
+    const workspaceId = getEffectiveWorkspaceId(wsName, entry);
+    let remote: string;
+    try {
+      remote = new URL(entry.baseUrl!).toString();
+    } catch {
+      return "";
+    }
+    return profiles.some((p) => p.remote === remote && p.workspaceId === workspaceId)
+      ? ""
+      : ` No local profile targets it yet: run \`wmill workspace add <profile> ${workspaceId} ${remote}\`, otherwise commands may fall back to the active profile.`;
+  };
 
   if (match?.[1].baseUrl) {
     const [wsName, entry] = match;
@@ -125,7 +143,8 @@ async function branchAutoTargetNote(
       );
     }
     return (
-      `Note: git branch \`${branch}\` matches workspace \`${wsName}\` in wmill.yaml — wmill commands here target \`${getEffectiveWorkspaceId(wsName, entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.`
+      `Note: git branch \`${branch}\` matches workspace \`${wsName}\` in wmill.yaml — wmill commands here target \`${getEffectiveWorkspaceId(wsName, entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.` +
+      missingProfile(wsName, entry)
     );
   }
   if (originalBranch) {
@@ -133,18 +152,20 @@ async function branchAutoTargetNote(
     return undefined;
   }
 
-  const wsNames = getWorkspaceNames(config.workspaces);
+  const wsNames = getWorkspaceNames(workspacesConf);
   if (wsNames.length === 1) {
-    if (!(config.workspaces as any)[wsNames[0]]?.baseUrl) {
+    const entry = (workspacesConf as any)[wsNames[0]] as WorkspaceEntryConfig;
+    if (!entry?.baseUrl) {
       return undefined;
     }
     return (
-      `Note: wmill.yaml defines a single workspace — wmill commands here target \`${wsNames[0]}\`, regardless of the active profile. Use --workspace to override.`
+      `Note: wmill.yaml defines a single workspace — wmill commands here target \`${wsNames[0]}\`, regardless of the active profile. Use --workspace to override.` +
+      missingProfile(wsNames[0], entry)
     );
   }
   if (wsNames.length > 1) {
     return (
-      `Note: wmill.yaml defines workspaces ${wsNames.map((n) => `\`${n}\``).join(", ")}, none matching the current git branch — wmill commands here ask which one to use instead of using the active profile. Use --workspace to pick one.`
+      `Note: wmill.yaml defines workspaces ${wsNames.map((n) => `\`${n}\``).join(", ")} and the current git branch selects none of them — wmill commands here ask which one to use, or exit when not run in a terminal. Use --workspace to pick one.`
     );
   }
   return undefined;

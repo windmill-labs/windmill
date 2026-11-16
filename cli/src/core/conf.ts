@@ -225,19 +225,22 @@ export async function peekWorkspaceEntry(
   if (RESERVED_WORKSPACE_KEYS.has(workspaceName)) {
     return undefined;
   }
+  const entry = (await peekWorkspaces())?.[workspaceName];
+  return typeof entry === "object" && entry !== null ? entry : undefined;
+}
+
+/** The whole `workspaces` block, under the same diagnostics-only contract. */
+export async function peekWorkspaces(): Promise<WorkspacesConfig | undefined> {
   const wmillYamlPath = locateWmillYaml();
   if (!wmillYamlPath) {
     return undefined;
   }
   try {
     const conf = (await yamlParseFile(wmillYamlPath)) as SyncOptions;
-    const workspaces =
-      conf?.workspaces ??
+    return (conf?.workspaces ??
       conf?.gitBranches ??
       conf?.environments ??
-      conf?.git_branches;
-    const entry = (workspaces as any)?.[workspaceName];
-    return typeof entry === "object" && entry !== null ? entry : undefined;
+      conf?.git_branches) as WorkspacesConfig | undefined;
   } catch (e) {
     log.debug(`Failed to parse ${wmillYamlPath} for workspace lookup: ${e}`);
     return undefined;
