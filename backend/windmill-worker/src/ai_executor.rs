@@ -1286,7 +1286,9 @@ pub async fn handle_ai_agent_job(
             killpill_rx,
             has_stream,
             has_websearch,
-            omit_output_from_conversation,
+            // A nested agent answers its caller, whose tool message carries that answer into the
+            // chat; its own rows would also be tied to the calling agent's job, not the turn.
+            omit_output_from_conversation || direct_parent_job_kind == JobKind::AIAgent,
             preserve_step_tags,
             cancel_rx,
             tool_abort_handles.clone(),

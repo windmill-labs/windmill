@@ -2,10 +2,13 @@ use axum::{routing::post, Json, Router};
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use std::time::Duration;
+use uuid::Uuid;
 use windmill_common::{flows::FlowValue, jobs::JobPayload};
 use windmill_test_utils::{
     completed_job, in_test_worker, listen_for_completed_jobs, ApiServer, RunJob, StreamFind,
 };
+
+const CONVERSATION: Uuid = Uuid::from_u128(0xc0de);
 
 /// A model that calls every tool it is offered once, then answers.
 async fn model(Json(body): Json<Value>) -> ([(&'static str, &'static str); 1], String) {
@@ -52,7 +55,8 @@ fn record_tool(id: &str) -> Value {
 
 /// A loop body runs as its own flow job, as a subflow does: a tool's `flow_input` and `results`
 /// must be that flow's, as a regular step's are, not the root run's. A nested agent's tools read
-/// the same flow, past the agent calling it.
+/// the same flow, past the agent calling it. In a chat run, only the calling agent writes to the
+/// conversation, and every row it writes belongs to the run.
 #[sqlx::test(fixtures("base"))]
 #[serial_test::serial]
 async fn agent_tool_reads_inputs_of_the_flow_running_the_step(
@@ -70,30 +74,32 @@ async fn agent_tool_reads_inputs_of_the_flow_running_the_step(
         "provider":{"type":"static","value":{"kind":"customai","model":"scope-test","resource":{"base_url":format!("{base}/v1")}}},
         "user_message":{"type":"static","value":"record"}
     });
-    let flow: FlowValue = serde_json::from_value(json!({"modules":[{"id":"loop","value":{
-        "type":"forloopflow",
-        "iterator":{"type":"javascript","expr":"['t1', 't2']"},
-        "skip_failures":false,
-        "modules":[
-            {"id":"a","value":{
-                "type":"rawscript", "language":"bun",
-                "input_transforms":{"topic":{"type":"javascript","expr":"flow_input.iter.value"}},
-                "content":"export async function main(topic: string) { return 'seed-' + topic }"
-            }},
-            {"id":"agent","value":{
-                "type":"aiagent",
-                "tools":[
-                    record_tool("record"),
-                    {"id":"inner","summary":"inner","value":{
-                        "type":"aiagent",
-                        "tools":[record_tool("inner_record")],
-                        "input_transforms":agent_inputs.clone()
-                    }}
-                ],
-                "input_transforms":agent_inputs
-            }}
-        ]
-    }}]}))?;
+    let flow: FlowValue = serde_json::from_value(
+        json!({"chat_input_enabled":true,"modules":[{"id":"loop","value":{
+            "type":"forloopflow",
+            "iterator":{"type":"javascript","expr":"['t1', 't2']"},
+            "skip_failures":false,
+            "modules":[
+                {"id":"a","value":{
+                    "type":"rawscript", "language":"bun",
+                    "input_transforms":{"topic":{"type":"javascript","expr":"flow_input.iter.value"}},
+                    "content":"export async function main(topic: string) { return 'seed-' + topic }"
+                }},
+                {"id":"agent","value":{
+                    "type":"aiagent",
+                    "tools":[
+                        record_tool("record"),
+                        {"id":"inner","summary":"inner","value":{
+                            "type":"aiagent",
+                            "tools":[record_tool("inner_record")],
+                            "input_transforms":agent_inputs.clone()
+                        }}
+                    ],
+                    "input_transforms":agent_inputs
+                }}
+            ]
+        }}]}),
+    )?;
     let id = RunJob::from(JobPayload::RawFlow {
         value: flow,
         path: Some("u/test/agent_tool_scope".into()),
@@ -101,6 +107,22 @@ async fn agent_tool_reads_inputs_of_the_flow_running_the_step(
     })
     .push(&db)
     .await;
+    // What the API does for a chat turn: open the conversation and give the run its id.
+    sqlx::query(
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by)
+         VALUES ($1, 'test-workspace', 'u/test/agent_tool_scope', 'test-user')",
+    )
+    .bind(CONVERSATION)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{memory_id}', to_jsonb($2::uuid))
+         WHERE id = $1",
+    )
+    .bind(id)
+    .bind(CONVERSATION)
+    .execute(&db)
+    .await?;
     let notifications = listen_for_completed_jobs(&db).await;
     tokio::time::timeout(
         Duration::from_secs(60),
@@ -131,5 +153,14 @@ async fn agent_tool_reads_inputs_of_the_flow_running_the_step(
         ],
         "{recorded:?}"
     );
+    // A row the nested agent wrote would carry the calling agent's job as its turn.
+    let turns: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT turn_job_id FROM flow_conversation_message WHERE conversation_id = $1",
+    )
+    .bind(CONVERSATION)
+    .fetch_all(&db)
+    .await?;
+    assert!(!turns.is_empty());
+    assert!(turns.iter().all(|turn| *turn == id), "{turns:?}");
     Ok(())
 }
