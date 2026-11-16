@@ -779,18 +779,23 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	async function dropQueuedRowsCompletedAsSkipped(maxTs: string | null) {
 		const queued = jobs?.filter((x) => x.type == 'QueuedJob') ?? []
 		if (queued.length == 0) return
-		const oldestQueued = queued
-			.map((x) => new Date(x.created_at!).toISOString())
-			.reduce((a, b) => (a < b ? a : b))
-		const after =
-			lastHiddenSkippedTs && lastHiddenSkippedTs > oldestQueued ? lastHiddenSkippedTs : oldestQueued
+		// A listed queued row completes after the list was loaded, so `listLoadedAt` bounds the
+		// first scan. The cursor then moves on every response, empty ones included, so a job
+		// queued for hours does not make each refresh rescan its whole wait. The 5 minute
+		// margin absorbs browser/database skew; completed_after is inclusive.
+		let next = new Date(Date.now() - 5 * 60_000).toISOString()
 		const skipped = (
-			await fetchJobs({ completedBefore: maxTs, completedAfter: after, onlySkipped: true })
+			await fetchJobs({
+				completedBefore: maxTs,
+				completedAfter: lastHiddenSkippedTs ?? listLoadedAt,
+				onlySkipped: true
+			})
 		).filter((x): x is CompletedJob & { type: 'CompletedJob' } => x.type == 'CompletedJob')
 		for (const x of skipped) {
 			const ts = new Date(x.completed_at!).toISOString()
-			if (!lastHiddenSkippedTs || ts > lastHiddenSkippedTs) lastHiddenSkippedTs = ts
+			if (ts > next) next = ts
 		}
+		if (!lastHiddenSkippedTs || next > lastHiddenSkippedTs) lastHiddenSkippedTs = next
 		const skippedIds = new Set(skipped.map((x) => x.id))
 		if (!queued.some((x) => skippedIds.has(x.id))) return
 		jobs = jobs?.filter((x) => !skippedIds.has(x.id))
@@ -854,9 +859,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 							completedAfter: minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
 							createdAfterQueue: queueTs
 						})
-						if (!showSkipped && !isQueueOnly) {
-							await dropQueuedRowsCompletedAsSkipped(maxTs)
-						}
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, minTs ?? completedTs)
@@ -878,6 +880,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 							externalJobs = []
 						}
 						computeCompletedJobs()
+					}
+					// After the merge, which could re-insert a row from the older main response.
+					if ((concurrencyKey == null || concurrencyKey === '') && !showSkipped && !isQueueOnly) {
+						await dropQueuedRowsCompletedAsSkipped(maxTs)
 					}
 					loading = false
 				}
