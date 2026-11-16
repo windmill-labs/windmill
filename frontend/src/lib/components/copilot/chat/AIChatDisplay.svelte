@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createBottomSticker } from '$lib/components/stickToBottom'
 	import AIChatMessage from './AIChatMessage.svelte'
+	import { messageDraft, segments } from './chatDraft'
+	import { lineCountLabel } from './pasteTokens'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ChatContextPicker from './ChatContextPicker.svelte'
 	import WorkspaceMentionPicker from './WorkspaceMentionPicker.svelte'
@@ -133,7 +135,8 @@
 		onAttachmentsChange = undefined,
 		placeholder = undefined,
 		scrollElement = $bindable(),
-		onTranscriptScroll = undefined
+		onTranscriptScroll = undefined,
+		stickyUserMessage = false
 	}: {
 		messages: DisplayMessage[]
 		pastChats: { id: string; title: string }[]
@@ -181,6 +184,9 @@
 		 * needs it to measure and restore the scroll position. */
 		scrollElement?: HTMLDivElement | undefined
 		onTranscriptScroll?: () => void
+		/** Pin a one-line copy of the user message whose turn is being read to the
+		 * transcript's top, once the message itself has scrolled out above it. */
+		stickyUserMessage?: boolean
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
@@ -266,10 +272,62 @@
 		sticker.scrollToEnd(scrollElement)
 	}
 
+	// Each turn (a user message and what follows it, up to the next one) is its own box, so a
+	// sticky copy of its user message stays inside it and the next turn pushes it out.
+	const turns = $derived.by(() => {
+		const out: { key: string; items: typeof chatItems }[] = []
+		for (const item of chatItems) {
+			const startsTurn = item.kind === 'message' && item.message.role === 'user'
+			if (out.length === 0 || (stickyUserMessage && startsTurn)) {
+				out.push({ key: chatItemKey(item), items: [] })
+			}
+			out[out.length - 1].items.push(item)
+		}
+		return out
+	})
+	function userMessageText(message: DisplayMessage): string {
+		return segments(messageDraft(message))
+			.map((seg) => (seg.type === 'text' ? seg.value : `Pasted ${lineCountLabel(seg.att.lines)}`))
+			.join('')
+	}
+	// The sticky copy stays invisible until the real bubble reaches it: the copy sticks 16px
+	// earlier (the message's top margin), so at the hand-over both sit on the same pixels.
+	let pinnedUserIndex = $state(-1)
+	function stickyParts(index: number) {
+		const sticky = scrollElement?.querySelector<HTMLElement>(`[data-sticky-user="${index}"]`)
+		const bubble = scrollElement?.querySelector<HTMLElement>(`[data-user-bubble="${index}"]`)
+		return sticky && bubble ? { sticky, bubble } : undefined
+	}
+	function measurePinnedUserMessage() {
+		if (!stickyUserMessage || !scrollElement) return
+		let pinned = -1
+		for (const sticky of scrollElement.querySelectorAll<HTMLElement>('[data-sticky-user]')) {
+			const index = Number(sticky.dataset.stickyUser)
+			const parts = stickyParts(index)
+			if (!parts) continue
+			if (parts.bubble.getBoundingClientRect().top > sticky.getBoundingClientRect().top + 0.5) {
+				break
+			}
+			pinned = index
+		}
+		pinnedUserIndex = pinned
+	}
+	function scrollToUserMessage(index: number) {
+		const parts = stickyParts(index)
+		if (!scrollElement || !parts) return
+		const offset =
+			parts.bubble.getBoundingClientRect().top - parts.sticky.getBoundingClientRect().top - 16
+		scrollElement.scrollBy({ top: offset, behavior: 'smooth' })
+	}
+
 	let height = $state(0)
 	$effect(() => {
 		if (chatHost.automaticScroll && height) {
 			scrollDown()
+		}
+		// Content growing or shrinking moves the user messages without a scroll event.
+		if (height) {
+			measurePinnedUserMessage()
 		}
 		// Recompute the scroll-to-latest visibility on every content-height
 		// change. `onScroll` only fires for actual scroll events, so without
@@ -296,6 +354,7 @@
 		// whose only event would otherwise be swallowed, leaving the arrow
 		// stuck visible after we already reached the bottom.
 		showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
+		measurePinnedUserMessage()
 		if (sticker.isOwnScroll()) {
 			return
 		}
@@ -971,39 +1030,78 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/if}
 							</p>
 						{/if}
-						<AIChatMessage
-							{message}
-							{messageIndex}
-							{availableContext}
-							bind:editingMessageIndex
-							{isLast}
-							{inGroup}
-							showAnswerActions={showsAnswerActions[messageIndex]}
-						/>
+						{@const hasStickyCopy =
+							stickyUserMessage && message.role === 'user' && message.content.trim() !== ''}
+						{#if hasStickyCopy}
+							{@const pinned =
+								pinnedUserIndex === messageIndex && editingMessageIndex !== messageIndex}
+							<!-- Keeps its full height (the bubble's one line) inside the turn, so the turn's
+							     end pushes it out; the message below takes that height back with -mt-8. -->
+							<div
+								class="sticky top-0 z-10 h-8 px-2 bg-surface pointer-events-none"
+								class:invisible={!pinned}
+								data-sticky-user={messageIndex}
+							>
+								<!-- The transcript's top fade moves under the pinned row: a solid band up to
+								     the scroller's edge above it, the gradient below it. -->
+								<div class="absolute inset-x-0 bottom-full h-4 bg-surface"></div>
+								<div
+									class="absolute inset-x-0 top-full h-4 bg-gradient-to-b from-surface to-transparent"
+								></div>
+								<div class="w-fit max-w-[min(32rem,100%)] rounded-lg bg-surface">
+									<button
+										type="button"
+										class="block w-full text-left text-xs font-normal px-3 py-2 bg-surface-accent-selected text-accent rounded-lg"
+										class:pointer-events-auto={pinned}
+										title="Scroll to this message"
+										onclick={() => scrollToUserMessage(messageIndex)}
+									>
+										<span class="line-clamp-1 whitespace-pre-wrap break-words"
+											>{userMessageText(message)}</span
+										>
+									</button>
+								</div>
+							</div>
+						{/if}
+						<div class={twMerge('flex flex-col min-w-0', hasStickyCopy && '-mt-8')}>
+							<AIChatMessage
+								{message}
+								{messageIndex}
+								{availableContext}
+								bind:editingMessageIndex
+								{isLast}
+								{inGroup}
+								showAnswerActions={showsAnswerActions[messageIndex]}
+							/>
+						</div>
 					{/snippet}
 					{#snippet groupRow(message: DisplayMessage, messageIndex: number)}
 						{@render messageRow(message, messageIndex, false, true)}
 					{/snippet}
-					{#each chatItems as item (chatItemKey(item))}
-						{#if item.kind === 'group'}
-							<div
-								class={twMerge(
-									'mb-1 min-w-0 text-sm px-2 text-primary',
-									item.entries.at(-1)?.index === messages.length - 1 && '!mb-12'
-								)}
-							>
-								<div class="px-[1px]">
-									<ToolGroupDisplay group={item} entry={groupRow} />
-								</div>
-							</div>
-						{:else}
-							{@render messageRow(
-								item.message,
-								item.index,
-								item.index === messages.length - 1,
-								false
-							)}
-						{/if}
+					{#each turns as turn (turn.key)}
+						<div class="flex flex-col min-w-0">
+							{#each turn.items as item (chatItemKey(item))}
+								{#if item.kind === 'group'}
+									<div
+										class={twMerge(
+											'mb-1 min-w-0 text-sm px-2 text-primary',
+											item.entries.at(-1)?.index === messages.length - 1 && '!mb-12'
+										)}
+									>
+										<div class="px-[1px]">
+											<ToolGroupDisplay group={item} entry={groupRow} />
+										</div>
+									</div>
+								{:else}
+									{@render messageRow(
+										item.message,
+										item.index,
+										item.index === messages.length - 1,
+										false
+									)}
+								{/if}
+							{/each}
+						</div>
 					{/each}
 					{#if freeTierExhausted}
 						{@render freeTierExhaustedBanner()}
@@ -1036,7 +1134,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				</div>
 			</div>
 			<!-- Sits below the scroll-to-latest button, which carries z-10. -->
-			<ScrollFade scroller={scrollElement} />
+			<ScrollFade
+				scroller={scrollElement}
+				class={pinnedUserIndex >= 0 && editingMessageIndex !== pinnedUserIndex ? 'hidden' : ''}
+			/>
 			{#if showScrollToLatest}
 				<div
 					transition:fade={{ duration: 120 }}
