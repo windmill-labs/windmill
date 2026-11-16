@@ -130,7 +130,8 @@
 									</div>
 								</Cell>
 								<Cell>
-									<GroupInfo {name} />
+									<!-- A new `groups` array means a reload: refetch the members too. -->
+									<GroupInfo {name} reloadKey={groups} />
 								</Cell>
 								<Cell last actions shouldStopPropagation>
 									<Dropdown

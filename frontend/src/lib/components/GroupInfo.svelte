@@ -6,9 +6,11 @@
 
 	interface Props {
 		name: string
+		/** Members are refetched whenever this changes. */
+		reloadKey?: unknown
 	}
 
-	let { name }: Props = $props()
+	let { name, reloadKey }: Props = $props()
 
 	let members: string[] | undefined = $state([])
 
@@ -39,6 +41,7 @@
 		}
 	}
 	$effect(() => {
+		reloadKey
 		$workspaceStore && untrack(() => loadMembers())
 	})
 </script>
