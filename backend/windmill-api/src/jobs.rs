@@ -2443,11 +2443,12 @@ async fn job_runnables(db: &DB, w_id: &str, ids: &[Uuid]) -> error::Result<Vec<J
                             ) = 'flow' THEN 'flow' ELSE 'script' END
                 END AS acl_kind
             FROM v2_job s
-            -- Only a job with no runnable of its own climbs: a run started from another job
-            -- (the SDK's `parent_job`) is still a run of its own runnable.
+            -- A flow's step, of whatever kind, climbs. A run started from another job (the SDK's
+            -- `parent_job`, no `flow_step_id`) is still a run of its own runnable.
             JOIN v2_job j ON j.workspace_id = s.workspace_id AND j.id = CASE
-                WHEN s.kind IN ('script', 'script_hub', 'unassigned_script', 'preview', 'flow',
-                    'unassigned_flow', 'flowpreview', 'singlestepflow', 'unassigned_singlestepflow')
+                WHEN s.flow_step_id IS NULL AND s.kind IN ('script', 'script_hub',
+                    'unassigned_script', 'preview', 'flow', 'unassigned_flow', 'flowpreview',
+                    'singlestepflow', 'unassigned_singlestepflow')
                     THEN s.id
                 ELSE COALESCE((SELECT r.id FROM v2_job r
                     WHERE r.id = COALESCE(s.root_job, s.flow_innermost_root_job, s.parent_job)
