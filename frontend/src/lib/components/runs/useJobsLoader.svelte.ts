@@ -36,6 +36,7 @@ interface JobsQuery {
 	createdAfter?: string
 	createdAfterQueue?: string
 	perPage?: number
+	includeSkipped?: boolean
 }
 
 export function computeJobKinds(jobKindsCat: string | null): string {
@@ -447,7 +448,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		createdBefore,
 		createdAfter,
 		createdAfterQueue,
-		perPage: perPageOverride
+		perPage: perPageOverride,
+		includeSkipped
 	}: JobsQuery): CancelablePromise<Job[]> {
 		loadingFetch = true
 		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
@@ -478,7 +480,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					: success == 'waiting'
 						? false
 						: undefined,
-			isSkipped: showSkipped ? undefined : false,
+			isSkipped: showSkipped || includeSkipped ? undefined : false,
 			resolved:
 				resolutionFilter === 'resolved'
 					? true
@@ -817,11 +819,28 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						// unbounded scan of completed jobs, possibly the one that just timed out. Not for
 						// queue-only views: fetchJobs turns this into the queue's created_at bound, hiding
 						// older jobs that suspend or come due. The margin absorbs browser/database skew.
+						// Skipped jobs are fetched even when hidden: a job listed while queued that
+						// then completes as skipped (e.g. debounced) must remove its queued row,
+						// which would otherwise stay as "Waiting executor" until a reload.
 						newJobs = await fetchJobs({
 							completedBefore: maxTs,
 							completedAfter: minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
-							createdAfterQueue: queueTs
+							createdAfterQueue: queueTs,
+							includeSkipped: true
 						})
+						if (!showSkipped) {
+							const skippedIds = new Set(
+								newJobs.filter((x) => x.type == 'CompletedJob' && x.is_skipped).map((x) => x.id)
+							)
+							if (skippedIds.size > 0) {
+								newJobs = newJobs.filter((x) => !skippedIds.has(x.id))
+								jobs = jobs?.filter((x) => !skippedIds.has(x.id))
+								if (extendedJobs) {
+									extendedJobs.jobs = extendedJobs.jobs.filter((x) => !skippedIds.has(x.id))
+								}
+								computeCompletedJobs()
+							}
+						}
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, minTs ?? completedTs)
