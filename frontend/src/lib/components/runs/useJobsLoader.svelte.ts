@@ -36,7 +36,7 @@ interface JobsQuery {
 	createdAfter?: string
 	createdAfterQueue?: string
 	perPage?: number
-	includeSkipped?: boolean
+	onlySkipped?: boolean
 }
 
 export function computeJobKinds(jobKindsCat: string | null): string {
@@ -449,7 +449,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		createdAfter,
 		createdAfterQueue,
 		perPage: perPageOverride,
-		includeSkipped
+		onlySkipped
 	}: JobsQuery): CancelablePromise<Job[]> {
 		loadingFetch = true
 		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
@@ -480,7 +480,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					: success == 'waiting'
 						? false
 						: undefined,
-			isSkipped: showSkipped || includeSkipped ? undefined : false,
+			isSkipped: onlySkipped ? true : showSkipped ? undefined : false,
 			resolved:
 				resolutionFilter === 'resolved'
 					? true
@@ -770,10 +770,35 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	let lastQueueTs: string | undefined = undefined
 	let listLoadedAt: string | null = null
-	// Hidden skipped jobs never enter `jobs`, so the completed_at cursor read from it would
-	// stay behind them and every refresh would refetch them, up to filling per_page and
-	// pushing out visible completions.
 	let lastHiddenSkippedTs: string | null = null
+
+	// With skipped jobs hidden, the refresh never returns a listed queued job that completes
+	// as skipped (e.g. debounced), so its row would stay as "Waiting executor" until a reload.
+	// Skipped jobs are fetched in their own request so they never take the refresh's
+	// per_page slots from visible completions.
+	async function dropQueuedRowsCompletedAsSkipped(maxTs: string | null) {
+		const queued = jobs?.filter((x) => x.type == 'QueuedJob') ?? []
+		if (queued.length == 0) return
+		const oldestQueued = queued
+			.map((x) => new Date(x.created_at!).toISOString())
+			.reduce((a, b) => (a < b ? a : b))
+		const after =
+			lastHiddenSkippedTs && lastHiddenSkippedTs > oldestQueued ? lastHiddenSkippedTs : oldestQueued
+		const skipped = (
+			await fetchJobs({ completedBefore: maxTs, completedAfter: after, onlySkipped: true })
+		).filter((x): x is CompletedJob & { type: 'CompletedJob' } => x.type == 'CompletedJob')
+		for (const x of skipped) {
+			const ts = new Date(x.completed_at!).toISOString()
+			if (!lastHiddenSkippedTs || ts > lastHiddenSkippedTs) lastHiddenSkippedTs = ts
+		}
+		const skippedIds = new Set(skipped.map((x) => x.id))
+		if (!queued.some((x) => skippedIds.has(x.id))) return
+		jobs = jobs?.filter((x) => !skippedIds.has(x.id))
+		if (extendedJobs) {
+			extendedJobs.jobs = extendedJobs.jobs.filter((x) => !skippedIds.has(x.id))
+		}
+		computeCompletedJobs()
+	}
 
 	async function syncer() {
 		if (loadingFetch) {
@@ -824,35 +849,13 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						// unbounded scan of completed jobs, possibly the one that just timed out. Not for
 						// queue-only views: fetchJobs turns this into the queue's created_at bound, hiding
 						// older jobs that suspend or come due. The margin absorbs browser/database skew.
-						// Skipped jobs are fetched even when hidden: a job listed while queued that
-						// then completes as skipped (e.g. debounced) must remove its queued row,
-						// which would otherwise stay as "Waiting executor" until a reload.
-						const visibleCursor = completedTs ?? (isQueueOnly ? null : listLoadedAt)
 						newJobs = await fetchJobs({
 							completedBefore: maxTs,
-							completedAfter:
-								minTs ??
-								(visibleCursor && lastHiddenSkippedTs && lastHiddenSkippedTs > visibleCursor
-									? lastHiddenSkippedTs
-									: visibleCursor),
-							createdAfterQueue: queueTs,
-							includeSkipped: true
+							completedAfter: minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
+							createdAfterQueue: queueTs
 						})
-						if (!showSkipped) {
-							const skipped = newJobs.filter((x) => x.type == 'CompletedJob' && x.is_skipped)
-							const skippedIds = new Set(skipped.map((x) => x.id))
-							if (skippedIds.size > 0) {
-								for (const x of skipped) {
-									const ts = new Date((x as CompletedJob).completed_at!).toISOString()
-									if (!lastHiddenSkippedTs || ts > lastHiddenSkippedTs) lastHiddenSkippedTs = ts
-								}
-								newJobs = newJobs.filter((x) => !skippedIds.has(x.id))
-								jobs = jobs?.filter((x) => !skippedIds.has(x.id))
-								if (extendedJobs) {
-									extendedJobs.jobs = extendedJobs.jobs.filter((x) => !skippedIds.has(x.id))
-								}
-								computeCompletedJobs()
-							}
+						if (!showSkipped && !isQueueOnly) {
+							await dropQueuedRowsCompletedAsSkipped(maxTs)
 						}
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
