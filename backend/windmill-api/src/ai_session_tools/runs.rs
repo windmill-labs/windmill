@@ -684,15 +684,6 @@ pub(super) async fn start_run(
     let message = |e: String| api_message(&e).to_string();
     match target {
         RunTarget::ScriptPreview { path, language, content, preprocessor } => {
-            // Only `test_run_code` previews code with no item behind it, and both the chat
-            // and MCP start it here.
-            if path.is_none() {
-                windmill_common::feature_usage::log_feature_usage(
-                    "code_mode",
-                    "program_run",
-                    language,
-                );
-            }
             let mut with_entrypoint = Map::new();
             if *preprocessor {
                 with_entrypoint.insert("_ENTRYPOINT_OVERRIDE".into(), "preprocessor".into());
@@ -1042,6 +1033,11 @@ async fn test_run_code(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             .await;
             let mut notes = prepared.notes;
             if let Ok(id) = &started {
+                windmill_common::feature_usage::log_feature_usage(
+                    "code_mode",
+                    "program_run",
+                    &lang,
+                );
                 notes.push(format!("Job id: {id}"));
             }
             conclude(ctx, args, notes, started, "code", false, "test").await

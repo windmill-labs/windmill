@@ -2005,9 +2005,11 @@ async fn save_preview(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .get(&ctx.ws(&format!("jobs_u/get/{}?no_logs=true", enc(job_id))))
         .await
         .map_err(|e| format!("Could not read job {job_id}: {}", api_message(&e)))?;
-    if job["job_kind"] != "preview" {
+    // `test_run_code` files its preview under no path; a preview filed under one ran a
+    // draft or an app's inline runnable, which belongs where it came from.
+    if job["job_kind"] != "preview" || !job["script_path"].is_null() {
         return Err(format!(
-            "Job {job_id} is not a script preview, so there is no code of its own to save."
+            "Job {job_id} is not a test_run_code preview, so there is no code of its own to save."
         ));
     }
     if job["created_by"].as_str() != Some(ctx.auth.username.as_str()) {

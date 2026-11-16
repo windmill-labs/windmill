@@ -5603,6 +5603,7 @@ async function testRunCode(
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 			startJob: async (submitted) => {
 				jobId = await startPreparedRun('test_run_code', ctx, prepared.target, submitted)
+				logFeatureUsage('code_mode', 'program_run', { key: lang })
 				return jobId
 			}
 		},
