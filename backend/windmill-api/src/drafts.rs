@@ -47,7 +47,8 @@ pub fn workspaced_service() -> Router {
 pub struct DraftListItem {
     pub kind: UserDraftItemKind,
     pub path: String,
-    /// Best-effort, read from the draft JSON's `summary` field when present.
+    /// Best-effort, read from the draft JSON's `summary` field when present, or its
+    /// `description` for an agent's draft.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     /// User-typed friendly path read from the draft JSON's `draft_path` (set by
@@ -57,6 +58,10 @@ pub struct DraftListItem {
     /// home-page list endpoints.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_path: Option<String>,
+    /// A `resource` draft's type: the deployed row's, which a deploy keeps, else the one the
+    /// draft names. Tells an agent's draft apart without reading each one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_type: Option<String>,
     /// No deployed counterpart exists at this path — the draft is the whole
     /// item. Kinds without a per-path backing table report `true`.
     pub draft_only: bool,
@@ -250,16 +255,20 @@ fn list_drafts_query(all_users: bool) -> String {
                   d.path,
                   d.typ AS kind,
                   d.created_at,
-                  d.value ->> 'summary' AS summary,
+                  -- An agent's summary is its resource's description.
+                  CASE WHEN rt.resource_type = 'ai_agent'
+                       THEN d.value ->> 'description'
+                       ELSE d.value ->> 'summary' END AS summary,
+                  rt.resource_type,
                   {draft_users} AS draft_users,
                   -- Friendly typed path, by kind (mirrors the home-page list
-                  -- endpoints): scripts bind the Path widget to `script.path`,
-                  -- so it round-trips through the draft JSON's own `path`;
+                  -- endpoints): scripts and agents bind the Path widget to the
+                  -- item's own `path`, so it round-trips through the draft JSON's `path`;
                   -- flows/apps/raw-apps carry a separate `draft_path`. NULLIF
                   -- drops it when empty or equal to the storage path.
                   NULLIF(
                     NULLIF(
-                      CASE WHEN d.typ::text = 'script'
+                      CASE WHEN d.typ::text = 'script' OR rt.resource_type = 'ai_agent'
                            THEN d.value ->> 'path'
                            ELSE d.value ->> 'draft_path' END,
                       ''),
@@ -280,6 +289,13 @@ fn list_drafts_query(all_users: bool) -> String {
                        )
                   END AS unchanged_from_parent
            FROM draft d
+           LEFT JOIN LATERAL (
+             SELECT COALESCE(
+               (SELECT r.resource_type FROM resource r
+                WHERE r.workspace_id = d.workspace_id AND r.path = d.path),
+               d.value ->> 'resource_type') AS resource_type
+             WHERE d.typ = 'resource'
+           ) rt ON true
            WHERE d.workspace_id = $1{owner_filter}
            ORDER BY d.path, d.typ,
                     CASE WHEN d.email = $2 THEN 0 WHEN d.email IS NULL THEN 1 ELSE 2 END"#

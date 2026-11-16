@@ -28,7 +28,7 @@
 		RefreshCw,
 		X
 	} from 'lucide-svelte'
-	import { DynamicInput, sendUserToast, type StateStore } from '$lib/utils'
+	import { apiErrorMessage, DynamicInput, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
@@ -234,7 +234,7 @@
 			// The chat follows the turn its conversation is still answering rather than
 			// reporting a failed run, so the refusal goes back to it.
 			if (conversationId && e instanceof ApiError && e.status === 409) throw e
-			sendUserToast('Could not run preview', true, undefined, e.toString())
+			sendUserToast('Could not run preview', true, undefined, apiErrorMessage(e))
 		}
 		schemaFormWithArgPicker?.refreshHistory()
 		return newJobId

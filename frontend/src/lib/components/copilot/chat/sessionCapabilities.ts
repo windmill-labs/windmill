@@ -48,6 +48,9 @@ export type SessionCapability =
 	| 'manage_schedules'
 	/** The same gate on the trigger routers, read from `manage_triggers`. */
 	| 'manage_triggers'
+	/** Passes `check_role_can_run` and the jobs router's run gate: the role's `run`. A role without
+	 * it reads only, as the MCP server holds it. */
+	| 'run'
 	/** Passes `require_admin`. */
 	| 'admin'
 	/** Held by every role. A read-only session, in a protected workspace or in Use mode, lacks it
@@ -62,10 +65,13 @@ export function isReadOnlyAccess(access: SessionAccess | undefined): boolean {
 	return !!access && !access.has('modify_workspace')
 }
 
-/** What a session in Use mode holds whatever the user's role: nothing, as in a protected
- * workspace. Fixed rather than narrowed from the resolved access, so Use ships no write while
- * that check is still in flight. */
-export const USE_MODE_ACCESS: SessionAccess = new Set()
+/** What a session in Use mode holds whatever the user's role: running deployed items, as in a
+ * protected workspace. Fixed rather than narrowed from the resolved access, so Use ships no
+ * write while that check is still in flight. */
+export const USE_MODE_ACCESS: SessionAccess = new Set(['run'])
+
+/** A read-only session that cannot run either: a role without `run`. */
+export const NO_RUN_ACCESS: SessionAccess = new Set()
 
 /** `buildsAnything`, read off a session's access. `undefined` access answers true, as the
  * toolset filter does. */
@@ -104,6 +110,7 @@ export const WRITE_VARIABLE_DRAFT: SessionToolPolicy = ['write_variable_draft']
 export const RUN_PREVIEW: SessionToolPolicy = ['run_preview']
 export const RUN_FLOW_PREVIEW: SessionToolPolicy = ['run_flow_preview']
 export const DEPLOY: SessionToolPolicy = ['deploy']
+export const RUN: SessionToolPolicy = ['run']
 
 /** Editors a session can open. Every editor autosaves a draft, so it needs the draft
  * capability of its kind; a pipeline's nodes are script drafts. */

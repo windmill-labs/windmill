@@ -34,6 +34,8 @@ export interface DraftItem {
 	legacy_draft: boolean
 	/** App is a raw app (deploys via the raw-app endpoints). Always false for non-apps. */
 	raw_app: boolean
+	/** A `resource` draft's type; `ai_agent` for an agent's. */
+	resource_type?: string
 	/** Current user may deploy/discard this draft — matches the server-side check.
 	 * Defaults to true when the field is absent (older backend) so a frontend
 	 * running ahead of the API doesn't disable every action; the deploy/discard
@@ -74,6 +76,7 @@ export async function getDraftItems(
 		draft_only: r.draft_only,
 		legacy_draft: r.legacy_draft,
 		raw_app: r.kind === 'raw_app',
+		resource_type: r.resource_type,
 		can_write: r.can_write ?? true,
 		draft_users: r.draft_users,
 		mine: r.mine ?? true,

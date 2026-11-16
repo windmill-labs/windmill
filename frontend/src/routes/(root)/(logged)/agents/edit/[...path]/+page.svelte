@@ -12,9 +12,10 @@
 	let path = $derived(page.params.path ?? '')
 	/** Set by `/agents/add` on the path it minted: a missing agent there is a new one, not an error. */
 	let isNew = $derived(page.url.searchParams.get('new_draft') === 'true')
+	let template = $derived(page.url.searchParams.get('template') ?? undefined)
 
 	$effect(() => {
-		const target = { path, isNew }
+		const target = { path, isNew, template }
 		untrack(() => {
 			openAgentEditor(target)
 			if (!isNew) recordRecent(target.path)

@@ -49,6 +49,8 @@ pub struct RunJobQuery {
     pub poll_delay_ms: Option<u64>,
     /// Any string; see [`RunJobQuery::memory_key`].
     pub memory_id: Option<String>,
+    /// Stop the run that holds `memory_id` and run this one instead of being refused.
+    pub take_over: Option<bool>,
     pub trigger_external_id: Option<String>,
     pub service_name: Option<String>,
     pub suspended_mode: Option<bool>,

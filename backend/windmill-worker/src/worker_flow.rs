@@ -4249,24 +4249,26 @@ async fn push_next_flow_job(
                     };
 
                     resume_messages.push(to_raw_value(&js));
-                    audit_log(
-                        &mut *tx,
-                        &audit_author,
-                        "jobs.suspend_resume",
-                        ActionKind::Update,
-                        &flow_job.workspace_id,
-                        flow_job.runnable_path.as_deref(),
-                        Some(HashMap::from([
-                            ("approved", "false"),
-                            ("job_id", flow_job.id.to_string().as_str()),
-                            (
-                                "details",
-                                "Suspend timed out without approval but can continue",
-                            ),
-                        ])),
-                    )
-                    .warn_after_seconds(3)
-                    .await?;
+                    if is_disapproved.is_none() {
+                        audit_log(
+                            &mut *tx,
+                            &audit_author,
+                            "jobs.suspend_resume",
+                            ActionKind::Update,
+                            &flow_job.workspace_id,
+                            flow_job.runnable_path.as_deref(),
+                            Some(HashMap::from([
+                                ("approved", "false"),
+                                ("job_id", flow_job.id.to_string().as_str()),
+                                (
+                                    "details",
+                                    "Suspend timed out without approval but can continue",
+                                ),
+                            ])),
+                        )
+                        .warn_after_seconds(3)
+                        .await?;
+                    }
                 }
 
                 sqlx::query!(

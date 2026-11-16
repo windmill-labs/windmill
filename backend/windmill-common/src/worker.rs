@@ -308,6 +308,25 @@ pub fn max_job_duration_secs(cloud_premium_workspace: bool) -> u64 {
     }
 }
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
+
+/// `background_task_state` row the workspace fairness refresh writes [`WorkspaceFairnessState`]
+/// to. Only pulls drive the refresh, so a row whose `updated_at` is old means no worker has
+/// pulled lately, not that nothing is overloaded.
+pub const WORKSPACE_FAIRNESS_STATE_NAME: &str = "workspace_fairness";
+
+#[derive(Serialize, Deserialize, Default, Debug)]
+pub struct WorkspaceFairnessState {
+    #[serde(default)]
+    pub overloaded: Vec<String>,
+    /// Admission probability for capped pulls in parts per 10_000. Absent in rows written
+    /// before it existed, which leaves the admission atomic at its default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admission_ppm: Option<u32>,
+    /// When each workspace in `overloaded` entered the list in its current episode of being
+    /// capped, carried across refreshes until it leaves.
+    #[serde(default)]
+    pub capped_since: HashMap<String, chrono::DateTime<chrono::Utc>>,
+}
 /// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
 /// the setting is cleared or malformed.
 pub const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
@@ -489,13 +508,15 @@ lazy_static::lazy_static! {
         native_mode: false,
         object_store_cache_config: Default::default(),
         paused: false,
+        fairness_reserve: false,
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKER_PULL_QUERIES_FAIRNESS: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKER_SUSPENDED_PULL_QUERY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
+    pub static ref WORKER_SUSPENDED_PULL_QUERY_FAIRNESS: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
 
-    // Workspace fairness (cloud-only). When enabled, a workspace whose footprint over the rolling
+    // Workspace fairness (Enterprise). When enabled, a workspace whose footprint over the rolling
     // `WORKSPACE_FAIRNESS_DURATION_SECS` window represents >= `WORKSPACE_FAIRNESS_MAX_PERCENT`% of
     // all worker activity gets excluded from the pull query, freeing slots for other workspaces.
     // The list of overloaded workspaces is computed cluster-wide via a single coordinated UPDATE
@@ -655,6 +676,18 @@ pub static DEDICATED_WORKER_RELOAD: std::sync::LazyLock<tokio::sync::Notify> =
     std::sync::LazyLock::new(tokio::sync::Notify::new);
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
+/// The server's error message, which callers match on to tell a retryable refusal (a volume
+/// leased or being written by another worker) from a failure.
+async fn agent_error_body(response: reqwest::Response) -> String {
+    response
+        .text()
+        .await
+        .unwrap_or_default()
+        .chars()
+        .take(1000)
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct HttpClient {
     pub client: ClientWithMiddleware,
@@ -693,11 +726,12 @@ impl HttpClient {
         if status.is_success() {
             Ok(response.json().await?)
         } else {
-            Err(anyhow::anyhow!(format!(
-                "HTTP agent request POST {} failed {}",
+            Err(anyhow::anyhow!(
+                "HTTP agent request POST {} failed {}: {}",
                 url,
-                response.status()
-            )))
+                status,
+                agent_error_body(response).await
+            ))
         }
     }
 
@@ -713,11 +747,12 @@ impl HttpClient {
         if status.is_success() {
             Ok(response.json().await?)
         } else {
-            Err(anyhow::anyhow!(format!(
-                "HTTP agent request GET {} failed {}",
+            Err(anyhow::anyhow!(
+                "HTTP agent request GET {} failed {}: {}",
                 url,
-                response.status()
-            )))
+                status,
+                agent_error_body(response).await
+            ))
         }
     }
 
@@ -853,29 +888,43 @@ fn format_pull_query(peek: String) -> String {
 // sync with `queue_suspended_v2` (migration 20260826202939): if it no longer matches, the
 // test silently reverts to a heap filter over every suspended row on every worker poll.
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
+    suspended_pull_query(tags, "")
+}
+
+/// [`make_suspended_pull_query`] leaving out the workspaces bound as `$2::text[]`.
+pub fn make_suspended_pull_query_fairness(tags: &[String]) -> String {
+    suspended_pull_query(tags, "AND workspace_id <> ALL($2::text[])")
+}
+
+fn suspended_pull_query(tags: &[String], extra_filter: &str) -> String {
     format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
         WHERE suspend_until IS NOT NULL
           AND (CASE WHEN suspend <= 0 THEN '-infinity'::timestamptz ELSE suspend_until END) <= now()
           AND tag IN ({})
+          {extra_filter}
         ORDER BY priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
         tags.iter().map(|x| format!("'{x}'")).join(", ")
     ))
 }
-// pub async fn make_suspended
+
 pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
     // An empty tag list must clear the query: keeping the previous one would leave a reloaded
     // worker pulling suspended jobs for tags it no longer listens to.
-    let query = if wc.worker_tags.is_empty() {
+    let (query, fairness_query) = if wc.worker_tags.is_empty() {
         tracing::error!("Empty tags in worker tags, pulling no suspended jobs");
-        String::new()
+        (String::new(), String::new())
     } else {
-        make_suspended_pull_query(&wc.worker_tags)
+        (
+            make_suspended_pull_query(&wc.worker_tags),
+            make_suspended_pull_query_fairness(&wc.worker_tags),
+        )
     };
     WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
+    WORKER_SUSPENDED_PULL_QUERY_FAIRNESS.store(std::sync::Arc::new(fairness_query));
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
@@ -2910,6 +2959,17 @@ pub async fn load_worker_config(
     let native_mode = is_native_mode_from_env() || config.native_mode.unwrap_or(false);
     NATIVE_MODE_RESOLVED.store(native_mode, std::sync::atomic::Ordering::Relaxed);
 
+    // Fairness needs an Enterprise license, which a CE build (`private` included) never has, so
+    // no workspace would ever be overloaded and a reserve worker would idle forever.
+    let fairness_reserve = config.fairness_reserve.unwrap_or(false);
+    if fairness_reserve && !cfg!(feature = "enterprise") {
+        tracing::warn!(
+            "fairness_reserve is set on worker group {} but requires an Enterprise build, ignoring it",
+            *WORKER_GROUP
+        );
+    }
+    let fairness_reserve = fairness_reserve && cfg!(feature = "enterprise");
+
     Ok(WorkerConfig {
         worker_tags,
         priority_tags_sorted,
@@ -2933,6 +2993,7 @@ pub async fn load_worker_config(
         native_mode,
         object_store_cache_config: config.object_store_cache_config,
         paused: config.paused.unwrap_or(false),
+        fairness_reserve,
     })
 }
 
@@ -3133,6 +3194,7 @@ pub struct WorkerConfigOpt {
     pub object_store_cache_config: Option<serde_json::Value>,
     pub paused: Option<bool>,
     pub serves_dev_workspaces: Option<bool>,
+    pub fairness_reserve: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -3155,6 +3217,7 @@ impl Default for WorkerConfigOpt {
             object_store_cache_config: Default::default(),
             paused: Default::default(),
             serves_dev_workspaces: Default::default(),
+            fairness_reserve: Default::default(),
         }
     }
 }
@@ -3182,12 +3245,15 @@ pub struct WorkerConfig {
     /// The group pulls no job from the queue: its workers finish what they hold, keep pinging
     /// and leave queued jobs for when it is resumed.
     pub paused: bool,
+    /// Pulls nothing while no workspace is overloaded, and otherwise only jobs of the workspaces
+    /// that are not. See "Reserve workers" in `windmill_queue::workspace_fairness`.
+    pub fairness_reserve: bool,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, disable_job_proxy: {:?}, native_mode: {:?}, paused: {:?}, object_store_cache_config: {} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.disable_job_proxy, self.native_mode, self.paused,
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, disable_job_proxy: {:?}, native_mode: {:?}, paused: {:?}, fairness_reserve: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.disable_job_proxy, self.native_mode, self.paused, self.fairness_reserve,
         // holds bucket credentials
         self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }
@@ -3962,7 +4028,10 @@ mod tests {
     #[test]
     fn dedicated_worker_patterns_are_script_folders() {
         assert_eq!(dedicated_worker_pattern_prefix("f/dw/*"), Some("f/dw/"));
-        assert_eq!(dedicated_worker_pattern_prefix("u/alice/*"), Some("u/alice/"));
+        assert_eq!(
+            dedicated_worker_pattern_prefix("u/alice/*"),
+            Some("u/alice/")
+        );
         assert_eq!(dedicated_worker_pattern_prefix("f/dw/script"), None);
         assert_eq!(dedicated_worker_pattern_prefix("f/dw*"), None);
         assert_eq!(dedicated_worker_pattern_prefix("/*"), None);

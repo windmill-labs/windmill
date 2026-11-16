@@ -1,8 +1,5 @@
 <script lang="ts">
-	import { Brain, ChevronDown } from 'lucide-svelte'
-	import DropdownV2 from './DropdownV2.svelte'
-	import Button from './common/button/Button.svelte'
-	import type { Item } from '$lib/utils'
+	import Select from './select/Select.svelte'
 	import type { AIProvider } from '$lib/gen'
 	import { getReasoningCapability, explicitOffToken } from './copilot/reasoningRegistry'
 
@@ -40,28 +37,17 @@
 	// reason by default keep a distinct "Model default" plus an explicit off.
 	let offViaOmission = $derived(capability.canDisable && offToken === undefined)
 
-	// Label shown on the trigger for the current selection.
-	let currentLabel = $derived(
-		!value ? (offViaOmission ? 'off' : 'Model default') : value === offToken ? 'off' : value
-	)
+	// Select cannot show an item for an undefined value, so the unset effort is
+	// carried by this sentinel and mapped back to undefined on write.
+	const UNSET = '__model_default__'
 
-	let items = $derived.by((): Item[] => {
-		const opts: Item[] = [
-			{
-				displayName: offViaOmission ? 'off' : 'Model default',
-				selected: !value,
-				action: () => (value = undefined)
-			}
-		]
+	let items = $derived.by(() => {
+		const opts = [{ label: offViaOmission ? 'off' : 'Model default', value: UNSET }]
 		if (capability.canDisable && offToken !== undefined) {
-			opts.push({
-				displayName: 'off',
-				selected: value === offToken,
-				action: () => (value = offToken)
-			})
+			opts.push({ label: 'off', value: offToken })
 		}
 		for (const level of capability.levels) {
-			opts.push({ displayName: level, selected: value === level, action: () => (value = level) })
+			opts.push({ label: level, value: level })
 		}
 		return opts
 	})
@@ -87,20 +73,10 @@
 {:else if !capability.supported}
 	<div class="text-xs text-tertiary">The selected model does not support reasoning effort.</div>
 {:else}
-	<DropdownV2 {items} {disabled} placement="bottom-start" fixedHeight={false} class="justify-start">
-		{#snippet buttonReplacement()}
-			<Button
-				nonCaptureEvent
-				{disabled}
-				unifiedSize="xs"
-				variant="default"
-				startIcon={{ icon: Brain }}
-				endIcon={{ icon: ChevronDown }}
-				btnClasses="w-full justify-between font-normal text-secondary"
-				title="Reasoning effort"
-			>
-				<span class="truncate">{currentLabel}</span>
-			</Button>
-		{/snippet}
-	</DropdownV2>
+	<Select
+		{items}
+		bind:value={() => value ?? UNSET, (v) => (value = !v || v === UNSET ? undefined : v)}
+		{disabled}
+		clearable={false}
+	/>
 {/if}

@@ -251,6 +251,109 @@ pub fn resolve_registry_config(
     None
 }
 
+/// Check the instance `oauths` setting before it is written. Each problem names its
+/// entry. Without this, a bad entry is dropped when clients are built, or fails the
+/// parse of the whole map so that every provider disappears, and only a log line says so.
+/// Entries identical to the stored `previous` value are skipped: one saved before this
+/// check existed must not block a save that does not touch it.
+pub fn validate_oauths_setting(
+    value: &serde_json::Value,
+    previous: Option<&serde_json::Value>,
+    connect_configs_json: &str,
+) -> Result<(), String> {
+    if value.is_null() {
+        return Ok(());
+    }
+    let serde_json::Value::Object(entries) = value else {
+        return Err("the OAuth setting must be an object keyed by client name".to_string());
+    };
+    let registry = serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+        .map_err(|e| format!("parsing oauth_connect.json: {e}"))?;
+    let mut errors = vec![];
+    for (name, raw) in entries {
+        if previous.and_then(|p| p.get(name)) == Some(raw) {
+            continue;
+        }
+        if let Err(e) = validate_oauth_entry(name, raw, &registry) {
+            errors.push(format!("{name}: {e}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+fn validate_oauth_entry(
+    name: &str,
+    raw: &serde_json::Value,
+    registry: &HashMap<String, OAuthConfig>,
+) -> Result<(), String> {
+    let entry: OAuthClient = serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
+    for gt in &entry.grant_types {
+        if gt != "authorization_code" && gt != "client_credentials" {
+            return Err(format!("unknown grant type '{gt}'"));
+        }
+    }
+    for cfg in [&entry.connect_config, &entry.login_config]
+        .into_iter()
+        .flatten()
+    {
+        for url in [&cfg.auth_url, &cfg.token_url] {
+            if !url.is_empty() {
+                Url::parse(url).map_err(|e| format!("invalid URL '{url}': {e}"))?;
+            }
+        }
+    }
+    let registry_entry = resolve_registry_config(registry, name);
+    // The settings page builds a per-instance provider's URLs from the instance name it
+    // stores in extra_params, even an empty one, which leaves them on no host. An entry
+    // without that key had its URLs written out by hand.
+    if let Some(tmpl) = registry_entry
+        .as_ref()
+        .and_then(|r| r.connect_config_template.as_ref())
+    {
+        let key = tmpl.extra_params_key.as_deref().unwrap_or("instance");
+        let instance = entry
+            .connect_config
+            .as_ref()
+            .and_then(|c| c.extra_params.as_ref())
+            .and_then(|p| p.get(key));
+        let explicit_urls = entry
+            .connect_config
+            .as_ref()
+            .is_some_and(|c| !c.token_url.is_empty() && !c.token_url.contains('{'));
+        // Teams keeps its tenant at the top level and the backend builds its URLs from it.
+        let has_tenant = entry.tenant.as_deref().is_some_and(|t| !t.is_empty());
+        let missing = !has_tenant
+            && match instance {
+                Some(v) => v.is_empty(),
+                None => !explicit_urls,
+            };
+        if !entry.id.is_empty() && missing {
+            return Err(format!("{} is required", tmpl.label));
+        }
+    }
+    if !entry.grant_types.iter().any(|g| g == "client_credentials") {
+        return Ok(());
+    }
+    match registry_entry {
+        Some(reg) if !reg.grant_types.iter().any(|g| g == "client_credentials") => {
+            Err("this provider does not support the client credentials grant".to_string())
+        }
+        Some(_) => Ok(()),
+        None if entry
+            .connect_config
+            .as_ref()
+            .is_none_or(|c| c.token_url.is_empty()) =>
+        {
+            Err("client credentials needs a token URL".to_string())
+        }
+        None => Ok(()),
+    }
+}
+
 /// OAuth client credentials
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OAuthClient {
@@ -266,6 +369,10 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+    /// `Some(false)` keeps the id/secret out of client-credentials connections, so a
+    /// client-credentials grant only lets users bring their own. Absent means shared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_client_credentials: Option<bool>,
     /// The Slack app's signing secret, which authenticates the requests Slack sends Windmill.
     #[serde(
         default,
@@ -280,6 +387,16 @@ pub struct OAuthClient {
     pub pkce: Option<bool>,
 }
 
+impl OAuthClient {
+    /// Every user with write access may connect as this entry's service account.
+    pub fn shares_client_credentials(&self) -> bool {
+        self.grant_types.iter().any(|g| g == "client_credentials")
+            && self.share_client_credentials != Some(false)
+            && !self.id.is_empty()
+            && !self.secret.is_empty()
+    }
+}
+
 impl std::fmt::Debug for OAuthClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OAuthClient")
@@ -291,6 +408,7 @@ impl std::fmt::Debug for OAuthClient {
             .field("login_config", &self.login_config)
             .field("tenant", &self.tenant)
             .field("grant_types", &self.grant_types)
+            .field("share_client_credentials", &self.share_client_credentials)
             .field(
                 "signing_secret",
                 &self.signing_secret.as_ref().map(|_| "***"),
@@ -330,7 +448,10 @@ impl std::fmt::Debug for AllClients {
             .field("logins", &self.logins)
             .field("connects", &self.connects)
             .field("slack", &self.slack)
-            .field("slack_signing_secret", &self.slack_signing_secret.as_ref().map(|_| "***"))
+            .field(
+                "slack_signing_secret",
+                &self.slack_signing_secret.as_ref().map(|_| "***"),
+            )
             .finish()
     }
 }
@@ -531,11 +652,9 @@ pub async fn build_client_credentials_oauth_client(
     // leaves the server. Only entries that explicitly enable the
     // client_credentials grant qualify, so an authorization-code-only client's
     // secret is never reused for this flow.
-    let instance_cc_creds = instance_entry.as_ref().filter(|e| {
-        e.grant_types.iter().any(|g| g == "client_credentials")
-            && !e.id.is_empty()
-            && !e.secret.is_empty()
-    });
+    let instance_cc_creds = instance_entry
+        .as_ref()
+        .filter(|e| e.shares_client_credentials());
     // All-or-nothing: use the caller's credentials only when both id and secret
     // are present, otherwise fall back entirely to the instance entry. Never mix
     // a caller-supplied id with the admin secret (or vice versa).
@@ -561,6 +680,7 @@ pub async fn build_client_credentials_oauth_client(
             .map(|e| e.grant_types.clone())
             .unwrap_or_else(default_grant_types),
         tenant: instance_entry.as_ref().and_then(|e| e.tenant.clone()),
+        share_client_credentials: None,
         signing_secret: None,
         pkce: None,
     };
@@ -602,8 +722,7 @@ pub async fn resolve_instance_cc_credentials(
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
     Ok(entry.and_then(|e| {
-        let cc_grant = e.grant_types.iter().any(|g| g == "client_credentials");
-        if cc_grant && !e.id.is_empty() && !e.secret.is_empty() {
+        if e.shares_client_credentials() {
             // Token URL from the entry's connect_config (built by instance settings
             // from the connect_config_template), so the account row is
             // self-contained for refresh.
@@ -1353,7 +1472,10 @@ mod tests {
             want
         );
         let sandbox = registry["salesforce"].as_sandbox().unwrap();
-        assert_eq!(sandbox.connect_fields, registry["salesforce"].connect_fields);
+        assert_eq!(
+            sandbox.connect_fields,
+            registry["salesforce"].connect_fields
+        );
 
         let quickbooks = serde_json::json!({"callback": {"realmId": "9130"}});
         let got = connect_resource_fields(&quickbooks, &fields("quickbooks"));
@@ -1562,5 +1684,88 @@ mod tests {
         // an override, so neither is reported as instance-templated.
         assert!(!is_instance_templated_cc(CC_REGISTRY, "visma"));
         assert!(!is_instance_templated_cc(CC_REGISTRY, "my_custom_thing"));
+    }
+
+    #[test]
+    fn share_client_credentials_absent_means_shared() {
+        let entry = |extra: serde_json::Value| -> OAuthClient {
+            let mut v = serde_json::json!({ "id": "a", "secret": "b",
+                "grant_types": ["authorization_code", "client_credentials"] });
+            v.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            serde_json::from_value(v).unwrap()
+        };
+        assert!(entry(serde_json::json!({})).shares_client_credentials());
+        assert!(
+            !entry(serde_json::json!({ "share_client_credentials": false }))
+                .shares_client_credentials()
+        );
+        assert!(
+            !entry(serde_json::json!({ "grant_types": ["authorization_code"] }))
+                .shares_client_credentials()
+        );
+    }
+
+    #[test]
+    fn validate_oauths_setting_names_each_bad_entry() {
+        let registry = r#"{
+            "github": { "auth_url": "https://github.com/login/oauth/authorize",
+                        "token_url": "https://github.com/login/oauth/access_token" },
+            "coupa": { "grant_types": ["client_credentials"],
+                       "connect_config_template": { "label": "Coupa instance", "placeholder": "x",
+                           "token_url": "https://{instance}.coupahost.com/oauth2/token" } },
+            "ms_teams": { "connect_config_template": { "label": "Microsoft Entra tenant",
+                "placeholder": "x", "extra_params_key": "tenant",
+                "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token" } }
+        }"#;
+        let ok = |v: serde_json::Value| validate_oauths_setting(&v, None, registry);
+        assert!(ok(serde_json::Value::Null).is_ok());
+        assert!(ok(serde_json::json!({
+            "github": { "id": "a", "secret": "b" },
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                       "connect_config": { "token_url": "https://acme.coupahost.com/oauth2/token",
+                                           "extra_params": { "instance": "acme" } } },
+            "custom": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                        "connect_config": { "token_url": "https://idp.example.com/token" } },
+            "ms_teams": { "id": "a", "secret": "b", "tenant": "contoso" }
+        }))
+        .is_ok());
+        assert!(ok(serde_json::json!({
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                       "connect_config": { "token_url": "https://acme.coupahost.com/oauth2/token" } }
+        }))
+        .is_ok());
+        assert!(ok(serde_json::json!({
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                       "connect_config": { "token_url": "https://.coupahost.com/oauth2/token",
+                                           "extra_params": { "instance": "" } } }
+        }))
+        .unwrap_err()
+        .contains("Coupa instance is required"));
+
+        let err = ok(serde_json::json!({
+            "github": { "id": "a", "secret": "b", "grant_types": ["client_credentials"] },
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"] },
+            "custom": { "id": "a", "secret": "b", "grant_types": ["client_credentials"] },
+            "broken": { "id": 1 }
+        }))
+        .unwrap_err();
+        for name in [
+            "github:",
+            "coupa: Coupa instance is required",
+            "custom:",
+            "broken:",
+        ] {
+            assert!(err.contains(name), "{name} missing from: {err}");
+        }
+
+        // An unchanged bad entry, saved before the check existed, does not block the save.
+        let stored = serde_json::json!({ "broken": { "id": 1 } });
+        let next =
+            serde_json::json!({ "broken": { "id": 1 }, "github": { "id": "a", "secret": "b" } });
+        assert!(validate_oauths_setting(&next, Some(&stored), registry).is_ok());
+        let edited = serde_json::json!({ "broken": { "id": 2 } });
+        assert!(validate_oauths_setting(&edited, Some(&stored), registry).is_err());
     }
 }

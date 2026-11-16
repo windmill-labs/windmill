@@ -6,6 +6,8 @@
 		/** Hover title. Labels truncate at 180px, so set this whenever the label can
 		 * be long enough that two tabs would truncate to the same visible text. */
 		title?: string
+		/** Shown after the label and never truncated: a long label ellipsizes before it. */
+		labelSuffix?: string
 		/** Optional lucide-svelte (or compatible) component rendered at 12px before the label. */
 		icon?: any
 		/** Optional class applied to the icon (e.g. `text-accent` to tint it). */
@@ -267,7 +269,14 @@
 		{#if Icon}
 			<Icon size={12} class={tab.iconClass} />
 		{/if}
-		<span class={twMerge('truncate max-w-[180px]', tab.labelClass)}>{tab.label}</span>
+		{#if tab.labelSuffix}
+			<span class={twMerge('flex min-w-0 max-w-[180px]', tab.labelClass)}>
+				<span class="truncate">{tab.label}</span>
+				<span class="shrink-0 whitespace-pre">{tab.labelSuffix}</span>
+			</span>
+		{:else}
+			<span class={twMerge('truncate max-w-[180px]', tab.labelClass)}>{tab.label}</span>
+		{/if}
 		{#if tabAccessory}
 			<span class="inline-flex items-center">
 				{@render tabAccessory(tab, isActive)}
@@ -277,7 +286,7 @@
 			<button
 				type="button"
 				class="opacity-0 group-hover:opacity-100 focus:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
-				aria-label={`Close ${tab.label}`}
+				aria-label={`Close ${tab.label}${tab.labelSuffix ?? ''}`}
 				onclick={(e) => {
 					e.stopPropagation()
 					onClose?.(tab.id)

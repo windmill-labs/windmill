@@ -10,8 +10,20 @@ import {
 	getQueryStmtCountHeuristic,
 	isJobResolvable,
 	parseDbInputFromAssetSyntax,
-	apiErrorMessage
+	removeMarkdown,
+	apiErrorMessage,
+	msToCompactDuration
 } from './utils'
+
+describe('msToCompactDuration', () => {
+	it('keeps the two largest units and drops a zero second unit', () => {
+		expect(msToCompactDuration(12_345, 1)).toBe('12.3s')
+		expect(msToCompactDuration(65_000)).toBe('1m 5s')
+		expect(msToCompactDuration(3 * 3_600_000 + 12 * 60_000 + 59_000)).toBe('3h 12m')
+		expect(msToCompactDuration(2 * 3_600_000)).toBe('2h')
+		expect(msToCompactDuration(26 * 3_600_000 + 5 * 60_000)).toBe('1d 2h')
+	})
+})
 
 // Mirrors the backend invariant that only failed or canceled rows can carry a resolution;
 // offering the action anywhere else would send ids the API then silently skips.
@@ -598,5 +610,14 @@ describe('apiErrorMessage', () => {
 
 	it('handles a plain Error', () => {
 		expect(apiErrorMessage(new Error('boom'))).toBe('boom')
+	})
+})
+
+describe('removeMarkdown', () => {
+	it('strips markup but keeps underscores and hyphens inside words', () => {
+		expect(removeMarkdown('**an** _ai_instruction_ for read-only use')).toBe(
+			'an ai_instruction for read-only use'
+		)
+		expect(removeMarkdown('a*b*c café-au-lait')).toBe('abc café-au-lait')
 	})
 })

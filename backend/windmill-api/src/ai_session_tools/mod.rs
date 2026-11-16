@@ -400,7 +400,7 @@ impl Ctx<'_> {
         };
         let request = request.body(body).map_err(|e| e.to_string())?;
         tokio::time::timeout(timeout, async {
-            let response = router.oneshot(request).await.map_err(|e| e.to_string())?;
+            let Ok(response) = router.oneshot(request).await;
             let status = response.status();
             let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await

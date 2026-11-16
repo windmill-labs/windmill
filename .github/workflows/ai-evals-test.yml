@@ -69,18 +69,18 @@ jobs:
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: 1.4.4
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7.1.0
         with:
           # Node 24 ships npm 11, which frontend/package-lock.json is authored
           # with; npm 10 rejects it ("Missing: picomatch@4.0.5 from lock file").
@@ -181,7 +181,7 @@ jobs:
           [ "$fail" = 0 ] || { echo "ai_evals global smoke failed"; exit 1; }
 
       - name: Archive logs and results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         if: always()
         with:
           name: ai-evals-global-logs

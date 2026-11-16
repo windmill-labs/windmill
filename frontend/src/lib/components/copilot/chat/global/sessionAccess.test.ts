@@ -62,6 +62,7 @@ describe('resolveSessionAccess', () => {
 			'manage_schedules',
 			'manage_triggers',
 			'modify_workspace',
+			'run',
 			'run_flow_preview',
 			'run_preview',
 			'write_app_draft',
@@ -85,6 +86,7 @@ describe('resolveSessionAccess', () => {
 			'manage_schedules',
 			'manage_triggers',
 			'modify_workspace',
+			'run',
 			'write_resource_draft',
 			'write_schedule_draft',
 			'write_trigger_draft',
@@ -99,6 +101,7 @@ describe('resolveSessionAccess', () => {
 			'manage_schedules',
 			'manage_triggers',
 			'modify_workspace',
+			'run',
 			'write_resource_draft',
 			'write_schedule_draft',
 			'write_trigger_draft',
@@ -121,6 +124,7 @@ describe('resolveSessionAccess', () => {
 				'manage_schedules',
 				'manage_triggers',
 				'modify_workspace',
+				'run',
 				'run_flow_preview',
 				'run_preview',
 				'write_app_draft',
@@ -141,19 +145,31 @@ describe('resolveSessionAccess', () => {
 	it('makes the session read-only in a workspace protected by DisableDirectDeployment', async () => {
 		protectionRules.mockResolvedValue([{ rules: ['DisableDirectDeployment'] }])
 		const caps = await capabilitiesFor({ is_admin: true })
-		expect([...caps]).toEqual([])
+		expect([...caps]).toEqual(['run'])
 	})
 
 	// The server holds deploys to the rule but not drafts, so neither failure may hand a
 	// production session its writes.
 	it('stays read-only when the rules cannot be read, or the role of a protected workspace', async () => {
 		protectionRules.mockResolvedValue(undefined)
-		expect([...(await capabilitiesFor({ is_admin: true }))]).toEqual([])
+		expect([...(await capabilitiesFor({ is_admin: true }))]).toEqual(['run'])
 
 		// Another workspace: the role memo answers for the first one.
 		protectionRules.mockResolvedValue([{ rules: ['DisableDirectDeployment'] }])
 		whoami.mockRejectedValueOnce(new Error('network'))
-		expect([...(await resolveSessionAccess('prod'))]).toEqual([])
+		expect([...(await resolveSessionAccess('prod'))]).toEqual(['run'])
+	})
+
+	// `check_role_can_run` refuses every run of a view-only role, so its session reads only, as
+	// the MCP server holds it, protected workspace or not.
+	it('gives a role without run a read-only session that cannot run', async () => {
+		const viewOnly = { ...FULL_CAPABILITIES, run: false }
+		expect([
+			...capabilitiesForRole({ isAdmin: false, deployRulesPass: true, capabilities: viewOnly })
+		]).toEqual([])
+		expect([
+			...capabilitiesForRole({ isAdmin: true, deployRulesPass: true, capabilities: viewOnly })
+		]).toContain('run')
 	})
 
 	it('keeps drafting when a rule refuses deploy', async () => {
@@ -181,6 +197,7 @@ describe('resolveSessionAccess', () => {
 			'manage_schedules',
 			'manage_triggers',
 			'modify_workspace',
+			'run',
 			'run_flow_preview',
 			'write_flow_draft',
 			'write_resource_draft',
@@ -203,6 +220,7 @@ describe('resolveSessionAccess', () => {
 			'manage_schedules',
 			'manage_triggers',
 			'modify_workspace',
+			'run',
 			'write_app_draft',
 			'write_resource_draft',
 			'write_schedule_draft',

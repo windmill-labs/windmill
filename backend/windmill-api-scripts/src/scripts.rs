@@ -123,6 +123,10 @@ pub fn workspaced_service() -> Router {
         .route("/delete/h/{hash}", post(delete_script_by_hash))
         .route("/delete/p/{*path}", post(delete_script_by_path))
         .route("/delete_bulk", delete(delete_scripts_bulk))
+        // By hash, a script is read without the folder/path ACL that `/get/p` and `/raw/p`
+        // apply (`get/h` only does with `?authed=true`), and `raw/h` also skips the token-scope
+        // check. Ideally these would be authorized too, but the hash acts as the secret: a member
+        // reaching one (e.g. via a flow they can read) is by design, not a vulnerability.
         .route("/get/h/{hash}", get(get_script_by_hash))
         .route("/raw/h/{hash}", get(raw_script_by_hash))
         .route("/deployment_status/h/{hash}", get(get_deployment_status))
