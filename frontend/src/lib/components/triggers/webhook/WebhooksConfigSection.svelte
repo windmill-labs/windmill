@@ -120,7 +120,10 @@
 		if (tokenType === 'query') params.push(`token=${token}`)
 		if (chat) params.push(`memory_id=${memory}`)
 		if (callMethod === 'get' || (tokenType === 'query' && requestType === 'sync_sse')) {
-			params.push(`payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`)
+			// The server decodes the payload as UTF-8, and btoa only takes Latin-1 characters.
+			const bytes = new TextEncoder().encode(JSON.stringify(cleanedRunnableArgs ?? {}))
+			const binary = Array.from(bytes, (b) => String.fromCharCode(b)).join('')
+			params.push(`payload=${encodeURIComponent(btoa(binary))}`)
 		}
 		return baseWebhookUrl + (params.length ? `?${params.join('&')}` : '')
 	}
