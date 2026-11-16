@@ -139,7 +139,9 @@
 			: [{ value: timezone, label: timezone, group: 'Current' }, ...timezoneItems]
 	)
 	$effect(() => {
+		// The preview is computed in the timezone, so changing it must refetch.
 		schedule
+		timezone
 		untrack(() => {
 			!emptyString(schedule) && handleScheduleInput(schedule, timezone)
 		})
