@@ -1503,10 +1503,7 @@ pub async fn run_agent(
 
     // The run's memory id is also the chat conversation id, which a step's own memory id never
     // replaces.
-    let conversation_id = flow_context
-        .flow_status
-        .as_ref()
-        .and_then(|fs| fs.memory_id);
+    let conversation_id = flow_context.run_status.as_ref().and_then(|fs| fs.memory_id);
     let (history, history_notes) = resolve_history_source(
         args,
         conversation_id,
@@ -1584,7 +1581,7 @@ pub async fn run_agent(
     // Extract previous step result only if any tool needs it
     let previous_result = {
         if any_tool_needs_previous_result(&tools) {
-            if let Some(ref flow_status) = flow_context.flow_status {
+            if let Some(ref flow_status) = flow_context.step_flow_status {
                 get_previous_job_result(db, &job.workspace_id, flow_status)
                     .await
                     .ok()
@@ -1599,7 +1596,7 @@ pub async fn run_agent(
 
     // Build IdContext for results.stepId syntax
     let id_context = {
-        if let Some(ref flow_status) = flow_context.flow_status {
+        if let Some(ref flow_status) = flow_context.step_flow_status {
             // Get the step ID from the AI agent's flow step
             let previous_id = effective_flow_step_id
                 .map(str::to_string)
@@ -1747,7 +1744,7 @@ pub async fn run_agent(
     };
 
     let chat_enabled = flow_context
-        .flow_status
+        .run_status
         .as_ref()
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);

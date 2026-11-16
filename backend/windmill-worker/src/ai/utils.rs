@@ -14,7 +14,7 @@ use windmill_common::{
     db::DB,
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageExtras, MessageType},
-    flow_status::AgentAction,
+    flow_status::{AgentAction, FlowStatus},
     flows::{InputTransform, Step},
     jobs::JobKind,
     scripts::{ScriptHash, ScriptLang},
@@ -141,13 +141,19 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 
 #[derive(Debug, Clone, Default)]
 pub struct FlowContext {
+    /// `flow_input` of the flow running the step.
     pub flow_inputs: Option<HashMap<String, Box<RawValue>>>,
-    pub flow_status: Option<windmill_common::flow_status::FlowStatus>,
+    /// Status of the flow running the step, which `results.<step>` and the previous result read.
+    pub step_flow_status: Option<FlowStatus>,
+    /// Status of the root run, which holds the chat settings and the run's memory id.
+    pub run_status: Option<FlowStatus>,
     /// Path of the flow the run started from, which scopes a string memory id.
     pub flow_path: Option<String>,
 }
 
-/// Get flow context (chat settings + args + flow_status) from root flow's job data
+/// Read the context an agent step evaluates its tools in. Inside a subflow the flow running the
+/// step is its parent job, not the root run: `flow_input` and `results` are that flow's, as for
+/// any other step, while chat and memory belong to the whole run.
 pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
     let root_job_id = job
         .root_job
@@ -161,21 +167,26 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
     match sqlx::query!(
         r#"
         SELECT
-            j.args as "args: Json<HashMap<String, Box<RawValue>>>",
-            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>",
-            j.runnable_path
-        FROM v2_job_status js
-        INNER JOIN v2_job j ON j.id = js.id
-        WHERE js.id = $1
+            f.args as "args: Json<HashMap<String, Box<RawValue>>>",
+            fs.flow_status as "step_flow_status: Json<FlowStatus>",
+            rs.flow_status as "run_status: Json<FlowStatus>",
+            r.runnable_path
+        FROM v2_job_status rs
+        INNER JOIN v2_job r ON r.id = rs.id
+        LEFT JOIN v2_job f ON f.id = COALESCE($2::uuid, $1::uuid)
+        LEFT JOIN v2_job_status fs ON fs.id = f.id
+        WHERE rs.id = $1
         "#,
-        root_job_id
+        root_job_id,
+        job.parent_job
     )
     .fetch_optional(db)
     .await
     {
         Ok(Some(row)) => FlowContext {
             flow_inputs: row.args.map(|j| j.0),
-            flow_status: row.flow_status.map(|j| j.0),
+            step_flow_status: row.step_flow_status.map(|j| j.0),
+            run_status: row.run_status.map(|j| j.0),
             flow_path: row.runnable_path,
         },
         Ok(None) => {
