@@ -24,6 +24,14 @@ export interface PersistedArtifact {
 	updatedAt: number
 	/** Absent on artifacts written before history existed — read it through currentVersion(). */
 	version?: number
+	/** The workspace it belongs to, where its server copy goes: the topmost one above the
+	 * session's that its owner is a member of. Absent on artifacts written before artifacts
+	 * recorded it, whose session tells it instead. */
+	workspaceId?: string
+	/** The fingerprint (see artifactServer) of each of its latest versions, kept past their
+	 * snapshots: a server copy behind this browser is told apart by it from one another browser
+	 * wrote. */
+	fingerprints?: Record<number, string>
 }
 
 /** A content snapshot taken every time an artifact's content changes. */

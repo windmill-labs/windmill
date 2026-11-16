@@ -36,6 +36,8 @@
 		pending?: Record<string, boolean>
 		/** For an item whose name is not a path, such as a volume. */
 		isOwnerOverride?: boolean
+		/** Members are added as viewers and stay viewers: for an item only its owner writes. */
+		viewerOnly?: boolean
 		onChange?: () => void
 	}
 
@@ -46,6 +48,7 @@
 		alsoApplyTo = [],
 		pending = $bindable(),
 		isOwnerOverride,
+		viewerOnly = false,
 		onChange
 	}: Props = $props()
 
@@ -388,7 +391,7 @@
 						{/if}
 					</Cell>
 					<Cell>
-						{#if row.editable && canEdit}
+						{#if row.editable && canEdit && !viewerOnly}
 							<!-- Negative margins keep the row as tall as the plain ones and line the
 							     button's label up with their roles. -->
 							<div class="-ml-3 -my-2">

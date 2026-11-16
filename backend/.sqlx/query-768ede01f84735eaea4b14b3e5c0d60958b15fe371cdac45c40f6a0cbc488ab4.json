@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ai_artifact SET deleted_at = CASE WHEN $4 THEN now() ELSE NULL END\n         WHERE workspace_id = $1 AND artifact_id = $2 AND email = $3\n         RETURNING path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "768ede01f84735eaea4b14b3e5c0d60958b15fe371cdac45c40f6a0cbc488ab4"
+}

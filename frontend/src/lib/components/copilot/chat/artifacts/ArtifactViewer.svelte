@@ -144,16 +144,9 @@
 			{/if}
 		</div>
 		<div class="flex items-center gap-2 shrink-0">
-			<!-- Both export and share `shown`, which is still the current document while a pin is
-			     restoring, so both wait for it. -->
-			<ArtifactShareButton
-				artifactId={artifact.id}
-				name={shown.name}
-				kind={artifact.kind}
-				content={shown.content}
-				version={shownVersion ?? latest}
-				disabled={restoringPin}
-			/>
+			<ArtifactShareButton artifactId={artifact.id} name={artifact.name} {artifact} />
+			<!-- Export saves `shown`, which is still the current document while a pin is restoring,
+			     so it waits for it. -->
 			<ArtifactExportButton
 				name={shown.name}
 				kind={artifact.kind}

@@ -4,6 +4,9 @@
 	import type { AppAccessMode } from './appAccess'
 	import type { ShareKind } from './ShareDialog.svelte'
 
+	/** An AI artifact is shared but never deployed. */
+	type DeployKind = Exclude<ShareKind, 'ai_artifact'>
+
 	export type FirstDeployChoice = {
 		summary: string
 		path: string
@@ -63,7 +66,7 @@
 
 	let open = $state(false)
 	let step = $state<'details' | 'runAs'>('details')
-	let kind = $state<ShareKind>('flow')
+	let kind = $state<DeployKind>('flow')
 	let summary = $state('')
 	let path: string | undefined = $state()
 	let pathError = $state('')
@@ -124,7 +127,7 @@
 	 * The name follows the summary while it is still the placeholder the editor generated.
 	 */
 	export function ask(opts: {
-		kind: ShareKind
+		kind: DeployKind
 		summary: string
 		path: string
 		/** The caller picked the path, so it does not follow the summary. */

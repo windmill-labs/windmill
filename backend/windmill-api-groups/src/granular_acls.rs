@@ -45,6 +45,7 @@ fn audit_action_prefix_for_acl_kind(kind: &str) -> Option<&'static str> {
         "raw_app" => Some("raw_apps"),
         "resource" => Some("resources"),
         "variable" => Some("variables"),
+        "ai_artifact" => Some("ai_artifacts"),
         _ => manage_kind_for_acl_kind(kind).map(|k| k.audit_prefix()),
     }
 }
@@ -61,7 +62,7 @@ fn manage_kind_for_acl_kind(kind: &str) -> Option<ManageKind> {
     }
 }
 
-const KINDS: [&str; 21] = [
+const KINDS: [&str; 22] = [
     "script",
     "group_",
     "resource",
@@ -83,6 +84,7 @@ const KINDS: [&str; 21] = [
     "sqs_trigger",
     "email_trigger",
     "volume",
+    "ai_artifact",
 ];
 
 pub fn workspaced_service() -> Router {

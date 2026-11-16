@@ -1076,10 +1076,7 @@ pub fn workspaced_service() -> Router {
                 // Sized well above a full batch of the shape below.
                 .layer(DefaultBodyLimit::max(AI_USAGE_BODY_LIMIT)),
         )
-        .nest(
-            "/shared_artifacts",
-            crate::ai_shared_artifacts::workspaced_service(),
-        )
+        .nest("/artifacts", crate::ai_artifacts::workspaced_service())
         .nest(
             "/shared_sessions",
             crate::ai_shared_sessions::workspaced_service(),

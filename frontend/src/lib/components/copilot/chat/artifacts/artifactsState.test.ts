@@ -3,6 +3,8 @@ import { IDBFactory } from 'fake-indexeddb'
 import { planFirst, type SessionArtifactsStore } from './artifactsState.svelte'
 import type * as db from './artifactsDB'
 import type { WriteResult } from './artifactWriter'
+import { fingerprint } from './artifactServer'
+import { MemoryArtifactServer } from './memoryArtifactServer'
 
 // The user-scoping subscription is BROWSER-gated; the node test env reports false.
 vi.mock('esm-env', async (orig) => ({
@@ -27,14 +29,16 @@ async function fresh() {
 	;(await import('$lib/stores')).userStore.set({ email: 'a@x.com' } as never)
 	const dbMod = await import('./artifactsDB')
 	const stateMod = await import('./artifactsState.svelte')
-	return { dbMod, stateMod, store: new stateMod.SessionArtifactsStore() }
+	const writerMod = await import('./artifactWriter')
+	return { dbMod, stateMod, writerMod, store: new stateMod.SessionArtifactsStore() }
 }
 
 let store: SessionArtifactsStore
 let dbMod: typeof db
 let stateMod: typeof import('./artifactsState.svelte')
+let writerMod: typeof import('./artifactWriter')
 beforeEach(async () => {
-	;({ store, dbMod, stateMod } = await fresh())
+	;({ store, dbMod, stateMod, writerMod } = await fresh())
 })
 afterEach(() => {
 	vi.restoreAllMocks()
@@ -153,7 +157,8 @@ describe('SessionArtifactsStore', () => {
 	})
 
 	it('stores only the first of two edits two tabs make at once on one version', async () => {
-		// The second, stored over the first, would replace a version it never saw.
+		// The second, stored over the first, would replace a version it never saw, and with it
+		// one the other tab may have shared since.
 		const other = new stateMod.SessionArtifactsStore()
 		await store.setSession('s1')
 		const created = saved(await store.create('s1', { name: 'Doc', content: 'v1' }))
@@ -193,7 +198,8 @@ describe('SessionArtifactsStore', () => {
 
 		refuseNextWrite()
 		expect(await store.edit(created.id, { content: 'v2' })).toEqual({
-			outcome: 'unstored'
+			outcome: 'unstored',
+			shared: false
 		})
 		expect(store.artifacts[0]).toMatchObject({ content: 'v1', version: 1 })
 		// The next change is made on the version stored, not on the one refused.
@@ -210,7 +216,8 @@ describe('SessionArtifactsStore', () => {
 		await store.setSession('s1')
 
 		expect(await store.create('s1', { name: 'A', content: 'x' })).toEqual({
-			outcome: 'unstored'
+			outcome: 'unstored',
+			shared: false
 		})
 		expect(store.artifacts).toEqual([])
 	})
@@ -261,7 +268,7 @@ describe('SessionArtifactsStore', () => {
 		const created = saved(await store.create('s1', { name: 'Plan', content: 'v1' }))
 
 		await store.edit(created.id, { content: 'v2', note: 'Added a rollback step' })
-		// A rename is a version: the picker shows the name each version had.
+		// A rename is a version: it is what people the artifact is shared with see it called.
 		await store.edit(created.id, { name: 'Renamed' })
 		expect(
 			await store.edit(created.id, { name: ' Renamed ', content: 'v2', note: 'ignored' })
@@ -371,7 +378,8 @@ describe('SessionArtifactsStore', () => {
 		const first = { name: 'Plan', content: '# p', note: 'first' }
 		refuseNextWrite()
 		expect(await store.proposePlan('s1', first, undefined)).toEqual({
-			outcome: 'unstored'
+			outcome: 'unstored',
+			shared: false
 		})
 
 		const plan = saved(await store.proposePlan('s1', first, undefined))
@@ -541,6 +549,207 @@ describe('SessionArtifactsStore', () => {
 			version: 4,
 			approvedVersion: 4
 		})
+	})
+})
+
+describe('SessionArtifactsStore with a server copy', () => {
+	let server: MemoryArtifactServer
+	let owner: SessionArtifactsStore
+	let doc: db.PersistedArtifact
+
+	beforeEach(async () => {
+		server = new MemoryArtifactServer()
+		owner = new stateMod.SessionArtifactsStore(() => 'ws', server)
+		await owner.setSession('s1')
+		doc = saved(await owner.create('s1', { name: 'Doc', content: 'v1' }))
+	})
+
+	/** Put the doc on the server, as the share dialog does. */
+	const share = () => new writerMod.ArtifactWriter(server).publish(doc.id, 'ws')
+
+	/** The copy another of the owner's browsers shares: it holds the doc from a session backup. */
+	const sharedElsewhere = (version: number, content: string) =>
+		server.publish('ws', {
+			artifact_id: doc.id,
+			name: 'Doc',
+			kind: 'md',
+			session_id: 's1',
+			version,
+			content
+		})
+
+	/** A version another of the owner's browsers writes, made on the text `base`. */
+	const writtenElsewhere = async (base: string, version: number, content: string) =>
+		server.write('ws', doc.id, {
+			base_hash: await fingerprint('Doc', base),
+			version,
+			name: 'Doc',
+			content,
+			session_id: 's1'
+		})
+
+	const copy = async () => (await server.get('ws', doc.id))!
+
+	it('refuses an edit made on a version another browser has since replaced, and takes that one', async () => {
+		await share()
+		await writtenElsewhere('v1', 2, 'v2 elsewhere')
+
+		expect(await owner.edit(doc.id, { content: 'v2 here' })).toMatchObject({
+			outcome: 'stale',
+			latest: 2
+		})
+		expect(await owner.get(doc.id)).toMatchObject({ version: 2, content: 'v2 elsewhere' })
+		expect(await owner.getVersion(doc.id, 2)).toMatchObject({ note: 'Written in another browser' })
+		// Redone on that version, the edit lands on top of it.
+		expect(await owner.edit(doc.id, { content: 'v3 here' })).toMatchObject({
+			outcome: 'saved',
+			version: 3
+		})
+		expect(await copy()).toMatchObject({ latest_version: 3, content: 'v3 here' })
+	})
+
+	it('refuses an edit made on another text than the server holds under that number', async () => {
+		// Stored before the doc was shared, so the server never weighed it.
+		saved(await owner.edit(doc.id, { content: 'v2 here' }))
+		await sharedElsewhere(2, 'v2 elsewhere')
+
+		expect(await owner.edit(doc.id, { content: 'v3 here' })).toMatchObject({
+			outcome: 'stale',
+			latest: 3
+		})
+		// Taken as the version after this browser's own v2, and the server copy renumbered to
+		// match: a version has one number everywhere, which pinning names it by.
+		expect(await owner.get(doc.id)).toMatchObject({ version: 3, content: 'v2 elsewhere' })
+		expect(await owner.getVersion(doc.id, 2)).toMatchObject({ content: 'v2 here' })
+		expect(await copy()).toMatchObject({ latest_version: 3, content: 'v2 elsewhere' })
+	})
+
+	it('stores a version under the number the server gave it', async () => {
+		// The copy holds this browser's text under a later number, given in another browser.
+		await sharedElsewhere(4, 'v1')
+
+		expect(await owner.edit(doc.id, { content: 'v2' })).toMatchObject({
+			outcome: 'saved',
+			version: 5
+		})
+		expect(await owner.getVersion(doc.id, 5)).toMatchObject({ content: 'v2' })
+	})
+
+	it('brings a server copy that holds one of its older versions up to an edit', async () => {
+		// Stored before the doc was shared, from a copy published from version 1.
+		saved(await owner.edit(doc.id, { content: 'v2' }))
+		await sharedElsewhere(1, 'v1')
+
+		expect(await owner.edit(doc.id, { content: 'v3' })).toMatchObject({
+			outcome: 'saved',
+			version: 3
+		})
+		expect(await copy()).toMatchObject({ latest_version: 3, content: 'v3' })
+	})
+
+	it('catches up with a version written in another browser, unless an older one is pinned', async () => {
+		await share()
+		await owner.show(doc.id, 'ws', { pinned: true, version: 1 })
+		await writtenElsewhere('v1', 2, 'v2 elsewhere')
+		expect(await owner.catchUp(doc, await copy())).toBe(doc)
+
+		await server.show('ws', doc.id, {
+			pinned: false,
+			version: 2,
+			name: 'Doc',
+			content: 'v2 elsewhere',
+			base_hash: await fingerprint('Doc', 'v2 elsewhere')
+		})
+		expect(await owner.catchUp(doc, await copy())).toMatchObject({
+			version: 2,
+			content: 'v2 elsewhere'
+		})
+		expect(owner.artifacts[0]).toMatchObject({ version: 2, content: 'v2 elsewhere' })
+	})
+
+	it('refuses an edit made while another browser wrote past a pinned version', async () => {
+		// The pinned version is all the server copy shows, so this browser cannot take the latest.
+		await share()
+		await owner.show(doc.id, 'ws', { pinned: true, version: 1 })
+		await writtenElsewhere('v1', 2, 'v2 elsewhere')
+
+		expect(await owner.edit(doc.id, { content: 'v2 here' })).toMatchObject({
+			outcome: 'behind',
+			latest: 2
+		})
+		expect(await owner.get(doc.id)).toMatchObject({ version: 1, content: 'v1' })
+	})
+
+	it('shows people with access a rename, unless an older version is pinned', async () => {
+		await share()
+		saved(await owner.edit(doc.id, { name: 'Launch plan' }))
+		expect(await copy()).toMatchObject({ name: 'Launch plan', latest_version: 2, shown_version: 2 })
+
+		await owner.show(doc.id, 'ws', { pinned: true, version: 2 })
+		saved(await owner.edit(doc.id, { name: 'Renamed' }))
+		expect(await copy()).toMatchObject({ name: 'Launch plan', latest_version: 3, shown_version: 2 })
+
+		expect(await owner.show(doc.id, 'ws', { pinned: false, version: 3 })).toMatchObject({
+			outcome: 'saved'
+		})
+		expect(await copy()).toMatchObject({ name: 'Renamed', shown_version: 3, pinned: false })
+	})
+
+	it('pins a version once a server copy behind this browser is brought up to its latest', async () => {
+		saved(await owner.edit(doc.id, { content: 'v2' }))
+		await sharedElsewhere(1, 'v1')
+
+		expect(await owner.show(doc.id, 'ws', { pinned: true, version: 1 })).toMatchObject({
+			outcome: 'saved',
+			item: { pinned: true, shown_version: 1, latest_version: 2 }
+		})
+	})
+
+	it('stores no edit over a later version another tab stored while the server was taking it', async () => {
+		await share()
+		const write = server.write.bind(server)
+		let taken!: () => void
+		let release!: () => void
+		const tookIt = new Promise<void>((r) => (taken = r))
+		const held = new Promise<void>((r) => (release = r))
+		vi.spyOn(server, 'write').mockImplementationOnce(async (...args) => {
+			const answer = await write(...args)
+			taken()
+			await held
+			return answer
+		})
+
+		const edit = owner.edit(doc.id, { content: 'v2 from this tab' })
+		await tookIt
+		// Another tab takes that version from the server, and writes the next one.
+		const other = new stateMod.SessionArtifactsStore(() => 'ws', server)
+		await other.catchUp(doc, await copy())
+		saved(await other.edit(doc.id, { content: 'v3 from the other tab' }))
+		release()
+
+		expect(await edit).toMatchObject({ outcome: 'saved', version: 2 })
+		expect(await dbMod.getArtifact(doc.id)).toMatchObject({
+			version: 3,
+			content: 'v3 from the other tab'
+		})
+	})
+
+	it('stores no edit the server did not take', async () => {
+		vi.spyOn(server, 'write').mockRejectedValueOnce(new TypeError('Failed to fetch'))
+		await expect(owner.edit(doc.id, { content: 'v2' })).rejects.toThrow('Failed to fetch')
+		expect(await owner.get(doc.id)).toMatchObject({ version: 1, content: 'v1' })
+	})
+
+	it('says an edit people with access see could not be stored in this browser', async () => {
+		await share()
+		refuseNextWrite()
+
+		expect(await owner.edit(doc.id, { content: 'v2' })).toEqual({
+			outcome: 'unstored',
+			shared: true
+		})
+		expect(await copy()).toMatchObject({ latest_version: 2, content: 'v2' })
+		expect(await dbMod.getArtifact(doc.id)).toMatchObject({ version: 1, content: 'v1' })
 	})
 })
 

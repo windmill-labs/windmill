@@ -159,11 +159,15 @@ describe('PlanModeController', () => {
 	})
 
 	it.each([
-		['the browser could not store it', { outcome: 'unstored' }, PLAN_MODE_MESSAGES.planNotStored],
+		[
+			'the browser could not store it',
+			{ outcome: 'unstored', shared: false },
+			PLAN_MODE_MESSAGES.planNotStored
+		],
 		[
 			'another tab revised the plan document',
 			{ outcome: 'stale', artifact: {}, latest: 3 },
-			PLAN_MODE_MESSAGES.stalePlan(3)
+			PLAN_MODE_MESSAGES.stalePlan(3, true)
 		]
 	])('keeps plan mode active when %s', async (_why, outcome, message) => {
 		artifacts.proposePlan.mockResolvedValueOnce(outcome)

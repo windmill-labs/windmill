@@ -1,3 +1,4 @@
+import type { AiArtifactWithContent } from '$lib/gen'
 import {
 	currentVersion,
 	deleteArtifact,
@@ -11,6 +12,8 @@ import {
 	type ArtifactVersion,
 	type PersistedArtifact
 } from './artifactsDB'
+import { homeWorkspace } from './artifactLibrary'
+import type { ArtifactServer } from './artifactServer'
 import {
 	ArtifactWriter,
 	snapshotOf,
@@ -19,6 +22,7 @@ import {
 	type WriteResult,
 	type WriteScope
 } from './artifactWriter'
+import { httpArtifactServer } from './httpArtifactServer'
 
 export type { ArtifactChange, CreateArtifactInput, WriteResult }
 
@@ -34,10 +38,26 @@ export class SessionArtifactsStore {
 	#sessionId: string | undefined
 	// A later load always wins, even if an earlier DB read resolves after it.
 	#seq = 0
-	#writer = new ArtifactWriter()
+	#workspace: (() => string | undefined) | undefined
+	#server: ArtifactServer
+	#writer: ArtifactWriter
 	/** The version of each artifact a chat last read or wrote, by `chatId/artifactId`: what the
 	 * chat's next change to it is made on. */
 	#seen = new Map<string, number>()
+
+	/** `workspace` is the one the session works in; a store without one reaches the server only
+	 * for artifacts that name their workspace. */
+	constructor(workspace?: () => string | undefined, server: ArtifactServer = httpArtifactServer) {
+		this.#workspace = workspace
+		this.#server = server
+		this.#writer = new ArtifactWriter(server, () => this.#home())
+	}
+
+	/** The workspace a new artifact of this session belongs to. */
+	#home(): string | undefined {
+		const ws = this.#workspace?.()
+		return ws ? homeWorkspace(ws) : undefined
+	}
 
 	/** Load the given session's artifacts into the reactive list, if it changed. */
 	async setSession(sessionId: string | undefined): Promise<void> {
@@ -118,7 +138,7 @@ export class SessionArtifactsStore {
 			this.#reflect(result.artifact)
 			const version = result.outcome === 'saved' ? result.version : currentVersion(result.artifact)
 			holds(result.artifact.id, version)
-		} else if (result.outcome === 'stale') {
+		} else if (result.outcome === 'stale' || result.outcome === 'behind') {
 			this.#reflect(result.artifact)
 			holds(result.artifact.id, madeOn)
 		}
@@ -159,6 +179,22 @@ export class SessionArtifactsStore {
 		const madeOn = this.#madeOn(chatId, planArtifactId(sessionId)) ?? 0
 		const result = await this.#writer.proposePlan(sessionId, revision, chatId, madeOn)
 		return this.#settle(result, chatId, madeOn)
+	}
+
+	/** This browser's copy of an artifact, caught up with the server copy's latest version. */
+	async catchUp(local: PersistedArtifact, copy: AiArtifactWithContent): Promise<PersistedArtifact> {
+		const caught = await this.#writer.catchUp(local, copy)
+		if (caught !== local) this.#reflect(caught)
+		return caught
+	}
+
+	/** Choose the version people with access to the server copy see. */
+	async show(
+		id: string,
+		workspace: string,
+		shown: { pinned: boolean; version: number }
+	): Promise<WriteResult> {
+		return this.#settle(await this.#writer.show(id, workspace, shown), undefined)
 	}
 
 	/**
@@ -233,9 +269,13 @@ export class SessionArtifactsStore {
 		}
 	}
 
+	/** Delete an artifact for good, with its server copy, which people with access stop seeing.
+	 * Rejects, deleting nothing, when that copy could not be deleted. */
 	async remove(id: string): Promise<void> {
+		const workspace = (await this.get(id))?.workspaceId ?? this.#home()
+		if (workspace) await this.#server.delete(workspace, id)
 		await deleteArtifact(id)
-		// Guard on presence: a no-op remove must not invalidate an in-flight load.
+		// Guard on presence: a no-op removal must not invalidate an in-flight load.
 		const next = this.artifacts.filter((a) => a.id !== id)
 		if (next.length !== this.artifacts.length) this.#applyWrite(next)
 	}

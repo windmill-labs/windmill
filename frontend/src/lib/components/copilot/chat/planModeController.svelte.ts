@@ -216,13 +216,17 @@ export class PlanModeController {
 				},
 				chatId
 			)
-			if (result.outcome === 'stale') return { error: PLAN_MODE_MESSAGES.stalePlan(result.latest) }
+			if (result.outcome === 'stale' || result.outcome === 'behind') {
+				return {
+					error: PLAN_MODE_MESSAGES.stalePlan(result.latest, result.outcome === 'stale')
+				}
+			}
 			if (result.outcome === 'unstored') return { error: PLAN_MODE_MESSAGES.planNotStored }
 			if (result.outcome !== 'saved' && result.outcome !== 'unchanged') return unsaved
 			const plan = result.artifact
 			if (result.outcome === 'saved' && result.version < currentVersion(plan)) {
 				return {
-					error: PLAN_MODE_MESSAGES.stalePlan(currentVersion(plan), result.version)
+					error: PLAN_MODE_MESSAGES.stalePlan(currentVersion(plan), true, result.version)
 				}
 			}
 			const version = currentVersion(plan)

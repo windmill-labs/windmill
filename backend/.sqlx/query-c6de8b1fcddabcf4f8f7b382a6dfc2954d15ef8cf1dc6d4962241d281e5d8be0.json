@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM ai_artifact\n                 WHERE workspace_id = $1 AND (path = $2 OR starts_with(path, $2 || '_'))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c6de8b1fcddabcf4f8f7b382a6dfc2954d15ef8cf1dc6d4962241d281e5d8be0"
+}

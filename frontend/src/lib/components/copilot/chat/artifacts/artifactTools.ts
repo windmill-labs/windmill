@@ -204,14 +204,22 @@ export const artifactTools: SessionTool<{}>[] = [
 					return fail(
 						toolCallbacks,
 						toolId,
-						`"${result.artifact.name}" was changed in another tab since you read it (now version ${result.latest}), so your edit was not saved. Read it again with read_artifact and redo your edit on that version.`
+						`"${result.artifact.name}" was changed in another tab or browser since you read it (now version ${result.latest}), so your edit was not saved. Read it again with read_artifact and redo your edit on that version.`
+					)
+				case 'behind':
+					return fail(
+						toolCallbacks,
+						toolId,
+						`"${result.artifact.name}" was changed in another browser (now version ${result.latest}), and that version has not reached this browser, so your edit was not saved. Tell the user to continue editing it from the other browser.`
 					)
 				case 'unstored': {
 					const name = h.artifacts.artifacts.find((a) => a.id === parsed.id)?.name ?? parsed.id
 					return fail(
 						toolCallbacks,
 						toolId,
-						`Your edit to "${name}" was not saved: ${STORAGE_FULL}`
+						result.shared
+							? `Your edit to "${name}" reached the people it is shared with, but ${STORAGE_FULL}`
+							: `Your edit to "${name}" was not saved: ${STORAGE_FULL}`
 					)
 				}
 			}

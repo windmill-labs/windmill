@@ -67,6 +67,7 @@ use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
 
 mod ai;
+mod ai_artifacts;
 #[cfg(feature = "private")]
 mod ai_free_tier_ee;
 mod ai_free_tier_oss;
@@ -74,7 +75,6 @@ mod ai_free_tier_oss;
 mod ai_sessions;
 #[cfg(feature = "parquet")]
 pub use ai_sessions::sweep_expired_ai_session_backups;
-mod ai_shared_artifacts;
 mod ai_shared_sessions;
 mod apps;
 mod apps_raw_bundle;
