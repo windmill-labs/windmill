@@ -36,7 +36,6 @@ interface JobsQuery {
 	createdAfter?: string
 	createdAfterQueue?: string
 	perPage?: number
-	onlySkipped?: boolean
 }
 
 export function computeJobKinds(jobKindsCat: string | null): string {
@@ -432,10 +431,11 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		return scan
 	}
 
-	function fetchJobs(q: JobsQuery): CancelablePromise<Job[]> {
+	function fetchJobs(q: JobsQuery, onError?: () => void): CancelablePromise<Job[]> {
 		if (_args.skip) return CancelablePromiseUtils.pure<Job[]>([])
 		return CancelablePromiseUtils.catchErr(listJobs(q), (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
+			onError?.()
 			sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
 			console.error(e)
 			return CancelablePromiseUtils.pure<Job[]>([])
@@ -448,8 +448,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		createdBefore,
 		createdAfter,
 		createdAfterQueue,
-		perPage: perPageOverride,
-		onlySkipped
+		perPage: perPageOverride
 	}: JobsQuery): CancelablePromise<Job[]> {
 		loadingFetch = true
 		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
@@ -480,7 +479,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					: success == 'waiting'
 						? false
 						: undefined,
-			isSkipped: onlySkipped ? true : showSkipped ? undefined : false,
+			isSkipped: showSkipped ? undefined : false,
 			resolved:
 				resolutionFilter === 'resolved'
 					? true
@@ -620,8 +619,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	): CancelablePromise<void> {
 		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
 		listLoadedAt = new Date(Date.now() - 5 * 60_000).toISOString()
-		lastHiddenSkippedTs = null
-		listGeneration++
 		if (shouldGetCount) {
 			getCount()
 		}
@@ -771,54 +768,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	let lastQueueTs: string | undefined = undefined
 	let listLoadedAt: string | null = null
-	let lastHiddenSkippedTs: string | null = null
-	// Bumped on every reload, so a skipped-jobs response for an earlier listing (e.g. one
-	// that predates turning "Show skipped" on) cannot remove rows from the new one.
-	let listGeneration = 0
-
-	// With skipped jobs hidden, the refresh never returns a listed queued job that completes
-	// as skipped (e.g. debounced), so its row would stay as "Waiting executor" until a reload.
-	// Skipped jobs are fetched in their own request so they never take the refresh's
-	// per_page slots from visible completions.
-	async function dropQueuedRowsCompletedAsSkipped(maxTs: string | null) {
-		const queued = jobs?.filter((x) => x.type == 'QueuedJob') ?? []
-		if (queued.length == 0) return
-		const generation = listGeneration
-		// A listed queued row completes after the list was loaded, so `listLoadedAt` bounds the
-		// first scan. The cursor then moves on every response, empty ones included, so a job
-		// queued for hours does not make each refresh rescan its whole wait. The 5 minute
-		// margin absorbs browser/database skew; completed_after is inclusive.
-		let next = new Date(Date.now() - 5 * 60_000).toISOString()
-		const after = lastHiddenSkippedTs ?? listLoadedAt
-		const skippedIds = new Set<string>()
-		// Pages come newest first, so the cursor may only pass the window once every page of it
-		// has been read: a cut-off older page would otherwise never be fetched again.
-		let before = maxTs
-		for (let page = 0; page < 10; page++) {
-			const res = (
-				await fetchJobs({ completedBefore: before, completedAfter: after, onlySkipped: true })
-			).filter((x): x is CompletedJob & { type: 'CompletedJob' } => x.type == 'CompletedJob')
-			if (generation != listGeneration) return
-			const sizeBefore = skippedIds.size
-			let oldest: string | undefined
-			for (const x of res) {
-				skippedIds.add(x.id)
-				const ts = new Date(x.completed_at!).toISOString()
-				if (ts > next) next = ts
-				if (!oldest || ts < oldest) oldest = ts
-			}
-			if (res.length < perPage || !oldest || skippedIds.size == sizeBefore) break
-			// completed_before is inclusive at millisecond precision; ids already seen are deduped.
-			before = new Date(new Date(oldest).getTime() + 1).toISOString()
-		}
-		if (!lastHiddenSkippedTs || next > lastHiddenSkippedTs) lastHiddenSkippedTs = next
-		if (!queued.some((x) => skippedIds.has(x.id))) return
-		jobs = jobs?.filter((x) => !skippedIds.has(x.id))
-		if (extendedJobs) {
-			extendedJobs.jobs = extendedJobs.jobs.filter((x) => !skippedIds.has(x.id))
-		}
-		computeCompletedJobs()
-	}
 
 	async function syncer() {
 		if (loadingFetch) {
@@ -869,11 +818,34 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						// unbounded scan of completed jobs, possibly the one that just timed out. Not for
 						// queue-only views: fetchJobs turns this into the queue's created_at bound, hiding
 						// older jobs that suspend or come due. The margin absorbs browser/database skew.
-						newJobs = await fetchJobs({
-							completedBefore: maxTs,
-							completedAfter: minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
-							createdAfterQueue: queueTs
-						})
+						let failed = false
+						newJobs = await fetchJobs(
+							{
+								completedBefore: maxTs,
+								completedAfter: minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
+								createdAfterQueue: queueTs
+							},
+							() => (failed = true)
+						)
+						// The response holds every matching queued job (its queue half has no
+						// per_page limit, and one statement reads both halves), so a listed queued
+						// row in neither half has left the queue unseen: typically completed as
+						// skipped while skipped jobs are hidden, e.g. a superseded debounced run.
+						// Without this it stays as "Waiting executor" until a reload. A maxTs makes
+						// the response completed-only, and the queue half is capped at 10000 rows.
+						if (!failed && !_args.skip && !isQueueOnly && maxTs == null && jobs) {
+							const returned = new Set(newJobs.map((x) => x.id))
+							const queuedReturned = newJobs.filter((x) => x.type == 'QueuedJob').length
+							const gone = new Set(
+								jobs.filter((x) => x.type == 'QueuedJob' && !returned.has(x.id)).map((x) => x.id)
+							)
+							if (gone.size > 0 && queuedReturned < 10000) {
+								jobs = jobs.filter((x) => !gone.has(x.id))
+								if (extendedJobs) {
+									extendedJobs.jobs = extendedJobs.jobs.filter((x) => !gone.has(x.id))
+								}
+							}
+						}
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, minTs ?? completedTs)
@@ -895,10 +867,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 							externalJobs = []
 						}
 						computeCompletedJobs()
-					}
-					// After the merge, which could re-insert a row from the older main response.
-					if ((concurrencyKey == null || concurrencyKey === '') && !showSkipped && !isQueueOnly) {
-						await dropQueuedRowsCompletedAsSkipped(maxTs)
 					}
 					loading = false
 				}
