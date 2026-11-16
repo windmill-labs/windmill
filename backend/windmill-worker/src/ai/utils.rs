@@ -151,19 +151,13 @@ pub struct FlowContext {
     pub flow_path: Option<String>,
 }
 
-/// Read the context an agent step evaluates its tools in. Inside a subflow the flow running the
-/// step is its parent job, not the root run: `flow_input` and `results` are that flow's, as for
-/// any other step, while chat and memory belong to the whole run.
-pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
-    let root_job_id = job
-        .root_job
-        .or(job.flow_innermost_root_job)
-        .or(job.parent_job);
-
-    let Some(root_job_id) = root_job_id else {
-        return FlowContext::default();
-    };
-
+/// Read the context an agent step evaluates its tools in. `flow_input` and `results` are those of
+/// `flow_job_id`, the flow the agent is a step of, as for any other step: inside a subflow that is
+/// not the root run. Chat and memory belong to the whole run.
+///
+/// The root is resolved from the flow job, as `get_root_job_id` does: a nested agent's own
+/// `root_job` names the agent calling it, which has no status row.
+pub async fn get_flow_context(db: &DB, job: &MiniPulledJob, flow_job_id: &Uuid) -> FlowContext {
     match sqlx::query!(
         r#"
         SELECT
@@ -171,14 +165,14 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
             fs.flow_status as "step_flow_status: Json<FlowStatus>",
             rs.flow_status as "run_status: Json<FlowStatus>",
             r.runnable_path
-        FROM v2_job_status rs
-        INNER JOIN v2_job r ON r.id = rs.id
-        LEFT JOIN v2_job f ON f.id = COALESCE($2::uuid, $1::uuid)
+        FROM v2_job f
         LEFT JOIN v2_job_status fs ON fs.id = f.id
-        WHERE rs.id = $1
+        INNER JOIN v2_job r
+            ON r.id = COALESCE(f.root_job, f.flow_innermost_root_job, f.parent_job, f.id)
+        LEFT JOIN v2_job_status rs ON rs.id = r.id
+        WHERE f.id = $1
         "#,
-        root_job_id,
-        job.parent_job
+        flow_job_id
     )
     .fetch_optional(db)
     .await
@@ -191,8 +185,8 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
         },
         Ok(None) => {
             tracing::warn!(
-                "No flow context found for root job {} (agent job {}), returning default",
-                root_job_id,
+                "No flow context found for flow job {} (agent job {}), returning default",
+                flow_job_id,
                 job.id
             );
             FlowContext::default()

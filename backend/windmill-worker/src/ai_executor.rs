@@ -1253,6 +1253,7 @@ pub async fn handle_ai_agent_job(
             db,
             conn,
             job,
+            &flow_job_id,
             flow_status_job.as_ref(),
             Some(flow_step_id.as_str()),
             &args,
@@ -1400,6 +1401,8 @@ pub async fn run_agent(
 
     // agent job and flow data
     job: &MiniPulledJob,
+    // the flow the agent is a step of, past the calling agent for a nested agent tool
+    flow_job_id: &Uuid,
     parent_job: Option<&Uuid>,
     flow_step_id_override: Option<&str>,
     args: &AIAgentArgs,
@@ -1478,7 +1481,7 @@ pub async fn run_agent(
     ));
 
     // Fetch flow context for input transforms context, chat and memory
-    let mut flow_context = get_flow_context(db, job).await;
+    let mut flow_context = get_flow_context(db, job, flow_job_id).await;
     // Set when the job parked on an approval or a question and has been pulled again. Read
     // whatever the roster says now: a linked agent can lose a tool while one of its runs is parked.
     let resumed = match load_checkpoint(db, &job.id).await? {
