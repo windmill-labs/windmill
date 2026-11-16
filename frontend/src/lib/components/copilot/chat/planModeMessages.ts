@@ -24,6 +24,14 @@ export const PLAN_MODE_MESSAGES = {
 	approvedWithDoc: 'Plan approved and saved as a document. You may now execute it.',
 	persistenceFailed:
 		'Plan approval could not be saved. Plan mode remains active. Retry after artifact persistence is available.',
+	planNotStored:
+		"The plan was not put up for approval: this browser could not store the plan document, because its storage is full or unavailable. Plan mode remains active. Tell the user, so they can free up space in this browser's storage, then call exit_plan_mode again.",
+	// The plan document was revised in another tab: proposing the same text again would
+	// overwrite that revision.
+	stalePlan: (latest: number, savedAs?: number) =>
+		savedAs !== undefined
+			? `Your plan was saved as version ${savedAs} of the plan document, and another tab has since saved version ${latest} on top of it, so your plan was not put up for approval. Plan mode remains active. Read the plan document with read_artifact, fold your plan into it if it is not there, and call exit_plan_mode again.`
+			: `The plan document was changed in another tab (now version ${latest}), so your plan was not saved. Plan mode remains active. Read the plan document with read_artifact, fold your plan into it, and call exit_plan_mode again.`,
 	enterPrompt:
 		'Switch to plan mode? The assistant will research and draft a plan for your approval before changing anything.',
 	exitPrompt: 'Ready to execute this plan?',
