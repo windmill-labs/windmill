@@ -5583,7 +5583,10 @@ async function testRunCode(
 	const lang = prepared.lang!
 	const schema = await schemaForTestRun({ content: code, language: lang })
 
-	return runThroughForm(
+	// save_preview takes the job id, which the run summary names only when the job is
+	// still running.
+	let jobId: string | undefined
+	const summary = await runThroughForm(
 		{
 			path: 'code',
 			schema,
@@ -5598,10 +5601,14 @@ async function testRunCode(
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			startJob: (submitted) => startPreparedRun('test_run_code', ctx, prepared.target, submitted)
+			startJob: async (submitted) => {
+				jobId = await startPreparedRun('test_run_code', ctx, prepared.target, submitted)
+				return jobId
+			}
 		},
 		ctx
 	)
+	return jobId ? `Job id: ${jobId}\n${summary}` : summary
 }
 
 /** The "do not call again" half is load-bearing: without it the model re-proposes the

@@ -1449,10 +1449,15 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     };
     let per_page = limit.min(MAX_LIST_LIMIT);
     let page_number = page.unwrap_or(1).max(1);
+    let search = opt_str_arg(args, "query")
+        .map(|q| q.trim().to_lowercase())
+        .filter(|q| !q.is_empty());
     // Several folders read as one listing, folder after folder, so `limit` stays one cap per
     // type (per trigger kind for triggers): page N is rows (N-1)*limit..N*limit of each
-    // concatenation, which takes every folder's first N*limit rows.
-    let window = (prefixes.len() > 1).then(|| (page_number - 1) * per_page..page_number * per_page);
+    // concatenation, which takes every folder's first N*limit rows. A search pages the same
+    // way, since the runnables search it goes through pages by cursor, not by page number.
+    let window = (prefixes.len() > 1 || search.is_some())
+        .then(|| (page_number - 1) * per_page..page_number * per_page);
 
     let mut query = format!("per_page={per_page}");
     if let Some(page) = page {
@@ -1478,9 +1483,6 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         }
     }
 
-    let search = opt_str_arg(args, "query")
-        .map(|q| q.trim().to_lowercase())
-        .filter(|q| !q.is_empty());
     // Scripts and flows are searched by the server, across the whole workspace rather than
     // one fetched page, each word matched in any order; it has already chosen them, so the
     // substring filter below leaves them be.
