@@ -11,6 +11,9 @@ on:
       - "frontend/**"
       # The flow chat compiles the chat SDK's source in (svelte.config.js alias).
       - "chat-sdk/src/**"
+      # Generated from or read by the unit tests (mcpSessionGen, displayCatalogGen, runArgsCases).
+      - "system_prompts/**"
+      - "backend/windmill-api/src/ai_session_tools/**"
       - ".github/workflows/frontend-check.yml"
 
 jobs:
