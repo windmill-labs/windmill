@@ -13358,7 +13358,8 @@ paths:
           in: query
           description: >-
             when true, each search term must appear anywhere in "summary (path)", in any
-            order, rather than in the order given.
+            order, rather than in the order given, and terms are split on anything but
+            letters, digits and apostrophes in any script, not only ASCII ones.
           schema:
             type: boolean
         - $ref: "#/components/parameters/PerPage"

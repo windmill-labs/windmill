@@ -204,6 +204,17 @@ fn search_terms(search: &str) -> Vec<&str> {
         .collect()
 }
 
+/// The terms of a `search_any_order` query: words in any script, since a caller guessing at
+/// words may write them in the language the summaries are in. The ordered search keeps the
+/// homepage's ASCII rule, which drops what its matcher drops.
+fn any_order_terms(search: &str) -> Vec<&str> {
+    search
+        .split(|c: char| !(c.is_alphanumeric() || c == '\''))
+        .filter(|t| !t.is_empty())
+        .take(MAX_SEARCH_TERMS)
+        .collect()
+}
+
 /// The string a search matches against: `summary (path)`, or the bare path when
 /// there is no summary — what the homepage concatenates before ranking, so both
 /// halves are searchable as one and a query may span them.
@@ -532,7 +543,11 @@ async fn list_runnables(
         ));
     }
     if let Some(search) = q.search.as_ref().filter(|s| !s.is_empty()) {
-        let terms = search_terms(search);
+        let terms = if q.search_any_order == Some(true) {
+            any_order_terms(search)
+        } else {
+            search_terms(search)
+        };
         if terms.is_empty() {
             // A search of nothing but separators is still a search: it must match nothing,
             // where no predicate at all would answer it with the whole workspace.

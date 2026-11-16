@@ -1513,18 +1513,27 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 let server_search = search
                     .as_deref()
                     .filter(|_| matches!(*item_type, "script" | "flow"));
-                let route = match server_search {
-                    Some(text) => ctx.ws(&format!(
-                        "runnables/list?kinds={item_type}&search={}&search_any_order=true&{query}&include_draft_only=true",
-                        enc(text)
-                    )),
-                    None => ctx.ws(&format!(
-                        "{}/list?{query}{extra}",
-                        service(item_type, trigger_kind)?
-                    )),
-                };
+                if let Some(text) = server_search {
+                    let wanted = window.as_ref().map_or(per_page, |w| w.end);
+                    let rows = search_runnables(ctx, item_type, text, prefix.as_deref(), wanted).await?;
+                    for row in rows {
+                        let index = index_by_kind.entry(format!("{item_type}:")).or_default();
+                        *index += 1;
+                        if window.as_ref().is_some_and(|w| !w.contains(&(*index - 1))) {
+                            continue;
+                        }
+                        let path = row.get("path").and_then(Value::as_str).unwrap_or_default();
+                        let key = item_key(item_type, path, None);
+                        searched.insert(key.clone());
+                        by_key.insert(key, deployed_item(item_type, None, &row));
+                    }
+                    continue;
+                }
+                let route = ctx.ws(&format!(
+                    "{}/list?{query}{extra}",
+                    service(item_type, trigger_kind)?
+                ));
                 let rows = match ctx.get(&route).await {
-                    Ok(rows) if server_search.is_some() => rows["items"].clone(),
                     Ok(rows) => rows,
                     // A trigger kind this build does not serve answers 404: skip that kind
                     // alone. Any other failure is real.
@@ -1540,11 +1549,10 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                         continue;
                     }
                     let path = row.get("path").and_then(Value::as_str).unwrap_or_default();
-                    let key = item_key(item_type, path, trigger_kind);
-                    if server_search.is_some() {
-                        searched.insert(key.clone());
-                    }
-                    by_key.insert(key, deployed_item(item_type, trigger_kind, row));
+                    by_key.insert(
+                        item_key(item_type, path, trigger_kind),
+                        deployed_item(item_type, trigger_kind, row),
+                    );
                 }
             }
         }
@@ -1611,6 +1619,41 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         "Items under {}, where this session works. Pass path_prefix \"\" for the whole workspace.\n{listed}",
         folders.join(", ")
     ))
+}
+
+/// The first `wanted` scripts or flows matching `text`, every word in any order, through the
+/// runnables search: it pages by cursor and caps a page, so this follows the cursor until it
+/// has `wanted` rows or the matches run out.
+async fn search_runnables(
+    ctx: &Ctx<'_>,
+    item_type: &str,
+    text: &str,
+    prefix: Option<&str>,
+    wanted: u64,
+) -> Result<Vec<Value>, String> {
+    const MAX_RUNNABLES_PAGE: u64 = 1000;
+    let mut rows = Vec::new();
+    let mut cursor: Option<String> = None;
+    while (rows.len() as u64) < wanted {
+        let mut route = format!(
+            "runnables/list?kinds={item_type}&search={}&search_any_order=true&include_draft_only=true&per_page={}",
+            enc(text),
+            (wanted - rows.len() as u64).min(MAX_RUNNABLES_PAGE)
+        );
+        if let Some(prefix) = prefix {
+            route.push_str(&format!("&path_start={}", enc(prefix)));
+        }
+        if let Some(cursor) = &cursor {
+            route.push_str(&format!("&cursor={}", enc(cursor)));
+        }
+        let page = ctx.get(&ctx.ws(&route)).await?;
+        rows.extend(array(page.get("items")).iter().cloned());
+        match page["next_cursor"].as_str() {
+            Some(next) => cursor = Some(next.to_string()),
+            None => break,
+        }
+    }
+    Ok(rows)
 }
 
 /// The card of one workspace item: what `read_workspace_item` returns, under a one-line

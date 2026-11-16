@@ -457,6 +457,25 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         by_storage_path.is_empty(),
         "the draft_<uuid> path is not searchable, got {by_storage_path:?}"
     );
+
+    // Words in any script reach the any-order search; the ordered one keeps the homepage's
+    // ASCII rule and matches nothing.
+    let r = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/beta/weather", "获取城市天气"))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 201, "create script: {}", r.text().await?);
+    assert_eq!(
+        list_once(port, "search=%E5%A4%A9%E6%B0%94&search_any_order=true").await,
+        vec!["script:f/beta/weather".to_string()],
+        "a non-ASCII word matches in any order"
+    );
+    assert!(list_once(port, "search=%E5%A4%A9%E6%B0%94")
+        .await
+        .is_empty());
     Ok(())
 }
 
