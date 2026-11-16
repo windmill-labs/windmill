@@ -59,6 +59,8 @@ vi.mock('@leeoniya/ufuzzy', () => ({
 	}
 }))
 
+import { getCompletion, getModelMaxTokens, parseOpenAICompletion } from './lib'
+
 function streamOf(chunks: unknown[]): any {
 	return (async function* () {
 		for (const chunk of chunks) {
@@ -92,7 +94,6 @@ function createTool(fn = vi.fn().mockResolvedValue('tool ok')) {
 
 describe('parseOpenAICompletion tool call arguments', () => {
 	it('does not execute nor persist a tool call whose streamed arguments are truncated', async () => {
-		const { parseOpenAICompletion } = await import('./lib')
 		const fn = vi.fn()
 		const callbacks = createCallbacks()
 		const messages: ChatCompletionMessageParam[] = []
@@ -135,7 +136,6 @@ describe('parseOpenAICompletion tool call arguments', () => {
 	})
 
 	it('keeps braces inside string arguments out of the object-depth count', async () => {
-		const { parseOpenAICompletion } = await import('./lib')
 		const fn = vi.fn().mockResolvedValue('tool ok')
 		const messages: ChatCompletionMessageParam[] = []
 
@@ -166,7 +166,6 @@ describe('parseOpenAICompletion tool call arguments', () => {
 	})
 
 	it('marks only the executing tool call as loading when one message has several', async () => {
-		const { parseOpenAICompletion } = await import('./lib')
 		const statuses: Record<string, any> = {}
 		const callbacks = createCallbacks()
 		callbacks.setToolStatus.mockImplementation((id: string, patch: any) => {
@@ -215,7 +214,6 @@ describe('parseOpenAICompletion tool call arguments', () => {
 	})
 
 	it('never leaves a call both queued and loading when deltas interleave', async () => {
-		const { parseOpenAICompletion } = await import('./lib')
 		const statuses: Record<string, any> = {}
 		// Merged state after every patch: a call demoted to queued then re-promoted
 		// by an interleaved delta must never keep both flags set at once.
@@ -255,7 +253,6 @@ describe('parseOpenAICompletion tool call arguments', () => {
 	})
 
 	it('executes a tool call with valid streamed arguments and keeps them verbatim', async () => {
-		const { parseOpenAICompletion } = await import('./lib')
 		const fn = vi.fn().mockResolvedValue('tool ok')
 		const messages: ChatCompletionMessageParam[] = []
 
@@ -288,7 +285,6 @@ describe('parseOpenAICompletion tool call arguments', () => {
 
 describe('output token limit', () => {
 	it('follows the model through every host that serves it', async () => {
-		const { getModelMaxTokens } = await import('./lib')
 		expect(getModelMaxTokens('deepseek', 'deepseek-flash')).toBe(131072)
 		expect(getModelMaxTokens('azure_foundry', 'DeepSeek-V4-Pro')).toBe(131072)
 		expect(getModelMaxTokens('openrouter', 'deepseek/deepseek-v4-pro')).toBe(131072)
@@ -300,7 +296,6 @@ describe('output token limit', () => {
 	})
 
 	it('gives a model outside the table room to think only when the request asks it to', async () => {
-		const { getModelMaxTokens } = await import('./lib')
 		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3', 'high')).toBe(32768)
 		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3', 'none')).toBe(8192)
 		expect(getModelMaxTokens('openrouter', 'x-ai/grok-4.3')).toBe(8192)
@@ -316,7 +311,6 @@ describe('output token limit', () => {
 	})
 
 	it('sizes the budget from the effort the same request carries', async () => {
-		const { getCompletion } = await import('./lib')
 		const create = vi.fn()
 
 		await getCompletion([], new AbortController(), undefined, {
@@ -329,7 +323,6 @@ describe('output token limit', () => {
 	})
 
 	it('fails a response cut off at the output token limit instead of ending the turn', async () => {
-		const { parseOpenAICompletion } = await import('./lib')
 		const { OutputTokenLimitError } = await import('./chat/outputTokenLimit')
 
 		// Thinking counts toward max_tokens, so the cap can land before any answer.

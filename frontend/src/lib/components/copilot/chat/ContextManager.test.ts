@@ -22,6 +22,8 @@ vi.mock('$lib/editorLangUtils', () => ({
 	langToExt: () => 'ts'
 }))
 
+import ContextManager from './ContextManager.svelte'
+
 describe('ContextManager', () => {
 	beforeEach(() => {
 		listResource.mockReset()
@@ -29,7 +31,7 @@ describe('ContextManager', () => {
 
 	const scriptOptions = {
 		lang: 'bun' as const,
-		code: 'export async function main() {}',
+		getCode: () => 'export async function main() {}',
 		error: undefined,
 		args: {},
 		path: 'f/scripts/example',
@@ -37,7 +39,6 @@ describe('ContextManager', () => {
 	}
 
 	it('loads db resources when switching from global to script in the same workspace', async () => {
-		const { default: ContextManager } = await import('./ContextManager.svelte')
 		const manager = new ContextManager()
 		listResource.mockResolvedValueOnce([{ path: 'f/db/main' }])
 
@@ -54,7 +55,6 @@ describe('ContextManager', () => {
 	})
 
 	it('refreshes db resources after switching workspaces through global mode', async () => {
-		const { default: ContextManager } = await import('./ContextManager.svelte')
 		const manager = new ContextManager()
 		listResource
 			.mockResolvedValueOnce([{ path: 'f/db/workspace-a' }])

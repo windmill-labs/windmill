@@ -23,11 +23,13 @@ describe('devPollingDormancy', () => {
 	})
 
 	afterEach(() => {
+		// `window` is `globalThis` here. useRealTimers deletes any timer global it did not install
+		// itself, so restoring before it would leave Node with no `clearInterval` for jsdom's teardown.
+		vi.useRealTimers()
 		window.setInterval = original.setInterval
 		window.clearInterval = original.clearInterval
 		// The install guard lives on `window`, so it is part of the global state to restore.
 		delete (window as unknown as Record<string, boolean>).__wmDevPollingDormancyInstalled
-		vi.useRealTimers()
 		vi.unstubAllEnvs()
 		// restoreAllMocks does not undo stubGlobal, and the config sets no unstubGlobals.
 		vi.unstubAllGlobals()
