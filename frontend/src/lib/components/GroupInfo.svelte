@@ -3,6 +3,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import Popover from './Popover.svelte'
 	import { untrack } from 'svelte'
+	import { latestRequest } from '$lib/utils/latestRequest'
 
 	interface Props {
 		name: string
@@ -13,6 +14,7 @@
 	let { name, reloadKey }: Props = $props()
 
 	let members: string[] | undefined = $state([])
+	const memberLoads = latestRequest()
 
 	async function loadMembers() {
 		// FAKE DATA FOR TESTING - Set to false to remove all fake data
@@ -34,10 +36,12 @@
 			}
 		}
 
+		const isLatest = memberLoads.start()
 		try {
-			members = (await GroupService.getGroup({ workspace: $workspaceStore!, name })).members
+			const result = (await GroupService.getGroup({ workspace: $workspaceStore!, name })).members
+			if (isLatest()) members = result
 		} catch (e) {
-			members = []
+			if (isLatest()) members = []
 		}
 	}
 	$effect(() => {
