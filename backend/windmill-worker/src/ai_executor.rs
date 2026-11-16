@@ -1850,10 +1850,19 @@ pub async fn run_agent(
     let previous_result = {
         if any_tool_needs_previous_result(&tools) {
             if let Some(ref flow_status) = flow_context.step_flow_status {
-                get_previous_job_result(db, &job.workspace_id, flow_status)
-                    .await
-                    .ok()
-                    .flatten()
+                // As for a regular step, the first step of a flow (a subflow, a loop iteration)
+                // gets that flow's args: no step precedes it.
+                if flow_status.step == 0 {
+                    flow_context
+                        .flow_inputs
+                        .as_ref()
+                        .and_then(|args| serde_json::value::to_raw_value(args).ok())
+                } else {
+                    get_previous_job_result(db, &job.workspace_id, flow_status)
+                        .await
+                        .ok()
+                        .flatten()
+                }
             } else {
                 None
             }
