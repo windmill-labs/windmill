@@ -1,12 +1,13 @@
 //! Authorizing what a restricted role composes: the references a value-only walk
-//! (`check_flow_is_composition_only`) collects, checked against the caller's own permissions.
+//! (`check_flow_is_composition_only`) collects, checked against the caller's own permissions,
+//! and the Hub paths a trigger or schedule save names.
 
 use sqlx::{Postgres, Transaction};
 use windmill_common::{
     error::{self, Error},
     flows::FlowValue,
-    jobs::{check_can_name_runnable, RunOrigin},
-    roles::AuthorLevel,
+    jobs::{check_can_name_runnable, check_can_name_with, naming_needs_code, RunOrigin},
+    roles::{caller_capabilities, AuthorLevel},
     runnable_ref::RunnableRef,
     workspaces::{check_operator_can_build, BuilderKind},
     DB,
@@ -25,12 +26,45 @@ pub async fn check_builder_can_name_hub(
     let origin = RunOrigin::NamedBy(authed.to_authed_ref());
     check_can_name_runnable(&origin, runnable, db, w_id)
         .await
-        .map_err(|e| match e {
-            Error::PermissionDenied(msg) => {
-                Error::PermissionDenied(format!("{}: {msg}", runnable.path()))
-            }
-            e => e,
-        })
+        .map_err(|e| name_refused_path(runnable, e))
+}
+
+fn name_refused_path(runnable: &RunnableRef, e: Error) -> Error {
+    match e {
+        Error::PermissionDenied(msg) => {
+            Error::PermissionDenied(format!("{}: {msg}", runnable.path()))
+        }
+        e => e,
+    }
+}
+
+/// Whether the caller may name the Hub paths among `new`, for `check_new_hub_paths`. Resolve it
+/// before the save's transaction opens: on a role-cache miss it reads from the pool.
+pub async fn can_name_hub(
+    new: &[RunnableRef],
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> error::Result<bool> {
+    if !new.iter().any(naming_needs_code) {
+        return Ok(true);
+    }
+    Ok(caller_capabilities(db, w_id, authed).await?.code)
+}
+
+/// Refuses each of `new` that `old` does not hold and that needs `code`. A trigger or schedule
+/// save is checked on the paths it changes only, so a member without `code` can still edit one
+/// that already runs a Hub path; nothing is checked at fire. `old` must be the row locked by the
+/// save, or a concurrent edit could slip a removed Hub path back in as unchanged.
+pub fn check_new_hub_paths(
+    new: &[RunnableRef],
+    old: &[RunnableRef],
+    can_name_hub: bool,
+) -> error::Result<()> {
+    for runnable in new.iter().filter(|r| !old.contains(r)) {
+        check_can_name_with(runnable, can_name_hub).map_err(|e| name_refused_path(runnable, e))?;
+    }
+    Ok(())
 }
 
 /// `validate_operator_composed_flow` on a transaction the caller already holds, so a write that
