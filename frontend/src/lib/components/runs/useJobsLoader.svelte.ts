@@ -620,6 +620,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	): CancelablePromise<void> {
 		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
 		listLoadedAt = new Date(Date.now() - 5 * 60_000).toISOString()
+		lastHiddenSkippedTs = null
 		if (shouldGetCount) {
 			getCount()
 		}
@@ -769,6 +770,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	let lastQueueTs: string | undefined = undefined
 	let listLoadedAt: string | null = null
+	// Hidden skipped jobs never enter `jobs`, so the completed_at cursor read from it would
+	// stay behind them and every refresh would refetch them, up to filling per_page and
+	// pushing out visible completions.
+	let lastHiddenSkippedTs: string | null = null
 
 	async function syncer() {
 		if (loadingFetch) {
@@ -822,17 +827,25 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						// Skipped jobs are fetched even when hidden: a job listed while queued that
 						// then completes as skipped (e.g. debounced) must remove its queued row,
 						// which would otherwise stay as "Waiting executor" until a reload.
+						const visibleCursor = completedTs ?? (isQueueOnly ? null : listLoadedAt)
 						newJobs = await fetchJobs({
 							completedBefore: maxTs,
-							completedAfter: minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
+							completedAfter:
+								minTs ??
+								(visibleCursor && lastHiddenSkippedTs && lastHiddenSkippedTs > visibleCursor
+									? lastHiddenSkippedTs
+									: visibleCursor),
 							createdAfterQueue: queueTs,
 							includeSkipped: true
 						})
 						if (!showSkipped) {
-							const skippedIds = new Set(
-								newJobs.filter((x) => x.type == 'CompletedJob' && x.is_skipped).map((x) => x.id)
-							)
+							const skipped = newJobs.filter((x) => x.type == 'CompletedJob' && x.is_skipped)
+							const skippedIds = new Set(skipped.map((x) => x.id))
 							if (skippedIds.size > 0) {
+								for (const x of skipped) {
+									const ts = new Date((x as CompletedJob).completed_at!).toISOString()
+									if (!lastHiddenSkippedTs || ts > lastHiddenSkippedTs) lastHiddenSkippedTs = ts
+								}
 								newJobs = newJobs.filter((x) => !skippedIds.has(x.id))
 								jobs = jobs?.filter((x) => !skippedIds.has(x.id))
 								if (extendedJobs) {
