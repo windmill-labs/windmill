@@ -119,6 +119,10 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     ) {
     }
 
+    /// Whether the caller's role may start runs in the workspace: the same check
+    /// `run_script` and `run_flow` refuse on, so the listing offers no tool that always fails.
+    async fn can_run(&self, auth: &Self::Auth, workspace_id: &str) -> BackendResult<bool>;
+
     // ─────────────────────────────────────────────────────────────────
     // Listing Operations
     // ─────────────────────────────────────────────────────────────────

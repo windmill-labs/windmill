@@ -127,6 +127,50 @@ async fn test_update_draft_conflict_lifecycle(db: Pool<Postgres>) -> anyhow::Res
     Ok(())
 }
 
+/// `/drafts/list` types a resource draft by the deployed row, which a deploy keeps, else by the
+/// draft: what lets every listing tell an agent's draft apart without reading it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_drafts_resource_type(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let c = client_for("SECRET_TOKEN");
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by) \
+         VALUES ('test-workspace', 'u/test-user/pg', '{}'::jsonb, 'postgresql', '{}', 'test-user')",
+    )
+    .execute(&db)
+    .await?;
+    for (path, rt) in [
+        ("u/test-user/pg", "ai_agent"),
+        ("u/test-user/agent", "ai_agent"),
+    ] {
+        let value = json!({ "path": path, "resource_type": rt, "description": "d", "args": {} });
+        let r = c
+            .post(save_url(port, "resource", path))
+            .json(&json!({ "value": value }))
+            .send()
+            .await?;
+        assert_eq!(r.status(), 200, "save {path}");
+    }
+
+    let rows: Vec<serde_json::Value> = c
+        .get(format!("http://localhost:{port}/api/w/{WS}/drafts/list"))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let typed = |path: &str| {
+        rows.iter()
+            .find(|r| r["path"] == path)
+            .map(|r| (r["resource_type"].clone(), r["summary"].clone()))
+            .unwrap()
+    };
+    assert_eq!(typed("u/test-user/pg"), (json!("postgresql"), json!(null)));
+    assert_eq!(typed("u/test-user/agent"), (json!("ai_agent"), json!("d")));
+    Ok(())
+}
+
 /// require_can_write_path: own namespace allowed, another user's namespace
 /// rejected, operators rejected outright.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]

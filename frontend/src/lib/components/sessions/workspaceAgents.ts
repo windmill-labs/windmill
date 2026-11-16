@@ -8,7 +8,7 @@ export type WorkspaceAgent = {
 }
 
 /** The workspace's agents as a session shows them: the deployed ones, then those that exist only
- * as a draft. The draft listing does not say which resources are agents, so those are asked. */
+ * as a draft. */
 export async function listWorkspaceAgents(workspace: string): Promise<WorkspaceAgent[]> {
 	const [deployed, drafts] = await Promise.all([
 		ResourceService.listResource({ workspace, resourceType: 'ai_agent', perPage: 1000 }),
@@ -18,21 +18,8 @@ export async function listWorkspaceAgents(workspace: string): Promise<WorkspaceA
 			return []
 		})
 	])
-	const resourceDrafts = drafts.filter((d) => d.kind === 'resource')
-	const drafted = new Set(resourceDrafts.map((d) => d.path))
-	const draftOnly = await Promise.all(
-		resourceDrafts
-			.filter((d) => d.draft_only)
-			.map((d) =>
-				ResourceService.getResource({ workspace, path: d.path, getDraft: true }).then(
-					(r) =>
-						r.resource_type === 'ai_agent'
-							? { path: d.path, summary: r.description ?? '', draftOnly: true, hasDraft: true }
-							: undefined,
-					() => undefined
-				)
-			)
-	)
+	const agentDrafts = drafts.filter((d) => d.kind === 'resource' && d.resource_type === 'ai_agent')
+	const drafted = new Set(agentDrafts.map((d) => d.path))
 	return [
 		...deployed.map((r) => ({
 			path: r.path,
@@ -40,6 +27,8 @@ export async function listWorkspaceAgents(workspace: string): Promise<WorkspaceA
 			draftOnly: false,
 			hasDraft: drafted.has(r.path)
 		})),
-		...draftOnly.filter((a) => a !== undefined)
+		...agentDrafts
+			.filter((d) => d.draft_only)
+			.map((d) => ({ path: d.path, summary: d.summary ?? '', draftOnly: true, hasDraft: true }))
 	]
 }

@@ -117,19 +117,38 @@ pub fn with_step_context(
     let Error::ExecutionRawError(raw) = &e else {
         return e;
     };
-    let Ok(serde_json::Value::Object(mut err)) = serde_json::from_str(raw.get()) else {
-        return e;
+    let var = |k: &str| reserved_variables.get(k).map(String::as_str);
+    match add_step_context(
+        raw,
+        var("WM_FLOW_STEP_ID"),
+        var("WM_JOB_ID"),
+        var("WM_FLOW_PATH"),
+    ) {
+        Some(raw) => Error::ExecutionRawError(raw),
+        None => e,
+    }
+}
+
+/// Returns `err` with the non-empty context fields set, or `None` if it is not a JSON object.
+pub fn add_step_context(
+    err: &RawValue,
+    step_id: Option<&str>,
+    job_id: Option<&str>,
+    flow_path: Option<&str>,
+) -> Option<Box<RawValue>> {
+    let Ok(serde_json::Value::Object(mut err)) = serde_json::from_str(err.get()) else {
+        return None;
     };
-    for (key, var) in [
-        ("step_id", "WM_FLOW_STEP_ID"),
-        ("job_id", "WM_JOB_ID"),
-        ("flow_path", "WM_FLOW_PATH"),
+    for (key, v) in [
+        ("step_id", step_id),
+        ("job_id", job_id),
+        ("flow_path", flow_path),
     ] {
-        if let Some(v) = reserved_variables.get(var).filter(|v| !v.is_empty()) {
-            err.insert(key.to_string(), serde_json::Value::String(v.clone()));
+        if let Some(v) = v.filter(|v| !v.is_empty()) {
+            err.insert(key.to_string(), serde_json::Value::String(v.to_string()));
         }
     }
-    Error::ExecutionRawError(windmill_common::worker::to_raw_value(&err))
+    Some(windmill_common::worker::to_raw_value(&err))
 }
 
 #[cfg(feature = "deno_core")]

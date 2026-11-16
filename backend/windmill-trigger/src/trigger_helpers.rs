@@ -33,8 +33,8 @@ use windmill_api_jobs::execution::check_license_key_valid;
 use windmill_api_jobs::{
     execution::{
         check_tag_available_for_workspace, delete_job_metadata_after_use,
-        push_flow_job_by_path_into_queue, push_script_job_by_path_into_queue, result_to_response,
-        run_wait_result_internal, schedule_job_deletion,
+        push_flow_job_by_path_into_queue, push_script_job_by_path_into_queue,
+        result_to_http_response, run_wait_result_internal, schedule_job_deletion,
     },
     types::RunJobQuery,
 };
@@ -686,7 +686,7 @@ pub async fn trigger_runnable_and_wait_for_result(
         None => {}
     }
 
-    result_to_response(result, success)
+    result_to_http_response(&db, &workspace_id, result, success).await
 }
 
 #[allow(dead_code)]

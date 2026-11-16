@@ -230,6 +230,7 @@
 						path,
 						canWrite: canEdit,
 						noCode: !canCode,
+						canAuthor,
 						wsSpecific: agent?.state?.wsSpecific,
 						deployUiSettings: deployUiSettings.current,
 						onShare: () => shareModal?.openDrawer?.(path, 'resource'),

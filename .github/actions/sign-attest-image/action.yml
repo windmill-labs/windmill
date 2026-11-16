@@ -57,7 +57,7 @@ runs:
         exit 1
 
     - name: SLSA provenance (GitHub artifact attestation)
-      uses: actions/attest-build-provenance@v4
+      uses: actions/attest-build-provenance@v4.2.2
       with:
         subject-name: ${{ inputs.image }}
         subject-digest: ${{ inputs.digest }}

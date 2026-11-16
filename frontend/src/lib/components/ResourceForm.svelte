@@ -9,14 +9,14 @@
 	import { Trash2 } from 'lucide-svelte'
 	import Path from './Path.svelte'
 	import LabelsInput from './LabelsInput.svelte'
-	import { type UserExt } from '$lib/stores'
+	import { enterpriseLicense, type UserExt } from '$lib/stores'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import FilesetEditor from './FilesetEditor.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
 	import TestAiKey from './copilot/TestAIKey.svelte'
-	import { aiResourceProvider } from './copilot/aiResourceProvider'
+	import { aiResourceProvider, isTokenVertexResource } from './copilot/aiResourceProvider'
 	import { copilotInfo } from '$lib/aiStore'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
@@ -95,7 +95,7 @@
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
-	let aiProvider = $derived(aiResourceProvider(resource_type))
+	let aiProvider = $derived(aiResourceProvider(resource_type, args))
 
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')
@@ -362,6 +362,13 @@
 			{/if}
 		{/if}
 	</div>
+	{#if $enterpriseLicense && !showReference && isTokenVertexResource(resource_type, args)}
+		<p class="text-xs text-secondary">
+			To stop storing and refreshing an access token, use a
+			<span class="font-mono">vertex_ai_federated</span> resource instead: Windmill authenticates to
+			Vertex AI through Workload Identity Federation and refreshes the token itself.
+		</p>
+	{/if}
 
 	<div>
 		<ResourceValueReference

@@ -98,6 +98,15 @@ impl WindmillBackend {
             }
             other => other,
         };
+        // A role without `run` reads only, whatever the token grants. The in-app chat applies the
+        // same rule (`resolveSessionAccess` in `chat/global/sessionAccess.ts`): change both.
+        let access = if access != SessionAccess::ReadOnly
+            && !self.can_run(auth, w_id).await.unwrap_or(true)
+        {
+            SessionAccess::ReadOnly
+        } else {
+            access
+        };
         session::Ctx::new(auth, w_id, &self.base_internal_url, session::access(access))
     }
 
@@ -119,7 +128,7 @@ async fn run_outcome(
     (result, success): (Box<serde_json::value::RawValue>, bool),
 ) -> BackendResult<RunOutcome> {
     if success {
-        let response = result_to_response(result, true)
+        let response = result_to_response(result, true, true)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         return Ok(RunOutcome::Success(parse_response_body(response).await?));
     }
@@ -145,6 +154,14 @@ impl McpBackend for WindmillBackend {
         refusal: Option<&str>,
     ) {
         super::external_idp::audit_tool_call(&self.db, auth, workspace_id, tool, refusal).await;
+    }
+
+    async fn can_run(&self, auth: &ApiAuthed, workspace_id: &str) -> BackendResult<bool> {
+        match windmill_common::workspaces::check_role_can_run(&self.db, workspace_id, auth).await {
+            Ok(()) => Ok(true),
+            Err(windmill_common::error::Error::PermissionDenied(_)) => Ok(false),
+            Err(e) => Err(ErrorData::internal_error(e.to_string(), None)),
+        }
     }
 
     async fn list_scripts(

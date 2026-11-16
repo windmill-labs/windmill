@@ -8383,10 +8383,17 @@ pub async fn run_wait_result_flow_by_path_get(
         )
         .await?;
 
-    let (result, success) =
-        run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id)
-            .await?;
-    result_to_response(result, success)
+    let (result, success) = run_wait_result_flow_by_path_internal(
+        db.clone(),
+        run_query,
+        &flow,
+        authed,
+        user_db,
+        args,
+        w_id.clone(),
+    )
+    .await?;
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 pub async fn run_wait_result_script_by_path(
@@ -8415,10 +8422,16 @@ pub async fn run_wait_result_script_by_path(
         .await?;
 
     let (result, success) = run_wait_result_script_by_path_internal(
-        db, run_query, &script, authed, user_db, w_id, args,
+        db.clone(),
+        run_query,
+        &script,
+        authed,
+        user_db,
+        w_id.clone(),
+        args,
     )
     .await?;
-    result_to_response(result, success)
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 pub async fn run_wait_result_script_by_path_internal(
@@ -8668,10 +8681,17 @@ pub async fn run_wait_result_flow_by_path(
         )
         .await?;
 
-    let (result, success) =
-        run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id)
-            .await?;
-    result_to_response(result, success)
+    let (result, success) = run_wait_result_flow_by_path_internal(
+        db.clone(),
+        run_query,
+        &flow,
+        authed,
+        user_db,
+        args,
+        w_id.clone(),
+    )
+    .await?;
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 pub async fn stream_flow_by_path(
@@ -8990,7 +9010,7 @@ pub async fn run_wait_result_flow_by_version_get(
         None,
     )
     .await?;
-    result_to_response(result, success)
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 pub async fn run_wait_result_flow_by_version(
@@ -9034,7 +9054,7 @@ pub async fn run_wait_result_flow_by_version(
         None,
     )
     .await?;
-    result_to_response(result, success)
+    result_to_http_response(&db, &w_id, result, success).await
 }
 
 /// Whether request-supplied SQL from an operator may run. Operators can only run deployed
@@ -10502,6 +10522,7 @@ async fn run_preview_flow_job(
 
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
+    take_over_memory_turn(&db, &authed, &w_id, &flow_path, &run_query).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -10545,11 +10566,6 @@ async fn run_preview_flow_job(
         audit_preview_on_behalf_of(&mut tx, &authed, &w_id, uuid, audited_path, obo).await?;
     }
 
-    // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {
-        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
-    }
-
     // Handle conversation messages for chat-enabled flows
     if chat_input_enabled {
         handle_chat_conversation_messages(
@@ -10565,6 +10581,11 @@ async fn run_preview_flow_job(
             &flow_args,
         )
         .await?;
+    }
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {
+        set_flow_memory_id(&mut tx, &w_id, uuid, memory_id).await?;
     }
 
     tx.commit().await?;

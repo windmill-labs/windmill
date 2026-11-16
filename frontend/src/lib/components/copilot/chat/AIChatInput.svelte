@@ -124,6 +124,8 @@
 		chatIcon?: boolean
 		/** After a new turn is handed to the host — not an edit, a queued message or an answer. */
 		onSent?: () => void
+		/** The textarea gained or lost focus. */
+		onComposerFocusChange?: (focused: boolean) => void
 		/** The composer's controls. */
 		toolbar?: Snippet
 	}
@@ -154,6 +156,7 @@
 		onAttachmentsChange = undefined,
 		pendingQuestionToolCallId = undefined,
 		onSent = undefined,
+		onComposerFocusChange = undefined,
 		toolbar = undefined,
 		hero = false,
 		collapsed = false,
@@ -972,7 +975,9 @@
 		chatManager.contextManager?.consumeMentionContext()
 	}
 
-	function sendRequest() {
+	/** `midTurn`: Ctrl/⌘+Enter, which sends a message queued behind a running turn into that
+	 * turn instead of after it (`ChatViewHost.sendQueuedMidTurn`). */
+	function sendRequest({ midTurn = false }: { midTurn?: boolean } = {}) {
 		// The send button is disabled while decoding, but Enter reaches here directly.
 		// Sending now would drop the in-flight attachments onto the following message.
 		if (pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0) {
@@ -1010,21 +1015,22 @@
 			// context-only draft counts too (mirrors the idle send guard), and
 			// the selection is pinned to the queued entry so the flush sends the
 			// chips picked at press time.
-			if (
-				editingMessageIndex === null &&
-				(!draft.isEmpty || (chatHost.mode === AIMode.GLOBAL && selectedContext.length > 0))
-			) {
-				const sent = draft.take()
-				chatHost.queueMessage(
-					expanded(chatDraft(sent.text, sent.pastes)),
-					sent.images,
-					[...selectedContext],
-					sent.files,
-					sent.blobs
-				)
-				// Consumed at enqueue, not at flush: the entry above pinned them.
-				consumeMentionsIfGlobal()
-				contextTextareaComponent?.clearForSend()
+			if (editingMessageIndex === null) {
+				if (!draft.isEmpty || (chatHost.mode === AIMode.GLOBAL && selectedContext.length > 0)) {
+					const sent = draft.take()
+					chatHost.queueMessage(
+						expanded(chatDraft(sent.text, sent.pastes)),
+						sent.images,
+						[...selectedContext],
+						sent.files,
+						sent.blobs
+					)
+					// Consumed at enqueue, not at flush: the entry above pinned them.
+					consumeMentionsIfGlobal()
+					contextTextareaComponent?.clearForSend()
+				}
+				// With an empty composer, this marks what is already queued.
+				if (midTurn && chatHost.supportsMidTurnMessages) chatHost.sendQueuedMidTurn()
 			}
 			return
 		}
@@ -1074,11 +1080,20 @@
 	// A custom `onSendRequest` consumer (e.g. the inline ⌘K widget) has no chip
 	// display, so it gets the fully expanded text; the default path keeps tokens
 	// for the conversation bubble and expands them for the LLM inside the manager.
-	function submitRequest() {
+	/** Enter in a plain textarea. Ctrl/⌘ sends without stopping, and that press stops here for
+	 * the same reason as in `ContextTextarea`: pages bind their own Ctrl/⌘+Enter on the window. */
+	function sendFromEnter(e: KeyboardEvent) {
+		e.preventDefault()
+		const midTurn = e.ctrlKey || e.metaKey
+		if (midTurn) e.stopPropagation()
+		sendRequest({ midTurn })
+	}
+
+	function submitRequest(options: { midTurn?: boolean } = {}) {
 		if (onSendRequest) {
 			onSendRequest(expanded(chatDraft(draft.text, draft.pastes)))
 		} else {
-			sendRequest()
+			sendRequest(options)
 		}
 	}
 
@@ -1463,6 +1478,12 @@
 	use:clickOutside
 	class="relative mt-1"
 	role="presentation"
+	onfocusin={(e) => {
+		if (e.target instanceof HTMLTextAreaElement) onComposerFocusChange?.(true)
+	}}
+	onfocusout={(e) => {
+		if (e.target instanceof HTMLTextAreaElement) onComposerFocusChange?.(false)
+	}}
 	onkeydown={(e) => {
 		if (e.key === 'Escape' && chatHost.loading) {
 			e.preventDefault()
@@ -1480,7 +1501,7 @@
 			ingestionHolds === 0
 		) {
 			// Shell-style recall: ArrowUp in the empty main composer pulls the
-			// queued message (if any, same as the queued-message chip's click/X)
+			// queued message (if any, same as the queued-message chip's X)
 			// or otherwise a copy of the last sent message back into the input.
 			// Empty means no attachment still decoding/reading either —
 			// recalling over an attachments-only draft would clobber it.
@@ -1530,11 +1551,11 @@
 				onRemoveContext={(element) => {
 					selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
 				}}
-				onSendRequest={() => {
+				onSendRequest={({ withModifier }) => {
 					if (disabled) {
 						return
 					}
-					submitRequest()
+					submitRequest({ midTurn: withModifier })
 				}}
 				{disabled}
 				{onKeyDown}
@@ -1585,8 +1606,7 @@
 						return
 					}
 					if (e.key === 'Enter' && !e.shiftKey) {
-						e.preventDefault()
-						sendRequest()
+						sendFromEnter(e)
 					}
 				}}
 				rows={1}
@@ -1644,8 +1664,7 @@
 						// An Enter that confirms an IME composition (Japanese, Chinese) is not a
 						// send; it would ship the unfinished text.
 						if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-							e.preventDefault()
-							sendRequest()
+							sendFromEnter(e)
 						}
 					}}
 					rows={1}

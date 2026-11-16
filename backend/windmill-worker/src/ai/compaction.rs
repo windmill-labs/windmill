@@ -572,6 +572,16 @@ async fn summarize_prefix(
     let assumed_credentials: Option<ProviderCredentials> = None;
     let credentials = assumed_credentials.as_ref().unwrap_or(request.credentials);
 
+    let mut vertex_token = None;
+    let vertex_credentials = windmill_ai::vertex_workload_identity::refresh_vertex_access_token(
+        credentials,
+        &mut vertex_token,
+        request.client,
+    )
+    .await?
+    .map(|token| ProviderCredentials { api_key: Some(token.to_string()), ..credentials.clone() });
+    let credentials = vertex_credentials.as_ref().unwrap_or(credentials);
+
     // Summaries are rare enough that exchanging afresh costs less than threading the
     // agent loop's cached token through.
     let mut federated_token = None;

@@ -27,7 +27,8 @@ read or change it.
 
 ## Secrets
 
-`slack_oauth_client_secret` is the one secret. A read shows `__SENSITIVE_AND_UNCHANGED__` in place
+`webhook` (its URL usually carries the receiver's token) and `slack_oauth_client_secret` are the
+secrets. A read shows `__SENSITIVE_AND_UNCHANGED__` in place
 of a set secret; sending that placeholder back keeps the stored value. A value starting with
 `$encrypted:` is decrypted with the workspace key, and one encrypted with another workspace's key
 is left unchanged with a warning; any other value is taken as plaintext. Never

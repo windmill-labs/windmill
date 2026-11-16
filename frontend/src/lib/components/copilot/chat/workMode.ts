@@ -14,6 +14,8 @@ export enum AIWorkMode {
 export type WorkModeLock = {
 	reason: string
 	escape?: { label: string; action: () => void }
+	/** The session cannot run either: the user's role withholds `run`. */
+	readsOnly?: boolean
 }
 
 /** The answer to a call approved after its session switched to Use: the card or form it

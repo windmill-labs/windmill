@@ -47,7 +47,7 @@ ENV PATH=/usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 # Install system dependencies
 # Bump to force a fresh apt-get upgrade past the build cache; keep in step with ../Dockerfile.
-ARG APT_REFRESH=1
+ARG APT_REFRESH=2
 RUN echo "apt refresh ${APT_REFRESH}" \
     && apt-get update \
     && apt-get upgrade -y \
@@ -66,7 +66,7 @@ RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmo
 ENV TZ=Etc/UTC
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.6/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.8/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtime to temp location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run

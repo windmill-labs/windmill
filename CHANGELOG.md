@@ -1,5 +1,99 @@
 # Changelog
 
+## [1.875.0](https://github.com/windmill-labs/windmill/compare/v1.874.0...v1.875.0) (2026-11-14)
+
+
+### Features
+
+* exact start and end of a fairness cap in its alerts ([#12438](https://github.com/windmill-labs/windmill/issues/12438)) ([df0e5cf](https://github.com/windmill-labs/windmill/commit/df0e5cf4c2e90e071594f962cb1c5ed9e9023754))
+* fairness reserve as a worker group setting, shown on the workers page ([#12435](https://github.com/windmill-labs/windmill/issues/12435)) ([5f8e002](https://github.com/windmill-labs/windmill/commit/5f8e0022b699f58836d1a24304debcc7d7611e1a))
+* show long step durations in hours and minutes on run timelines ([#12437](https://github.com/windmill-labs/windmill/issues/12437)) ([c6955ed](https://github.com/windmill-labs/windmill/commit/c6955ed4457c2bdb59fd3ffef4379ce05548c999))
+
+
+### Bug Fixes
+
+* keep shortcuts from opening home filters over global search ([#12439](https://github.com/windmill-labs/windmill/issues/12439)) ([d09336d](https://github.com/windmill-labs/windmill/commit/d09336d8df1814434d219e732421d2358e485890))
+
+## [1.874.0](https://github.com/windmill-labs/windmill/compare/v1.873.1...v1.874.0) (2026-11-14)
+
+
+### Features
+
+* fairness reserve workers that only serve non-overloaded workspaces ([#12431](https://github.com/windmill-labs/windmill/issues/12431)) ([df56c11](https://github.com/windmill-labs/windmill/commit/df56c111bb597bc9d3f99462c5d40e1b57e60def))
+* fairness-aware queue alerts and a capped-workspace alert ([#12432](https://github.com/windmill-labs/windmill/issues/12432)) ([9724f3b](https://github.com/windmill-labs/windmill/commit/9724f3bdf085c68e1b91c9655cbe01c3f2598bdd))
+
+
+### Bug Fixes
+
+* keep group run-as principals when renaming a group-* member ([#12409](https://github.com/windmill-labs/windmill/issues/12409)) ([fffef91](https://github.com/windmill-labs/windmill/commit/fffef918881ed5b098ac5552d6d9094950963e3a))
+* move handler paths when renaming or offboarding a user ([#12420](https://github.com/windmill-labs/windmill/issues/12420)) ([161ab6f](https://github.com/windmill-labs/windmill/commit/161ab6f581b2ea97f45812a903ae2fbebddc4184))
+
+## [1.873.1](https://github.com/windmill-labs/windmill/compare/v1.873.0...v1.873.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* keep static input references in raw-app source deploy policies ([#12428](https://github.com/windmill-labs/windmill/issues/12428)) ([a64dc9a](https://github.com/windmill-labs/windmill/commit/a64dc9a5605dc297f28f8f7afd15e06fc9d17ce3))
+* keep step_id, job_id, flow_path and extra on dedicated worker errors ([#12417](https://github.com/windmill-labs/windmill/issues/12417)) ([3b860d5](https://github.com/windmill-labs/windmill/commit/3b860d549e3819f6a849704737742b6c00377252))
+* revoke api tokens and mcp oauth grants on leave_instance ([#12430](https://github.com/windmill-labs/windmill/issues/12430)) ([2c39bf0](https://github.com/windmill-labs/windmill/commit/2c39bf044a04ca20f2f076ecc79d64f341f35261))
+* run dedicated flow script steps on their runners ([#12419](https://github.com/windmill-labs/windmill/issues/12419)) ([f738a4b](https://github.com/windmill-labs/windmill/commit/f738a4bad4e211ded0a39d48722544f9321e0190))
+
+## [1.873.0](https://github.com/windmill-labs/windmill/compare/v1.872.0...v1.873.0) (2026-11-13)
+
+
+### Features
+
+* show session status or unread count on the folded AI sessions section ([#12351](https://github.com/windmill-labs/windmill/issues/12351)) ([16fe0b2](https://github.com/windmill-labs/windmill/commit/16fe0b2e7450ddfe8bf9a101dbf6d414c5ed0405))
+* vertex_ai_federated resource type for workload identity federation ([#12416](https://github.com/windmill-labs/windmill/issues/12416)) ([c93a173](https://github.com/windmill-labs/windmill/commit/c93a17396c818b04951940e324057c8b8ae03a3c))
+
+
+### Bug Fixes
+
+* keep the (edit) suffix visible on truncated session tabs ([#12384](https://github.com/windmill-labs/windmill/issues/12384)) ([18224a2](https://github.com/windmill-labs/windmill/commit/18224a2cd86fe84421e8e5a51112a46db900bcd5))
+* stop logging credential-bearing instance setting values ([#12413](https://github.com/windmill-labs/windmill/issues/12413)) ([b2793f2](https://github.com/windmill-labs/windmill/commit/b2793f2aca67c650fd7f41d273f4b21761f903c5))
+
+## [1.872.0](https://github.com/windmill-labs/windmill/compare/v1.871.1...v1.872.0) (2026-11-13)
+
+
+### Features
+
+* background tools for ai agent steps ([#11827](https://github.com/windmill-labs/windmill/issues/11827)) ([10a8577](https://github.com/windmill-labs/windmill/commit/10a8577fab558d4c76cc7526a6a4c63bee9040e8))
+* clarify OAuth connect levels and client credential sharing ([#11820](https://github.com/windmill-labs/windmill/issues/11820)) ([59a8657](https://github.com/windmill-labs/windmill/commit/59a8657426419c6734bc1e6e65c201c5c7309b9a))
+* mount volumes read-only without the exclusive lease ([#12410](https://github.com/windmill-labs/windmill/issues/12410)) ([70711be](https://github.com/windmill-labs/windmill/commit/70711bec68915ecea06834c356957cf3ffdd40cd))
+* one turn per memory id, a new message takes over a parked turn ([#11831](https://github.com/windmill-labs/windmill/issues/11831)) ([792e66a](https://github.com/windmill-labs/windmill/commit/792e66a30a5d90cb574300225e3f2f404b9165c8))
+
+
+### Bug Fixes
+
+* drop the unreachable oneshot map_err rejected by rustc 1.100 ([#12407](https://github.com/windmill-labs/windmill/issues/12407)) ([1645285](https://github.com/windmill-labs/windmill/commit/164528563dd2de4b294b29bbd807b2b3e86b5c52))
+* stop backend-test rust cache from bloating and filling the runner disk ([#12411](https://github.com/windmill-labs/windmill/issues/12411)) ([bc613cf](https://github.com/windmill-labs/windmill/commit/bc613cf41d41f61631c9ae999fc8d10cf3c8813a))
+
+## [1.871.1](https://github.com/windmill-labs/windmill/compare/v1.871.0...v1.871.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* remove dangling cli/cursor symlink that breaks release builds ([#12405](https://github.com/windmill-labs/windmill/issues/12405)) ([5b00012](https://github.com/windmill-labs/windmill/commit/5b00012ec43fc577fd8e5376f8e3ade03e44ecac))
+
+## [1.871.0](https://github.com/windmill-labs/windmill/compare/v1.870.0...v1.871.0) (2026-11-12)
+
+
+### Features
+
+* bring ai agents in line with scripts and flows ([#12311](https://github.com/windmill-labs/windmill/issues/12311)) ([162c6e4](https://github.com/windmill-labs/windmill/commit/162c6e4da6afb68961b7fa7cfc35642d8d890d57))
+* move the home tree's owner menu to the row's right side ([#12359](https://github.com/windmill-labs/windmill/issues/12359)) ([67cfa46](https://github.com/windmill-labs/windmill/commit/67cfa4630f866afa5cc98dc5a26a880d596bdc0a))
+* open the AI chat run card full screen ([#12392](https://github.com/windmill-labs/windmill/issues/12392)) ([38000fa](https://github.com/windmill-labs/windmill/commit/38000fa504cb38dce490cd41a69c0e7e580e367d))
+* show a loading skeleton for the sidebar session list ([#12383](https://github.com/windmill-labs/windmill/issues/12383)) ([f004da9](https://github.com/windmill-labs/windmill/commit/f004da9269eb6ce17003dec0259c2287f4d21201))
+* show key hints on the queued chip and send it mid-turn ([#12342](https://github.com/windmill-labs/windmill/issues/12342)) ([63190ef](https://github.com/windmill-labs/windmill/commit/63190ef61c9eb3c1ecbdf74581c8a56659636492))
+
+
+### Bug Fixes
+
+* hold a builder's hub steps to the run-time hub rule ([#12401](https://github.com/windmill-labs/windmill/issues/12401)) ([6f52126](https://github.com/windmill-labs/windmill/commit/6f521263775526edd66ca69219edd2b097bd9f46))
+* hold roles that cannot run to read-only over mcp and the ai session ([#12357](https://github.com/windmill-labs/windmill/issues/12357)) ([2994e06](https://github.com/windmill-labs/windmill/commit/2994e0664347b63d03d1281a6e16a62c7c91b798))
+* refuse a hub path named by a member without the code capability ([#12381](https://github.com/windmill-labs/windmill/issues/12381)) ([260b480](https://github.com/windmill-labs/windmill/commit/260b480df6418dede84fbab50a19d12d1bc6f221))
+* stream agent results as markdown with openable tool calls ([#12394](https://github.com/windmill-labs/windmill/issues/12394)) ([b6570af](https://github.com/windmill-labs/windmill/commit/b6570af11a21625dac5620655ee1aaacf9250dd6))
+
 ## [1.870.0](https://github.com/windmill-labs/windmill/compare/v1.869.0...v1.870.0) (2026-11-12)
 
 
