@@ -4994,6 +4994,8 @@ async fn list_jobs(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             qj_fields_ref,
+            // Uncapped and read in the same statement as the completed half: the runs page
+            // drops a listed queued job that neither half returns (useJobsLoader's syncer).
             Pagination { per_page: None, page: None },
             true,
             get_scope_tags(&authed),

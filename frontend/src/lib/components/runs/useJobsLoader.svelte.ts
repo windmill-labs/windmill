@@ -819,6 +819,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						// queue-only views: fetchJobs turns this into the queue's created_at bound, hiding
 						// older jobs that suspend or come due. The margin absorbs browser/database skew.
 						let failed = false
+						// Taken before the request: the list can be reloaded while it is in flight,
+						// and only rows that were queued when it was sent can be judged by its answer.
+						const queuedAtRequest =
+							!_args.skip && !isQueueOnly && maxTs == null
+								? new Set(jobs.filter((x) => x.type == 'QueuedJob').map((x) => x.id))
+								: new Set<string>()
 						newJobs = await fetchJobs(
 							{
 								completedBefore: maxTs,
@@ -827,22 +833,19 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 							},
 							() => (failed = true)
 						)
-						// The response holds every matching queued job (its queue half has no
-						// per_page limit, and one statement reads both halves), so a listed queued
-						// row in neither half has left the queue unseen: typically completed as
-						// skipped while skipped jobs are hidden, e.g. a superseded debounced run.
-						// Without this it stays as "Waiting executor" until a reload. A maxTs makes
-						// the response completed-only, and the queue half is capped at 10000 rows.
-						if (!failed && !_args.skip && !isQueueOnly && maxTs == null && jobs) {
+						// One statement returns every matching queued job (uncapped below MAX_PER_PAGE;
+						// a maxTs makes it completed-only), so a queued row in neither half left the
+						// queue unseen, e.g. completed as skipped while skipped jobs are hidden.
+						// Otherwise it would stay as "Waiting executor" until a reload.
+						if (!failed && queuedAtRequest.size > 0 && jobs) {
 							const returned = new Set(newJobs.map((x) => x.id))
 							const queuedReturned = newJobs.filter((x) => x.type == 'QueuedJob').length
-							const gone = new Set(
-								jobs.filter((x) => x.type == 'QueuedJob' && !returned.has(x.id)).map((x) => x.id)
-							)
-							if (gone.size > 0 && queuedReturned < 10000) {
-								jobs = jobs.filter((x) => !gone.has(x.id))
+							const gone = new Set([...queuedAtRequest].filter((id) => !returned.has(id)))
+							if (gone.size > 0 && queuedReturned < MAX_PER_PAGE) {
+								const keep = (x: Job) => !(x.type == 'QueuedJob' && gone.has(x.id))
+								jobs = jobs.filter(keep)
 								if (extendedJobs) {
-									extendedJobs.jobs = extendedJobs.jobs.filter((x) => !gone.has(x.id))
+									extendedJobs.jobs = extendedJobs.jobs.filter(keep)
 								}
 							}
 						}
