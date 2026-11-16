@@ -179,7 +179,7 @@ describe('makeAlterTableQueries', () => {
 		)
 
 		expect(normalize(queries[0])).toBe(
-			normalize('ALTER TABLE posts DROP CONSTRAINT "fk_posts_user_BROKEN";')
+			normalize('ALTER TABLE posts DROP CONSTRAINT "fk_posts_user";')
 		)
 	})
 
