@@ -1,4 +1,14 @@
-import { Copy, Eye, FileUp, History, LayoutDashboard, List, Trash, UserPlus } from 'lucide-svelte'
+import {
+	Copy,
+	Eye,
+	FileUp,
+	GitFork,
+	History,
+	LayoutDashboard,
+	List,
+	Trash,
+	UserPlus
+} from 'lucide-svelte'
 import { DraftService, ResourceService, type AiAgent, type OpenFlow } from '$lib/gen'
 import { mintDraftPath } from '$lib/mintDraftPath'
 import { keepsManagedMemory } from './agentFormFields'
@@ -88,6 +98,8 @@ export function agentMenuItems(agent: {
 	wsSpecific?: boolean
 	/** Hides what a role that cannot code has no page or right for, as on a flow's menu. */
 	noCode?: boolean
+	/** The role may author agents, so it may start one from a copy of this one. */
+	canAuthor?: boolean
 	/** Undefined until loaded, when nothing is offered for deploy. */
 	deployUiSettings: WorkspaceDeployUISettings | undefined
 	onShare: () => void
@@ -132,6 +144,16 @@ export function agentMenuItems(agent: {
 						displayName: agent.buildApp.chat ? 'Build chat app' : 'Build app',
 						icon: LayoutDashboard,
 						action: agent.buildApp.action
+					}
+				]
+			: []),
+		// The copy starts from the deployed agent, which a draft-only one does not have.
+		...(agent.canAuthor && !agent.draftOnly
+			? [
+					{
+						displayName: 'Duplicate/Fork',
+						icon: GitFork,
+						href: `/agents/add?template=${agent.path}`
 					}
 				]
 			: []),

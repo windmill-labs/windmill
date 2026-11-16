@@ -120,7 +120,10 @@
 		if (tokenType === 'query') params.push(`token=${token}`)
 		if (chat) params.push(`memory_id=${memory}`)
 		if (callMethod === 'get' || (tokenType === 'query' && requestType === 'sync_sse')) {
-			params.push(`payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`)
+			// The server decodes the payload as UTF-8, and btoa only takes Latin-1 characters.
+			const bytes = new TextEncoder().encode(JSON.stringify(cleanedRunnableArgs ?? {}))
+			const binary = Array.from(bytes, (b) => String.fromCharCode(b)).join('')
+			params.push(`payload=${encodeURIComponent(btoa(binary))}`)
 		}
 		return baseWebhookUrl + (params.length ? `?${params.join('&')}` : '')
 	}
@@ -300,8 +303,10 @@ function waitForJobCompletion(UUID) {
 		const conversation = chat
 			? '# Any string names a conversation: reuse it for follow-ups, pick a new one to start over.\nCONVERSATION=$(uuidgen)\n'
 			: ''
+		// A `'` in an argument would end the single-quoted BODY, so close, escape and reopen it.
+		const body = JSON.stringify(cleanedRunnableArgs ?? {}).replaceAll("'", "'\\''")
 		return `${conversation}TOKEN='${token}'
-${callMethod !== 'get' ? `BODY='${JSON.stringify(cleanedRunnableArgs ?? {})}'` : ''}
+${callMethod !== 'get' ? `BODY='${body}'` : ''}
 ${chat ? `URL="${urlWith('$CONVERSATION')}"` : `URL='${url}'`}
 ${requestType === 'sync' ? 'RESULT=$(' : requestType === 'async' ? 'UUID=$(' : ''}curl -s ${
 			callMethod != 'get' ? "-H 'Content-Type: application/json'" : ''

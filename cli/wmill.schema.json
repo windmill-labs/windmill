@@ -93,6 +93,10 @@
       "type": "boolean",
       "description": "Include workspace settings in sync"
     },
+    "includeDatatablePermissions": {
+      "type": "boolean",
+      "description": "With includeSettings, also sync each data table's roles and who may connect as them"
+    },
     "includeKey": {
       "type": "boolean",
       "description": "Include encryption key in sync"

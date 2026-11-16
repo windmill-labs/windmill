@@ -114,6 +114,7 @@
 		object_store_cache_config?: ObjectStoreConfig
 		paused?: boolean
 		serves_dev_workspaces?: boolean
+		fairness_reserve?: boolean
 	} = $state({})
 
 	function loadNConfig() {
@@ -224,6 +225,7 @@
 					object_store_cache_config?: ObjectStoreConfig
 					paused?: boolean
 					serves_dev_workspaces?: boolean
+					fairness_reserve?: boolean
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -340,14 +342,14 @@
 			orderedJsonStringify(replaceFalseWithUndefined(cleanWorkerGroupConfig({ v: c[k] })))
 		const changed = (k: keyof typeof nconfig) => comparable(saved, k) !== comparable(body, k)
 		const restartFieldChanged = RESTART_FIELDS.some(changed)
-		const onlyPauseChanged =
-			changed('paused') &&
+		const onlyLiveFieldsChanged =
+			(changed('paused') || changed('fairness_reserve')) &&
 			!restartFieldChanged &&
 			!OTHER_WORKER_FIELDS.some(changed) &&
 			!hasEnvVarChanges
 		const dedicated =
 			body.dedicated_worker != undefined || (body.dedicated_workers?.length ?? 0) > 0
-		return !onlyPauseChanged && (dedicated || restartFieldChanged)
+		return !onlyLiveFieldsChanged && (dedicated || restartFieldChanged)
 	}
 
 	async function saveConfig(body: typeof nconfig) {
@@ -941,6 +943,36 @@
 					disabled={!canEditConfig}
 				/>
 			</Label>
+			{#if !isAgent}
+				<div class="mt-8"></div>
+				<Label label="Fairness reserve" eeOnly={!hasEnterpriseFeatures}>
+					{#snippet header()}
+						<Tooltip>
+							{#snippet text()}
+								Keeps this group's capacity for the workspaces that workspace fairness does not cap.
+								While no workspace is capped, the group pulls no jobs at all. While one is, it only
+								pulls jobs of the other workspaces, including suspended jobs that are resumed.
+								Workers pick the change up within about 10 seconds, without restarting.
+							{/snippet}
+						</Tooltip>
+					{/snippet}
+					<Toggle
+						size="sm"
+						options={{ right: 'Reserve this group for workspaces not capped by fairness' }}
+						checked={nconfig?.fairness_reserve === true}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.fairness_reserve = ev.detail ? true : undefined
+							}
+						}}
+						disabled={!canEditEEConfig}
+					/>
+					<p class="text-2xs text-secondary">
+						Idle until a workspace is capped. Requires workspace fairness to be enabled in the
+						instance settings, otherwise the group never pulls a job.
+					</p>
+				</Label>
+			{/if}
 			<div class="mt-8"></div>
 			<Label label="Worker proxy">
 				{#snippet header()}
@@ -1524,6 +1556,17 @@
 						<Tooltip>
 							{#snippet text()}
 								Workers of this group pull no new jobs. Queued jobs wait until the group is resumed.
+							{/snippet}
+						</Tooltip>
+					</Badge>
+				{/if}
+				{#if config?.fairness_reserve === true && !isAgent}
+					<Badge color="indigo" small>
+						Fairness reserve
+						<Tooltip>
+							{#snippet text()}
+								Pulls jobs only while workspace fairness caps a workspace, and then only jobs of the
+								workspaces it does not cap. Idle otherwise.
 							{/snippet}
 						</Tooltip>
 					</Badge>

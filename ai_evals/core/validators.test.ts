@@ -8,6 +8,7 @@ import {
   validateScriptState,
   validateAssistantExpectations,
   validateToolExpectations,
+  validateDisplayBlocks,
 } from "./validators";
 
 describe("validateScriptState", () => {
@@ -1371,5 +1372,21 @@ describe("validateCliWorkspace", () => {
       passed: false,
       details: "firstSkillIndex=0; firstMutationIndex=none",
     });
+  });
+});
+
+describe("validateDisplayBlocks", () => {
+  const fence = (value: unknown) => "```wm-display\n" + JSON.stringify(value) + "\n```";
+  const chart = { chart: { type: "bar", data: [{ day: "Mon", n: 4 }], x: "day", y: "n" } };
+
+  it("requires every block to validate against the display catalog", () => {
+    const ok = validateDisplayBlocks(`Here:\n${fence(chart)}`, "required");
+    expect(ok.every((c) => c.passed)).toBe(true);
+    const bad = validateDisplayBlocks(
+      `${fence(chart)}\n${fence({ chart: { ...chart.chart, y: "missing" } })}`,
+      "required"
+    );
+    expect(bad.every((c) => c.passed)).toBe(false);
+    expect(validateDisplayBlocks("plain prose", "required").every((c) => c.passed)).toBe(false);
   });
 });

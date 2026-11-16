@@ -30,13 +30,20 @@
 		// markdown surfaces don't execute mermaid — the chat opts in.
 		renderMermaid = false,
 		// Draw diagrams in the light theme whatever the app's theme (printing).
-		lightMermaid = false
+		lightMermaid = false,
+		// Render ```wm-display blocks (charts, tables) through DisplayResult. The fence only
+		// admits inert kinds (`fenceSchema`), so any surface may opt in.
+		renderDisplay = false,
+		// Draw display blocks for paper: plain tables rather than the paginated grid.
+		staticDisplay = false
 	}: {
 		showApplyButton?: boolean
 		onApplyCode?: () => void
 		applyButtonIcon?: typeof ClipboardCopy
 		renderMermaid?: boolean
 		lightMermaid?: boolean
+		renderDisplay?: boolean
+		staticDisplay?: boolean
 	} = $props()
 
 	const astNode = getAstNode()
@@ -124,7 +131,10 @@
 	)
 
 	let language = $derived(
-		(astNode.current.children?.[0]?.properties?.class as string | undefined)?.split('-')[1]
+		(astNode.current.children?.[0]?.properties?.class as string | undefined)
+			?.split(' ')
+			.find((c) => c.startsWith('language-'))
+			?.slice('language-'.length)
 	)
 
 	let smartLang = $derived(getSmartLang(language))
@@ -135,6 +145,14 @@
 	<div class="relative w-full bg-surface-secondary rounded-md overflow-hidden">
 		{#if renderMermaid && language === 'mermaid'}
 			<MermaidDisplay code={code ?? ''} forceLight={lightMermaid} />
+		{:else if renderDisplay && language === 'wm-display'}
+			<!-- Keep this import lazy: DisplayResult's imports reach back into the chat, and a static
+			     import here left Home's session composer stuck on its loading placeholder. -->
+			{#await import('./display/DisplayFence.svelte')}
+				<div data-display-pending="true"></div>
+			{:then { default: DisplayFence }}
+				<DisplayFence code={code ?? ''} staticRender={staticDisplay} />
+			{/await}
 		{:else}
 			<HighlightCode
 				className="px-3 py-2.5 !text-xs"

@@ -445,7 +445,7 @@
 				{/if}
 			</div>
 			{#each RUNS_COLUMNS.filter((c) => shownColumns.includes(c.id)) as column (column.id)}
-				<div class="text-xs font-semibold leading-3 truncate">
+				<div class="text-xs font-semibold leading-4 truncate">
 					{column.id === 'started' ? '' : column.label}
 				</div>
 			{/each}
@@ -459,10 +459,12 @@
 		{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
 			<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
 		{:else}
+			<!-- Date rows hide their empty top 12px, both at the start of the list and when pinned.
+			Shifting the scroll container instead would clip its scrollbar. -->
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="absolute inset-0 -mt-3"
+				class="absolute inset-0 [&_.virtual-list-inner]:-mt-3"
 				oncontextmenu={(e) => {
 					e.preventDefault()
 					rightClickPopover?.open(e)
@@ -480,7 +482,13 @@
 				>
 					{#snippet header()}{/snippet}
 					{#snippet item({ index, style })}
-						<div {style} class="w-full bg-surface-tertiary">
+						<div
+							{style}
+							class={twMerge(
+								'w-full bg-surface-tertiary',
+								flatJobs?.[index]?.type === 'date' && '!-top-3'
+							)}
+						>
 							{#if flatJobs}
 								{@const jobOrDate = flatJobs[index]}
 								{#if jobOrDate}

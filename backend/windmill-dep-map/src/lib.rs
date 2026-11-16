@@ -207,6 +207,9 @@ pub async fn process_relative_imports(
                 permissioned_as,
                 db,
                 already_visited,
+                args.and_then(|x| x.get("skip_ci_tests"))
+                    .and_then(|v| serde_json::from_str::<bool>(v.get()).ok())
+                    .unwrap_or(false),
             )),
         )
         .warn_after_seconds(10)

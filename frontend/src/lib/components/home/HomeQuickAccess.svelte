@@ -41,7 +41,14 @@
 		getFavoriteHref,
 		type FavoriteKind
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import { MAX_AGE_DAYS, recentItems, type RecentKind, type RecentVia } from './recentItems.svelte'
+	import {
+		MAX_AGE_DAYS,
+		itemKey,
+		itemKind,
+		recentItems,
+		type RecentKind,
+		type RecentVia
+	} from './recentItems.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import {
 		homeComposerContext,
@@ -71,10 +78,6 @@
 		title: string
 		at?: number
 		via?: RecentVia
-	}
-
-	function asStarKind(kind: RecentKind): FavoriteKind {
-		return kind === 'raw_app' ? 'app' : kind
 	}
 
 	const RECENT_COUNT = 6
@@ -141,11 +144,11 @@
 		return kind
 	}
 
-	// Only scripts, flows and raw apps can be context, so another card keeps its menu while the
-	// composer is open; an `app` card is a visual one until the hover's lookup says otherwise.
+	// A visual app cannot be context, so its card keeps its menu while the composer is open; an
+	// `app` card is a visual one until the hover's lookup says otherwise.
 	function canMention(item: Entry): boolean {
 		if (item.kind === 'app') return appKinds.get(`${workspace}/${item.path}`) === 'raw_app'
-		return item.kind !== 'agent'
+		return true
 	}
 
 	function contextElementFor(item: Entry, kind: RecentKind) {
@@ -186,13 +189,17 @@
 				displayName: 'Duplicate/Fork',
 				icon: GitFork,
 				href: `/${base}/add?template=${item.path}`,
-				hide: !showEditButtons || !$roleCapabilities.code || kind === 'agent'
+				// Agents are authored without code, by whoever may build flows.
+				hide:
+					!showEditButtons ||
+					(kind === 'agent' ? !editRights.roleCanAuthor(kind) : !$roleCapabilities.code)
 			},
 			{
 				displayName: 'Share',
 				icon: UserPlus,
-				action: () => kind !== 'agent' && void openShare(item.path, kind),
-				hide: kind === 'agent' || !editRights.roleCanAuthor(kind)
+				// An agent's permissions are its resource's.
+				action: () => void openShare(item.path, kind === 'agent' ? 'resource' : kind),
+				hide: !editRights.roleCanAuthor(kind)
 			},
 			{
 				displayName: 'View runs',
@@ -237,14 +244,12 @@
 	// With the favorites turned off, a starred item opened lately shows among the recent ones.
 	let recentAll: Entry[] = $derived.by(() => {
 		const { showFavorites, showRecent } = homeQuickAccessSettings
-		const starred = new Set(
-			showFavorites ? favorites.map((f) => `${asStarKind(f.kind)}/${f.path}`) : []
-		)
+		const starred = new Set(showFavorites ? favorites.map((f) => itemKey(f.kind, f.path)) : [])
 		return (showRecent ? recentItems.list(workspace) : [])
-			.filter((r) => !starred.has(`${asStarKind(r.kind)}/${r.path}`))
+			.filter((r) => !starred.has(itemKey(r.kind, r.path)))
 			.map((r) => ({
 				kind: r.kind,
-				starKind: asStarKind(r.kind),
+				starKind: itemKind(r.kind),
 				path: r.path,
 				title: r.summary || r.path,
 				at: r.at,
@@ -259,7 +264,7 @@
 	const drafts = useWorkspaceDrafts(() => workspace)
 	function cardKind(kind: DraftItem['kind']): FavoriteKind | undefined {
 		if (kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app') {
-			return asStarKind(kind)
+			return itemKind(kind)
 		}
 		return kind === 'resource' ? 'agent' : undefined
 	}
@@ -426,16 +431,22 @@
 			tabindex="-1"
 			aria-hidden="true"
 		></a>
-		<!-- After the filler, so the badges line up down the column whatever the title's length. -->
+		<!-- After the filler, so the badges line up down the column whatever the title's length.
+		     The listing names no owners for an agent's draft, which is private to the reader. -->
 		{#if draft}
 			<span class="shrink-0 inline-flex">
 				<DraftBadge
 					is_draft={draft.mine && !draft.legacy_draft}
 					draft_only={draft.draft_only}
-					draft_users={draft.draft_users}
+					draft_users={draft.kind === 'resource'
+						? draft.mine
+							? [{ username: $userStore?.username }]
+							: []
+						: draft.draft_users}
 					currentUsername={$userStore?.username}
 					{workspace}
 					itemKind={draft.kind}
+					agent={draft.kind === 'resource'}
 					path={draft.path}
 					onMigrated={drafts.refresh}
 				/>

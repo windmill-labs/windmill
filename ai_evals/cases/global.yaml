@@ -4080,3 +4080,63 @@
   skipJudge: true
   judgeChecklist:
     - explains the MCP setup from the docs: the MCP URL with a token, added to Claude
+
+# --- Charts and tables in replies (```wm-display blocks) ---
+# The chat renders a ```wm-display block holding a chart or table value; anything the catalog
+# rejects shows as code with an error. Pin that the model reaches for it when a chart is the
+# answer, that what it writes validates, and that a plain question gets prose.
+
+- id: global-display-chart-in-reply
+  prompt: |-
+    Our deploys last week were Mon 4, Tue 7, Wed 3, Thu 9, Fri 6. Can you chart that for me?
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    displayBlocks: required
+  judgeAssistantText: true
+  judgeChecklist:
+    - the reply shows the five days' deploy counts as a chart rather than only as text
+    - the chart carries the values given (Mon 4, Tue 7, Wed 3, Thu 9, Fri 6)
+    - does not create a script or flow just to draw the chart
+
+- id: global-display-chart-in-artifact
+  prompt: |-
+    Write me a short doc I can share summarizing last month's support tickets by channel:
+    email 120, chat 85, phone 30, other 12. Include a chart.
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - create_artifact
+    toolCallArgs:
+      - tool: create_artifact
+        field: content
+        stringIncludesAnyOf:
+          - "```wm-display"
+  skipJudge: true
+  judgeChecklist:
+    - creates an artifact whose content includes a chart of the ticket counts by channel
+
+- id: global-display-not-for-prose
+  prompt: |-
+    What's the difference between a flow and a script in Windmill?
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  assistantExpect:
+    displayBlocks: forbidden
+  skipJudge: true
+  judgeChecklist:
+    - answers in prose without a chart or table block

@@ -60,6 +60,8 @@ struct ListRunnablesQuery {
     include_without_main: Option<bool>,
     /// Restrict to paths under this prefix (owner/folder filter).
     path_start: Option<String>,
+    /// Comma-separated exact paths: list only the rows at one of them.
+    paths: Option<String>,
     /// Comma-separated labels; a row matches if it (or its folder) carries all.
     label: Option<String>,
     /// Case-insensitive fuzzy match on `summary (path)`, mirroring how the homepage
@@ -518,6 +520,13 @@ async fn list_runnables(
         // An owner filter follows where the draft says it will live, not the
         // `u/<caller>/draft_<uuid>` it is parked at.
         draft_common.push(format!("COALESCE(o.draft_path, o.path) LIKE {}", p));
+    }
+    if let Some(ps) = q.paths.as_ref().filter(|s| !s.is_empty()) {
+        let p = add_bind(&mut binds, ps.clone());
+        common.push(format!("o.path = ANY(string_to_array({p}, ','))"));
+        draft_common.push(format!(
+            "COALESCE(o.draft_path, o.path) = ANY(string_to_array({p}, ','))"
+        ));
     }
     if let Some(search) = q.search.as_ref().filter(|s| !s.is_empty()) {
         let terms = search_terms(search);

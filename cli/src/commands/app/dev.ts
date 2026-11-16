@@ -592,14 +592,16 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   const buildOptions = getDevBuildOptions(entryPoint, frameworks.svelte);
 
-  // Load framework-specific plugins (svelte) based on package.json
-  const frameworkPlugins = await createFrameworkPlugins(appDir);
+  const foundUiDir = findSharedUiDir(appDir);
+  const sharedUiDir =
+    foundUiDir && fs.existsSync(foundUiDir) ? foundUiDir : undefined;
 
-  const sharedUiDir = findSharedUiDir(appDir);
-  const sharedUiPlugins =
-    sharedUiDir && fs.existsSync(sharedUiDir)
-      ? [createSharedUiPlugin(sharedUiDir, appDir)]
-      : [];
+  // Load framework-specific plugins (svelte, tailwind) based on package.json
+  const frameworkPlugins = await createFrameworkPlugins(appDir, sharedUiDir);
+
+  const sharedUiPlugins = sharedUiDir
+    ? [createSharedUiPlugin(sharedUiDir, appDir)]
+    : [];
 
   const wmillPlugin = {
     name: "wmill-virtual",

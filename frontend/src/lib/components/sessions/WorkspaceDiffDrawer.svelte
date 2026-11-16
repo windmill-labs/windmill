@@ -42,7 +42,7 @@
 	import { maskKey } from './modifiedItemsMask'
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
 	import { SIDE_BY_SIDE_MIN_WIDTH } from '$lib/components/diffEditorTypes'
-	import { copilotInfo } from '$lib/aiStore'
+	import { getWorkspaceCopilotInfo } from '$lib/aiStore'
 	import AiReview from '$lib/components/deploymentRequest/AiReview.svelte'
 	import type { ReviewItem } from '$lib/components/deploymentRequest/aiReview'
 
@@ -92,7 +92,10 @@
 				load: () => model.loadDiffValues(i)
 			}))
 	)
-	const showReview = $derived(!!reviewWorkspaceId && $copilotInfo.enabled && model.items.length > 0)
+	// The review sends with the reviewed workspace's AI config, not the tab's.
+	const reviewAiInfo = $derived(
+		reviewWorkspaceId ? getWorkspaceCopilotInfo(reviewWorkspaceId) : undefined
+	)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let searchQuery = $state('')
@@ -1157,13 +1160,14 @@
 					</div>
 				</main>
 			</div>
-			{#if showReview && reviewWorkspaceId}
+			{#if reviewWorkspaceId && reviewAiInfo?.enabled && model.items.length > 0}
 				<div
 					class="shrink-0 border-t border-light bg-surface px-3 py-2 max-h-[40vh] overflow-y-auto"
 				>
 					<AiReview
 						scope={{ kind: 'drafts', workspaceId: reviewWorkspaceId, items: reviewItems }}
 						source="session_edits"
+						info={reviewAiInfo}
 					/>
 				</div>
 			{/if}

@@ -5,12 +5,33 @@ use sqlx::{Postgres, Transaction};
 use windmill_common::{
     error::{self, Error},
     flows::FlowValue,
+    jobs::{check_can_name_runnable, RunOrigin},
     roles::AuthorLevel,
+    runnable_ref::RunnableRef,
     workspaces::{check_operator_can_build, BuilderKind},
     DB,
 };
 
 use crate::{get_scope_tags, is_super_admin_authed, ApiAuthed};
+
+/// The run-time rule for naming a Hub path, applied to one a builder saves. A save can hold many
+/// Hub paths, so a refusal names the one it is about.
+pub async fn check_builder_can_name_hub(
+    runnable: &RunnableRef,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> error::Result<()> {
+    let origin = RunOrigin::NamedBy(authed.to_authed_ref());
+    check_can_name_runnable(&origin, runnable, db, w_id)
+        .await
+        .map_err(|e| match e {
+            Error::PermissionDenied(msg) => {
+                Error::PermissionDenied(format!("{}: {msg}", runnable.path()))
+            }
+            e => e,
+        })
+}
 
 /// `validate_operator_composed_flow` on a transaction the caller already holds, so a write that
 /// has one open does not wait on a second connection. It must have been begun as the caller
@@ -24,6 +45,13 @@ pub async fn authorize_composed_flow(
     w_id: &str,
 ) -> error::Result<()> {
     let mut refs = windmill_common::flows::check_flow_is_composition_only(value)?;
+    // Each check reads the caller's role; a flow can step through the same Hub script many times.
+    refs.hub_runnables
+        .sort_by(|a, b| (a.is_flow(), a.path()).cmp(&(b.is_flow(), b.path())));
+    refs.hub_runnables.dedup();
+    for runnable in &refs.hub_runnables {
+        check_builder_can_name_hub(runnable, authed, db, w_id).await?;
+    }
 
     // A builder links only an agent it can read, and binds only the tool inputs it leaves open.
     for agent in &refs.agents {

@@ -105,6 +105,26 @@ pub fn check_route_access(
         ));
     }
 
+    // A CI test batch names flows and resources as well as scripts, and its handler checks
+    // each item against its own `<kind>:write` scope: the route needs write on one of them.
+    if route_suffix.as_deref() == Some("scripts/trigger_ci_tests_batch")
+        && token_scopes.iter().any(|s| {
+            ScopeDefinition::from_scope_string(s).is_ok_and(|scope| {
+                [
+                    ScopeDomain::Scripts,
+                    ScopeDomain::Flows,
+                    ScopeDomain::Resources,
+                ]
+                .into_iter()
+                .any(|d| {
+                    scope_grants_access(&scope, d, ScopeAction::Write, None, None).unwrap_or(false)
+                })
+            })
+        })
+    {
+        return Ok(());
+    }
+
     // tracing::error!("Checking route access {:?} {:?} {:?} {:?}", required_action, required_domain, required_kind, route_suffix);
     let mut is_scoped_token = false;
     // Check if any token scope grants the required access
@@ -1253,6 +1273,26 @@ mod tests {
 
         // DELETE now requires write permission, so it should still fail with read-only scope
         assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "DELETE").is_err());
+    }
+
+    #[test]
+    fn ci_test_batch_route_takes_any_tested_kind_write_scope() {
+        let route = "/api/w/test/scripts/trigger_ci_tests_batch";
+        for scope in ["flows:write:f/a/b", "resources:write", "scripts:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], route, "POST").is_ok(),
+                "{scope}"
+            );
+        }
+        for scope in ["flows:read", "jobs:run", "apps:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], route, "POST").is_err(),
+                "{scope}"
+            );
+        }
+        // The exemption is this route's alone.
+        let flows = vec!["flows:write".to_string()];
+        assert!(check_route_access(&flows, "/api/w/test/scripts/create", "POST").is_err());
     }
 
     #[test]

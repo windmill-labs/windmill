@@ -25,7 +25,13 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { type DurationStatus, type FlowStatusViewerContext, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
+	import {
+		clone,
+		isScriptPreview,
+		msToCompactDuration,
+		readFieldsRecursively,
+		truncateRev
+	} from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
 	import JobArgs from './JobArgs.svelte'
@@ -108,6 +114,10 @@
 		innerModule?: FlowModuleValue | undefined
 		render?: boolean
 		selectedNode?: string | undefined
+		/** Job of the node selected in the root viewer's graph. Nested viewers have no
+		 * selectedNode of their own, so this is how a step inside a subflow, loop or retry
+		 * knows it is selected and must stream its logs. */
+		selectedJobId?: string | undefined
 		globalModuleStates: Record<string, GraphModuleState>[]
 		globalDurationStatuses?: Record<string, DurationStatus>[]
 		isSelectedBranch?: boolean
@@ -169,6 +179,7 @@
 		innerModule = undefined,
 		render = true,
 		selectedNode = $bindable(undefined),
+		selectedJobId = undefined,
 		globalModuleStates,
 		globalDurationStatuses = [],
 		updateRecursiveRefreshFn = undefined,
@@ -937,16 +948,16 @@
 
 	function getAgentActionContent(agentResult: any, actionIndex: number): unknown | undefined {
 		if (!agentResult?.messages || !Array.isArray(agentResult.messages)) return undefined
-		let agentActionIdx = 0
-		for (const m of agentResult.messages) {
-			if (m.agent_action) {
-				if (agentActionIdx === actionIndex) {
-					return m.content
-				}
-				agentActionIdx++
-			}
-		}
-		return undefined
+		// A background tool's result arrives later as a user message tagged with the action its
+		// job started: it is not an action of its own, and it answers that one.
+		const isBackgroundResult = (m: any) => m.role === 'user' && m.agent_action?.type === 'tool_call'
+		const tagged = agentResult.messages.filter((m: any) => m.agent_action)
+		const message = tagged.filter((m: any) => !isBackgroundResult(m))[actionIndex]
+		const jobId = message?.agent_action?.job_id
+		const result = jobId
+			? tagged.find((m: any) => isBackgroundResult(m) && m.agent_action.job_id === jobId)
+			: undefined
+		return (result ?? message)?.content
 	}
 
 	function isSuccess(arg: any): boolean | undefined {
@@ -1407,6 +1418,11 @@
 
 	let noLogs = $derived(graphTabOpen && !isNodeSelected)
 
+	// The root viewer's module states hold every nested step, prefixed for subflows.
+	let effectiveSelectedJobId = $derived(
+		selectedJobId ?? localModuleStates?.[selectedNode ?? '']?.job_id
+	)
+
 	/**
 	 * Returns a string like "forloopmodid1-{iter1}-forloopmodid2-{iter2}-forloopmodid3-{iter3}-"
 	 * that can be used to prefix tool call store keys for nested tool calls.
@@ -1668,6 +1684,7 @@
 									}}
 									{onResultStreamUpdate}
 									graphTabOpen={selected == 'graph' && graphTabOpen}
+									selectedJobId={effectiveSelectedJobId}
 									isNodeSelected={forloop_selected == loopJobId}
 									toolCallStore={{
 										getStoredToolCallJob: (storeKey: string) =>
@@ -1765,6 +1782,7 @@
 											jobId={failedRetry}
 											{onResultStreamUpdate}
 											graphTabOpen={selected == 'graph' && graphTabOpen}
+											selectedJobId={effectiveSelectedJobId}
 											isNodeSelected={retry_selected == failedRetry}
 										/>
 									</div>
@@ -1801,6 +1819,7 @@
 										}}
 										{onResultStreamUpdate}
 										graphTabOpen={selected == 'graph' && graphTabOpen}
+										selectedJobId={effectiveSelectedJobId}
 										isNodeSelected={false}
 									/>
 								{:else if mod.flow_jobs?.length == 0 && mod.job == '00000000-0000-0000-0000-000000000000'}
@@ -1842,7 +1861,8 @@
 										}}
 										{onResultStreamUpdate}
 										graphTabOpen={selected == 'graph' && graphTabOpen}
-										isNodeSelected={localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
+										selectedJobId={effectiveSelectedJobId}
+										isNodeSelected={effectiveSelectedJobId == mod.job}
 										{toolCallStore}
 										showLogsWithResult={['script', 'rawscript'].includes(
 											job.raw_flow?.modules[i]?.value?.type ?? ''
@@ -2085,7 +2105,11 @@
 											wrapperClass={closableDetails ? 'grow min-w-0' : 'shrink-0'}
 										>
 											{#if !hideTimeline}
-												<Tab value="timeline" label="Timeline" class={closableDetails ? 'px-0' : ''} />
+												<Tab
+													value="timeline"
+													label="Timeline"
+													class={closableDetails ? 'px-0' : ''}
+												/>
 											{/if}
 											<Tab
 												value="node_status"
@@ -2271,7 +2295,7 @@
 																		{#if node.duration_ms}
 																			<Badge>
 																				<Hourglass class="mr-2" size={10} />
-																				{msToSec(node.duration_ms)} s
+																				{msToCompactDuration(node.duration_ms)}
 																			</Badge>
 																		{/if}
 																		{#if node.job_id && !isReplay}

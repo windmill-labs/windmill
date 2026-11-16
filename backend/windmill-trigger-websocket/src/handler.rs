@@ -9,6 +9,7 @@ use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    jobs::ChosenBy,
     runnable_ref::RunnableRef,
     worker::to_raw_value,
 };
@@ -318,6 +319,7 @@ impl TriggerCrud for WebsocketTrigger {
                     &runnable?,
                     &db,
                     authed.clone(),
+                    ChosenBy::Caller,
                     config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
                     &workspace_id,
                 )

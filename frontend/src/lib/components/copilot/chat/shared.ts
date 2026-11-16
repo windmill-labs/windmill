@@ -79,6 +79,7 @@ import type { editor as meditor } from 'monaco-editor'
 import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 import type { WebSearchSource } from './webSearchResult'
 import { runOnServer } from './global/backendSessionTools'
+import { isAgentStream } from '../../aiAgentResult'
 
 // Prettify function for code arguments - extracts and formats code from JSON
 function prettifyCodeArguments(content: string): string {
@@ -467,6 +468,11 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
 			workspaceItemsContext += `- type: raw_app, path: ${context.path}\n`
+		} else if (context.type === 'workspace_agent') {
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
+			}
+			workspaceItemsContext += `- type: agent, path: ${context.path}\n`
 		} else if (context.type === 'workspace_folder') {
 			if (!workspaceItemsContext) {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
@@ -704,6 +710,8 @@ export type ToolDisplayMessage = {
 	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
 	toolName?: string
+	/** A `read_workspace_item` call that found an agent: the tool's `type` only says resource. */
+	readsAgent?: boolean
 	/** What marks this row with its provider. Recorded rather than looked up, because the
 	 * server listing lives only in memory and a reloaded transcript does not have it. The
 	 * workspace rides along: a chat is readable from any workspace, and the same path names
@@ -2137,8 +2145,11 @@ export function createJobUpdateReader(jobId: string, workspace: string) {
 	let logOffset = 0
 	let streamOffset = 0
 	let started = false
+	let agentStream: boolean | undefined
 	return {
-		async poll(): Promise<{ completed: boolean; logs: string; resultStream: string } | undefined> {
+		async poll(): Promise<
+			{ completed: boolean; logs: string; resultStream: string; streamed: boolean } | undefined
+		> {
 			let update: Awaited<ReturnType<typeof JobService.getJobUpdates>>
 			try {
 				update = await JobService.getJobUpdates({
@@ -2152,16 +2163,30 @@ export function createJobUpdateReader(jobId: string, workspace: string) {
 				return undefined
 			}
 			started ||= update.running ?? false
-			// Both kept as a tail: the offsets come from the server, so dropping the head
-			// costs nothing here, and neither is the record of the run — the logs are on the
-			// job, and a streamed partial is replaced by the result the moment it lands.
+			// Logs are kept as a tail: the offsets come from the server, so dropping the head
+			// costs nothing here, and the job holds the full logs.
 			if (update.new_logs) logs = (logs + update.new_logs).slice(-MAX_LOG_LENGTH)
+			// An agent's stream is kept whole: it is one JSON event per line, read from its first
+			// line, so a tail cut mid-line renders as raw events. It lives only while the job
+			// runs — the terminal patch replaces it with the result. Anything else a script
+			// prints is shown as raw text and keeps the tail.
 			if (update.new_result_stream) {
-				resultStream = (resultStream + update.new_result_stream).slice(-MAX_LOG_LENGTH)
+				resultStream += update.new_result_stream
+				if (agentStream === undefined) {
+					if (resultStream.includes('\n')) agentStream = isAgentStream(resultStream)
+					// An agent's first event is a short line; this long without one, it is not one.
+					else if (resultStream.length > MAX_LOG_LENGTH) agentStream = false
+				}
+				if (agentStream !== true) resultStream = resultStream.slice(-MAX_LOG_LENGTH)
 			}
 			if (update.log_offset) logOffset = update.log_offset
 			if (update.stream_offset) streamOffset = update.stream_offset
-			return { completed: update.completed ?? false, logs, resultStream }
+			return {
+				completed: update.completed ?? false,
+				logs,
+				resultStream,
+				streamed: Boolean(update.new_result_stream)
+			}
 		}
 	}
 }

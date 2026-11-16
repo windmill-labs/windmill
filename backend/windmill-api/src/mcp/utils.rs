@@ -768,16 +768,16 @@ struct McpPreprocessorEvent<'a> {
 
 /// Headers withheld from a preprocessor because they authenticate the connection.
 ///
-/// Not a security boundary: a webhook preprocessor receives all three. Withheld
-/// because nothing needs them yet, and releasing one later is additive while
-/// withdrawing one after runnables read it is not.
+/// `build_headers` already withholds Windmill's own credentials. The rest is
+/// withheld because nothing needs it yet, and releasing one later is additive
+/// while withdrawing one after runnables read it is not.
 const WITHHELD_FROM_PREPROCESSOR: &[&str] = &["authorization", "cookie", "proxy-authorization"];
 
 /// Every header a preprocessor may see.
 fn preprocessor_headers(
     headers: &http::HeaderMap,
 ) -> HashMap<String, Box<serde_json::value::RawValue>> {
-    let mut selected = build_headers(headers, None, true);
+    let mut selected = build_headers(headers, None, true, true);
     selected.retain(|name, _| {
         !WITHHELD_FROM_PREPROCESSOR
             .iter()

@@ -125,6 +125,7 @@ async fn trigger_args_lose_every_reserved_control_key(db: Pool<Postgres>) -> any
         None,
         None,
         trigger_authed(),
+        windmill_common::jobs::ChosenBy::Deployed,
         "test-workspace",
         &windmill_common::runnable_ref::RunnableRef::from_path(SCRIPT_PATH, false)?,
         args,

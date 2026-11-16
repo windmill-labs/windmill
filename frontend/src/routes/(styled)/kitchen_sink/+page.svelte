@@ -280,12 +280,14 @@ That's the full round-trip.`
 		</TabContent>
 		<TabContent value="markdown" class="p-4">
 			<div class="text-xs text-tertiary mb-3">
-				The three <code>markdownProse</code> presets, same source. Each is sized for its own
-				surface: <code>xs</code> for group notes and chat reasoning, <code>sm</code> for chat
-				bubbles, sticky notes and markdown job results, <code>doc</code> for artifacts.
+				The two <code>markdownProse</code> presets, same source. Each is sized for its own surface:
+				<code>xs</code>
+				for group notes and chat reasoning, <code>sm</code> for chat bubbles, sticky notes and
+				markdown job results. Artifacts use their own document stylesheet, shown on
+				<code>/kitchen_sink/artifacts</code>.
 			</div>
-			<div class="grid gap-4 md:grid-cols-3">
-				{#each ['xs', 'sm', 'doc'] as const as prose}
+			<div class="grid gap-4 md:grid-cols-2">
+				{#each ['xs', 'sm'] as const as prose (prose)}
 					<div class="border border-border-light rounded-lg p-3 bg-surface min-w-0">
 						<div class="text-2xs text-tertiary font-mono mb-2">{prose}</div>
 						<GfmMarkdown md={sampleMarkdown} {prose} />

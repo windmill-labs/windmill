@@ -689,6 +689,18 @@ async fn windmill_main() -> anyhow::Result<()> {
         _ => {}
     }
 
+    // A worker that kept the variable would otherwise silently serve every workspace, the
+    // overloaded one included.
+    if std::env::var("WORKSPACE_FAIRNESS_RESERVE_WORKER")
+        .is_ok_and(|x| x == "1" || x.eq_ignore_ascii_case("true"))
+    {
+        eprintln!(
+            "WORKSPACE_FAIRNESS_RESERVE_WORKER is no longer read: unset it and enable \"Fairness \
+             reserve\" (fairness_reserve) in the worker group config instead"
+        );
+        std::process::exit(1);
+    }
+
     // Before `num_workers`: it reads `WORKER_GROUP`, which an agent authenticating with a
     // workload identity token only learns from the server.
     let agent_setup = if mode == Mode::Agent {

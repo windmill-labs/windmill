@@ -7,15 +7,7 @@ import {
 	saveEntry,
 	type CacheScope
 } from '$lib/persistedCache.svelte'
-import { readSessionHint } from '$lib/lastSession'
-
-/**
- * A response may be filed only under the session that answered it: another tab logging in
- * while a request is in flight swaps the cookie under this tab, whose user stays the old one.
- */
-function sameSessionSince(sentWith: string | undefined): boolean {
-	return readSessionHint() === sentWith
-}
+import { readSessionHint, sameSessionSince } from '$lib/lastSession'
 
 export interface PersistOptions<A> {
 	/** Names the response; part of every key. */

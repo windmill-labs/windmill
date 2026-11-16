@@ -23,6 +23,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	import {
 		copilotInfo,
 		getUserCustomPrompts,
+		invalidateWorkspaceCopilotInfo,
 		setCopilotInfo,
 		setUserCustomPrompts
 	} from '$lib/aiStore'
@@ -596,6 +597,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 				requestBody: { ...config, custom_prompts }
 			})
 			setCopilotInfo(response.effective_ai_config)
+			invalidateWorkspaceCopilotInfo(target)
 			workspaceSaved = value
 			workspaceDraft = value
 			sendUserToast('Workspace instructions were saved')

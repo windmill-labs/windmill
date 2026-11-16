@@ -27,6 +27,7 @@ the header, so nesting is decided by the caller rather than guessed from context
 		separator,
 		contexts,
 		actingWorkspaceId,
+		onPickWorkspace,
 		barRightInset
 	}: PageHeaderContent = $props()
 
@@ -48,6 +49,7 @@ the header, so nesting is decided by the caller rather than guessed from context
 			separator,
 			contexts,
 			actingWorkspaceId,
+			onPickWorkspace,
 			barRightInset
 		}))
 		return () => pageHeader.release(id)

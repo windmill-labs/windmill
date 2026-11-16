@@ -13,7 +13,7 @@ jobs:
   cargo_build_windows:
     runs-on: blacksmith-16vcpu-windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
 
       - name: Read EE repo commit hash
         shell: pwsh
@@ -22,7 +22,7 @@ jobs:
           echo "ee_repo_ref=$ee_repo_ref" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Checkout windmill-ee-private repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.4.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -30,7 +30,7 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
@@ -73,13 +73,13 @@ jobs:
           Rename-Item -Path ".\backend\target\release\windmill.exe" -NewName "windmill-ee.exe"
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: windmill-ee-binary
           path: ./backend/target/release/windmill-ee.exe
 
       - name: Upload dynamic libraries artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: windmill_duckdb_runner.exe
           path: ./backend/windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner.exe

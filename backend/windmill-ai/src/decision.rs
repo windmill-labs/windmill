@@ -1,7 +1,7 @@
 //! AI decision steps: one call to a decision endpoint, which answers typed questions (`choice`,
 //! `score`, `noul`) about a state with calibrated probabilities instead of text. The questions and
 //! answers are System One's (TypeSafe's Jev, Cloudflare's Jev-compatible Clef on Workers AI);
-//! OpenAI's Decisions API is asked and read through a translation to that shape.
+//! OpenAI's and Gemini's Decisions APIs are asked and read through a translation to that shape.
 
 use std::time::Duration;
 
@@ -10,7 +10,7 @@ use serde_json::{value::RawValue, Map, Value};
 use windmill_common::error::{Error, Result};
 
 use crate::{
-    ai_providers::AIProvider,
+    ai_providers::{AIPlatform, AIProvider},
     credentials::ProviderCredentials,
     proxy::{common_outbound_headers, retain_effective_credentials},
     types::{ProviderWithResource, TokenUsage},
@@ -33,6 +33,8 @@ pub const TYPESAFE_DEFAULT_MODEL: &str = "jev-latest";
 pub const CLOUDFLARE_DEFAULT_MODEL: &str = "clef";
 /// The model OpenAI's Decisions API serves, run when the step names none.
 pub const OPENAI_DEFAULT_MODEL: &str = "gpt-6-luna";
+/// The model Gemini's Decisions API serves, run when the step names none.
+pub const GOOGLE_DEFAULT_MODEL: &str = "gemini-decision-1";
 
 #[derive(Serialize)]
 struct SystemOneRequest<'a> {
@@ -111,7 +113,7 @@ pub fn decision_inputs<'a>(
     Ok((state, questions))
 }
 
-/// Posts a decision request with the resource's bearer key and returns the response body.
+/// Posts a decision request with the resource's key and returns the response body.
 async fn post_decision<T: Serialize>(
     credentials: &ProviderCredentials,
     endpoint: &str,
@@ -119,16 +121,13 @@ async fn post_decision<T: Serialize>(
     payload: &T,
     timeout: Duration,
 ) -> Result<String> {
-    let auth_headers = retain_effective_credentials(
-        credentials,
-        vec![(
-            "Authorization",
-            format!(
-                "Bearer {}",
-                credentials.api_key.as_deref().unwrap_or_default()
-            ),
-        )],
-    );
+    let api_key = credentials.api_key.as_deref().unwrap_or_default();
+    let auth_header = if credentials.provider == AIProvider::GoogleAI {
+        ("x-goog-api-key", api_key.to_string())
+    } else {
+        ("Authorization", format!("Bearer {api_key}"))
+    };
+    let auth_headers = retain_effective_credentials(credentials, vec![auth_header]);
 
     // The endpoint derives from the resource's base URL, so the connect is pinned to the
     // address the SSRF check validated.
@@ -172,11 +171,174 @@ pub async fn run_decision(
     questions: &Map<String, Value>,
     timeout: Duration,
 ) -> Result<DecisionResult> {
-    if credentials.provider == AIProvider::OpenAI {
-        run_openai_decisions(credentials, model, state, questions, timeout).await
-    } else {
-        run_systemone(credentials, model, state, questions, timeout).await
+    match credentials.provider {
+        AIProvider::OpenAI => {
+            run_openai_decisions(credentials, model, state, questions, timeout).await
+        }
+        AIProvider::GoogleAI => {
+            run_gemini_decisions(credentials, model, state, questions, timeout).await
+        }
+        _ => run_systemone(credentials, model, state, questions, timeout).await,
     }
+}
+
+#[derive(Serialize)]
+struct GeminiDecisionsRequest<'a> {
+    model: &'a str,
+    input: Value,
+    questions: Map<String, Value>,
+}
+
+#[derive(Deserialize)]
+struct GeminiDecisionsResponse {
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    answers: Option<Box<RawValue>>,
+    #[serde(default)]
+    usage: Option<GeminiUsage>,
+    #[serde(default)]
+    prompt_feedback: Option<Map<String, Value>>,
+}
+
+#[derive(Deserialize)]
+struct GeminiUsage {
+    total_input_tokens: Option<i32>,
+    total_output_tokens: Option<i32>,
+}
+
+/// The content types a Gemini Decisions input block has.
+const GEMINI_BLOCK_TYPES: [&str; 5] = ["text", "image", "audio", "video", "document"];
+
+/// The state as a Gemini Decisions `input`: a text, or a content block or list of them (the way to
+/// pass an image or a document) as it is, and any other object or array as its JSON text.
+fn gemini_input(state: &Value) -> Value {
+    let is_block = |block: &Value| match block.get("type").and_then(Value::as_str) {
+        Some("text") => block.get("text").is_some_and(Value::is_string),
+        Some(kind) if GEMINI_BLOCK_TYPES.contains(&kind) => {
+            block.get("mime_type").is_some_and(Value::is_string)
+                && (block.get("data").is_some_and(Value::is_string)
+                    || block.get("uri").is_some_and(Value::is_string))
+        }
+        _ => false,
+    };
+    match state {
+        Value::String(_) => state.clone(),
+        Value::Object(_) if is_block(state) => state.clone(),
+        Value::Array(blocks) if !blocks.is_empty() && blocks.iter().all(is_block) => state.clone(),
+        _ => Value::String(state.to_string()),
+    }
+}
+
+/// The questions as Gemini takes them. They are keyed and typed as System One's are; a `noul`'s
+/// meanings go as `true_description`/`false_description`, and a structured description, option
+/// or level as its JSON text, since Gemini reads only texts there.
+fn gemini_questions(questions: &Map<String, Value>) -> Map<String, Value> {
+    let text = |v: &Value| match v {
+        Value::String(s) => Value::String(s.clone()),
+        v => Value::String(v.to_string()),
+    };
+    questions
+        .iter()
+        .map(|(name, question)| {
+            let mut asked = question.as_object().cloned().unwrap_or_default();
+            let kind = asked.get("type").and_then(Value::as_str).map(str::to_owned);
+            let criteria = match (kind.as_deref(), asked.remove("criteria")) {
+                (Some("noul"), Some(Value::Object(meanings))) => Some(Value::Object(
+                    [("true", "true_description"), ("false", "false_description")]
+                        .into_iter()
+                        .filter_map(|(key, field)| match meanings.get(key) {
+                            None | Some(Value::Null) => None,
+                            Some(d) => Some((field.to_string(), text(d))),
+                        })
+                        .collect(),
+                )),
+                (Some("choice"), Some(Value::Object(options))) => Some(Value::Object(
+                    options
+                        .into_iter()
+                        .map(|(option, d)| {
+                            let d = match d {
+                                Value::Null => Value::Null,
+                                d => text(&d),
+                            };
+                            (option, d)
+                        })
+                        .collect(),
+                )),
+                (Some("score"), Some(Value::Array(levels))) => {
+                    Some(Value::Array(levels.iter().map(text).collect()))
+                }
+                (_, criteria) => criteria,
+            };
+            if let Some(criteria) = criteria {
+                asked.insert("criteria".to_string(), criteria);
+            }
+            if let Some(instructions) = asked.get_mut("instructions") {
+                if !instructions.is_string() {
+                    *instructions = text(instructions);
+                }
+            }
+            (name.clone(), Value::Object(asked))
+        })
+        .collect()
+}
+
+async fn run_gemini_decisions(
+    credentials: &ProviderCredentials,
+    model: &str,
+    state: &Value,
+    questions: &Map<String, Value>,
+    timeout: Duration,
+) -> Result<DecisionResult> {
+    if credentials.platform == AIPlatform::GoogleVertexAi {
+        return Err(Error::BadRequest(
+            "Gemini's Decisions API is served by the Gemini API, not Vertex AI: use a Google AI \
+             resource on the standard platform"
+                .to_string(),
+        ));
+    }
+    let model = match model.trim() {
+        "" => GOOGLE_DEFAULT_MODEL,
+        model => model.strip_prefix("models/").unwrap_or(model),
+    };
+    let endpoint = format!("{}/decisions", credentials.base_url.trim_end_matches('/'));
+    let body = post_decision(
+        credentials,
+        &endpoint,
+        "Gemini",
+        &GeminiDecisionsRequest {
+            model,
+            input: gemini_input(state),
+            questions: gemini_questions(questions),
+        },
+        timeout,
+    )
+    .await?;
+    let parsed = serde_json::from_str::<GeminiDecisionsResponse>(&body)
+        .map_err(|e| Error::ExecutionErr(format!("Unexpected Gemini response ({e}): {body}")))?;
+    // A blocked prompt comes back with no answers; left as an empty output, a branch on it would
+    // quietly take its default arm.
+    if let Some(feedback) = parsed
+        .prompt_feedback
+        .filter(|f| f.get("block_reason").is_some_and(|r| !r.is_null()))
+    {
+        return Err(Error::ExecutionErr(format!(
+            "Gemini blocked the decision: {}",
+            Value::Object(feedback)
+        )));
+    }
+    let output = parsed.answers.ok_or_else(|| {
+        Error::ExecutionErr(format!("Unexpected Gemini response (no answers): {body}"))
+    })?;
+
+    Ok(DecisionResult {
+        output,
+        model: parsed.model,
+        usage: parsed
+            .usage
+            .map(|u| TokenUsage::from_input_output(u.total_input_tokens, u.total_output_tokens))
+            .filter(|u| !u.is_empty()),
+    })
 }
 
 #[derive(Serialize)]
@@ -519,6 +681,40 @@ mod tests {
         let refused =
             serde_json::from_value(json!([{"type": "refusal", "name": "angry"}])).unwrap();
         assert!(openai_answers(refused).is_err());
+    }
+
+    /// A `noul`'s meanings go out under Gemini's field names and structured texts as JSON text;
+    /// content blocks pass through as the input, anything else structured goes as its JSON text.
+    #[test]
+    fn gemini_questions_and_input_translate() {
+        let questions = json!({
+            "intent": {"type": "choice", "instructions": "Why?", "criteria": {"refund": {"when": "paid"}, "bug": null}},
+            "urgency": {"type": "score", "instructions": "How urgent?", "criteria": ["Can wait", 2]},
+            "angry": {"type": "noul", "instructions": {"t": 1}, "criteria": {"true": "Insults", "false": null}}
+        });
+        assert_eq!(
+            Value::Object(gemini_questions(questions.as_object().unwrap())),
+            json!({
+                "intent": {"type": "choice", "instructions": "Why?", "criteria": {"refund": "{\"when\":\"paid\"}", "bug": null}},
+                "urgency": {"type": "score", "instructions": "How urgent?", "criteria": ["Can wait", "2"]},
+                "angry": {"type": "noul", "instructions": "{\"t\":1}", "criteria": {"true_description": "Insults"}}
+            })
+        );
+
+        let image = json!({"type": "image", "mime_type": "image/png", "data": "iVBOR"});
+        let blocks = json!([{"type": "text", "text": "hi"}, image]);
+        assert_eq!(gemini_input(&json!("hi")), json!("hi"));
+        assert_eq!(gemini_input(&image), image);
+        assert_eq!(gemini_input(&blocks), blocks);
+        for other in [
+            json!({"m": "hi"}),
+            json!([]),
+            json!([{"type": "text", "text": "hi"}, "plain"]),
+            json!([{"type": "image", "data": "iVBOR"}]),
+            json!([{"type": "input_text", "text": "hi"}]),
+        ] {
+            assert_eq!(gemini_input(&other), json!(other.to_string()), "{other}");
+        }
     }
 
     /// Refused are the values a flow produces when it forgot the input (no key, `null`, a blank

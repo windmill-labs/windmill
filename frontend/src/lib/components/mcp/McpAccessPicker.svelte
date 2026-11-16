@@ -35,10 +35,17 @@
 	import Section from '$lib/components/Section.svelte'
 	import { SvelteMap } from 'svelte/reactivity'
 	import type { Snippet } from 'svelte'
+	import { resource } from 'runed'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { resolveSessionAccess } from '$lib/components/copilot/chat/global/sessionAccess'
+	import { accessNarrowing } from './accessNarrowing'
+	import { userWorkspaces } from '$lib/stores'
 
 	interface Props {
 		/** The workspace the selection picker browses. */
 		workspaceId: string
+		/** The workspaces the token reaches, to warn where one holds it to less than `access`. */
+		workspaces?: string[]
 		/** The token's MCP scopes, the workspace list aside. */
 		scopes?: string[]
 		access?: McpAccess
@@ -49,6 +56,7 @@
 
 	let {
 		workspaceId,
+		workspaces = [],
 		scopes = $bindable(),
 		access = $bindable(),
 		initialScopes = [],
@@ -87,6 +95,21 @@
 			.catch(() => toolsets.set(level, []))
 	})
 	const tools = $derived(toolsetAccess ? toolsets.get(toolsetAccess) : undefined)
+
+	// Each workspace's access, as the chat resolves it, to compare with the level picked.
+	const workspaceAccess = resource(
+		// Rerun once the workspace list loads: until then a role reads as its legacy defaults.
+		() => ({ ids: [...workspaces], roles: $userWorkspaces }),
+		({ ids }) => Promise.all(ids.map(async (id) => ({ id, there: await resolveSessionAccess(id) })))
+	)
+	const narrowed = $derived(
+		access
+			? (workspaceAccess.current ?? []).flatMap(({ id, there }) => {
+					const why = accessNarrowing(access!, there)
+					return why ? [{ id, why }] : []
+				})
+			: []
+	)
 </script>
 
 <div class="flex flex-col gap-4">
@@ -121,6 +144,15 @@
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>
+	{#if narrowed.length > 0}
+		<Alert type="warning" size="xs" title="Narrower in some workspaces">
+			<ul class="flex flex-col gap-0.5">
+				{#each narrowed as { id, why } (id)}
+					<li>In <span class="font-semibold">{id}</span>, {why}.</li>
+				{/each}
+			</ul>
+		</Alert>
+	{/if}
 	{@render afterAccess?.()}
 	{#if toolsetAccess}
 		<Section label="Tools the client gets" small collapsable bind:collapsed={toolsCollapsed}>

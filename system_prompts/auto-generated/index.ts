@@ -80,6 +80,14 @@ export function getPipelinePrompt(): string {
   ].filter(Boolean).join('\n\n');
 }
 
+// Helper for rich results: tables, charts and the other shapes a return value renders as
+export function getDisplayPrompt(): string {
+  return [
+    prompts.DISPLAY_RESULTS_BASE,
+    prompts.DISPLAY_CATALOG
+  ].filter(Boolean).join('\n\n');
+}
+
 // Helper for data table schema changes, migrations and permissions (chat consumers)
 export function getDatatablePrompt(): string {
   return [

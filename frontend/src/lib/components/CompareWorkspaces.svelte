@@ -51,6 +51,7 @@
 		diffRemovesInTarget,
 		getItemValue,
 		getOnBehalfOf,
+		triggerCiTestsForBatch,
 		type DeployPermission,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
@@ -848,15 +849,45 @@
 				workspaceFrom,
 				workspaceTo: workspaceToDeployTo,
 				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
-				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind)
+				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind),
+				skipCiTests: true
 			})
 		}
 
 		if (result.success) {
 			deploymentStatus[statusKey] = { status: 'deployed' }
+			if (kind === 'folder' && !removes) {
+				warnOnAddedFolderOwners(path, workspaceFrom, workspaceToDeployTo)
+			}
 		} else {
 			deploymentStatus[statusKey] = { status: 'failed', error: result.error }
 			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`, 'error')
+		}
+	}
+
+	// A non-admin can't drop their own ownership of a folder (the folder UPDATE policy
+	// rejects a row they don't own), so updateFolder keeps them as an owner. The folder then
+	// never matches its source, and the conflict comes back on every compare unless we say why.
+	async function warnOnAddedFolderOwners(path: string, workspaceFrom: string, workspaceTo: string) {
+		const name = path.replace(/^f\//, '')
+		try {
+			const [source, target, me] = await Promise.all([
+				FolderService.getFolder({ workspace: workspaceFrom, name }),
+				FolderService.getFolder({ workspace: workspaceTo, name }),
+				UserService.whoami({ workspace: workspaceTo })
+			])
+			const owner = `u/${me.username}`
+			if (!me.is_admin && target.owners.includes(owner) && !source.owners.includes(owner)) {
+				sendUserToast(
+					`${path} still differs in ${workspaceTo}: it kept ${owner} as owner, because a non-admin can't remove their own ownership of a folder. To clear it, make ${owner} owner of ${path} in ${workspaceFrom} too, or deploy as an admin of ${workspaceTo}.`,
+					'warning',
+					[],
+					undefined,
+					15000
+				)
+			}
+		} catch {
+			// The deploy itself succeeded; the next compare still shows the difference.
 		}
 	}
 
@@ -922,6 +953,7 @@
 		let anyFailed = false
 		// Datatables whose migrations deployed cleanly — candidates for a run prompt.
 		const deployedMigrationDatatables = new Set<string>()
+		const ciTested: { kind: 'script' | 'flow' | 'resource'; path: string }[] = []
 		const applyAll = async () => {
 			for (const itemKey of sortedItems) {
 				const deployable = deployableItems.find((d) => d.key === itemKey)
@@ -937,6 +969,13 @@
 					anyFailed = true
 				} else if (deployable.kind === 'datatable_migration') {
 					deployedMigrationDatatables.add(deployable.path.split('/')[0])
+				} else if (
+					(deployable.kind === 'script' ||
+						deployable.kind === 'flow' ||
+						deployable.kind === 'resource') &&
+					!comparison?.diffs.some((d) => getItemKey(d) === itemKey && removesInTarget(d))
+				) {
+					ciTested.push({ kind: deployable.kind, path: deployable.path })
 				}
 			}
 		}
@@ -947,6 +986,10 @@
 		await (mergeIntoParent ? applyAll() : asSyncDeploy(applyAll))
 		deploying = false
 		deselectAll()
+		// The tests are held back while the batch deploys, so each one runs against all of it.
+		triggerCiTestsForBatch(to, ciTested).catch((e) =>
+			sendUserToast(`Failed to queue CI tests: ${e?.body ?? e?.message ?? e}`, true)
+		)
 
 		await maybePromptRunMigrations(deployedMigrationDatatables, to)
 

@@ -1714,6 +1714,14 @@ TOPICS: dict[str, dict] = {
         'chat_helper': 'getWorkspaceSettingsPrompt',
         'parts': ['workspace-settings.md'],
     },
+    'display': {
+        'skill': 'rich-results',
+        'description': 'MUST use when a script or flow should return a table, chart, markdown, image, file or map instead of plain JSON.',
+        'chat_helper': 'getDisplayPrompt',
+        # display-catalog.gen.md is generated from the frontend's zod catalog by
+        # `npm run gen:display-catalog`; the chat validates charts against the same schema.
+        'parts': ['display-results.md', 'display-catalog.gen.md'],
+    },
     'cli_commands': {
         'skill': 'cli-commands',
         'description': 'MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`.',
@@ -1738,6 +1746,8 @@ CHAT_CONSTANTS = {
     'workspace-settings.md': 'WORKSPACE_SETTINGS_BASE',
     'workflow-as-code.md': 'WORKFLOW_AS_CODE_BASE',
     'flow-chat-special-modules.md': 'FLOW_CHAT_SPECIAL_MODULES',
+    'display-results.md': 'DISPLAY_RESULTS_BASE',
+    'display-catalog.gen.md': 'DISPLAY_CATALOG',
 }
 
 
@@ -2676,6 +2686,11 @@ export function getPipelinePrompt(): string {
   __RETURN_pipeline__
 }
 
+// Helper for rich results: tables, charts and the other shapes a return value renders as
+export function getDisplayPrompt(): string {
+  __RETURN_display__
+}
+
 // Helper for data table schema changes, migrations and permissions (chat consumers)
 export function getDatatablePrompt(): string {
   __RETURN_datatable__
@@ -2748,6 +2763,7 @@ export declare function getResourcePrompt(): string;
 export declare function getAgentPrompt(): string;
 export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
+export declare function getDisplayPrompt(): string;
 export declare function getDatatablePrompt(): string;
 export declare function getWorkspaceSettingsPrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;

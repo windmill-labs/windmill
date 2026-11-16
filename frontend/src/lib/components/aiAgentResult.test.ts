@@ -109,11 +109,13 @@ describe('agent stream', () => {
 		expect(completed.stream.current).toBe('eu-central-1 is down!')
 	})
 
-	it('marks a tool still running, and a failed one', () => {
-		const started = '{"type":"tool_execution","call_id":"c1","function_name":"fetch"}\n'
+	it('marks a tool still running, and a failed one with what it was given and returned', () => {
+		const started =
+			'{"type":"tool_call_arguments","call_id":"c1","function_name":"fetch","arguments":"{\\"url\\":\\"x\\"}"}\n' +
+			'{"type":"tool_execution","call_id":"c1","function_name":"fetch"}\n'
 		const running = advanceAgentStream(started, emptyAgentStreamProgress())
 		expect(running.stream.entries).toEqual([
-			{ kind: 'tool', callId: 'c1', name: 'fetch', running: true, success: undefined }
+			{ kind: 'tool', callId: 'c1', name: 'fetch', running: true, args: '{"url":"x"}' }
 		])
 		const failed = advanceAgentStream(
 			started +
@@ -122,7 +124,15 @@ describe('agent stream', () => {
 		)
 		// One row for the call, not one per event about it.
 		expect(failed.stream.entries).toEqual([
-			{ kind: 'tool', callId: 'c1', name: 'fetch', running: false, success: false }
+			{
+				kind: 'tool',
+				callId: 'c1',
+				name: 'fetch',
+				running: false,
+				success: false,
+				args: '{"url":"x"}',
+				result: 'boom'
+			}
 		])
 	})
 })

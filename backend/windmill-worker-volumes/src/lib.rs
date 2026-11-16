@@ -52,6 +52,8 @@ lazy_static::lazy_static! {
 pub struct VolumeMount {
     pub name: String,
     pub target: String,
+    /// `volume:ro`: pulled without the volume's lease and never synced back.
+    pub read_only: bool,
 }
 
 /// A file's size and last change time. Sync-back trusts a pulled file's stored hash only while
@@ -220,6 +222,15 @@ fn is_php_open_tag(trimmed_line: &str) -> bool {
         .is_some_and(|p| p.eq_ignore_ascii_case("<?php"))
 }
 
+/// `ro` glued to `volume:` (`volume:ro <name> <target>`) marks a read-only mount. With a space
+/// after the colon, `ro` is a volume's name: `volume: ro /tmp/x` mounts the volume `ro`.
+pub fn split_read_only_flag(after_colon: &str) -> (bool, &str) {
+    match after_colon.strip_prefix("ro") {
+        Some(rest) if rest.starts_with(char::is_whitespace) => (true, rest),
+        _ => (false, after_colon),
+    }
+}
+
 /// Scans the leading comment block for `<prefix> volume: <name> <target>` lines,
 /// stopping at the first line that is neither blank nor a comment. A PHP script
 /// opens with `<?php`, which is not a comment, so that line is skipped like a blank
@@ -238,14 +249,17 @@ pub fn parse_volume_annotations(content: &str, comment_prefix: &str) -> Vec<Volu
         }
         let after_prefix = trimmed[comment_prefix.len()..].trim();
         if let Some(rest) = after_prefix.strip_prefix("volume:") {
-            let rest = rest.trim();
-            let mut parts = rest.splitn(2, char::is_whitespace);
+            let (read_only, rest) = split_read_only_flag(rest);
+            let mut parts = rest.trim().splitn(2, char::is_whitespace);
             if let (Some(name), Some(target)) = (parts.next(), parts.next()) {
                 let name = name.trim();
                 let target = target.trim();
                 if !name.is_empty() && !target.is_empty() {
-                    volumes
-                        .push(VolumeMount { name: name.to_string(), target: target.to_string() });
+                    volumes.push(VolumeMount {
+                        name: name.to_string(),
+                        target: target.to_string(),
+                        read_only,
+                    });
                 }
             }
         }
@@ -263,7 +277,11 @@ mod tests {
         let result = parse_volume_annotations(content, "#");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "mydata".to_string(), target: "/tmp/data".to_string() }]
+            vec![VolumeMount {
+                name: "mydata".to_string(),
+                target: "/tmp/data".to_string(),
+                read_only: false
+            }]
         );
     }
 
@@ -273,7 +291,11 @@ mod tests {
         let result = parse_volume_annotations(content, "//");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "mydata".to_string(), target: "/tmp/data".to_string() }]
+            vec![VolumeMount {
+                name: "mydata".to_string(),
+                target: "/tmp/data".to_string(),
+                read_only: false
+            }]
         );
     }
 
@@ -284,7 +306,11 @@ mod tests {
         let result = parse_volume_annotations(content, "//");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "mydata".to_string(), target: "/tmp/data".to_string() }]
+            vec![VolumeMount {
+                name: "mydata".to_string(),
+                target: "/tmp/data".to_string(),
+                read_only: false
+            }]
         );
     }
 
@@ -295,9 +321,21 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                VolumeMount { name: "data1".to_string(), target: "/tmp/data1".to_string() },
-                VolumeMount { name: "data2".to_string(), target: "/tmp/data2".to_string() },
-                VolumeMount { name: "models".to_string(), target: "/opt/models".to_string() },
+                VolumeMount {
+                    name: "data1".to_string(),
+                    target: "/tmp/data1".to_string(),
+                    read_only: false
+                },
+                VolumeMount {
+                    name: "data2".to_string(),
+                    target: "/tmp/data2".to_string(),
+                    read_only: false
+                },
+                VolumeMount {
+                    name: "models".to_string(),
+                    target: "/opt/models".to_string(),
+                    read_only: false
+                },
             ]
         );
     }
@@ -308,7 +346,37 @@ mod tests {
         let result = parse_volume_annotations(content, "#");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "mydata".to_string(), target: "/tmp/data".to_string() }]
+            vec![VolumeMount {
+                name: "mydata".to_string(),
+                target: "/tmp/data".to_string(),
+                read_only: false
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_read_only_volume() {
+        let content = "# volume:ro models /opt/models\n# volume: ro /tmp/ro\n# volume:robots /tmp/r\ndef main():\n    pass";
+        let result = parse_volume_annotations(content, "#");
+        assert_eq!(
+            result,
+            vec![
+                VolumeMount {
+                    name: "models".to_string(),
+                    target: "/opt/models".to_string(),
+                    read_only: true,
+                },
+                VolumeMount {
+                    name: "ro".to_string(),
+                    target: "/tmp/ro".to_string(),
+                    read_only: false
+                },
+                VolumeMount {
+                    name: "robots".to_string(),
+                    target: "/tmp/r".to_string(),
+                    read_only: false,
+                },
+            ]
         );
     }
 
@@ -332,7 +400,11 @@ mod tests {
         let result = parse_volume_annotations(content, "#");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "data1".to_string(), target: "/tmp/data1".to_string() }]
+            vec![VolumeMount {
+                name: "data1".to_string(),
+                target: "/tmp/data1".to_string(),
+                read_only: false
+            }]
         );
     }
 
@@ -344,8 +416,16 @@ mod tests {
         assert_eq!(
             result,
             vec![
-                VolumeMount { name: "data1".to_string(), target: "/tmp/data1".to_string() },
-                VolumeMount { name: "data2".to_string(), target: "/tmp/data2".to_string() },
+                VolumeMount {
+                    name: "data1".to_string(),
+                    target: "/tmp/data1".to_string(),
+                    read_only: false
+                },
+                VolumeMount {
+                    name: "data2".to_string(),
+                    target: "/tmp/data2".to_string(),
+                    read_only: false
+                },
             ]
         );
     }
@@ -357,7 +437,11 @@ mod tests {
         let result = parse_volume_annotations(content, "#");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "good".to_string(), target: "/tmp/good".to_string() }]
+            vec![VolumeMount {
+                name: "good".to_string(),
+                target: "/tmp/good".to_string(),
+                read_only: false
+            }]
         );
     }
 
@@ -367,7 +451,11 @@ mod tests {
         let result = parse_volume_annotations(content, "#");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "mydata".to_string(), target: "/tmp/data".to_string() }]
+            vec![VolumeMount {
+                name: "mydata".to_string(),
+                target: "/tmp/data".to_string(),
+                read_only: false
+            }]
         );
     }
 
@@ -380,6 +468,7 @@ mod tests {
             vec![VolumeMount {
                 name: "mydata".to_string(),
                 target: "/tmp/my data dir".to_string(),
+                read_only: false,
             }]
         );
     }
@@ -390,7 +479,11 @@ mod tests {
         let result = parse_volume_annotations(content, "#");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "my-data_v2".to_string(), target: "/tmp/data".to_string() }]
+            vec![VolumeMount {
+                name: "my-data_v2".to_string(),
+                target: "/tmp/data".to_string(),
+                read_only: false
+            }]
         );
     }
 
@@ -467,7 +560,11 @@ mod tests {
         let result = parse_volume_annotations(content, "//");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "agent-memory".to_string(), target: ".claude".to_string() }]
+            vec![VolumeMount {
+                name: "agent-memory".to_string(),
+                target: ".claude".to_string(),
+                read_only: false
+            }]
         );
     }
 
@@ -477,7 +574,11 @@ mod tests {
         let result = parse_volume_annotations(content, "#");
         assert_eq!(
             result,
-            vec![VolumeMount { name: "data".to_string(), target: "data/models".to_string() }]
+            vec![VolumeMount {
+                name: "data".to_string(),
+                target: "data/models".to_string(),
+                read_only: false
+            }]
         );
     }
 
@@ -568,7 +669,11 @@ mod tests {
     #[test]
     fn validate_mounts_rejects_too_many() {
         let mounts: Vec<VolumeMount> = (0..11)
-            .map(|i| VolumeMount { name: format!("v{:02}", i), target: format!("t{}", i) })
+            .map(|i| VolumeMount {
+                name: format!("v{:02}", i),
+                target: format!("t{}", i),
+                read_only: false,
+            })
             .collect();
         assert!(validate_volume_mounts(&mounts).is_err());
     }
@@ -576,8 +681,16 @@ mod tests {
     #[test]
     fn validate_mounts_rejects_duplicate_name() {
         let mounts = vec![
-            VolumeMount { name: "data".to_string(), target: "/tmp/a".to_string() },
-            VolumeMount { name: "data".to_string(), target: "/tmp/b".to_string() },
+            VolumeMount {
+                name: "data".to_string(),
+                target: "/tmp/a".to_string(),
+                read_only: false,
+            },
+            VolumeMount {
+                name: "data".to_string(),
+                target: "/tmp/b".to_string(),
+                read_only: false,
+            },
         ];
         assert!(validate_volume_mounts(&mounts).is_err());
     }
@@ -585,8 +698,16 @@ mod tests {
     #[test]
     fn validate_mounts_rejects_duplicate_target() {
         let mounts = vec![
-            VolumeMount { name: "v1".to_string(), target: "/tmp/data".to_string() },
-            VolumeMount { name: "v2".to_string(), target: "/tmp/data".to_string() },
+            VolumeMount {
+                name: "v1".to_string(),
+                target: "/tmp/data".to_string(),
+                read_only: false,
+            },
+            VolumeMount {
+                name: "v2".to_string(),
+                target: "/tmp/data".to_string(),
+                read_only: false,
+            },
         ];
         assert!(validate_volume_mounts(&mounts).is_err());
     }
@@ -594,8 +715,8 @@ mod tests {
     #[test]
     fn validate_mounts_ok() {
         let mounts = vec![
-            VolumeMount { name: "v1".to_string(), target: "/tmp/a".to_string() },
-            VolumeMount { name: "v2".to_string(), target: "/tmp/b".to_string() },
+            VolumeMount { name: "v1".to_string(), target: "/tmp/a".to_string(), read_only: false },
+            VolumeMount { name: "v2".to_string(), target: "/tmp/b".to_string(), read_only: false },
         ];
         assert!(validate_volume_mounts(&mounts).is_ok());
     }

@@ -972,10 +972,10 @@
 			return
 		}
 		let nextIteration = 50
-		if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
-			nextIteration = 500
-		} else if (syncIteration > ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
+		if (syncIteration > ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
 			nextIteration = 2000
+		} else if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
+			nextIteration = 500
 		}
 		setTimeout(() => syncer(id, callbacks), nextIteration)
 	}

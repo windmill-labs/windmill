@@ -919,7 +919,7 @@
 		if (settings.deploy_ui != undefined && settings.deploy_ui != null) {
 			deployUiSettings = {
 				include_path:
-					(settings.deploy_ui.include_path?.length ?? 0 > 0)
+					(settings.deploy_ui.include_path?.length ?? 0) > 0
 						? (settings.deploy_ui.include_path ?? [])
 						: [],
 				include_type: {

@@ -484,7 +484,16 @@ pub async fn wait_for_migrations(
         "This worker is on Windmill version {GIT_VERSION} (migration version {latest_version}). Only servers run migrations. Waiting for a server with version >= {GIT_VERSION} to apply the migration..."
     );
 
-    let mut attempts = 0;
+    // During a rolling upgrade, new workers start at the same time as the new
+    // server, which needs a while to come up and migrate. Exiting early only
+    // makes the pod restart and look like a crash loop, so wait long enough to
+    // cover a normal rollout and only give up if the server is truly not coming.
+    const RECHECK_SECS: u64 = 3;
+    // Over 12 rollouts (3,430 worker starts) the longest wait was 94s and
+    // p99 47s; 3 minutes covers that with margin.
+    const MAX_WAIT_SECS: u64 = 3 * 60;
+    const LOG_EVERY: u64 = 10;
+    let mut attempts: u64 = 0;
 
     loop {
         let is_applied: Result<Option<bool>, sqlx::Error> =
@@ -500,16 +509,19 @@ pub async fn wait_for_migrations(
                 );
                 return Ok(());
             }
-            Ok(_) => {
+            Ok(_) if attempts % LOG_EVERY == 0 => {
                 tracing::info!(
-                    "Database not up to date yet. This worker (Windmill {GIT_VERSION}, migration version {latest_version}) is waiting for a server with version >= {GIT_VERSION} to run the migration. Rechecking in 3s..."
+                    "Database not up to date yet. This worker (Windmill {GIT_VERSION}, migration version {latest_version}) is waiting for a server with version >= {GIT_VERSION} to run the migration. Waited {}s so far, giving up after {MAX_WAIT_SECS}s...",
+                    attempts * RECHECK_SECS
                 );
             }
-            Err(e) => {
+            Ok(_) => {}
+            Err(e) if attempts % LOG_EVERY == 0 => {
                 tracing::info!(
-                    "Could not check migration status (migrations table may not exist yet): {e:#}. Rechecking in 3s..."
+                    "Could not check migration status (migrations table may not exist yet): {e:#}. Rechecking every {RECHECK_SECS}s..."
                 );
             }
+            Err(_) => {}
         }
 
         tokio::select! {
@@ -517,13 +529,13 @@ pub async fn wait_for_migrations(
                 tracing::info!("Killpill received, stopping migration wait");
                 return Ok(());
             }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+            _ = tokio::time::sleep(std::time::Duration::from_secs(RECHECK_SECS)) => {}
         }
 
         attempts += 1;
-        if attempts >= 10 {
+        if attempts * RECHECK_SECS >= MAX_WAIT_SECS {
             tracing::error!(
-                "Timed out after 10 attempts waiting for migration version {latest_version}. Exiting."
+                "Timed out after {MAX_WAIT_SECS}s waiting for migration version {latest_version}. Exiting."
             );
             std::process::exit(1);
         }

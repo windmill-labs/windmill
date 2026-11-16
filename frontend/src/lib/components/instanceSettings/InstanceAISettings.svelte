@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { SettingService, WorkspaceService, type AIConfig } from '$lib/gen'
-	import { setCopilotInfo } from '$lib/aiStore'
+	import { invalidateWorkspaceCopilotInfo, setCopilotInfo } from '$lib/aiStore'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
@@ -37,6 +37,7 @@
 			key: 'ai_config',
 			requestBody: { value: hasProviders ? config : null }
 		})
+		invalidateWorkspaceCopilotInfo()
 		if ($workspaceStore) {
 			try {
 				const effectiveConfig = await WorkspaceService.getCopilotInfo({

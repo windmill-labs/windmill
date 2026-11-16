@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { Check, Copy, Download, FileDown } from 'lucide-svelte'
+	import { Check, Copy, Download, FileCode, FileDown } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { copyToClipboard, download } from '$lib/utils'
 	import { artifactFilename, artifactMimeType, type ArtifactKind } from './artifactsDB'
+	import { artifactHtmlFile } from './artifactExport'
 	import { printArtifact } from './printArtifact'
 
 	interface Props {
@@ -40,10 +41,21 @@
 			onClick: () => download(artifactFilename({ name, kind }), content, artifactMimeType(kind)),
 			disabled
 		},
-		// Markdown only: an html artifact is agent-written markup, and printing it would run its
+		// Markdown only: an html artifact already downloads as .html, and printing it would run its
 		// scripts in this origin.
 		...(kind === 'md'
 			? [
+					{
+						label: 'Download as .html',
+						icon: FileCode,
+						onClick: async () =>
+							download(
+								artifactFilename({ name, kind: 'html' }),
+								await artifactHtmlFile(name, content),
+								artifactMimeType('html')
+							),
+						disabled
+					},
 					{
 						label: 'Download as PDF',
 						icon: FileDown,

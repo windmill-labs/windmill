@@ -664,7 +664,7 @@ pub async fn handle_dependency_job(
                 "CI test trigger: checking for tests referencing script {}",
                 script_path
             );
-            {
+            if !arg_is_true(job.args.as_ref(), "skip_ci_tests") {
                 let db2 = db.clone();
                 let w_id2 = w_id.to_string();
                 let script_path2 = script_path.to_string();
@@ -888,6 +888,7 @@ async fn requeue_relock(
         &job.permissioned_as,
         db,
         already_visited,
+        arg_is_true(job.args.as_ref(), "skip_ci_tests"),
     )
     .await
 }
@@ -1410,7 +1411,11 @@ pub async fn handle_flow_dependency_job(
 /// Set by a deploy someone made of a perpetual script, and by nothing else: a relock this path
 /// gets because an imported script changed leaves the runs of the version it replaces alone.
 fn restart_perpetual_runs_from_args(args: Option<&Json<HashMap<String, Box<RawValue>>>>) -> bool {
-    args.and_then(|args| args.0.get("restart_perpetual_runs"))
+    arg_is_true(args, "restart_perpetual_runs")
+}
+
+fn arg_is_true(args: Option<&Json<HashMap<String, Box<RawValue>>>>, name: &str) -> bool {
+    args.and_then(|args| args.0.get(name))
         .and_then(|value| serde_json::from_str::<bool>(value.get()).ok())
         .unwrap_or(false)
 }

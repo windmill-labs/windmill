@@ -26,7 +26,7 @@
 	import { SvelteMap } from 'svelte/reactivity'
 	import { untrack } from 'svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
-	import { isDedicatedPattern, parseTag } from './dedicated_worker'
+	import { canonicalTag, isDedicatedPattern, parseTag } from './dedicated_worker'
 	import Tooltip from './Tooltip.svelte'
 
 	// A "Runnable" is a script or flow with dedicated_worker=true
@@ -481,7 +481,7 @@
 						language: script.language ?? 'unknown',
 						type: 'script',
 						path: script.path,
-						selected: selectedTags.includes(tag),
+						selected: isSelected(tag),
 						workspaceDeps: depsMap.get(script.path)
 					})
 				}
@@ -496,7 +496,7 @@
 					language: 'flow',
 					type: 'flow',
 					path: flow.path,
-					selected: selectedTags.includes(tag),
+					selected: isSelected(tag),
 					runners: undefined,
 					loadingRunners: false,
 					expanded: false
@@ -541,17 +541,22 @@
 	function updateSelectedTags() {
 		// Keep tags from other workspaces, update only the currently visible ones
 		const visibleTags = new Set(runnables.map((r) => r.tag))
-		const otherTags = selectedTags.filter((t) => !visibleTags.has(t))
+		const otherTags = selectedTags.filter((t) => !visibleTags.has(canonicalTag(t)))
 		for (const r of runnables) if (coveringPattern(r)) r.selected = false
 		const newVisibleTags = runnables.filter((r) => r.selected).map((r) => r.tag)
 		selectedTags = [...otherTags, ...newVisibleTags]
 		onchange?.(selectedTags)
 	}
 
+	// `tag` is canonical; a saved entry may be spelled with a leading `/`
+	function isSelected(tag: string): boolean {
+		return selectedTags.some((t) => canonicalTag(t) === tag)
+	}
+
 	let patternInput = $state('')
 	let patternTag = $derived(
 		selectedWorkspace && isDedicatedPattern(patternInput.trim())
-			? `${selectedWorkspace}:${patternInput.trim()}`
+			? canonicalTag(`${selectedWorkspace}:${patternInput.trim()}`)
 			: undefined
 	)
 
@@ -569,7 +574,7 @@
 	}
 
 	function addPattern() {
-		if (!patternTag || selectedTags.includes(patternTag)) return
+		if (!patternTag || isSelected(patternTag)) return
 		selectedTags = [...selectedTags, patternTag]
 		patternInput = ''
 		updateSelectedTags()
@@ -578,7 +583,7 @@
 	function removeTag(tag: string) {
 		selectedTags = selectedTags.filter((t) => t !== tag)
 		// Also update runnable state if visible
-		const runnable = runnables.find((r) => r.tag === tag)
+		const runnable = runnables.find((r) => r.tag === canonicalTag(tag))
 		if (runnable) {
 			runnable.selected = false
 		}
@@ -912,7 +917,7 @@
 													>
 													{#if via}
 														<span class="text-2xs text-hint flex-shrink-0"
-															>via {via.substring(via.indexOf(':') + 1)}</span
+															>via {parseTag(via)?.path}</span
 														>
 													{/if}
 													{#if runnable.type === 'flow' && runnable.runners}

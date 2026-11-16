@@ -317,6 +317,76 @@ mod suspend_resume {
         Ok(())
     }
 
+    /// A rejection is audited once, under the approver, by the API. The worker's own row is
+    /// for a timeout, which no one else records.
+    #[cfg(all(feature = "deno_core", feature = "enterprise", feature = "private"))]
+    #[sqlx::test(fixtures("base"))]
+    async fn rejected_suspend_that_continues_is_audited_once(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let value: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "input_transforms": {
+                        "port": { "type": "javascript", "expr": "flow_input.port" },
+                    },
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "\
+                        export async function main(port) {\
+                            const job = process.env.WM_JOB_ID;\
+                            const token = process.env.WM_TOKEN;\
+                            const secret = await (await fetch(\
+                                `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}&approver=ruben`,\
+                                { headers: { 'Authorization': `Bearer ${token}` } }\
+                            )).text();\
+                            await fetch(\
+                                `http://localhost:${port}/api/w/test-workspace/jobs_u/cancel/${job}/0/${secret}?approver=ruben`,\
+                                { method: 'POST', body: JSON.stringify('from job'), headers: { 'content-type': 'application/json' } }\
+                            );\
+                            return 'a ran';\
+                        }",
+                },
+                "suspend": { "required_events": 1, "continue_on_disapprove_timeout": true },
+            }, {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export function main() { return 'b ran' }",
+                },
+            }],
+        }))?;
+
+        let completed =
+            RunJob::from(JobPayload::RawFlow { value, path: None, restarted_from: None })
+                .arg("port", json!(port))
+                .run_until_complete(&db, false, port)
+                .await;
+
+        server.close().await.unwrap();
+
+        assert_eq!(json!("b ran"), completed.json_result().unwrap());
+
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT username, parameters->>'approved' FROM audit_partitioned
+             WHERE operation = 'jobs.suspend_resume' AND parameters->>'job_id' = $1",
+        )
+        .bind(completed.id.to_string())
+        .fetch_all(&db)
+        .await?;
+        assert_eq!(vec![("ruben".to_string(), Some("false".to_string()))], rows);
+
+        Ok(())
+    }
+
     /// Test that self-approval is blocked when self_approval_disabled is true.
     ///
     /// This test verifies that when a flow has an approval step with self_approval_disabled=true,

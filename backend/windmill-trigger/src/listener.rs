@@ -18,7 +18,7 @@ use tokio::sync::RwLock;
 use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
-    jobs::JobTriggerKind,
+    jobs::{ChosenBy, JobTriggerKind},
     runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
     utils::{report_critical_error, report_recovered_critical_error},
@@ -566,6 +566,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             db,
             None,
             authed,
+            ChosenBy::Deployed,
             &listening_trigger.workspace_id,
             &runnable,
             args,

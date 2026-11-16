@@ -11,6 +11,7 @@
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { agentOfChatPath } from '$lib/components/flows/conversations/agentEditorChat'
 	import { sidebarClasses } from './MenuButton.svelte'
+	import SidebarShowOlder, { SIDEBAR_RECENT_MS } from './SidebarShowOlder.svelte'
 
 	// The reader's own flow and agent chats, the ones a flow's or an agent's own page shows: the
 	// editors' test chats stay with the editors.
@@ -21,6 +22,8 @@
 		false,
 		'boolean'
 	)
+
+	const showOlder = useLocalStorageValue('windmill_ai_chats_show_older', false, 'boolean')
 
 	// Tagged with its workspace: responses are not ordered, and a late one from the workspace
 	// just left must not show here.
@@ -34,7 +37,11 @@
 				kind: 'deployed',
 				mine: true
 			})
-			return { ws, rows }
+			// Listed newest `updated_at` first, which every new message bumps, so the chats active
+			// in the window are a prefix of the page.
+			const since = Date.now() - SIDEBAR_RECENT_MS
+			const recent = rows.findIndex((c) => new Date(c.updated_at).getTime() < since)
+			return { ws, rows, recent: recent === -1 ? rows.length : recent }
 		}
 	)
 	// A chat is started on its flow's or agent's page, so it lists once the reader leaves one.
@@ -43,8 +50,19 @@
 		if (!left || left === to?.url.pathname) return
 		if (left.startsWith('/flows/get/') || left.startsWith('/agents/get/')) listing.refetch()
 	})
+	const current = $derived(
+		listing.current && listing.current.ws === $workspaceStore ? listing.current : undefined
+	)
+	const allRows = $derived(current?.rows ?? [])
+	const openId = $derived(page.url.searchParams.get('conversation'))
+	// The open chat always lists, however old.
 	const rows = $derived(
-		listing.current && listing.current.ws === $workspaceStore ? listing.current.rows : []
+		showOlder.val || !current
+			? allRows
+			: allRows.filter((c, i) => i < current.recent || c.id === openId)
+	)
+	const olderCount = $derived(
+		allRows.filter((c, i) => i >= (current?.recent ?? 0) && c.id !== openId).length
 	)
 
 	function target(c: FlowConversation) {
@@ -55,11 +73,9 @@
 			href: `/${agent !== undefined ? 'agents' : 'flows'}/get/${agent ?? c.flow_path}?conversation=${c.id}`
 		}
 	}
-
-	const openId = $derived(page.url.searchParams.get('conversation'))
 </script>
 
-{#if rows.length > 0}
+{#if allRows.length > 0}
 	<SidebarSection
 		title="AI chats"
 		icon={MessagesSquare}
@@ -95,6 +111,14 @@
 						<span class={rail ? 'sr-only' : 'truncate'}>{c.title || 'Untitled chat'}</span>
 					</a>
 				{/each}
+				{#if olderCount > 0}
+					<SidebarShowOlder
+						count={olderCount}
+						expanded={showOlder.val}
+						onToggle={() => (showOlder.val = !showOlder.val)}
+						{rail}
+					/>
+				{/if}
 			</div>
 		{/snippet}
 	</SidebarSection>

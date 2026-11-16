@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT q.suspend, c.checkpoint->'handed_over' AS \"handed_over\", c.waiting_on\n           FROM v2_job_queue q JOIN ai_agent_checkpoint c ON c.job_id = q.id WHERE q.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "suspend",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "handed_over",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "waiting_on",
+        "type_info": "UuidArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "1ef7b9b0e6674bcd4f75ba25a05765f1013d5a13513f09b201e50786d0d4f4fe"
+}

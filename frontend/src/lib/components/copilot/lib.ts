@@ -47,7 +47,15 @@ import {
 import { convertOpenAIToAnthropicMessages } from './chat/anthropic'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
-import { copilotInfo, getCurrentModel, getMetadataModel } from '$lib/aiStore'
+import {
+	copilotInfo,
+	getCurrentModel,
+	getMetadataModel,
+	resolveMetadataModelFor,
+	resolveModelFor,
+	type AiTarget,
+	type CopilotInfo
+} from '$lib/aiStore'
 import {
 	emptyChatTokenUsage,
 	openAICompletionsUsageToChatTokenUsage,
@@ -279,7 +287,8 @@ export function getModelMaxTokens(
 function resolveMaxTokens(
 	modelProvider: AIProviderModel,
 	cap?: number,
-	reasoningEffort?: ReasoningEffort
+	reasoningEffort?: ReasoningEffort,
+	info?: CopilotInfo
 ): number {
 	const defaultMaxTokens = getModelMaxTokens(
 		modelProvider.provider,
@@ -289,7 +298,7 @@ function resolveMaxTokens(
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	let customMaxTokensStore: Record<string, number> | undefined
 	try {
-		customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
+		customMaxTokensStore = (info ?? get(copilotInfo))?.maxTokensPerModel
 	} catch {
 		// copilotInfo store may not be initialized in vitest
 	}
@@ -308,9 +317,10 @@ function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
 	maxTokensCap?: number,
-	reasoningEffort?: ReasoningEffort
+	reasoningEffort?: ReasoningEffort,
+	info?: CopilotInfo
 ) {
-	const maxTokens = resolveMaxTokens(modelProvider, maxTokensCap, reasoningEffort)
+	const maxTokens = resolveMaxTokens(modelProvider, maxTokensCap, reasoningEffort, info)
 	if (
 		(modelProvider.provider === 'openai' ||
 			modelProvider.provider === 'azure_openai' ||
@@ -594,6 +604,7 @@ interface AnthropicCompletionParams {
 	resourcePath?: string
 	resourceValue?: Record<string, any>
 	maxTokensCap?: number
+	info?: CopilotInfo
 }
 
 function buildAnthropicProxyRequest({
@@ -603,7 +614,8 @@ function buildAnthropicProxyRequest({
 	workspace,
 	resourcePath,
 	resourceValue,
-	maxTokensCap
+	maxTokensCap,
+	info
 }: Omit<AnthropicCompletionParams, 'abortController'>) {
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 
@@ -623,7 +635,7 @@ function buildAnthropicProxyRequest({
 
 	const body = {
 		model: modelProvider.model,
-		max_tokens: resolveMaxTokens(modelProvider, maxTokensCap),
+		max_tokens: resolveMaxTokens(modelProvider, maxTokensCap, undefined, info),
 		messages: anthropicMessages,
 		...(system && { system })
 	}
@@ -887,6 +899,11 @@ export function modelSupportsWebSearch(provider: AIProvider | undefined, model: 
 	return providerSupportsWebSearch(provider)
 }
 
+/** The model a request sends: for `info`'s workspace when given, else the tab's. */
+function modelFor(info: CopilotInfo | undefined): AIProviderModel {
+	return info ? resolveModelFor(info) : getCurrentModel()
+}
+
 export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,
@@ -894,7 +911,8 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 	forceModelProvider,
 	maxTokensCap,
 	promptCaching,
-	reasoningEffort
+	reasoningEffort,
+	info
 }: {
 	messages: ChatCompletionMessageParam[]
 	stream: K
@@ -907,13 +925,15 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 	// The effort the caller will add with `applyReasoningToConfig`. Only sizes the
 	// output budget here: a request that reasons needs room for the thinking.
 	reasoningEffort?: ReasoningEffort
+	// The AI config of the workspace the request is made for, when it is not the tab's.
+	info?: CopilotInfo
 }): {
 	provider: AIProvider
 	config: K extends true
 		? ChatCompletionCreateParamsStreaming
 		: ChatCompletionCreateParamsNonStreaming
 } {
-	const modelProvider = forceModelProvider ?? getCurrentModel()
+	const modelProvider = forceModelProvider ?? modelFor(info)
 	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
 	const processedMessages = prepareMessages(modelProvider.provider, messages, {
 		model: modelProvider.model,
@@ -923,7 +943,7 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 		provider: modelProvider.provider,
 		config: {
 			...providerConfig,
-			...getModelSpecificConfig(modelProvider, tools, maxTokensCap, reasoningEffort),
+			...getModelSpecificConfig(modelProvider, tools, maxTokensCap, reasoningEffort, info),
 			messages: processedMessages,
 			stream
 		} as any
@@ -940,9 +960,10 @@ export async function getNonStreamingCompletion(
 		workspace?: string // use a specific workspace proxy when testing a workspace resource
 		forceModelProvider?: AIProviderModel
 		maxTokensCap?: number // hard ceiling on output tokens (see METADATA_MAX_TOKENS)
+		info?: CopilotInfo // the AI config of `workspace`, when it is not the tab's
 	}
 ) {
-	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
+	const modelProvider = options?.forceModelProvider ?? modelFor(options?.info)
 
 	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
 		return getAnthropicNonStreamingCompletion({
@@ -953,7 +974,8 @@ export async function getNonStreamingCompletion(
 			workspace: options?.workspace,
 			resourcePath: options?.resourcePath,
 			resourceValue: options?.resourceValue,
-			maxTokensCap: options?.maxTokensCap
+			maxTokensCap: options?.maxTokensCap,
+			info: options?.info
 		})
 	}
 
@@ -961,18 +983,18 @@ export async function getNonStreamingCompletion(
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: options?.forceModelProvider,
-		maxTokensCap: options?.maxTokensCap
+		forceModelProvider: modelProvider,
+		maxTokensCap: options?.maxTokensCap,
+		info: options?.info
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
 	if (provider === 'openai' || provider === 'azure_openai') {
 		try {
-			const response = await getNonStreamingOpenAIResponsesCompletion(
-				messages,
-				abortController,
-				options
-			)
+			const response = await getNonStreamingOpenAIResponsesCompletion(messages, abortController, {
+				...options,
+				forceModelProvider: modelProvider
+			})
 			return response
 		} catch (error) {
 			console.error('Error using Responses API:', error)
@@ -1003,13 +1025,17 @@ export async function getNonStreamingCompletion(
 	return response
 }
 
+/** `target` sends it for that workspace with its config; without one it uses the tab's. */
 export async function getNonStreamingMetadataCompletion(
 	messages: ChatCompletionMessageParam[],
-	abortController: AbortController
+	abortController: AbortController,
+	target?: AiTarget
 ) {
 	return getNonStreamingCompletion(messages, abortController, {
-		forceModelProvider: getMetadataModel(),
-		maxTokensCap: METADATA_MAX_TOKENS
+		forceModelProvider: target ? resolveMetadataModelFor(target.info) : getMetadataModel(),
+		maxTokensCap: METADATA_MAX_TOKENS,
+		workspace: target?.workspace,
+		info: target?.info
 	})
 }
 
@@ -1019,7 +1045,8 @@ export async function getFimCompletion(
 	prompt: string,
 	suffix: string,
 	providerModel: AIProviderModel,
-	abortController: AbortController
+	abortController: AbortController,
+	workspace: string = get(workspaceStore)!
 ): Promise<string | undefined> {
 	// The Anthropic Messages API has no fill-in-the-middle endpoint, and Foundry
 	// Claude deployments don't expose the OpenAI-compatible completions surface the
@@ -1038,8 +1065,6 @@ export async function getFimCompletion(
 			'X-Provider': providerModel.provider
 		}
 	}
-
-	const workspace = get(workspaceStore)
 
 	const response = await fetch(
 		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/fim/completions`,
@@ -1108,36 +1133,46 @@ export async function getCompletion(
 		reasoningEffort?: string
 		promptCaching?: boolean
 		maxTokensCap?: number
+		// Send for this workspace, with its AI config, rather than the tab's.
+		workspace?: string
+		info?: CopilotInfo
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
-	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
+	const modelProvider = options?.forceModelProvider ?? modelFor(options?.info)
 
 	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
 		return getAnthropicStreamingCompletion({
 			messages,
 			modelProvider,
 			abortController,
-			maxTokensCap: options?.maxTokensCap
+			maxTokensCap: options?.maxTokensCap,
+			workspace: options?.workspace,
+			info: options?.info
 		})
 	}
 
+	const openaiClient =
+		options?.openaiClient ??
+		(options?.workspace ? workspaceAIClients.createOpenaiClient(options.workspace) : undefined)
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: true,
 		tools,
-		forceModelProvider: options?.forceModelProvider,
+		forceModelProvider: modelProvider,
 		maxTokensCap: options?.maxTokensCap,
 		promptCaching: options?.promptCaching,
-		reasoningEffort: options?.reasoningEffort
+		reasoningEffort: options?.reasoningEffort,
+		info: options?.info
 	})
 
 	if (usesOpenAIResponsesApi(provider, modelProvider.model) && !options?.forceCompletions) {
 		try {
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
-				forceModelProvider: options?.forceModelProvider,
-				openaiClient: options?.openaiClient,
+				forceModelProvider: modelProvider,
+				openaiClient,
 				reasoningEffort: options?.reasoningEffort,
-				maxTokensCap: options?.maxTokensCap
+				maxTokensCap: options?.maxTokensCap,
+				info: options?.info
 			}) as any
 			return stream
 		} catch (error) {
@@ -1146,7 +1181,7 @@ export async function getCompletion(
 	}
 
 	// Use Completions API for other providers
-	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
+	const client = openaiClient ?? workspaceAIClients.getOpenaiClient()
 	// gpt-5.5+ refuse function tools here unless reasoning is off, so the Responses API
 	// fallback turns it off where the model can rather than failing the turn.
 	const reasoningEffort =
@@ -1187,12 +1222,17 @@ export async function getCompletion(
 export async function getStreamedCompletionText(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
-	options?: { maxTokensCap?: number }
+	// `workspace` and `info` send it for that workspace, with its AI config, rather than the tab's.
+	options?: { maxTokensCap?: number; workspace?: string; info?: CopilotInfo }
 ): Promise<string> {
+	const modelProvider = modelFor(options?.info)
 	const drain = async (forceCompletions: boolean) => {
 		const stream = await getCompletion(messages, abortController, undefined, {
 			forceCompletions,
-			maxTokensCap: options?.maxTokensCap
+			forceModelProvider: modelProvider,
+			maxTokensCap: options?.maxTokensCap,
+			workspace: options?.workspace,
+			info: options?.info
 		})
 		let text = ''
 		let finished = false
@@ -1215,7 +1255,7 @@ export async function getStreamedCompletionText(
 	} catch (error) {
 		// The Responses API stream only fails once iterated, so the fallback to
 		// chat completions for a deployment that doesn't serve it lives here.
-		const { provider, model } = getCurrentModel()
+		const { provider, model } = modelProvider
 		if (abortController.signal.aborted || !usesOpenAIResponsesApi(provider, model)) {
 			throw error
 		}
