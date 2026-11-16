@@ -221,7 +221,8 @@
 			return Math.max(0, chatItems.length - TAIL_ITEMS)
 		})
 	})
-	// Clamped so a swap the key misses (two chats opening with the same message) still shows the tail.
+	// A swap the key misses (two chats opening with the same message) keeps the previous chat's
+	// count: clamped so that count can never hide the tail, though a low one mounts more than needed.
 	const shownFrom = $derived(Math.min(hiddenHead, Math.max(0, chatItems.length - TAIL_ITEMS)))
 	const shownItems = $derived(shownFrom > 0 ? chatItems.slice(shownFrom) : chatItems)
 
