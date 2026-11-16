@@ -159,7 +159,7 @@ async function branchAutoTargetNote(
       return undefined;
     }
     return (
-      `Note: wmill.yaml defines a single workspace — wmill commands here target \`${wsNames[0]}\`, regardless of the active profile. Use --workspace to override.` +
+      `Note: wmill.yaml defines a single workspace, \`${wsNames[0]}\` — wmill commands here target \`${getEffectiveWorkspaceId(wsNames[0], entry)}\` on ${entry.baseUrl}, regardless of the active profile. Use --workspace to override.` +
       missingProfile(wsNames[0], entry)
     );
   }

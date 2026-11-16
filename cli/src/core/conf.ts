@@ -237,10 +237,21 @@ export async function peekWorkspaces(): Promise<WorkspacesConfig | undefined> {
   }
   try {
     const conf = (await yamlParseFile(wmillYamlPath)) as SyncOptions;
-    return (conf?.workspaces ??
+    const workspaces =
+      conf?.workspaces ??
       conf?.gitBranches ??
       conf?.environments ??
-      conf?.git_branches) as WorkspacesConfig | undefined;
+      conf?.git_branches;
+    if (typeof workspaces !== "object" || workspaces === null) {
+      return undefined;
+    }
+    // A bare `main:` key parses as null; readConfigFile reads it as {}.
+    return Object.fromEntries(
+      Object.entries(workspaces).map(([k, v]) => [
+        k,
+        typeof v === "object" && v !== null ? v : {},
+      ])
+    ) as WorkspacesConfig;
   } catch (e) {
     log.debug(`Failed to parse ${wmillYamlPath} for workspace lookup: ${e}`);
     return undefined;
