@@ -71,6 +71,9 @@ struct ListRunnablesQuery {
     /// that holds no ASCII-alphanumeric character at all — `" "`, `"_"`, `"привет"` —
     /// yields no terms and matches nothing, as it does on the homepage.
     search: Option<String>,
+    /// Match each `search` term anywhere, in any order, rather than in the order given:
+    /// what a caller guessing at words wants, where the homepage ranks a typed prefix.
+    search_any_order: Option<bool>,
     per_page: Option<usize>,
     /// Opaque keyset cursor from a previous page's `next_cursor`.
     cursor: Option<String>,
@@ -535,6 +538,15 @@ async fn list_runnables(
             // where no predicate at all would answer it with the whole workspace.
             common.push("false".to_string());
             draft_common.push("false".to_string());
+        } else if q.search_any_order == Some(true) {
+            for term in terms {
+                let p = add_bind(&mut binds, format!("%{}%", escape_like(term)));
+                common.push(format!("{} ILIKE {p}", searchable_name("o.path")));
+                draft_common.push(format!(
+                    "{} ILIKE {p}",
+                    searchable_name("COALESCE(o.draft_path, o.path)")
+                ));
+            }
         } else {
             // `%` between the terms is what makes them a fuzzy match rather than a literal
             // one: each must appear whole, in this order, with anything in between. The

@@ -15,6 +15,7 @@ pub(super) const TOOLS: &[&str] = &[
     "read_workspace_item",
     "write_script",
     "edit_script",
+    "save_preview",
     "discard_local_draft",
     "rebase_draft",
     "list_pipelines",
@@ -36,6 +37,7 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
             .await
         }
         "edit_script" => edit_script(ctx, args).await,
+        "save_preview" => save_preview(ctx, args).await,
         "discard_local_draft" => discard_local_draft(ctx, args).await,
         "rebase_draft" => rebase_draft(ctx, args).await,
         "list_pipelines" => {
@@ -1440,15 +1442,17 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let prefixes: Vec<Option<String>> = if scope_roots.is_empty() {
         vec![prefix.filter(|p| !p.is_empty()).map(str::to_string)]
     } else {
-        scope_roots.iter().map(|root| Some(format!("{root}/"))).collect()
+        scope_roots
+            .iter()
+            .map(|root| Some(format!("{root}/")))
+            .collect()
     };
     let per_page = limit.min(MAX_LIST_LIMIT);
     let page_number = page.unwrap_or(1).max(1);
     // Several folders read as one listing, folder after folder, so `limit` stays one cap per
     // type (per trigger kind for triggers): page N is rows (N-1)*limit..N*limit of each
     // concatenation, which takes every folder's first N*limit rows.
-    let window = (prefixes.len() > 1)
-        .then(|| (page_number - 1) * per_page..page_number * per_page);
+    let window = (prefixes.len() > 1).then(|| (page_number - 1) * per_page..page_number * per_page);
 
     let mut query = format!("per_page={per_page}");
     if let Some(page) = page {
@@ -1474,6 +1478,13 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         }
     }
 
+    let search = opt_str_arg(args, "query")
+        .map(|q| q.trim().to_lowercase())
+        .filter(|q| !q.is_empty());
+    // Scripts and flows are searched by the server, across the whole workspace rather than
+    // one fetched page, each word matched in any order; it has already chosen them, so the
+    // substring filter below leaves them be.
+    let mut searched = std::collections::HashSet::new();
     let mut by_key = Map::new();
     // Each type's index into its concatenation across folders, per trigger kind for triggers.
     let mut index_by_kind: HashMap<String, u64> = HashMap::new();
@@ -1497,11 +1508,21 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 if let Some(prefix) = prefix {
                     query.push_str(&format!("&path_start={}", enc(prefix)));
                 }
-                let route = ctx.ws(&format!(
-                    "{}/list?{query}{extra}",
-                    service(item_type, trigger_kind)?
-                ));
+                let server_search = search
+                    .as_deref()
+                    .filter(|_| matches!(*item_type, "script" | "flow"));
+                let route = match server_search {
+                    Some(text) => ctx.ws(&format!(
+                        "runnables/list?kinds={item_type}&search={}&search_any_order=true&{query}&include_draft_only=true",
+                        enc(text)
+                    )),
+                    None => ctx.ws(&format!(
+                        "{}/list?{query}{extra}",
+                        service(item_type, trigger_kind)?
+                    )),
+                };
                 let rows = match ctx.get(&route).await {
+                    Ok(rows) if server_search.is_some() => rows["items"].clone(),
                     Ok(rows) => rows,
                     // A trigger kind this build does not serve answers 404: skip that kind
                     // alone. Any other failure is real.
@@ -1517,10 +1538,11 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                         continue;
                     }
                     let path = row.get("path").and_then(Value::as_str).unwrap_or_default();
-                    by_key.insert(
-                        item_key(item_type, path, trigger_kind),
-                        deployed_item(item_type, trigger_kind, row),
-                    );
+                    let key = item_key(item_type, path, trigger_kind);
+                    if server_search.is_some() {
+                        searched.insert(key.clone());
+                    }
+                    by_key.insert(key, deployed_item(item_type, trigger_kind, row));
                 }
             }
         }
@@ -1562,21 +1584,21 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         }
     }
 
-    let query = opt_str_arg(args, "query")
-        .map(|q| q.trim().to_lowercase())
-        .filter(|q| !q.is_empty());
     let results: Vec<Value> = by_key
         .into_iter()
-        .map(|(_, item)| item)
-        .chain(access_rows)
-        .filter(|item| {
-            let Some(query) = &query else { return true };
+        .map(|(key, item)| (searched.contains(&key), item))
+        .chain(access_rows.into_iter().map(|item| (false, item)))
+        .filter(|(searched, item)| {
+            let Some(query) = search.as_ref().filter(|_| !searched) else {
+                return true;
+            };
             ["path", "summary"].iter().any(|key| {
                 item.get(*key)
                     .and_then(Value::as_str)
                     .is_some_and(|text| text.to_lowercase().contains(query))
             })
         })
+        .map(|(_, item)| item)
         .collect();
     let listed = pretty(&Value::Array(results));
     if scope_roots.is_empty() {
@@ -1926,6 +1948,48 @@ async fn edit_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         false,
     )
     .await
+}
+
+/// The code a script preview of this user's ran, written as their script draft at `path`.
+/// Only a preview that succeeded: it is what makes the code worth keeping. Only their own:
+/// another user's job can be readable, and its code is not theirs to republish.
+async fn save_preview(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let job_id = str_arg(args, "job_id")?;
+    let path = str_arg(args, "path")?;
+    let job = ctx
+        .get(&ctx.ws(&format!("jobs_u/get/{}?no_logs=true", enc(job_id))))
+        .await
+        .map_err(|e| format!("Could not read job {job_id}: {}", api_message(&e)))?;
+    if job["job_kind"] != "preview" {
+        return Err(format!(
+            "Job {job_id} is not a script preview, so there is no code of its own to save."
+        ));
+    }
+    if job["created_by"].as_str() != Some(ctx.auth.username.as_str()) {
+        return Err(format!(
+            "Job {job_id} was started by another user. Only your own previews can be saved."
+        ));
+    }
+    if job["type"] != "CompletedJob" || !truthy(job.get("success")) {
+        return Err(format!(
+            "Job {job_id} has not succeeded. Save a preview once it has run successfully."
+        ));
+    }
+    let (Some(content), Some(language)) = (job["raw_code"].as_str(), job["language"].as_str())
+    else {
+        return Err(format!("Job {job_id} carries no code to save."));
+    };
+    let saved = write_script_draft(
+        ctx,
+        path,
+        opt_str_arg(args, "summary"),
+        language,
+        content,
+        false,
+    )
+    .await?;
+    windmill_common::feature_usage::log_feature_usage("code_mode", "program_saved", language);
+    Ok(saved)
 }
 
 async fn discard_local_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {

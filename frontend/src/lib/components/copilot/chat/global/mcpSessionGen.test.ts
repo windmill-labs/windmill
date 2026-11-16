@@ -43,6 +43,11 @@ const OUT_DIR = fileURLToPath(
 // generation rather than shipping a promise of a form.
 const DESCRIPTION_REWRITES: [tool: string, from: string, to: string][] = [
 	[
+		'test_run_code',
+		' The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs.',
+		' It runs with exactly the `args` you send.'
+	],
+	[
 		'test_run_script',
 		' The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer.',
 		' It runs with exactly the `args` you send.'
@@ -112,6 +117,7 @@ const DESCRIPTION_APPENDS: [tool: string, text: string][] = [
 	['test_run_script', SHOW_USER_RUN + SHOW_DEPLOY_REVIEW],
 	['test_run_flow', SHOW_USER_RUN + SHOW_DEPLOY_REVIEW],
 	['test_run_agent', SHOW_USER_RUN],
+	['test_run_code', SHOW_USER_RUN],
 	['list_runs', ' To show runs to the user, pass their ids to show_runs, if you have it.']
 ]
 

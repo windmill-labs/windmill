@@ -95,7 +95,8 @@ import {
 	getResourcePrompt,
 	getAgentPrompt,
 	getScriptPrompt,
-	getDisplayPrompt
+	getDisplayPrompt,
+	getCodeModePrompt
 } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -286,12 +287,14 @@ const INSTRUCTION_SUBJECTS = [
 // `workspace_settings` is the settings document an admin reads and changes.
 // `agent` is a resource of type `ai_agent`, with authoring guidance of its own.
 // `display` is the rich-result format: tables and charts a return value renders as.
+// `code_mode` is doing a task with code run as a preview, then saving it to reuse.
 const INSTRUCTION_SUBJECTS_EXTRA = [
 	'agent',
 	'datatable',
 	'pipeline',
 	'workspace_settings',
-	'display'
+	'display',
+	'code_mode'
 ] as const
 export const ALL_INSTRUCTION_SUBJECTS = [
 	...INSTRUCTION_SUBJECTS,
@@ -363,7 +366,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, "workspace_settings" for the keys and rules of the workspace settings (admins only), or "display" for the tables and charts a return value renders as. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, "workspace_settings" for the keys and rules of the workspace settings (admins only), "display" for the tables and charts a return value renders as, or "code_mode" for doing a task the user asks for against the systems the workspace connects to by running code, then saving it to reuse. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -438,7 +441,12 @@ const listWorkspaceItemsSchema = z.object({
 		.describe(
 			'Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier). "folder" lists folders with their owners and extraPerms; "group" lists groups with their extraPerms (read one for its members). path_prefix does not apply to these two.'
 		),
-	query: z.string().optional().describe('Optional case-insensitive path or summary search string.'),
+	query: z
+		.string()
+		.optional()
+		.describe(
+			'Optional search words matched against path and summary. Scripts and flows are searched across the whole workspace, every word in any order; other types are filtered by the whole string.'
+		),
 	path_prefix: z
 		.string()
 		.optional()
@@ -879,6 +887,36 @@ const testRunScriptToolDef = createToolDef(
 	'Execute a preview-style test run of a script by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation.',
 	{ strict: false }
 )
+
+const testRunCodeSchema = z.object({
+	code: z
+		.string()
+		.describe(
+			'The whole script: a `main` function whose parameters are its inputs, in the language given.'
+		),
+	language: z
+		.string()
+		.optional()
+		.describe('A Windmill script language such as bun, python3 or deno. Defaults to bun.'),
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const testRunCodeToolDef = createToolDef(
+	testRunCodeSchema,
+	'test_run_code',
+	'Run code as a preview job in the workspace, without writing a draft first. The answer carries the job id, which save_preview takes to save this exact code as a script. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs.',
+	{ strict: false }
+)
+
+const savePreviewSchema = z.object({
+	job_id: z.string().describe('The job id a successful test_run_code returned.'),
+	path: z
+		.string()
+		.describe('Workspace path to save the script at, following the path conventions.'),
+	summary: z.string().describe('A short summary saying what the script does.')
+})
 
 const runScriptSchema = z.object({
 	path: z.string().describe('Workspace path of the deployed script to run.'),
@@ -1434,7 +1472,8 @@ This user's role does not let them create or edit {{refused_kinds}} here, so whe
 Rules:{{#can_write_any_draft}}
 - What you write is a per-user draft, saved server-side and visible only to this user. {{#can_deploy}}Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.{{/can_deploy}}{{^can_deploy}}{{#can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, and this workspace's deploy rules let this user deploy only the schedules and triggers their role manages: call deploy_workspace_item for those only when the user asks, and for anything else give them the draft's link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{^can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, which this workspace's deploy rules do not let this user do: when a draft is ready, give them its link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{/can_deploy}}{{/can_write_any_draft}}
 {{#can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}{{^can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, an item's page. Whenever the user will want to see what you found{{#runs}} or ran{{/runs}}, or has to do a step in Windmill themselves: show it with show_run, show_runs or show_item when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}
-- Find items with list_workspace_items and read one with read_workspace_item{{#can_write_any_draft}} before changing it{{/can_write_any_draft}}. An agent is a resource of type \`ai_agent\`{{#runs}}: {{#can_run_flow_preview}}test it with test_run_agent and {{/can_run_flow_preview}}run a deployed one with run_agent, never run_flow or run_script.{{/runs}}{{^runs}}.{{/runs}}{{#can_write_draft}}
+- Find items with list_workspace_items and read one with read_workspace_item{{#can_write_any_draft}} before changing it{{/can_write_any_draft}}. An agent is a resource of type \`ai_agent\`{{#runs}}: {{#can_run_flow_preview}}test it with test_run_agent and {{/can_run_flow_preview}}run a deployed one with run_agent, never run_flow or run_script.{{/runs}}{{^runs}}.{{/runs}}{{#can_run_preview}}
+- When the user asks for something done against the systems the workspace connects to, rather than for building an item, do it with code: look for a saved script that does it first (list_workspace_items with a query), else run code with test_run_code and offer to keep it with save_preview once it worked. get_instructions with subject "code_mode" has the details.{{/can_run_preview}}{{#can_write_draft}}
 - Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and{{/can_draft_triggers}}{{^can_draft_triggers}} Call{{/can_draft_triggers}} get_db_schema before writing SQL against a database resource.{{/can_write_draft}}{{^can_write_draft}}{{#can_draft_resources}}
 - Call get_instructions before writing a resource.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields.{{/can_draft_triggers}}{{/can_draft_resources}}{{/can_write_draft}}{{#can_write_draft}}{{#can_run_preview}}
 - After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.{{/can_run_preview}}{{/can_write_draft}}{{^can_write_draft}}{{#builds_flows}}{{#can_run_flow_preview}}
@@ -1708,6 +1747,11 @@ const buildGlobalSystemPrompt = (
 	)
 	const findItemsRule =
 		'- Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.'
+	const codeModeRule = when(
+		canRunPreview,
+		`
+- When the user asks for something done against the systems the workspace connects to, rather than for building an item, do it with code: look for a saved script that does it first (list_workspace_items with a query), else run code with test_run_code and offer to keep it with save_preview once it worked. get_instructions with subject "code_mode" has the details.`
+	)
 	const deployRule = when(
 		canWriteAnyDraft && canDeployAnyKind,
 		`
@@ -1795,7 +1839,7 @@ ${
 	return `${intro}${paths}
 
 Rules:${draftsOnlyRule}
-${findItemsRule}
+${findItemsRule}${codeModeRule}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - To show a chart or a sortable table in a reply or an artifact, write a \`\`\`wm-display fenced block holding one JSON value in the chart or table format of get_instructions with subject "display" (read it first). Reach for it when a chart answers the question better than prose or a markdown table; keep small tables as markdown.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
@@ -2333,6 +2377,8 @@ export function getInstructions(
 			return getWorkspaceSettingsPrompt()
 		case 'display':
 			return getDisplayPrompt()
+		case 'code_mode':
+			return getCodeModePrompt()
 	}
 }
 
@@ -3777,6 +3823,34 @@ export const globalTools: SessionTool<{}>[] = [
 		queuedLabel: (args) => `Test ${args?.path ?? 'the script'}`,
 		showDetails: true,
 		autoCollapseDetails: false
+	},
+	{
+		requires: RUN_PREVIEW,
+		def: testRunCodeToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunCodeSchema.parse(ctx.args)
+			return testRunCode(parsed, ctx)
+		},
+		// No requiresConfirmation, for the reason test_run_script carries: the form is it.
+		bypassedByAutoAccept: true,
+		confirmationMessage: 'Run code',
+		streamingLabel: 'Preparing the run form...',
+		queuedLabel: () => 'Run code',
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		requires: WRITE_DRAFT,
+		def: createToolDef(
+			savePreviewSchema,
+			'save_preview',
+			'Save the code a successful test_run_code ran as a script draft at `path`, its input schema inferred from `main`. Nothing is deployed.'
+		),
+		showDetails: true,
+		fn: async (ctx) => {
+			savePreviewSchema.parse(ctx.args)
+			return runDraftWrite('save_preview', ctx)
+		}
 	},
 	{
 		// Gated on `run` alone, unlike the test runs: this executes the DEPLOYED item under the
@@ -5495,6 +5569,36 @@ async function testRunScriptByPath(
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 			startJob: (submitted) => startPreparedRun('test_run_script', ctx, prepared.target, submitted)
+		},
+		ctx
+	)
+}
+
+async function testRunCode(
+	args: z.infer<typeof testRunCodeSchema>,
+	ctx: WriteDraftCtx & { args: unknown }
+): Promise<string> {
+	const prepared = await prepareRun('test_run_code', ctx)
+	const code = prepared.code ?? ''
+	const lang = prepared.lang!
+	const schema = await schemaForTestRun({ content: code, language: lang })
+
+	return runThroughForm(
+		{
+			path: 'code',
+			schema,
+			kind: 'test',
+			code,
+			lang,
+			schemaNoun: 'code',
+			toolName: 'test_run_code',
+			proposed: args.args,
+			startMessage: prepared.start_message,
+			contextName: 'script',
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: (submitted) => startPreparedRun('test_run_code', ctx, prepared.target, submitted)
 		},
 		ctx
 	)

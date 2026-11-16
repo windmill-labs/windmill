@@ -13354,6 +13354,13 @@ paths:
             homepage, whose matcher discards those queries too.
           schema:
             type: string
+        - name: search_any_order
+          in: query
+          description: >-
+            when true, each search term must appear anywhere in "summary (path)", in any
+            order, rather than in the order given.
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/PerPage"
         - name: cursor
           in: query

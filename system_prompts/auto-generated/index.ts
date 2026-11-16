@@ -88,6 +88,13 @@ export function getDisplayPrompt(): string {
   ].filter(Boolean).join('\n\n');
 }
 
+// Helper for answering a task with code run as a preview, then saved and reused
+export function getCodeModePrompt(): string {
+  return [
+    prompts.CODE_MODE_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
 // Helper for data table schema changes, migrations and permissions (chat consumers)
 export function getDatatablePrompt(): string {
   return [

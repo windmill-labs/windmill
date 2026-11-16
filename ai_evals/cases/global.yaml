@@ -4140,3 +4140,46 @@
   skipJudge: true
   judgeChecklist:
     - answers in prose without a chart or table block
+
+# --- Code mode: a task done with code, a saved script reused ---
+
+- id: global-codemode-reuses-saved-script
+  prompt: |-
+    what's the weather like in Lisbon right now?
+  initial: ai_evals/fixtures/frontend/global/initial/city_weather_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    forbiddenToolsUsed:
+      - write_script
+      - test_run_code
+      - deploy_workspace_item
+  # No draft for the judge to score: the deliverable is running the saved script rather than
+  # writing new code, checked on tool use above.
+  skipJudge: true
+  judgeChecklist:
+    - runs the existing city weather script instead of writing new code
+
+- id: global-codemode-task-then-save
+  prompt: |-
+    Every Monday I need to know how many of the users at https://jsonplaceholder.typicode.com/users
+    live in each city. Get me this week's numbers, and keep whatever you used so I can rerun it
+    next week. Don't deploy anything yet.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        valueIncludes:
+          - jsonplaceholder.typicode.com/users
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  judgeChecklist:
+    - the saved script fetches the users and counts them per city
+    - the script returns the per-city counts rather than the raw user list
+    - the script is kept as a draft and nothing is deployed
