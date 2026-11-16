@@ -47,15 +47,18 @@ fn record_tool(id: &str) -> Value {
         "type":"rawscript", "language":"bun",
         "input_transforms":{
             "topic":{"type":"javascript","expr":"flow_input.iter.value"},
-            "prev":{"type":"javascript","expr":"results.a"}
+            "prev":{"type":"javascript","expr":"results.a"},
+            "pr":{"type":"javascript","expr":"previous_result"},
+            "state":{"type":"javascript","expr":"flow_user_state('k')"}
         },
-        "content":"export async function main(topic: string, prev: string) { return `${topic}|${prev}` }"
+        "content":"export async function main(topic: string, prev: string, pr: string, state: string) { return `${topic}|${prev}|${pr}|${state}` }"
     }})
 }
 
 /// A loop body runs as its own flow job, as a subflow does: a tool's `flow_input` and `results`
 /// must be that flow's, as a regular step's are, not the root run's. A nested agent's tools read
-/// the same flow, past the agent calling it. In a chat run, only the calling agent writes to the
+/// the same flow, past the agent calling it, and the run's user state. An agent first in its flow
+/// gets that flow's args as `previous_result`, as a regular first step does. In a chat run, only the calling agent writes to the
 /// conversation, and every row it writes belongs to the run.
 #[sqlx::test(fixtures("base"))]
 #[serial_test::serial]
@@ -80,6 +83,15 @@ async fn agent_tool_reads_inputs_of_the_flow_running_the_step(
             "iterator":{"type":"javascript","expr":"['t1', 't2']"},
             "skip_failures":false,
             "modules":[
+                {"id":"first","value":{
+                    "type":"aiagent",
+                    "tools":[{"id":"first_record","summary":"record","value":{
+                        "type":"rawscript", "language":"bun",
+                        "input_transforms":{"pr":{"type":"javascript","expr":"previous_result"}},
+                        "content":"export async function main(pr: any) { return `first|${pr.iter.value}` }"
+                    }}],
+                    "input_transforms":agent_inputs.clone()
+                }},
                 {"id":"a","value":{
                     "type":"rawscript", "language":"bun",
                     "input_transforms":{"topic":{"type":"javascript","expr":"flow_input.iter.value"}},
@@ -117,6 +129,7 @@ async fn agent_tool_reads_inputs_of_the_flow_running_the_step(
     .await?;
     sqlx::query(
         "UPDATE v2_job_status SET flow_status = jsonb_set(flow_status, '{memory_id}', to_jsonb($2::uuid))
+            || jsonb_build_object('user_states', jsonb_build_object('k', 'v'))
          WHERE id = $1",
     )
     .bind(id)
@@ -146,10 +159,12 @@ async fn agent_tool_reads_inputs_of_the_flow_running_the_step(
     assert_eq!(
         results,
         vec![
-            &json!("t1|seed-t1"),
-            &json!("t1|seed-t1"),
-            &json!("t2|seed-t2"),
-            &json!("t2|seed-t2")
+            &json!("first|t1"),
+            &json!("first|t2"),
+            &json!("t1|seed-t1|seed-t1|v"),
+            &json!("t1|seed-t1|seed-t1|v"),
+            &json!("t2|seed-t2|seed-t2|v"),
+            &json!("t2|seed-t2|seed-t2|v")
         ],
         "{recorded:?}"
     );
