@@ -82,7 +82,7 @@ function settled(message: DisplayMessage, keepImages: boolean): DisplayMessage {
 export function buildSessionSnapshot(
 	messages: DisplayMessage[],
 	artifacts: PersistedArtifact[],
-	edits: { workspace: string; items: SharedSessionEdit[] } | undefined
+	edits: { workspace: string | undefined; items: SharedSessionEdit[] } | undefined
 ): SessionSnapshot {
 	const sharedArtifacts: SharedSessionArtifact[] = artifacts.map((a) => ({
 		id: a.id,

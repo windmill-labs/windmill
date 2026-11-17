@@ -69,7 +69,7 @@
 	// No mask means the chat never tracked its edits, and listing every draft of the workspace
 	// would share more than this session did.
 	async function readEdits(): Promise<
-		{ workspace: string; items: SharedSessionEdit[] } | undefined
+		{ workspace: string | undefined; items: SharedSessionEdit[] } | undefined
 	> {
 		const chatMask = manager.modifiedItems
 		if (!workspaceId || !chatMask) return undefined
@@ -78,7 +78,9 @@
 		try {
 			const items = await readDeployItems(workspaceId, mask)
 			return {
-				workspace: workspaceId,
+				// A fork session's share lands in its parent, whose readers cannot open the fork:
+				// left unnamed, its edits are listed but not offered to open.
+				workspace: workspaceId === workspace ? workspaceId : undefined,
 				items: items.map((i) => ({
 					kind: i.deployKind,
 					path: i.displayPath,

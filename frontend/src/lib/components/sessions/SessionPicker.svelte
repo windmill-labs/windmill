@@ -187,6 +187,7 @@
 	// only when a second family shows up); the others always draw headers.
 	const groupBy = useLocalStorageValue<GroupBy>('windmill_sessions_group_by', 'none', 'string')
 	let listRoot: HTMLDivElement | undefined = $state()
+	let sharedRoot: HTMLDivElement | undefined = $state()
 
 	// Other members' shares, listed after the reader's own sessions; the reader's own shares mark
 	// their session's row instead.
@@ -757,11 +758,16 @@
 		})
 	}
 
+	// One sequence across the reader's own sessions and the shared ones below "Show older". Shared
+	// rows are links, the reader's own sessions buttons: both are rows.
+	function sessionRows(): HTMLElement[] {
+		return [listRoot, sharedRoot].flatMap((root) =>
+			root ? Array.from(root.querySelectorAll<HTMLElement>('[data-session-button]')) : []
+		)
+	}
+
 	function focusAt(index: number) {
-		// Shared rows are links, the reader's own sessions buttons: both are rows.
-		const buttons = listRoot
-			? Array.from(listRoot.querySelectorAll<HTMLElement>('[data-session-button]'))
-			: []
+		const buttons = sessionRows()
 		if (buttons.length === 0) return
 		const wrapped = ((index % buttons.length) + buttons.length) % buttons.length
 		buttons[wrapped]?.focus()
@@ -771,9 +777,7 @@
 		if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') {
 			return
 		}
-		const buttons = listRoot
-			? Array.from(listRoot.querySelectorAll<HTMLElement>('[data-session-button]'))
-			: []
+		const buttons = sessionRows()
 		if (buttons.length === 0) return
 		const current = buttons.indexOf(document.activeElement as HTMLElement)
 		e.preventDefault()
@@ -1210,50 +1214,6 @@
 						{@render sessionRow(session, group.showHeader, undefined)}
 					{/each}
 				{/each}
-				{#if sharedWithMe.length > 0 && !selecting}
-					<div
-						class={twMerge(
-							'flex flex-row items-center pl-2 pr-0.5 pt-2 pb-1 min-w-0',
-							displayGroups.length > 0 ? 'mt-4' : '',
-							rail ? 'invisible' : ''
-						)}
-					>
-						<span class="text-secondary text-3xs truncate min-w-0">Shared with you</span>
-					</div>
-					{#each sharedWithMe as shared (shared.id)}
-						{@const isActive = shared.id === activeSharedId}
-						<a
-							href={sharedSessionAppHref(
-								$currentWorkspaceRootId ?? $workspaceStore ?? '',
-								shared.id
-							)}
-							data-session-button
-							role="option"
-							aria-selected={isActive}
-							title={rail ? shared.name : `Shared by ${shared.created_by}`}
-							class={twMerge(
-								'flex flex-row items-center gap-2 rounded text-left text-xs font-normal focus:outline-none min-w-0 px-2 h-6',
-								isActive
-									? `${sidebarClasses.selectedBg} ${sidebarClasses.selectedText}`
-									: 'text-secondary hover:bg-surface-hover',
-								displayGroups.some((g) => g.showHeader) ? 'pl-3' : ''
-							)}
-						>
-							<Share2 class="w-3 h-3 shrink-0 text-tertiary" aria-hidden="true" />
-							<span class={rail ? 'sr-only' : 'truncate flex-1'}>{shared.name}</span>
-							{#if !rail}
-								<span
-									class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
-										shared.created_by
-									)}"
-									aria-hidden="true"
-								>
-									{userInitials(shared.created_by)}
-								</span>
-							{/if}
-						</a>
-					{/each}
-				{/if}
 			{/if}
 		</div>
 		<!-- Outside the listbox, so arrow keys move through sessions only. -->
@@ -1264,6 +1224,57 @@
 				onToggle={() => (showOlder.val = !showOlder.val)}
 				{rail}
 			/>
+		{/if}
+		<!-- After "Show older", which belongs to the reader's own sessions above. -->
+		{#if !workspaceTree && sharedWithMe.length > 0 && !selecting}
+			<div
+				bind:this={sharedRoot}
+				class="flex flex-col gap-0.5"
+				onkeydown={handleListKeydown}
+				role="listbox"
+				aria-label="Shared with you"
+				tabindex="-1"
+			>
+				<div
+					class={twMerge(
+						'flex flex-row items-center pl-2 pr-0.5 pt-2 pb-1 min-w-0',
+						displayGroups.length > 0 ? 'mt-4' : '',
+						rail ? 'invisible' : ''
+					)}
+				>
+					<span class="text-secondary text-3xs truncate min-w-0">Shared with you</span>
+				</div>
+				{#each sharedWithMe as shared (shared.id)}
+					{@const isActive = shared.id === activeSharedId}
+					<a
+						href={sharedSessionAppHref($currentWorkspaceRootId ?? $workspaceStore ?? '', shared.id)}
+						data-session-button
+						role="option"
+						aria-selected={isActive}
+						title={rail ? shared.name : `Shared by ${shared.created_by}`}
+						class={twMerge(
+							'flex flex-row items-center gap-2 rounded text-left text-xs font-normal focus:outline-none min-w-0 px-2 h-6',
+							isActive
+								? `${sidebarClasses.selectedBg} ${sidebarClasses.selectedText}`
+								: 'text-secondary hover:bg-surface-hover',
+							displayGroups.some((g) => g.showHeader) ? 'pl-3' : ''
+						)}
+					>
+						<Share2 class="w-3 h-3 shrink-0 text-tertiary" aria-hidden="true" />
+						<span class={rail ? 'sr-only' : 'truncate flex-1'}>{shared.name}</span>
+						{#if !rail}
+							<span
+								class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
+									shared.created_by
+								)}"
+								aria-hidden="true"
+							>
+								{userInitials(shared.created_by)}
+							</span>
+						{/if}
+					</a>
+				{/each}
+			</div>
 		{/if}
 		{#if selecting}
 			<!-- Pinned to the bottom edge of whatever scrolls the list, the sidebar or the folded
