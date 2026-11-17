@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { page } from '$app/state'
-	import { Link2Off, LogIn, MessagesSquare } from 'lucide-svelte'
-	import { Button, EmptyState, Skeleton } from '$lib/components/common'
+	import { Link2Off, Loader2, MessagesSquare } from 'lucide-svelte'
+	import { EmptyState } from '$lib/components/common'
 	import SharedSessionTranscript from './SharedSessionTranscript.svelte'
 	import type { LoadedSharedSession } from './sharedSession.svelte'
 
@@ -13,10 +12,6 @@
 	}
 
 	let { loaded, workspace, member = false }: Props = $props()
-
-	const loginHref = $derived(
-		`/user/login?rd=${encodeURIComponent(page.url.pathname + page.url.search)}`
-	)
 </script>
 
 {#if loaded?.state === 'found'}
@@ -31,14 +26,6 @@
 	{:else}
 		<EmptyState icon={MessagesSquare} title="This session has no messages" />
 	{/if}
-{:else if loaded?.state === 'signin'}
-	<EmptyState
-		icon={LogIn}
-		title="Sign in to read this session"
-		description="It is shared with the members of {workspace} only."
-	>
-		<Button variant="accent" unifiedSize="md" href={loginHref}>Sign in</Button>
-	</EmptyState>
 {:else if loaded?.state === 'gone'}
 	<EmptyState
 		icon={Link2Off}
@@ -52,5 +39,7 @@
 		description={loaded.message}
 	/>
 {:else}
-	<Skeleton layout={[[3], 1, [30]]} />
+	<div class="flex flex-1 items-center justify-center py-16 text-tertiary">
+		<Loader2 class="animate-spin" />
+	</div>
 {/if}

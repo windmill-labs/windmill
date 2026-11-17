@@ -7,6 +7,7 @@
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import SharedSessionBody from '$lib/components/sessions/SharedSessionBody.svelte'
 	import { useSharedSession } from '$lib/components/sessions/sharedSession.svelte'
+	import { userColorClass, userInitials } from '$lib/components/userInitials'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 
@@ -41,7 +42,17 @@
 {#snippet sessionName()}
 	<span class="truncate text-xs font-normal text-emphasis" title={name}>{name}</span>
 	{#if found}
-		<Badge color="blue" icon={{ icon: Share2, position: 'left' }}>Shared</Badge>
+		{@const author = found.session.created_by}
+		<span class="inline-flex shrink-0 items-center gap-1" title="Shared by {author}">
+			<Badge color="blue" icon={{ icon: Share2, position: 'left' }}>Shared</Badge>
+			<span
+				class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
+					author
+				)}"
+			>
+				{userInitials(author)}
+			</span>
+		</span>
 	{/if}
 {/snippet}
 

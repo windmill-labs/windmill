@@ -3,6 +3,7 @@
 	import { resource } from 'runed'
 	import { Globe, Users } from 'lucide-svelte'
 	import { Badge } from '$lib/components/common'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import SharedSessionBody from '$lib/components/sessions/SharedSessionBody.svelte'
 	import { useSharedSession } from '$lib/components/sessions/sharedSession.svelte'
@@ -53,35 +54,39 @@
 	<meta http-equiv="content-security-policy" content="img-src 'self' data: blob:" />
 </svelte:head>
 
-<div class="flex min-h-screen flex-col bg-surface" data-sveltekit-reload>
-	<div class="border-b bg-surface-secondary">
-		<div class="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-3 px-4 py-3">
-			<WindmillIcon height="20px" width="20px" />
-			{#if found}
-				<div class="flex min-w-0 flex-1 flex-col">
-					<div class="flex min-w-0 items-center gap-2">
-						<h1 class="truncate text-sm font-semibold text-emphasis" title={found.session.name}>
-							{found.session.name}
-						</h1>
-						{#if found.session.is_public}
-							<Badge color="blue" icon={{ icon: Globe, position: 'left' }}>Public</Badge>
-						{:else}
-							<Badge color="gray" icon={{ icon: Users, position: 'left' }}>{workspace}</Badge>
-						{/if}
+{#if member.current !== false}
+	<CenteredModal title="Opening the shared session" loading />
+{:else}
+	<div class="flex min-h-screen flex-col bg-surface" data-sveltekit-reload>
+		<div class="border-b bg-surface-secondary">
+			<div class="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-3 px-4 py-3">
+				<WindmillIcon height="20px" width="20px" />
+				{#if found}
+					<div class="flex min-w-0 flex-1 flex-col">
+						<div class="flex min-w-0 items-center gap-2">
+							<h1 class="truncate text-sm font-semibold text-emphasis" title={found.session.name}>
+								{found.session.name}
+							</h1>
+							{#if found.session.is_public}
+								<Badge color="blue" icon={{ icon: Globe, position: 'left' }}>Public</Badge>
+							{:else}
+								<Badge color="gray" icon={{ icon: Users, position: 'left' }}>{workspace}</Badge>
+							{/if}
+						</div>
+						<span class="text-xs font-normal text-secondary">
+							Read-only AI session shared by {found.session.created_by} · {displayDate(
+								found.session.shared_at
+							)}
+						</span>
 					</div>
-					<span class="text-xs font-normal text-secondary">
-						Read-only AI session shared by {found.session.created_by} · {displayDate(
-							found.session.shared_at
-						)}
-					</span>
-				</div>
-			{:else}
-				<span class="text-sm font-semibold text-emphasis">Shared AI session</span>
-			{/if}
+				{:else}
+					<span class="text-sm font-semibold text-emphasis">Shared AI session</span>
+				{/if}
+			</div>
+		</div>
+
+		<div class="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pt-6">
+			<SharedSessionBody loaded={shared.current} {workspace} />
 		</div>
 	</div>
-
-	<div class="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pt-6">
-		<SharedSessionBody loaded={shared.current} {workspace} />
-	</div>
-</div>
+{/if}

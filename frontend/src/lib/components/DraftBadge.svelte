@@ -19,6 +19,7 @@
 	 */
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
+	import { userColorClass, userInitials } from './userInitials'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
 	import type DiffDrawer from './DiffDrawer.svelte'
@@ -82,35 +83,16 @@
 		return [self, ...rest]
 	})
 
-	/** Two-letter initials; `john.doe` → `JD`, `alice` → `AL`, no username → `?`. */
 	function initials(u: DraftUser): string {
-		const name = u.username
-		if (!name) return '?'
-		const parts = name.split(/[._\-\s]+/).filter(Boolean)
-		if (parts.length >= 2) {
-			return (parts[0][0] + parts[1][0]).toUpperCase()
-		}
-		return name.slice(0, 2).toUpperCase()
+		return userInitials(u.username)
 	}
 
 	function fullLabel(u: DraftUser): string {
 		return u.username ?? 'Legacy workspace draft'
 	}
 
-	// Deterministic color per username, same circle across rows.
-	const PALETTE = [
-		'bg-blue-500',
-		'bg-emerald-500',
-		'bg-amber-500',
-		'bg-rose-500',
-		'bg-violet-500',
-		'bg-cyan-500'
-	]
 	function colorFor(u: DraftUser): string {
-		const name = u.username ?? ''
-		let hash = 0
-		for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
-		return PALETTE[hash % PALETTE.length]
+		return userColorClass(u.username)
 	}
 
 	// First 3 circles when ≤3 users; first 2 + "+N" overflow when 4+. Sliced from

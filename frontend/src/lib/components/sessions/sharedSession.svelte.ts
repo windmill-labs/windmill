@@ -1,5 +1,5 @@
 import { resource } from 'runed'
-import { AiService } from '$lib/gen'
+import { AiService, UserService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { readSessionSnapshot } from './sessionSharing'
 import { invalidateSharedSessions } from './sharedSessionsList.svelte'
@@ -11,7 +11,6 @@ export type LoadedSharedSession =
 			snapshot: ReturnType<typeof readSessionSnapshot>
 	  }
 	| { state: 'gone' }
-	| { state: 'signin' }
 	| { state: 'error'; message: string }
 
 /** Loads a share and stops sharing it. Nothing is fetched while `key` returns undefined. */
@@ -26,7 +25,18 @@ export function useSharedSession(key: () => { workspace: string; id: string } | 
 			return { state: 'found', session, snapshot: readSessionSnapshot(session.snapshot) }
 		} catch (err) {
 			const status = (err as { status?: number })?.status
-			if (status === 401) return { state: 'signin' }
+			if (status === 401) {
+				// The login page sends a signed-in user straight back to `rd`, so only a visitor
+				// with no session goes there; anyone else is outside the share's workspace.
+				const signedIn = await UserService.getCurrentEmail().then(
+					() => true,
+					() => false
+				)
+				if (signedIn) return { state: 'gone' }
+				const rd = window.location.pathname + window.location.search
+				window.location.replace(`/user/login?rd=${encodeURIComponent(rd)}`)
+				return undefined
+			}
 			// A malformed id is a 400 from the path extractor, and means the same to the reader.
 			if (status === 404 || status === 400) return { state: 'gone' }
 			return { state: 'error', message: String((err as { body?: unknown })?.body ?? err) }

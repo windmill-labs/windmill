@@ -81,6 +81,7 @@
 	import { page } from '$app/state'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
+	import { userColorClass, userInitials } from '$lib/components/userInitials'
 	import {
 		dateBucket,
 		GROUP_BY_OPTIONS,
@@ -1241,8 +1242,13 @@
 							<Share2 class="w-3 h-3 shrink-0 text-tertiary" aria-hidden="true" />
 							<span class={rail ? 'sr-only' : 'truncate flex-1'}>{shared.name}</span>
 							{#if !rail}
-								<span class="shrink-0 truncate max-w-20 text-2xs text-hint">
-									{shared.created_by}
+								<span
+									class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
+										shared.created_by
+									)}"
+									aria-hidden="true"
+								>
+									{userInitials(shared.created_by)}
 								</span>
 							{/if}
 						</a>
