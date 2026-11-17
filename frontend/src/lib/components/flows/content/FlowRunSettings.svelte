@@ -33,8 +33,11 @@
 	import SettingGroup from '$lib/components/itemSettings/SettingGroup.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 	import { slideDynamic } from '$lib/transitions'
+	import { GitBranch } from 'lucide-svelte'
+	import { addErrorBranch, canAddErrorBranch } from '../stepErrorBranch'
 
-	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const { pathStore } = flowEditorContext
 
 	interface Props {
 		flowModule: FlowModule
@@ -110,6 +113,10 @@
 	const s3Snippet = $derived(s3Language ? s3Scripts[s3Language][s3Kind] : undefined)
 	const concurrencyOn = $derived(hasInlineConcurrency(flowModule))
 	const concurrencyOff = $derived(!$enterpriseLicense || !concurrencyOn)
+	// Agent tools are not flow steps, and the preprocessor and error handler have no step after them.
+	const showAddErrorBranch = $derived(
+		!isAgentTool && !isFailure && canAddErrorBranch(flowEditorContext, flowModule.id)
+	)
 	// A resolved approval is recorded against the step the gate holds back, not this one, so
 	// `continue_on_error` never sees it — the suspend option is the only way to continue past it.
 	const suspendNeedsItsOwnContinueToggle = $derived(
@@ -164,6 +171,18 @@
 								"The flow continues to the next step even if this step fails (after exhausting retries, if any). The step's error becomes its return, so a following branch can handle it."
 						}}
 					/>
+					{#if showAddErrorBranch}
+						<Button
+							variant="default"
+							unifiedSize="sm"
+							wrapperClasses="self-start"
+							startIcon={{ icon: GitBranch }}
+							title="Turn on Continue on error and add a Branch to one after this step, with an On error branch"
+							onClick={() => addErrorBranch(flowEditorContext, flowModule.id)}
+						>
+							Add error handling
+						</Button>
+					{/if}
 					{#if suspendNeedsItsOwnContinueToggle}
 						<Alert type="info" title="Does not cover the approval" size="xs">
 							This only applies when the step's own code fails. A disapproval or an approval timeout
