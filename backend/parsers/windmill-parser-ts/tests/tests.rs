@@ -1055,9 +1055,10 @@ export const label = "pkg@1.2.3";
  * @param [times=1] How many
  *   times to say it
  * @param missing Not a parameter
+ * @param ids One [id] | many
  * @returns nothing
  */
-export async function main(name: string, times = 1, tags: string | string[], plain: string) {}
+export async function main(name: string, times = 1, tags: string | string[], plain: string, ids: string) {}
 "#;
         let sig = parse_deno_signature(code, false, false, None).unwrap();
         let otyps: Vec<_> = sig.args.iter().map(|a| a.otyp.as_deref()).collect();
@@ -1067,6 +1068,7 @@ export async function main(name: string, times = 1, tags: string | string[], pla
                 Some("Who to greet"),
                 Some("How many times to say it"),
                 Some("string | string[]"),
+                None,
                 None
             ]
         );

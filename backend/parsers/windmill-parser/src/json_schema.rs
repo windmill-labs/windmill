@@ -8,7 +8,12 @@ use crate::{MainArgSignature, ObjectProperty, Typ};
 /// `previous` is the schema of the version being superseded: as in the editor, it is
 /// updated in place, so what the user set on it (argument order, descriptions, ...)
 /// survives wherever the code still agrees with it.
-pub fn main_arg_schema(sig: &MainArgSignature, previous: Option<&Value>) -> Value {
+/// `otyp_is_doc`: the parser passes an argument's description as `otyp` (Python, TypeScript).
+pub fn main_arg_schema(
+    sig: &MainArgSignature,
+    previous: Option<&Value>,
+    otyp_is_doc: bool,
+) -> Value {
     let mut schema = match previous {
         Some(Value::Object(p)) => p.clone(),
         _ => json!({
@@ -35,13 +40,13 @@ pub fn main_arg_schema(sig: &MainArgSignature, previous: Option<&Value>) -> Valu
         }
         apply_typ(&arg.typ, &mut prop);
         // `T | T[]` marks an argument debouncing accumulates into.
-        if let Some(otyp) = arg
-            .otyp
-            .as_deref()
-            .filter(|o| o.contains('[') && o.contains('|'))
-        {
-            prop.insert("originalType".into(), json!(otyp));
-        }
+        match arg.otyp.as_deref() {
+            Some(o) if o.contains('[') && o.contains('|') => {
+                prop.insert("originalType".into(), json!(o))
+            }
+            Some(o) if otyp_is_doc => prop.insert("description".into(), json!(o)),
+            _ => None,
+        };
         match &arg.default {
             Some(d) => prop.insert("default".into(), d.clone()),
             None => prop.remove("default"),
@@ -381,7 +386,7 @@ mod tests {
                 "gone": {"type": "string"},
             },
         });
-        let schema = main_arg_schema(&sig, Some(&previous));
+        let schema = main_arg_schema(&sig, Some(&previous), false);
         assert_eq!(schema["order"], json!(["db", "n"]));
         assert_eq!(schema["required"], json!(["n", "db", "any"]));
         assert_eq!(
@@ -398,5 +403,21 @@ mod tests {
         assert_eq!(schema["properties"]["opts"]["type"], "object");
         // Untyped in the code and new: any JSON value, as the editor stores it.
         assert_eq!(schema["properties"]["any"]["type"], "");
+    }
+
+    #[test]
+    fn otyp_is_a_union_marker_or_a_description() {
+        let name = Arg { otyp: Some("Who to greet".into()), ..arg("name", Typ::Str(None), None) };
+        let tags =
+            Arg { otyp: Some("string | string[]".into()), ..arg("tags", Typ::Unknown, None) };
+        let sig = MainArgSignature { args: vec![name, tags], ..Default::default() };
+        let schema = main_arg_schema(&sig, None, true);
+        assert_eq!(schema["properties"]["name"]["description"], "Who to greet");
+        assert_eq!(
+            schema["properties"]["tags"]["originalType"],
+            "string | string[]"
+        );
+        let schema = main_arg_schema(&sig, None, false);
+        assert_eq!(schema["properties"]["name"]["description"], "");
     }
 }

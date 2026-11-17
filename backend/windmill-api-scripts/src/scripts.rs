@@ -1342,7 +1342,12 @@ pub fn infer_main_schema(
     };
     match sig {
         Ok(sig) => serde_json::value::to_raw_value(&windmill_parser::json_schema::main_arg_schema(
-            &sig, previous,
+            &sig,
+            previous,
+            matches!(
+                language.as_str(),
+                "python3" | "deno" | "bun" | "bunnative" | "nativets"
+            ),
         ))
         .ok()
         .map(|v| Schema(sqlx::types::Json(v))),

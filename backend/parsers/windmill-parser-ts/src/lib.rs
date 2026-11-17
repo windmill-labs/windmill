@@ -496,7 +496,8 @@ pub fn parse_deno_signature(
 }
 
 /// `@param {type} name - text` lines of the entrypoint's JSDoc block, by parameter name.
-/// A description continues on the next lines until a blank line or another tag.
+/// A description continues on the next lines until a blank line or another tag. One with
+/// both `[` and `|` is left out: as `otyp` it would read as a `T | T[]` union marker.
 fn jsdoc_params(comments: Option<Vec<Comment>>) -> HashMap<String, String> {
     let jsdoc = comments.and_then(|c| {
         c.into_iter()
@@ -514,7 +515,7 @@ fn jsdoc_params(comments: Option<Vec<Comment>>) -> HashMap<String, String> {
             *doc = format!("{doc} {line}").trim_start().to_string();
         }
     }
-    docs.retain(|_, doc| !doc.is_empty());
+    docs.retain(|_, d| !d.is_empty() && !(d.contains('[') && d.contains('|')));
     docs
 }
 
