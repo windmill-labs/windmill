@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.876.1](https://github.com/windmill-labs/windmill/compare/v1.876.0...v1.876.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* build enterprise features with systemstat 0.2.8 ([#12484](https://github.com/windmill-labs/windmill/issues/12484)) ([7573399](https://github.com/windmill-labs/windmill/commit/7573399bbc8da8d3e85de1f26f17b6e4f9c60636))
+* let the trigger list search find a trigger by its route, URL or address ([#12489](https://github.com/windmill-labs/windmill/issues/12489)) ([18d0a78](https://github.com/windmill-labs/windmill/commit/18d0a78bb766dde058525ea3b8afb3fa5727b9b5))
+* move a Range component's upper handle when its default high changes ([#12491](https://github.com/windmill-labs/windmill/issues/12491)) ([9ddb88f](https://github.com/windmill-labs/windmill/commit/9ddb88f043810a574d0adde001c1a6f97a3d4c96))
+* route a null dynamic tag input to the default tag instead of a queue named null ([#12499](https://github.com/windmill-labs/windmill/issues/12499)) ([52658af](https://github.com/windmill-labs/windmill/commit/52658af01d9f59c325ed2a659388552be0a6f7c5))
+
 ## [1.876.0](https://github.com/windmill-labs/windmill/compare/v1.875.0...v1.876.0) (2026-11-17)
 
 
