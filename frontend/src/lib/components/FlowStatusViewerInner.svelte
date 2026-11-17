@@ -577,7 +577,7 @@
 		if (status.preprocessor_module) {
 			innerModules.unshift(status.preprocessor_module)
 		}
-		updateInnerModules()
+		updateInnerModules(status)
 
 		let count = status.retry?.fail_count
 		if (count) {
@@ -633,7 +633,12 @@
 		setIteration(position, lastStarted, false, mod.id ?? '', true)
 	}, 2000)
 
-	function updateInnerModules() {
+	function updateInnerModules(status?: FlowStatus) {
+		// While a step waits for its next attempt, its module status is replaced and its failed
+		// attempts are only in the flow's `retry`, which belongs to the current step.
+		const retryingId = status?.retry?.failed_jobs?.length
+			? status.modules[status.step]?.id
+			: undefined
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
 				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
@@ -702,6 +707,16 @@
 						flow_jobs: mod.flow_jobs,
 						iteration_total: mod.iterator?.itered_len ?? mod.flow_jobs?.length
 					})
+				}
+
+				const retries =
+					mod.failed_retries?.length ||
+					(mod.id != undefined && mod.id === retryingId
+						? status?.retry?.failed_jobs?.length
+						: undefined) ||
+					undefined
+				if (retries != localModuleStates[mod.id ?? '']?.retries) {
+					setModuleState(mod.id ?? '', { retries })
 				}
 
 				if (mod.flow_jobs_duration && mod.flow_jobs) {
@@ -1822,8 +1837,8 @@
 										selectedJobId={effectiveSelectedJobId}
 										isNodeSelected={false}
 									/>
-								{:else if mod.flow_jobs?.length == 0 && mod.job == '00000000-0000-0000-0000-000000000000'}
-									<div class="text-secondary">no subflow (empty loop?)</div>
+								{:else if !mod.flow_jobs?.length && mod.job == '00000000-0000-0000-0000-000000000000'}
+									<div class="text-secondary">No step ran: the loop or chosen branch is empty</div>
 								{:else}
 									<FlowStatusViewerInner
 										topModuleStates={getTopModuleStates}
