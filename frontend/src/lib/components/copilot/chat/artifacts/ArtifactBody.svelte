@@ -6,6 +6,7 @@
 	import { markdownPlugins } from '$lib/components/markdownPlugins'
 	import LinkRenderer from '../LinkRenderer.svelte'
 	import MarkdownImage from '../MarkdownImage.svelte'
+	import MarkdownImageSource from '../MarkdownImageSource.svelte'
 
 	interface Props {
 		content: string
@@ -27,7 +28,14 @@
 	// link pill and, when given, its code block sit on top of it.
 	const plugins = $derived([
 		...markdownPlugins,
-		{ renderer: { a: LinkRenderer, img: MarkdownImage, ...(pre ? { pre } : {}) } }
+		{
+			renderer: {
+				a: LinkRenderer,
+				img: MarkdownImage,
+				source: MarkdownImageSource,
+				...(pre ? { pre } : {})
+			}
+		}
 	])
 </script>
 

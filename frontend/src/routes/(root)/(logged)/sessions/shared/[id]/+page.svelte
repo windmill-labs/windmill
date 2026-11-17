@@ -8,6 +8,8 @@
 	import SharedSessionBody from '$lib/components/sessions/SharedSessionBody.svelte'
 	import { useSharedSession } from '$lib/components/sessions/sharedSession.svelte'
 	import { userColorClass, userInitials } from '$lib/components/userInitials'
+	import { resource } from 'runed'
+	import { UserService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 
@@ -15,6 +17,19 @@
 	const id = $derived(page.params.id ?? '')
 
 	const shared = useSharedSession(() => ({ workspace, id }))
+	// This URL is reachable by a signed-in user of another workspace when the share is public:
+	// they get the standalone page's read-only presentation, with nothing to remove or open.
+	const member = resource(
+		() => workspace,
+		(workspace) =>
+			workspace
+				? UserService.whoami({ workspace }).then(
+						() => true,
+						() => false
+					)
+				: Promise.resolve(false)
+	)
+	const isMember = $derived(member.current === true)
 	const found = $derived(shared.found)
 	const name = $derived(found?.session.name ?? 'Shared session')
 
@@ -52,7 +67,7 @@
 		>
 			Stop sharing
 		</Button>
-	{:else if found}
+	{:else if found && isMember}
 		<div class="flex items-center gap-1">
 			<Button
 				unifiedSize="sm"
@@ -104,7 +119,7 @@
 <div class="h-full min-h-0 flex flex-col">
 	<div class="flex-1 min-h-0 overflow-y-auto">
 		<div class="mx-auto flex min-h-full w-full max-w-3xl flex-col px-7 pt-4">
-			<SharedSessionBody loaded={shared.current} {workspace} member />
+			<SharedSessionBody loaded={shared.current} {workspace} member={isMember} />
 		</div>
 	</div>
 	{#if found}
