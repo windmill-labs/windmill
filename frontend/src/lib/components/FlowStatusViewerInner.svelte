@@ -634,7 +634,34 @@
 		setIteration(position, lastStarted, false, mod.id ?? '', true)
 	}, 2000)
 
+	const NIL_JOB = '00000000-0000-0000-0000-000000000000'
+
+	// An approval's wait, and its denial or timeout, are recorded on the step after the one that
+	// asks for it (a virtual `<id>-v` step when it is the last), which fails without a job. The run
+	// ended at the approval, so that is the step to mark. The error name is gone when an error
+	// handler ran; a script or subflow step cannot otherwise fail without a job, unlike a branch or
+	// loop whose predicate or iterator threw.
+	let deniedApprovalId: string | undefined = $state(undefined)
+	function findDeniedApproval(status: FlowStatus): string | undefined {
+		const raw = job?.raw_flow?.modules
+		const i = status.modules.findIndex((m) => m.type === 'Failure' && m.job === NIL_JOB)
+		if (i < 1 || status.modules[i - 1].type !== 'Success' || !raw?.[i - 1]?.suspend) {
+			return undefined
+		}
+		const errorName = job?.['result']?.error?.name
+		const nextType = raw[i]?.value.type
+		return ['SuspendedDisapproved', 'SuspendedTimedOut'].includes(errorName) ||
+			!['branchone', 'branchall', 'forloopflow', 'whileloopflow'].includes(nextType ?? '')
+			? status.modules[i - 1].id
+			: undefined
+	}
+
 	function updateInnerModules(status: FlowStatus) {
+		const denied = findDeniedApproval(status)
+		deniedApprovalId = denied
+		if (denied != undefined && localModuleStates[denied]?.type !== 'Failure') {
+			setModuleState(denied, { type: 'Failure' })
+		}
 		// While a step waits for its next attempt, its module status is replaced and its failed
 		// attempts are only in the flow's `retry`. That belongs to the current step unless its
 		// attempts are already another step's: `retry` is only cleared when a step succeeds, so
@@ -1061,7 +1088,7 @@
 					id,
 					{
 						args: job.args,
-						type: job['success'] ? 'Success' : 'Failure',
+						type: job['success'] && id !== deniedApprovalId ? 'Success' : 'Failure',
 						logs: job.logs,
 						result: job['result'],
 						job_id: job.id,
@@ -1812,8 +1839,12 @@
 										selectedJobId={effectiveSelectedJobId}
 										isNodeSelected={false}
 									/>
-								{:else if mod.type == 'Success' && !mod.flow_jobs?.length && mod.job == '00000000-0000-0000-0000-000000000000'}
+								{:else if mod.type == 'Success' && !mod.flow_jobs?.length && mod.job == NIL_JOB}
 									<div class="text-secondary">No step ran: the loop or chosen branch is empty</div>
+								{:else if mod.job == NIL_JOB && deniedApprovalId != undefined && innerModules[i - 1]?.id == deniedApprovalId}
+									<div class="text-secondary"
+										>Not run: the approval before this step was denied or timed out</div
+									>
 								{:else}
 									<FlowStatusViewerInner
 										topModuleStates={getTopModuleStates}
