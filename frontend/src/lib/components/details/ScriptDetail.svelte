@@ -52,6 +52,7 @@
 
 	import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
 	import { sendUserToast } from '$lib/toast'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
@@ -277,12 +278,16 @@
 		await triggersState.fetchTriggers(triggersCount, workspace, path, false, undefined, actingUser)
 	}
 
+	// A slower load for an earlier version must not overwrite the one the page has moved on to.
+	const scriptLoads = latestRequest()
 	async function loadScript(hash: string): Promise<void> {
+		const isLatest = scriptLoads.start()
 		// Check if this is a hub script path
 		if (hash.startsWith('hub/')) {
 			isHubScript = true
 			try {
 				const hubScript = await ScriptService.getHubScriptByPath({ path: hash })
+				if (!isLatest()) return
 				// Create a partial Script object from hub script data
 				script = {
 					hash: '',
@@ -329,6 +334,7 @@
 				})
 				hash = loaded.hash
 			} catch (e) {
+				if (!isLatest()) return
 				// A path with no deployed script 404s here, which is the normal state of a
 				// draft the user has not deployed — the host says so rather than the page
 				// staying blank, so no toast for it. Anything else is a real failure.
@@ -349,6 +355,7 @@
 				nextTopHash = script_by_path?.hash
 			}
 		}
+		if (!isLatest()) return
 		script = loaded
 		topHash = nextTopHash
 		// A carried non-template value equal to the resolution of the script's own dynamic
