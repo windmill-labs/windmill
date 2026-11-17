@@ -1513,17 +1513,32 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                     .filter(|_| matches!(*item_type, "script" | "flow"));
                 if let Some(text) = server_search {
                     let wanted = window.as_ref().map_or(per_page, |w| w.end);
-                    let rows = search_runnables(ctx, item_type, text, prefix.as_deref(), wanted).await?;
+                    let rows =
+                        search_runnables(ctx, item_type, text, prefix.as_deref(), wanted).await?;
                     for row in rows {
                         let index = index_by_kind.entry(format!("{item_type}:")).or_default();
                         *index += 1;
                         if window.as_ref().is_some_and(|w| !w.contains(&(*index - 1))) {
                             continue;
                         }
-                        let path = row.get("path").and_then(Value::as_str).unwrap_or_default();
+                        let stored = row.get("path").and_then(Value::as_str).unwrap_or_default();
+                        let mut item = deployed_item(item_type, None, &row);
+                        // A draft-only row is stored under a generated path: show it the
+                        // way `list_drafts` does, so the draft overlay keys it the same.
+                        let (path, _) = ctx.display_path(item_type, stored);
+                        if let Value::Object(map) = &mut item {
+                            map.insert("path".into(), json!(path));
+                            put(
+                                map,
+                                "draftPath",
+                                row.get("draft_path")
+                                    .filter(|p| p.as_str() != Some(path))
+                                    .cloned(),
+                            );
+                        }
                         let key = item_key(item_type, path, None);
                         searched.insert(key.clone());
-                        by_key.insert(key, deployed_item(item_type, None, &row));
+                        by_key.insert(key, item);
                     }
                     continue;
                 }
