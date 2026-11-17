@@ -1251,7 +1251,10 @@ export function graphBuilder(
 		let toAdd: Record<string, { id: string; module: FlowModule }> = {}
 		Object.keys(extra.flowModuleStates ?? {}).forEach((id) => {
 			for (const [nodePrefix, module] of Object.entries(failureModulesByPrefix)) {
-				if (!id.startsWith(nodePrefix + 'failure')) continue
+				// Exact, so a nested subflow step whose id starts with `failure` is not taken for
+				// its parent's handler.
+				if (!id.startsWith(nodePrefix) || !/^failure[^:]*$/.test(id.slice(nodePrefix.length)))
+					continue
 				const failureState = extra.flowModuleStates?.[id] as GraphModuleState | undefined
 				if (failureState?.parent_module) {
 					toAdd[nodePrefix + failureState.parent_module] = { id, module }

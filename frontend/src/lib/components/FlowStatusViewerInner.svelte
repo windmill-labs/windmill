@@ -633,12 +633,16 @@
 		setIteration(position, lastStarted, false, mod.id ?? '', true)
 	}, 2000)
 
-	function updateInnerModules(status?: FlowStatus) {
+	function updateInnerModules(status: FlowStatus) {
 		// While a step waits for its next attempt, its module status is replaced and its failed
-		// attempts are only in the flow's `retry`, which belongs to the current step.
-		const retryingId = status?.retry?.failed_jobs?.length
-			? status.modules[status.step]?.id
-			: undefined
+		// attempts are only in the flow's `retry`. That belongs to the current step unless its
+		// attempts are already another step's: `retry` is only cleared when a step succeeds, so
+		// a step that failed with continue_on_error leaves its own behind for the next one.
+		const failedJobs = status.retry?.failed_jobs ?? []
+		const retryingId =
+			failedJobs.length && !status.modules.some((m) => m.failed_retries?.includes(failedJobs[0]))
+				? status.modules[status.step]?.id
+				: undefined
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
 				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
@@ -709,11 +713,11 @@
 					})
 				}
 
+				// A preprocessor retry is written at step -1, which jsonb_set reads as the last
+				// step: ignore it there until that step starts.
 				const retries =
-					mod.failed_retries?.length ||
-					(mod.id != undefined && mod.id === retryingId
-						? status?.retry?.failed_jobs?.length
-						: undefined) ||
+					(mod.type !== 'WaitingForPriorSteps' && mod.failed_retries?.length) ||
+					(mod.id != undefined && mod.id === retryingId ? failedJobs.length : undefined) ||
 					undefined
 				if (retries != localModuleStates[mod.id ?? '']?.retries) {
 					setModuleState(mod.id ?? '', { retries })
@@ -1837,7 +1841,7 @@
 										selectedJobId={effectiveSelectedJobId}
 										isNodeSelected={false}
 									/>
-								{:else if !mod.flow_jobs?.length && mod.job == '00000000-0000-0000-0000-000000000000'}
+								{:else if mod.type == 'Success' && !mod.flow_jobs?.length && mod.job == '00000000-0000-0000-0000-000000000000'}
 									<div class="text-secondary">No step ran: the loop or chosen branch is empty</div>
 								{:else}
 									<FlowStatusViewerInner
