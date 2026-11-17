@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
 	import { resource } from 'runed'
 	import { Globe, Users } from 'lucide-svelte'
@@ -29,7 +30,7 @@
 	})
 
 	// A member reads the share inside the app. Asked before the snapshot is fetched, so a member
-	// does not download it twice; a full load, so this page's image policy stays behind.
+	// does not download it twice.
 	const member = resource(
 		() => workspace,
 		async (workspace) => {
@@ -38,7 +39,7 @@
 				() => true,
 				() => false
 			)
-			if (isMember) window.location.replace(sharedSessionAppHref(workspace, id))
+			if (isMember) await goto(sharedSessionAppHref(workspace, id), { replaceState: true })
 			return isMember
 		}
 	)
@@ -47,17 +48,10 @@
 	const found = $derived(shared.found)
 </script>
 
-<!-- The transcript is its author's text, rendered to whoever holds the link: an image in it
-     that points elsewhere would report every reader to that host. A policy stays with the
-     document once set, so every link out of this page is a full load (`data-sveltekit-reload`). -->
-<svelte:head>
-	<meta http-equiv="content-security-policy" content="img-src 'self' data: blob:" />
-</svelte:head>
-
 {#if member.current !== false}
 	<CenteredModal title="Opening the shared session" loading />
 {:else}
-	<div class="flex min-h-screen flex-col bg-surface" data-sveltekit-reload>
+	<div class="flex min-h-screen flex-col bg-surface">
 		<div class="border-b bg-surface-secondary">
 			<div class="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-3 px-4 py-3">
 				<WindmillIcon height="20px" width="20px" />

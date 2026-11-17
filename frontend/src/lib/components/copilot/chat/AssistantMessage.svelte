@@ -6,6 +6,7 @@
 	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
+	import MarkdownImage from './MarkdownImage.svelte'
 	import {
 		extractCandidatePaths,
 		remarkWindmillPaths,
@@ -98,11 +99,12 @@
 	})
 
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
-	const reasoningPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer } }]
+	const reasoningPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer, img: MarkdownImage } }]
 	const rendererPlugin = {
 		renderer: {
 			pre: CodeDisplay,
-			a: LinkRenderer
+			a: LinkRenderer,
+			img: MarkdownImage
 		}
 	}
 

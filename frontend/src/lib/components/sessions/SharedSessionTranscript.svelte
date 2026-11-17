@@ -6,6 +6,7 @@
 	import ToolGroupDisplay from '$lib/components/copilot/chat/ToolGroupDisplay.svelte'
 	import ArtifactBody from '$lib/components/copilot/chat/artifacts/ArtifactBody.svelte'
 	import { setChatViewHost } from '$lib/components/copilot/chat/chatViewHost'
+	import { setUntrustedImages } from '$lib/components/copilot/chat/untrustedImages'
 	import { readOnlyChatViewHost } from '$lib/components/copilot/chat/readOnlyChatViewHost.svelte'
 	import { chatItemKey, groupToolRuns } from '$lib/components/copilot/chat/toolGroups'
 	import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
@@ -20,6 +21,8 @@
 	}
 
 	let { snapshot, workspace, draftAuthor }: Props = $props()
+
+	setUntrustedImages()
 
 	let openArtifactId: string | undefined = $state(undefined)
 	let drawer: Drawer | undefined = $state(undefined)

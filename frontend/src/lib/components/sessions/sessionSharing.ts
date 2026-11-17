@@ -195,8 +195,8 @@ function readMessage(m: Record<string, unknown>, index: number): DisplayMessage 
 /**
  * A snapshot as the viewer may render it: rows rebuilt by {@link readMessage}, and an attached
  * image only from an inline data URL, since any other source would load a third-party resource
- * on behalf of whoever opens the link. Images inside rendered text are left to the viewer
- * page's `img-src` policy.
+ * on behalf of whoever opens the link. Images inside rendered text are left to the transcript's
+ * markdown renderers (`setUntrustedImages`).
  */
 export function readSessionSnapshot(raw: unknown): SessionSnapshot {
 	const snapshot = isRecord(raw) ? raw : {}

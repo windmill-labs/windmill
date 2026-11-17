@@ -40,6 +40,7 @@
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
+	import MarkdownImage from './MarkdownImage.svelte'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolConfirmationFooter from './ToolConfirmationFooter.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
@@ -105,7 +106,10 @@
 	)
 
 	// The preview pane's renderers, so a model-written link opens in a new tab either way.
-	const planPlugins = [gfmPlugin(), { renderer: { pre: CodeDisplay, a: LinkRenderer } }]
+	const planPlugins = [
+		gfmPlugin(),
+		{ renderer: { pre: CodeDisplay, a: LinkRenderer, img: MarkdownImage } }
+	]
 
 	const confirmAction = $derived(TOOL_CONFIRM_ACTIONS[message.confirmAction ?? 'confirm'])
 

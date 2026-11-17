@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { beforeNavigate } from '$app/navigation'
+	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
 	import { EllipsisVertical, Link2Off, Share2, X } from 'lucide-svelte'
 	import { Badge, Button } from '$lib/components/common'
@@ -20,24 +20,9 @@
 
 	// Staying would show the share still open, and reloading it would list it again.
 	async function removeFromList() {
-		if (await shared.removeFromList()) window.location.assign('/')
+		if (await shared.removeFromList()) await goto('/')
 	}
-
-	// The image policy below stays with the document once set, so leaving this page has to load a
-	// new one, or the rest of the app would lose every image hosted elsewhere.
-	beforeNavigate((navigation) => {
-		const to = navigation.to?.url
-		if (navigation.willUnload || !to || to.pathname === page.url.pathname) return
-		navigation.cancel()
-		window.location.assign(to.href)
-	})
 </script>
-
-<!-- The transcript is its author's text: an image in it that points elsewhere would report every
-     reader to that host. -->
-<svelte:head>
-	<meta http-equiv="content-security-policy" content="img-src 'self' data: blob:" />
-</svelte:head>
 
 {#snippet sessionName()}
 	<span class="truncate text-xs font-normal text-emphasis" title={name}>{name}</span>
