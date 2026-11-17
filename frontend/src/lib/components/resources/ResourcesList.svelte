@@ -112,6 +112,7 @@
 	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceType[] | undefined = $state()
+	let resourceCounts: Record<string, number> = $state({})
 	let tab = $state<'workspace' | 'types' | 'states' | 'cache' | 'theme'>('workspace')
 	let currentResources = $derived(
 		tab == 'cache'
@@ -330,8 +331,13 @@
 	}
 
 	async function loadResources(): Promise<void> {
-		const result = await loadResourceInternal('workspace', undefined, 'cache,state,app_theme')
-		if (result) resources = result
+		const [result, counts] = await Promise.all([
+			loadResourceInternal('workspace', undefined, 'cache,state,app_theme'),
+			ResourceService.listResourceCountsByType({ workspace: $operatingWorkspace! }).catch(() => [])
+		])
+		if (!result) return
+		resources = result
+		resourceCounts = Object.fromEntries(counts.map((c) => [c.resource_type, c.count]))
 	}
 
 	async function loadCache(): Promise<void> {
@@ -1542,6 +1548,7 @@
 								<Row>
 									<Cell head first>Name</Cell>
 									<Cell head>Description</Cell>
+									<Cell head>Resources</Cell>
 									<Cell head last actions>Actions</Cell>
 								</Row>
 							</Head>
@@ -1580,6 +1587,7 @@
 													</span>
 												</div>
 											</Cell>
+											<Cell>{resourceCounts[name] ?? 0}</Cell>
 											<Cell last actions>
 												{#if !canWrite}
 													<!-- Badge is inline-flex, so it needs a right-aligning wrapper to sit
