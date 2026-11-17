@@ -1315,7 +1315,7 @@ export function graphBuilder(
 					source: id,
 					target,
 					type: 'empty',
-					data: { class: '[stroke-dasharray:4_4]', bowWhenAligned: true },
+					data: { class: '[stroke-dasharray:4_4]' },
 					selectable: false
 				})
 			}
