@@ -204,7 +204,7 @@ export const artifactTools: SessionTool<{}>[] = [
 					return fail(
 						toolCallbacks,
 						toolId,
-						`"${result.artifact.name}" was changed in another tab since you read it (now version ${result.latest}), so your edit was not saved. Read it again with read_artifact and redo your edit on that version.`
+						`"${result.artifact.name}" is now at version ${result.latest}, past the version you last read, so your edit was not saved. Read the latest version with read_artifact and redo your edit on it.`
 					)
 				case 'unstored': {
 					const name = h.artifacts.artifacts.find((a) => a.id === parsed.id)?.name ?? parsed.id

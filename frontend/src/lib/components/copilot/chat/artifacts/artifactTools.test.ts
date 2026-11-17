@@ -295,7 +295,7 @@ describe('artifact tools', () => {
 
 		const stale = JSON.parse(await edit('v1, edited'))
 		expect(stale.success).toBe(false)
-		expect(stale.error).toContain('now version 2')
+		expect(stale.error).toContain('now at version 2')
 
 		await ctx.call('read_artifact', { id: a.id })
 		expect(JSON.parse(await edit('v3')).success).toBe(true)
