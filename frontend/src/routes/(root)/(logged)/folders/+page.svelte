@@ -165,6 +165,7 @@
 							<Cell head class="w-20">Scripts</Cell>
 							<Cell head class="w-20">Flows</Cell>
 							<Cell head class="w-20">Apps</Cell>
+							<Cell head class="w-20">Agents</Cell>
 							<Cell head class="w-20">Schedules</Cell>
 							<Cell head class="w-20">Variables</Cell>
 							<Cell head class="w-20">Resources</Cell>
@@ -176,7 +177,7 @@
 						{#if folders === undefined}
 							{#each new Array(4) as _}
 								<tr>
-									<td colspan="10">
+									<td colspan="11">
 										<Skeleton layout={[[2]]} />
 									</td>
 								</tr>
