@@ -674,6 +674,10 @@
 		const claimedAttempts = new Set<string>()
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
+				// The step's job may have loaded before this flow recorded the step as failed.
+				if (mod.type === 'Failure' && localModuleStates[mod.id ?? '']?.type === 'Success') {
+					setModuleState(mod.id ?? '', { type: 'Failure' })
+				}
 				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
 					setModuleState(mod.id ?? '', {
 						type: mod.type,
@@ -1088,7 +1092,12 @@
 					id,
 					{
 						args: job.args,
-						type: job['success'] && id !== deniedApprovalId ? 'Success' : 'Failure',
+						// A subflow whose error handler recovered is a success on its own but a
+						// failed step to this flow, which reacts to it as to any failure.
+						type:
+							job['success'] && mod.type !== 'Failure' && id !== deniedApprovalId
+								? 'Success'
+								: 'Failure',
 						logs: job.logs,
 						result: job['result'],
 						job_id: job.id,
