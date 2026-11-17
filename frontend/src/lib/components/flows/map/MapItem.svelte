@@ -37,6 +37,14 @@
 					selectedManually: boolean | undefined
 			  }
 			| undefined
+		/** The attempts of a retried step, picked like a loop's iterations. */
+		attempts?:
+			| {
+					flowJobs: string[]
+					selected: number
+					flowJobsSuccess: (boolean | undefined)[]
+			  }
+			| undefined
 		editMode?: boolean
 		/** Whether the step's mock applies to what the graph shows: in a run, whether it was used; on
 		 * a deployed flow, whether deployed runs use it. A pin shows only where it applies, which is
@@ -70,6 +78,7 @@
 		duration_ms = undefined,
 		retries = undefined,
 		flowJobs,
+		attempts = undefined,
 		editMode = false,
 		mockApplied = undefined,
 		onSelect,
@@ -182,6 +191,20 @@
 					flowJobs={flowJobs.flowJobs}
 					selected={flowJobs.selected}
 					selectedManually={flowJobs.selectedManually}
+				/>
+			</div>
+		{:else if attempts && !insertable}
+			<!-- Left of the duration and of a subflow's expand button. -->
+			<div class="absolute right-20 z-50 -top-5">
+				<FlowJobsMenu
+					{moduleId}
+					id={mod.id}
+					{onSelectedIteration}
+					flowJobsSuccess={attempts.flowJobsSuccess}
+					flowJobs={attempts.flowJobs}
+					selected={attempts.selected}
+					selectedManually={false}
+					label="attempt"
 				/>
 			</div>
 		{/if}

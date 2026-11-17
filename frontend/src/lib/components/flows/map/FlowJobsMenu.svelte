@@ -16,6 +16,8 @@
 		selectedManually: boolean | undefined
 		onSelectedIteration?: OnSelectedIteration
 		showIcon?: boolean
+		/** What one of `flowJobs` is: a loop's iteration, or a retried step's attempt. */
+		label?: 'iteration' | 'attempt'
 	}
 
 	let {
@@ -26,7 +28,8 @@
 		selectedManually,
 		onSelectedIteration,
 		moduleId,
-		showIcon = true
+		showIcon = true,
+		label = 'iteration'
 	}: Props = $props()
 
 	let filter: number | undefined = $state(undefined)
@@ -118,7 +121,7 @@
 		>
 			{#snippet triggr({ trigger })}
 				<MeltButton
-					title="Pick an iteration"
+					title="Pick an {label}"
 					id={`flow-editor-iteration picker-${id}`}
 					type="button"
 					class={twMerge(
@@ -178,7 +181,7 @@
 									{/snippet}
 								</VirtualList>
 							{:else}
-								<div class="text-xs text-tertiary py-2 px-2">No iterations</div>
+								<div class="text-xs text-tertiary py-2 px-2">No {label}s</div>
 							{/if}
 						{/key}
 

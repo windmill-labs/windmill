@@ -98,6 +98,17 @@
 			: (undefined as any)
 	)
 
+	let attempts = $derived.by(() => {
+		const jobs = state?.attempt_jobs
+		if (!jobs?.length) return undefined
+		const shown = state?.selectedAttempt ? jobs.indexOf(state.selectedAttempt) : -1
+		return {
+			flowJobs: jobs,
+			flowJobsSuccess: state?.attempt_jobs_success ?? [],
+			selected: shown >= 0 ? shown : jobs.length - 1
+		}
+	})
+
 	let type = $derived.by(() => {
 		let typ = state?.type
 		if (!typ && flowJobs) {
@@ -194,11 +205,14 @@
 						: state?.flow_jobs?.length) +
 					'/' +
 					(state?.iteration_total ?? '?')
-				: ''}
+				: attempts
+					? `Attempt: ${attempts.selected + 1}/${attempts.flowJobs.length}`
+					: ''}
 			nodeState={state?.skipped ? '_Skipped' : type}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
 			{flowJobs}
+			{attempts}
 			on:delete={(e) => {
 				data.eventHandlers.delete(e.detail, '')
 			}}
