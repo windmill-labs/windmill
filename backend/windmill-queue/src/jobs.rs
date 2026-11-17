@@ -5822,10 +5822,9 @@ pub fn tag_reads_flow_expr(tag: &str) -> bool {
     tag.contains("$flow_expr[")
 }
 
-/// Renders the value at the dotted `path` below `root` as a dynamic tag component, shared by
-/// `$args[...]` and `$flow_expr[...]`: its JSON text with surrounding quotes trimmed, and empty
-/// once a segment is missing. Only object keys are followed, never array indexes.
-pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
+/// The JSON text of the value at the dotted `path` below `root`, empty once a segment is missing.
+/// Only object keys are followed, never array indexes.
+fn json_at_path(root: Option<&RawValue>, path: &str) -> String {
     let mut value = root.map(|x| x.get()).unwrap_or_default().to_string();
     for part in path.split('.').filter(|p| !p.is_empty()) {
         match serde_json::from_str::<serde_json::Value>(&value) {
@@ -5836,10 +5835,35 @@ pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
             }
         }
     }
+    value
+}
+
+/// Renders the value at the dotted `path` below `root` as a dynamic tag component, shared by
+/// `$args[...]` and `$flow_expr[...]`: its JSON text with surrounding quotes trimmed, and empty
+/// once a segment is missing or holds `null`. An optional input left unset is `null`, and must
+/// fall back like a missing one rather than name a queue `null` that no worker serves.
+pub fn render_tag_path(root: Option<&RawValue>, path: &str) -> String {
+    let value = json_at_path(root, path);
+    if value.trim() == "null" {
+        return String::new();
+    }
     value.trim_matches('"').to_string()
 }
 
+/// Fills in the `$workspace` and `$args[...]` of a concurrency or debounce key. A `null` argument
+/// renders as `null`, which the keys of already queued jobs were built with.
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
+    interpolate_args_with(x, args, workspace_id, |root, path| {
+        json_at_path(root, path).trim_matches('"').to_string()
+    })
+}
+
+fn interpolate_args_with(
+    x: String,
+    args: &PushArgs,
+    workspace_id: &str,
+    render: impl Fn(Option<&RawValue>, &str) -> String,
+) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
     if RE_ARG_TAG.is_match(&workspaced) {
@@ -5856,7 +5880,7 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
                         .or(args.extra.as_ref().and_then(|x| x.get(root)))
                 })
                 .flatten();
-            let arg_value = render_tag_path(root_value.map(|x| &**x), rest);
+            let arg_value = render(root_value.map(|x| &**x), rest);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -5888,7 +5912,13 @@ pub async fn resolve_push_tag(
     } else {
         workspace_id.to_string()
     };
-    Some(interpolate_args(tag.to_string(), args, &tag_ws))
+    Some(interpolate_args_with(
+        tag.to_string(),
+        args,
+        &tag_ws,
+        render_tag_path,
+    ))
+    .filter(|t| !t.is_empty())
 }
 
 /// The tag a dependency job is routed to when the instance's `dependency_job_tag` setting is
@@ -9571,13 +9601,16 @@ mod render_tag_path_tests {
         )
     }
 
-    // Existing `$args[...]` tags route on exactly these renderings.
+    // Existing `$args[...]` tags route on exactly these renderings, except that `null` now falls
+    // back like a missing value.
     #[test]
     fn renders_like_args_tags() {
         assert_eq!(render(r#""eu""#, ""), "eu");
         assert_eq!(render(r#"{"a": {"b": "eu"}}"#, "a.b"), "eu");
         assert_eq!(render(r#"{"n": 4}"#, "n"), "4");
-        assert_eq!(render("null", ""), "null");
+        assert_eq!(render("null", ""), "");
+        assert_eq!(render(r#"{"a": null}"#, "a"), "");
+        assert_eq!(render(r#""null""#, ""), "null");
         assert_eq!(render(r#"{"a": 1}"#, "b.c"), "");
         assert_eq!(render(r#"{"a": ["eu"]}"#, "a.0"), "");
         assert_eq!(render_tag_path(None, "a"), "");
@@ -9597,6 +9630,14 @@ mod render_tag_path_tests {
         assert_eq!(
             interpolate_args("$args[_MODULES]private".to_string(), &push_args, "ws"),
             "private"
+        );
+
+        // Concurrency and debounce keys keep rendering `null`, as queued jobs' keys were built.
+        let args = HashMap::from([("r".to_string(), raw("null"))]);
+        let push_args = PushArgs { args: &args, extra: None };
+        assert_eq!(
+            interpolate_args("k-$args[r]".to_string(), &push_args, "ws"),
+            "k-null"
         );
     }
 
