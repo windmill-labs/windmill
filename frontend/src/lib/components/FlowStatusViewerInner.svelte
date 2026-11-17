@@ -585,8 +585,10 @@
 		}
 		updateInnerModules(status)
 
+		// The preprocessor (step -1) and the error handler (past the steps) retry outside `modules`.
+		const outsideSteps = status.step < 0 || status.step >= status.modules.length
 		let count =
-			job?.type === 'CompletedJob' || retryingStepId == undefined
+			job?.type === 'CompletedJob' || (retryingStepId == undefined && !outsideSteps)
 				? undefined
 				: status.retry?.fail_count
 		if (count) {
@@ -1080,12 +1082,12 @@
 		}
 	}
 
-	// A running parallel module keeps this flow's own id in `job` (its children are only in
-	// `flow_jobs`), so passing it through would make the nested viewer watch this flow again.
 	function pickedAttempt(mod: FlowStatusModule): string | undefined {
 		return getTopModuleStates?.[buildSubflowKey(mod.id ?? '', prefix)]?.selectedAttempt
 	}
 
+	// A running parallel module keeps this flow's own id in `job` (its children are only in
+	// `flow_jobs`), so passing it through would make the nested viewer watch this flow again.
 	function innerViewerJobId(mod: FlowStatusModule): string {
 		if (mod.job && mod.job == job?.id && mod.flow_jobs?.length) {
 			return mod.flow_jobs[0]
@@ -1477,11 +1479,18 @@
 		let prefixedId = buildSubflowKey(detail.moduleId, prefix)
 		const attemptJobs = getTopModuleStates?.[prefixedId]?.attempt_jobs
 		if (detail.manuallySet && attemptJobs?.includes(detail.id)) {
-			// As for a loop iteration, the step's own viewer is pointed at the picked attempt, after
-			// clearing the states the shown one left (a subflow's steps).
+			// As for a loop iteration, the step's own viewer is pointed at the picked attempt. A
+			// subflow step's states for its own steps (`subflow:<step>:…`) are dropped first: the
+			// picked attempt may not run them all, and nothing else would clear them.
 			const shown = getTopModuleStates?.[prefixedId]?.job_id
 			if (shown && shown !== detail.id) {
-				await refreshGlobal?.(prefixedId, true, shown)
+				const innerPrefix =
+					(prefixedId.startsWith('subflow:') ? prefixedId : 'subflow:' + prefixedId) + ':'
+				for (const states of [localModuleStates, ...globalModuleStates]) {
+					for (const key of Object.keys(states)) {
+						if (key.startsWith(innerPrefix)) delete states[key]
+					}
+				}
 			}
 			setParentModuleState(detail.moduleId, {
 				selectedAttempt: detail.id === attemptJobs[attemptJobs.length - 1] ? undefined : detail.id
