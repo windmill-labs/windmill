@@ -1005,8 +1005,7 @@ fn resolve_code(args: &Value) -> Result<Resolved, String> {
     })
 }
 
-/// Code run as a preview job with no item behind it. The answer names the job, which is
-/// what `save_preview` saves: the code that ran, rather than the model's copy of it.
+/// Code run as a preview job with no item behind it.
 async fn test_run_code(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     run_tool(
         ctx,
@@ -1031,16 +1030,14 @@ async fn test_run_code(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 &form_keys(schema.as_ref()),
             )
             .await;
-            let mut notes = prepared.notes;
-            if let Ok(id) = &started {
+            if started.is_ok() {
                 windmill_common::feature_usage::log_feature_usage(
                     "code_mode",
                     "program_run",
                     &lang,
                 );
-                notes.push(format!("Job id: {id}"));
             }
-            conclude(ctx, args, notes, started, "code", false, "test").await
+            conclude(ctx, args, prepared.notes, started, "code", false, "test").await
         },
     )
     .await

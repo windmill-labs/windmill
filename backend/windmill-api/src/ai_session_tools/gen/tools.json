@@ -1057,7 +1057,7 @@
 	},
 	{
 		"name": "test_run_code",
-		"description": "Run code as a preview job in the workspace, without writing a draft first. The answer carries the job id, which save_preview takes to save this exact code as a script. It runs with exactly the `args` you send. When the user asked for this run, show it to them with show_run, if you have it.",
+		"description": "Run code as a preview job in the workspace, without writing a draft first. To keep code that worked, write it as a script with write_script. It runs with exactly the `args` you send. When the user asked for this run, show it to them with show_run, if you have it.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1095,34 +1095,6 @@
 			},
 			"required": [
 				"code"
-			],
-			"additionalProperties": false
-		},
-		"read_only": false
-	},
-	{
-		"name": "save_preview",
-		"description": "Save the code a successful test_run_code ran as a script draft at `path`, its input schema inferred from `main`. Nothing is deployed.",
-		"parameters": {
-			"type": "object",
-			"properties": {
-				"job_id": {
-					"description": "The job id a successful test_run_code returned.",
-					"type": "string"
-				},
-				"path": {
-					"description": "Workspace path to save the script at, following the path conventions.",
-					"type": "string"
-				},
-				"summary": {
-					"description": "A short summary saying what the script does.",
-					"type": "string"
-				}
-			},
-			"required": [
-				"job_id",
-				"path",
-				"summary"
 			],
 			"additionalProperties": false
 		},

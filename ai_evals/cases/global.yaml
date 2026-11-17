@@ -4145,22 +4145,30 @@
 
 - id: global-codemode-reuses-saved-script
   prompt: |-
-    what's the weather like in Lisbon right now?
-  initial: ai_evals/fixtures/frontend/global/initial/city_weather_script.json
+    how many open tasks does user 3 still have in our task tracker?
+  initial: ai_evals/fixtures/frontend/global/initial/open_tasks_script.json
   runtime:
     maxTurns: 8
   validate:
     draftCountExactly: 0
   toolExpect:
+    # Running the deployed script or a preview of it both reuse its code.
+    requiredToolsAnyOf:
+      - - run_script
+        - test_run_script
     forbiddenToolsUsed:
       - write_script
       - test_run_code
       - deploy_workspace_item
+  assistantExpect:
+    # The tracker holds 13 open tasks for user 3: the count only a run can give.
+    requiredMentionsAnyOf:
+      - - "13"
   # No draft for the judge to score: the deliverable is running the saved script rather than
   # writing new code, checked on tool use above.
   skipJudge: true
   judgeChecklist:
-    - runs the existing city weather script instead of writing new code
+    - runs the existing open tasks script instead of writing new code
 
 - id: global-codemode-task-then-save
   prompt: |-

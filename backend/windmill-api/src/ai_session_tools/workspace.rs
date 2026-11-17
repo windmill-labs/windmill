@@ -15,7 +15,6 @@ pub(super) const TOOLS: &[&str] = &[
     "read_workspace_item",
     "write_script",
     "edit_script",
-    "save_preview",
     "discard_local_draft",
     "rebase_draft",
     "list_pipelines",
@@ -37,7 +36,6 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
             .await
         }
         "edit_script" => edit_script(ctx, args).await,
-        "save_preview" => save_preview(ctx, args).await,
         "discard_local_draft" => discard_local_draft(ctx, args).await,
         "rebase_draft" => rebase_draft(ctx, args).await,
         "list_pipelines" => {
@@ -1993,50 +1991,6 @@ async fn edit_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         false,
     )
     .await
-}
-
-/// The code a script preview of this user's ran, written as their script draft at `path`.
-/// Only a preview that succeeded: it is what makes the code worth keeping. Only their own:
-/// another user's job can be readable, and its code is not theirs to republish.
-async fn save_preview(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
-    let job_id = str_arg(args, "job_id")?;
-    let path = str_arg(args, "path")?;
-    let job = ctx
-        .get(&ctx.ws(&format!("jobs_u/get/{}?no_logs=true", enc(job_id))))
-        .await
-        .map_err(|e| format!("Could not read job {job_id}: {}", api_message(&e)))?;
-    // `test_run_code` files its preview under no path; a preview filed under one ran a
-    // draft or an app's inline runnable, which belongs where it came from.
-    if job["job_kind"] != "preview" || !job["script_path"].is_null() {
-        return Err(format!(
-            "Job {job_id} is not a test_run_code preview, so there is no code of its own to save."
-        ));
-    }
-    if job["created_by"].as_str() != Some(ctx.auth.username.as_str()) {
-        return Err(format!(
-            "Job {job_id} was started by another user. Only your own previews can be saved."
-        ));
-    }
-    if job["type"] != "CompletedJob" || !truthy(job.get("success")) {
-        return Err(format!(
-            "Job {job_id} has not succeeded. Save a preview once it has run successfully."
-        ));
-    }
-    let (Some(content), Some(language)) = (job["raw_code"].as_str(), job["language"].as_str())
-    else {
-        return Err(format!("Job {job_id} carries no code to save."));
-    };
-    let saved = write_script_draft(
-        ctx,
-        path,
-        opt_str_arg(args, "summary"),
-        language,
-        content,
-        false,
-    )
-    .await?;
-    windmill_common::feature_usage::log_feature_usage("code_mode", "program_saved", language);
-    Ok(saved)
 }
 
 async fn discard_local_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {

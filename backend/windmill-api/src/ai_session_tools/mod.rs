@@ -155,7 +155,6 @@ const DESTRUCTIVE: &[&str] = &[
     "test_run_step",
     "test_run_app_runnable",
     "test_run_code",
-    "save_preview",
     "cancel_job",
     "exec_datatable_sql",
     "create_datatable_migration",

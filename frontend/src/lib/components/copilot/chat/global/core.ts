@@ -906,17 +906,9 @@ const testRunCodeSchema = z.object({
 const testRunCodeToolDef = createToolDef(
 	testRunCodeSchema,
 	'test_run_code',
-	'Run code as a preview job in the workspace, without writing a draft first. The answer carries the job id, which save_preview takes to save this exact code as a script. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs.',
+	'Run code as a preview job in the workspace, without writing a draft first. To keep code that worked, write it as a script with write_script. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs.',
 	{ strict: false }
 )
-
-const savePreviewSchema = z.object({
-	job_id: z.string().describe('The job id a successful test_run_code returned.'),
-	path: z
-		.string()
-		.describe('Workspace path to save the script at, following the path conventions.'),
-	summary: z.string().describe('A short summary saying what the script does.')
-})
 
 const runScriptSchema = z.object({
 	path: z.string().describe('Workspace path of the deployed script to run.'),
@@ -1473,7 +1465,7 @@ Rules:{{#can_write_any_draft}}
 - What you write is a per-user draft, saved server-side and visible only to this user. {{#can_deploy}}Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.{{/can_deploy}}{{^can_deploy}}{{#can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, and this workspace's deploy rules let this user deploy only the schedules and triggers their role manages: call deploy_workspace_item for those only when the user asks, and for anything else give them the draft's link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{^can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, which this workspace's deploy rules do not let this user do: when a draft is ready, give them its link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{/can_deploy}}{{/can_write_any_draft}}
 {{#can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}{{^can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, an item's page. Whenever the user will want to see what you found{{#runs}} or ran{{/runs}}, or has to do a step in Windmill themselves: show it with show_run, show_runs or show_item when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}
 - Find items with list_workspace_items and read one with read_workspace_item{{#can_write_any_draft}} before changing it{{/can_write_any_draft}}. An agent is a resource of type \`ai_agent\`{{#runs}}: {{#can_run_flow_preview}}test it with test_run_agent and {{/can_run_flow_preview}}run a deployed one with run_agent, never run_flow or run_script.{{/runs}}{{^runs}}.{{/runs}}{{#can_run_preview}}
-- When the user asks for something done against the systems the workspace connects to, rather than for building an item, do it with code: look for a saved script that does it first (list_workspace_items with a query), else run code with test_run_code and offer to keep it with save_preview once it worked. get_instructions with subject "code_mode" has the details.{{/can_run_preview}}{{#can_write_draft}}
+- When the user asks for something done against the systems the workspace connects to, rather than for building an item, do it with code: look for a saved script that does it first (list_workspace_items with a query), else run code with test_run_code and, once it worked, offer to keep it as a script with write_script. get_instructions with subject "code_mode" has the details.{{/can_run_preview}}{{#can_write_draft}}
 - Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and{{/can_draft_triggers}}{{^can_draft_triggers}} Call{{/can_draft_triggers}} get_db_schema before writing SQL against a database resource.{{/can_write_draft}}{{^can_write_draft}}{{#can_draft_resources}}
 - Call get_instructions before writing a resource.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields.{{/can_draft_triggers}}{{/can_draft_resources}}{{/can_write_draft}}{{#can_write_draft}}{{#can_run_preview}}
 - After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.{{/can_run_preview}}{{/can_write_draft}}{{^can_write_draft}}{{#builds_flows}}{{#can_run_flow_preview}}
@@ -1750,7 +1742,7 @@ const buildGlobalSystemPrompt = (
 	const codeModeRule = when(
 		canRunPreview,
 		`
-- When the user asks for something done against the systems the workspace connects to, rather than for building an item, do it with code: look for a saved script that does it first (list_workspace_items with a query), else run code with test_run_code and offer to keep it with save_preview once it worked. get_instructions with subject "code_mode" has the details.`
+- When the user asks for something done against the systems the workspace connects to, rather than for building an item, do it with code: look for a saved script that does it first (list_workspace_items with a query), else run code with test_run_code and, once it worked, offer to keep it as a script with write_script. get_instructions with subject "code_mode" has the details.`
 	)
 	const deployRule = when(
 		canWriteAnyDraft && canDeployAnyKind,
@@ -3840,19 +3832,6 @@ export const globalTools: SessionTool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
-		requires: WRITE_DRAFT,
-		def: createToolDef(
-			savePreviewSchema,
-			'save_preview',
-			'Save the code a successful test_run_code ran as a script draft at `path`, its input schema inferred from `main`. Nothing is deployed.'
-		),
-		showDetails: true,
-		fn: async (ctx) => {
-			savePreviewSchema.parse(ctx.args)
-			return runDraftWrite('save_preview', ctx)
-		}
-	},
-	{
 		// Gated on `run` alone, unlike the test runs: this executes the DEPLOYED item under the
 		// user's own permissions, the one run an operator's token allows. `run_flow` likewise.
 		requires: RUN,
@@ -5583,10 +5562,7 @@ async function testRunCode(
 	const lang = prepared.lang!
 	const schema = await schemaForTestRun({ content: code, language: lang })
 
-	// save_preview takes the job id, which the run summary names only when the job is
-	// still running.
-	let jobId: string | undefined
-	const summary = await runThroughForm(
+	return await runThroughForm(
 		{
 			path: 'code',
 			schema,
@@ -5602,14 +5578,13 @@ async function testRunCode(
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 			startJob: async (submitted) => {
-				jobId = await startPreparedRun('test_run_code', ctx, prepared.target, submitted)
+				const jobId = await startPreparedRun('test_run_code', ctx, prepared.target, submitted)
 				logFeatureUsage('code_mode', 'program_run', { key: lang })
 				return jobId
 			}
 		},
 		ctx
 	)
-	return jobId ? `Job id: ${jobId}\n${summary}` : summary
 }
 
 /** The "do not call again" half is load-bearing: without it the model re-proposes the
