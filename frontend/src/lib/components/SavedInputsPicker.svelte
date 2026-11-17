@@ -162,7 +162,7 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isEditing) {
-			setEditing(null)
+			setEditing(null, true)
 			event.stopPropagation()
 			event.preventDefault()
 		} else if (event.key === 'Escape' && selectedInput) {
@@ -180,7 +180,11 @@
 		}
 	}
 
-	function setEditing(input: EditableInput | null) {
+	// The rename field edits the listed input itself, so a cancelled rename must put its name back.
+	let nameBeforeEdit = ''
+	function setEditing(input: EditableInput | null, cancel = false) {
+		if (cancel && isEditing) isEditing.name = nameBeforeEdit
+		nameBeforeEdit = input?.name ?? ''
 		isEditing = input
 		dispatch('isEditing', !!input)
 	}
@@ -331,7 +335,7 @@
 													updateInput(isEditing)
 													setEditing(null)
 												} else {
-													setEditing(item)
+													setEditing(item, true)
 												}
 											}}
 											startIcon={{ icon: Pencil }}
