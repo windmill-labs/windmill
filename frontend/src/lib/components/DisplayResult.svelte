@@ -7,7 +7,12 @@
 	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
-	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
+	import {
+		downloadViaClient,
+		fetchViaClient,
+		shouldDownloadViaClient
+	} from '$lib/utils/downloadFile'
+	import { sendUserToast } from '$lib/toast'
 	import { appendViewToken } from '$lib/viewToken'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import {
@@ -260,6 +265,37 @@
 			: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
+
+	// A result over the backend's inline cap arrives as 'WINDMILL_TOO_BIG'. Ask the
+	// backend for `file.filename` alone to tell a `{ file: { content, filename } }` result.
+	let tooBigFilename: string | undefined = $state(undefined)
+	async function fetchResultAt(apiPath: string, jsonPath: string): Promise<unknown> {
+		const r = await fetchViaClient(
+			`${apiPath}${apiPath.includes('?') ? '&' : '?'}json_path=${jsonPath}`
+		)
+		return r.ok ? r.json() : undefined
+	}
+	$effect(() => {
+		tooBigFilename = undefined
+		const apiPath = result === 'WINDMILL_TOO_BIG' ? resultApiPath : undefined
+		if (!apiPath) return
+		let stale = false
+		fetchResultAt(apiPath, 'file.filename').then(
+			(name) => {
+				if (!stale && typeof name === 'string') tooBigFilename = name
+			},
+			() => {}
+		)
+		return () => (stale = true)
+	})
+	async function downloadTooBigFile(apiPath: string, name: string) {
+		const content = await fetchResultAt(apiPath, 'file.content').catch(() => undefined)
+		if (typeof content !== 'string') return sendUserToast('Download failed', true)
+		const a = document.createElement('a')
+		a.href = 'data:application/octet-stream;base64,' + content
+		a.download = name
+		a.click()
+	}
 
 	function checkIfS3(result: any, keys: string[]) {
 		return keys.includes('s3') && typeof result.s3 === 'string'
@@ -1325,6 +1361,17 @@
 								href="data:application/octet-stream;base64,{contentOrRootString(result.file)}"
 								>Download</a
 							>
+						</div>
+					{:else if tooBigFilename && resultApiPath}
+						<div class="flex">
+							<Button
+								onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
+								startIcon={{ icon: Download }}
+								variant="subtle"
+								unifiedSize="sm"
+							>
+								Download {tooBigFilename}
+							</Button>
 						</div>
 					{:else}
 						{#if largeObject}
