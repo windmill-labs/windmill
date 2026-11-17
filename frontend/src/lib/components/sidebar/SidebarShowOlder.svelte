@@ -19,18 +19,18 @@
 	const label = $derived(expanded ? 'Show less' : `Show ${count} older`)
 </script>
 
+<!-- mx-0.5 gives the 12px icon a 16px item icon's slot: it sits on the rail's icon column and the
+     label starts where the other rows' labels do. -->
 <Button
 	unifiedSize="xs"
 	variant="subtle"
-	startIcon={{ icon: Ellipsis }}
+	startIcon={{ icon: Ellipsis, classes: 'mx-0.5' }}
 	iconOnly={rail}
 	title={label}
 	aria-label={label}
 	aria-expanded={expanded}
 	onClick={onToggle}
-	btnClasses="{rail
-		? 'justify-center px-0'
-		: 'justify-start px-2'} font-normal text-tertiary hover:text-secondary"
+	btnClasses="justify-start px-2 font-normal text-tertiary hover:text-secondary"
 >
 	{label}
 </Button>

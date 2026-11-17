@@ -97,18 +97,17 @@
 						class={twMerge(
 							// shrink-0: in the capped list a row would otherwise shrink to its content,
 							// which is shorter in the rail, where it has no label.
-							'flex flex-row items-center gap-2 h-6 shrink-0 rounded text-xs font-normal min-w-0',
-							// The icons are under the rail's 16px, so they are centered rather than padded.
-							rail ? 'justify-center px-0' : 'px-2',
+							'flex flex-row items-center gap-2 px-2 h-6 shrink-0 rounded text-xs font-normal min-w-0',
 							selected
 								? twMerge(sidebarClasses.selectedBg, sidebarClasses.selectedText)
 								: 'text-secondary hover:bg-surface-hover'
 						)}
 					>
 						{#if t.agent}
-							<Bot size={14} class="shrink-0 text-violet-500" />
+							<!-- mx-px gives the 14px icon a 16px item icon's slot, as the other rows have. -->
+							<Bot size={14} class="shrink-0 mx-px text-violet-500" />
 						{:else}
-							<BarsStaggered size={14} class="shrink-0 text-teal-500" />
+							<BarsStaggered size={14} class="shrink-0 mx-px text-teal-500" />
 						{/if}
 						<span class={rail ? 'sr-only' : 'truncate'}>{c.title || 'Untitled chat'}</span>
 					</a>
