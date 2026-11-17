@@ -544,6 +544,7 @@ export function graphBuilder(
 		)
 
 		const parents: { [key: string]: string[] } = {}
+		const handlerTargets: Record<string, string> = {}
 
 		//
 		function detectCycle(nodeId: string, visited: Set<string>, currentPath: Set<string>): boolean {
@@ -706,7 +707,11 @@ export function graphBuilder(
 			simplifiedTriggerView: boolean,
 			prefix: string | undefined,
 			disableMoveIds: string[] = [],
-			parentIndex?: string
+			parentIndex?: string,
+			// Node an error handler's output goes to when one of these steps fails: the enclosing
+			// loop or branch-all collects it as that iteration's entry, a branch-one passes it
+			// through, and otherwise it is the flow's result.
+			handlerTarget?: string
 		) {
 			// For subflow prefix rewriting, clone modules into moduleMap with prefixed IDs
 			// (avoid mutating reactive originals which would trigger state_unsafe_mutation in $derived)
@@ -825,7 +830,8 @@ export function graphBuilder(
 								simplifiedTriggerView,
 								prefix,
 								localDisableMoveIds,
-								parentIndex
+								parentIndex,
+								handlerTarget
 							)
 
 							previousId = endId
@@ -860,6 +866,9 @@ export function graphBuilder(
 					const module = moduleMap.get(item.id)
 					if (!module) return
 					const localDisableMoveIds = [...disableMoveIds, module.id]
+					if (handlerTarget) {
+						handlerTargets[module.id] = handlerTarget
+					}
 
 					// Inter-module edge: connect previous → current (expanded subflows handle their own)
 					if (index > 0 && previousId && expandedSubflows[module.id] == undefined) {
@@ -944,7 +953,10 @@ export function graphBuilder(
 									false,
 									prefix,
 									localDisableMoveIds,
-									parentIndex ? `${parentIndex}-${index}-${branchIndex}` : `${index}-${branchIndex}`
+									parentIndex
+										? `${parentIndex}-${index}-${branchIndex}`
+										: `${index}-${branchIndex}`,
+									endNode.id
 								)
 							})
 						}
@@ -1003,7 +1015,8 @@ export function graphBuilder(
 							localDisableMoveIds,
 							parentIndex
 								? `${parentIndex}-${index}-${selectedIterIndex ?? '?'}`
-								: `${index}-${selectedIterIndex ?? '?'}`
+								: `${index}-${selectedIterIndex ?? '?'}`,
+							endNode.id
 						)
 
 						previousId = endNode.id
@@ -1042,7 +1055,8 @@ export function graphBuilder(
 							localDisableMoveIds,
 							parentIndex
 								? `${parentIndex}-${index}-${selectedIterIndex ?? '?'}`
-								: `${index}-${selectedIterIndex ?? '?'}`
+								: `${index}-${selectedIterIndex ?? '?'}`,
+							endNode.id
 						)
 
 						previousId = endNode.id
@@ -1088,7 +1102,8 @@ export function graphBuilder(
 							false,
 							prefix,
 							localDisableMoveIds,
-							parentIndex ? `${parentIndex}-${index}` : index.toString()
+							parentIndex ? `${parentIndex}-${index}` : index.toString(),
+							handlerTarget
 						)
 
 						module.value.branches.forEach((branch, branchIndex) => {
@@ -1123,7 +1138,8 @@ export function graphBuilder(
 								false,
 								prefix,
 								localDisableMoveIds,
-								parentIndex ? `${parentIndex}-${index}` : index.toString()
+								parentIndex ? `${parentIndex}-${index}` : index.toString(),
+								handlerTarget
 							)
 						})
 
@@ -1202,7 +1218,9 @@ export function graphBuilder(
 								endNode,
 								false,
 								subflowPrefix,
-								localDisableMoveIds
+								localDisableMoveIds,
+								undefined,
+								endId
 							)
 
 							previousId = endNode.id
@@ -1235,7 +1253,17 @@ export function graphBuilder(
 		if (simplifiableFlow?.simplifiedFlow === true && triggerNode) {
 			processModules(topLevelItems, undefined, triggerNode, undefined, true, undefined)
 		} else {
-			processModules(topLevelItems, undefined, inputNode, resultNode, false, undefined)
+			processModules(
+				topLevelItems,
+				undefined,
+				inputNode,
+				resultNode,
+				false,
+				undefined,
+				[],
+				undefined,
+				resultNode.id
+			)
 		}
 
 		// Before the failure markers: the preprocessor can be the step that failed, and a marker is
@@ -1270,7 +1298,23 @@ export function graphBuilder(
 				return
 			}
 			addFailureNode({ ...module, id })
-			addEdge(parentId, id, undefined, undefined, { type: 'empty' })
+			// An expanded subflow step failed as a whole, so its marker hangs off the subflow's end.
+			const anchor = expandedSubflows[parentId] ? `${parentId}-subflow-end` : parentId
+			addEdge(anchor, id, undefined, undefined, { type: 'empty' })
+			// The step's own edge stays: the steps after it are still part of the flow, and their
+			// state shows they did not run. Kept out of `parents`, which the layout reads: an edge
+			// leaving a branch for Result would pull Result into that branch's group.
+			const target = handlerTargets[parentId]
+			if (target) {
+				edges.push({
+					id: `edge:${id}->${target}`,
+					source: id,
+					target,
+					type: 'empty',
+					data: { class: '[stroke-dasharray:4_4]', bowWhenAligned: true },
+					selectable: false
+				})
+			}
 		})
 
 		if (failureModule && !extra.flowModuleStates) {
