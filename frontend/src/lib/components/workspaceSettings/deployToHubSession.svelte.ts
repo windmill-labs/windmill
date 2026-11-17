@@ -73,6 +73,7 @@ import {
 export type Phase = 'predeploy' | 'draft' | 'under_review' | 'live'
 // Re-exported so the publish-flow components keep one import site.
 export {
+	asLayoutItem,
 	canRecord,
 	canRecordConversation,
 	canRecordSession,

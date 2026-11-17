@@ -9,6 +9,7 @@
 	import { displayDate } from '$lib/utils'
 	import {
 		useDeployToHubSession,
+		asLayoutItem,
 		canRecord,
 		canRecordConversation,
 		canRecordSession,
@@ -331,7 +332,8 @@
 		{@const s = deployHub.session}
 		<div>
 			<WorkspaceDeployLayout
-				items={s.items}
+				items={s.items.map(asLayoutItem)}
+				isAgent={(i) => i.agent === true}
 				nested
 				folderDetail={subProjectNote}
 				selectablePredicate={(i) => !s.isBlocked(i.path)}

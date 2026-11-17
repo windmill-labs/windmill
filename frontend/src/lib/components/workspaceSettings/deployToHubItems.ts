@@ -24,7 +24,17 @@ export const canRecord = (k: DeployKind) => k === 'script' || k === 'flow'
 
 // An agent has no single run to capture: its demo is a conversation, recorded turn by turn
 // in its own drawer and replayed on the Hub page.
-export const canRecordConversation = (it: DeployItem): boolean => it.kind === 'agent'
+export const canRecordConversation = (it: DeployItem): boolean =>
+	it.kind === 'agent' || it.agent === true
+
+/**
+ * The publish list is the workspace-deploy layout, which knows agents as resource rows it is
+ * told about (`isAgent`). An agent item is handed to it that way, keeping its key, so
+ * selection and status still address the item itself.
+ */
+export function asLayoutItem(it: DeployItem): DeployItem & { kind: Kind } {
+	return it.kind === 'agent' ? { ...it, kind: 'resource', agent: true } : { ...it, kind: it.kind }
+}
 
 // `s3_object` is a built-in file-picker format, never a resource type (it is not
 // on the Hub's type list), so it is excluded even when there is no catalog to
