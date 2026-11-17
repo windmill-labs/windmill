@@ -85,7 +85,7 @@ function fail(toolCallbacks: ToolCallbacks, toolId: string, error: string): stri
 }
 
 const STORAGE_FULL =
-	"this browser could not store it: its storage is full or unavailable. Tell the user, so they can free up space in this browser's storage."
+	"this browser could not store it: its storage is full, or unavailable as in a private window. Tell the user, so they can free up space in this browser's storage or use a window that keeps site data."
 
 /** Whether this call would write the session's plan. Synchronous because the gate is: it answers
  * from the arguments and the store's already-loaded list, never an awaited read of the database. */
