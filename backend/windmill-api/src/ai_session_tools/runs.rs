@@ -14,6 +14,7 @@ use super::{enc, js_head, js_len, js_tail, opt_str_arg, pretty, str_arg, truthy,
 
 pub(super) const TOOLS: &[&str] = &[
     "test_run_script",
+    "test_run_code",
     "run_script",
     "test_run_flow",
     "run_flow",
@@ -28,6 +29,7 @@ pub(super) const TOOLS: &[&str] = &[
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
     match name {
         "test_run_script" => test_run_script(ctx, args).await,
+        "test_run_code" => test_run_code(ctx, args).await,
         "run_script" => run_deployed(ctx, args, false).await,
         "test_run_flow" => test_run_flow(ctx, args).await,
         "run_flow" => run_deployed(ctx, args, true).await,
@@ -977,6 +979,65 @@ async fn test_run_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 None,
             );
             run_resolved(ctx, args, path, resolved, "script", path, "test").await
+        },
+    )
+    .await
+}
+
+fn resolve_code(args: &Value) -> Result<Resolved, String> {
+    let code = str_arg(args, "code")?;
+    let language = opt_str_arg(args, "language").unwrap_or("bun");
+    Ok(Resolved {
+        schema: None,
+        code: Some(code.to_string()),
+        lang: Some(language.to_string()),
+        summary: None,
+        runnable_kind: "script",
+        start_message: "Running code...".to_string(),
+        conversational: false,
+        module: None,
+        target: RunTarget::ScriptPreview {
+            path: None,
+            language: language.to_string(),
+            content: code.to_string(),
+            preprocessor: false,
+        },
+    })
+}
+
+/// Code run as a preview job with no item behind it.
+async fn test_run_code(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    run_tool(
+        ctx,
+        args,
+        async { resolve_code(args) },
+        async |resolved: Resolved| {
+            let (code, lang) = (
+                resolved.code.clone().unwrap_or_default(),
+                resolved.lang.clone().unwrap_or_default(),
+            );
+            let schema = infer_script_schema(&lang, &code, None, None);
+            let prepared =
+                match prepare_args(ctx, "code", proposed_args(args), schema.as_ref(), "code").await
+                {
+                    Ok(prepared) => prepared,
+                    Err(message) => return Ok(message),
+                };
+            let started = start_run(
+                ctx,
+                &resolved.target,
+                prepared.args,
+                &form_keys(schema.as_ref()),
+            )
+            .await;
+            if started.is_ok() {
+                windmill_common::feature_usage::log_feature_usage(
+                    "code_mode",
+                    "program_run",
+                    &lang,
+                );
+            }
+            conclude(ctx, args, prepared.notes, started, "code", false, "test").await
         },
     )
     .await

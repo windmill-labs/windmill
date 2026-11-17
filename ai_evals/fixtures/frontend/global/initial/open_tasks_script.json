@@ -1,0 +1,26 @@
+{
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/evals/global/open_tasks",
+        "summary": "Count a user's open tasks in the task tracker",
+        "description": "Reads the team's task tracker (https://jsonplaceholder.typicode.com/todos) and returns how many of the given user's tasks are still open, with their titles.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "type": "number",
+              "description": "The tracker's id for the user, e.g. 3"
+            }
+          },
+          "required": [
+            "user_id"
+          ]
+        },
+        "content": "export async function main(user_id: number) {\n  const todos: { title: string; completed: boolean }[] = await (\n    await fetch(`https://jsonplaceholder.typicode.com/todos?userId=${user_id}`)\n  ).json()\n  const open = todos.filter((t) => !t.completed)\n  return { user_id, open: open.length, titles: open.map((t) => t.title) }\n}\n"
+      }
+    ]
+  }
+}

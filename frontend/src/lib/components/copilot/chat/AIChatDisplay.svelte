@@ -6,7 +6,7 @@
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ChatContextPicker from './ChatContextPicker.svelte'
 	import WorkspaceMentionPicker from './WorkspaceMentionPicker.svelte'
-	import { type Snippet } from 'svelte'
+	import { flushSync, untrack, type Snippet } from 'svelte'
 	import {
 		AlertTriangle,
 		ArrowDown,
@@ -202,6 +202,49 @@
 	const groupChatItems = createChatItemGrouper()
 	const chatItems = $derived(groupChatItems(messages))
 
+	// Mounting a message parses its markdown, so a long transcript mounted at once blocks the
+	// page for every message in it. Only the tail is mounted when a transcript arrives; older
+	// items mount in batches as the reader scrolls toward them, and stay mounted.
+	const TAIL_ITEMS = 30
+	const REVEAL_BATCH = 30
+	const REVEAL_MARGIN_PX = 600
+	const transcriptKey = $derived(messages[0]?.content)
+	// How many items are hidden, counted from the item holding message `first`.
+	let revealed = $state<{ first: string | undefined; hidden: number }>()
+	const hiddenHead = $derived.by(() => {
+		const first = transcriptKey
+		const r = revealed
+		return untrack(() => {
+			if (r && r.first === first) return r.hidden
+			// The message it was counted from moved down: a host prepended a page of older
+			// messages (the flow chat does), which stays hidden unless everything above was shown.
+			const moved = r ? messages.findIndex((m) => m.content === r.first) : -1
+			if (r && moved > 0) {
+				if (r.hidden === 0) return 0
+				return r.hidden + chatItems.findIndex((item) => chatItemStart(item) >= moved)
+			}
+			// Another transcript: the reload of the same chat keeps its first message.
+			return Math.max(0, chatItems.length - TAIL_ITEMS)
+		})
+	})
+	// A swap the key misses (two chats opening with the same message) keeps the previous chat's
+	// count: clamped so that count can never hide the tail, though a low one mounts more than needed.
+	const shownFrom = $derived(Math.min(hiddenHead, Math.max(0, chatItems.length - TAIL_ITEMS)))
+
+	function chatItemStart(item: (typeof chatItems)[number]): number {
+		return item.kind === 'group' ? (item.entries[0]?.index ?? 0) : item.index
+	}
+
+	function revealOlder() {
+		if (!scrollElement || shownFrom === 0 || scrollElement.scrollTop >= REVEAL_MARGIN_PX) return
+		// Assigned from the distance to the bottom rather than added to, so it holds whether or
+		// not the browser's own scroll anchoring already moved the position.
+		const fromBottom = scrollElement.scrollHeight - scrollElement.scrollTop
+		revealed = { first: transcriptKey, hidden: Math.max(0, shownFrom - REVEAL_BATCH) }
+		flushSync()
+		scrollElement.scrollTop = scrollElement.scrollHeight - fromBottom
+	}
+
 	// Escape stops the generation when focus is on the chat (or parked on
 	// body), but stays with other widgets (e.g. the session's Monaco editor).
 	// Capture phase is required: Monaco and mounted-but-closed Modal2
@@ -277,16 +320,18 @@
 
 	// Each turn (a user message and what follows it, up to the next one) is its own box, so a
 	// sticky copy of its user message stays inside it and the next turn pushes it out.
+	// Turns are keyed over the whole transcript so the one cut by `shownFrom` keeps its key, and
+	// its box, as older items are revealed into it.
 	const turns = $derived.by(() => {
 		const out: { key: string; items: typeof chatItems }[] = []
-		for (const item of chatItems) {
+		chatItems.forEach((item, i) => {
 			const startsTurn = item.kind === 'message' && item.message.role === 'user'
 			if (out.length === 0 || (stickyUserMessage && startsTurn)) {
 				out.push({ key: chatItemKey(item), items: [] })
 			}
-			out[out.length - 1].items.push(item)
-		}
-		return out
+			if (i >= shownFrom) out[out.length - 1].items.push(item)
+		})
+		return out.filter((turn) => turn.items.length > 0)
 	})
 	function userMessageText(message: DisplayMessage): string {
 		return segments(messageDraft(message))
@@ -350,6 +395,9 @@
 			const distance =
 				scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight
 			showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
+			// A tail too short to scroll fires no scroll event, so nothing else would mount the rest.
+			// Untracked: a reveal re-running this effect would scroll a following reader back down.
+			if (untrack(() => shownFrom) > 0) requestAnimationFrame(revealOlder)
 		}
 	})
 
@@ -376,6 +424,9 @@
 		} else {
 			chatHost.disableAutomaticScroll()
 		}
+		// After follow mode is settled, so the reveal cannot scroll a reader leaving the end back
+		// down; before the host's own paging, which waits until nothing here is left to mount.
+		revealOlder()
 		onTranscriptScroll?.()
 	}
 
