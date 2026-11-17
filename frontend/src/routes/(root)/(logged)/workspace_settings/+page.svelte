@@ -66,7 +66,6 @@
 		type PageHeaderSubpage
 	} from '$lib/components/pageHeaderRegistry.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
-	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -1792,16 +1791,30 @@
 	// The URL says which page is on screen, so the browser's back button returns to the list and
 	// a link to a section opens on it. Wide, a missing `tab` still means the default section.
 	const sectionOpen = $derived($page.url.searchParams.has('tab'))
-	const subpages: PageHeaderSubpage[] = $derived(
-		sectionGroups.flatMap((group) =>
-			group.items.map((i) => ({
-				label: i.label,
-				href: WORKSPACE_SETTINGS_PATH + tabHref(i.id),
-				group: group.title,
-				current: i.id === tab,
-				disabled: i.disabled
-			}))
-		)
+	// The list and the section slide between each other the way `PagedContent` pages do: the
+	// page arriving travels a quarter of the box and fades in, the page leaving vanishes at once
+	// so it never ghosts over the one arriving. `side` is where a hidden page waits.
+	function slidingPage(shown: boolean, side: -1 | 1): string {
+		const offset = shown ? '' : side < 0 ? '-translate-x-1/4' : 'translate-x-1/4'
+		return `absolute inset-0 motion-reduce:!transition-none ${offset} ${shown ? '' : 'opacity-0 pointer-events-none'}`
+	}
+	function slideTransition(shown: boolean): string {
+		return `transform 130ms ease-out, opacity ${shown ? '90ms' : '0s'} ease-out`
+	}
+	// None for a single section (a fork owner's Members): Workspace settings is admin-only, so the
+	// picker has no branch to list it under.
+	const subpages: PageHeaderSubpage[] | undefined = $derived(
+		visibleSections.length < 2
+			? undefined
+			: sectionGroups.flatMap((group) =>
+					group.items.map((i) => ({
+						label: i.label,
+						href: WORKSPACE_SETTINGS_PATH + tabHref(i.id),
+						group: group.title,
+						current: i.id === tab,
+						disabled: i.disabled
+					}))
+				)
 	)
 	const headerSection: PageHeaderSection | undefined = $derived(
 		showYaml
@@ -1837,52 +1850,48 @@
 		/>
 
 		<div class="flex grow min-h-0 pb-4" bind:clientWidth={layoutWidth}>
-			{#if pagedLayout}
-				<!-- No `onNavigate`: its arrow keys are read at `window`, where they would take
-				     Left/Right from every field and table on a section.
-				     The negative margin undoes CenteredPage's side padding, which each page puts back
-				     inside its scroller: the box clips, so a scroller inside the padding would have its
-				     scrollbar cut and a gap beside it. -->
-				<PagedContent
-					class="flex-1 h-full -mx-4 sm:-mx-6 md:-mx-8"
-					current={sectionOpen ? 'section' : 'sections'}
-					pages={[
-						{ key: 'sections', content: sectionList },
-						{ key: 'section', content: sectionPane }
-					]}
-				/>
-			{:else}
-				<!-- The top padding belongs inside both scrollers, not above them: it is the gap under
-				     the separator at rest, and it has to travel with the content so what scrolls passes
-				     under the line rather than stopping short of it. -->
+			<!-- One tree for both layouts, which differ only in classes: a section moved to another
+			     parent would be rebuilt, losing the unsaved edits it keeps in its own state.
+			     Narrow, the negative margin undoes CenteredPage's side padding, which each page puts
+			     back inside its scroller: the box clips, so a scroller inside the padding would have
+			     its scrollbar cut and a gap beside it. -->
+			<div
+				class="flex flex-1 min-w-0 h-full {pagedLayout
+					? 'relative overflow-hidden -mx-4 sm:-mx-6 md:-mx-8'
+					: ''}"
+			>
 				{#if !showYaml}
-					<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
+					<!-- The top padding belongs inside both scrollers, not above them: it is the gap
+					     under the separator at rest, and it has to travel with the content so what
+					     scrolls passes under the line rather than stopping short of it. Narrow, 8px
+					     short of the page gutter: the entries carry their own. -->
+					<div
+						class={pagedLayout
+							? `${slidingPage(!sectionOpen, -1)} overflow-auto pt-4 pb-4 px-2 sm:px-4 md:px-6`
+							: 'w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2'}
+						style:transition={pagedLayout ? slideTransition(!sectionOpen) : undefined}
+						inert={pagedLayout && sectionOpen}
+					>
+						<!-- Capped narrow so a row's hover band stays the size of a menu entry. -->
 						<SidebarNavigation
+							class={pagedLayout ? 'max-w-sm' : ''}
 							groups={navigationGroups}
-							selectedId={tab}
+							selectedId={pagedLayout && !sectionOpen ? '' : tab}
 							onNavigate={(id) => goto(tabHref(id))}
 							itemHref={tabHref}
+							drillIn={pagedLayout}
 						/>
 					</div>
 				{/if}
-				{@render sectionPane()}
-			{/if}
-		</div>
-
-		{#snippet sectionList()}
-			<!-- 8px short of the page gutter: the entries carry their own, as in the sidebar. -->
-			<div class="h-full overflow-auto pt-4 pb-4 px-2 sm:px-4 md:px-6">
-				<!-- Capped so a row's hover band stays the size of a menu entry on a wide panel. -->
-				<SidebarNavigation
-					class="max-w-sm"
-					groups={navigationGroups}
-					selectedId={sectionOpen ? tab : ''}
-					onNavigate={(id) => goto(tabHref(id))}
-					itemHref={tabHref}
-					drillIn
-				/>
+				<div
+					class={pagedLayout ? `${slidingPage(sectionOpen, 1)} flex` : 'flex flex-1 min-w-0 h-full'}
+					style:transition={pagedLayout ? slideTransition(sectionOpen) : undefined}
+					inert={pagedLayout && !sectionOpen}
+				>
+					{@render sectionPane()}
+				</div>
 			</div>
-		{/snippet}
+		</div>
 
 		{#snippet sectionPane()}
 			<div class="flex-1 min-w-0 h-full flex flex-col">

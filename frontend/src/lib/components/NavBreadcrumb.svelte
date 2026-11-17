@@ -290,8 +290,8 @@ not this component) — so the lead can run the whole line.
 
 {#snippet navPicker(measure: boolean)}
 	<!-- The page's own name is the last segment, so the chevron after it moves to a sibling page or
-	     item. In a session's preview band, which must not lead out of the host's workspace, only
-	     to another pane of the same page. -->
+	     item. A session's preview band has the tab's own picker for that, so it shows this one only
+	     on a page with panes, whose name here is the pane's. -->
 	{#if !section?.noNavPicker && (!nameOnly || (section?.subpages && !item))}
 		{#if measure}
 			<span class="flex items-center h-9 px-1.5 shrink-0">
@@ -304,7 +304,6 @@ not this component) — so the lead can run the whole line.
 				artifacts={section?.navArtifacts}
 				{actingWorkspaceId}
 				subpages={item ? undefined : section?.subpages}
-				subpagesOnly={nameOnly}
 				iconSize={ICON}
 			/>
 		{/if}

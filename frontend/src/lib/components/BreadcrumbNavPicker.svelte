@@ -34,7 +34,6 @@ several (a workspace settings section) among that page's panes.
 		artifacts,
 		actingWorkspaceId,
 		subpages,
-		subpagesOnly = false,
 		iconSize = 14
 	}: {
 		/** The item the page is about, to land in its folder. */
@@ -47,8 +46,6 @@ several (a workspace settings section) among that page's panes.
 		actingWorkspaceId?: string
 		/** The panes of the page at `pagePath`, listed under it and opened on the current one. */
 		subpages?: PageHeaderSubpage[]
-		/** List the panes alone, for an embed the picker must not lead out of. */
-		subpagesOnly?: boolean
 		iconSize?: number
 	} = $props()
 
@@ -148,7 +145,6 @@ several (a workspace settings section) among that page's panes.
 			}}
 			onPick={pick}
 			subpages={subpages ? { path: pagePath ?? '', pages: subpages } : undefined}
-			{subpagesOnly}
 		/>
 	{/snippet}
 </Popover>

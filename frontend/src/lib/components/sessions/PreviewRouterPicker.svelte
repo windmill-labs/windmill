@@ -85,8 +85,6 @@ section or the flat layout.
 		targetHref?: (target: PreviewTarget) => string | undefined
 		/** The panes of the page at `path`, which Pages then lists as a branch of them. */
 		subpages?: { path: string; pages: PageHeaderSubpage[] }
-		/** List the subpages alone, for a host the picker must not lead out of. */
-		subpagesOnly?: boolean
 	}
 
 	let {
@@ -101,8 +99,7 @@ section or the flat layout.
 		artifacts,
 		chat,
 		targetHref,
-		subpages,
-		subpagesOnly = false
+		subpages
 	}: Props = $props()
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
@@ -133,7 +130,7 @@ section or the flat layout.
 	// per-kind drill step left to lazy-load from — fetch everything up front
 	// (module-cached; the picker only mounts when its popover opens).
 	$effect(() => {
-		if (effectiveWorkspace && !subpagesOnly) untrack(() => loader.ensureAll())
+		if (effectiveWorkspace) untrack(() => loader.ensureAll())
 	})
 
 	// Surface AI-created drafts the same way the editor picker does so in-flight
@@ -392,27 +389,23 @@ section or the flat layout.
 		return leaf.key.startsWith('agent:') ? leaf.key.slice('agent:'.length) : undefined
 	}
 
-	const tree = $derived<DrillNode<PreviewTarget>[]>(
-		subpagesOnly
-			? subpageLeaves
-			: [
-					// An operator's workspace may enable none of them.
-					...(pagesBranch.children.length > 0 ? [pagesBranch] : []),
-					...(artifactsBranch ? [artifactsBranch] : []),
-					...(pipelinesBranch ? [pipelinesBranch] : []),
-					...(agentsBranch ? [agentsBranch] : []),
-					...tagItems(
-						buildWorkspaceTree({
-							loaded: loader.loaded,
-							kinds,
-							currentItem,
-							loadingKind: loader.loadingKind,
-							extraItemsByKind,
-							layout: 'flat'
-						})
-					)
-				]
-	)
+	const tree = $derived<DrillNode<PreviewTarget>[]>([
+		// An operator's workspace may enable none of them.
+		...(pagesBranch.children.length > 0 ? [pagesBranch] : []),
+		...(artifactsBranch ? [artifactsBranch] : []),
+		...(pipelinesBranch ? [pipelinesBranch] : []),
+		...(agentsBranch ? [agentsBranch] : []),
+		...tagItems(
+			buildWorkspaceTree({
+				loaded: loader.loaded,
+				kinds,
+				currentItem,
+				loadingKind: loader.loadingKind,
+				extraItemsByKind,
+				layout: 'flat'
+			})
+		)
+	])
 
 	// A page or artifact highlight lives under its own branch, which the legacy
 	// {kind, dir} scope can't express — open the picker inside that branch, so the
@@ -420,23 +413,26 @@ section or the flat layout.
 	// highlight's shape alone: the artifacts branch may not have materialized yet
 	// (artifacts hydrate from IndexedDB after tabs restore), and the drill entries
 	// fill in reactively once it does.
+	// Not gated on the branch being listed yet: the page permissions that list it can still be
+	// loading when the picker opens, and the scope is read only then.
+	const subpageBranchKey = untrack(() =>
+		subpages && subpageLeaves.some((l) => l.key === initialHighlight)
+			? pageKey(subpages.path)
+			: undefined
+	)
 	const computedInitialScope = untrack(() =>
-		subpagesOnly
-			? []
-			: subpages && subpageLeaves.some((l) => l.key === initialHighlight)
-				? ['pages', pageKey(subpages.path)]
-				: initialHighlight && isArtifactKey(initialHighlight)
-					? ['artifacts']
-					: initialHighlight && isPageKey(initialHighlight)
-						? ['pages']
-						: legacyScopeToPath(initialScope, kinds, 'flat')
+		subpageBranchKey
+			? ['pages', subpageBranchKey]
+			: initialHighlight && isArtifactKey(initialHighlight)
+				? ['artifacts']
+				: initialHighlight && isPageKey(initialHighlight)
+					? ['pages']
+					: legacyScopeToPath(initialScope, kinds, 'flat')
 	)
 
 	// The flat root has no branch to carry a per-kind loading flag — surface
 	// the first-fetch state at the picker level instead.
-	const rootLoading = $derived(
-		!subpagesOnly && kinds.some((k) => !loader.loaded[k] && loader.loadingKind[k])
-	)
+	const rootLoading = $derived(kinds.some((k) => !loader.loaded[k] && loader.loadingKind[k]))
 </script>
 
 {#snippet leafIcon(leaf: DrillLeaf<PreviewTarget>)}
