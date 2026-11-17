@@ -197,6 +197,19 @@ export const WORKSPACE_SETTINGS_SECTION_GROUPS: {
 	}
 ]
 
+/** Older `tab` values that open a section under another id. */
+const SECTION_ALIASES: Record<string, string> = {
+	teams: 'slack',
+	success_handler: 'error_handler',
+	// The Deployment UI tab was folded into Dev workspace; its links keep working.
+	deploy_to: 'dev_workspace'
+}
+
+/** The section a `tab` query value opens. */
+export function workspaceSettingsSectionId(tab: string): string {
+	return SECTION_ALIASES[tab] ?? tab
+}
+
 /** The sections as picker subpages, each a link to `/workspace_settings?tab=<id>`. */
 export function workspaceSettingsSubpages(currentTab?: string): PageHeaderSubpage[] {
 	return WORKSPACE_SETTINGS_SECTION_GROUPS.flatMap((group) =>

@@ -29,7 +29,10 @@
 	import ForkMemberSettings from '$lib/components/settings/ForkMemberSettings.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import MemberWorkspaceSettings from '$lib/components/settings/MemberWorkspaceSettings.svelte'
-	import { WORKSPACE_SETTINGS_SECTION_GROUPS } from '$lib/components/workspaceSettings/workspaceSettingsSections'
+	import {
+		WORKSPACE_SETTINGS_SECTION_GROUPS,
+		workspaceSettingsSectionId
+	} from '$lib/components/workspaceSettings/workspaceSettingsSections'
 	import {
 		OauthService,
 		SlackAgentsService,
@@ -598,19 +601,12 @@
 			| 'dependencies'
 			| 'rulesets'
 			| 'shared_ui'
-		// Both 'slack' and 'teams' URLs map to 'slack' tab
-		if (selectedTab === 'teams') {
-			return 'slack'
-		}
-		// Both 'success_handler' and 'error_handler' URLs map to 'error_handler' tab
-		if (selectedTab === 'success_handler') {
-			return 'error_handler'
-		}
-		// The Deployment UI tab was folded into Dev workspace; keep its links working.
-		if (selectedTab === 'deploy_to') {
-			return 'dev_workspace'
-		}
-		return selectedTab || 'users'
+		return selectedTab
+			? (workspaceSettingsSectionId(selectedTab) as Exclude<
+					typeof selectedTab,
+					'teams' | 'success_handler' | 'deploy_to'
+				>)
+			: 'users'
 	})
 
 	let slack_tabs: 'slack_commands' | 'teams_commands' = $derived(

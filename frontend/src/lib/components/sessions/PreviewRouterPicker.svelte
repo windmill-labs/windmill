@@ -285,7 +285,9 @@ section or the flat layout.
 			label: leaf.label,
 			icon: leaf.icon,
 			plainLabel: true,
-			children: subpageLeaves
+			// Search reads leaves only, so each pane carries its page's name for the page to be
+			// found by it.
+			children: subpageLeaves.map((l) => ({ ...l, searchableText: `${l.label} ${p.label}` }))
 		}
 	}
 

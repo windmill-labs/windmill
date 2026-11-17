@@ -32,6 +32,7 @@
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { WORKSPACE_SETTINGS_PATH } from '$lib/components/sessions/previewPaths'
+	import { workspaceSettingsSectionId } from '$lib/components/workspaceSettings/workspaceSettingsSections'
 	import PreviewRouterPicker, {
 		type Scope
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
@@ -824,7 +825,7 @@
 	function sectionQuery(path: string): string {
 		if (currentPage?.path !== WORKSPACE_SETTINGS_PATH) return ''
 		const tab = new URL(path, window.location.origin).searchParams.get('tab')
-		return tab ? `?tab=${tab}` : ''
+		return tab ? `?tab=${workspaceSettingsSectionId(tab)}` : ''
 	}
 	let activeTabPickerOpen = $state(false)
 	/** Measured width of the floating action controls, reserved as the tab strip's right
