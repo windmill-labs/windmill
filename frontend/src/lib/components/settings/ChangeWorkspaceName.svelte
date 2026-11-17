@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, usersWorkspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import Button from '../common/button/Button.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
@@ -38,6 +38,7 @@
 
 		sendUserToast(`Changed workspace name to ${newName}`)
 		getWorkspaceName()
+		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 	}
 </script>
 
