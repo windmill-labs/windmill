@@ -85,7 +85,8 @@
 
 	let css = $state(initCss($app.css?.selecttabcomponent, untrack(() => customCss)))
 	$effect.pre(() => {
-		selected === '' && resolvedConfig.defaultValue && untrack(() => setDefaultValue())
+		// Not gated on an empty selection: once a tab is selected, the default would stop being tracked.
+		resolvedConfig.defaultValue && untrack(() => setDefaultValue())
 	})
 	$effect.pre(() => {
 		selected && untrack(() => handleSelection(selected))
