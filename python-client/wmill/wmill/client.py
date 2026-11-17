@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import datetime as dt
+from email.utils import parsedate_to_datetime
 import functools
 from io import BufferedReader, BytesIO
 import logging
@@ -129,7 +130,12 @@ class Windmill:
             if resp.status_code not in (429, 502, 503, 504) or attempt == 3:
                 break
             retry_after = resp.headers.get("Retry-After", "")
-            time.sleep(min(int(retry_after), 60) if retry_after.isdigit() else 2**attempt)
+            try:  # delay-seconds or an HTTP-date
+                when = parsedate_to_datetime(retry_after) if not retry_after.isdigit() else None
+                delay = int(retry_after) if when is None else (when - dt.datetime.now(dt.timezone.utc)).total_seconds()
+            except (TypeError, ValueError):
+                delay = 2**attempt
+            time.sleep(min(max(delay, 0), 60))
         if raise_for_status:
             try:
                 resp.raise_for_status()
