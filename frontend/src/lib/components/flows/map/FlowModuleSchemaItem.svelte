@@ -65,7 +65,11 @@
 		icon?: import('svelte').Snippet
 		onTestUpTo?: ((id: string) => void) | undefined
 		inputTransform?: Record<string, any> | undefined
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) => void
+		onUpdateMock?: (mock: {
+			enabled: boolean
+			return_value?: unknown
+			preview_only?: boolean
+		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
@@ -296,7 +300,12 @@
 					</div>
 					{#snippet text()}
 						{s.tooltip}
-						<span class={s.summary.mono ? 'font-mono' : ''}>· {s.summary.text}</span>
+						{#if s.key === 'retries' && retries}
+							· {retries} failed attempt{retries === 1 ? '' : 's'} · up to
+						{:else}
+							·
+						{/if}
+						<span class={s.summary.mono ? 'font-mono' : ''}>{s.summary.text}</span>
 					{/snippet}
 				</Popover>
 			{/each}

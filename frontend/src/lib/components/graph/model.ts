@@ -60,6 +60,8 @@ export type GraphModuleState = {
 	flow_jobs?: string[]
 	iteration_total?: number
 	retries?: number
+	/** Job ids of the failed attempts, `retries` of them. */
+	failed_retries?: string[]
 	duration_ms?: number
 	started_at?: number
 	suspend_count?: number
