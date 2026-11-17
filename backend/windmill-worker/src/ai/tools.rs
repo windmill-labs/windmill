@@ -1460,14 +1460,14 @@ async fn add_tool_message_to_chat(
 
     let chat_enabled = ctx
         .flow_context
-        .flow_status
+        .run_status
         .as_ref()
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
     if chat_enabled {
         if let Some(memory_id) = ctx
             .flow_context
-            .flow_status
+            .run_status
             .as_ref()
             .and_then(|fs| fs.memory_id)
         {
