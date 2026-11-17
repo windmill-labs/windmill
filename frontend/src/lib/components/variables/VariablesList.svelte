@@ -203,7 +203,8 @@
 			apiParams.value = currentFilters.value
 		}
 		if (currentFilters.owner) {
-			apiParams.pathStart = currentFilters.owner
+			// Without the slash, f/ops would also match f/ops_eu.
+			apiParams.pathStart = currentFilters.owner + '/'
 		}
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_
