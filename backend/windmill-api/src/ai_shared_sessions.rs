@@ -95,6 +95,9 @@ struct SharedSessionListItem {
     /// The author's own session id, which means nothing to anyone else: sent to its author only.
     #[serde(skip_serializing_if = "Option::is_none")]
     session_id: Option<String>,
+    /// When the caller last opened someone else's share: what dates it in their list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    opened_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -246,8 +249,8 @@ async fn get_share_status(
 
 const LIST_LIMIT: i64 = 500;
 
-/// The caller's own shares and the ones they opened by link, newest first and without their
-/// snapshot. A share nobody sent the caller stays out of their list.
+/// The caller's own shares and the ones they opened by link, most recently shared or opened
+/// first and without their snapshot. A share nobody sent the caller stays out of their list.
 async fn list_shared_sessions(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -256,11 +259,11 @@ async fn list_shared_sessions(
     require_plain_user_token(&authed)?;
     let rows = sqlx::query!(
         "SELECT s.id, s.session_id, s.email, s.name, s.is_public, s.message_count, s.created_by,
-                s.shared_at
+                s.shared_at, o.opened_at AS \"opened_at?\"
          FROM ai_shared_session s
          LEFT JOIN ai_shared_session_opened o ON o.share_id = s.id AND o.email = $2
          WHERE s.workspace_id = $1 AND (s.email = $2 OR o.share_id IS NOT NULL)
-         ORDER BY s.shared_at DESC
+         ORDER BY COALESCE(o.opened_at, s.shared_at) DESC
          LIMIT $3",
         &w_id,
         &authed.email,
@@ -276,6 +279,7 @@ async fn list_shared_sessions(
                 SharedSessionListItem {
                     mine,
                     session_id: mine.then_some(row.session_id),
+                    opened_at: if mine { None } else { row.opened_at },
                     info: SharedSessionInfo {
                         id: row.id,
                         name: row.name,

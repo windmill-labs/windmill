@@ -15396,8 +15396,9 @@ paths:
     get:
       summary: list the caller's shared AI sessions
       description: >
-        The caller's own shares and the ones they opened by link, newest first, without their
-        snapshot. Capped at 500. `session_id` is set on the caller's own shares only.
+        The caller's own shares and the ones they opened by link, most recently shared or opened
+        first, without their snapshot. Capped at 500. `session_id` is set on the caller's own
+        shares only, `opened_at` on the others.
       operationId: listSharedAiSessions
       tags:
         - ai
@@ -15419,6 +15420,10 @@ paths:
                           type: boolean
                         session_id:
                           type: string
+                        opened_at:
+                          type: string
+                          format: date-time
+                          description: when the caller last opened this share by link
                       required:
                         - mine
 

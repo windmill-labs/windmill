@@ -205,7 +205,10 @@
 					if (s.mine) return false
 					if (s.id === activeSharedId) return true
 					if (lastActivityDays.val === 0) return true
-					return Date.parse(s.shared_at) >= clock - lastActivityDays.val * 24 * 60 * 60 * 1000
+					return (
+						Date.parse(s.opened_at ?? s.shared_at) >=
+						clock - lastActivityDays.val * 24 * 60 * 60 * 1000
+					)
 				})
 	)
 
@@ -754,8 +757,9 @@
 	}
 
 	function focusAt(index: number) {
+		// Shared rows are links, the reader's own sessions buttons: both are rows.
 		const buttons = listRoot
-			? Array.from(listRoot.querySelectorAll<HTMLButtonElement>('button[data-session-button]'))
+			? Array.from(listRoot.querySelectorAll<HTMLElement>('[data-session-button]'))
 			: []
 		if (buttons.length === 0) return
 		const wrapped = ((index % buttons.length) + buttons.length) % buttons.length
@@ -767,10 +771,10 @@
 			return
 		}
 		const buttons = listRoot
-			? Array.from(listRoot.querySelectorAll<HTMLButtonElement>('button[data-session-button]'))
+			? Array.from(listRoot.querySelectorAll<HTMLElement>('[data-session-button]'))
 			: []
 		if (buttons.length === 0) return
-		const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+		const current = buttons.indexOf(document.activeElement as HTMLElement)
 		e.preventDefault()
 		if (e.key === 'ArrowDown') focusAt(current < 0 ? 0 : current + 1)
 		else if (e.key === 'ArrowUp') focusAt(current < 0 ? buttons.length - 1 : current - 1)
