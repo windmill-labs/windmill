@@ -38,6 +38,7 @@ async fn run_by_path_of_a_missing_script_uses_one_connection(db: Pool<Postgres>)
         folders: &folders,
         scopes: &None,
         token_prefix: &None,
+        capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
     };
     let lookup = windmill_common::get_latest_deployed_hash_for_path(
         Some(UserDbWithAuthed { authed: &authed, db: UserDB::new(one.clone()) }),

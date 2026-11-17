@@ -1,6 +1,6 @@
 use sqlx::{Acquire, PgConnection, PgExecutor, Pool, Postgres, Transaction};
 
-use crate::audit::AuditAuthor;
+use crate::{audit::AuditAuthor, roles::RoleCapabilities};
 
 pub type DB = Pool<Postgres>;
 
@@ -22,6 +22,8 @@ pub struct Authed {
     pub token_prefix: Option<String>,
     /// See `ApiAuthed::mcp_client`.
     pub mcp_client: Option<String>,
+    /// See `ApiAuthed::capabilities`.
+    pub capabilities: Option<RoleCapabilities>,
 }
 
 impl Authed {
@@ -35,6 +37,7 @@ impl Authed {
             folders: &self.folders,
             scopes: &self.scopes,
             token_prefix: &self.token_prefix,
+            capabilities: self.capabilities,
         }
     }
 }
@@ -50,6 +53,7 @@ pub struct AuthedRef<'a> {
     pub folders: &'a Vec<(String, bool, bool)>,
     pub scopes: &'a Option<Vec<String>>,
     pub token_prefix: &'a Option<String>,
+    pub capabilities: Option<RoleCapabilities>,
 }
 
 impl Authable for AuthedRef<'_> {
@@ -64,6 +68,9 @@ impl Authable for AuthedRef<'_> {
     }
     fn is_operator(&self) -> bool {
         *self.is_operator
+    }
+    fn capabilities(&self) -> Option<RoleCapabilities> {
+        self.capabilities
     }
     fn groups(&self) -> &[String] {
         self.groups
@@ -86,6 +93,9 @@ pub trait Authable {
     fn username(&self) -> &str;
     fn is_admin(&self) -> bool;
     fn is_operator(&self) -> bool;
+    /// The role's capabilities as read for the request, `None` if they were not read. Read them
+    /// through `roles::caller_capabilities`, never directly.
+    fn capabilities(&self) -> Option<RoleCapabilities>;
     fn groups(&self) -> &[String];
     fn folders(&self) -> &[(String, bool, bool)];
     fn scopes(&self) -> Option<&[String]>;
@@ -98,6 +108,10 @@ impl Authable for Authed {
 
     fn is_operator(&self) -> bool {
         self.is_operator
+    }
+
+    fn capabilities(&self) -> Option<RoleCapabilities> {
+        self.capabilities
     }
 
     fn groups(&self) -> &[String] {
