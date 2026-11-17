@@ -509,6 +509,24 @@
 		)
 	}
 
+	// What a row's title shows besides its summary, so the search finds a trigger by it too.
+	function address(row: TriggerRow): string {
+		switch (triggerKind) {
+			case 'http':
+				return `${row.http_method?.toUpperCase()} /${row.route_path}`
+			case 'websocket':
+				return row.url ?? ''
+			case 'kafka':
+				return `${row.kafka_resource_path} - ${row.topics?.join(', ')}`
+			case 'nats':
+				return `${row.nats_resource_path} - ${row.subjects?.join(', ')}`
+			case 'email':
+				return emailAddress(row)
+			default:
+				return ''
+		}
+	}
+
 	function websocketUrl(url: string) {
 		return url.startsWith('$script:')
 			? 'URL: ' + url.replace('$script:', 'result of script ')
@@ -876,7 +894,7 @@
 	{filter}
 	items={preFilteredItems}
 	bind:filteredItems
-	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
+	f={(x) => (x.summary ?? '') + ' ' + address(x) + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
 {#if operatorBlocked}
