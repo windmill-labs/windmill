@@ -1045,4 +1045,30 @@ export const label = "pkg@1.2.3";
             ]
         );
     }
+
+    #[test]
+    fn test_parse_deno_sig_jsdoc_param_descriptions() {
+        let code = r#"
+/**
+ * Greets someone.
+ * @param {string} name - Who to greet
+ * @param [times=1] How many
+ *   times to say it
+ * @param missing Not a parameter
+ * @returns nothing
+ */
+export async function main(name: string, times = 1, tags: string | string[], plain: string) {}
+"#;
+        let sig = parse_deno_signature(code, false, false, None).unwrap();
+        let otyps: Vec<_> = sig.args.iter().map(|a| a.otyp.as_deref()).collect();
+        assert_eq!(
+            otyps,
+            vec![
+                Some("Who to greet"),
+                Some("How many times to say it"),
+                Some("string | string[]"),
+                None
+            ]
+        );
+    }
 }
