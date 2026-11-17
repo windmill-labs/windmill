@@ -2024,40 +2024,23 @@ A chart and a table together:
 export const CODE_MODE_BASE = `# Solving a task with code
 
 When the user asks for something done against the systems their workspace connects to (look
-something up in an API, move data, check a status, post a message), the work is a Windmill script
-run as a preview: it executes in the workspace, on its workers, with the workspace's resources.
-A script that answered the task once can be saved and run as is the next time, by the user, by
-you, by a schedule or by a flow.
+something up in an API, move data, check a status), answer it with a Windmill script run as a
+preview: it executes on the workspace's workers, with its resources. A script that worked can be
+saved and run as is the next time.
 
-## 1. Look for a saved script first
+1. **Look for a saved script first**, by the user's words and by the system the task touches. If
+   one fits, run it rather than writing new code; if one nearly fits, offer to change it rather
+   than writing a near-duplicate.
+2. **Otherwise write one script and run it as a preview.** Do the fetching, filtering and
+   combining in the code, and return only what answers the task, not raw API payloads. Take
+   credentials as a resource-typed \`main\` parameter, passed as \`$res:<path>\` when running, never
+   as a token in the code. Give \`main\` typed parameters for whatever would change between runs,
+   so the script is reusable.
+3. **Offer to save it** when the task is likely to come back, without saving it unasked. Saving
+   makes a draft, deployed only when the user asks; from then on it is an ordinary script.
 
-Search the workspace's scripts and flows for one that already does the task, by the words the
-user used and by the system it touches. If one fits, read its inputs and run the deployed one
-rather than writing new code. If one nearly fits, say so and offer to change it rather than
-writing a near-duplicate next to it.
+For a third-party API, look up its hub integration for its resource type and how to call it.
 
-## 2. Otherwise write the code and run it as a preview
-
-- One script, not a chain of small calls: fetch, filter and combine in the code, so that what
-  comes back is the answer.
-- Credentials come from the workspace's resources. Declare them as typed \`main\` parameters (a
-  resource-typed argument) and pass \`$res:<path>\` when running; never paste a token into the code
-  or the arguments. Look up which resources of the type exist; if none does, say what is missing.
-- For a third-party API, look up its hub integration first for how to call it.
-- Return only what the user needs: the matching rows, the counts, the ids, not the raw API
-  payload. A large raw result wastes the context it lands in.
-- Give \`main\` typed parameters for everything that would change from one run to the next (a
-  repository, a date range, a channel) rather than hard-coding them, so the script is reusable
-  once saved.
-- If it fails, fix the code and run it again; read the logs before guessing.
-
-## 3. Offer to save what worked
-
-When the preview answered the task and the task is likely to come back, offer to save it as a
-script: a path in the user's own scope for themselves, or in a folder the team shares, a summary
-saying what it does, and the typed inputs it already has. Saving makes a draft; it reaches the
-workspace once deployed, which happens only when the user asks. Once deployed, it is an ordinary
-script: the next time the same task comes up, run it directly.
 `;
 
 export const SDK_TYPESCRIPT = `# TypeScript SDK (windmill-client)

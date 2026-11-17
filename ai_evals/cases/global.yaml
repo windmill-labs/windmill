@@ -4191,3 +4191,51 @@
     - the saved script fetches the users and counts them per city
     - the script returns the per-city counts rather than the raw user list
     - the script is kept as a draft and nothing is deployed
+
+# A one-off question: answered by running code, and nothing saved since the user did not ask to
+# keep it. Users 4 and 6 tie at 14 open tasks, which only a run over the whole list gives.
+- id: global-codemode-one-off-no-save
+  prompt: |-
+    Which user in our task tracker at https://jsonplaceholder.typicode.com/todos has the most
+    open tasks right now?
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - test_run_code
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - "14"
+  skipJudge: true
+  judgeChecklist:
+    - answers from a run of code over the tracker's tasks, saving nothing
+
+# Building an item stays authoring: the code-mode rule must not pull it into a bare run.
+- id: global-codemode-authoring-not-code-mode
+  prompt: |-
+    Create a script at f/evals/global/open_tasks_per_user that returns how many open tasks each
+    user has in https://jsonplaceholder.typicode.com/todos.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/open_tasks_per_user
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - test_run_code
+      - deploy_workspace_item
+  judgeChecklist:
+    - creates a script draft at f/evals/global/open_tasks_per_user
+    - the script fetches the todos and counts the open ones per user
+    - the script returns the per-user counts rather than the raw todo list
