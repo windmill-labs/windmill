@@ -422,7 +422,9 @@ section or the flat layout.
 	// (artifacts hydrate from IndexedDB after tabs restore), and the drill entries
 	// fill in reactively once it does.
 	// Not gated on the branch being listed yet: the page permissions that list it can still be
-	// loading when the picker opens, and the scope is read only then.
+	// loading when the picker opens, and the scope is read only then. Once they show the page is
+	// not this user's (a fork owner on its Members section), the picker reopens on Pages rather
+	// than inside a branch that is not listed, which would show nothing.
 	const subpageBranchKey = untrack(() =>
 		subpages && subpageLeaves.some((l) => l.key === initialHighlight)
 			? pageKey(subpages.path)
@@ -436,6 +438,14 @@ section or the flat layout.
 				: initialHighlight && isPageKey(initialHighlight)
 					? ['pages']
 					: legacyScopeToPath(initialScope, kinds, 'flat')
+	)
+
+	const subpagePage = $derived(PREVIEW_PAGES.find((p) => p.path === subpages.path))
+	const subpagesDenied = $derived(
+		!!subpageBranchKey &&
+			permissions.settled &&
+			!!subpagePage &&
+			!permissions.pageAllowed(subpagePage)
 	)
 
 	// The flat root has no branch to carry a per-kind loading flag — surface
@@ -459,27 +469,29 @@ section or the flat layout.
 	{/if}
 {/snippet}
 
-<DrillPicker
-	bind:this={inner}
-	{tree}
-	onPick={(leaf) => pick(leaf.data)}
-	initialScope={computedInitialScope}
-	{initialHighlight}
-	{externalFilter}
-	{autoFocus}
-	{flush}
-	{leafIcon}
-	{branchIcon}
-	leafSecondary={(leaf, scope) =>
-		leaf.data.type === 'item'
-			? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data.item), scope)
-			: undefined}
-	onScopeChange={(scope) => {
-		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
-	}}
-	onFilterChange={loader.onFilterChange}
-	leafAction={editAction}
-	leafBadge={stateBadge}
-	leafHref={targetHref ? (leaf) => targetHref(leaf.data) : undefined}
-	{rootLoading}
-/>
+{#key subpagesDenied}
+	<DrillPicker
+		bind:this={inner}
+		{tree}
+		onPick={(leaf) => pick(leaf.data)}
+		initialScope={subpagesDenied ? ['pages'] : computedInitialScope}
+		{initialHighlight}
+		{externalFilter}
+		{autoFocus}
+		{flush}
+		{leafIcon}
+		{branchIcon}
+		leafSecondary={(leaf, scope) =>
+			leaf.data.type === 'item'
+				? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data.item), scope)
+				: undefined}
+		onScopeChange={(scope) => {
+			if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
+		}}
+		onFilterChange={loader.onFilterChange}
+		leafAction={editAction}
+		leafBadge={stateBadge}
+		leafHref={targetHref ? (leaf) => targetHref(leaf.data) : undefined}
+		{rootLoading}
+	/>
+{/key}
