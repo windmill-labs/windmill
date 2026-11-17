@@ -123,7 +123,13 @@ class Windmill:
             HTTP response object
         """
         endpoint = endpoint.lstrip("/")
-        resp = self.client.get(f"/{endpoint}", **kwargs)
+        # a burst of requests can be answered 429/502-504; a GET is safe to repeat, a POST is not
+        for attempt in range(4):
+            resp = self.client.get(f"/{endpoint}", **kwargs)
+            if resp.status_code not in (429, 502, 503, 504) or attempt == 3:
+                break
+            retry_after = resp.headers.get("Retry-After", "")
+            time.sleep(min(int(retry_after), 60) if retry_after.isdigit() else 2**attempt)
         if raise_for_status:
             try:
                 resp.raise_for_status()
