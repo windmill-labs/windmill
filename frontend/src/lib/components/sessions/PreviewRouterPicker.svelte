@@ -52,6 +52,8 @@ section or the flat layout.
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import type { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import type { PageHeaderSubpage } from '$lib/components/pageHeaderRegistry.svelte'
+	import { WORKSPACE_SETTINGS_PATH } from './previewPaths'
+	import { workspaceSettingsSubpages } from '$lib/components/workspaceSettings/workspaceSettingsSections'
 
 	type Kind = WorkspaceItemKind
 	type DrillPickerHandle = {
@@ -83,7 +85,8 @@ section or the flat layout.
 		/** Where picking a target navigates, for a host whose pick is a navigation; rows then
 		 * open in a new tab on middle and ⌘/Ctrl-click. */
 		targetHref?: (target: PreviewTarget) => string | undefined
-		/** The panes of the page at `path`, which Pages then lists as a branch of them. */
+		/** The panes of the page at `path`, which Pages then lists as a branch of them. Defaults
+		 * to the workspace settings sections, which a host outside that page cannot read from it. */
 		subpages?: { path: string; pages: PageHeaderSubpage[] }
 	}
 
@@ -99,8 +102,11 @@ section or the flat layout.
 		artifacts,
 		chat,
 		targetHref,
-		subpages
+		subpages: subpagesProp
 	}: Props = $props()
+	const subpages = $derived(
+		subpagesProp ?? { path: WORKSPACE_SETTINGS_PATH, pages: workspaceSettingsSubpages() }
+	)
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
 	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
@@ -263,7 +269,7 @@ section or the flat layout.
 			key: pageKey(sp.href),
 			label: sp.label,
 			section: sp.group,
-			current: sp.current,
+			current: sp.current || pageKey(sp.href) === initialHighlight,
 			disabled: sp.disabled,
 			plainLabel: true,
 			data: { type: 'page', href: sp.href, label: sp.label }

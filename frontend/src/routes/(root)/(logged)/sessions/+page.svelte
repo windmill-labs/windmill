@@ -31,6 +31,7 @@
 	import { cubicOut } from 'svelte/easing'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { WORKSPACE_SETTINGS_PATH } from '$lib/components/sessions/previewPaths'
 	import PreviewRouterPicker, {
 		type Scope
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
@@ -814,11 +815,17 @@
 		parsedRoute
 			? leafKeyFor(parsedRoute.kind, parsedRoute.itemPath)
 			: currentPage
-				? pageKey(currentPage.path)
+				? pageKey(currentPage.path + sectionQuery(displayPath))
 				: activeArtifact
 					? artifactKey(activeArtifact.id)
 					: undefined
 	)
+	// A workspace settings section is a subpage of its own in the picker, keyed with its `tab`.
+	function sectionQuery(path: string): string {
+		if (currentPage?.path !== WORKSPACE_SETTINGS_PATH) return ''
+		const tab = new URL(path, window.location.origin).searchParams.get('tab')
+		return tab ? `?tab=${tab}` : ''
+	}
 	let activeTabPickerOpen = $state(false)
 	/** Measured width of the floating action controls, reserved as the tab strip's right
 	 * padding so tabs stop before them instead of scrolling underneath. */
