@@ -79,6 +79,7 @@ Required in `handler_ee.rs`:
   - `const TABLE_NAME`, `ADDITIONAL_SELECT_FIELDS`
   - `get_deployed_object`, `validate_config`, `create_trigger`, `update_trigger`, `delete_trigger`, `test_connection`
   - `additional_routes` (optional — mount extra endpoints for things like ARM resource listing, topic discovery)
+  - `config_runnables` — required if the config names a script or flow the listener runs (as the WebSocket URL resolver does): it returns them so a save's Hub check sees them. The default returns none, which leaves such a path unchecked.
 
 Register the crate in `backend/Cargo.toml` as a workspace member and as a dep of `windmill-api` behind the feature flag.
 
