@@ -327,17 +327,20 @@
 		cache: latestRequest(),
 		states: latestRequest(),
 		theme: latestRequest(),
-		types: latestRequest()
+		types: latestRequest(),
+		counts: latestRequest()
 	}
 
 	async function loadResources(): Promise<void> {
-		const [result, counts] = await Promise.all([
-			loadResourceInternal('workspace', undefined, 'cache,state,app_theme'),
-			ResourceService.listResourceCountsByType({ workspace: $operatingWorkspace! }).catch(() => [])
-		])
-		if (!result) return
-		resources = result
-		resourceCounts = Object.fromEntries(counts.map((c) => [c.resource_type, c.count]))
+		const isLatestCount = loads.counts.start()
+		ResourceService.listResourceCountsByType({ workspace: $operatingWorkspace! })
+			.catch(() => [])
+			.then((counts) => {
+				if (isLatestCount())
+					resourceCounts = Object.fromEntries(counts.map((c) => [c.resource_type, c.count]))
+			})
+		const result = await loadResourceInternal('workspace', undefined, 'cache,state,app_theme')
+		if (result) resources = result
 	}
 
 	async function loadCache(): Promise<void> {
