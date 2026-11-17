@@ -312,8 +312,9 @@
 		}
 
 		isHubScript = false
+		let loaded: Script
 		try {
-			script = await ScriptService.getScriptByHash({
+			loaded = await ScriptService.getScriptByHash({
 				workspace: workspace!,
 				hash,
 				withStarredInfo: true,
@@ -321,12 +322,12 @@
 			})
 		} catch {
 			try {
-				script = await ScriptService.getScriptByPath({
+				loaded = await ScriptService.getScriptByPath({
 					workspace: workspace!,
 					path: hash,
 					withStarredInfo: true
 				})
-				hash = script.hash
+				hash = loaded.hash
 			} catch (e) {
 				// A path with no deployed script 404s here, which is the normal state of a
 				// draft the user has not deployed — the host says so rather than the page
@@ -336,6 +337,20 @@
 				return
 			}
 		}
+		// Set together with `script`: an archived script whose `topHash` is not known yet renders
+		// as an archived path, so an older version would show the "Archived" alert until it is.
+		let nextTopHash: string | undefined = undefined
+		if (loaded.path && loaded.archived) {
+			const script_by_path = await ScriptService.getScriptByPath({
+				workspace: workspace!,
+				path: loaded.path
+			}).catch((_) => console.error('this script has no non-archived version'))
+			if (script_by_path?.hash != loaded.hash) {
+				nextTopHash = script_by_path?.hash
+			}
+		}
+		script = loaded
+		topHash = nextTopHash
 		// A carried non-template value equal to the resolution of the script's own dynamic
 		// tag for these args is not an override but the previous run's pinned resolution:
 		// drop it so the backend re-resolves from the (possibly edited) args. A differing
@@ -354,17 +369,6 @@
 		}
 		loadTriggers(script.path)
 
-		if (script.path && script.archived) {
-			const script_by_path = await ScriptService.getScriptByPath({
-				workspace: workspace!,
-				path: script.path
-			}).catch((_) => console.error('this script has no non-archived version'))
-			if (script_by_path?.hash != script.hash) {
-				topHash = script_by_path?.hash
-			}
-		} else {
-			topHash = undefined
-		}
 		intervalId && clearInterval(intervalId)
 		deploymentInProgress = script.lock == undefined && script.lock_error_logs == undefined
 		if (deploymentInProgress) {
