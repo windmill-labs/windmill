@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { FileText } from 'lucide-svelte'
+	import { Drawer, DrawerContent } from '$lib/components/common'
+	import type { PersistedArtifact } from '$lib/components/copilot/chat/artifacts/artifactsDB'
+	import SharedSessionStatusBar from './SharedSessionStatusBar.svelte'
 	import AIChatMessage from '$lib/components/copilot/chat/AIChatMessage.svelte'
 	import ToolGroupDisplay from '$lib/components/copilot/chat/ToolGroupDisplay.svelte'
 	import ArtifactBody from '$lib/components/copilot/chat/artifacts/ArtifactBody.svelte'
@@ -14,25 +15,28 @@
 	interface Props {
 		snapshot: SessionSnapshot
 		workspace: string
+		/** See SharedSessionStatusBar. */
+		draftAuthor?: string
 	}
 
-	let { snapshot, workspace }: Props = $props()
+	let { snapshot, workspace, draftAuthor }: Props = $props()
 
 	let openArtifactId: string | undefined = $state(undefined)
 	let drawer: Drawer | undefined = $state(undefined)
 
 	// Built once: the page remounts this component for another share.
 	const initial = untrack(() => ({ snapshot, workspace }))
+	const artifacts: PersistedArtifact[] = initial.snapshot.artifacts.map((a) => ({
+		...a,
+		sessionId: '',
+		createdAt: 0,
+		updatedAt: a.updatedAt ?? 0
+	}))
 	setChatViewHost(
 		readOnlyChatViewHost({
 			messages: initial.snapshot.messages,
 			workspace: initial.workspace,
-			artifacts: initial.snapshot.artifacts.map((a) => ({
-				...a,
-				sessionId: '',
-				createdAt: 0,
-				updatedAt: 0
-			})),
+			artifacts,
 			openArtifact: (id) => showArtifact(id)
 		})
 	)
@@ -79,35 +83,33 @@
 	{@render messageRow(message, messageIndex, true)}
 {/snippet}
 
-{#if snapshot.artifacts.length > 0}
-	<!-- The transcript only links plan documents; every other artifact is reached from here. -->
-	<div class="mb-4 flex flex-wrap items-center gap-2 px-2">
-		<span class="text-xs font-semibold text-emphasis">Artifacts</span>
-		{#each snapshot.artifacts as artifact (artifact.id)}
-			<Button
-				unifiedSize="sm"
-				variant="default"
-				startIcon={{ icon: FileText }}
-				onClick={() => showArtifact(artifact.id)}
-			>
-				{artifact.name}
-			</Button>
+<!-- Fills its container so the bar rests at the bottom under a short transcript, where the live
+     session keeps it above the composer, and sticks there under a long one. -->
+<div class="flex min-h-full flex-1 flex-col">
+	<div class="flex flex-1 flex-col pb-2">
+		{#each chatItems as item (chatItemKey(item))}
+			{#if item.kind === 'group'}
+				<div class="mb-1 min-w-0 text-sm px-2 text-primary">
+					<div class="px-[1px]">
+						<ToolGroupDisplay group={item} entry={groupRow} />
+					</div>
+				</div>
+			{:else}
+				{@render messageRow(item.message, item.index, false)}
+			{/if}
 		{/each}
 	</div>
-{/if}
 
-<div class="flex flex-col pb-2">
-	{#each chatItems as item (chatItemKey(item))}
-		{#if item.kind === 'group'}
-			<div class="mb-1 min-w-0 text-sm px-2 text-primary">
-				<div class="px-[1px]">
-					<ToolGroupDisplay group={item} entry={groupRow} />
-				</div>
-			</div>
-		{:else}
-			{@render messageRow(item.message, item.index, false)}
-		{/if}
-	{/each}
+	<!-- The transcript only links plan documents, so every other artifact is reached from here. -->
+	<div class="sticky bottom-0 bg-surface pb-2 pt-1">
+		<SharedSessionStatusBar
+			edits={snapshot.edits}
+			editsWorkspace={snapshot.editsWorkspace}
+			{draftAuthor}
+			{artifacts}
+			openArtifact={(a) => showArtifact(a.id)}
+		/>
+	</div>
 </div>
 
 <Drawer bind:this={drawer} size="900px">

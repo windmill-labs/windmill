@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { page } from '$app/state'
 	import { resource } from 'runed'
-	import { Globe, Link2Off, LogIn, MessagesSquare, Users } from 'lucide-svelte'
-	import { Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
+	import { Globe, Users } from 'lucide-svelte'
+	import { Badge, Button } from '$lib/components/common'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
-	import SharedSessionTranscript from '$lib/components/sessions/SharedSessionTranscript.svelte'
-	import { readSessionSnapshot } from '$lib/components/sessions/sessionSharing'
+	import SharedSessionBody from '$lib/components/sessions/SharedSessionBody.svelte'
+	import { useSharedSession } from '$lib/components/sessions/sharedSession.svelte'
+	import { sharedSessionAppHref } from '$lib/components/sessions/sessionSharing'
 	import { applyDarkModeVariant } from '$lib/darkModeVariant'
-	import { AiService } from '$lib/gen'
+	import { UserService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
 	import { displayDate } from '$lib/utils'
 
 	// Reached without signing in when the share is public, so this page sets up what the
@@ -27,52 +27,23 @@
 		$workspaceStore = workspace
 	})
 
-	type Loaded =
-		| {
-				state: 'found'
-				session: Awaited<ReturnType<typeof AiService.getSharedAiSession>>
-				snapshot: ReturnType<typeof readSessionSnapshot>
-		  }
-		| { state: 'gone' }
-		| { state: 'signin' }
-		| { state: 'error'; message: string }
-
-	const shared = resource(
-		() => ({ workspace, id }),
-		async ({ workspace, id }): Promise<Loaded | undefined> => {
-			if (!workspace || !id) return undefined
-			try {
-				const session = await AiService.getSharedAiSession({ workspace, id })
-				return { state: 'found', session, snapshot: readSessionSnapshot(session.snapshot) }
-			} catch (err) {
-				const status = (err as { status?: number })?.status
-				if (status === 401) return { state: 'signin' }
-				// A malformed id is a 400 from the path extractor, and means the same to the reader.
-				if (status === 404 || status === 400) return { state: 'gone' }
-				return { state: 'error', message: String((err as { body?: unknown })?.body ?? err) }
-			}
+	// A member reads the share inside the app. Asked before the snapshot is fetched, so a member
+	// does not download it twice; a full load, so this page's image policy stays behind.
+	const member = resource(
+		() => workspace,
+		async (workspace) => {
+			if (!workspace) return undefined
+			const isMember = await UserService.whoami({ workspace }).then(
+				() => true,
+				() => false
+			)
+			if (isMember) window.location.replace(sharedSessionAppHref(workspace, id))
+			return isMember
 		}
 	)
 
-	const found = $derived(shared.current?.state === 'found' ? shared.current : undefined)
-	const loginHref = $derived(
-		`/user/login?rd=${encodeURIComponent(page.url.pathname + page.url.search)}`
-	)
-
-	let removing = $state(false)
-	async function stopSharing() {
-		if (!found) return
-		removing = true
-		try {
-			await AiService.unshareAiSession({ workspace, id: found.session.id })
-			shared.mutate({ state: 'gone' })
-			sendUserToast('Stopped sharing: the link no longer opens')
-		} catch (err) {
-			sendUserToast(`Could not stop sharing: ${(err as { body?: unknown })?.body ?? err}`, true)
-		} finally {
-			removing = false
-		}
-	}
+	const shared = useSharedSession(() => (member.current === false ? { workspace, id } : undefined))
+	const found = $derived(shared.found)
 </script>
 
 <!-- The transcript is its author's text, rendered to whoever holds the link: an image in it
@@ -109,8 +80,8 @@
 						unifiedSize="sm"
 						variant="default"
 						destructive
-						loading={removing}
-						onClick={stopSharing}
+						loading={shared.removing}
+						onClick={shared.stopSharing}
 					>
 						Stop sharing
 					</Button>
@@ -121,37 +92,7 @@
 		</div>
 	</div>
 
-	<div class="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
-		{#if found}
-			{#if found.snapshot.messages.length > 0}
-				{#key found.session.id}
-					<SharedSessionTranscript snapshot={found.snapshot} {workspace} />
-				{/key}
-			{:else}
-				<EmptyState icon={MessagesSquare} title="This session has no messages" />
-			{/if}
-		{:else if shared.current?.state === 'signin'}
-			<EmptyState
-				icon={LogIn}
-				title="Sign in to read this session"
-				description="It is shared with the members of {workspace} only."
-			>
-				<Button variant="accent" unifiedSize="md" href={loginHref}>Sign in</Button>
-			</EmptyState>
-		{:else if shared.current?.state === 'gone'}
-			<EmptyState
-				icon={Link2Off}
-				title="This shared session is not available"
-				description="Its author stopped sharing it, or it is shared with another workspace's members only."
-			/>
-		{:else if shared.current?.state === 'error'}
-			<EmptyState
-				icon={Link2Off}
-				title="Could not load this shared session"
-				description={shared.current.message}
-			/>
-		{:else}
-			<Skeleton layout={[[3], 1, [30]]} />
-		{/if}
+	<div class="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pt-6">
+		<SharedSessionBody loaded={shared.current} {workspace} />
 	</div>
 </div>

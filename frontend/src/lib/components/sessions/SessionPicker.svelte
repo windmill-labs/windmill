@@ -24,8 +24,16 @@
 		PencilLine,
 		Plus,
 		Rows3,
+		Link2,
+		Share2,
 		Trash2
 	} from 'lucide-svelte'
+	import {
+		SHARED_SESSIONS_FILTER_OPTIONS,
+		useSharedSessionsList,
+		type SharedSessionsFilter
+	} from './sharedSessionsList.svelte'
+	import { sharedSessionAppHref } from './sessionSharing'
 	import { twMerge } from 'tailwind-merge'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
@@ -118,10 +126,19 @@
 		return () => clearInterval(handle)
 	})
 
+	// A share's page is under /sessions too, and shows none of the reader's own sessions.
+	const SHARED_PAGE_PREFIX = '/sessions/shared/'
+	const onSharedPage = $derived(page.url.pathname.startsWith(SHARED_PAGE_PREFIX))
+	const activeSharedId = $derived(
+		onSharedPage
+			? decodeURIComponent(page.url.pathname.slice(SHARED_PAGE_PREFIX.length))
+			: undefined
+	)
+
 	// The row the page is showing: the open session on its page, the draft in Home's
 	// composer on Home. Elsewhere `currentSessionId` lingers but no row is selected.
 	const activeRowId = $derived(
-		page.url.pathname.startsWith('/sessions')
+		page.url.pathname.startsWith('/sessions') && !onSharedPage
 			? sessionState.currentSessionId
 			: page.url.pathname === '/'
 				? homeDraft.id
@@ -170,6 +187,28 @@
 	const groupBy = useLocalStorageValue<GroupBy>('windmill_sessions_group_by', 'none', 'string')
 	let listRoot: HTMLDivElement | undefined = $state()
 
+	// Other members' shares, listed after the reader's own sessions; the reader's own shares mark
+	// their session's row instead.
+	const sharedFilter = useLocalStorageValue<SharedSessionsFilter>(
+		'windmill_sessions_shared_filter',
+		'show',
+		'string'
+	)
+	const sharedList = useSharedSessionsList(() => $currentWorkspaceRootId ?? $workspaceStore)
+	const mySharedSessionIds = $derived(
+		new Set(sharedList.items.flatMap((s) => (s.mine && s.session_id ? [s.session_id] : [])))
+	)
+	const sharedWithMe = $derived(
+		sharedFilter.val === 'hide'
+			? []
+			: sharedList.items.filter((s) => {
+					if (s.mine) return false
+					if (s.id === activeSharedId) return true
+					if (lastActivityDays.val === 0) return true
+					return Date.parse(s.shared_at) >= clock - lastActivityDays.val * 24 * 60 * 60 * 1000
+				})
+	)
+
 	// A session's family root: the stored grouping id, else derived live.
 	function sessionRootOf(s: Session): string | undefined {
 		return (
@@ -189,6 +228,7 @@
 			// The row on screen always stays in the list, ignoring every filter.
 			if (s.id === activeRowId) return true
 			if (s.archived && !showArchived.val) return false
+			if (sharedFilter.val === 'only' && !mySharedSessionIds.has(s.id)) return false
 			if (lastActivityDays.val > 0) {
 				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
 				if (sessionLastActivityAt(s) < cutoff) return false
@@ -552,6 +592,17 @@
 					selected: lastActivityDays.val === o.days,
 					keepOpen: inFlyout,
 					action: () => (lastActivityDays.val = o.days)
+				}))
+			},
+			{
+				displayName: 'Shared sessions',
+				icon: Share2,
+				extra: sharedFilterHint,
+				submenuItems: SHARED_SESSIONS_FILTER_OPTIONS.map((o) => ({
+					displayName: o.label,
+					selected: sharedFilter.val === o.value,
+					keepOpen: inFlyout,
+					action: () => (sharedFilter.val = o.value)
 				}))
 			},
 			{
@@ -965,8 +1016,11 @@
 							<span class={rail ? 'sr-only' : 'truncate flex-1'}
 								>{session.summary ?? 'Untitled session'}</span
 							>
-							{#if !rail && (draft || unread > 0)}
+							{#if !rail && (draft || unread > 0 || mySharedSessionIds.has(session.id))}
 								<span class="shrink-0 inline-flex items-center gap-1">
+									{#if mySharedSessionIds.has(session.id)}
+										<Link2 class="w-3 h-3 text-tertiary" aria-label="Shared by link" />
+									{/if}
 									{#if draft}
 										<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
 									{/if}
@@ -1151,6 +1205,45 @@
 						{@render sessionRow(session, group.showHeader, undefined)}
 					{/each}
 				{/each}
+				{#if sharedWithMe.length > 0 && !selecting}
+					<div
+						class={twMerge(
+							'flex flex-row items-center pl-2 pr-0.5 pt-2 pb-1 min-w-0',
+							displayGroups.length > 0 ? 'mt-4' : '',
+							rail ? 'invisible' : ''
+						)}
+					>
+						<span class="text-secondary text-3xs truncate min-w-0">Shared with you</span>
+					</div>
+					{#each sharedWithMe as shared (shared.id)}
+						{@const isActive = shared.id === activeSharedId}
+						<a
+							href={sharedSessionAppHref(
+								$currentWorkspaceRootId ?? $workspaceStore ?? '',
+								shared.id
+							)}
+							data-session-button
+							role="option"
+							aria-selected={isActive}
+							title={rail ? shared.name : `Shared by ${shared.created_by}`}
+							class={twMerge(
+								'flex flex-row items-center gap-2 rounded text-left text-xs font-normal focus:outline-none min-w-0 px-2 h-6',
+								isActive
+									? `${sidebarClasses.selectedBg} ${sidebarClasses.selectedText}`
+									: 'text-secondary hover:bg-surface-hover',
+								displayGroups.some((g) => g.showHeader) ? 'pl-3' : ''
+							)}
+						>
+							<Share2 class="w-3 h-3 shrink-0 text-tertiary" aria-hidden="true" />
+							<span class={rail ? 'sr-only' : 'truncate flex-1'}>{shared.name}</span>
+							{#if !rail}
+								<span class="shrink-0 truncate max-w-20 text-2xs text-hint">
+									{shared.created_by}
+								</span>
+							{/if}
+						</a>
+					{/each}
+				{/if}
 			{/if}
 		</div>
 		<!-- Outside the listbox, so arrow keys move through sessions only. -->
@@ -1289,6 +1382,12 @@
 		{LAST_ACTIVITY_OPTIONS.find((o) => o.days === lastActivityDays.val)?.hint ?? ''}
 	</span>
 {/snippet}
+{#snippet sharedFilterHint()}
+	<span class="text-2xs text-tertiary">
+		{SHARED_SESSIONS_FILTER_OPTIONS.find((o) => o.value === sharedFilter.val)?.hint ?? ''}
+	</span>
+{/snippet}
+
 {#snippet groupByHint()}
 	<span class="text-2xs text-tertiary whitespace-nowrap">
 		{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}

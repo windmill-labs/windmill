@@ -197,6 +197,21 @@ export function badgeCounts(items: DeployItem[]): Record<BadgeKind, number> {
 	return out
 }
 
+/** The bar's edits token: drafts while any is pending, else the deployed count. */
+export function editsToken(counts: Record<BadgeKind, number>): { label: string; class: string } {
+	return counts.draft > 0
+		? {
+				label: `${counts.draft} draft${counts.draft === 1 ? '' : 's'}`,
+				class:
+					'!bg-indigo-100 !text-indigo-800 hover:!bg-indigo-200 dark:!bg-indigo-700/40 dark:!text-indigo-100 dark:hover:!bg-indigo-600/40'
+			}
+		: {
+				label: `${counts.deployed} deployed`,
+				class:
+					'!bg-green-100 !text-green-700 hover:!bg-green-200 dark:!bg-green-700/40 dark:!text-green-100 dark:hover:!bg-green-600/40'
+			}
+}
+
 // ── Action ──────────────────────────────────────────────────────────────────
 
 export type DeployOp = 'deploy_draft' | 'discard' | 'none'

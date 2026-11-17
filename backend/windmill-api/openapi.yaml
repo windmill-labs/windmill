@@ -15392,6 +15392,36 @@ paths:
                   share:
                     $ref: "#/components/schemas/SharedAiSessionInfo"
 
+  /w/{workspace}/ai/shared_sessions/list:
+    get:
+      summary: list the caller's shared AI sessions
+      description: >
+        The caller's own shares and the ones they opened by link, newest first, without their
+        snapshot. Capped at 500. `session_id` is set on the caller's own shares only.
+      operationId: listSharedAiSessions
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/SharedAiSessionInfo"
+                    - type: object
+                      properties:
+                        mine:
+                          type: boolean
+                        session_id:
+                          type: string
+                      required:
+                        - mine
+
   /w/{workspace}/ai/shared_sessions/set_public/{id}:
     post:
       summary: make a shared AI session public, or reserve it to workspace members
@@ -15454,6 +15484,7 @@ paths:
                     required:
                       - snapshot
                       - can_unshare
+                      - mine
                     properties:
                       snapshot:
                         type: object
@@ -15461,6 +15492,33 @@ paths:
                       can_unshare:
                         type: boolean
                         description: whether the caller authored the share or is a workspace admin
+                      mine:
+                        type: boolean
+                        description: whether the caller authored the share
+
+  /w/{workspace}/ai/shared_sessions/opened/{id}:
+    delete:
+      summary: remove a shared AI session from the caller's list
+      description: >
+        The share stays readable by link; opening it again lists it again.
+      operationId: forgetOpenedAiSession
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: removed from the list
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/ai/shared_sessions/delete/{id}:
     delete:
