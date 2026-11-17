@@ -2426,10 +2426,10 @@
 		</Button>
 
 		<!-- A past attempt is viewed on its own: an attempt of a subflow step is a flow whose
-		     steps share ids with this flow's, so its states must not reach this graph. -->
+		     steps share ids with this flow's, so neither its states nor its loop selections
+		     (kept in the top states) may reach this graph. -->
 		<div class="border p-6" class:hidden={selectedAttempt != failedRetry}>
 			<FlowStatusViewerInner
-				topModuleStates={getTopModuleStates}
 				{refreshGlobal}
 				isSelectedBranch={isSelectedBranch && selectedAttempt == failedRetry}
 				{updateGlobalRefresh}
