@@ -593,12 +593,15 @@ export async function putSession(s: Session): Promise<void> {
 	ensureSessionRootId(s)
 	const db = await sessionsDb.whenReady()
 	if (!db) return
-	const row = $state.snapshot(s)
 	try {
-		await putSessionRow(db, row)
+		await putSessionRow(db, $state.snapshot(s))
 	} catch (e) {
 		if (isQuotaError(e) && (await makeRoom())) {
-			await putSessionRow(db, row).catch((err) => console.error('Failed to persist session', err))
+			// Snapshot again: a newer save of `s` may have landed while room was made, and the
+			// first snapshot would overwrite it.
+			await putSessionRow(db, $state.snapshot(s)).catch((err) =>
+				console.error('Failed to persist session', err)
+			)
 		} else {
 			console.error('Failed to persist session', e)
 		}
