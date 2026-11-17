@@ -216,14 +216,6 @@ export const artifactTools: SessionTool<{}>[] = [
 				}
 			}
 			const { artifact } = result
-			// Another tab stored a later version on top of this one before it reached the store.
-			if (result.outcome === 'saved' && result.version < currentVersion(artifact)) {
-				return fail(
-					toolCallbacks,
-					toolId,
-					`Your edit to "${artifact.name}" was saved as version ${result.version}, and another tab has since saved version ${currentVersion(artifact)} on top of it. Read it with read_artifact and check that your change is there before editing it again.`
-				)
-			}
 			h.openArtifact?.(artifact.id, artifact.name)
 			toolCallbacks.setToolStatus(toolId, {
 				content:

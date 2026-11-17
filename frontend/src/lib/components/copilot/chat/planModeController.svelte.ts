@@ -220,11 +220,6 @@ export class PlanModeController {
 			if (result.outcome === 'unstored') return { error: PLAN_MODE_MESSAGES.planNotStored }
 			if (result.outcome !== 'saved' && result.outcome !== 'unchanged') return unsaved
 			const plan = result.artifact
-			if (result.outcome === 'saved' && result.version < currentVersion(plan)) {
-				return {
-					error: PLAN_MODE_MESSAGES.stalePlan(currentVersion(plan), result.version)
-				}
-			}
 			const version = currentVersion(plan)
 			// The write stands either way; only what the user would *see* is held back, so a
 			// session swapped in mid-save gets neither another session's plan nor a dead card.

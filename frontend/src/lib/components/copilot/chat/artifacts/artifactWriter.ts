@@ -40,8 +40,7 @@ export interface WriteScope {
 }
 
 export type WriteResult =
-	/** Stored as `version`. `artifact` is this browser's copy, past `version` when another tab
-	 * stored a later version before this write reached the store. */
+	/** Stored as `version`; `artifact` is the row this write stored. */
 	| { outcome: 'saved'; artifact: PersistedArtifact; version: number }
 	/** The change leaves the artifact as it was. */
 	| { outcome: 'unchanged'; artifact: PersistedArtifact }
