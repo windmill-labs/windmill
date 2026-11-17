@@ -116,9 +116,9 @@
 				<TestingBadge />
 			{/if}
 		{/snippet}
-		{#if !userCanEditConfig && isDraftOnly}
+		{#if actingUser && !userCanEditConfig}
 			<Alert type="info" title="Admin only" collapsible size="xs">
-				Email triggers can only be edited by workspace admins
+				The local part and workspace prefix can only be changed by workspace admins
 			</Alert>
 			<div class="my-2"></div>
 		{/if}

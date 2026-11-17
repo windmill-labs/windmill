@@ -510,6 +510,35 @@
 		)
 	}
 
+	// What a row's title shows besides its summary, so the search finds a trigger by it too.
+	function address(row: TriggerRow): string {
+		switch (triggerKind) {
+			case 'http':
+				return httpRoute(row)
+			case 'websocket': {
+				const url = row.url ?? ''
+				const label = websocketUrl(url)
+				return label === url ? url : `${label} ${url}`
+			}
+			case 'kafka':
+				return `${row.kafka_resource_path} - ${row.topics?.join(', ')}`
+			case 'nats':
+				return `${row.nats_resource_path} - ${row.subjects?.join(', ')}`
+			case 'email':
+				return emailAddress(row)
+			default:
+				return ''
+		}
+	}
+
+	function httpRoute(row: TriggerRow) {
+		return `${row.http_method?.toUpperCase()} /${
+			isCloudHosted() || row.workspaced_route || globalHttpWorkspacedRoute
+				? row.workspace_id + '/' + row.route_path
+				: row.route_path
+		}`
+	}
+
 	function websocketUrl(url: string) {
 		return url.startsWith('$script:')
 			? 'URL: ' + url.replace('$script:', 'result of script ')
@@ -537,10 +566,7 @@
 			{#if row.summary}
 				{row.summary}
 			{:else}
-				{row.http_method!.toUpperCase()}
-				/{isCloudHosted() || row.workspaced_route || globalHttpWorkspacedRoute
-					? row.workspace_id + '/' + row.route_path
-					: row.route_path}
+				{httpRoute(row)}
 			{/if}
 		{:else if triggerKind === 'websocket'}
 			{websocketUrl(row.url!)}
@@ -877,7 +903,7 @@
 	{filter}
 	items={preFilteredItems}
 	bind:filteredItems
-	f={(x) => (x.summary ?? '') + ' ' + x.path + ' (' + x.script_path + ')'}
+	f={(x) => (x.summary ?? '') + ' ' + address(x) + ' ' + x.path + ' (' + x.script_path + ')'}
 />
 
 {#if operatorBlocked}
