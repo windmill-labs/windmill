@@ -790,6 +790,7 @@
 							hideHeader
 							hideModeSelector
 							wideLayout
+							stickyUserMessage
 							initialInstructions={draftText}
 							onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 							initialAttachments={armedAtInit ? undefined : getSessionDraftAttachments(sessionId)}

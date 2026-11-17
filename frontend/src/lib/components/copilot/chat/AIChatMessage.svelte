@@ -187,6 +187,7 @@
 					     files to go out). -->
 					{#if message.content.trim() !== ''}
 						<div
+							data-user-bubble={messageIndex}
 							class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg relative group break-words"
 						>
 							{#each segments(messageDraft(message)) as seg}{#if seg.type === 'text'}<span

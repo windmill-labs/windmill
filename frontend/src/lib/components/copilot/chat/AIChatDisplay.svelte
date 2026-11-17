@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createBottomSticker } from '$lib/components/stickToBottom'
 	import AIChatMessage from './AIChatMessage.svelte'
+	import { messageDraft, segments } from './chatDraft'
+	import { lineCountLabel } from './pasteTokens'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ChatContextPicker from './ChatContextPicker.svelte'
 	import WorkspaceMentionPicker from './WorkspaceMentionPicker.svelte'
@@ -134,7 +136,8 @@
 		onAttachmentsChange = undefined,
 		placeholder = undefined,
 		scrollElement = $bindable(),
-		onTranscriptScroll = undefined
+		onTranscriptScroll = undefined,
+		stickyUserMessage = false
 	}: {
 		messages: DisplayMessage[]
 		pastChats: { id: string; title: string }[]
@@ -182,6 +185,9 @@
 		 * needs it to measure and restore the scroll position. */
 		scrollElement?: HTMLDivElement | undefined
 		onTranscriptScroll?: () => void
+		/** Pin a one-line copy of the user message whose turn is being read to the
+		 * transcript's top, once the message itself has scrolled out above it. */
+		stickyUserMessage?: boolean
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
@@ -224,7 +230,6 @@
 	// A swap the key misses (two chats opening with the same message) keeps the previous chat's
 	// count: clamped so that count can never hide the tail, though a low one mounts more than needed.
 	const shownFrom = $derived(Math.min(hiddenHead, Math.max(0, chatItems.length - TAIL_ITEMS)))
-	const shownItems = $derived(shownFrom > 0 ? chatItems.slice(shownFrom) : chatItems)
 
 	function chatItemStart(item: (typeof chatItems)[number]): number {
 		return item.kind === 'group' ? (item.entries[0]?.index ?? 0) : item.index
@@ -313,10 +318,74 @@
 		sticker.scrollToEnd(scrollElement)
 	}
 
+	// Each turn (a user message and what follows it, up to the next one) is its own box, so a
+	// sticky copy of its user message stays inside it and the next turn pushes it out.
+	// Turns are keyed over the whole transcript so the one cut by `shownFrom` keeps its key, and
+	// its box, as older items are revealed into it.
+	const turns = $derived.by(() => {
+		const out: { key: string; items: typeof chatItems }[] = []
+		chatItems.forEach((item, i) => {
+			const startsTurn = item.kind === 'message' && item.message.role === 'user'
+			if (out.length === 0 || (stickyUserMessage && startsTurn)) {
+				out.push({ key: chatItemKey(item), items: [] })
+			}
+			if (i >= shownFrom) out[out.length - 1].items.push(item)
+		})
+		return out.filter((turn) => turn.items.length > 0)
+	})
+	function userMessageText(message: DisplayMessage): string {
+		return segments(messageDraft(message))
+			.map((seg) => (seg.type === 'text' ? seg.value : `Pasted ${lineCountLabel(seg.att.lines)}`))
+			.join('')
+	}
+	// The sticky copy stays invisible until the real bubble reaches it: the copy sticks 16px
+	// earlier (the message's top margin), so at the hand-over both sit on the same pixels.
+	let pinnedUserIndex = $state(-1)
+	// The message's wrapper always follows its sticky copy (see `messageRow`). A message being
+	// edited has no bubble, so its own top stands in: its turn stays measured and keeps its copy.
+	function anchorOf(sticky: HTMLElement): Element | null | undefined {
+		const message = sticky.nextElementSibling
+		return message?.querySelector('[data-user-bubble]') ?? message?.firstElementChild
+	}
+	function measurePinnedUserMessage() {
+		if (!stickyUserMessage || !scrollElement) return
+		let pinned = -1
+		const stickies = scrollElement.querySelectorAll<HTMLElement>('[data-sticky-user]')
+		const top = scrollElement.getBoundingClientRect().top
+		for (const sticky of Array.from(stickies)) {
+			const message = sticky.nextElementSibling
+			const bubble = message?.querySelector('[data-user-bubble]')
+			const anchor = bubble ?? message?.firstElementChild
+			if (!anchor) continue
+			const stickyRect = sticky.getBoundingClientRect()
+			// An editor's root can start level with the copy (the first message has no top
+			// margin), so it counts only once it has slid under it.
+			const under = bubble
+				? anchor.getBoundingClientRect().top <= stickyRect.top + 0.5
+				: anchor.getBoundingClientRect().top < stickyRect.top - 0.5
+			if (!under) break
+			// A copy its turn has pushed out above the transcript pins nothing: a following turn
+			// without a copy of its own (attachments only) gets the normal top fade back.
+			pinned = stickyRect.bottom > top ? Number(sticky.dataset.stickyUser) : -1
+		}
+		pinnedUserIndex = pinned
+	}
+	function scrollToUserMessage(event: MouseEvent) {
+		const sticky = (event.currentTarget as HTMLElement).closest<HTMLElement>('[data-sticky-user]')
+		const anchor = sticky && anchorOf(sticky)
+		if (!scrollElement || !sticky || !anchor) return
+		const offset = anchor.getBoundingClientRect().top - sticky.getBoundingClientRect().top - 16
+		scrollElement.scrollBy({ top: offset, behavior: 'smooth' })
+	}
+
 	let height = $state(0)
 	$effect(() => {
 		if (chatHost.automaticScroll && height) {
 			scrollDown()
+		}
+		// Content growing or shrinking moves the user messages without a scroll event.
+		if (height) {
+			measurePinnedUserMessage()
 		}
 		// Recompute the scroll-to-latest visibility on every content-height
 		// change. `onScroll` only fires for actual scroll events, so without
@@ -346,6 +415,7 @@
 		// whose only event would otherwise be swallowed, leaving the arrow
 		// stuck visible after we already reached the bottom.
 		showScrollToLatest = distance > SCROLL_TO_LATEST_THRESHOLD_PX
+		measurePinnedUserMessage()
 		if (sticker.isOwnScroll()) {
 			return
 		}
@@ -1027,39 +1097,77 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/if}
 							</p>
 						{/if}
-						<AIChatMessage
-							{message}
-							{messageIndex}
-							{availableContext}
-							bind:editingMessageIndex
-							{isLast}
-							{inGroup}
-							showAnswerActions={showsAnswerActions[messageIndex]}
-						/>
+						{@const hasStickyCopy =
+							stickyUserMessage && message.role === 'user' && message.content.trim() !== ''}
+						{#if hasStickyCopy}
+							{@const pinned = pinnedUserIndex === messageIndex}
+							<!-- Keeps its full height (the bubble's one line) inside the turn, so the turn's
+							     end pushes it out; the message below takes that height back with -mt-8. -->
+							<div
+								class="sticky top-0 z-10 h-8 px-2 bg-surface pointer-events-none"
+								class:invisible={!pinned}
+								data-sticky-user={messageIndex}
+							>
+								<!-- The transcript's top fade moves under the pinned row: a solid band up to
+								     the scroller's edge above it, the gradient below it. -->
+								<div class="absolute inset-x-0 bottom-full h-4 bg-surface"></div>
+								<div
+									class="absolute inset-x-0 top-full h-4 bg-gradient-to-b from-surface to-transparent"
+								></div>
+								<div class="w-fit max-w-[min(32rem,100%)] rounded-lg bg-surface">
+									<button
+										type="button"
+										class="block w-full text-left text-xs font-normal px-3 py-2 bg-surface-accent-selected text-accent rounded-lg"
+										class:pointer-events-auto={pinned}
+										title="Scroll to this message"
+										onclick={scrollToUserMessage}
+									>
+										<span class="line-clamp-1 whitespace-pre-wrap break-words"
+											>{userMessageText(message)}</span
+										>
+									</button>
+								</div>
+							</div>
+						{/if}
+						<div class={twMerge('flex flex-col min-w-0', hasStickyCopy && '-mt-8')}>
+							<AIChatMessage
+								{message}
+								{messageIndex}
+								{availableContext}
+								bind:editingMessageIndex
+								{isLast}
+								{inGroup}
+								showAnswerActions={showsAnswerActions[messageIndex]}
+							/>
+						</div>
 					{/snippet}
 					{#snippet groupRow(message: DisplayMessage, messageIndex: number)}
 						{@render messageRow(message, messageIndex, false, true)}
 					{/snippet}
-					{#each shownItems as item (chatItemKey(item))}
-						{#if item.kind === 'group'}
-							<div
-								class={twMerge(
-									'mb-2 min-w-0 text-sm px-2 text-primary',
-									item.entries.at(-1)?.index === messages.length - 1 && '!mb-12'
-								)}
-							>
-								<div class="px-[1px]">
-									<ToolGroupDisplay group={item} entry={groupRow} />
-								</div>
-							</div>
-						{:else}
-							{@render messageRow(
-								item.message,
-								item.index,
-								item.index === messages.length - 1,
-								false
-							)}
-						{/if}
+					{#each turns as turn (turn.key)}
+						<div class="flex flex-col min-w-0">
+							{#each turn.items as item (chatItemKey(item))}
+								{#if item.kind === 'group'}
+									<div
+										class={twMerge(
+											'mb-2 min-w-0 text-sm px-2 text-primary',
+											item.entries.at(-1)?.index === messages.length - 1 && '!mb-12'
+										)}
+									>
+										<div class="px-[1px]">
+											<ToolGroupDisplay group={item} entry={groupRow} />
+										</div>
+									</div>
+								{:else}
+									{@render messageRow(
+										item.message,
+										item.index,
+										item.index === messages.length - 1,
+										false
+									)}
+								{/if}
+							{/each}
+						</div>
 					{/each}
 					{#if freeTierExhausted}
 						{@render freeTierExhaustedBanner()}
@@ -1092,7 +1200,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				</div>
 			</div>
 			<!-- Sits below the scroll-to-latest button, which carries z-10. -->
-			<ScrollFade scroller={scrollElement} />
+			<ScrollFade scroller={scrollElement} class={pinnedUserIndex >= 0 ? 'hidden' : ''} />
 			{#if showScrollToLatest}
 				<div
 					transition:fade={{ duration: 120 }}
