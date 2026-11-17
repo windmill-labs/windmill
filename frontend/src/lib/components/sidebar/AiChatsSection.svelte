@@ -97,7 +97,9 @@
 						class={twMerge(
 							// shrink-0: in the capped list a row would otherwise shrink to its content,
 							// which is shorter in the rail, where it has no label.
-							'flex flex-row items-center gap-2 px-2 h-6 shrink-0 rounded text-xs font-normal min-w-0',
+							'flex flex-row items-center gap-2 h-6 shrink-0 rounded text-xs font-normal min-w-0',
+							// The icons are under the rail's 16px, so they are centered rather than padded.
+							rail ? 'justify-center px-0' : 'px-2',
 							selected
 								? twMerge(sidebarClasses.selectedBg, sidebarClasses.selectedText)
 								: 'text-secondary hover:bg-surface-hover'

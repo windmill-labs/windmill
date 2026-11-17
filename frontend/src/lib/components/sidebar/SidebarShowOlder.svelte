@@ -28,7 +28,9 @@
 	aria-label={label}
 	aria-expanded={expanded}
 	onClick={onToggle}
-	btnClasses="justify-start px-2 font-normal text-tertiary hover:text-secondary"
+	btnClasses="{rail
+		? 'justify-center px-0'
+		: 'justify-start px-2'} font-normal text-tertiary hover:text-secondary"
 >
 	{label}
 </Button>
