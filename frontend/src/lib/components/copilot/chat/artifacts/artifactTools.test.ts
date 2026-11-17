@@ -286,6 +286,21 @@ describe('artifact tools', () => {
 		expect(JSON.parse(await ctx.call('read_artifact', { id: a.id, version: 2 })).content).toBe('v2')
 	})
 
+	it('refuses an edit made after reading an older version until the latest is read', async () => {
+		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'v1' }))
+		const edit = (content: string) =>
+			ctx.call('update_artifact', { id: a.id, content, change_note: 'Edited' })
+		await edit('v2')
+		await ctx.call('read_artifact', { id: a.id, version: 1 })
+
+		const stale = JSON.parse(await edit('v1, edited'))
+		expect(stale.success).toBe(false)
+		expect(stale.error).toContain('now version 2')
+
+		await ctx.call('read_artifact', { id: a.id })
+		expect(JSON.parse(await edit('v3')).success).toBe(true)
+	})
+
 	it('stores an overlong change note truncated rather than failing the update', async () => {
 		const a = JSON.parse(await ctx.call('create_artifact', { name: 'A', content: 'v1' }))
 		const res = JSON.parse(

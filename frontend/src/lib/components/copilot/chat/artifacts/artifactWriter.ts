@@ -211,10 +211,12 @@ function revise(
 		...existing,
 		name: change.name,
 		content: change.content,
-		// Carried by a change of the text only: a rename would otherwise promote a proposal the
-		// user turned down.
+		// A rename carries it only from the latest version: renaming a proposal the user turned
+		// down would otherwise promote it.
 		approvedVersion:
-			change.keepApproved && textChanged && existing.approvedVersion !== undefined
+			change.keepApproved &&
+			existing.approvedVersion !== undefined &&
+			(textChanged || existing.approvedVersion === currentVersion(existing))
 				? version
 				: existing.approvedVersion,
 		updatedAt: Date.now(),

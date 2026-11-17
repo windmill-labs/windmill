@@ -94,9 +94,32 @@ export class SessionArtifactsStore {
 		return sortByUpdatedDesc(await listArtifactsForSession(sessionId))
 	}
 
-	/** Record that `chatId` read the latest text of `artifact`: its next change is made on it. */
-	markRead(chatId: string | undefined, artifact: PersistedArtifact): void {
-		if (chatId) this.#seen.set(`${chatId}/${artifact.id}`, currentVersion(artifact))
+	/** Record that `chatId` read version `version` of `artifact`, by default its latest: its next
+	 * change is made on it. */
+	markRead(
+		chatId: string | undefined,
+		artifact: PersistedArtifact,
+		version = currentVersion(artifact)
+	): void {
+		if (chatId) this.#seen.set(`${chatId}/${artifact.id}`, version)
+	}
+
+	/** The latest version of the session's plan when it is past the one `chatId` last read or
+	 * wrote, so a proposal made now would be refused as stale. */
+	async stalePlanVersion(
+		sessionId: string,
+		chatId: string | undefined
+	): Promise<number | undefined> {
+		const row = await getArtifact(planArtifactId(sessionId))
+		if (!row) return undefined
+		const latest = currentVersion(row)
+		const madeOn = this.#madeOn(chatId, row.id) ?? 0
+		if (madeOn === latest) return undefined
+		// As a stale proposal is settled: the list shows the latest, and the chat stays on what it
+		// saw, or the newer row it now shows would pass for the one it read.
+		this.#reflect(row)
+		if (chatId) this.#seen.set(`${chatId}/${row.id}`, madeOn)
+		return latest
 	}
 
 	/** The version a chat's next change to an artifact is made on: the one it last read or wrote,

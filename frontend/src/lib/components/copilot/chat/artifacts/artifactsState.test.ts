@@ -352,6 +352,8 @@ describe('SessionArtifactsStore', () => {
 		const propose = () =>
 			store.proposePlan('s1', { name: 'Mine', content: 'mine', note: 'proposed' }, 'c1')
 
+		// What exit_plan_mode checks before its card agrees with what the save will answer.
+		expect(await store.stalePlanVersion('s1', 'c1')).toBe(1)
 		expect(await propose()).toMatchObject({ outcome: 'stale', latest: 1 })
 		// Absent from here, it would stay out of the preview, the transcript's plan card and
 		// list_artifacts until a reload.
@@ -361,6 +363,7 @@ describe('SessionArtifactsStore', () => {
 		expect(await propose()).toMatchObject({ outcome: 'stale', latest: 1 })
 
 		store.markRead('c1', store.artifacts[0])
+		expect(await store.stalePlanVersion('s1', 'c1')).toBeUndefined()
 		expect(await propose()).toMatchObject({ outcome: 'saved', version: 2 })
 	})
 
@@ -541,6 +544,10 @@ describe('SessionArtifactsStore', () => {
 			version: 4,
 			approvedVersion: 4
 		})
+		// A rename of the version the user approved is still that plan.
+		expect(
+			saved(await store.edit(plan.id, { name: 'Plan, renamed again', keepApproved: true }))
+		).toMatchObject({ version: 5, approvedVersion: 5 })
 	})
 })
 

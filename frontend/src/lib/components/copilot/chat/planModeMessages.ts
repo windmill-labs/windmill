@@ -28,6 +28,7 @@ export const PLAN_MODE_MESSAGES = {
 		"The plan was not put up for approval: this browser could not store the plan document, because its storage is full or unavailable. Plan mode remains active. Tell the user, so they can free up space in this browser's storage, then call exit_plan_mode again.",
 	// The plan document was revised in another tab: proposing the same text again would
 	// overwrite that revision.
+	stalePlanLabel: 'The plan was changed in another tab',
 	stalePlan: (latest: number) =>
 		`The plan document was changed in another tab (now version ${latest}), so your plan was not saved. Plan mode remains active. Read the plan document with read_artifact, fold your plan into it, and call exit_plan_mode again.`,
 	enterPrompt:

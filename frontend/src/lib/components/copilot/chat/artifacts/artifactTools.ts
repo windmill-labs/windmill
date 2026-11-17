@@ -301,6 +301,8 @@ export const artifactTools: SessionTool<{}>[] = [
 					toolCallbacks.setToolStatus(toolId, { content: error, error })
 					return JSON.stringify({ success: false, error })
 				}
+				// An edit drawn from this text is made on it, and must be refused as stale.
+				h.artifacts.markRead(h.getChatId?.(), artifact, snapshot.version)
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read artifact "${artifact.name}" (v${snapshot.version})`
 				})

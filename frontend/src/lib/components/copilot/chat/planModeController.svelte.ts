@@ -127,10 +127,25 @@ export class PlanModeController {
 		// rather than in `fn`, because `onConfirmationRequested` writes the document too — and
 		// under YOLO nothing asks: the tool would confer the user's approval on a plan no card
 		// ever showed them.
-		validateBeforeConfirmation: ({ args }) =>
-			this.#host.active
-				? exitPlanModeRejection(args)
-				: { label: PLAN_MODE_MESSAGES.endedLabel, result: PLAN_MODE_MESSAGES.ended },
+		validateBeforeConfirmation: async ({ args }) => {
+			if (!this.#host.active) {
+				return { label: PLAN_MODE_MESSAGES.endedLabel, result: PLAN_MODE_MESSAGES.ended }
+			}
+			const rejection = exitPlanModeRejection(args)
+			if (rejection) return rejection
+			// Before the card: once it is up, a refused save reaches the model only after the user
+			// answers it. A plan changed while the card is up is still refused by the save.
+			const { isSessionChat, sessionId, chatId } = this.#host
+			if (!isSessionChat || !sessionId) return undefined
+			const latest = await this.#host.artifacts
+				.stalePlanVersion(sessionId, chatId)
+				.catch(() => undefined)
+			if (latest === undefined) return undefined
+			return {
+				label: PLAN_MODE_MESSAGES.stalePlanLabel,
+				result: PLAN_MODE_MESSAGES.stalePlan(latest)
+			}
+		},
 		confirmationMessage: (args) => planSummaryOf(args) ?? PLAN_MODE_MESSAGES.exitPrompt,
 		cancellationMessage: PLAN_MODE_MESSAGES.exitDeclined,
 		showDetails: true,

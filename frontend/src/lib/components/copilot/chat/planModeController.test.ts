@@ -67,6 +67,7 @@ describe('PlanModeController', () => {
 				docs = [...docs, doc]
 				return { outcome: 'saved', artifact: doc, version: 1 }
 			}),
+			stalePlanVersion: vi.fn(async () => undefined),
 			approve: vi.fn(async (id: string, version: number) => {
 				const doc = docs.find((d) => d.id === id)
 				if (!doc) return false
@@ -141,6 +142,22 @@ describe('PlanModeController', () => {
 			'chat-1'
 		)
 		expect(docs[0]).toMatchObject({ version: 2, approvedVersion: 1 })
+	})
+
+	it('refuses a proposal before any card when the plan moved past what this chat saw', async () => {
+		artifacts.stalePlanVersion.mockResolvedValueOnce(3)
+		const rejection = await controller.exitTool.validateBeforeConfirmation?.({
+			args: { summary: '# Stale\n\nRetry.' },
+			workspace: 'w',
+			helpers: {}
+		})
+
+		expect(rejection).toEqual({
+			label: PLAN_MODE_MESSAGES.stalePlanLabel,
+			result: PLAN_MODE_MESSAGES.stalePlan(3)
+		})
+		expect(artifacts.stalePlanVersion).toHaveBeenCalledWith('session-1', 'chat-1')
+		expect(artifacts.proposePlan).not.toHaveBeenCalled()
 	})
 
 	it('moves to Build only after proposal and approval pointer are durable', async () => {
