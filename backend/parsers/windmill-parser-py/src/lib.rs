@@ -206,7 +206,9 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
 
     let filtered_code = filter_relevant_statements(code);
 
-    let ast = match parse_module(&filtered_code) {
+    // The line-based prefilter cuts a block at a column-0 line inside a multiline
+    // string (e.g. SQL in a triple-quoted literal), so fall back to the full source.
+    let ast = match parse_module(&filtered_code).or_else(|_| parse_module(code)) {
         Ok(parsed) => parsed.into_suite(),
         Err(_) => return CodeMetadata { enums, descriptions },
     };
@@ -1431,18 +1433,29 @@ def main(p: Point, name: str = "world"):
     #[test]
     fn test_parse_python_sig_async_main_docstring_args() -> anyhow::Result<()> {
         let code = r#"
-async def main(count: int = 1):
+from enum import Enum
+
+class Color(str, Enum):
+    RED = 'red'
+    GREEN = 'green'
+
+async def main(color: Color = Color.RED):
     """
     Args:
-        count: Number of items to process
+        color: Color to use
     """
-    return count
+    query = """
+SELECT 1
+"""
+    return query
 "#;
         let result = parse_python_signature(code, None, false)?;
+        assert_eq!(result.args[0].otyp, Some("Color to use".to_string()));
         assert_eq!(
-            result.args[0].otyp,
-            Some("Number of items to process".to_string())
+            result.args[0].typ,
+            Typ::Str(Some(vec!["red".to_string(), "green".to_string()]))
         );
+        assert_eq!(result.args[0].default, Some(json!("red")));
         Ok(())
     }
 }
