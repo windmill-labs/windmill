@@ -169,6 +169,7 @@
 					bind:this={historicInputs}
 					{runnableId}
 					{runnableType}
+					runnablePath={scriptPath || flowPath || undefined}
 					on:select={(e) => {
 						if (e.detail) savedInputsPicker?.resetSelected()
 						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)
