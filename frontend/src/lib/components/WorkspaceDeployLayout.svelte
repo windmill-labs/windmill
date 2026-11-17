@@ -16,7 +16,9 @@
 	interface DeployableItem {
 		key: string
 		path: string
-		kind: Kind
+		/** `agent`: a saved AI agent listed as an item of its own (the Hub publish flow),
+		 * rather than as the `ai_agent` resource it is stored as. */
+		kind: Kind | 'agent'
 		triggerKind?: string
 		[key: string]: unknown
 	}

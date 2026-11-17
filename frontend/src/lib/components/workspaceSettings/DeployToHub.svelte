@@ -10,6 +10,7 @@
 	import {
 		useDeployToHubSession,
 		canRecord,
+		canRecordConversation,
 		canRecordSession,
 		sanitizeSlug,
 		isValidSlug,
@@ -21,6 +22,7 @@
 	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
 	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
 	import RawAppRecordSession from './RawAppRecordSession.svelte'
+	import AgentRecordSession from './AgentRecordSession.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import {
 		ArrowLeft,
@@ -157,6 +159,7 @@
 	let recordDrawer = $state<Drawer | undefined>()
 	let appRecordDrawer = $state<Drawer | undefined>()
 	let appRecordTarget = $state<DeployItem | undefined>(undefined)
+	let agentRecordDrawer = $state<Drawer | undefined>()
 	let pipelinePreviewDrawer = $state<Drawer | undefined>()
 	// Inline pipeline graph above the item list, collapsed by default so the
 	// selection list stays the first thing in view.
@@ -191,6 +194,10 @@
 		appRecordDrawer?.openDrawer()
 	}
 
+	function openAgentRecord(it: DeployItem) {
+		deployHub.session?.openAgentRecord(it)
+		agentRecordDrawer?.openDrawer()
+	}
 	function openRecord(it: DeployItem) {
 		recordDrawer?.openDrawer()
 		void deployHub.session?.openRecord(it)
@@ -896,6 +903,31 @@
 							</Button>
 						{/if}
 					{/if}
+					{#if s.phase === 'draft' && canRecordConversation(it)}
+						{#if it.rec === 'recorded'}
+							<Badge color="green" size="xs">
+								<Check size={10} class="mr-0.5" />Recorded
+							</Badge>
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: RotateCcw }}
+								onclick={() => openAgentRecord(it)}
+							>
+								Re-record
+							</Button>
+						{:else}
+							<Badge color="yellow" size="xs">No recording</Badge>
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: Play }}
+								onclick={() => openAgentRecord(it)}
+							>
+								Record conversation
+							</Button>
+						{/if}
+					{/if}
 				{/snippet}
 
 				{#snippet footer()}
@@ -907,7 +939,7 @@
 						{:else if s.phase === 'draft'}
 							<span class="text-[11px] text-hint">
 								{#if s.allRecorded}
-									All scripts and flows have a recording — best chance of approval and featuring.
+									Every item has a recording — best chance of approval and featuring.
 								{:else}
 									{s.recordableItems.filter((i) => i.rec === 'recorded').length} of {s
 										.recordableItems.length}
@@ -1074,6 +1106,41 @@
 						</Button>
 					{/if}
 				{/snippet}
+			</DrawerContent>
+		</Drawer>
+
+		<Drawer bind:this={agentRecordDrawer} size="700px" on:close={s.closeAgentRecord}>
+			<DrawerContent
+				title={s.agentTarget
+					? `Record conversation — ${s.agentTarget.path}`
+					: 'Record conversation'}
+				on:close={() => agentRecordDrawer?.closeDrawer()}
+			>
+				<div class="flex h-full flex-col gap-2">
+					<span class="text-xs text-secondary">
+						Chat with the agent the way a visitor would. Each message runs it for real, in a
+						conversation of its own; the exchange and the tools it calls are replayed on the Hub
+						page.
+					</span>
+					{#if s.agentTarget}
+						{#key s.agentTarget.key}
+							<div class="min-h-0 flex-1">
+								<AgentRecordSession
+									turns={s.agentTurns}
+									pending={s.agentPending}
+									error={s.agentError}
+									saving={s.agentSaving}
+									onsend={(m) => s.sendAgentMessage(m)}
+									onsave={s.hubItemIds[s.agentTarget.key]
+										? async () => {
+												if (await s.saveAgentRecording()) agentRecordDrawer?.closeDrawer()
+											}
+										: undefined}
+								/>
+							</div>
+						{/key}
+					{/if}
+				</div>
 			</DrawerContent>
 		</Drawer>
 

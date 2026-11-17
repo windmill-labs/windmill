@@ -3,6 +3,8 @@ import {
 	classifyPath,
 	extractScriptRefs,
 	extractFlowRefs,
+	extractAgentRefs,
+	rewriteAgentValue,
 	extractAppRefs,
 	buildPathMap,
 	rewriteContent,
@@ -924,5 +926,141 @@ describe('textHoldsBarePath', () => {
 		['the same path inside a longer token', `"$res:${P}_prod"`, false]
 	])('%s', (_label, text, expected) => {
 		expect(textHoldsBarePath(text, P)).toBe(expected)
+	})
+})
+
+describe('saved AI agents', () => {
+	// An `ai_agent` resource value: a provider, a script tool with a fixed resource input, an
+	// inline tool reading a resource by token.
+	const value = {
+		provider: { kind: 'anthropic', model: 'claude', resource: '$res:u/admin/claude' },
+		system_prompt: 'You make videos. Never touch u/admin/helper yourself.',
+		memory: { kind: 'compaction' },
+		tools: [
+			{
+				id: 'a',
+				summary: 'make_video',
+				value: {
+					tool_type: 'flowmodule',
+					type: 'script',
+					path: 'u/admin/helper',
+					input_transforms: {
+						gh: { type: 'static', value: '$res:f/shared/api' },
+						name: { type: 'ai' }
+					}
+				}
+			},
+			{
+				id: 'b',
+				summary: 'lookup',
+				value: {
+					tool_type: 'flowmodule',
+					type: 'rawscript',
+					language: 'bun',
+					content: 'const db = "$res:u/admin/pg"',
+					input_transforms: {}
+				}
+			}
+		]
+	}
+
+	it('finds the scripts its tools run and every resource it reaches', () => {
+		expect(extractAgentRefs(value)).toEqual(
+			expect.arrayContaining([
+				{ kind: 'script', path: 'u/admin/helper' },
+				{ kind: 'resource', path: 'f/shared/api' },
+				{ kind: 'resource', path: 'u/admin/pg' },
+				{ kind: 'resource', path: 'u/admin/claude' }
+			])
+		)
+	})
+
+	it('relocates tools, inputs and provider, and leaves the prompt alone', () => {
+		const map = new Map([
+			['u/admin/helper', 'f/proj/helper'],
+			['f/shared/api', 'f/proj/api'],
+			['u/admin/pg', 'f/proj/pg'],
+			['u/admin/claude', 'f/proj/claude']
+		])
+		const out = rewriteAgentValue(value, map)
+		expect(out.provider.resource).toBe('$res:f/proj/claude')
+		expect(out.tools[0].value.path).toBe('f/proj/helper')
+		expect(out.tools[0].value.input_transforms.gh.value).toBe('$res:f/proj/api')
+		expect(out.tools[1].value.content).toContain('$res:f/proj/pg')
+		expect(out.system_prompt).toBe(value.system_prompt)
+		expect(out.memory).toEqual(value.memory)
+	})
+
+	it('ships whole in a bundle: its script comes along, and it is not also a stub', async () => {
+		const agent: FetchedItem = { kind: 'agent', path: 'u/admin/video_agent', value }
+		const helper: FetchedItem = {
+			kind: 'script',
+			path: 'u/admin/helper',
+			language: 'bun',
+			content: 'export async function main(){}'
+		}
+		// An app naming the agent would reference it as a resource: it must stay an item.
+		const flow: FetchedItem = {
+			kind: 'flow',
+			path: 'f/proj/uses_agent',
+			value: {
+				modules: [
+					{
+						id: 'x',
+						value: {
+							type: 'rawscript',
+							content: 'const a = "$res:u/admin/video_agent"',
+							input_transforms: {}
+						}
+					}
+				]
+			}
+		}
+		const bundle = await buildProjectBundle(
+			[
+				{ kind: 'agent', path: 'u/admin/video_agent' },
+				{ kind: 'flow', path: 'f/proj/uses_agent' }
+			],
+			'proj',
+			{
+				fetchItem: async (ref: ItemRef) =>
+					ref.kind === 'agent' ? agent : ref.kind === 'flow' ? flow : helper,
+				resolveResourceType: async (path: string) =>
+					path === 'u/admin/video_agent' ? 'ai_agent' : 'some_type'
+			}
+		)
+		expect(bundle.items.map((i) => `${i.kind}:${i.newPath}`).sort()).toEqual([
+			'agent:f/proj/video_agent',
+			'flow:f/proj/uses_agent',
+			'script:f/proj/helper'
+		])
+		expect(bundle.resourceStubs.map((r) => r.resource_type)).not.toContain('ai_agent')
+		const shipped = bundle.items.find((i) => i.kind === 'agent')!
+		expect(shipped.value.tools[0].value.path).toBe('f/proj/helper')
+		expect(shipped.value.provider.resource).toBe('$res:f/proj/claude')
+	})
+
+	it('follows a retargeted export into another folder', () => {
+		const exp: ProjectExport = {
+			project: { slug: 'proj', name: 'P', summary: '', readme: null },
+			scripts: [{ path: 'f/proj/helper', content: '' }],
+			flows: [],
+			apps: [],
+			resources: [{ path: 'f/proj/claude', resource_type: 'anthropic' }],
+			triggers: [],
+			agents: [
+				{
+					path: 'f/proj/video_agent',
+					value: {
+						provider: { kind: 'anthropic', resource: '$res:f/proj/claude' },
+						tools: [{ id: 'a', value: { type: 'script', path: 'f/proj/helper' } }]
+					}
+				}
+			]
+		}
+		const out = retargetProjectExport(exp, 'proj', 'mine')
+		expect(out.agents?.[0].path).toBe('f/mine/video_agent')
+		expect(out.agents?.[0].value.provider.resource).toBe('$res:f/mine/claude')
+		expect(out.agents?.[0].value.tools[0].value.path).toBe('f/mine/helper')
 	})
 })

@@ -39,6 +39,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/resource_types", post(publish_resource_type))
         .route("/resources", post(publish_resources))
+        .route("/agents", post(publish_agents))
+        .route(
+            "/projects/{slug}/agent_recording",
+            post(publish_agent_recording),
+        )
         .route("/triggers", post(publish_triggers))
         .route("/migrations", post(publish_migrations))
         .route("/projects/{slug}/export", get(get_project_export))
@@ -482,6 +487,53 @@ async fn publish_resources(
     Json(body): Json<PublishResourcesBody>,
 ) -> Result<impl IntoResponse, Error> {
     ctx.post(&format!("/projects/{}/resources", body.project_slug), &body)
+        .await
+}
+
+// A saved agent is an `ai_agent` resource whose value is the product: its prompt, model and
+// tools. Unlike the stubs above it ships whole, since it holds no credential, only `$res:`
+// references to the provider and to what its tools take, which travel as stubs.
+#[derive(Deserialize, Serialize)]
+struct PublishAgentBody {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    value: serde_json::Value,
+}
+
+// Full-set sync, as for triggers: the agents the folder holds now, absent ones removed.
+#[derive(Deserialize, Serialize)]
+struct PublishAgentsBody {
+    agents: Vec<PublishAgentBody>,
+    project_slug: ProjectSlug,
+}
+
+async fn publish_agents(
+    ctx: HubPublishCtx,
+    Json(body): Json<PublishAgentsBody>,
+) -> Result<impl IntoResponse, Error> {
+    ctx.post(&format!("/projects/{}/agents", body.project_slug), &body)
+        .await
+}
+
+// The demo of an agent is a recorded conversation, kept on the agent's row of the draft.
+// `recording: null` clears it.
+#[derive(Deserialize, Serialize)]
+struct AgentRecordingBody {
+    path: String,
+    recording: Option<serde_json::Value>,
+}
+
+async fn publish_agent_recording(
+    ctx: HubPublishCtx,
+    Path((_workspace, slug)): Path<(String, ProjectSlug)>,
+    Json(body): Json<AgentRecordingBody>,
+) -> Result<impl IntoResponse, Error> {
+    ctx.post(&format!("/projects/{}/agent_recording", slug), &body)
         .await
 }
 

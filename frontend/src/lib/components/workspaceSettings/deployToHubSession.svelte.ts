@@ -33,16 +33,17 @@ import {
 	generateDatatableMigrations,
 	type GeneratedMigration
 } from './projectMigrations'
-import type { Kind } from '$lib/utils_deployable'
 import {
 	canRecord,
+	canRecordConversation,
 	canRecordSession,
 	commonFolderPath,
 	folderSubPaths,
 	inputResourceTypes,
 	mergeAppTableOrigin,
 	HIDDEN_RESOURCE_TYPES,
-	type DeployItem
+	type DeployItem,
+	type DeployKind
 } from './deployToHubItems'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
 import {
@@ -52,7 +53,13 @@ import {
 } from '$lib/components/assets/AssetGraph/cascadeRun'
 import { capturePipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
 import { buildFlowRecording, buildScriptRecording } from '$lib/components/recording/runRecording'
-import type { PipelineRecording, RawAppRecording } from '$lib/components/recording/types'
+import type {
+	AgentRecording,
+	AgentToolCall,
+	AgentTurn,
+	PipelineRecording,
+	RawAppRecording
+} from '$lib/components/recording/types'
 import {
 	TRIGGER_KINDS,
 	listAllWorkspaceTriggers,
@@ -67,6 +74,7 @@ export type Phase = 'predeploy' | 'draft' | 'under_review' | 'live'
 // Re-exported so the publish-flow components keep one import site.
 export {
 	canRecord,
+	canRecordConversation,
 	canRecordSession,
 	mergeAppTableOrigin,
 	type DeployItem,
@@ -93,7 +101,8 @@ const ITEM_KIND_ROUTE: Record<ItemKind, string> = {
 	script: 'scripts/get',
 	flow: 'flows/get',
 	app: 'apps/get',
-	raw_app: 'apps_raw/get'
+	raw_app: 'apps_raw/get',
+	agent: 'agents/get'
 }
 
 // Prune a folder's asset graph to a set of scripts so a pipeline recording only
@@ -363,7 +372,9 @@ export class DeployToHubSession {
 	)
 	// A raw app's recorded session counts towards the project's recordings just as
 	// a script's captured run does — both are what a visitor replays.
-	recordableItems = $derived(this.items.filter((i) => canRecord(i.kind) || canRecordSession(i)))
+	recordableItems = $derived(
+		this.items.filter((i) => canRecord(i.kind) || canRecordSession(i) || canRecordConversation(i))
+	)
 	allRecorded = $derived(
 		this.recordableItems.length > 0 && this.recordableItems.every((i) => i.rec === 'recorded')
 	)
@@ -554,11 +565,16 @@ export class DeployToHubSession {
 		const workspace = this.workspace
 		this.loading = true
 		try {
-			const [apps, rawApps, flows, scripts] = await Promise.all([
+			const [apps, rawApps, flows, scripts, agents] = await Promise.all([
 				this.#listAllPages((p) => AppService.listApps({ workspace, ...p })),
 				this.#listAllPages((p) => RawAppService.listRawApps({ workspace, ...p })),
 				this.#listAllPages((p) => FlowService.listFlows({ workspace, ...p })),
-				this.#listAllPages((p) => ScriptService.listScripts({ workspace, ...p }))
+				this.#listAllPages((p) => ScriptService.listScripts({ workspace, ...p })),
+				// Saved AI agents are `ai_agent` resources. A workspace without the type
+				// lists none rather than failing the whole load.
+				this.#listAllPages((p) =>
+					ResourceService.listResource({ workspace, resourceType: 'ai_agent', ...p })
+				).catch(() => [])
 			])
 			if (this.#disposed) return
 
@@ -600,6 +616,16 @@ export class DeployToHubSession {
 					path: s.path,
 					kind: 'script',
 					summary: s.summary,
+					rec: 'none'
+				})
+			}
+			for (const a of agents) {
+				next.push({
+					key: `agent:${a.path}`,
+					path: a.path,
+					kind: 'agent',
+					// Its name, as the Agents page lists it: the description is a paragraph.
+					summary: a.path.split('/').pop(),
 					rec: 'none'
 				})
 			}
@@ -703,7 +729,7 @@ export class DeployToHubSession {
 				return {
 					key,
 					path: wpath,
-					kind: it.kind as Kind,
+					kind: it.kind as DeployKind,
 					summary: it.summary ?? undefined,
 					rec: it.has_recording ? 'recorded' : 'none'
 				} satisfies DeployItem
@@ -868,6 +894,24 @@ export class DeployToHubSession {
 						})
 						if (!r.ok) return undefined
 						return { kind: 'raw_app', path: ref.path, content: await r.text() }
+					} else if (ref.kind === 'agent') {
+						const r = await ResourceService.getResource({ workspace, path: ref.path })
+						if (r.resource_type !== 'ai_agent') return undefined
+						// What an agent is, not who runs it here: the deploy identity and the
+						// sharing switches belong to this workspace and never leave it.
+						const {
+							on_behalf_of: _onBehalfOf,
+							run_on_behalf_of: _runOnBehalfOf,
+							slack_anyone: _slackAnyone,
+							...value
+						} = (r.value ?? {}) as Record<string, unknown>
+						return {
+							kind: 'agent',
+							path: ref.path,
+							summary: ref.path.split('/').pop(),
+							description: r.description ?? undefined,
+							value
+						}
 					}
 				} catch (e: any) {
 					return undefined
@@ -1105,6 +1149,44 @@ export class DeployToHubSession {
 		}
 	}
 
+	// Full-set sync, like triggers: always sent, so an agent removed from the folder (or
+	// unticked) leaves the Hub too. A Hub too old to know agents answers 404; that only
+	// counts as a failure when there was an agent to publish.
+	async #pushAgents(slug: string, agents: BundledItem[]): Promise<number> {
+		const keys = agents.map((a) => `agent:${a.path}`)
+		const mark = (status: 'loading' | 'deployed' | 'failed', error?: string) => {
+			const next = { ...this.deploymentStatus }
+			for (const k of keys) next[k] = error ? { status, error } : { status }
+			this.deploymentStatus = next
+		}
+		if (agents.length) mark('loading')
+		try {
+			const resp = await this.#postHub('/hub/agents', {
+				agents: agents.map((a) => ({
+					path: a.newPath,
+					source_path: a.path,
+					summary: a.summary || a.newPath.split('/').pop(),
+					description: a.description ?? undefined,
+					value: a.value ?? {}
+				})),
+				project_slug: slug
+			})
+			const ids = { ...this.hubItemIds }
+			for (const a of agents) {
+				const id = resp?.ids?.[a.newPath]
+				if (typeof id === 'number') ids[`agent:${a.path}`] = id
+			}
+			this.hubItemIds = ids
+			if (agents.length) mark('deployed')
+			return 0
+		} catch (e: any) {
+			if (agents.length === 0) return 0
+			mark('failed', e?.message ?? String(e))
+			sendUserToast(`Agent sync failed: ${e?.message ?? e}`, true)
+			return 1
+		}
+	}
+
 	// Handler runnables (trigger error handlers, schedule on_* handlers) ship
 	// with the bundle like the primary runnables do; hub refs stay external.
 	#triggerHandlerSeed(triggers: WorkspaceTrigger[], slug: string): ItemRef[] {
@@ -1310,6 +1392,8 @@ export class DeployToHubSession {
 				// Stop writing item status / Hub IDs once the session is replaced —
 				// continuing would publish into a project the user has moved away from.
 				if (this.#disposed) return
+				// Agents go as one set once the scripts their tools run have landed.
+				if (it.kind === 'agent') continue
 				const key = `${it.kind}:${it.path}`
 				this.deploymentStatus = { ...this.deploymentStatus, [key]: { status: 'loading' } }
 				try {
@@ -1323,6 +1407,11 @@ export class DeployToHubSession {
 					}
 				}
 			}
+			if (this.#disposed) return
+			failures += await this.#pushAgents(
+				slug,
+				bundle.items.filter((i) => i.kind === 'agent')
+			)
 			if (this.#disposed) return
 			try {
 				await this.#pushTriggers(slug, resourcePathMap, triggersSnapshot)
@@ -1749,6 +1838,136 @@ export class DeployToHubSession {
 		})
 	}
 
+	// --- An agent's demo: a conversation, one run per message -----------------------
+
+	/** The agent being recorded, its conversation so far, and the turn in flight. */
+	agentTarget = $state<DeployItem | undefined>(undefined)
+	agentTurns = $state<(AgentTurn & { job_id: string })[]>([])
+	agentPending = $state<string | undefined>(undefined)
+	agentError = $state<string | undefined>(undefined)
+	agentSaving = $state(false)
+	#agentMemoryId = ''
+	#agentTok = 0
+
+	openAgentRecord(it: DeployItem) {
+		this.#agentTok++
+		this.agentTarget = it
+		this.agentTurns = []
+		this.agentPending = undefined
+		this.agentError = undefined
+		// A conversation of its own, so the demo never continues someone's real chat.
+		this.#agentMemoryId = crypto.randomUUID()
+	}
+
+	closeAgentRecord = () => {
+		this.#agentTok++
+		this.agentTarget = undefined
+		this.agentPending = undefined
+	}
+
+	/** Send one message: a run of the agent in the demo's conversation, waited for. */
+	sendAgentMessage = async (text: string) => {
+		const it = this.agentTarget
+		const message = text.trim()
+		if (!it || !message || this.agentPending !== undefined) return
+		const tok = this.#agentTok
+		this.agentPending = message
+		this.agentError = undefined
+		const started = Date.now()
+		try {
+			const jobId = await JobService.runAgent({
+				workspace: this.workspace,
+				path: it.path,
+				memoryId: this.#agentMemoryId,
+				requestBody: { user_message: message }
+			})
+			const deadline = Date.now() + 15 * 60_000
+			let interval = 500
+			while (Date.now() < deadline) {
+				if (tok !== this.#agentTok) return
+				const r = await JobService.getCompletedJobResultMaybe({
+					workspace: this.workspace,
+					id: jobId
+				})
+				if (tok !== this.#agentTok) return
+				if (r.completed) {
+					if (!r.success) {
+						const failure = (r.result as any)?.error?.message ?? r.result
+						this.agentError = (
+							typeof failure === 'string' ? failure : JSON.stringify(failure)
+						).slice(0, 600)
+						return
+					}
+					this.agentTurns = [
+						...this.agentTurns,
+						{
+							user_message: message,
+							...readAgentTurn(r.result),
+							duration_ms: Date.now() - started,
+							job_id: jobId
+						}
+					]
+					return
+				}
+				await sleep(interval)
+				interval = Math.min(2000, interval * 1.5)
+			}
+			this.agentError = 'The agent did not answer within 15 minutes.'
+		} catch (e: any) {
+			if (tok === this.#agentTok) this.agentError = `Failed to run the agent: ${e?.message ?? e}`
+		} finally {
+			if (tok === this.#agentTok) this.agentPending = undefined
+		}
+	}
+
+	/** Save the conversation as the agent's Hub recording. Each turn keeps its run, so the
+	 * Hub can replay it step by step. Returns true on success. */
+	async saveAgentRecording(): Promise<boolean> {
+		const it = this.agentTarget
+		if (!it || this.agentTurns.length === 0 || this.agentSaving) return false
+		this.agentSaving = true
+		try {
+			const turns: AgentTurn[] = []
+			for (const t of this.agentTurns) {
+				const { job_id, ...turn } = t
+				// A turn whose run cannot be read back still tells the conversation.
+				const run = await this.#buildAgentTurnRecording(it, job_id).catch(() => undefined)
+				turns.push({ ...turn, ...(run ? { recording: run } : {}) })
+			}
+			const recording: AgentRecording = {
+				version: 1,
+				type: 'agent',
+				recorded_at: new Date().toISOString(),
+				agent_path: it.path,
+				total_duration_ms: turns.reduce((n, t) => n + t.duration_ms, 0),
+				turns
+			}
+			await this.#postHub(`/hub/projects/${encodeURIComponent(this.hubSlug)}/agent_recording`, {
+				path: it.path,
+				recording
+			})
+			this.#patchItem(it.key, { rec: 'recorded' })
+			sendUserToast(`Conversation saved — ${turns.length} message${turns.length === 1 ? '' : 's'}`)
+			return true
+		} catch (e: any) {
+			sendUserToast(`Failed to save the conversation: ${e?.message ?? e}`, true)
+			return false
+		} finally {
+			this.agentSaving = false
+		}
+	}
+
+	// A turn is a run of the agent as a one-step flow, materialized on the job.
+	async #buildAgentTurnRecording(it: DeployItem, jobId: string) {
+		const root = (await JobService.getJob({ workspace: this.workspace, id: jobId })) as any
+		if (!root.raw_flow) return undefined
+		return await buildFlowRecording(this.workspace, jobId, it.path, {
+			value: root.raw_flow,
+			schema: { type: 'object', properties: {}, required: [] },
+			summary: it.summary ?? ''
+		})
+	}
+
 	/** Save a recorded raw-app session as that app's Hub recording. */
 	async saveAppRecording(it: DeployItem, recording: RawAppRecording): Promise<boolean> {
 		const hubId = this.hubItemIds[it.key]
@@ -2028,4 +2247,39 @@ export function useDeployToHubSession(args: {
 			return session
 		}
 	}
+}
+
+/** The answer and the tools called, read off an agent run's result (`{ output, messages }`).
+ * A result of another shape is shown as it is rather than dropped. */
+function readAgentTurn(result: unknown): { answer: string; tool_calls: AgentToolCall[] } {
+	const r = result as { output?: unknown; messages?: any[] } | null
+	const text = (v: unknown) =>
+		typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v, null, 2)
+	const messages = Array.isArray(r?.messages) ? r.messages : []
+	const results = new Map<string, unknown>()
+	for (const m of messages) {
+		if (m?.role === 'tool' && typeof m.tool_call_id === 'string') {
+			results.set(m.tool_call_id, m.content)
+		}
+	}
+	const tool_calls: AgentToolCall[] = []
+	for (const m of messages) {
+		if (m?.role !== 'assistant' || !Array.isArray(m.tool_calls)) continue
+		for (const c of m.tool_calls) {
+			const raw = c?.function?.arguments
+			let args: unknown = raw
+			if (typeof raw === 'string') {
+				try {
+					args = JSON.parse(raw)
+				} catch {}
+			}
+			tool_calls.push({
+				name: c?.function?.name ?? 'tool',
+				args,
+				result: typeof c?.id === 'string' ? results.get(c.id) : undefined
+			})
+		}
+	}
+	const output = r && typeof r === 'object' && 'output' in r ? r.output : result
+	return { answer: text(output), tool_calls }
 }

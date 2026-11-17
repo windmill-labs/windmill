@@ -445,6 +445,41 @@ export function rewriteRawAppContent(content: string, map: Map<string, string>):
 	return JSON.stringify(rewriteAppValue(parsed, map))
 }
 
+// A saved agent (`ai_agent` resource value) reaches the rest of the workspace the way an AI
+// agent step does: its tools run scripts by path, their static inputs and its provider hold
+// `$res:` references. Viewing it as the one-step flow a run makes of it lets the flow
+// extractor and rewriter do the work, so both stay the single definition of what a tool
+// can reference.
+function agentAsFlow(value: any): any {
+	return {
+		modules: [
+			{
+				id: 'agent',
+				value: {
+					type: 'aiagent',
+					tools: Array.isArray(value?.tools) ? value.tools : [],
+					input_transforms: { provider: { type: 'static', value: value?.provider ?? null } }
+				}
+			}
+		]
+	}
+}
+
+export function extractAgentRefs(value: any): Ref[] {
+	return extractFlowRefs(agentAsFlow(value))
+}
+
+export function rewriteAgentValue(value: any, map: Map<string, string>): any {
+	if (!value || typeof value !== 'object') return value
+	const step = rewriteFlowValue(agentAsFlow(value), map)?.modules?.[0]?.value
+	const out = { ...value }
+	if (Array.isArray(value.tools)) out.tools = step?.tools ?? value.tools
+	if (value.provider !== undefined) {
+		out.provider = step?.input_transforms?.provider?.value ?? value.provider
+	}
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // Hub project export format (what /projects/{slug}/export returns) and its
 // retargeting into a destination folder. Kept here, next to the rewriters,
@@ -466,6 +501,9 @@ export interface ProjectExport {
 	resources: ExportItem[]
 	triggers: ExportItem[]
 	migrations?: ProjectMigration[]
+	/** AI agents the project ships: `ai_agent` resources published with their value.
+	 * Absent from exports made before agents were published. */
+	agents?: ExportItem[]
 }
 
 // Map bundled paths `f/<fromSlug>/...` -> `f/<folder>/...`. Only enumerated
@@ -486,6 +524,7 @@ export function buildRetargetMap(
 	for (const f of bundle.flows) add(f.path)
 	for (const a of bundle.apps) add(a.path)
 	for (const r of bundle.resources) add(r.path)
+	for (const a of bundle.agents ?? []) add(a.path)
 	for (const t of bundle.triggers) {
 		add(t.path)
 		add(t.runnable_path)
@@ -555,6 +594,15 @@ export function retargetProjectExport(
 					: rewriteVarRefsInValue(rewriteAppValue(a.value, map), map)
 		})),
 		resources: bundle.resources.map((r) => ({ ...r, path: remap(r.path) })),
+		...(bundle.agents
+			? {
+					agents: bundle.agents.map((a) => ({
+						...a,
+						path: remap(a.path),
+						value: rewriteVarRefsInValue(rewriteAgentValue(a.value, map), map)
+					}))
+				}
+			: {}),
 		triggers: bundle.triggers.map((t) => ({
 			...t,
 			path: remap(t.path),
@@ -574,7 +622,8 @@ function rewriteRawVarRefs(raw: string, map: Map<string, string>): string {
 	return JSON.stringify(rewriteVarRefsInValue(parsed, map))
 }
 
-export type ItemKind = 'script' | 'flow' | 'app' | 'raw_app'
+// `agent` is a saved AI agent: an `ai_agent` resource, published whole rather than as a stub.
+export type ItemKind = 'script' | 'flow' | 'app' | 'raw_app' | 'agent'
 
 export interface ItemRef {
 	kind: ItemKind
@@ -588,7 +637,7 @@ export interface FetchedItem {
 	description?: string
 	/** scripts + raw_apps */
 	content?: string
-	/** flows + apps */
+	/** flows + apps + agents */
 	value?: any
 	/** scripts */
 	language?: string
@@ -629,13 +678,15 @@ function refsForFetched(item: FetchedItem): Ref[] {
 	if (item.kind === 'flow') return extractFlowRefs(item.value)
 	if (item.kind === 'app') return extractAppRefs(item.value)
 	if (item.kind === 'raw_app') return extractRawAppRefs(item.content ?? '')
+	if (item.kind === 'agent') return extractAgentRefs(item.value)
 	return []
 }
 
 // Whole-string `$var:`/`$jsonvar:` paths an item resolves at runtime. Scripts carry
 // no variable args; raw apps hold their structure in the `content` JSON string.
 function varRefsForFetched(item: FetchedItem): string[] {
-	if (item.kind === 'flow' || item.kind === 'app') return extractVarRefsFromValue(item.value)
+	if (item.kind === 'flow' || item.kind === 'app' || item.kind === 'agent')
+		return extractVarRefsFromValue(item.value)
 	if (item.kind === 'raw_app') return extractVarRefsFromValue(safeParseRaw(item.content))
 	return []
 }
@@ -721,11 +772,16 @@ export async function buildProjectBundle(
 			rewritten.value = rewriteVarRefsInValue(rewriteFlowValue(it.value, map), map)
 		} else if (it.kind === 'app') {
 			rewritten.value = rewriteVarRefsInValue(rewriteAppValue(it.value, map), map)
+		} else if (it.kind === 'agent') {
+			rewritten.value = rewriteVarRefsInValue(rewriteAgentValue(it.value, map), map)
 		}
 		return rewritten
 	})
 
 	const resourceStubs: ResourceStub[] = []
+	// An agent the bundle ships is published whole: an app or a flow step naming it must not
+	// also turn it into an empty stub at the same path.
+	for (const it of fetchedItems) if (it.kind === 'agent') resourcePaths.delete(it.path)
 	const resolved = await Promise.all(
 		[...resourcePaths].map(async (path) => ({ path, type: await deps.resolveResourceType(path) }))
 	)
