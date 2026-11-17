@@ -745,7 +745,7 @@ async fn run_tool(
         w_id,
         &mut Some(ctx.occupancy_metrics),
         Box::pin(futures::stream::unfold((), move |_| async move {
-            Some((get_mem_peak(pid, false).await, ()))
+            Some((get_mem_peak(pid).await, ()))
         })),
     )
     .await?;
