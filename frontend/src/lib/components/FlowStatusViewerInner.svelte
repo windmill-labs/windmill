@@ -342,6 +342,7 @@
 	}
 
 	let retry_selected = $state('')
+	let nodeRetrySelected = $state('')
 	let timeout: number | undefined = undefined
 
 	let selectionManager = new SelectionManager()
@@ -723,15 +724,15 @@
 						? mod.failed_retries?.filter((id) => !claimedAttempts.has(id))
 						: undefined
 				ownAttempts?.forEach((id) => claimedAttempts.add(id))
-				const failedAttempts = ownAttempts?.length
+				const attempts = ownAttempts?.length
 					? ownAttempts
 					: mod.id != undefined && mod.id === retryingId
 						? failedJobs
 						: undefined
-				if (failedAttempts?.length != localModuleStates[mod.id ?? '']?.retries) {
+				if (!deepEqual(attempts, localModuleStates[mod.id ?? '']?.failed_retries)) {
 					setModuleState(mod.id ?? '', {
-						retries: failedAttempts?.length,
-						failed_retries: failedAttempts
+						retries: attempts?.length,
+						failed_retries: attempts
 					})
 				}
 
@@ -1770,10 +1771,11 @@
 							<div class="line w-8 h-10"></div>
 						{/if}
 						<li class="w-full border p-6 space-y-2 bg-blue-50/50 dark:bg-frost-900/50">
-							{#if render}
+							{#if render && selected == 'sequence'}
 								{@render failedAttempts(
 									localModuleStates[mod.id ?? '']?.failed_retries ?? [],
-									true
+									retry_selected,
+									(id) => (retry_selected = id)
 								)}
 							{/if}
 							{#if ['InProgress', 'Success', 'Failure'].includes(mod.type)}
@@ -2301,12 +2303,16 @@
 																			</div>
 																		{/if}
 																	</div>
-																	{#if node.failed_retries?.length}
+																	{#if selected == 'graph' && node.failed_retries?.length}
 																		<div class="flex flex-col gap-2">
 																			<div class="text-xs text-emphasis font-semibold"
 																				>Failed attempts</div
 																			>
-																			{@render failedAttempts(node.failed_retries, true)}
+																			{@render failedAttempts(
+																				node.failed_retries,
+																				nodeRetrySelected,
+																				(id) => (nodeRetrySelected = id)
+																			)}
 																		</div>
 																	{/if}
 																	{#if !node.isListJob}
@@ -2401,19 +2407,17 @@
 	<Skeleton layout={[[15], 1, [70]]}></Skeleton>
 {/if}
 
-{#snippet failedAttempts(attempts: string[], show: boolean)}
-	{#each attempts as failedRetry, j}
+{#snippet failedAttempts(attempts: string[], selectedAttempt: string, select: (id: string) => void)}
+	{#each attempts as failedRetry, j (failedRetry)}
 		<Button
-			variant={retry_selected === failedRetry ? 'accent' : 'default'}
+			variant={selectedAttempt === failedRetry ? 'accent' : 'default'}
 			destructive
 			unifiedSize="sm"
 			btnClasses="w-full flex justify-start"
-			onClick={() => {
-				retry_selected = retry_selected == failedRetry ? '' : failedRetry
-			}}
+			onClick={() => select(selectedAttempt == failedRetry ? '' : failedRetry)}
 			endIcon={{
 				icon: ChevronDown,
-				classes: retry_selected == failedRetry ? '!rotate-180' : ''
+				classes: selectedAttempt == failedRetry ? '!rotate-180' : ''
 			}}
 		>
 			<span class="truncate font-mono">
@@ -2421,26 +2425,26 @@
 			</span>
 		</Button>
 
-		<div class="border p-6" class:hidden={retry_selected != failedRetry}>
+		<!-- A past attempt is viewed on its own: an attempt of a subflow step is a flow whose
+		     steps share ids with this flow's, so its states must not reach this graph. -->
+		<div class="border p-6" class:hidden={selectedAttempt != failedRetry}>
 			<FlowStatusViewerInner
 				topModuleStates={getTopModuleStates}
 				{refreshGlobal}
-				isSelectedBranch={isSelectedBranch && retry_selected == failedRetry}
+				isSelectedBranch={isSelectedBranch && selectedAttempt == failedRetry}
 				{updateGlobalRefresh}
 				updateRecursiveRefreshFn={updateRecursiveRefreshInner}
-				globalModuleStates={[localModuleStates, ...globalModuleStates]}
-				globalDurationStatuses={[localDurationStatuses, ...globalDurationStatuses]}
+				globalModuleStates={[]}
+				globalDurationStatuses={[]}
 				{prefix}
-				{subflowParentsGlobalModuleStates}
-				{subflowParentsDurationStatuses}
-				render={failedRetry == retry_selected && show}
+				render={failedRetry == selectedAttempt}
 				{reducedPolling}
 				{workspaceId}
 				jobId={failedRetry}
 				{onResultStreamUpdate}
 				graphTabOpen={selected == 'graph' && graphTabOpen}
 				selectedJobId={effectiveSelectedJobId}
-				isNodeSelected={retry_selected == failedRetry}
+				isNodeSelected={selectedAttempt == failedRetry}
 			/>
 		</div>
 	{/each}
