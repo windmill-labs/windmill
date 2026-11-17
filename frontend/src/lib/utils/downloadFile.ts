@@ -34,7 +34,10 @@ export async function downloadViaClient(apiPath: string, filename: string): Prom
 		sendUserToast(`Download failed: ${response.status} ${response.statusText}`, true)
 		return
 	}
-	const blob = await response.blob()
+	downloadBlob(await response.blob(), filename)
+}
+
+export function downloadBlob(blob: Blob, filename: string): void {
 	const blobUrl = URL.createObjectURL(blob)
 	const a = document.createElement('a')
 	a.href = blobUrl

@@ -8,6 +8,7 @@
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import {
+		downloadBlob,
 		downloadViaClient,
 		fetchViaClient,
 		shouldDownloadViaClient
@@ -266,8 +267,9 @@
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
 
-	// A result over the backend's inline cap arrives as 'WINDMILL_TOO_BIG'. Ask the
-	// backend for `file.filename` alone to tell a `{ file: { content, filename } }` result.
+	// A result over the backend's inline cap arrives as 'WINDMILL_TOO_BIG'. Ask the backend
+	// for the filename alone to tell a file result: `{ file, filename }` or
+	// `{ file: { content, filename } }`, the two shapes the 'file' kind renders.
 	let tooBigFilename: string | undefined = $state(undefined)
 	async function fetchResultAt(apiPath: string, jsonPath: string): Promise<unknown> {
 		const r = await fetchViaClient(
@@ -280,21 +282,22 @@
 		const apiPath = result === 'WINDMILL_TOO_BIG' ? resultApiPath : undefined
 		if (!apiPath) return
 		let stale = false
-		fetchResultAt(apiPath, 'file.filename').then(
-			(name) => {
-				if (!stale && typeof name === 'string') tooBigFilename = name
-			},
-			() => {}
-		)
+		fetchResultAt(apiPath, 'filename')
+			.then((name) => (typeof name === 'string' ? name : fetchResultAt(apiPath, 'file.filename')))
+			.then(
+				(name) => {
+					if (!stale && typeof name === 'string') tooBigFilename = name
+				},
+				() => {}
+			)
 		return () => (stale = true)
 	})
 	async function downloadTooBigFile(apiPath: string, name: string) {
-		const content = await fetchResultAt(apiPath, 'file.content').catch(() => undefined)
-		if (typeof content !== 'string') return sendUserToast('Download failed', true)
-		const a = document.createElement('a')
-		a.href = 'data:application/octet-stream;base64,' + content
-		a.download = name
-		a.click()
+		const file: any = await fetchResultAt(apiPath, 'file').catch(() => undefined)
+		const content = contentOrRootString(file)
+		if (typeof content !== 'string' || !content) return sendUserToast('Download failed', true)
+		// A blob, not a data: URL, which browsers cap well below a large file's size
+		downloadBlob(new Blob([Uint8Array.from(atob(content), (c) => c.charCodeAt(0))]), name)
 	}
 
 	function checkIfS3(result: any, keys: string[]) {
