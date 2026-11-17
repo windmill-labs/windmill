@@ -165,8 +165,7 @@ pub async fn handle_child(
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
     mut child: Box<dyn TokioChildWrapper>,
-    // Not read: memory sampling finds wrapper processes by name (`get_mem_peak`).
-    _nsjail: bool,
+    nsjail: bool,
     worker: &str,
     w_id: &str,
     child_name: &str,
@@ -221,7 +220,7 @@ pub async fn handle_child(
         mem_peak,
         canceled_by_ref,
         Box::pin(stream::unfold((), move |_| async move {
-            Some((get_mem_peak(pid).await, ()))
+            Some((get_mem_peak(pid, nsjail).await, ()))
         })),
         worker,
         w_id,
@@ -797,22 +796,54 @@ async fn handle_wac_step_marker(
     Ok(())
 }
 
-pub(crate) async fn get_mem_peak(pid: Option<u32>) -> i32 {
-    get_mem_peak_in(std::path::Path::new("/proc"), pid).await
+lazy_static::lazy_static! {
+    /// Process names of the wrappers a job may run under, whose own memory is not the job's:
+    /// nsjail when a script annotation jails the job while `nsjail` is not passed (global
+    /// sandboxing off), and `unshare` (then optionally `tini`) under pid namespace isolation.
+    /// The configured binaries are included as the kernel names them: basename, 15 bytes.
+    static ref MEM_PEAK_WRAPPERS: Vec<String> = {
+        let comm = |path: &str| {
+            let name = std::path::Path::new(path)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            String::from_utf8_lossy(&name.as_bytes()[..name.len().min(15)]).into_owned()
+        };
+        let mut names: Vec<String> =
+            ["nsjail", "unshare", "tini", "tini-static"].map(String::from).to_vec();
+        names.push(comm(crate::NSJAIL_PATH.as_str()));
+        names.push(comm(crate::UNSHARE_TINI_PATH.as_str()));
+        names
+    };
 }
 
-/// Processes a job may be spawned under, whose own memory is not the job's. Identified by
-/// name rather than by how the job was started: a job can be jailed per script annotation
-/// while global sandboxing is off, and pid namespace isolation adds `unshare` (and
-/// optionally `tini`) between the worker and the job.
-const MEM_PEAK_WRAPPERS: &[&str] = &["nsjail", "unshare", "tini", "tini-static"];
+pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
+    get_mem_peak_in(
+        std::path::Path::new("/proc"),
+        pid,
+        nsjail,
+        &MEM_PEAK_WRAPPERS,
+    )
+    .await
+}
 
-async fn get_mem_peak_in(proc_root: &std::path::Path, pid: Option<u32>) -> i32 {
+async fn get_mem_peak_in(
+    proc_root: &std::path::Path,
+    pid: Option<u32>,
+    nsjail: bool,
+    wrappers: &[String],
+) -> i32 {
     let Some(mut pid) = pid else {
         return -1;
     };
-    // nsjail, or unshare -> tini -> job
-    for _ in 0..=MEM_PEAK_WRAPPERS.len() {
+    if nsjail {
+        let Some(child) = first_child_pid(proc_root, pid).await else {
+            return -1;
+        };
+        pid = child;
+    }
+    // unshare -> tini -> job
+    for _ in 0..3 {
         let Ok(status) = tokio::fs::read_to_string(proc_root.join(format!("{pid}/status"))).await
         else {
             return -3;
@@ -821,7 +852,7 @@ async fn get_mem_peak_in(proc_root: &std::path::Path, pid: Option<u32>) -> i32 {
             .lines()
             .find_map(|l| l.strip_prefix("Name:"))
             .map(str::trim);
-        if name.is_some_and(|n| MEM_PEAK_WRAPPERS.contains(&n)) {
+        if name.is_some_and(|n| wrappers.iter().any(|w| w == n)) {
             // The wrapper may not have forked the job yet.
             let Some(child) = first_child_pid(proc_root, pid).await else {
                 return -1;
@@ -1353,11 +1384,36 @@ mod tests {
         write_proc(201, "bun", 236936, None);
         // a wrapper that has not forked its child yet
         write_proc(300, "unshare", 1692, None);
+        // a jail binary under another name, known only from the flag
+        write_proc(400, "nsjail-3.4", 11056, Some(401));
+        write_proc(401, "python3", 115616, None);
 
-        assert_eq!(get_mem_peak_in(proc, Some(100)).await, 115616);
-        assert_eq!(get_mem_peak_in(proc, Some(102)).await, 115616);
-        assert_eq!(get_mem_peak_in(proc, Some(200)).await, 236936);
-        assert_eq!(get_mem_peak_in(proc, Some(300)).await, -1);
-        assert_eq!(get_mem_peak_in(proc, Some(999)).await, -3);
+        let wrappers: Vec<String> = ["nsjail", "unshare", "tini"].map(String::from).to_vec();
+        assert_eq!(
+            get_mem_peak_in(proc, Some(100), false, &wrappers).await,
+            115616
+        );
+        assert_eq!(
+            get_mem_peak_in(proc, Some(102), false, &wrappers).await,
+            115616
+        );
+        assert_eq!(
+            get_mem_peak_in(proc, Some(200), false, &wrappers).await,
+            236936
+        );
+        assert_eq!(get_mem_peak_in(proc, Some(300), false, &wrappers).await, -1);
+        assert_eq!(get_mem_peak_in(proc, Some(999), false, &wrappers).await, -3);
+        assert_eq!(
+            get_mem_peak_in(proc, Some(400), true, &wrappers).await,
+            115616
+        );
+        assert_eq!(
+            get_mem_peak_in(proc, Some(200), true, &wrappers).await,
+            236936
+        );
+        assert_eq!(
+            get_mem_peak_in(proc, Some(400), false, &wrappers).await,
+            11056
+        );
     }
 }

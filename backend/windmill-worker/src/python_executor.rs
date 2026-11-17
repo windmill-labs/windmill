@@ -2896,7 +2896,7 @@ pub async fn handle_python_reqs(
                         let mut local_mem_peak = 0;
                         for pid_o in pids.lock().await.iter() {
                             if pid_o.is_some(){
-                                let mem = crate::handle_child::get_mem_peak(*pid_o).await;
+                                let mem = crate::handle_child::get_mem_peak(*pid_o, is_sandboxing_enabled()).await;
                                 if mem < 0 {
                                     tracing::warn!(
                                         workspace_id = %w_id_2,
