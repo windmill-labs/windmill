@@ -93,12 +93,22 @@ describe('graphBuilder error handler markers', () => {
 					modules: [script('s')]
 				}
 			},
-			{ id: 'bo', value: { type: 'branchone', default: [script('d')], branches: [] } }
+			{ id: 'bo', value: { type: 'branchone', default: [script('d')], branches: [] } },
+			{
+				id: 'boc',
+				continue_on_error: true,
+				value: { type: 'branchone', default: [script('e')], branches: [] }
+			}
 		]
-		const { edges } = build(modules, { 'failure-0-0': ran('s'), 'failure-1': ran('d') })
+		const { edges } = build(modules, {
+			'failure-0-0': ran('s'),
+			'failure-1': ran('d'),
+			'failure-2': ran('e')
+		})
 
 		expect(hasEdge(edges, 'failure-0-0', 'loop-end')).toBe(true)
 		expect(hasEdge(edges, 'failure-1', 'Result')).toBe(true)
+		expect(hasEdge(edges, 'failure-2', 'boc-end')).toBe(true)
 	})
 })
 

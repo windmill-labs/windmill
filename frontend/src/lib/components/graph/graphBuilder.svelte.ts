@@ -710,7 +710,8 @@ export function graphBuilder(
 			parentIndex?: string,
 			// Node an error handler's output goes to when one of these steps fails: the enclosing
 			// loop or branch-all collects it as that iteration's entry, a branch-one passes it
-			// through, and otherwise it is the flow's result.
+			// through, and otherwise it is the end of the flow drawn (Result, or an expanded
+			// subflow's end).
 			handlerTarget?: string
 		) {
 			// For subflow prefix rewriting, clone modules into moduleMap with prefixed IDs
@@ -1072,6 +1073,9 @@ export function graphBuilder(
 							type: 'branchOneEnd'
 						}
 						nodes.push(endNode)
+						// The handler's output is the branch-one's result, which ends the flow unless the
+						// branch-one continues on error.
+						const branchHandlerTarget = module.continue_on_error ? endNode.id : handlerTarget
 
 						const defaultBranch: NodeLayout = {
 							id: `${module.id}-branch-default`,
@@ -1103,7 +1107,7 @@ export function graphBuilder(
 							prefix,
 							localDisableMoveIds,
 							parentIndex ? `${parentIndex}-${index}` : index.toString(),
-							handlerTarget
+							branchHandlerTarget
 						)
 
 						module.value.branches.forEach((branch, branchIndex) => {
@@ -1139,7 +1143,7 @@ export function graphBuilder(
 								prefix,
 								localDisableMoveIds,
 								parentIndex ? `${parentIndex}-${index}` : index.toString(),
-								handlerTarget
+								branchHandlerTarget
 							)
 						})
 
