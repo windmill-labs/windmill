@@ -51,6 +51,7 @@ section or the flat layout.
 	} from './previewRouter'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import type { AIWorkMode } from '$lib/components/copilot/chat/workMode'
+	import type { PageHeaderSubpage } from '$lib/components/pageHeaderRegistry.svelte'
 
 	type Kind = WorkspaceItemKind
 	type DrillPickerHandle = {
@@ -82,6 +83,10 @@ section or the flat layout.
 		/** Where picking a target navigates, for a host whose pick is a navigation; rows then
 		 * open in a new tab on middle and ⌘/Ctrl-click. */
 		targetHref?: (target: PreviewTarget) => string | undefined
+		/** The panes of the page at `path`, which Pages then lists as a branch of them. */
+		subpages?: { path: string; pages: PageHeaderSubpage[] }
+		/** List the subpages alone, for a host the picker must not lead out of. */
+		subpagesOnly?: boolean
 	}
 
 	let {
@@ -95,7 +100,9 @@ section or the flat layout.
 		workspaceId,
 		artifacts,
 		chat,
-		targetHref
+		targetHref,
+		subpages,
+		subpagesOnly = false
 	}: Props = $props()
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
@@ -126,7 +133,7 @@ section or the flat layout.
 	// per-kind drill step left to lazy-load from — fetch everything up front
 	// (module-cached; the picker only mounts when its popover opens).
 	$effect(() => {
-		if (effectiveWorkspace) untrack(() => loader.ensureAll())
+		if (effectiveWorkspace && !subpagesOnly) untrack(() => loader.ensureAll())
 	})
 
 	// Surface AI-created drafts the same way the editor picker does so in-flight
@@ -248,7 +255,34 @@ section or the flat layout.
 			key: pageKey(p.path),
 			label: p.label,
 			icon: p.icon,
+			plainLabel: true,
 			data: { type: 'page', href: p.path, label: p.label }
+		}
+	}
+
+	const subpageLeaves = $derived<DrillLeaf<PreviewTarget>[]>(
+		(subpages?.pages ?? []).map((sp) => ({
+			type: 'leaf',
+			key: pageKey(sp.href),
+			label: sp.label,
+			section: sp.group,
+			current: sp.current,
+			disabled: sp.disabled,
+			plainLabel: true,
+			data: { type: 'page', href: sp.href, label: sp.label }
+		}))
+	)
+
+	function pageNode(p: (typeof PREVIEW_PAGES)[number]): DrillNode<PreviewTarget> {
+		const leaf = pageLeaf(p)
+		if (p.path !== subpages?.path || subpageLeaves.length === 0) return leaf
+		return {
+			type: 'branch',
+			key: leaf.key,
+			label: leaf.label,
+			icon: leaf.icon,
+			plainLabel: true,
+			children: subpageLeaves
 		}
 	}
 
@@ -260,8 +294,9 @@ section or the flat layout.
 		label: 'Pages',
 		icon: Compass,
 		searchGroup: true,
+		plainLabel: true,
 		children: PREVIEW_PAGES.filter((p) => p.path !== '/' && permissions.pageAllowed(p)).map(
-			pageLeaf
+			pageNode
 		)
 	})
 
@@ -275,11 +310,13 @@ section or the flat layout.
 					label: 'Artifacts',
 					icon: FileText,
 					searchGroup: true,
+					plainLabel: true,
 					children: artifacts.map((a) => ({
 						type: 'leaf' as const,
 						key: artifactKey(a.id),
 						label: a.name,
 						icon: FileText,
+						plainLabel: true,
 						data: { type: 'artifact', id: a.id, name: a.name }
 					}))
 				}
@@ -300,6 +337,7 @@ section or the flat layout.
 					label: 'Data pipelines',
 					icon: NetworkIcon,
 					searchGroup: true,
+					plainLabel: true,
 					children: pipelinesResource.current.map(({ folder }) => {
 						const path = `/pipeline/${encodeURIComponent(folder)}`
 						return {
@@ -336,6 +374,7 @@ section or the flat layout.
 					label: 'AI agents',
 					icon: Bot,
 					searchGroup: true,
+					plainLabel: true,
 					children: shownAgents.map((a) => ({
 						type: 'leaf' as const,
 						key: `agent:${a.path}`,
@@ -353,23 +392,27 @@ section or the flat layout.
 		return leaf.key.startsWith('agent:') ? leaf.key.slice('agent:'.length) : undefined
 	}
 
-	const tree = $derived<DrillNode<PreviewTarget>[]>([
-		// An operator's workspace may enable none of them.
-		...(pagesBranch.children.length > 0 ? [pagesBranch] : []),
-		...(artifactsBranch ? [artifactsBranch] : []),
-		...(pipelinesBranch ? [pipelinesBranch] : []),
-		...(agentsBranch ? [agentsBranch] : []),
-		...tagItems(
-			buildWorkspaceTree({
-				loaded: loader.loaded,
-				kinds,
-				currentItem,
-				loadingKind: loader.loadingKind,
-				extraItemsByKind,
-				layout: 'flat'
-			})
-		)
-	])
+	const tree = $derived<DrillNode<PreviewTarget>[]>(
+		subpagesOnly
+			? subpageLeaves
+			: [
+					// An operator's workspace may enable none of them.
+					...(pagesBranch.children.length > 0 ? [pagesBranch] : []),
+					...(artifactsBranch ? [artifactsBranch] : []),
+					...(pipelinesBranch ? [pipelinesBranch] : []),
+					...(agentsBranch ? [agentsBranch] : []),
+					...tagItems(
+						buildWorkspaceTree({
+							loaded: loader.loaded,
+							kinds,
+							currentItem,
+							loadingKind: loader.loadingKind,
+							extraItemsByKind,
+							layout: 'flat'
+						})
+					)
+				]
+	)
 
 	// A page or artifact highlight lives under its own branch, which the legacy
 	// {kind, dir} scope can't express — open the picker inside that branch, so the
@@ -378,16 +421,22 @@ section or the flat layout.
 	// (artifacts hydrate from IndexedDB after tabs restore), and the drill entries
 	// fill in reactively once it does.
 	const computedInitialScope = untrack(() =>
-		initialHighlight && isArtifactKey(initialHighlight)
-			? ['artifacts']
-			: initialHighlight && isPageKey(initialHighlight)
-				? ['pages']
-				: legacyScopeToPath(initialScope, kinds, 'flat')
+		subpagesOnly
+			? []
+			: subpages && subpageLeaves.some((l) => l.key === initialHighlight)
+				? ['pages', pageKey(subpages.path)]
+				: initialHighlight && isArtifactKey(initialHighlight)
+					? ['artifacts']
+					: initialHighlight && isPageKey(initialHighlight)
+						? ['pages']
+						: legacyScopeToPath(initialScope, kinds, 'flat')
 	)
 
 	// The flat root has no branch to carry a per-kind loading flag — surface
 	// the first-fetch state at the picker level instead.
-	const rootLoading = $derived(kinds.some((k) => !loader.loaded[k] && loader.loadingKind[k]))
+	const rootLoading = $derived(
+		!subpagesOnly && kinds.some((k) => !loader.loaded[k] && loader.loadingKind[k])
+	)
 </script>
 
 {#snippet leafIcon(leaf: DrillLeaf<PreviewTarget>)}

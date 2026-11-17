@@ -58,10 +58,15 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { ExternalLink, Slack, Target } from 'lucide-svelte'
+	import { ArrowLeft, ExternalLink, Slack, Target } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
+	import {
+		pageHeader,
+		type PageHeaderSection,
+		type PageHeaderSubpage
+	} from '$lib/components/pageHeaderRegistry.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
+	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -1764,6 +1769,56 @@
 		params.set('tab', id)
 		return `?${params.toString()}`
 	}
+	function sectionListHref(): string {
+		const params = new URLSearchParams($page.url.searchParams)
+		params.delete('tab')
+		const query = params.toString()
+		return query ? `?${query}` : WORKSPACE_SETTINGS_PATH
+	}
+
+	// Below 768px (Tailwind `md`) the sidebar would leave a phone or a session preview a sliver for
+	// the settings, so the list and the section become two pages. Measured on the page's own box
+	// rather than the viewport: the app's sidebar takes its share of a viewport first.
+	let layoutWidth = $state(window.innerWidth)
+	type SectionEntry = { id: string; label: string; showIf?: boolean; disabled?: boolean }
+	const sectionGroups = $derived(
+		navigationGroups.map((g) => ({
+			title: g.title as string | undefined,
+			items: (g.items as SectionEntry[]).filter((i) => i.showIf !== false)
+		}))
+	)
+	const visibleSections = $derived(sectionGroups.flatMap((g) => g.items))
+	const pagedLayout = $derived(layoutWidth < 768 && !showYaml && visibleSections.length > 1)
+	// The URL says which page is on screen, so the browser's back button returns to the list and
+	// a link to a section opens on it. Wide, a missing `tab` still means the default section.
+	const sectionOpen = $derived($page.url.searchParams.has('tab'))
+	const subpages: PageHeaderSubpage[] = $derived(
+		sectionGroups.flatMap((group) =>
+			group.items.map((i) => ({
+				label: i.label,
+				href: WORKSPACE_SETTINGS_PATH + tabHref(i.id),
+				group: group.title,
+				current: i.id === tab,
+				disabled: i.disabled
+			}))
+		)
+	)
+	const headerSection: PageHeaderSection | undefined = $derived(
+		showYaml
+			? { parent: 'Workspace settings', label: 'YAML' }
+			: pagedLayout
+				? sectionOpen && tabLabel
+					? {
+							parent: 'Workspace settings',
+							parentHref: sectionListHref(),
+							label: tabLabel,
+							subpages
+						}
+					: undefined
+				: tabLabel
+					? { parent: 'Workspace settings', label: tabLabel, subpages }
+					: undefined
+	)
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
@@ -1774,37 +1829,81 @@
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
 		<PageHeaderContent
-			section={showYaml
-				? { parent: 'Workspace settings', label: 'YAML' }
-				: tabLabel
-					? { parent: 'Workspace settings', label: tabLabel }
-					: undefined}
+			section={headerSection}
 			actions={settingsActions}
 			{sessionSource}
 			actionFolds={1}
 			separator="always"
 		/>
 
-		<div class="flex grow min-h-0 pb-4">
-			<!-- Sidebar Navigation -->
-			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
-			     separator at rest, and it has to travel with the content so what scrolls passes under
-			     the line rather than stopping short of it. -->
-			{#if !showYaml}
-				<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
-					<SidebarNavigation
-						groups={navigationGroups}
-						selectedId={tab}
-						onNavigate={(id) => goto(tabHref(id))}
-						itemHref={tabHref}
-					/>
-				</div>
+		<div class="flex grow min-h-0 pb-4" bind:clientWidth={layoutWidth}>
+			{#if pagedLayout}
+				<!-- No `onNavigate`: its arrow keys are read at `window`, where they would take
+				     Left/Right from every field and table on a section.
+				     The negative margin undoes CenteredPage's side padding, which each page puts back
+				     inside its scroller: the box clips, so a scroller inside the padding would have its
+				     scrollbar cut and a gap beside it. -->
+				<PagedContent
+					class="flex-1 h-full -mx-4 sm:-mx-6 md:-mx-8"
+					current={sectionOpen ? 'section' : 'sections'}
+					pages={[
+						{ key: 'sections', content: sectionList },
+						{ key: 'section', content: sectionPane }
+					]}
+				/>
+			{:else}
+				<!-- The top padding belongs inside both scrollers, not above them: it is the gap under
+				     the separator at rest, and it has to travel with the content so what scrolls passes
+				     under the line rather than stopping short of it. -->
+				{#if !showYaml}
+					<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
+						<SidebarNavigation
+							groups={navigationGroups}
+							selectedId={tab}
+							onNavigate={(id) => goto(tabHref(id))}
+							itemHref={tabHref}
+						/>
+					</div>
+				{/if}
+				{@render sectionPane()}
 			{/if}
+		</div>
 
-			<!-- Main Content -->
-			<div class="flex-1 min-w-0 h-full">
-				<div class="h-full overflow-auto">
-					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
+		{#snippet sectionList()}
+			<!-- 8px short of the page gutter: the entries carry their own, as in the sidebar. -->
+			<div class="h-full overflow-auto pt-4 pb-4 px-2 sm:px-4 md:px-6">
+				<!-- Capped so a row's hover band stays the size of a menu entry on a wide panel. -->
+				<SidebarNavigation
+					class="max-w-sm"
+					groups={navigationGroups}
+					selectedId={sectionOpen ? tab : ''}
+					onNavigate={(id) => goto(tabHref(id))}
+					itemHref={tabHref}
+					drillIn
+				/>
+			</div>
+		{/snippet}
+
+		{#snippet sectionPane()}
+			<div class="flex-1 min-w-0 h-full flex flex-col">
+				{#if pagedLayout}
+					<div class="flex pt-3 px-4 sm:px-6 md:px-8">
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							startIcon={{ icon: ArrowLeft }}
+							btnClasses="text-secondary"
+							href={sectionListHref()}
+						>
+							All settings
+						</Button>
+					</div>
+				{/if}
+				<div class="grow min-h-0 overflow-auto">
+					<div
+						class="h-fit {pagedLayout ? 'px-4 sm:px-6 md:px-8 pt-3' : 'px-6 pt-6'}"
+						style="scrollbar-gutter: stable both-edges;"
+					>
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
 						{:else if showYaml}
@@ -2216,7 +2315,7 @@
 									documentation for more information.
 								</p>
 							{/if}
-							<div class="flex gap-2">
+							<div class="flex flex-wrap gap-x-2">
 								<Button
 									destructive
 									disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
@@ -2936,7 +3035,7 @@ export async function main(
 					</div>
 				</div>
 			</div>
-		</div>
+		{/snippet}
 	{:else}
 		<PageHeaderContent separator="always" />
 		<MemberWorkspaceSettings />
