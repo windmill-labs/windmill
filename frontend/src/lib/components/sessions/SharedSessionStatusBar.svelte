@@ -42,7 +42,8 @@
 	)
 
 	function deployedHref(edit: SharedSessionEdit): string | undefined {
-		if (edit.draft) return undefined
+		// Without it, `itemHref` would link the reader's own workspace's item at that path.
+		if (edit.draft || !editsWorkspace) return undefined
 		const kind = (edit.kind === 'raw_app' ? 'app' : edit.kind) as WindmillItemKind
 		const href = itemHref(
 			{ kind, path: edit.path, rawApp: edit.kind === 'raw_app' },
@@ -135,7 +136,9 @@
 						{/if}
 					{:else}
 						<Badge small color="green">Deployed</Badge>
-						<ExternalLink size={12} class="shrink-0 text-tertiary" />
+						{#if deployedHref(edit)}
+							<ExternalLink size={12} class="shrink-0 text-tertiary" />
+						{/if}
 					{/if}
 				{/snippet}
 			</SessionStatusPopover>
