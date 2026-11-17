@@ -1,12 +1,7 @@
 import type { FlowEditorContext } from './types'
 import { getModuleArrayContainer } from './flowTree'
 import { insertBranchOneAfter } from './branchOneInsert'
-
-// The editor only creates identifier ids, but a flow pushed as YAML or through the API can name
-// a step `step-a`, which `results.step-a` would read as a subtraction.
-function resultKey(stepId: string): string {
-	return /^[A-Za-z_$][\w$]*$/.test(stepId) ? `.${stepId}` : `[${JSON.stringify(stepId)}]`
-}
+import { key } from './aiDecisionBranching'
 
 /** Whether `stepId` sits in a step list a Branch to one can be inserted into after it. */
 export function canAddErrorBranch(ctx: FlowEditorContext, stepId: string): boolean {
@@ -20,7 +15,7 @@ export function addErrorBranch(ctx: FlowEditorContext, stepId: string): Promise<
 		step.continue_on_error = true
 		if (inserted.value.type === 'branchone') {
 			inserted.value.branches = [
-				{ summary: 'On error', expr: `!!results${resultKey(stepId)}?.error`, modules: [] }
+				{ summary: 'On error', expr: `!!results${key(stepId)}?.error`, modules: [] }
 			]
 		}
 	})
