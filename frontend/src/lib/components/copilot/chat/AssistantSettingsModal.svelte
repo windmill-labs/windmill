@@ -47,6 +47,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import AssistantDangerZoneSection from './AssistantDangerZoneSection.svelte'
 	import { useActingUser } from '$lib/actingUser.svelte'
+	import { overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
 	// Prefilled title marks the issue as AI Sessions feedback for triage.
 	const FEEDBACK_ISSUE_URL =
@@ -56,6 +57,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	const operatingWorkspace = useOperatingWorkspace()
 
 	const aiChatManager = getAiChatManager()
+	const hostActive = overlayHostActive()
 
 	let isOpen = $state(false)
 	let section = $state<AssistantSettingsSection>('tools')
@@ -101,7 +103,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	 * it would then answer the key it was revealed by — reverting the very draft the
 	 * user was brought here to see. */
 	function onKeydown(event: KeyboardEvent) {
-		if (!isOpen || event.key !== 'Escape') return
+		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
+		if (!isOpen || event.key !== 'Escape' || !hostActive()) return
 		const blocker = blockingSection
 		if (!blocker || blocker === section) return
 		event.preventDefault()
@@ -124,7 +127,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	// assistant can call here, so it must not shift when the autonomy picker does.
 	// The danger zone writes the workspace's AI config, which only its admins may change.
 	const acting = useActingUser(() => ws)
-	let isWsAdmin = $derived(!!acting.current && (acting.current.is_admin || acting.current.is_super_admin))
+	let isWsAdmin = $derived(
+		!!acting.current && (acting.current.is_admin || acting.current.is_super_admin)
+	)
 
 	let tools = $derived(summarizeTools(aiChatManager.availableTools))
 	let providerTools = $derived(aiChatManager.providerTools)
@@ -313,9 +318,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 				<AssistantPermissionsSection {ws} />
 			</div>
 			{#if isWsAdmin}
-				<div
-					class="{section === 'danger' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2"
-				>
+				<div class="{section === 'danger' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
 					<AssistantDangerZoneSection {ws} />
 				</div>
 			{/if}
