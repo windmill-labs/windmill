@@ -1769,11 +1769,13 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					</div>
 				</div>
 				{#if sessionsViewRequested}
+					<!-- Off route, content-visibility skips the style and layout work that `invisible`
+					     leaves running: a reply streaming into a hidden transcript would pay it per chunk. -->
 					<div
 						class={classNames(
 							'col-start-1 row-start-1 min-h-0 flex flex-col overflow-y-auto',
 							sidebarTransitionClass ? 'transition-[padding-left] duration-200 ease-in-out' : '',
-							onSessionsPage ? '' : 'invisible opacity-0'
+							onSessionsPage ? '' : 'invisible opacity-0 [content-visibility:hidden]'
 						)}
 						inert={!onSessionsPage}
 						style:padding-left="{contentInset}rem"
