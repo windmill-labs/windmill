@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.876.0](https://github.com/windmill-labs/windmill/compare/v1.875.0...v1.876.0) (2026-11-17)
+
+
+### Features
+
+* let AI harnesses solve tasks with code, then save and reuse it ([#12472](https://github.com/windmill-labs/windmill/issues/12472)) ([caddc3f](https://github.com/windmill-labs/windmill/commit/caddc3f4ad3aa47b8ee7b2598a1ede8ae7a3400c))
+* pin the current turn's user message at the top of session chat ([#12468](https://github.com/windmill-labs/windmill/issues/12468)) ([c204232](https://github.com/windmill-labs/windmill/commit/c204232609ab0ebdbfe55f4b4711e04652de3fd9))
+
+
+### Bug Fixes
+
+* check new hub paths when a trigger or schedule is saved ([#12465](https://github.com/windmill-labs/windmill/issues/12465)) ([88ef4e9](https://github.com/windmill-labs/windmill/commit/88ef4e9f3c1549f031084767d747ac45bedf1c99))
+* default the path picker to a folder the user can write to ([#12448](https://github.com/windmill-labs/windmill/issues/12448)) ([aef5332](https://github.com/windmill-labs/windmill/commit/aef5332f9563cc1540d93fbd04d8ccaa85a8f10f))
+* do not treat a folder or user with a longer name as writable ([#12450](https://github.com/windmill-labs/windmill/issues/12450)) ([8c4d83c](https://github.com/windmill-labs/windmill/commit/8c4d83c5e7b4cd8ce83f90185afaceec2dc5f545))
+* drop runs-page rows of queued jobs that completed as skipped ([#12470](https://github.com/windmill-labs/windmill/issues/12470)) ([364e729](https://github.com/windmill-labs/windmill/commit/364e729a08ac6540b688d15c0171910100dbd481))
+* encode the webhook GET payload as UTF-8 so non-ASCII arguments work ([#12453](https://github.com/windmill-labs/windmill/issues/12453)) ([2cb29f8](https://github.com/windmill-labs/windmill/commit/2cb29f87a027fdd4bb6c3fd2e1fd900af65cacb1))
+* escape single quotes in the webhook curl example body ([#12454](https://github.com/windmill-labs/windmill/issues/12454)) ([b76af45](https://github.com/windmill-labs/windmill/commit/b76af459bbb3b9e726b433e06aa6a4a600de49ab))
+* judge session editor rights in the session's workspace ([#12462](https://github.com/windmill-labs/windmill/issues/12462)) ([dd1c8fe](https://github.com/windmill-labs/windmill/commit/dd1c8fe66d3b7d1b340856ba4d55af8de07a787e))
+* keep underscores and hyphens inside words in description previews ([#12449](https://github.com/windmill-labs/windmill/issues/12449)) ([57268b6](https://github.com/windmill-labs/windmill/commit/57268b661643132ca2b7c917ac28bc2d765a7238))
+* let a folder's creator manage it from the folders page without a reload ([#12445](https://github.com/windmill-labs/windmill/issues/12445)) ([465446e](https://github.com/windmill-labs/windmill/commit/465446e1ba83504e0d675e3fd2e2a15424742962))
+* let a folder's creator own it right after creating it in the path picker ([#12447](https://github.com/windmill-labs/windmill/issues/12447)) ([96c97b0](https://github.com/windmill-labs/windmill/commit/96c97b0cdb921777856186178e303dd701234310))
+* **py-parser:** read docstring Args descriptions for async def main ([#12473](https://github.com/windmill-labs/windmill/issues/12473)) ([2351bc8](https://github.com/windmill-labs/windmill/commit/2351bc8a30e00190dd928ed8b37a6b16372272bb))
+* **python-client:** omit approver from get_resume_urls when not given ([#12446](https://github.com/windmill-labs/windmill/issues/12446)) ([bbb48f5](https://github.com/windmill-labs/windmill/commit/bbb48f5a61c9d23ba541fdcfa3d198a72937d71f))
+* **python:** back S3BufferedReader with a real BufferedReader ([#12456](https://github.com/windmill-labs/windmill/issues/12456)) ([9a074b1](https://github.com/windmill-labs/windmill/commit/9a074b1c73c83ffc10e1d00b94337f55ae9ff2f1))
+* read agent tool inputs from the flow running the agent step ([#12457](https://github.com/windmill-labs/windmill/issues/12457)) ([dd9f633](https://github.com/windmill-labs/windmill/commit/dd9f633764bcef0451eb3fb3580389a91dfa99ad))
+* refresh a group's members on the Groups page after saving it ([#12460](https://github.com/windmill-labs/windmill/issues/12460)) ([428a07f](https://github.com/windmill-labs/windmill/commit/428a07f5fc4d894d316a6c6aefcd859c91d0e2ee))
+* refresh the schedule's upcoming events when the timezone changes ([#12459](https://github.com/windmill-labs/windmill/issues/12459)) ([938c03c](https://github.com/windmill-labs/windmill/commit/938c03c501ff9fc47152c06b8f6dddc9912d59b5))
+* save a cleared variable value instead of keeping the old one ([#12466](https://github.com/windmill-labs/windmill/issues/12466)) ([bd266bc](https://github.com/windmill-labs/windmill/commit/bd266bc3baab90393de40531fb140e7bcbea0ebc))
+
+
+### Performance Improvements
+
+* mount only the tail of a chat transcript, older messages on scroll ([#12469](https://github.com/windmill-labs/windmill/issues/12469)) ([17a56db](https://github.com/windmill-labs/windmill/commit/17a56db9ea51a5befe61d5c216ceedd481d835b6))
+
 ## [1.875.0](https://github.com/windmill-labs/windmill/compare/v1.874.0...v1.875.0) (2026-11-14)
 
 
