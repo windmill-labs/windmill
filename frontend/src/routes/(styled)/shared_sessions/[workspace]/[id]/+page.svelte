@@ -2,7 +2,7 @@
 	import { page } from '$app/state'
 	import { resource } from 'runed'
 	import { Globe, Users } from 'lucide-svelte'
-	import { Badge, Button } from '$lib/components/common'
+	import { Badge } from '$lib/components/common'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import SharedSessionBody from '$lib/components/sessions/SharedSessionBody.svelte'
 	import { useSharedSession } from '$lib/components/sessions/sharedSession.svelte'
@@ -75,17 +75,6 @@
 						)}
 					</span>
 				</div>
-				{#if found.session.can_unshare}
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						destructive
-						loading={shared.removing}
-						onClick={shared.stopSharing}
-					>
-						Stop sharing
-					</Button>
-				{/if}
 			{:else}
 				<span class="text-sm font-semibold text-emphasis">Shared AI session</span>
 			{/if}

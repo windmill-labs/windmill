@@ -52,11 +52,13 @@
 	}
 
 	// Only these kinds share drafts across users (the server's `shares_drafts_across_users`);
-	// the others stay private to their author.
+	// the others stay private to their author. A never-deployed draft is stored under the
+	// author's own path, which the server lets only them read.
 	const SHARED_DRAFT_KINDS = new Set(['script', 'flow', 'app', 'raw_app'])
 	function opensDraft(edit: SharedSessionEdit): boolean {
 		return (
 			edit.draft &&
+			!edit.draftOnly &&
 			!!draftAuthor &&
 			!!editsWorkspace &&
 			!!edit.draftKind &&
@@ -88,16 +90,14 @@
 					path: edit.draftPath!,
 					username: draftAuthor
 				}),
-				edit.draftOnly ? undefined : fetchDeployedValueForDiff(workspace, kind, edit.path),
+				fetchDeployedValueForDiff(workspace, kind, edit.path),
 				diffDrawerModule.load()
 			])
 			await tick()
 			diffDrawer?.openDrawer()
 			diffDrawer?.setDiff({
 				mode: 'simple',
-				title: edit.draftOnly
-					? `${draftAuthor}'s draft of ${edit.path}, never deployed`
-					: `${draftAuthor}'s draft vs deployed`,
+				title: `${draftAuthor}'s draft vs deployed`,
 				original: deployed ?? {},
 				current: draft.value as any
 			})
