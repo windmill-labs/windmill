@@ -162,7 +162,8 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isEditing) {
-			setEditing(null, true)
+			// A save already in flight has sent the new name, so keep it on screen.
+			setEditing(null, !isEditing.isSaving)
 			event.stopPropagation()
 			event.preventDefault()
 		} else if (event.key === 'Escape' && selectedInput) {
