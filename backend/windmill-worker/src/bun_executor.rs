@@ -3456,7 +3456,7 @@ try {{
         mem_peak,
         canceled_by,
         child,
-        is_sandboxing_enabled(),
+        jailed,
         worker_name,
         &job.workspace_id,
         "bun run",
