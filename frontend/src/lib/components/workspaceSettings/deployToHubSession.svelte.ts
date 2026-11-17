@@ -16,6 +16,7 @@ import {
 	classifyPath,
 	extractScriptRefs,
 	extractFlowRefs,
+	extractAgentRefs,
 	extractAppRefs,
 	extractTriggerConfigResourceRefs,
 	extractVarRefsFromValue,
@@ -462,7 +463,10 @@ export class DeployToHubSession {
 					? extractFlowRefs(it.value).filter((r) => r.kind === 'resource')
 					: it.kind === 'app'
 						? extractAppRefs(it.value)
-						: extractScriptRefs(it.content ?? '')
+						: it.kind === 'agent'
+							? // Its provider and its tools' fixed inputs: what a fork has to fill.
+								extractAgentRefs(it.value).filter((r) => r.kind === 'resource')
+							: extractScriptRefs(it.content ?? '')
 			for (const r of refs) {
 				const stub = stubByNewPath.get(r.path)
 				if (!stub || HIDDEN_RESOURCE_TYPES.has(stub.resource_type)) continue
