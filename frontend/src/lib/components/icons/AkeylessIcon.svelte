@@ -1,14 +1,14 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
 <!-- Akeyless mark from https://www.akeyless.io/ (akeyless-logo-v2.svg), icon-only paths -->
-<svg {width} {height} viewBox="0 0 85 86" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-1 0 86 86" fill="none" xmlns="http://www.w3.org/2000/svg">
 	<path
 		d="M12.4 53.58H2.37003C1.09003 53.58 0.0300293 54.64 0.0300293 55.94V83.16C0.0300293 84.46 1.09003 85.52 2.37003 85.52H38.38C40.45 85.52 41.5 83.03 40.06 81.52L14.11 54.31C13.66 53.86 13.05 53.6 12.43 53.6L12.4 53.58Z"
 		fill="#01D9C1"
