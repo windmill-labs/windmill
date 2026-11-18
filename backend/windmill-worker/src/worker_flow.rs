@@ -4907,14 +4907,39 @@ async fn push_next_flow_job(
             .warn_after_seconds(3)
             .await?;
 
-    let iteration_label = match &next_status {
-        NextStatus::NextLoopIteration { next, .. } => next.iteration_label.as_ref(),
-        NextStatus::AllFlowJobs { iteration_label, .. } => iteration_label.as_ref(),
-        _ => None,
+    // Evaluated before the push transaction opens, so a slow label never holds it.
+    let (has_iteration_label, mut iteration_labels) = match (&next_status, args.as_ref()) {
+        (NextStatus::NextLoopIteration { next, .. }, Ok(flow_args)) => match &next.iteration_label {
+            Some(label) => {
+                let iters = vec![to_raw_value(&next.new_args)];
+                let ctx = get_transform_context(&flow_job, "", &status);
+                let labels =
+                    eval_iteration_labels(label, iters, flow_args, flow_env, client, &ctx).await;
+                (true, labels)
+            }
+            None => (false, vec![]),
+        },
+        (
+            NextStatus::AllFlowJobs {
+                iteration_label: Some(label),
+                iterator: Some(FlowIterator { itered: Some(itered), .. }),
+                ..
+            },
+            Ok(flow_args),
+        ) => {
+            let iters = itered
+                .iter()
+                .take(len)
+                .enumerate()
+                .map(|(i, v)| to_raw_value(&json!({ "index": i as i32, "value": v })))
+                .collect();
+            let ctx = get_transform_context(&flow_job, "", &status);
+            let labels =
+                eval_iteration_labels(label, iters, flow_args, flow_env, client, &ctx).await;
+            (true, labels)
+        }
+        _ => (false, vec![]),
     };
-    let has_iteration_label = iteration_label.is_some();
-    let label_ctx = iteration_label.map(|_| get_transform_context(&flow_job, "", &status));
-    let mut iteration_labels: Vec<Option<String>> = Vec::new();
 
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
@@ -4979,11 +5004,6 @@ async fn push_next_flow_job(
 
                 args.insert("iter".to_string(), to_raw_value(new_args));
                 let args = Marc::new(args);
-                if let (Some(label), Some(ctx)) = (iteration_label, label_ctx.as_ref()) {
-                    iteration_labels.push(
-                        eval_iteration_label(label, args.clone(), flow_env, client, ctx).await,
-                    );
-                }
                 if let Some(input_transforms) = simple_input_transforms {
                     //previous id is none because we do not want to use previous id if we are in a for loop
                     let ctx = get_transform_context(&flow_job, "", &status);
@@ -5046,11 +5066,6 @@ async fn push_next_flow_job(
                         to_raw_value(&json!({ "index": i as i32, "value": itered[i]})),
                     );
                     let hm = Marc::new(hm);
-                    if let (Some(label), Some(ctx)) = (iteration_label, label_ctx.as_ref()) {
-                        iteration_labels.push(
-                            eval_iteration_label(label, hm.clone(), flow_env, client, ctx).await,
-                        );
-                    }
                     if let Some(input_transforms) = simple_input_transforms {
                         let ctx = get_transform_context(&flow_job, &previous_id, &status);
                         let ti = transform_input(
@@ -6682,9 +6697,38 @@ async fn next_loop_iteration(
 }
 
 const ITERATION_LABEL_MAX_CHARS: usize = 100;
+const ITERATION_LABEL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// A label is display-only: an expression that throws or yields nothing leaves the iteration
-/// unlabelled rather than failing it.
+/// One label per entry of `iters` (each an `iter` value). Labels are display-only: one that
+/// throws or yields nothing is `None`, and the first that times out leaves the rest `None`
+/// too, so a hanging expression costs a parallel loop one timeout rather than one per item.
+async fn eval_iteration_labels(
+    label: &InputTransform,
+    iters: Vec<Box<RawValue>>,
+    flow_args: &HashMap<String, Box<RawValue>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    client: &AuthedClient,
+    by_id: &IdContext,
+) -> Vec<Option<String>> {
+    let n = iters.len();
+    let mut labels = Vec::with_capacity(n);
+    for iter in iters {
+        let mut flow_input = flow_args.clone();
+        insert_iter_arg(&mut flow_input, "iter".to_string(), iter);
+        let eval =
+            eval_iteration_label(label, Marc::new(flow_input), flow_env, client, by_id);
+        match tokio::time::timeout(ITERATION_LABEL_TIMEOUT, eval).await {
+            Ok(l) => labels.push(l),
+            Err(_) => {
+                tracing::warn!("iteration label timed out, leaving the remaining iterations unlabelled");
+                break;
+            }
+        }
+    }
+    labels.resize(n, None);
+    labels
+}
+
 async fn eval_iteration_label(
     label: &InputTransform,
     flow_input: Marc<HashMap<String, Box<RawValue>>>,
