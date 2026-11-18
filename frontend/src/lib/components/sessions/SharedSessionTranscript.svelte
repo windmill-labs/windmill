@@ -16,11 +16,15 @@
 	interface Props {
 		snapshot: SessionSnapshot
 		workspace: string
+		author: string
 		/** See SharedSessionStatusBar. */
-		draftAuthor?: string
+		editsWorkspace?: string
+		readsDrafts: boolean
+		draftsLockedReason?: string
 	}
 
-	let { snapshot, workspace, draftAuthor }: Props = $props()
+	let { snapshot, workspace, author, editsWorkspace, readsDrafts, draftsLockedReason }: Props =
+		$props()
 
 	setUntrustedImages()
 
@@ -107,8 +111,10 @@
 	<div class="sticky bottom-0 bg-surface pb-2 pt-1">
 		<SharedSessionStatusBar
 			edits={snapshot.edits}
-			editsWorkspace={snapshot.editsWorkspace}
-			{draftAuthor}
+			{editsWorkspace}
+			{author}
+			{readsDrafts}
+			{draftsLockedReason}
 			{artifacts}
 			openArtifact={(a) => showArtifact(a.id)}
 		/>

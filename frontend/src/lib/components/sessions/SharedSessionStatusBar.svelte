@@ -6,7 +6,7 @@
 
 <script lang="ts">
 	import { tick } from 'svelte'
-	import { ExternalLink, GitCompareArrows } from 'lucide-svelte'
+	import { ExternalLink, GitCompareArrows, Lock } from 'lucide-svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
@@ -25,14 +25,25 @@
 	interface Props {
 		edits: SharedSessionEdit[]
 		editsWorkspace: string | undefined
-		/** The author's username, when the reader is signed in to their workspace and may ask
-		 *  for the author's drafts. */
-		draftAuthor: string | undefined
+		/** The author's username. */
+		author: string
+		/** The reader may ask for the author's drafts in `editsWorkspace`. */
+		readsDrafts: boolean
+		/** Why the reader cannot, shown under the list once it is known. */
+		draftsLockedReason: string | undefined
 		artifacts: PersistedArtifact[]
 		openArtifact: (artifact: PersistedArtifact) => void
 	}
 
-	let { edits, editsWorkspace, draftAuthor, artifacts, openArtifact }: Props = $props()
+	let {
+		edits,
+		editsWorkspace,
+		author,
+		readsDrafts,
+		draftsLockedReason,
+		artifacts,
+		openArtifact
+	}: Props = $props()
 
 	const token = $derived(
 		editsToken({
@@ -58,20 +69,25 @@
 	const SHARED_DRAFT_KINDS = new Set(['script', 'flow', 'app', 'raw_app'])
 	function opensDraft(edit: SharedSessionEdit): boolean {
 		return (
-			edit.draft &&
-			!edit.draftOnly &&
-			!!draftAuthor &&
-			!!editsWorkspace &&
-			!!edit.draftKind &&
-			!!edit.draftPath &&
-			SHARED_DRAFT_KINDS.has(edit.draftKind)
+			edit.draft && readsDrafts && !!editsWorkspace && !!edit.draftPath && !draftPrivateReason(edit)
 		)
 	}
 
+	/** Why no reader but the author can open this draft, whoever the reader is. */
+	function draftPrivateReason(edit: SharedSessionEdit): string | undefined {
+		if (edit.draftOnly) return `Never deployed, so only ${author} can open this draft`
+		if (!edit.draftKind || !SHARED_DRAFT_KINDS.has(edit.draftKind)) {
+			return `Drafts of a ${edit.kind.replaceAll('_', ' ')} stay private to their author`
+		}
+		return undefined
+	}
+
+	const hasLockedDraft = $derived(edits.some((e) => e.draft && !opensDraft(e)))
+
 	function rowTitle(edit: SharedSessionEdit): string {
 		if (!edit.draft) return deployedHref(edit) ? `Open ${edit.path}` : edit.path
-		if (opensDraft(edit)) return `View ${draftAuthor}'s draft of ${edit.path}`
-		return `${edit.path}: a draft only its author can open`
+		if (opensDraft(edit)) return `View ${author}'s draft of ${edit.path}`
+		return `${edit.path}: ${draftPrivateReason(edit) ?? draftsLockedReason ?? `only ${author} can open this draft`}`
 	}
 
 	let editsOpen = $state(false)
@@ -89,7 +105,7 @@
 					workspace,
 					kind,
 					path: edit.draftPath!,
-					username: draftAuthor
+					username: author
 				}),
 				fetchDeployedValueForDiff(workspace, kind, edit.path),
 				diffDrawerModule.load()
@@ -98,7 +114,7 @@
 			diffDrawer?.openDrawer()
 			diffDrawer?.setDiff({
 				mode: 'simple',
-				title: `${draftAuthor}'s draft vs deployed`,
+				title: `${author}'s draft vs deployed`,
 				original: deployed ?? {},
 				current: draft.value as any
 			})
@@ -107,6 +123,13 @@
 		}
 	}
 </script>
+
+{#snippet lockedNote()}
+	<div class="flex items-start gap-1.5 px-3 py-1 text-2xs text-secondary">
+		<Lock size={11} class="mt-0.5 shrink-0" />
+		<span>{draftsLockedReason}</span>
+	</div>
+{/snippet}
 
 {#if edits.length > 0 || artifacts.length > 0}
 	<div class="flex items-center gap-3 rounded-md border bg-surface-tertiary px-2 py-2 text-xs">
@@ -123,6 +146,7 @@
 				triggerClass={`${TOKEN_TRIGGER_CLASS} ${token.class}`}
 				widthClass="w-96"
 				maxHeightClass="max-h-[min(9rem,50vh)]"
+				footer={draftsLockedReason && hasLockedDraft ? lockedNote : undefined}
 			>
 				{#snippet row(edit)}
 					<RowIcon kind={edit.kind as any} path={edit.path} size={14} />
@@ -133,6 +157,8 @@
 						<Badge small color="indigo">{edit.draftOnly ? 'Draft only' : 'Draft'}</Badge>
 						{#if opensDraft(edit)}
 							<GitCompareArrows size={12} class="shrink-0 text-tertiary" />
+						{:else}
+							<Lock size={12} class="shrink-0 text-tertiary" />
 						{/if}
 					{:else}
 						<Badge small color="green">Deployed</Badge>

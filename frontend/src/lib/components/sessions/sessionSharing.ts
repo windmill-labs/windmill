@@ -39,7 +39,8 @@ export type SessionSnapshot = {
 	messages: DisplayMessage[]
 	artifacts: SharedSessionArtifact[]
 	edits: SharedSessionEdit[]
-	/** The workspace the edits live in, which a fork session's share does not name. */
+	/** The workspace the edits live in: a fork, for a fork session's share, which is stored in
+	 *  its parent. */
 	editsWorkspace?: string
 }
 
@@ -82,7 +83,7 @@ function settled(message: DisplayMessage, keepImages: boolean): DisplayMessage {
 export function buildSessionSnapshot(
 	messages: DisplayMessage[],
 	artifacts: PersistedArtifact[],
-	edits: { workspace: string | undefined; items: SharedSessionEdit[] } | undefined
+	edits: { workspace: string; items: SharedSessionEdit[] } | undefined
 ): SessionSnapshot {
 	const sharedArtifacts: SharedSessionArtifact[] = artifacts.map((a) => ({
 		id: a.id,

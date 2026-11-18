@@ -25,15 +25,19 @@
 		Plus,
 		Rows3,
 		Link2,
+		Link2Off,
 		Share2,
-		Trash2
+		Trash2,
+		X
 	} from 'lucide-svelte'
 	import {
+		invalidateSharedSessions,
 		SHARED_SESSIONS_FILTER_OPTIONS,
 		useSharedSessionsList,
 		type SharedSessionsFilter
 	} from './sharedSessionsList.svelte'
-	import { sharedSessionAppHref } from './sessionSharing'
+	import { sharedSessionAppHref, sharedSessionUrl } from './sessionSharing'
+	import { copyToClipboard } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
@@ -73,9 +77,9 @@
 		SIDEBAR_RECENT_MS
 	} from '$lib/components/sidebar/SidebarShowOlder.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
-	import { WorkspaceService } from '$lib/gen'
+	import { AiService, WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 	import { page } from '$app/state'
@@ -196,7 +200,39 @@
 		'show',
 		'string'
 	)
-	const sharedList = useSharedSessionsList(() => $currentWorkspaceRootId ?? $workspaceStore)
+	const sharedWorkspace = $derived($currentWorkspaceRootId ?? $workspaceStore ?? '')
+	const sharedList = useSharedSessionsList(() => sharedWorkspace || undefined)
+	type SharedRow = (typeof sharedList.items)[number]
+	let pendingUnshare: SharedRow | undefined = $state(undefined)
+
+	async function leaveSharedPage(id: string) {
+		if (id === activeSharedId) await goto('/')
+	}
+
+	async function forgetShared(shared: SharedRow) {
+		try {
+			await AiService.forgetOpenedAiSession({ workspace: sharedWorkspace, id: shared.id })
+			invalidateSharedSessions(sharedWorkspace)
+			sendUserToast('Removed from your shared sessions')
+			await leaveSharedPage(shared.id)
+		} catch (err) {
+			sendUserToast(`Could not remove it: ${(err as { body?: unknown })?.body ?? err}`, true)
+		}
+	}
+
+	async function confirmUnshare() {
+		const shared = pendingUnshare
+		pendingUnshare = undefined
+		if (!shared) return
+		try {
+			await AiService.unshareAiSession({ workspace: sharedWorkspace, id: shared.id })
+			invalidateSharedSessions(sharedWorkspace)
+			sendUserToast('Stopped sharing: the link no longer opens')
+			await leaveSharedPage(shared.id)
+		} catch (err) {
+			sendUserToast(`Could not stop sharing: ${(err as { body?: unknown })?.body ?? err}`, true)
+		}
+	}
 	const mySharedSessionIds = $derived(
 		new Set(sharedList.items.flatMap((s) => (s.mine && s.session_id ? [s.session_id] : [])))
 	)
@@ -1246,33 +1282,83 @@
 				</div>
 				{#each sharedWithMe as shared (shared.id)}
 					{@const isActive = shared.id === activeSharedId}
-					<a
-						href={sharedSessionAppHref($currentWorkspaceRootId ?? $workspaceStore ?? '', shared.id)}
-						data-session-button
-						role="option"
-						aria-selected={isActive}
-						title={rail ? shared.name : `Shared by ${shared.created_by}`}
+					<div
 						class={twMerge(
-							'flex flex-row items-center gap-2 rounded text-left text-xs font-normal focus:outline-none min-w-0 px-2 h-6',
-							isActive
-								? `${sidebarClasses.selectedBg} ${sidebarClasses.selectedText}`
-								: 'text-secondary hover:bg-surface-hover',
-							displayGroups.some((g) => g.showHeader) ? 'pl-3' : ''
+							'flex flex-row items-center group rounded min-w-0',
+							isActive ? sidebarClasses.selectedBg : 'hover:bg-surface-hover'
 						)}
 					>
-						<Share2 class="w-3 h-3 shrink-0 text-tertiary" aria-hidden="true" />
-						<span class={rail ? 'sr-only' : 'truncate flex-1'}>{shared.name}</span>
-						{#if !rail}
-							<span
-								class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
-									shared.created_by
-								)}"
-								aria-hidden="true"
+						<a
+							href={sharedSessionAppHref(sharedWorkspace, shared.id)}
+							data-session-button
+							role="option"
+							aria-selected={isActive}
+							title={rail ? shared.name : `Shared by ${shared.created_by}`}
+							class={twMerge(
+								'flex flex-1 flex-row items-center gap-2 rounded text-left text-xs font-normal focus:outline-none min-w-0 px-2 h-6',
+								isActive ? sidebarClasses.selectedText : 'text-secondary',
+								displayGroups.some((g) => g.showHeader) ? 'pl-3' : ''
+							)}
+						>
+							<Share2 class="w-3 h-3 shrink-0 text-tertiary" aria-hidden="true" />
+							<span class={rail ? 'sr-only' : 'truncate flex-1'}>{shared.name}</span>
+							{#if !rail}
+								<span
+									class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
+										shared.created_by
+									)}"
+									aria-hidden="true"
+								>
+									{userInitials(shared.created_by)}
+								</span>
+							{/if}
+						</a>
+						<div
+							class={twMerge(
+								'transition-opacity pr-0.5',
+								rail ? 'hidden' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+							)}
+						>
+							<DropdownV2
+								fixedHeight={false}
+								placement="bottom-end"
+								enableFlyTransition
+								items={[
+									{
+										displayName: 'Copy link',
+										icon: Link2,
+										action: () => void copyToClipboard(sharedSessionUrl(sharedWorkspace, shared.id))
+									},
+									{
+										displayName: 'Remove from my list',
+										icon: X,
+										action: () => void forgetShared(shared)
+									},
+									// The server decides; offering it only to admins keeps it off the
+									// menu of a reader it would refuse.
+									...($userStore?.is_admin || $superadmin
+										? [
+												{
+													displayName: 'Stop sharing',
+													icon: Link2Off,
+													type: 'delete' as const,
+													action: () => (pendingUnshare = shared)
+												}
+											]
+										: [])
+								]}
 							>
-								{userInitials(shared.created_by)}
-							</span>
-						{/if}
-					</a>
+								{#snippet buttonReplacement()}
+									<span
+										class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+										title="More"
+									>
+										<EllipsisVertical size={14} />
+									</span>
+								{/snippet}
+							</DropdownV2>
+						</div>
+					</div>
 				{/each}
 			</div>
 		{/if}
@@ -1365,6 +1451,20 @@
 			</div>
 		{/if}
 	</div>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={!!pendingUnshare}
+	title="Stop sharing"
+	confirmationText="Stop sharing"
+	onConfirmed={confirmUnshare}
+	onCanceled={() => (pendingUnshare = undefined)}
+>
+	<p>
+		Take down <span class="font-medium text-primary">{pendingUnshare?.name}</span>, shared by
+		{pendingUnshare?.created_by}? The link stops opening for everyone, and only its author can share
+		it again.
+	</p>
 </ConfirmationModal>
 
 <ConfirmationModal

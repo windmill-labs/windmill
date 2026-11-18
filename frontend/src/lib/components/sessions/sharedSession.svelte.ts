@@ -11,6 +11,7 @@ export type LoadedSharedSession =
 			snapshot: ReturnType<typeof readSessionSnapshot>
 	  }
 	| { state: 'gone' }
+	| { state: 'outsider'; email: string }
 	| { state: 'error'; message: string }
 
 /** Loads a share and stops sharing it. Nothing is fetched while `key` returns undefined. */
@@ -27,12 +28,11 @@ export function useSharedSession(key: () => { workspace: string; id: string } | 
 			const status = (err as { status?: number })?.status
 			if (status === 401) {
 				// The login page sends a signed-in user straight back to `rd`, so only a visitor
-				// with no session goes there; anyone else is outside the share's workspace.
-				const signedIn = await UserService.getCurrentEmail().then(
-					() => true,
-					() => false
-				)
-				if (signedIn) return { state: 'gone' }
+				// with no session goes there; anyone else is outside the share's workspace. The
+				// server answers them alike whether or not the share exists, so the message must
+				// not say that it does.
+				const email = await UserService.getCurrentEmail().catch(() => undefined)
+				if (email) return { state: 'outsider', email }
 				const rd = window.location.pathname + window.location.search
 				window.location.replace(`/user/login?rd=${encodeURIComponent(rd)}`)
 				return undefined

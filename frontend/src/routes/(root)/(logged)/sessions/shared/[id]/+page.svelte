@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/state'
 	import { EllipsisVertical, Link2Off, Share2, X } from 'lucide-svelte'
-	import { Badge, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import SharedSessionBody from '$lib/components/sessions/SharedSessionBody.svelte'
@@ -43,8 +43,10 @@
 	<span class="truncate text-xs font-normal text-emphasis" title={name}>{name}</span>
 	{#if found}
 		{@const author = found.session.created_by}
-		<span class="inline-flex shrink-0 items-center gap-1" title="Shared by {author}">
-			<Badge color="blue" icon={{ icon: Share2, position: 'left' }}>Shared</Badge>
+		<span class="ml-2 inline-flex shrink-0 items-center gap-1" title="Shared by {author}">
+			<span class="inline-flex items-center gap-0.5 text-2xs font-normal text-hint">
+				<Share2 size={10} aria-hidden="true" />Shared by
+			</span>
 			<span
 				class="inline-flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
 					author
