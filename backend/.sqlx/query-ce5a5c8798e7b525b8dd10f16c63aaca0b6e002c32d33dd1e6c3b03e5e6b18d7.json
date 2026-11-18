@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ai_shared_session_opened o\n         USING ai_shared_session s\n         WHERE o.share_id = s.id AND s.workspace_id = $1 AND o.share_id = $2 AND o.email = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ce5a5c8798e7b525b8dd10f16c63aaca0b6e002c32d33dd1e6c3b03e5e6b18d7"
+}

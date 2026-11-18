@@ -24,8 +24,21 @@
 		PencilLine,
 		Plus,
 		Rows3,
-		Trash2
+		Link2,
+		Link2Off,
+		Share2,
+		Trash2,
+		X
 	} from 'lucide-svelte'
+	import {
+		invalidateSharedSessions,
+		SHARED_SESSIONS_FILTER_OPTIONS,
+		useSharedSessionsList,
+		type SharedSessionsFilter
+	} from './sharedSessionsList.svelte'
+	import { logSharedSessionRemove } from './sharedSessionTelemetry'
+	import { sharedSessionAppHref, sharedSessionUrl } from './sessionSharing'
+	import { copyToClipboard } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
@@ -66,14 +79,21 @@
 		SIDEBAR_RECENT_MS
 	} from '$lib/components/sidebar/SidebarShowOlder.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import {
+		superadmin,
+		userStore,
+		userWorkspaces,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
-	import { WorkspaceService } from '$lib/gen'
+	import { AiService, WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 	import { page } from '$app/state'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
+	import { userColorClass, userInitials } from '$lib/components/userInitials'
 	import {
 		dateBucket,
 		GROUP_BY_OPTIONS,
@@ -119,10 +139,19 @@
 		return () => clearInterval(handle)
 	})
 
+	// A share's page is under /sessions too, and shows none of the reader's own sessions.
+	const SHARED_PAGE_PREFIX = '/sessions/shared/'
+	const onSharedPage = $derived(page.url.pathname.startsWith(SHARED_PAGE_PREFIX))
+	const activeSharedId = $derived(
+		onSharedPage
+			? decodeURIComponent(page.url.pathname.slice(SHARED_PAGE_PREFIX.length))
+			: undefined
+	)
+
 	// The row the page is showing: the open session on its page, the draft in Home's
 	// composer on Home. Elsewhere `currentSessionId` lingers but no row is selected.
 	const activeRowId = $derived(
-		page.url.pathname.startsWith('/sessions')
+		page.url.pathname.startsWith('/sessions') && !onSharedPage
 			? sessionState.currentSessionId
 			: page.url.pathname === '/'
 				? homeDraft.id
@@ -170,6 +199,65 @@
 	// only when a second family shows up); the others always draw headers.
 	const groupBy = useLocalStorageValue<GroupBy>('windmill_sessions_group_by', 'none', 'string')
 	let listRoot: HTMLDivElement | undefined = $state()
+	let sharedRoot: HTMLDivElement | undefined = $state()
+
+	// Other members' shares, listed after the reader's own sessions; the reader's own shares mark
+	// their session's row instead.
+	const sharedFilter = useLocalStorageValue<SharedSessionsFilter>(
+		'windmill_sessions_shared_filter',
+		'show',
+		'string'
+	)
+	const sharedWorkspace = $derived($currentWorkspaceRootId ?? $workspaceStore ?? '')
+	const sharedList = useSharedSessionsList(() => sharedWorkspace || undefined)
+	type SharedRow = (typeof sharedList.items)[number]
+	let pendingUnshare: SharedRow | undefined = $state(undefined)
+
+	async function leaveSharedPage(id: string) {
+		if (id === activeSharedId) await goto('/')
+	}
+
+	async function forgetShared(shared: SharedRow) {
+		try {
+			await AiService.forgetOpenedAiSession({ workspace: sharedWorkspace, id: shared.id })
+			invalidateSharedSessions(sharedWorkspace)
+			logSharedSessionRemove('sidebar', sharedWorkspace)
+			sendUserToast('Removed from your shared sessions')
+			await leaveSharedPage(shared.id)
+		} catch (err) {
+			sendUserToast(`Could not remove it: ${(err as { body?: unknown })?.body ?? err}`, true)
+		}
+	}
+
+	async function confirmUnshare() {
+		const shared = pendingUnshare
+		pendingUnshare = undefined
+		if (!shared) return
+		try {
+			await AiService.unshareAiSession({ workspace: sharedWorkspace, id: shared.id })
+			invalidateSharedSessions(sharedWorkspace)
+			sendUserToast('Stopped sharing: the link no longer opens')
+			await leaveSharedPage(shared.id)
+		} catch (err) {
+			sendUserToast(`Could not stop sharing: ${(err as { body?: unknown })?.body ?? err}`, true)
+		}
+	}
+	const mySharedSessionIds = $derived(
+		new Set(sharedList.items.flatMap((s) => (s.mine && s.session_id ? [s.session_id] : [])))
+	)
+	const sharedWithMe = $derived(
+		sharedFilter.val === 'hide'
+			? []
+			: sharedList.items.filter((s) => {
+					if (s.mine) return false
+					if (s.id === activeSharedId) return true
+					if (lastActivityDays.val === 0) return true
+					return (
+						Date.parse(s.opened_at ?? s.shared_at) >=
+						clock - lastActivityDays.val * 24 * 60 * 60 * 1000
+					)
+				})
+	)
 
 	// A session's family root: the stored grouping id, else derived live.
 	function sessionRootOf(s: Session): string | undefined {
@@ -190,6 +278,7 @@
 			// The row on screen always stays in the list, ignoring every filter.
 			if (s.id === activeRowId) return true
 			if (s.archived && !showArchived.val) return false
+			if (sharedFilter.val === 'only' && !mySharedSessionIds.has(s.id)) return false
 			if (lastActivityDays.val > 0) {
 				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
 				if (sessionLastActivityAt(s) < cutoff) return false
@@ -588,6 +677,17 @@
 				}))
 			},
 			{
+				displayName: 'Shared sessions',
+				icon: Share2,
+				extra: sharedFilterHint,
+				submenuItems: SHARED_SESSIONS_FILTER_OPTIONS.map((o) => ({
+					displayName: o.label,
+					selected: sharedFilter.val === o.value,
+					keepOpen: inFlyout,
+					action: () => (sharedFilter.val = o.value)
+				}))
+			},
+			{
 				displayName: 'Group by',
 				icon: Rows3,
 				extra: groupByHint,
@@ -735,10 +835,16 @@
 		})
 	}
 
+	// One sequence across the reader's own sessions and the shared ones below "Show older". Shared
+	// rows are links, the reader's own sessions buttons: both are rows.
+	function sessionRows(): HTMLElement[] {
+		return [listRoot, sharedRoot].flatMap((root) =>
+			root ? Array.from(root.querySelectorAll<HTMLElement>('[data-session-button]')) : []
+		)
+	}
+
 	function focusAt(index: number) {
-		const buttons = listRoot
-			? Array.from(listRoot.querySelectorAll<HTMLButtonElement>('button[data-session-button]'))
-			: []
+		const buttons = sessionRows()
 		if (buttons.length === 0) return
 		const wrapped = ((index % buttons.length) + buttons.length) % buttons.length
 		buttons[wrapped]?.focus()
@@ -748,11 +854,9 @@
 		if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') {
 			return
 		}
-		const buttons = listRoot
-			? Array.from(listRoot.querySelectorAll<HTMLButtonElement>('button[data-session-button]'))
-			: []
+		const buttons = sessionRows()
 		if (buttons.length === 0) return
-		const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+		const current = buttons.indexOf(document.activeElement as HTMLElement)
 		e.preventDefault()
 		if (e.key === 'ArrowDown') focusAt(current < 0 ? 0 : current + 1)
 		else if (e.key === 'ArrowUp') focusAt(current < 0 ? buttons.length - 1 : current - 1)
@@ -999,8 +1103,11 @@
 							<span class={rail ? 'sr-only' : 'truncate flex-1'}
 								>{session.summary ?? 'Untitled session'}</span
 							>
-							{#if !rail && (draft || unread > 0)}
+							{#if !rail && (draft || unread > 0 || mySharedSessionIds.has(session.id))}
 								<span class="shrink-0 inline-flex items-center gap-1">
+									{#if mySharedSessionIds.has(session.id)}
+										<Link2 class="w-3 h-3 text-tertiary" aria-label="Shared by link" />
+									{/if}
 									{#if draft}
 										<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
 									{/if}
@@ -1211,6 +1318,107 @@
 				{rail}
 			/>
 		{/if}
+		<!-- After "Show older", which belongs to the reader's own sessions above. -->
+		{#if !workspaceTree && sharedWithMe.length > 0 && !selecting}
+			<div
+				bind:this={sharedRoot}
+				class="flex flex-col gap-0.5"
+				onkeydown={handleListKeydown}
+				role="listbox"
+				aria-label="Shared with you"
+				tabindex="-1"
+			>
+				<div
+					class={twMerge(
+						'flex flex-row items-center pl-2 pr-0.5 pt-2 pb-1 min-w-0',
+						displayGroups.length > 0 ? 'mt-4' : '',
+						rail ? 'invisible' : ''
+					)}
+				>
+					<span class="text-secondary text-3xs truncate min-w-0">Shared with you</span>
+				</div>
+				{#each sharedWithMe as shared (shared.id)}
+					{@const isActive = shared.id === activeSharedId}
+					<div
+						class={twMerge(
+							'flex flex-row items-center group rounded min-w-0',
+							isActive ? sidebarClasses.selectedBg : 'hover:bg-surface-hover'
+						)}
+					>
+						<a
+							href={sharedSessionAppHref(sharedWorkspace, shared.id)}
+							data-session-button
+							role="option"
+							aria-selected={isActive}
+							title={rail ? shared.name : `Shared by ${shared.created_by}`}
+							class={twMerge(
+								'flex flex-1 flex-row items-center gap-2 rounded text-left text-xs font-normal focus:outline-none min-w-0 px-2 h-6',
+								isActive ? sidebarClasses.selectedText : 'text-secondary',
+								displayGroups.some((g) => g.showHeader) ? 'pl-3' : ''
+							)}
+						>
+							<Share2 class="w-3 h-3 shrink-0 text-tertiary" aria-hidden="true" />
+							<span class={rail ? 'sr-only' : 'truncate flex-1'}>{shared.name}</span>
+							{#if !rail}
+								<span
+									class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
+										shared.created_by
+									)}"
+									aria-hidden="true"
+								>
+									{userInitials(shared.created_by)}
+								</span>
+							{/if}
+						</a>
+						<div
+							class={twMerge(
+								'transition-opacity pr-0.5',
+								rail ? 'hidden' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+							)}
+						>
+							<DropdownV2
+								fixedHeight={false}
+								placement="bottom-end"
+								enableFlyTransition
+								items={[
+									{
+										displayName: 'Copy link',
+										icon: Link2,
+										action: () => void copyToClipboard(sharedSessionUrl(sharedWorkspace, shared.id))
+									},
+									{
+										displayName: 'Remove from my list',
+										icon: X,
+										action: () => void forgetShared(shared)
+									},
+									// The server decides; offering it only to admins keeps it off the
+									// menu of a reader it would refuse.
+									...($userStore?.is_admin || $superadmin
+										? [
+												{
+													displayName: 'Stop sharing',
+													icon: Link2Off,
+													type: 'delete' as const,
+													action: () => (pendingUnshare = shared)
+												}
+											]
+										: [])
+								]}
+							>
+								{#snippet buttonReplacement()}
+									<span
+										class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+										title="More"
+									>
+										<EllipsisVertical size={14} />
+									</span>
+								{/snippet}
+							</DropdownV2>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
 		{#if selecting}
 			<!-- Pinned to the bottom edge of whatever scrolls the list, the sidebar or the folded
 				     section's menu, while the rows scroll under it; z-10 keeps it above the sidebar's
@@ -1303,6 +1511,20 @@
 </ConfirmationModal>
 
 <ConfirmationModal
+	open={!!pendingUnshare}
+	title="Stop sharing"
+	confirmationText="Stop sharing"
+	onConfirmed={confirmUnshare}
+	onCanceled={() => (pendingUnshare = undefined)}
+>
+	<p>
+		Take down <span class="font-medium text-primary">{pendingUnshare?.name}</span>, shared by
+		{pendingUnshare?.created_by}? The link stops opening for everyone, and only its author can share
+		it again.
+	</p>
+</ConfirmationModal>
+
+<ConfirmationModal
 	open={batchDeleteOpen}
 	title="Delete sessions"
 	confirmationText="Delete"
@@ -1338,6 +1560,12 @@
 		{LAST_ACTIVITY_OPTIONS.find((o) => o.days === lastActivityDays.val)?.hint ?? ''}
 	</span>
 {/snippet}
+{#snippet sharedFilterHint()}
+	<span class="text-2xs text-tertiary">
+		{SHARED_SESSIONS_FILTER_OPTIONS.find((o) => o.value === sharedFilter.val)?.hint ?? ''}
+	</span>
+{/snippet}
+
 {#snippet groupByHint()}
 	<span class="text-2xs text-tertiary whitespace-nowrap">
 		{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
