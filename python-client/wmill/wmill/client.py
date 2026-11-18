@@ -42,7 +42,7 @@ def _retry_after_seconds(retry_after: str, default: float) -> float:
     retry_after = retry_after.strip()
     if not retry_after:
         return default
-    if retry_after.isdigit():
+    if retry_after.isdecimal():
         return float(retry_after)
     try:
         when = parsedate_to_datetime(retry_after)

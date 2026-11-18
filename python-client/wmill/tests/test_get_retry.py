@@ -31,6 +31,8 @@ def _client(statuses, monkeypatch):
         ([(429, {"Retry-After": "10"}), (429, {"Retry-After": "10"})], None, (429, 2, [10])),
         ([(503, {"Retry-After": "Fri, 01 Jan 2100 00:00:00 GMT"})], None, (503, 1, [])),
         ([(503, {"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"}), (200, {})], None, (200, 2, [0])),
+        # "²" is a digit float() rejects: it falls back to the backoff delay
+        ([(503, {"Retry-After": "²".encode()}), (200, {})], None, (200, 2, [1])),
         ([(503, {})] * 3, 3, (503, 3, [1, 2])),
         ([(404, {})], None, (404, 1, [])),
         ([(200, {})], None, (200, 1, [])),
