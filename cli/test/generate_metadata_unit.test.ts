@@ -252,3 +252,15 @@ describe("generate-metadata keeps schema defaults code cannot express", () => {
     expect(result.schema.properties.n.default).toEqual(1);
   });
 });
+
+test("generate-metadata takes argument descriptions from a Python docstring", async () => {
+  const content = `def main(name: str, n: int = 1):\n    """Greets.\n\n    Args:\n        name: Who to greet\n    """\n    return name\n`;
+  const result = await inferSchema(
+    "python3",
+    content,
+    { properties: { n: { type: "integer", description: "typed in the editor" } } },
+    "test.py"
+  );
+  expect(result.schema.properties.name.description).toEqual("Who to greet");
+  expect(result.schema.properties.n.description).toEqual("typed in the editor");
+});
