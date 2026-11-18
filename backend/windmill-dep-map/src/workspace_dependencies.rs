@@ -26,8 +26,8 @@ impl NewWorkspaceDependencies {
     /// Creates a new workspace dependencies entry in the database.
     ///
     /// Archives any existing dependencies with the same name/language/workspace,
-    /// then inserts the new dependencies. Triggers recomputation of dependent scripts
-    /// and rebuilds the dependency map if this is the first unnamed dependency for the workspace.
+    /// then inserts the new dependencies. In the background, rebuilds the dependency map if this
+    /// is the workspace's first unnamed dependency, then triggers recomputation of dependents.
     pub async fn create<'c>(
         self,
         metadata: (String, String, String),
@@ -37,41 +37,6 @@ impl NewWorkspaceDependencies {
             .await?;
 
         let path = WorkspaceDependencies::to_path(&self.name, self.language)?;
-
-        if self.name.is_none() {
-            let setting_name = format!("workspace_dependencies_map_rebuilt:{}", self.workspace_id);
-            let already_rebuilt =
-                windmill_common::global_settings::load_value_from_global_settings(
-                    &db,
-                    &setting_name,
-                )
-                .await?
-                .is_some();
-
-            if !already_rebuilt {
-                tracing::info!(
-                    workspace_id = %self.workspace_id,
-                    "Rebuilding workspace dependencies map for first unnamed workspace dependencies"
-                );
-                ScopedDependencyMap::rebuild_map_unchecked(&self.workspace_id, &db).await?;
-
-                windmill_common::global_settings::set_value_in_global_settings(
-                    &db,
-                    &setting_name,
-                    serde_json::json!({}),
-                )
-                .await?;
-                tracing::info!(
-                    workspace_id = %self.workspace_id,
-                    "Marked workspace dependencies map as rebuilt"
-                );
-            } else {
-                tracing::info!(
-                    workspace_id = %self.workspace_id,
-                    "Skipping workspace dependencies map rebuild - already rebuilt for this workspace"
-                );
-            }
-        };
 
         let mut tx = db.begin().await?;
         let prev_description = sqlx::query_scalar!(
@@ -119,17 +84,67 @@ impl NewWorkspaceDependencies {
         .await?;
         tx.commit().await?;
 
-        trigger_dependents_to_recompute_dependencies_in_the_background(
-            prev_description.is_none() && self.name.is_none(),
-            self.workspace_id,
-            self.language,
-            metadata,
-            path,
-            db,
-        )
-        .await;
+        let wait_for_cache_timeout = prev_description.is_none() && self.name.is_none();
+        let rebuild_map_first = self.name.is_none();
+        let workspace_id = self.workspace_id;
+        let language = self.language;
+        // The first-time map rebuild walks every runnable in the workspace and can outlast a
+        // client's timeout. Inside the request, a disconnect would cancel it before the flag is
+        // set, so every retry would start it over.
+        tokio::spawn(async move {
+            if rebuild_map_first {
+                rebuild_map_once(&workspace_id, &db).await;
+            }
+            recompute_dependents(
+                wait_for_cache_timeout,
+                workspace_id,
+                language,
+                metadata,
+                path,
+                db,
+            )
+            .await;
+        });
 
         Ok(new_id)
+    }
+}
+
+/// Dependents are read from the dependency map, so a workspace whose map predates workspace
+/// dependencies gets it rebuilt once before its first default dependencies are acted on.
+async fn rebuild_map_once(workspace_id: &str, db: &sqlx::Pool<sqlx::Postgres>) {
+    let setting_name = format!("workspace_dependencies_map_rebuilt:{}", workspace_id);
+    let result: error::Result<()> = async {
+        if windmill_common::global_settings::load_value_from_global_settings(db, &setting_name)
+            .await?
+            .is_some()
+        {
+            return Ok(());
+        }
+        tracing::info!(
+            workspace_id = %workspace_id,
+            "Rebuilding workspace dependencies map for first unnamed workspace dependencies"
+        );
+        ScopedDependencyMap::rebuild_map_unchecked(workspace_id, db).await?;
+        windmill_common::global_settings::set_value_in_global_settings(
+            db,
+            &setting_name,
+            serde_json::json!({}),
+        )
+        .await?;
+        tracing::info!(
+            workspace_id = %workspace_id,
+            "Marked workspace dependencies map as rebuilt"
+        );
+        Ok(())
+    }
+    .await;
+    if let Err(e) = result {
+        tracing::error!(
+            workspace_id = %workspace_id,
+            error = %e,
+            "failed to rebuild the dependency map for workspace dependencies; dependents are read from the existing map and the rebuild is retried on the next default dependencies push"
+        );
     }
 }
 
@@ -137,21 +152,38 @@ pub async fn trigger_dependents_to_recompute_dependencies_in_the_background(
     wait_for_cache_timeout: bool,
     workspace_id: String,
     language: ScriptLang,
+    metadata: (String, String, String),
+    path: String,
+    db: sqlx::Pool<sqlx::Postgres>,
+) {
+    tokio::spawn(recompute_dependents(
+        wait_for_cache_timeout,
+        workspace_id,
+        language,
+        metadata,
+        path,
+        db,
+    ));
+}
+
+async fn recompute_dependents(
+    wait_for_cache_timeout: bool,
+    workspace_id: String,
+    language: ScriptLang,
     (email, permissioned_as, created_by): (String, String, String),
     path: String,
     db: sqlx::Pool<sqlx::Postgres>,
 ) {
-    tokio::spawn(async move {
-        if wait_for_cache_timeout {
-            tracing::debug!(
-                workspace_id = %workspace_id,
-                language = ?language,
-                "waiting for cache timeout after creating first unnamed workspace dependencies"
-            );
-            tokio::time::sleep(*EXISTS_CACHE_TIMEOUT).await;
-        }
+    if wait_for_cache_timeout {
+        tracing::debug!(
+            workspace_id = %workspace_id,
+            language = ?language,
+            "waiting for cache timeout after creating first unnamed workspace dependencies"
+        );
+        tokio::time::sleep(*EXISTS_CACHE_TIMEOUT).await;
+    }
 
-        if let Err(e) = trigger_dependents_to_recompute_dependencies(
+    if let Err(e) = trigger_dependents_to_recompute_dependencies(
                 &workspace_id,
                 match ScopedDependencyMap::get_dependents(
                     path.as_str(),
@@ -189,7 +221,6 @@ pub async fn trigger_dependents_to_recompute_dependencies_in_the_background(
                     "CRITICAL: failed to trigger dependents to recompute dependencies - dependent runnables are not being redeployed. Please contact the Windmill team"
                 );
             }
-    });
 }
 
 pub type RawRequirements = WorkspaceDependencies;
