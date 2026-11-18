@@ -13,7 +13,8 @@ on:
 
 jobs:
   notify_discord_when_pr_opened:
-    if: (github.event.pull_request.draft == false) && (github.event.action == 'opened' || github.event.action == 'ready_for_review')
+    # No thread is opened for Dependabot PRs, so nothing downstream may assume one.
+    if: (github.event.pull_request.draft == false) && (github.event.action == 'opened' || github.event.action == 'ready_for_review') && (github.event.pull_request.user.login != 'dependabot[bot]')
     uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_TITLE: ${{ github.event.pull_request.title }}
@@ -28,7 +29,8 @@ jobs:
       DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_AI_BOT_TOKEN }}
 
   merge_success_emoji:
-    if: github.event.action == 'closed'
+    # Must match open_thread's exclusion: this reacts to a thread that was never created.
+    if: github.event.action == 'closed' && github.event.pull_request.user.login != 'dependabot[bot]'
     uses: ./.github/workflows/shareable-discord-notification.yml
     with:
       PR_STATUS: "merged"

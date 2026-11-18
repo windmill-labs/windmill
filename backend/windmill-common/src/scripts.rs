@@ -9,7 +9,7 @@
 pub use windmill_types::scripts::*;
 
 use crate::{
-    error::{to_anyhow, Error},
+    error::to_anyhow,
     runnable_settings::{self},
     utils::http_get_from_hub,
     workspace_dependencies::WorkspaceDependenciesAnnotatedRefs,
@@ -22,7 +22,25 @@ use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 use regex::Regex;
 
-use crate::utils::StripPath;
+use crate::utils::{parse_hub_id, StripPath};
+
+/// The tag a script's dependency job runs on, given the script's own tag; `None` leaves it to
+/// `push`'s default (the language tag). Every relock of a script must use this, or a relock
+/// lands on a worker pool other than the one its deploy locked on and resolves packages
+/// differently.
+/// Dedicated workers are handled by `push`, which gives `dedicated_worker` precedence. Below
+/// that, `push` replaces this result with the instance's `dependency_job_tag` setting when it is
+/// set, except for bunnative.
+pub fn dependency_job_tag(tag: Option<String>, language: &ScriptLang) -> Option<String> {
+    if tag.as_ref().is_some_and(|x| x.contains("$args[")) {
+        None
+    } else if *language == ScriptLang::Bunnative {
+        // the bundle must be built on a worker with the bun tag, whatever the script's tag
+        None
+    } else {
+        tag
+    }
+}
 
 pub fn extract_workspace_dependencies_annotated_refs(
     lang: &ScriptLang,
@@ -72,6 +90,35 @@ pub async fn prefetch_cached_script(
     script: Script<ScriptRunnableSettingsHandle>,
     db: &DB,
 ) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    prefetch_cached_script_inner(script, db, true).await
+}
+
+/// [`prefetch_cached_script`] without deriving the address, for callers that resolve it
+/// themselves — the workspace export memoizes one lookup per distinct principal, and skips it
+/// altogether for clients that only want the marker.
+pub async fn prefetch_cached_script_without_email(
+    script: Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    prefetch_cached_script_inner(script, db, false).await
+}
+
+async fn prefetch_cached_script_inner(
+    script: Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+    derive_email: bool,
+) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    let derived_email = match script.on_behalf_of.as_deref().filter(|_| derive_email) {
+        Some(permissioned_as) => Some(
+            crate::users::get_email_from_permissioned_as_uncached(
+                permissioned_as,
+                &script.workspace_id,
+                db,
+            )
+            .await?,
+        ),
+        None => None,
+    };
     let rs = runnable_settings::from_handle(script.runnable_settings.runnable_settings_handle, db)
         .await?;
     let (debouncing_settings, concurrency_settings) =
@@ -97,7 +144,6 @@ pub async fn prefetch_cached_script(
         language: script.language,
         kind: script.kind,
         tag: script.tag,
-        draft_only: script.draft_only,
         envs: script.envs,
         dedicated_worker: script.dedicated_worker,
         ws_error_handler_muted: script.ws_error_handler_muted,
@@ -112,10 +158,13 @@ pub async fn prefetch_cached_script(
         auto_kind: script.auto_kind,
         codebase: script.codebase,
         has_preprocessor: script.has_preprocessor,
-        on_behalf_of_email: script.on_behalf_of_email,
+        // Derived, not stored: see the field's doc comment.
+        on_behalf_of_email: derived_email,
+        on_behalf_of: script.on_behalf_of,
         assets: script.assets,
         modules: script.modules,
         labels: script.labels,
+        job_token_scopes: script.job_token_scopes,
         inherited_labels: script.inherited_labels,
         runnable_settings: ScriptRunnableSettingsInline {
             concurrency_settings: concurrency_settings.maybe_fallback(
@@ -146,17 +195,12 @@ pub async fn get_hub_script_by_path(
     http_client: &reqwest::Client,
     db: &DB,
 ) -> crate::error::Result<String> {
-    let path = path
-        .to_path()
-        .strip_prefix("hub/")
-        .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
-
+    let id = parse_hub_id(path.to_path(), "hub/")?;
     let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
-    //
     let result = http_get_from_hub(
         http_client,
-        &format!("{}/raw/{}.ts", hub_base_url, path),
+        &format!("{hub_base_url}/raw/{id}/script.ts"),
         true,
         None,
         Some(db),
@@ -171,19 +215,11 @@ pub async fn get_hub_script_by_path(
     match result {
         Ok(result) => Ok(result),
         Err(e) => {
-            if hub_base_url != DEFAULT_HUB_BASE_URL
-                && path
-                    .split("/")
-                    .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION))
-            {
-                tracing::info!(
-                    "Not found on private hub, fallback to default hub for {}",
-                    path
-                );
+            if hub_base_url != DEFAULT_HUB_BASE_URL && id < PRIVATE_HUB_MIN_VERSION {
+                tracing::info!("Not found on private hub, fallback to default hub for {id}");
                 let content = http_get_from_hub(
                     http_client,
-                    &format!("{}/raw/{}.ts", DEFAULT_HUB_BASE_URL, path),
+                    &format!("{DEFAULT_HUB_BASE_URL}/raw/{id}/script.ts"),
                     true,
                     None,
                     Some(db),
@@ -208,38 +244,53 @@ pub async fn get_full_hub_script_by_path(
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
-    let path = path
-        .to_path()
-        .strip_prefix("hub/")
-        .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
+    get_full_hub_script_by_id(parse_hub_id(path.to_path(), "hub/")?, http_client, db).await
+}
 
-    let mut path_iterator = path.split("/");
-    let version = path_iterator
-        .next()
-        .ok_or_else(|| Error::internal_err(format!("expected hub path to have version number")))?;
+/// Performs no authorization and uses the instance's Hub credentials and shared cache: the caller
+/// must already have decided this user may run or read this script.
+pub async fn get_full_hub_script_by_id(
+    version: i32,
+    http_client: &reqwest::Client,
+    db: Option<&DB>,
+) -> crate::error::Result<HubScript> {
+    // A cache entry that cannot be read or parsed counts as a miss rather than an error:
+    // a truncated write leaves a file that exists but deserializes to nothing, and refetching
+    // it is always preferable to failing the job push it was read for.
     let cache_path = format!("{}/{version}", *HUB_CACHE_DIR);
-    let script;
-    if tokio::fs::metadata(&cache_path).await.is_err() {
-        script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
-        if let Err(e) = crate::worker::write_file(
-            &HUB_CACHE_DIR,
-            &version,
-            &serde_json::to_string(&script).map_err(to_anyhow)?,
-        ) {
-            tracing::error!("failed to write hub script {path} to cache: {e}");
-        } else {
-            tracing::info!("wrote hub script {path} to cache");
+    let cached = match tokio::fs::read_to_string(&cache_path).await {
+        Ok(content) => serde_json::from_str::<HubScript>(&content)
+            .inspect_err(|e| {
+                tracing::error!("hub script cache at {cache_path} is unparseable, refetching: {e}")
+            })
+            .ok(),
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::error!("hub script cache at {cache_path} is unreadable, refetching: {e}");
+            }
+            None
         }
+    };
+    if let Some(script) = cached {
+        tracing::info!("read hub script {version} from cache");
+        return Ok(script);
+    }
+
+    let script = fetch_hub_script(version, http_client, db).await?;
+    if let Err(e) = crate::worker::write_file(
+        &HUB_CACHE_DIR,
+        &version.to_string(),
+        &serde_json::to_string(&script).map_err(to_anyhow)?,
+    ) {
+        tracing::error!("failed to write hub script {version} to cache: {e}");
     } else {
-        let cache_content = tokio::fs::read_to_string(cache_path).await?;
-        script = serde_json::from_str(&cache_content).unwrap();
-        tracing::info!("read hub script {path} from cache");
+        tracing::info!("wrote hub script {version} to cache");
     }
     Ok(script)
 }
 
-async fn get_full_hub_script_by_path_inner(
-    path: &str,
+async fn fetch_hub_script(
+    id: i32,
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
@@ -248,7 +299,7 @@ async fn get_full_hub_script_by_path_inner(
     let response = (|| async {
         let response = http_get_from_hub(
             http_client,
-            &format!("{}/raw2/{}", hub_base_url, path),
+            &format!("{hub_base_url}/raw2/{id}/script"),
             true,
             None,
             db,
@@ -259,19 +310,12 @@ async fn get_full_hub_script_by_path_inner(
         match response {
             Ok(response) => Ok(response),
             Err(e) => {
-                if hub_base_url != DEFAULT_HUB_BASE_URL
-                    && path.split("/").next().is_some_and(|x| {
-                        x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION)
-                    })
-                {
+                if hub_base_url != DEFAULT_HUB_BASE_URL && id < PRIVATE_HUB_MIN_VERSION {
                     // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
-                    tracing::info!(
-                        "Not found on private hub, fallback to default hub for {}",
-                        path
-                    );
+                    tracing::info!("Not found on private hub, fallback to default hub for {id}");
                     http_get_from_hub(
                         http_client,
-                        &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
+                        &format!("{DEFAULT_HUB_BASE_URL}/raw2/{id}/script"),
                         true,
                         None,
                         db,
@@ -292,9 +336,7 @@ async fn get_full_hub_script_by_path_inner(
             .build(),
     )
     .notify(|err, dur| {
-        tracing::warn!(
-            "Could not get hub script at path {path}, retrying in {dur:#?}, err: {err:#?}"
-        );
+        tracing::warn!("Could not get hub script {id}, retrying in {dur:#?}, err: {err:#?}");
     })
     .sleep(tokio::time::sleep)
     .await?;
@@ -302,7 +344,7 @@ async fn get_full_hub_script_by_path_inner(
     let script = response
         .json::<HubScript>()
         .await
-        .context(format!("Decoding hub response for script at path {path}"))?;
+        .context(format!("Decoding hub response for script {id}"))?;
 
     Ok(script)
 }
@@ -325,31 +367,38 @@ pub async fn fetch_script_for_update<'a>(
     .map_err(crate::error::Error::from)
 }
 
-pub struct ClonedScript {
-    pub old_script: NewScript,
-    pub new_hash: i64,
-}
-// TODO: What if dependency job fails, there is script with NULL in the lock
-pub async fn clone_script<'c>(
-    path: &str,
-    w_id: &str,
+/// Deploys the outcome of a relative-import relock as a new version of `head`, the path's live
+/// version that the caller holds `FOR UPDATE`, and archives `head`. A `lock` of `None` records
+/// a failed generation: the version carries `lock_error_logs` instead and runs keep resolving
+/// to the last version that has a lock. A `modules` of `None` keeps the head's module locks.
+///
+/// Writes whatever `head` names and checks nothing: callers are responsible for having
+/// established access to its workspace and path, as a dependency job's push already has.
+///
+/// `created_at` is stamped when the insert runs, not at transaction start. The row lock on
+/// `head` is what orders one relock after another, and with `now()` a transaction that began
+/// first but locked second commits a live child older than its archived parent, which every
+/// "latest version" read then mis-orders.
+pub async fn deploy_relocked_version(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    head: Script<ScriptRunnableSettingsHandle>,
     deployment_message: Option<String>,
-    db: &DB,
-) -> crate::error::Result<ClonedScript> {
-    let mut tx = db.begin().await?;
-    let s = if let Some(s) = fetch_script_for_update(path, w_id, &mut *tx).await? {
-        s
-    } else {
-        return Err(crate::error::Error::NotFound(format!(
-            "Non-archived script with path '{}' not found",
-            path
-        )));
-    };
+    lock: Option<&str>,
+    modules: Option<&std::collections::HashMap<String, ScriptModule>>,
+    lock_error_logs: Option<&str>,
+) -> crate::error::Result<i64> {
+    let s = head;
+    let w_id = s.workspace_id.as_str();
 
     let rs =
-        runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, db).await?;
+        runnable_settings::from_handle(s.runnable_settings.runnable_settings_handle, &mut **tx)
+            .await?;
     let (debouncing_settings, concurrency_settings) =
-        runnable_settings::prefetch_cached(&rs, db).await?;
+        runnable_settings::prefetch_cached_tx(&rs, &mut *tx).await?;
+
+    // What the row stores is what the hash covers: the new module locks when there are any.
+    let modules = modules.cloned().or(s.modules);
+    let modules_json = modules.as_ref().map(serde_json::to_value).transpose()?;
 
     let ns = NewScript {
         path: s.path.clone(),
@@ -359,11 +408,10 @@ pub async fn clone_script<'c>(
         content: s.content,
         schema: s.schema,
         is_template: s.is_template,
-        lock: None,
+        lock: lock.map(str::to_string),
         language: s.language,
         kind: Some(s.kind),
         tag: s.tag,
-        draft_only: s.draft_only,
         envs: s.envs,
         concurrency_settings: concurrency_settings.maybe_fallback(
             s.runnable_settings.concurrency_key,
@@ -389,18 +437,20 @@ pub async fn clone_script<'c>(
         codebase: s.codebase,
         has_preprocessor: s.has_preprocessor,
         on_behalf_of_email: s.on_behalf_of_email,
+        on_behalf_of: s.on_behalf_of,
         preserve_on_behalf_of: None,
         assets: s.assets,
-        modules: s.modules,
+        modules,
         auto_parent: None,
         labels: s.labels,
+        job_token_scopes: Some(s.job_token_scopes.clone()),
         skip_draft_deletion: None,
     };
 
     let new_hash = hash_script(&ns);
 
     tracing::debug!(
-        "cloning script at path {} from '{}' to '{}'",
+        "deploying relocked version of script at path {} from '{}' to '{}'",
         s.path,
         *s.hash,
         new_hash
@@ -410,20 +460,22 @@ pub async fn clone_script<'c>(
     INSERT INTO script
     (workspace_id, hash, path, parent_hashes, summary, description, content, \
     created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
+    envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels)
+    codebase, has_preprocessor, on_behalf_of, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels, \
+    job_token_scopes, lock_error_logs, created_at)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
-            content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
-            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
+            content, created_by, schema, is_template, extra_perms, $4::text, language, kind, tag, \
+            envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels
+            codebase, has_preprocessor, on_behalf_of, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, COALESCE($5::jsonb, modules), labels, \
+            job_token_scopes, $6::text, clock_timestamp()
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
-            ", new_hash, s.hash.0, w_id).execute(&mut *tx).await?;
+            ", new_hash, s.hash.0, w_id, lock, modules_json, lock_error_logs).execute(&mut **tx).await?;
 
     // Archive base.
     sqlx::query!(
@@ -431,9 +483,22 @@ pub async fn clone_script<'c>(
         *s.hash,
         w_id
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
-    tx.commit().await?;
-    Ok(ClonedScript { old_script: ns, new_hash })
+    Ok(new_hash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hub_script_id_is_the_first_segment_only() {
+        let id = |p: &str| parse_hub_id(p, "hub/").ok();
+        assert_eq!(id("hub/28102/windmill/git_sync"), Some(28102));
+        assert_eq!(id("hub/28102/../19862/x"), Some(28102));
+        assert_eq!(id("hub/../19862/x"), None);
+        assert_eq!(id("hub/flows/76"), None);
+    }
 }

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_dataset SET scorers = COALESCE((\n                SELECT jsonb_agg(\n                    CASE WHEN elem->>'path' LIKE ('u/' || $2 || '/%')\n                    THEN jsonb_set(elem, '{path}', to_jsonb(REGEXP_REPLACE(elem->>'path', 'u/' || $2 || '/(.*)', $1 || '/\\1')))\n                    ELSE elem END)\n                FROM jsonb_array_elements(scorers) elem), '[]'::jsonb)\n           WHERE workspace_id = $3\n             AND EXISTS (SELECT 1 FROM jsonb_array_elements(scorers) e WHERE e->>'path' LIKE ('u/' || $2 || '/%'))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0aae275d9196e742b5783df4e67c72459d45e275bfeafa2952349cae259ac9f0"
+}

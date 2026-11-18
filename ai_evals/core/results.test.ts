@@ -92,6 +92,71 @@ describe("benchmark results", () => {
     expect(summary).toContain("Average duration (all attempts): 550ms");
   });
 
+  it("aggregates final context size over passed attempts only", () => {
+    const result = buildRunResult({
+      mode: "global",
+      runs: 1,
+      runModel: "model-under-test",
+      judgeModel: "judge-model",
+      caseResults: [
+        caseResult([
+          {
+            attempt: 1,
+            passed: true,
+            durationMs: 1000,
+            assistantMessageCount: 1,
+            toolCallCount: 1,
+            toolsUsed: ["edit_script"],
+            skillsInvoked: [],
+            checks: [{ name: "edited", passed: true }],
+            judgeScore: 100,
+            judgeSummary: "ok",
+            error: null,
+            tokenUsage: { prompt: 12000, completion: 200, total: 12200 },
+            finalContextTokens: 5000,
+          },
+          {
+            attempt: 2,
+            passed: true,
+            durationMs: 1100,
+            assistantMessageCount: 1,
+            toolCallCount: 1,
+            toolsUsed: ["edit_script"],
+            skillsInvoked: [],
+            checks: [{ name: "edited", passed: true }],
+            judgeScore: 100,
+            judgeSummary: "ok",
+            error: null,
+            tokenUsage: { prompt: 18000, completion: 300, total: 18300 },
+            finalContextTokens: 7000,
+          },
+          {
+            attempt: 3,
+            passed: false,
+            durationMs: 100,
+            assistantMessageCount: 1,
+            toolCallCount: 0,
+            toolsUsed: [],
+            skillsInvoked: [],
+            checks: [{ name: "edited", passed: false }],
+            judgeScore: 10,
+            judgeSummary: "missed",
+            error: "failed",
+            tokenUsage: { prompt: 20000, completion: 100, total: 20100 },
+            finalContextTokens: 9000,
+          },
+        ]),
+      ],
+    });
+
+    // Final context size stays below cumulative prompt and ignores the failed attempt.
+    expect(result.averageFinalContextTokensPassed).toBe(6000);
+    expect(result.maxFinalContextTokensPassed).toBe(7000);
+    expect(formatRunSummary(result)).toContain(
+      "Final context size (passed): 6000 tokens (max 7000)",
+    );
+  });
+
   it("reports passed averages as unavailable when no attempt passes", () => {
     const result = buildRunResult({
       mode: "global",

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.username, u.email FROM workspace w JOIN usr u ON u.workspace_id = w.id AND u.email = w.owner WHERE w.id = $1 AND NOT u.disabled",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1b5f6620d35dd74b32ce6325891be02fe144a2da1ebf446b0df92944da791fa7"
+}

@@ -14,12 +14,18 @@ import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
+import { ciTestBatchDeployed, ciTestBatchSkip } from "../../core/ci_test_batch.ts";
 import { sep as SEP } from "node:path";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
 import { readInlinePathSync, readTextFile } from "../../utils/utils.ts";
 import { isWorkspaceSpecificFile } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
+import {
+  buildPermissionedAsContext,
+  type PermissionedAsContext,
+} from "../../core/permissioned_as.ts";
+import { readEffectiveSyncBehavior } from "../../core/conf.ts";
 
 export interface ResourceFile {
   value: any;
@@ -46,6 +52,32 @@ async function readFilesetDirectory(dirPath: string): Promise<Record<string, str
   return result;
 }
 
+/**
+ * A fileset directory must live at the server-canonical location
+ * `<resource path>.fileset` — that is the only layout the sync diff engine
+ * can round-trip (remote state is always rendered there, including for
+ * workspace-specific resources). Any other pointer breaks change detection:
+ * children are planned as full delete/re-add churn and adds under the custom
+ * directory are dropped, which manifests as erased or stale fileset content.
+ */
+export function validateFilesetPointer(
+  dirPath: string,
+  remotePath: string,
+): void {
+  const normalize = (p: string) =>
+    p.replaceAll("\\", "/").replace(/\/+$/, "");
+  const pointer = normalize(dirPath);
+  const expected = normalize(remotePath.replaceAll(SEP, "/")) + ".fileset";
+  if (pointer !== expected) {
+    throw new Error(
+      `Resource ${remotePath.replaceAll(SEP, "/")} uses '!inline_fileset ${dirPath}', ` +
+        `but a fileset directory must live next to its resource file, at '${expected}'. ` +
+        `Move the directory there (e.g. 'git mv ${pointer} ${expected}') and update the ` +
+        `'!inline_fileset' value to match.`,
+    );
+  }
+}
+
 export async function pushResource(
   workspace: string,
   remotePath: string,
@@ -53,6 +85,11 @@ export async function pushResource(
   localResource: ResourceFile,
   originalLocalPath?: string,
   wsSpecific?: boolean,
+  // Sync pushes reject non-canonical fileset pointers (the diff engine can
+  // only round-trip the canonical layout); the standalone `resource push`
+  // command pushes a single explicit file, where any pointer is fine.
+  enforceCanonicalFileset?: boolean,
+  permissionedAsContext?: PermissionedAsContext,
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource");
   try {
@@ -63,11 +100,19 @@ export async function pushResource(
   } catch {
     // flow doesn't exist
   }
+  const claimed = agentOnBehalfOf(
+    resource,
+    localResource,
+    permissionedAsContext
+  );
 
   // Helper function to resolve inline content
   const resolveInlineContent = async () => {
     if (typeof localResource.value === "string" && localResource.value.startsWith("!inline_fileset ")) {
       const dirPath = localResource.value.split(" ")[1];
+      if (enforceCanonicalFileset) {
+        validateFilesetPointer(dirPath, remotePath);
+      }
       localResource.value = await readFilesetDirectory(dirPath.replaceAll("/", SEP));
     } else if (localResource.value["content"]?.startsWith("!inline ")) {
       const basePath = localResource.value["content"].split(" ")[1];
@@ -100,12 +145,26 @@ export async function pushResource(
 
     // Only resolve inline content if we're actually updating
     await resolveInlineContent();
+    if (claimed) {
+      log.info(`Preserving ${claimed} as permissioned_as for agent ${remotePath}`);
+    }
 
     await wmill.updateResource({
       workspace: workspace,
       path: remotePath.replaceAll(SEP, "/"),
-      requestBody: { ...localResource, ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}) },
+      ...ciTestBatchSkip(),
+      requestBody: {
+        ...localResource,
+        ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
+        ...(claimed
+          ? {
+              value: { ...localResource.value, on_behalf_of: claimed },
+              preserve_on_behalf_of: true,
+            }
+          : {}),
+      },
     });
+    ciTestBatchDeployed("resource", remotePath.replaceAll(SEP, "/"));
   } else {
     // New resource - resolve inline content
     await resolveInlineContent();
@@ -121,13 +180,51 @@ export async function pushResource(
     log.info(colors.yellow.bold("Creating new resource..."));
     await wmill.createResource({
       workspace: workspace,
+      ...ciTestBatchSkip(),
       requestBody: {
         path: remotePath.replaceAll(SEP, "/"),
         ...localResource,
         ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
       },
     });
+    ciTestBatchDeployed("resource", remotePath.replaceAll(SEP, "/"));
   }
+}
+
+/**
+ * An agent with `run_on_behalf_of` runs as the identity in its value's
+ * `on_behalf_of`, which the backend sets to whoever writes the agent and clears
+ * while the toggle is off. Like an app's, it is never taken from the
+ * tracked file, which the pull leaves it out of: the deployed one is claimed
+ * back only by a pusher the backend lets keep it, an admin or a `wm_deployers`
+ * member. Strips the key from `localResource` (and from the deployed value, so
+ * an unchanged agent still compares equal) and returns the identity to claim.
+ */
+export function agentOnBehalfOf(
+  deployed: ResourceFile | Resource | undefined,
+  localResource: ResourceFile,
+  permissionedAsContext: PermissionedAsContext | undefined
+): string | undefined {
+  // What the push writes is the tracked file's type: an agent retyped into
+  // another resource keeps its value exactly as the file states it.
+  if (localResource.resource_type !== "ai_agent") {
+    return undefined;
+  }
+  const local = localResource.value;
+  if (local && typeof local === "object") {
+    delete local.on_behalf_of;
+  }
+  const value = deployed?.resource_type === "ai_agent" ? deployed.value : undefined;
+  const onBehalfOf =
+    value && typeof value === "object" ? value.on_behalf_of : undefined;
+  if (deployed && onBehalfOf !== undefined) {
+    const { on_behalf_of: _, ...rest } = value;
+    deployed.value = rest;
+  }
+  if (!onBehalfOf || !permissionedAsContext?.userIsAdminOrDeployer) {
+    return undefined;
+  }
+  return onBehalfOf;
 }
 
 type PushOptions = GlobalOptions;
@@ -151,7 +248,13 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
     remotePath,
     undefined,
     parseFromFile(filePath),
-    filePath  // Pass the local file path for branch-specific inline content resolution
+    filePath, // Pass the local file path for branch-specific inline content resolution
+    undefined,
+    undefined,
+    await buildPermissionedAsContext(
+      workspace.workspaceId,
+      await readEffectiveSyncBehavior(opts, workspace)
+    )
   );
   log.info(colors.bold.underline.green(`Resource ${remotePath} pushed`));
 }

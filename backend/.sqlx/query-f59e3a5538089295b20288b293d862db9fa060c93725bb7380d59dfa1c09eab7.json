@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE tree AS (\n             SELECT (b->>'job_id')::uuid AS id\n             FROM jsonb_each($1::jsonb) s, jsonb_array_elements(s.value) b\n             UNION\n             SELECT j.id FROM v2_job j JOIN tree t ON j.parent_job = t.id\n         )\n         UPDATE v2_job_queue q\n         SET canceled_by = 'monitor', scheduled_for = now(), suspend = 0,\n             canceled_reason = 'the turn its AI agent was handed to ended before taking it'\n         FROM tree WHERE q.id = tree.id AND q.canceled_by IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f59e3a5538089295b20288b293d862db9fa060c93725bb7380d59dfa1c09eab7"
+}

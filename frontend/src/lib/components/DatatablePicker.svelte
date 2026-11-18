@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 
 	import Select from './select/Select.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		value?: string | undefined
@@ -15,6 +17,9 @@
 		selectInputClass?: string
 		class?: string
 		onClear?: () => void
+		/** Size the input to its content, like Path's folder picker. */
+		useContentEditable?: boolean
+		RightIcon?: any
 	}
 
 	let {
@@ -25,11 +30,13 @@
 		placeholder = undefined,
 		selectInputClass = '',
 		class: className = '',
-		onClear = undefined
+		onClear = undefined,
+		useContentEditable = false,
+		RightIcon = undefined
 	}: Props = $props()
 
 	let datatables = usePromise(() =>
-		WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' }).then((d) =>
+		WorkspaceService.listDataTables({ workspace: $operatingWorkspace ?? '' }).then((d) =>
 			d.map((d) => d.name)
 		)
 	)
@@ -45,6 +52,8 @@
 		{placeholder}
 		inputClass={selectInputClass}
 		{onClear}
+		{useContentEditable}
+		{RightIcon}
 	/>
 	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'datatable', path: value })}
 		<ExploreAssetButton class="mt-1 w-fit" asset={{ kind: 'datatable', path: value }} />

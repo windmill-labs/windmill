@@ -4,9 +4,11 @@ import type {
 	CreateVariable,
 	FlowValue,
 	GcpTriggerData,
+	NewEmailTrigger,
 	NewHttpTrigger,
 	NewKafkaTrigger,
 	NewMqttTrigger,
+	NewAmqpTrigger,
 	NewNatsTrigger,
 	NewPostgresTrigger,
 	NewSchedule,
@@ -28,6 +30,7 @@ export type FlowDraftValue = {
 	value: FlowValue
 	schema?: Record<string, any> | null
 	groups?: NonNullable<FlowValue['groups']> | null
+	description?: string | null
 }
 
 export const TRIGGER_KINDS = [
@@ -37,9 +40,11 @@ export const TRIGGER_KINDS = [
 	'nats',
 	'postgres',
 	'mqtt',
+	'amqp',
 	'sqs',
 	'gcp',
-	'azure'
+	'azure',
+	'email'
 ] as const
 
 export type TriggerKind = (typeof TRIGGER_KINDS)[number]
@@ -51,9 +56,11 @@ export type TriggerRequestBody =
 	| NewNatsTrigger
 	| NewPostgresTrigger
 	| NewMqttTrigger
+	| NewAmqpTrigger
 	| NewSqsTrigger
 	| GcpTriggerData
 	| AzureTriggerData
+	| NewEmailTrigger
 
 export type WorkspaceItemType =
 	| 'script'
@@ -71,6 +78,14 @@ export type AppDraftValue = {
 	data?: any
 	policy?: Policy
 	custom_path?: string
+	labels?: string[]
+	// Fork base: the deployed app version this draft was started from, pinned at
+	// fork. The app analog of a script's parent_hash / a flow's version_id.
+	parent_version?: number
+	// User-typed friendly path while the app is parked at a `…/draft_<uuid>`
+	// storage path (see RawAppDraft in sessions/appDraftCodec.ts). Must
+	// round-trip through chat writes or an edit erases the chosen name.
+	draft_path?: string
 }
 
 export type ResourceDraftState = {
@@ -84,20 +99,34 @@ export type ResourceDraftState = {
 
 export type VariableDraftState = {
 	path: string
+	/** A secret's `value` is `''` unless this draft stages a new one, so a non-empty value
+	 * is always a staged one — that is what lets a metadata-only edit omit `value` at
+	 * deploy and leave the stored secret alone. This row is the single source of truth,
+	 * shared with the variable drawer; the draft endpoint encrypts it at rest. */
 	variable: { value: string; is_secret: boolean; description: string }
 	labels: string[] | undefined
 	wsSpecific: boolean
 	account?: number
 	is_oauth?: boolean
 	expires_at?: string
+	value_valid_until?: string
 }
 
 export type WorkspaceItem = {
 	type: WorkspaceItemType
 	path: string
+	/** Friendly display path for a draft parked at a `…/draft_<uuid>` storage
+	 * path (the draft value's `draft_path`). Display-only — `path` is the key
+	 * drafts are stored and routed under. */
+	draftPath?: string
 	summary?: string
 	language?: ScriptLang
 	triggerKind?: TriggerKind
+	// Fork base: the deployed version this draft was started from, compared against
+	// the current deployed head to detect a stale draft. `parentHash` for scripts
+	// (script hash), `parentVersionId` for flows (flow_version id).
+	parentHash?: string
+	parentVersionId?: number
 	value?:
 		| string
 		| FlowDraftValue
@@ -106,6 +135,28 @@ export type WorkspaceItem = {
 		| CreateResource
 		| CreateVariable
 		| AppDraftValue
+	/** Input schema of a script read (flows carry theirs inside `value`). */
+	schema?: unknown
+	/** Variables only. The one piece of a secret variable that is safe to report:
+	 * without it a reader cannot tell a secret from a plain variable, since the
+	 * value is always redacted. */
+	isSecret?: boolean
+	/** Apps only. True for a code app, false for one built in the drag-and-drop
+	 * editor. The two are edited by disjoint tool sets, so the distinction has to
+	 * reach the model before it picks one. */
+	rawApp?: boolean
+	/** Apps only. Who may open the app — read from a draft, who may open it once
+	 * that draft is deployed: `anonymous` is anyone with the URL and no login,
+	 * `guest` anyone the identity provider authenticates, the rest a workspace
+	 * member. A `guest` app whose instance or workspace admits
+	 * no guest says so here, since the mode is stored either way. Reported per
+	 * app, not in listings — a listing carrying it would make absence read as
+	 * proof of no exposure. */
+	executionMode?: string
+	/** Who a deployed item is shared with beyond its path owner, as `u/<user>` /
+	 * `g/<group>` → true for write, false for read-only. A draft has no permissions of
+	 * its own, so a draft read leaves it unset rather than reporting the item unshared. */
+	extraPerms?: Record<string, boolean>
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

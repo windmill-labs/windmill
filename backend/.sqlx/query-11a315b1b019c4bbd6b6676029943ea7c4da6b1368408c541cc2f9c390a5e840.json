@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE workspace_protection_rule\n            SET name = $1, rules = $2, bypass_groups = $3, bypass_users = $4,\n                fork_role_mapping = COALESCE($7, fork_role_mapping)\n            WHERE workspace_id = $5 AND name = $6\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int4",
+        "TextArray",
+        "TextArray",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "11a315b1b019c4bbd6b6676029943ea7c4da6b1368408c541cc2f9c390a5e840"
+}

@@ -7,6 +7,8 @@ edition.workspace = true
 [lib]
 name = "windmill_operator"
 path = "./src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 enterprise = ["windmill-common/enterprise"]
@@ -19,6 +21,7 @@ serde_json.workspace = true
 sqlx.workspace = true
 tracing.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-audit.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 kube.workspace = true

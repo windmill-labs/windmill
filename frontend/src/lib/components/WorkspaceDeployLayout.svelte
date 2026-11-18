@@ -1,10 +1,17 @@
+<script lang="ts" module>
+	const treeOpenState = new Map<string, boolean>()
+</script>
+
 <script lang="ts">
-	import { Loader2 } from 'lucide-svelte'
+	import { Folder, Loader2, User } from 'lucide-svelte'
 	import { Badge } from './common'
+	import Checkbox from './common/checkbox/Checkbox.svelte'
 	import Row from './common/table/Row.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import type { Snippet } from 'svelte'
 	import type { Kind } from '$lib/utils_deployable'
+	import TreeViewRoot from './home/TreeViewRoot.svelte'
+	import type { ItemType } from './home/treeViewUtils'
 
 	interface DeployableItem {
 		key: string
@@ -14,21 +21,55 @@
 		[key: string]: unknown
 	}
 
+	interface DeployGroup {
+		/** `f/<folder>` or `u/<user>`; '' for items outside both conventions. */
+		key: string
+		label: string
+		groupKind: 'folder' | 'user' | 'other'
+		items: DeployableItem[]
+	}
+
 	interface Props {
 		items: DeployableItem[]
+		/** Show the items as the home page's folder tree, each folder row selecting
+		 * everything under it, instead of grouped by top-level folder. */
+		nested?: boolean
+		/** With `nested`, appended to a folder row's item count, given its full path prefix. */
+		folderDetail?: Snippet<[string]>
 		selectedItems: string[]
 		selectablePredicate?: (item: DeployableItem) => boolean
+		/** Selectable on its own row, but never swept in by a bulk action (the group
+		 * checkbox here, "Select all" in the caller). For a row whose deploy does
+		 * something the user must choose deliberately. */
+		bulkExcluded?: (item: DeployableItem) => boolean
+		/** For a non-deployed item that isn't selectable, return a reason string to
+		 * render a disabled checkbox + hover tooltip (instead of greying the row);
+		 * return undefined to keep the default greyed-out, no-checkbox treatment. */
+		selectBlockedReason?: (item: DeployableItem) => string | undefined
 		deploymentStatus: Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 		allSelected?: boolean
 		emptyMessage?: string
+		/** The list is empty because it has not arrived yet. An empty list and an unanswered one
+		 *  look alike from here, and "no changes" is a claim that needs an answer behind it. */
+		loading?: boolean
+		hideSelection?: boolean
 		children?: Snippet
 
 		// Snippets for customization
 		header?: Snippet
 		alerts?: Snippet
+		/** Rendered on the right of the "Select all" row (e.g. a filter toggle). */
+		selectAllActions?: Snippet
+		/** Rendered on the right of each folder/user group header — receives the
+		 * group's items so pages can roll up their own badges (e.g. conflicts). */
+		groupActions?: Snippet<[DeployableItem[]]>
 		itemSummary?: Snippet<[DeployableItem]>
+		/** Overrides the secondary path line per item (e.g. to strike a renamed path). */
+		itemPath?: Snippet<[DeployableItem]>
 		itemActions?: Snippet<[DeployableItem]>
 		footer?: Snippet
+		/** A resource row that is an AI agent, drawn with the agent's icon. */
+		isAgent?: (item: DeployableItem) => boolean
 
 		// Callbacks
 		onToggleItem?: (item: DeployableItem) => void
@@ -38,30 +79,197 @@
 
 	let {
 		items,
+		nested = false,
+		folderDetail,
 		selectedItems,
 		selectablePredicate = () => true,
+		bulkExcluded = () => false,
+		selectBlockedReason,
 		deploymentStatus,
 		allSelected = false,
 		emptyMessage = 'No items to deploy',
+		loading = false,
+		hideSelection = false,
 		header,
 		alerts,
+		selectAllActions,
+		groupActions,
 		itemSummary,
+		itemPath,
 		itemActions,
 		footer,
+		isAgent,
 		onToggleItem,
 		onSelectAll,
 		onDeselectAll
 	}: Props = $props()
 
 	let selectableItems = $derived(items.filter(selectablePredicate))
-	let hasSelectableItems = $derived(selectableItems.length > 0)
+	// "Select all" is a bulk action, so it lives or dies by the bulk-selectable set:
+	// a list of nothing but bulk-excluded rows would otherwise offer an enabled
+	// control that selects nothing. Each such row is still selectable on its own.
+	let hasSelectableItems = $derived(selectableItems.some((i) => !bulkExcluded(i)))
 
 	// Plain row click and the checkbox both toggle this row in/out — multi-select
 	// is the default, no modifier needed.
 	function handleSelect(item: DeployableItem) {
 		onToggleItem?.(item)
 	}
+
+	function groupOf(path: string): Pick<DeployGroup, 'key' | 'label' | 'groupKind'> {
+		const parts = path.split('/')
+		// >= 2 so a folder item itself (path `f/<name>`, kind 'folder') lands in
+		// its folder's group next to the items that need it, not in "other".
+		if (parts.length >= 2 && (parts[0] === 'f' || parts[0] === 'u')) {
+			const key = `${parts[0]}/${parts[1]}`
+			return { key, label: key, groupKind: parts[0] === 'f' ? 'folder' : 'user' }
+		}
+		return { key: '', label: 'other', groupKind: 'other' }
+	}
+
+	let groups = $derived.by((): DeployGroup[] => {
+		const byKey = new Map<string, DeployGroup>()
+		for (const item of items) {
+			const g = groupOf(item.path)
+			let group = byKey.get(g.key)
+			if (!group) {
+				group = { ...g, items: [] }
+				byKey.set(g.key, group)
+			}
+			group.items.push(item)
+		}
+		const rank = { folder: 0, user: 1, other: 2 }
+		return [...byKey.values()].sort(
+			(a, b) => rank[a.groupKind] - rank[b.groupKind] || a.key.localeCompare(b.key)
+		)
+	})
+
+	// A lone catch-all group would just duplicate "Select all" — skip headers then.
+	let showGroupHeaders = $derived(groups.some((g) => g.groupKind !== 'other'))
+
+	// Mirrors the per-row checkbox condition: already-deployed rows keep their
+	// selection frozen, so they don't count toward the group's tri-state. Bulk-excluded
+	// rows are left out too — the group checkbox is a bulk action, so it must neither
+	// select them nor let them hold its tri-state short of full.
+	function bulkSelectable(list: DeployableItem[]): DeployableItem[] {
+		return list.filter(
+			(i) =>
+				selectablePredicate(i) && !bulkExcluded(i) && deploymentStatus[i.key]?.status !== 'deployed'
+		)
+	}
+	function groupSelectable(group: DeployGroup): DeployableItem[] {
+		return bulkSelectable(group.items)
+	}
+
+	// The tree keys its leaves by `type`; the rows keep every other field as they are.
+	let treeItems = $derived(
+		nested ? (items.map((i) => ({ ...i, type: i.kind })) as unknown as ItemType[]) : []
+	)
+	// While selecting, top-level folders start open and sub-folders closed; without a
+	// selection to make, the tree opens fully, since every row may carry an action.
+	// Held at module level so a toggle survives the remount the Hub drawer does when the
+	// selection changes its scope.
+	const treeOpen = {
+		isOpen: (prefix: string) => treeOpenState.get(prefix) ?? prefix.split('/').length === 2,
+		setOpen: (prefix: string, open: boolean) => void treeOpenState.set(prefix, open)
+	}
+	function underPrefix(prefix: string): DeployableItem[] {
+		return items.filter((i) => i.path.startsWith(prefix + '/'))
+	}
+
+	function toggleGroup(group: Pick<DeployGroup, 'items'>) {
+		const selectable = bulkSelectable(group.items)
+		const target = !selectable.every((i) => selectedItems.includes(i.key))
+		// Snapshot which items need flipping before mutating: onToggleItem updates
+		// the parent's selection, which feeds back into `selectedItems` mid-loop.
+		const toToggle = selectable.filter((i) => selectedItems.includes(i.key) !== target)
+		for (const item of toToggle) {
+			onToggleItem?.(item)
+		}
+	}
 </script>
+
+{#snippet itemRow(item: DeployableItem, depth: number, subPath: string)}
+	{@const isSelectable = selectablePredicate(item)}
+	{@const isSelected = selectedItems.includes(item.key)}
+	{@const status = deploymentStatus[item.key]}
+	{@const isDeployed = status?.status === 'deployed'}
+	{@const blockedReason = !isSelectable && !isDeployed ? selectBlockedReason?.(item) : undefined}
+	<!-- A resource is titled by its path, except an agent, titled by its summary. -->
+	{@const showPath =
+		isAgent?.(item) ||
+		(item.kind !== 'resource' && item.kind !== 'variable' && item.kind !== 'resource_type')}
+
+	<Row
+		isSelectable={!hideSelection && isSelectable && !isDeployed}
+		selectDisabledReason={blockedReason}
+		selectOnRowClick={!hideSelection}
+		alignWithSelectable={!hideSelection}
+		disabled={!hideSelection && (blockedReason ? false : !isSelectable)}
+		selected={isSelected && !isDeployed}
+		onSelect={() => handleSelect(item)}
+		path={showPath ? item.path : ''}
+		marked={undefined}
+		kind={isAgent?.(item) ? 'agent' : item.kind}
+		triggerKind={item.triggerKind}
+		canFavorite={false}
+		workspaceId=""
+		{depth}
+	>
+		{#snippet customSummary()}
+			{#if itemSummary}
+				{@render itemSummary(item)}
+			{:else}
+				{item.path}
+			{/if}
+		{/snippet}
+		{#snippet pathDisplay()}
+			{#if itemPath}
+				{@render itemPath(item)}
+			{:else}
+				{showPath ? subPath : ''}
+			{/if}
+		{/snippet}
+		{#snippet actions()}
+			{#if itemActions}
+				{@render itemActions(item)}
+			{/if}
+			<!-- Deployment status always shown -->
+			{#if status}
+				{#if status.status === 'loading'}
+					<Loader2 class="animate-spin" />
+				{:else if status.status === 'deployed'}
+					<Badge color="green">Deployed</Badge>
+				{:else if status.status === 'failed'}
+					<div class="inline-flex gap-1">
+						<Badge color="red">Failed</Badge>
+						<Tooltip>{status.error}</Tooltip>
+					</div>
+				{/if}
+			{/if}
+		{/snippet}
+	</Row>
+{/snippet}
+
+{#snippet treeLeaf(leaf: ItemType, depth: number)}
+	{@const item = leaf as unknown as DeployableItem}
+	{@render itemRow(item, depth, item.path.split('/').pop() ?? item.path)}
+{/snippet}
+
+{#snippet prefixCheckbox(prefix: string)}
+	{@const under = underPrefix(prefix)}
+	{@const selectable = bulkSelectable(under)}
+	{@const selectedCount = selectable.filter((i) => selectedItems.includes(i.key)).length}
+	<Checkbox
+		checked={selectable.length > 0 && selectedCount === selectable.length}
+		indeterminate={selectedCount > 0 && selectedCount < selectable.length}
+		disabled={selectable.length === 0}
+		title={selectedCount === selectable.length
+			? `Deselect all in ${prefix}`
+			: `Select all in ${prefix}`}
+		onChange={() => toggleGroup({ items: under })}
+	/>
+{/snippet}
 
 <div class="flex flex-col h-full">
 	<!-- Header section -->
@@ -76,79 +284,114 @@
 		{@render alerts()}
 	{/if}
 
-	{#if items.length > 0}
-		<!-- Select all row -->
+	<!-- Controls row: "Select all" (when there are items and selection is enabled) +
+	     optional right-side actions (e.g. a filter toggle). Renders when there are
+	     items OR actions are provided, so a filter that empties the list doesn't take
+	     its own toggle with it. -->
+	{#if items.length > 0 || selectAllActions}
 		<div class="px-4 py-2 flex items-center justify-between">
-			<label
-				class="flex items-center gap-2 text-secondary text-xs"
-				class:opacity-50={!hasSelectableItems}
-				class:cursor-pointer={hasSelectableItems}
-			>
-				<input
-					type="checkbox"
-					disabled={!hasSelectableItems}
-					checked={allSelected}
-					onchange={allSelected ? onDeselectAll : onSelectAll}
-					class="rounded max-w-4 w-full"
-				/> Select all
-			</label>
+			{#if items.length > 0 && !hideSelection}
+				<label
+					class="flex items-center gap-2 text-secondary text-xs"
+					class:opacity-50={!hasSelectableItems}
+					class:cursor-pointer={hasSelectableItems}
+				>
+					<Checkbox
+						disabled={!hasSelectableItems}
+						checked={allSelected}
+						onChange={allSelected ? onDeselectAll : onSelectAll}
+					/> Select all
+				</label>
+			{:else}
+				<span></span>
+			{/if}
+			{#if selectAllActions}
+				{@render selectAllActions()}
+			{/if}
 		</div>
+	{/if}
 
+	{#if items.length > 0 && nested}
+		<div class="overflow-y-auto">
+			<TreeViewRoot
+				items={treeItems}
+				collapseAll={!hideSelection}
+				openMemory={treeOpen}
+				showCode={() => {}}
+				sortCompare={(a, b) => a.path.localeCompare(b.path)}
+				leaf={treeLeaf}
+				ownerLead={hideSelection ? undefined : prefixCheckbox}
+				ownerDetail={folderDetail}
+			/>
+		</div>
+	{:else if items.length > 0}
 		<!-- Items list -->
 		<div class="overflow-y-auto">
 			<div class="border rounded-md bg-surface-tertiary">
-				{#each items as item (item.key)}
-					{@const isSelectable = selectablePredicate(item)}
-					{@const isSelected = selectedItems.includes(item.key)}
-					{@const status = deploymentStatus[item.key]}
-					{@const isDeployed = status?.status === 'deployed'}
-
-					<Row
-						isSelectable={isSelectable && !isDeployed}
-						selectOnRowClick={true}
-						alignWithSelectable={true}
-						disabled={!isSelectable}
-						selected={isSelected && !isDeployed}
-						onSelect={() => handleSelect(item)}
-						path={item.kind !== 'resource' &&
-						item.kind !== 'variable' &&
-						item.kind !== 'resource_type'
-							? item.path
-							: ''}
-						marked={undefined}
-						kind={item.kind}
-						triggerKind={item.triggerKind}
-						canFavorite={false}
-						workspaceId=""
-					>
-						{#snippet customSummary()}
-							{#if itemSummary}
-								{@render itemSummary(item)}
-							{:else}
-								{item.path}
+				{#each groups as group (group.key)}
+					{#if showGroupHeaders}
+						{@const selectable = groupSelectable(group)}
+						{@const selectedCount = selectable.filter((i) => selectedItems.includes(i.key)).length}
+						<!-- The label counts every ticked row, bulk-excluded ones included: those
+						     are deployed like any other, and reporting only the bulk-selectable
+						     ones would contradict the deploy button. The checkbox above keeps its
+						     own count, which must ignore them to reach a full-checked state. -->
+						{@const selectedInGroup = group.items.filter((i) =>
+							selectedItems.includes(i.key)
+						).length}
+						<!-- The disabled-state hint lives on the row: a disabled Checkbox is
+						     pointer-events-none, so a title on the input would never show. -->
+						<div
+							class="sticky top-0 z-10 flex items-center gap-2 px-4 py-1.5 bg-surface-secondary border-b first:rounded-t-md"
+							title={selectable.length === 0 ? 'No selectable items in this group' : undefined}
+						>
+							{#if !hideSelection}
+								<Checkbox
+									checked={selectable.length > 0 && selectedCount === selectable.length}
+									indeterminate={selectedCount > 0 && selectedCount < selectable.length}
+									disabled={selectable.length === 0}
+									title={selectedCount === selectable.length
+										? `Deselect all in ${group.label}`
+										: `Select all in ${group.label}`}
+									onChange={() => toggleGroup(group)}
+								/>
 							{/if}
-						{/snippet}
-						{#snippet actions()}
-							{#if itemActions}
-								{@render itemActions(item)}
+							{#if group.groupKind === 'folder'}
+								<Folder size={14} class="text-tertiary shrink-0" />
+							{:else if group.groupKind === 'user'}
+								<User size={14} class="text-tertiary shrink-0" />
 							{/if}
-							<!-- Deployment status always shown -->
-							{#if status}
-								{#if status.status === 'loading'}
-									<Loader2 class="animate-spin" />
-								{:else if status.status === 'deployed'}
-									<Badge color="green">Deployed</Badge>
-								{:else if status.status === 'failed'}
-									<div class="inline-flex gap-1">
-										<Badge color="red">Failed</Badge>
-										<Tooltip>{status.error}</Tooltip>
-									</div>
-								{/if}
+							<span class="text-xs font-semibold text-secondary truncate">{group.label}</span>
+							<span class="text-2xs text-tertiary whitespace-nowrap">
+								{group.items.length} item{group.items.length !== 1 ? 's' : ''}{selectedInGroup > 0
+									? ` · ${selectedInGroup} selected`
+									: ''}
+							</span>
+							{#if groupActions}
+								<div class="ml-auto flex items-center gap-1">
+									{@render groupActions(group.items)}
+								</div>
 							{/if}
-						{/snippet}
-					</Row>
+						</div>
+					{/if}
+					{#each group.items as item (item.key)}
+						<!-- The group header already names the folder — the path line only
+						     carries what's below it. -->
+						{@render itemRow(
+							item,
+							0,
+							showGroupHeaders && group.key && item.path.startsWith(group.key + '/')
+								? item.path.slice(group.key.length + 1)
+								: item.path
+						)}
+					{/each}
 				{/each}
 			</div>
+		</div>
+	{:else if loading}
+		<div class="flex items-center justify-center h-full gap-2 text-hint text-xs">
+			<Loader2 class="animate-spin w-4 h-4" />
+			Comparing…
 		</div>
 	{:else}
 		<div class="flex items-center justify-center h-full">

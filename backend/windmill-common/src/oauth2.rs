@@ -21,6 +21,15 @@ pub const GLOBAL_SLACK_BOT_TOKEN_PATH: &str = "f/slack_bot/global_bot_token";
 pub const GLOBAL_TEAMS_BOT_TOKEN_PATH: &str = "f/teams_bot/global_bot_token";
 
 pub const GLOBAL_TEAMS_API_TOKEN_PATH: &str = "f/teams_bot/global_api_token";
+
+/// Key under the `oauths` setting holding the Teams Entra app (id, secret, tenant). One app
+/// serves the Enterprise bot and Graph connect for the `ms_teams` resource type.
+pub const TEAMS_OAUTH_KEY: &str = "ms_teams";
+
+/// Pre-rename key for the same entry. The 20261016120000 migration copies it to `ms_teams`
+/// and keeps it so servers still on the old version work during a rolling upgrade.
+/// TODO: drop this fallback once every supported version reads `ms_teams`.
+pub const LEGACY_TEAMS_OAUTH_KEY: &str = "teams";
 lazy_static::lazy_static! {
 
     pub static ref REQUIRE_PREEXISTING_USER_FOR_OAUTH: AtomicBool = AtomicBool::new(std::env::var("REQUIRE_PREEXISTING_USER_FOR_OAUTH")

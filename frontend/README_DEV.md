@@ -87,8 +87,38 @@ The default proxy is setup to use the remote backend: <https://app.windmill.dev>
 You can configure another proxy to use like so:
 
 ```bash
-REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
+REMOTE=http://127.0.0.1:8000 npm run dev
 ```
+
+The language servers, multiplayer and the debugger are served by the `windmill-extra` image behind its gateway on
+port 3000, proxied with `REMOTE_EXTRA` for `/ws/*`, `/ws_mp/*` and `/ws_debug/*`. All three verify tokens signed by
+your backend, so give the container its URL (on Linux, add `--add-host=host.docker.internal:host-gateway`):
+
+```bash
+docker run --rm -p 3000:3000 -e WINDMILL_BASE_URL=http://host.docker.internal:8000 ghcr.io/windmill-labs/windmill-extra:latest
+REMOTE=http://127.0.0.1:8000 REMOTE_EXTRA=http://127.0.0.1:3000 npm run dev
+```
+
+To try local changes to `lsp/pyls_launcher.py` or `lsp/Pipfile`, build that image from the repo root with
+`docker build -f docker/DockerfileExtra -t windmill-extra-dev .` and run `windmill-extra-dev` instead.
+
+### Run dev servers on demand
+
+A dev server costs 1.1-1.7 GB resident once a page has been browsed, which adds up when
+several worktrees are open at once. `scripts/dev-supervisor.mjs` owns the port instead and
+runs `vite dev` only while it is being used, spawning it on the first connection (~1s to a
+served response) and stopping it once traffic stops:
+
+```bash
+node scripts/dev-supervisor.mjs                                 # this worktree, $FRONTEND_PORT
+node scripts/dev-supervisor.mjs -t 3340:/path/wt-a -t 3350:/path/wt-b --idle 15m
+```
+
+`--bind 0.0.0.0` to reach it off-host, `--stats <file>` to record RSS samples. In dev the
+app also suspends its background polling after 5 minutes of an inactive tab
+(`VITE_DEV_DORMANT_MS`), so a tab left open does not keep a server resident. That last
+part holds over plaintext only: with `HTTPS=true` the HMR socket is indistinguishable from
+real traffic, so an open tab keeps its server alive.
 
 ### Use a Local backend
 
@@ -100,7 +130,7 @@ docker compose up db windmill_server windmill_worker
 ```
 
 ```bash
-REMOTE=http://localhost REMOTE_LSP=http://localhost npm run dev
+REMOTE=http://localhost REMOTE_EXTRA=http://localhost npm run dev
 ```
 
 #### 2. Backend is run by docker, but built from the local source code
@@ -154,7 +184,7 @@ DATABASE_URL=postgres://postgres:changeme@127.0.0.1:5433/windmill?sslmode=disabl
 In the frontend folder:
 
 ```bash
-REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
+REMOTE=http://127.0.0.1:8000 REMOTE_EXTRA=http://127.0.0.1:3000 npm run dev
 ```
 
 **Known issue on M1 Mac while running `cargo run`**

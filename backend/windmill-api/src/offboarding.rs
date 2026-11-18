@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
-use crate::db::ApiAuthed;
-use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
+use crate::db::{ApiAuthed, OptJobAuthed};
+use crate::secret_backend_ext::{
+    reject_http_store_refs_under_prefix, rename_vault_secrets_with_prefix,
+};
 use axum::{
     extract::{Extension, Path},
     Json,
 };
 use serde::{Deserialize, Serialize};
-use windmill_api_auth::require_super_admin;
+use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin};
 use windmill_api_users::users::delete_workspace_user_internal;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -52,6 +54,8 @@ struct OffboardAffectedPaths {
     variables: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     schedules: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    eval_datasets: Vec<String>,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     triggers: HashMap<String, Vec<String>>,
 }
@@ -91,6 +95,7 @@ struct OffboardSummary {
     flows_reassigned: i64,
     apps_reassigned: i64,
     resources_reassigned: i64,
+    eval_datasets_reassigned: i64,
     variables_reassigned: i64,
     schedules_reassigned: i64,
     triggers_reassigned: i64,
@@ -125,6 +130,11 @@ struct WorkspaceReassignment {
 
 // ---- Preview helpers ----
 
+/// `None` binds NULL, which the `on_behalf_of = $n` queries then match nowhere.
+fn departing_principal(username: &str) -> Option<String> {
+    windmill_common::users::username_to_own_permissioned_as(username)
+}
+
 async fn get_offboard_preview(
     db: impl sqlx::PgExecutor<'_> + Copy,
     w_id: &str,
@@ -133,6 +143,8 @@ async fn get_offboard_preview(
 ) -> Result<OffboardPreview> {
     let user_prefix = format!("u/{}/%", username);
     let user_owner = format!("u/{}", username);
+    // Same form the mutation reassigns, so preview and execution cannot disagree.
+    let departing = departing_principal(username);
 
     // ---- Owned objects (under u/{username}/) ----
     let scripts = sqlx::query_scalar!(
@@ -164,6 +176,14 @@ async fn get_offboard_preview(
     .fetch_all(db)
     .await?;
 
+    let eval_datasets = sqlx::query_scalar!(
+        "SELECT path FROM eval_dataset WHERE path LIKE $1 AND workspace_id = $2",
+        &user_prefix,
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+
     let variables = sqlx::query_scalar!(
         "SELECT path FROM variable WHERE path LIKE $1 AND workspace_id = $2",
         &user_prefix,
@@ -180,18 +200,7 @@ async fn get_offboard_preview(
     .fetch_all(db)
     .await?;
 
-    let trigger_tables = [
-        "http_trigger",
-        "websocket_trigger",
-        "kafka_trigger",
-        "postgres_trigger",
-        "mqtt_trigger",
-        "nats_trigger",
-        "sqs_trigger",
-        "gcp_trigger",
-        "azure_trigger",
-        "email_trigger",
-    ];
+    let trigger_tables = crate::users::TRIGGER_TABLES;
     let mut triggers = HashMap::new();
     for table in &trigger_tables {
         // SAFETY: `table` comes from a hardcoded allowlist `trigger_tables`, not user input.
@@ -227,19 +236,30 @@ async fn get_offboard_preview(
 
     // ---- Operator references (not under user's path) ----
     let obo_scripts = sqlx::query_scalar!(
-        "SELECT path FROM script WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
-        email, &user_prefix, w_id
+        "SELECT path FROM script WHERE on_behalf_of = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
+        departing.as_deref(), &user_prefix, w_id
     ).fetch_all(db).await?;
 
     let obo_flows = sqlx::query_scalar!(
-        "SELECT path FROM flow WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
-        email, &user_prefix, w_id
+        "SELECT path FROM flow WHERE on_behalf_of = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+        departing.as_deref(), &user_prefix, w_id
     ).fetch_all(db).await?;
 
     let obo_apps = sqlx::query_scalar!(
         "SELECT path FROM app WHERE policy->>'on_behalf_of' = $1 AND NOT path LIKE $2 AND workspace_id = $3",
-        &user_owner, &user_prefix, w_id
+        departing.as_deref(), &user_prefix, w_id
     ).fetch_all(db).await?;
+
+    // An agent's identity sits in its value, under any path, the user's own included: those
+    // move with the path but keep running as the departing user until re-pointed.
+    let obo_agents: Vec<String> = sqlx::query_scalar(
+        "SELECT path FROM resource WHERE resource_type = 'ai_agent'
+         AND value->>'on_behalf_of' = $1 AND workspace_id = $2",
+    )
+    .bind(departing.as_deref())
+    .bind(w_id)
+    .fetch_all(db)
+    .await?;
 
     let obo_schedules = sqlx::query_scalar!(
         "SELECT path FROM schedule WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3",
@@ -280,6 +300,16 @@ async fn get_offboard_preview(
         &ref_pattern, &user_prefix, w_id
     ).fetch_all(db).await?;
 
+    let ref_eval_datasets = sqlx::query_scalar!(
+        "SELECT path FROM eval_dataset
+         WHERE scorers::text LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3",
+        &ref_pattern,
+        &user_prefix,
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+
     let ref_resources = sqlx::query_scalar!(
         "SELECT DISTINCT path FROM resource WHERE value::text LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3",
         &ref_pattern, &user_prefix, w_id
@@ -312,12 +342,14 @@ async fn get_offboard_preview(
             resources,
             variables,
             schedules,
+            eval_datasets,
             triggers,
         },
         executing_on_behalf: OffboardAffectedPaths {
             scripts: obo_scripts,
             flows: obo_flows,
             apps: obo_apps,
+            resources: obo_agents,
             schedules: obo_schedules,
             triggers: obo_triggers,
             ..Default::default()
@@ -327,6 +359,7 @@ async fn get_offboard_preview(
             flows: ref_flows,
             apps: ref_apps,
             resources: ref_resources,
+            eval_datasets: ref_eval_datasets,
             ..Default::default()
         },
         tokens,
@@ -406,7 +439,6 @@ pub(crate) async fn offboard_workspace_user(
         &db,
         &w_id,
         &username,
-        &email,
         &req.reassign_to,
         &new_permissioned_as,
     )
@@ -459,7 +491,7 @@ pub(crate) async fn global_offboard_preview(
     Extension(db): Extension<DB>,
     Path(email): Path<String>,
 ) -> JsonResult<GlobalOffboardPreview> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let workspaces = sqlx::query!(
         "SELECT workspace_id, username FROM usr WHERE email = $1",
@@ -483,11 +515,13 @@ pub(crate) async fn global_offboard_preview(
 
 pub(crate) async fn offboard_global_user(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Extension(db): Extension<DB>,
     Path(email): Path<String>,
     Json(req): Json<GlobalOffboardRequest>,
 ) -> Result<Json<OffboardResponse>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     let workspaces = sqlx::query!(
         "SELECT workspace_id, username FROM usr WHERE email = $1",
@@ -542,6 +576,7 @@ pub(crate) async fn offboard_global_user(
         flows_reassigned: 0,
         apps_reassigned: 0,
         resources_reassigned: 0,
+        eval_datasets_reassigned: 0,
         variables_reassigned: 0,
         schedules_reassigned: 0,
         triggers_reassigned: 0,
@@ -560,7 +595,6 @@ pub(crate) async fn offboard_global_user(
                 &db,
                 &ws.workspace_id,
                 &ws.username,
-                &email,
                 &reassignment.reassign_to,
                 perm_as,
             )
@@ -569,6 +603,7 @@ pub(crate) async fn offboard_global_user(
             total_summary.flows_reassigned += ws_summary.flows_reassigned;
             total_summary.apps_reassigned += ws_summary.apps_reassigned;
             total_summary.resources_reassigned += ws_summary.resources_reassigned;
+            total_summary.eval_datasets_reassigned += ws_summary.eval_datasets_reassigned;
             total_summary.variables_reassigned += ws_summary.variables_reassigned;
             total_summary.schedules_reassigned += ws_summary.schedules_reassigned;
             total_summary.triggers_reassigned += ws_summary.triggers_reassigned;
@@ -582,12 +617,14 @@ pub(crate) async fn offboard_global_user(
     }
 
     if req.delete_user {
+        windmill_api_users::users::revoke_mcp_oauth_grants(&mut *tx, &email, None).await?;
         sqlx::query!("DELETE FROM token WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;
         sqlx::query!("DELETE FROM password WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;
+        windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email).await?;
         sqlx::query!("DELETE FROM workspace_invite WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;
@@ -741,6 +778,7 @@ async fn check_path_conflicts(
         "flow",
         "app",
         "resource",
+        "eval_dataset",
         "variable",
         "schedule",
         "http_trigger",
@@ -748,6 +786,7 @@ async fn check_path_conflicts(
         "kafka_trigger",
         "postgres_trigger",
         "mqtt_trigger",
+        "amqp_trigger",
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",
@@ -794,14 +833,15 @@ async fn offboard_user_from_workspace<'c>(
     db: &DB,
     w_id: &str,
     username: &str,
-    email: &str,
     reassign_to: &str,
     new_permissioned_as: &str,
 ) -> Result<OffboardSummary> {
     let new_prefix = reassign_to.to_string();
+    let departing = departing_principal(username);
 
-    // Resolve the new operator's email for on_behalf_of_email on scripts/flows/apps.
-    // resolve_new_permissioned_as already validated the user exists, and usr.email is NOT NULL.
+    // The app policy stores an address beside its principal, and script/flow keep one for the
+    // workers that still read it, so the replacement's is resolved here.
+    // resolve_new_permissioned_as already validated the user exists.
     let new_on_behalf_of_user_username = new_permissioned_as
         .strip_prefix("u/")
         .unwrap_or(new_permissioned_as);
@@ -835,10 +875,11 @@ async fn offboard_user_from_workspace<'c>(
     .unwrap_or(0);
 
     sqlx::query!(
-        "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
-        new_on_behalf_of_user_email,
-        email,
-        w_id
+        "UPDATE script SET on_behalf_of = $1, on_behalf_of_email = $4 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        new_permissioned_as,
+        departing.as_deref(),
+        w_id,
+        new_on_behalf_of_user_email
     )
     .execute(&mut **tx)
     .await?;
@@ -847,8 +888,8 @@ async fn offboard_user_from_workspace<'c>(
     let flows_reassigned = sqlx::query_scalar!(
         r#"WITH inserted AS (
             INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs)
-            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs, job_token_scopes)
+            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs, job_token_scopes
                 FROM flow
                 WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3
             RETURNING 1
@@ -862,7 +903,7 @@ async fn offboard_user_from_workspace<'c>(
     ).execute(&mut **tx).await?;
 
     sqlx::query!(
-        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE flow_node SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3 AND NOT EXISTS (SELECT 1 FROM flow_node d WHERE d.workspace_id = $3 AND d.hash_v2 = flow_node.hash_v2 AND d.path = REGEXP_REPLACE(flow_node.path, 'u/' || $2 || '/(.*)', $1 || '/\1'))"#,
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
 
@@ -875,10 +916,24 @@ async fn offboard_user_from_workspace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
-        new_on_behalf_of_user_email,
-        email,
-        w_id
+        "UPDATE flow SET on_behalf_of = $1, on_behalf_of_email = $4 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        new_permissioned_as,
+        departing.as_deref(),
+        w_id,
+        new_on_behalf_of_user_email
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Drafts hold both halves in their value and are not confined to the offboarded user's
+    // paths, so a draft on a shared path would keep running as them. Both are rewritten:
+    // `deployDraft` sends the pair, and one naming two people is rejected.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text)), ARRAY['on_behalf_of_email'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+        new_permissioned_as,
+        departing.as_deref(),
+        w_id,
+        new_on_behalf_of_user_email
     )
     .execute(&mut **tx)
     .await?;
@@ -902,9 +957,21 @@ async fn offboard_user_from_workspace<'c>(
         "UPDATE app SET policy = jsonb_set(
             jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)),
             ARRAY['on_behalf_of_email'], to_jsonb($4::text)
-        ) WHERE policy->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3",
+        ) WHERE policy->>'on_behalf_of' = $2 AND workspace_id = $3",
         &new_permissioned_as,
-        username,
+        departing.as_deref(),
+        w_id,
+        new_on_behalf_of_user_email
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // An app draft carries a copy of the deployed policy and is deployed from it, so it needs
+    // the same pair rewritten — the draft sweep above only covers scripts and flows.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text)), ARRAY['policy', 'on_behalf_of_email'], to_jsonb($4::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+        new_permissioned_as,
+        departing.as_deref(),
         w_id,
         new_on_behalf_of_user_email
     )
@@ -937,12 +1004,64 @@ async fn offboard_user_from_workspace<'c>(
     .await?
     .unwrap_or(0);
 
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{on_behalf_of}', to_jsonb($1::text))
+         WHERE resource_type = 'ai_agent' AND value->>'on_behalf_of' = $2 AND workspace_id = $3",
+    )
+    .bind(new_permissioned_as)
+    .bind(departing.as_deref())
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
+
+    // ---- eval datasets ----
+    // The foreign keys cascade the rename onto cases and experiments; the paths held inside JSONB
+    // (an experiment's subject, a dataset's scorers) are rewritten separately since the cascade
+    // cannot reach them and those runnables move with the user.
+    let eval_datasets_reassigned = sqlx::query_scalar!(
+        r#"WITH updated AS (
+            UPDATE eval_dataset SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1')
+            WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3
+            RETURNING 1
+        ) SELECT COUNT(*) FROM updated"#,
+        &new_prefix,
+        username,
+        w_id
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(0);
+    sqlx::query!(
+        r#"UPDATE eval_experiment SET subject = jsonb_set(subject, '{path}', to_jsonb(REGEXP_REPLACE(subject->>'path', 'u/' || $2 || '/(.*)', $1 || '/\1'))) WHERE subject->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        &new_prefix,
+        username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        r#"UPDATE eval_dataset SET scorers = COALESCE((
+                SELECT jsonb_agg(
+                    CASE WHEN elem->>'path' LIKE ('u/' || $2 || '/%')
+                    THEN jsonb_set(elem, '{path}', to_jsonb(REGEXP_REPLACE(elem->>'path', 'u/' || $2 || '/(.*)', $1 || '/\1')))
+                    ELSE elem END)
+                FROM jsonb_array_elements(scorers) elem), '[]'::jsonb)
+           WHERE workspace_id = $3
+             AND EXISTS (SELECT 1 FROM jsonb_array_elements(scorers) e WHERE e->>'path' LIKE ('u/' || $2 || '/%'))"#,
+        &new_prefix,
+        username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- variables (with Vault secret handling) ----
     let old_var_prefix = format!("u/{}/", username);
     let new_var_prefix = format!("{}/", reassign_to);
+    reject_http_store_refs_under_prefix(&mut **tx, w_id, &old_var_prefix).await?;
 
     let vault_secrets: Vec<(String, String)> = sqlx::query!(
-        r#"SELECT path, value FROM variable
+        r#"SELECT path, value::text AS "value!" FROM variable
            WHERE path LIKE ('u/' || $1 || '/%')
            AND workspace_id = $2
            AND is_secret = true
@@ -1015,19 +1134,8 @@ async fn offboard_user_from_workspace<'c>(
         &new_permissioned_as, username, w_id
     ).execute(&mut **tx).await?;
 
-    // ---- triggers (all 9 types with path/permissioned_as) ----
-    let trigger_tables = [
-        "http_trigger",
-        "websocket_trigger",
-        "kafka_trigger",
-        "postgres_trigger",
-        "mqtt_trigger",
-        "nats_trigger",
-        "sqs_trigger",
-        "gcp_trigger",
-        "azure_trigger",
-        "email_trigger",
-    ];
+    // ---- triggers (all 10 types with path/permissioned_as) ----
+    let trigger_tables = crate::users::TRIGGER_TABLES;
 
     let mut triggers_reassigned: i64 = 0;
     // SAFETY: `table` comes from a hardcoded allowlist `trigger_tables`, not user input.
@@ -1070,11 +1178,24 @@ async fn offboard_user_from_workspace<'c>(
         .await?;
     }
 
+    crate::users::move_handler_paths(
+        tx,
+        w_id,
+        &format!("u/{username}/"),
+        &format!("{new_prefix}/"),
+    )
+    .await?;
+
     // NOTE: extra_perms cleanup, folder owners, favorites, inputs, captures,
     // and token deletion are handled by delete_workspace_user_internal when delete_user=true.
     // They are NOT done here for reassign-only (delete_user=false) since the user stays.
 
     // ---- Related path tables ----
+    sqlx::query!(
+        r#"UPDATE native_trigger SET connection_path = REGEXP_REPLACE(connection_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE connection_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        &new_prefix, username, w_id
+    ).execute(&mut **tx).await?;
+
     sqlx::query!(
         r#"UPDATE workspace_integrations SET resource_path = REGEXP_REPLACE(resource_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE resource_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix, username, w_id
@@ -1129,6 +1250,7 @@ async fn offboard_user_from_workspace<'c>(
         flows_reassigned,
         apps_reassigned,
         resources_reassigned,
+        eval_datasets_reassigned,
         variables_reassigned,
         schedules_reassigned,
         triggers_reassigned,

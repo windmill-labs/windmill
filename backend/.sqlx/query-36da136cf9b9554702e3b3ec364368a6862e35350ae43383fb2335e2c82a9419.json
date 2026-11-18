@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT path AS \"asset_path!\", usage_path AS \"producer_path!\"\n             FROM asset\n            WHERE workspace_id = $1 AND kind = 'ducklake' AND path = ANY($2)\n              AND usage_kind = 'script' AND usage_access_type IN ('w', 'rw')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asset_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "producer_path!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "36da136cf9b9554702e3b3ec364368a6862e35350ae43383fb2335e2c82a9419"
+}

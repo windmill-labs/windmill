@@ -2,6 +2,7 @@ import sys
 import os
 from importlib.abc import MetaPathFinder, Loader
 from importlib.machinery import ModuleSpec, SourceFileLoader
+from importlib.util import spec_from_file_location
 import time
 
 # Injected by backend: maps script path -> temp storage hash so preview jobs
@@ -10,14 +11,14 @@ import time
 TEMP_SCRIPT_REFS = TEMP_SCRIPT_REFS_PLACEHOLDER
 
 class WindmillLoader(Loader):
-    def __init__(self, path):
-        self.path = path
-
     def create_module(self, spec):
         return None
 
     def exec_module(self, module):
-        module.__path__ = self.path
+        # Must stay empty: PathFinder runs before WindmillFinder and would resolve
+        # submodules against any entry here (relative to the job dir, which holds
+        # loader.py, wrapper.py and the running script's f/<folder>/).
+        module.__path__ = []
         return None
 
 
@@ -30,7 +31,7 @@ class WindmillFinder(MetaPathFinder):
             return None
         l = len(splitted)  # noqa: E741
         if l <= 2:
-            return ModuleSpec(name, WindmillLoader(name))
+            return ModuleSpec(name, WindmillLoader())
         elif l > 2:
 
             script_path = "/".join(splitted)
@@ -38,7 +39,7 @@ class WindmillFinder(MetaPathFinder):
             fullpath = folder + "/" + splitted[-1] + ".py"
 
             if os.path.exists(fullpath):
-                return ModuleSpec(name, SourceFileLoader(name, fullpath))
+                return spec_from_file_location(name, fullpath)
 
 
             import urllib.parse
@@ -67,15 +68,19 @@ class WindmillFinder(MetaPathFinder):
                         os.makedirs(folder, exist_ok=True)
                         r = response.read().decode("utf-8")
                         if r == "WINDMILL_IS_FOLDER":
-                            return ModuleSpec(name, WindmillLoader(name))
-                        with open(fullpath, "w+") as f:
+                            return ModuleSpec(name, WindmillLoader())
+                        # Python parses .py as UTF-8 regardless of locale, so the
+                        # file has to be written as UTF-8. Without this the ANSI
+                        # code page on a Windows worker re-encodes every
+                        # non-ASCII literal and the import dies on a SyntaxError.
+                        with open(fullpath, "w+", encoding="utf-8") as f:
                             f.write(r)
-                        return ModuleSpec(name, SourceFileLoader(name, fullpath))
+                        return spec_from_file_location(name, fullpath)
                 except urllib.error.HTTPError as e:
                     duration = time.time() - req_start
                     if e.code != 404:
                         print(f"Error fetching script {script_path}: HTTP {e.code} - {e.reason} - {duration}s")
-                    return ModuleSpec(name, WindmillLoader(name))
+                    return ModuleSpec(name, WindmillLoader())
                 except Exception as e:
                     duration = time.time() - req_start
                     # Check if this is errno 104 (Connection reset by peer) and we have retries left
@@ -84,7 +89,7 @@ class WindmillFinder(MetaPathFinder):
                         time.sleep(3)
                         continue
                     print(f"Error fetching script {script_path}: {e} - {duration}s")
-                    return ModuleSpec(name, WindmillLoader(name))
+                    return ModuleSpec(name, WindmillLoader())
 
 
 

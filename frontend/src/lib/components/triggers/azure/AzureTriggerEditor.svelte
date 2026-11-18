@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte'
+	import { tickPainted } from '$lib/utils/paint'
 	import AzureTriggerEditorInner from './AzureTriggerEditorInner.svelte'
 
 	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
@@ -7,7 +7,7 @@
 	let open = $state(false)
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
-		await tick()
+		await tickPainted()
 		drawer?.openEdit(ePath, isFlow)
 	}
 
@@ -17,7 +17,7 @@
 		defaultValues?: Record<string, any>
 	) {
 		open = true
-		await tick()
+		await tickPainted()
 		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 

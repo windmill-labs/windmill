@@ -7,20 +7,26 @@ edition.workspace = true
 [lib]
 name = "windmill_queue"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
 private = []
 enterprise = ["windmill-common/enterprise"]
-cloud = []
+cloud = ["windmill-common/cloud"]
 benchmark = ["windmill-common/benchmark"]
 failpoints = []
 prometheus = ["dep:prometheus"]
 smtp = []
+# Enables native evaluation of `retry_if` expressions on the job-failure path.
+# Without it, a `retry_if` gate cannot be evaluated and the job does not retry.
+quickjs = ["dep:windmill-jseval", "windmill-jseval/quickjs"]
 
 [dependencies]
 windmill-audit.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-jseval = { workspace = true, optional = true }
 anyhow.workspace = true
 hmac.workspace = true
 sql-builder.workspace = true
@@ -31,7 +37,6 @@ serde_json.workspace = true
 ulid.workspace = true
 uuid.workspace = true
 chrono.workspace = true
-chrono-tz.workspace = true
 hex.workspace = true
 rand.workspace = true
 reqwest.workspace = true

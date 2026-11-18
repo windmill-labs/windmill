@@ -232,6 +232,138 @@ test.skipIf(shouldSkipOnCI())(
 );
 
 /**
+ * Dev-workspace promotion. The backend passes `--dev-workspace-label` +
+ * `--parent-workspace-id` for a dev workspace's deploys; with promotion on it
+ * must behave like a root (per-item `wm_deploy/**`) for branchable objects, and
+ * — critically — non-branchable objects (user/group) must fall back to the dev's
+ * env-label branch, NEVER the cloned base (which for a dev is the parent's
+ * tracked branch, so a leak would push dev content straight to prod).
+ */
+test.skipIf(shouldSkipOnCI())(
+  "git-sync promotion (dev workspace): script -> wm_deploy branch; group -> env-label branch; main never touched",
+  async () => {
+    await withTestBackend(async (backend) => {
+      const ws = backend.workspace; // "test"
+      await addWorkspace(
+        {
+          remote: backend.baseUrl,
+          workspaceId: ws,
+          name: ws,
+          token: backend.token,
+        } as any,
+        { force: true, configDir: backend.testConfigDir },
+      );
+
+      const bareDir = await mkdtemp(join(tmpdir(), "wmill_devpromo_bare_"));
+      execFileSync("git", ["init", "--bare", "--initial-branch=main", bareDir]);
+      const seedDir = await mkdtemp(join(tmpdir(), "wmill_devpromo_seed_"));
+      git(seedDir, "init", "--initial-branch=main");
+      git(seedDir, "config", "user.email", "seed@windmill.dev");
+      git(seedDir, "config", "user.name", "seed");
+      await writeFile(join(seedDir, "README.md"), "# dev promo\n");
+      git(seedDir, "add", "-A");
+      git(seedDir, "commit", "-m", "seed");
+      git(seedDir, "remote", "add", "origin", `file://${bareDir}`);
+      git(seedDir, "push", "-u", "origin", "main");
+      const seedMain = remoteHead(bareDir, "main");
+
+      await backend.apiRequest!(`/api/w/${ws}/folders/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "promo", owners: [], extra_perms: {} }),
+      });
+      await backend.apiRequest!(`/api/w/${ws}/scripts/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "f/promo/foo",
+          summary: "",
+          description: "",
+          content: "export async function main() { return 1 }",
+          language: "bun",
+        }),
+      });
+      await backend.apiRequest!(`/api/w/${ws}/resources/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "u/test/devpromo_repo",
+          resource_type: "git_repository",
+          value: { url: `file://${bareDir}`, branch: "main", token: "" },
+        }),
+      });
+      await backend.updateGitSyncConfig!({
+        git_sync_settings: {
+          repositories: [
+            {
+              git_repo_resource_path: "u/test/devpromo_repo",
+              script_path: "f/**",
+              use_individual_branch: true,
+              group_by_folder: false,
+              settings: { include_path: ["f/**", "g/**"], include_type: ["script", "group"] },
+            },
+          ],
+        },
+      });
+
+      // The dev flags the backend passes with every dev-workspace deploy.
+      const devFlags = ["--dev-workspace-label", "dev", "--parent-workspace-id", "prod"];
+      const commitAndPush = (work: string) => {
+        git(work, "config", "user.email", "test@windmill.dev");
+        git(work, "config", "user.name", "test");
+        git(work, "add", "-A");
+        try {
+          git(work, "diff", "--cached", "--quiet");
+        } catch {
+          git(work, "commit", "-m", "deploy");
+        }
+        git(work, "push", "--porcelain", "-u", "origin", "HEAD");
+      };
+
+      // Script: gets its own wm_deploy branch (namespaced by the dev's id), main untouched.
+      const workS = await mkdtemp(join(tmpdir(), "wmill_devpromo_s_"));
+      git(workS, "clone", `file://${bareDir}`, ".");
+      await writeFile(join(workS, "wmill.yaml"), "defaultTs: bun\nincludes:\n  - f/**\nexcludes: []\n");
+      const resS = await backend.runCLICommand(
+        [
+          "sync", "git-deploy", "--repository", "u/test/devpromo_repo",
+          "--use-individual-branch", ...devFlags,
+          "--git-deploy-items", JSON.stringify([{ path_type: "script", path: "f/promo/foo", commit_msg: "deploy foo" }]),
+        ],
+        workS,
+      );
+      expect(resS.code).toBe(0);
+      commitAndPush(workS);
+      expect(remoteBranches(bareDir)).toContain(`refs/heads/wm_deploy/${ws}/script/f__promo__foo`);
+      expect(remoteHead(bareDir, "main")).toBe(seedMain);
+
+      // Group (non-branchable): must land on the dev env-label branch, NEVER main.
+      const workG = await mkdtemp(join(tmpdir(), "wmill_devpromo_g_"));
+      git(workG, "clone", `file://${bareDir}`, ".");
+      await writeFile(join(workG, "wmill.yaml"), "defaultTs: bun\nincludes:\n  - f/**\n  - g/**\nexcludes: []\n");
+      const resG = await backend.runCLICommand(
+        [
+          "sync", "git-deploy", "--repository", "u/test/devpromo_repo",
+          "--use-individual-branch", ...devFlags,
+          "--git-deploy-items", JSON.stringify([{ path_type: "group", path: "g/all", commit_msg: "deploy group" }]),
+        ],
+        workG,
+      );
+      expect(resG.code).toBe(0);
+      commitAndPush(workG);
+      // The anti-leak regression: a group deploy must not advance main.
+      expect(remoteHead(bareDir, "main")).toBe(seedMain);
+      expect(remoteBranches(bareDir)).toContain("refs/heads/dev");
+
+      await rm(bareDir, { recursive: true, force: true });
+      await rm(seedDir, { recursive: true, force: true });
+      await rm(workS, { recursive: true, force: true });
+      await rm(workG, { recursive: true, force: true });
+    });
+  },
+);
+
+/**
  * Regression test for the promotion trigger-include bug (fix/gitsync-promotion-
  * trigger-export): deploying a trigger (or any excluded-by-default kind:
  * schedule, group, user, settings, key) with `use_individual_branch` must still
@@ -566,6 +698,177 @@ test.skipIf(shouldSkipOnCI())(
           "f/promo/sched.schedule.yaml",
         ),
       ).toBe(true);
+      // Base branch untouched (individual-branch never pushes to the base).
+      expect(remoteHead(bareDir, "main")).toBe(seedMain);
+
+      await rm(bareDir, { recursive: true, force: true });
+      await rm(seedDir, { recursive: true, force: true });
+      await rm(work, { recursive: true, force: true });
+    });
+  },
+);
+
+/**
+ * Regression test for WIN-2052: a script with companion modules
+ * (workflows-as-code) is stored on disk under a `__mod/` folder
+ * (`<path>__mod/script.ts`, `<path>__mod/script.yaml`, `<path>__mod/<module>`)
+ * — NOT under the dotted `<path>.script.*` layout a module-less script uses.
+ *
+ * Root cause: `gitSyncIncludePattern`'s script (default) case returned only
+ * `<path>.*`, which the `ignoreF` extra-includes filter (minimatch) does NOT
+ * match against any `__mod/` file (literal dot, no dot after the name). So the
+ * pull filtered out every module file, the wm_deploy branch was created with
+ * nothing staged, and production's `git add '<path>**'` failed with "pathspec
+ * did not match any files". The fix adds `<path>__mod/**` to the pattern.
+ *
+ * The nested `utils/math.ts` module guards the `**` (vs `*`) choice: a single
+ * star would not match files in module subdirectories.
+ *
+ * Without the fix this test fails: the branch exists but the `__mod/` files
+ * (entry point + modules) are absent from it.
+ */
+test.skipIf(shouldSkipOnCI())(
+  "git-sync promotion: use_individual_branch lands a module script's __mod/ files on the wm_deploy branch",
+  async () => {
+    await withTestBackend(async (backend) => {
+      const ws = backend.workspace; // "test"
+      await addWorkspace(
+        {
+          remote: backend.baseUrl,
+          workspaceId: ws,
+          name: ws,
+          token: backend.token,
+        } as any,
+        { force: true, configDir: backend.testConfigDir },
+      );
+
+      // --- 1. Bare "remote" seeded with an initial `main` commit ---
+      const bareDir = await mkdtemp(join(tmpdir(), "wmill_promo_mod_bare_"));
+      execFileSync("git", ["init", "--bare", "--initial-branch=main", bareDir]);
+      const seedDir = await mkdtemp(join(tmpdir(), "wmill_promo_mod_seed_"));
+      git(seedDir, "init", "--initial-branch=main");
+      git(seedDir, "config", "user.email", "seed@windmill.dev");
+      git(seedDir, "config", "user.name", "seed");
+      await writeFile(join(seedDir, "README.md"), "# promo module test\n");
+      git(seedDir, "add", "-A");
+      git(seedDir, "commit", "-m", "seed");
+      git(seedDir, "remote", "add", "origin", `file://${bareDir}`);
+      git(seedDir, "push", "-u", "origin", "main");
+      const seedMain = remoteHead(bareDir, "main");
+
+      // --- 2. Workspace content: a script WITH companion modules (one flat,
+      //        one nested) — this is what triggers the `__mod/` folder layout. ---
+      await backend.apiRequest!(`/api/w/${ws}/folders/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "promo", owners: [], extra_perms: {} }),
+      });
+      const scriptRes = await backend.apiRequest!(`/api/w/${ws}/scripts/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "f/promo/mod_script",
+          summary: "",
+          description: "",
+          content: "export async function main() { return 1 }",
+          language: "bun",
+          modules: {
+            "helper.ts": {
+              content: "export function help() { return 2 }\n",
+              language: "bun",
+            },
+            "utils/math.ts": {
+              content: "export function add(a: number, b: number) { return a + b }\n",
+              language: "bun",
+            },
+          },
+        }),
+      });
+      expect(scriptRes.status).toBe(201);
+
+      // --- 3. git_repository resource + git-sync config (scripts included) ---
+      await backend.apiRequest!(`/api/w/${ws}/resources/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "u/test/promo_repo",
+          resource_type: "git_repository",
+          value: { url: `file://${bareDir}`, branch: "main", token: "" },
+        }),
+      });
+      await backend.updateGitSyncConfig!({
+        git_sync_settings: {
+          repositories: [
+            {
+              git_repo_resource_path: "u/test/promo_repo",
+              script_path: "f/**",
+              use_individual_branch: true,
+              group_by_folder: false,
+              settings: {
+                include_path: ["f/**"],
+                include_type: ["script"],
+              },
+            },
+          ],
+        },
+      });
+
+      // A script always has path_type "script" — modules are a property of the
+      // script, not a distinct object kind — so this hits gitSyncIncludePattern's
+      // default case, the one the fix amends.
+      const deployItems = JSON.stringify([
+        {
+          path_type: "script",
+          path: "f/promo/mod_script",
+          commit_msg: "deploy mod_script",
+        },
+      ]);
+
+      const work = await mkdtemp(join(tmpdir(), "wmill_promo_mod_work_"));
+      git(work, "clone", `file://${bareDir}`, ".");
+      await writeFile(
+        join(work, "wmill.yaml"),
+        "defaultTs: bun\nincludes:\n  - f/**\nexcludes: []\n",
+      );
+      const res = await backend.runCLICommand(
+        [
+          "sync",
+          "git-deploy",
+          "--repository",
+          "u/test/promo_repo",
+          "--use-individual-branch",
+          "--git-deploy-items",
+          deployItems,
+        ],
+        work,
+      );
+      expect(res.code).toBe(0);
+
+      // Caller-half (mirrors the hub script): stage what the pull wrote, commit
+      // on the checked-out wm_deploy branch, push.
+      git(work, "config", "user.email", "test@windmill.dev");
+      git(work, "config", "user.name", "test");
+      git(work, "add", "-A");
+      try {
+        git(work, "diff", "--cached", "--quiet");
+      } catch {
+        git(work, "commit", "-m", "deploy mod_script");
+      }
+      git(work, "push", "--porcelain", "-u", "origin", "HEAD");
+
+      const branch = `wm_deploy/${ws}/script/f__promo__mod_script`;
+      expect(remoteBranches(bareDir)).toContain(`refs/heads/${branch}`);
+      // The regression: every `__mod/` file MUST be present on the branch — the
+      // entry point, the flat module, and the nested module. Without the fix the
+      // extra-includes pattern matches none of them, the pull writes nothing, and
+      // these files are absent (and `git add` would have failed in production).
+      for (const f of [
+        "f/promo/mod_script__mod/script.ts",
+        "f/promo/mod_script__mod/helper.ts",
+        "f/promo/mod_script__mod/utils/math.ts",
+      ]) {
+        expect(fileExistsOnBranch(bareDir, branch, f)).toBe(true);
+      }
       // Base branch untouched (individual-branch never pushes to the base).
       expect(remoteHead(bareDir, "main")).toBe(seedMain);
 

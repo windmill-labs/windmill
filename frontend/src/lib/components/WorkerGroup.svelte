@@ -55,6 +55,16 @@
 	import TagList from './TagList.svelte'
 	import DedicatedWorkersSelector from './DedicatedWorkersSelector.svelte'
 	import { computeHashedTag } from './dedicated_worker'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
+	import {
+		devWorkspaceListenSuffix,
+		devWorkspaceTagSuffix,
+		loadDevWorkspaceTagSuffix,
+		withDevSuffix
+	} from '$lib/devWorkspaceTags'
+	import ObjectStoreConfigSettings, {
+		type ObjectStoreConfig
+	} from './ObjectStoreConfigSettings.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -95,11 +105,16 @@
 		periodic_script_interval_seconds?: number
 		env_vars_static?: Map<string, string>
 		env_vars_allowlist?: string[]
+		disable_job_proxy?: boolean
 		additional_python_paths?: string[]
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
 		autoscaling?: AutoscalingConfig
 		native_mode?: boolean
+		object_store_cache_config?: ObjectStoreConfig
+		paused?: boolean
+		serves_dev_workspaces?: boolean
+		fairness_reserve?: boolean
 	} = $state({})
 
 	function loadNConfig() {
@@ -107,10 +122,9 @@
 			? config.worker_tags != undefined ||
 				config.dedicated_worker != undefined ||
 				config.dedicated_workers != undefined
-				? config
-				: {
-						worker_tags: []
-					}
+				? // a copy: editing the draft must not touch the saved config it is compared against
+					$state.snapshot(config)
+				: { ...$state.snapshot(config), worker_tags: [] }
 			: {
 					worker_tags: []
 				}
@@ -200,6 +214,7 @@
 					init_bash?: string
 					env_vars_static?: Map<string, string>
 					env_vars_allowlist?: string[]
+					disable_job_proxy?: boolean
 					additional_python_paths?: string[]
 					pip_local_dependencies?: string[]
 					min_alive_workers_alert_threshold?: number
@@ -207,6 +222,10 @@
 					periodic_script_bash?: string
 					periodic_script_interval_seconds?: number
 					native_mode?: boolean
+					object_store_cache_config?: ObjectStoreConfig
+					paused?: boolean
+					serves_dev_workspaces?: boolean
+					fairness_reserve?: boolean
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -263,8 +282,10 @@
 		if (!config && !nconfig) return false
 		if (!config || !nconfig) return true
 
-		const cleaned1 = cleanValueProperties(config)
-		const cleaned2 = cleanValueProperties(nconfig)
+		// Compared without empty values: the draft is filled with empty defaults a saved
+		// config may lack, which are not an edit.
+		const cleaned1 = cleanWorkerGroupConfig(cleanValueProperties(config))
+		const cleaned2 = cleanWorkerGroupConfig(cleanValueProperties(nconfig))
 
 		return (
 			orderedJsonStringify(replaceFalseWithUndefined(cleaned1)) !==
@@ -293,6 +314,49 @@
 	let openDelete = $state(false)
 	let openClean = $state(false)
 	let openRestart = $state(false)
+	let pendingConfig: typeof nconfig | undefined = $state()
+
+	// Mirrors `reload_worker_config` in backend/src/monitor.rs, which decides the restart. It
+	// compares the body that is sent rather than the draft, and only the fields a worker loads.
+	const RESTART_FIELDS = [
+		'dedicated_worker',
+		'dedicated_workers',
+		'init_bash',
+		'periodic_script_bash',
+		'periodic_script_interval_seconds',
+		'native_mode'
+	] as const
+	const OTHER_WORKER_FIELDS = [
+		'worker_tags',
+		'priority_tags',
+		'additional_python_paths',
+		'pip_local_dependencies',
+		'disable_job_proxy',
+		'object_store_cache_config',
+		'serves_dev_workspaces'
+	] as const
+	function restartsWorkers(body: typeof nconfig): boolean {
+		if (activeWorkers === 0) return false
+		const saved: typeof nconfig = config ?? {}
+		const comparable = (c: typeof nconfig, k: keyof typeof nconfig) =>
+			orderedJsonStringify(replaceFalseWithUndefined(cleanWorkerGroupConfig({ v: c[k] })))
+		const changed = (k: keyof typeof nconfig) => comparable(saved, k) !== comparable(body, k)
+		const restartFieldChanged = RESTART_FIELDS.some(changed)
+		const onlyLiveFieldsChanged =
+			(changed('paused') || changed('fairness_reserve')) &&
+			!restartFieldChanged &&
+			!OTHER_WORKER_FIELDS.some(changed) &&
+			!hasEnvVarChanges
+		const dedicated =
+			body.dedicated_worker != undefined || (body.dedicated_workers?.length ?? 0) > 0
+		return !onlyLiveFieldsChanged && (dedicated || restartFieldChanged)
+	}
+
+	async function saveConfig(body: typeof nconfig) {
+		await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: body })
+		sendUserToast('Configuration set')
+		dispatch('reload')
+	}
 
 	// Compute hashed tags for display (actual tags used by the worker)
 	let hashedDedicatedTags: Map<string, string> = $state(new Map())
@@ -312,6 +376,15 @@
 
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
+	let reportedTags = $derived(
+		[
+			...new Set(
+				workers.flatMap(([_, pings]) =>
+					pings.filter((p) => (p.last_ping ?? Infinity) < 60).flatMap((p) => p.custom_tags ?? [])
+				)
+			)
+		].sort()
+	)
 	let selected = $derived(
 		nconfig?.dedicated_worker != undefined || nconfig?.dedicated_workers != undefined
 			? 'dedicated'
@@ -330,6 +403,13 @@
 				t !== 'flow' &&
 				!t.startsWith('flow-')
 		)
+	)
+	loadDevWorkspaceTagSuffix()
+	let devSuffix = $derived($devWorkspaceListenSuffix)
+	let servesDev = $derived(
+		config?.serves_dev_workspaces === true &&
+			config?.dedicated_worker == undefined &&
+			!config?.dedicated_workers?.length
 	)
 	let isAutoNativeMode = $derived(name === 'native')
 	let isNativeModeEnabled = $derived(nconfig?.native_mode === true || isAutoNativeMode)
@@ -391,6 +471,37 @@
 			>Are you sure you want to clean the cache of all workers of this worker group (will also
 			restart the workers and expect supervisor to restart them) ?</span
 		>
+	</div>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={pendingConfig != undefined}
+	title="Apply changes and restart workers"
+	confirmationText="Apply and restart"
+	on:canceled={() => {
+		pendingConfig = undefined
+	}}
+	on:confirmed={async () => {
+		const body = pendingConfig
+		pendingConfig = undefined
+		if (body) {
+			await saveConfig(body)
+		}
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span
+			>Applying these changes will restart the {pluralize(activeWorkers, 'worker')} of worker group '{name}'.
+			Workers finish their running job, shut down gracefully and are expected to be restarted by
+			their supervisor.</span
+		>
+		{#if activeWorkers > 1 && (pendingConfig?.dedicated_worker != undefined || (pendingConfig?.dedicated_workers?.length ?? 0) > 0)}
+			<Alert size="xs" type="info" title="Dedicated workers restart one at a time">
+				A worker restarts only once the one restarting before it is back up (up to 5 minutes), so
+				the group keeps serving jobs. Workers waiting their turn keep the old config.
+			</Alert>
+		{/if}
+		<span>Pausing or resuming a worker group alone does not restart its workers.</span>
 	</div>
 </ConfirmationModal>
 
@@ -572,6 +683,63 @@
 				{/if}
 			</Label>
 
+			{#if nconfig !== undefined}
+				{@const flagged = nconfig.serves_dev_workspaces === true}
+				{@const draftTags = nconfig.worker_tags ?? []}
+				{@const handSuffixed = draftTags.filter((t) => t.endsWith(devSuffix))}
+				<div class="mt-8"></div>
+				<Label label="Dev workspaces" eeOnly={!hasEnterpriseFeatures}>
+					<Toggle
+						size="sm"
+						options={{
+							right: 'Serves dev workspaces and forks',
+							rightTooltip:
+								'Runs jobs from dev workspaces and forks only. The group listens to each of its tags with the dev suffix, and no longer to the tags themselves.'
+						}}
+						checked={flagged}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.serves_dev_workspaces = ev.detail ? true : undefined
+							}
+						}}
+						disabled={!canEditEEConfig}
+					/>
+					<p class="text-2xs text-secondary">Runs jobs from dev workspaces and forks only.</p>
+					{#if flagged}
+						<div class="flex flex-col gap-1 mt-1">
+							<span class="text-2xs text-secondary">Tags this group listens to:</span>
+							{#if draftTags.length > 0}
+								<TagList
+									tags={[...new Set(draftTags.map((t) => withDevSuffix(t, devSuffix)))]}
+									class="flex-wrap"
+								/>
+							{:else}
+								<span class="text-2xs text-secondary">
+									Add tags above: each is listened to as <code
+										>{withDevSuffix('tag', devSuffix)}</code
+									>.
+								</span>
+							{/if}
+						</div>
+						{#if $devWorkspaceTagSuffix === null}
+							<Alert size="xs" type="info" title="Dev workspace isolation is off">
+								New jobs get the <code>{devSuffix}</code> suffix only while dev workspace isolation is
+								on (Workers page). Until then this group only runs jobs already queued on suffixed tags,
+								and never takes jobs of root workspaces.
+							</Alert>
+						{/if}
+					{:else if handSuffixed.length > 0}
+						<Alert size="xs" type="warning" title="This group would take dev workspace jobs">
+							{handSuffixed.join(', ')}
+							{handSuffixed.length === 1 ? 'is a tag' : 'are tags'} of dev workspace and fork jobs. Listing
+							{handSuffixed.length === 1 ? 'it' : 'them'} here runs those jobs next to root workspace
+							jobs. Remove {handSuffixed.length === 1 ? 'it' : 'them'}, or flag this group as
+							serving dev workspaces instead.
+						</Alert>
+					{/if}
+				</Label>
+			{/if}
+
 			{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
 				<div class="mt-8"></div>
 				<Label label="High-priority tags" eeOnly={!hasEnterpriseFeatures}>
@@ -699,19 +867,42 @@
 		{:else if selected == 'dedicated'}
 			<div class="flex flex-col gap-4">
 				{#if $superadmin || $devopsRole}
-					<div class="py-2">
-						<Alert
-							size="xs"
-							type="info"
-							title="The 'dedicated worker' runtime setting of the runnables must be enabled to be selected here"
-						/>
-					</div>
+					<Alert
+						size="xs"
+						type="info"
+						title="The 'dedicated worker' runtime setting of the runnables must be enabled to be selected here"
+					/>
 				{/if}
 
-				<p class="text-xs text-secondary"
-					>Workers will get killed upon detecting changes. It is assumed they are in an environment
-					where the supervisor will restart them.</p
-				>
+				<div class="flex items-center gap-1 text-xs text-secondary">
+					Most changes restart the workers, which must be brought back by a supervisor.
+					<Tooltip>
+						{#snippet text()}
+							<div class="flex flex-col gap-2 text-left">
+								<div>
+									<div class="font-semibold">Config changes</div>
+									<ul class="list-disc pl-4">
+										<li>Restart the workers one at a time (pausing aside)</li>
+										<li>A cache clear restarts them all at once</li>
+									</ul>
+								</div>
+								<div>
+									<div class="font-semibold">Script deploys</div>
+									<ul class="list-disc pl-4">
+										<li
+											>A new version of a listed script reloads in place, shared runners included</li
+										>
+										<li
+											>Workers restart when the scripts they run, or how those scripts share a
+											runner, change</li
+										>
+										<li>Any deploy restarts them if the group serves a flow</li>
+									</ul>
+								</div>
+							</div>
+						{/snippet}
+					</Tooltip>
+				</div>
 
 				{#if nconfig !== undefined}
 					<DedicatedWorkersSelector
@@ -726,6 +917,86 @@
 					/>
 				{/if}
 			</div>
+		{/if}
+
+		{#if nconfig !== undefined}
+			<div class="mt-8"></div>
+			<Label label="Pause">
+				{#snippet header()}
+					<Tooltip>
+						{#snippet text()}
+							A paused worker group stops pulling jobs, including suspended jobs that are resumed.
+							Jobs already running finish, queued jobs stay in the queue until the group is resumed.
+							Workers pick the change up within about 10 seconds, without restarting.
+						{/snippet}
+					</Tooltip>
+				{/snippet}
+				<Toggle
+					size="sm"
+					options={{ right: 'Pause this worker group' }}
+					checked={nconfig?.paused === true}
+					on:change={(ev) => {
+						if (nconfig !== undefined) {
+							nconfig.paused = ev.detail ? true : undefined
+						}
+					}}
+					disabled={!canEditConfig}
+				/>
+			</Label>
+			{#if !isAgent}
+				<div class="mt-8"></div>
+				<Label label="Fairness reserve" eeOnly={!hasEnterpriseFeatures}>
+					{#snippet header()}
+						<Tooltip>
+							{#snippet text()}
+								Keeps this group's capacity for the workspaces that workspace fairness does not cap.
+								While no workspace is capped, the group pulls no jobs at all. While one is, it only
+								pulls jobs of the other workspaces, including suspended jobs that are resumed.
+								Workers pick the change up within about 10 seconds, without restarting.
+							{/snippet}
+						</Tooltip>
+					{/snippet}
+					<Toggle
+						size="sm"
+						options={{ right: 'Reserve this group for workspaces not capped by fairness' }}
+						checked={nconfig?.fairness_reserve === true}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.fairness_reserve = ev.detail ? true : undefined
+							}
+						}}
+						disabled={!canEditEEConfig}
+					/>
+					<p class="text-2xs text-secondary">
+						Idle until a workspace is capped. Requires workspace fairness to be enabled in the
+						instance settings, otherwise the group never pulls a job.
+					</p>
+				</Label>
+			{/if}
+			<div class="mt-8"></div>
+			<Label label="Worker proxy">
+				{#snippet header()}
+					<Tooltip>
+						{#snippet text()}
+							Whether jobs get the worker's HTTP_PROXY, HTTPS_PROXY and NO_PROXY. Dependency
+							installs always go through the proxy, whatever this is set to. Removing the variables
+							does not stop a job from reaching the proxy if it knows its address. Workers pick the
+							change up without restarting.
+						{/snippet}
+					</Tooltip>
+				{/snippet}
+				<Toggle
+					size="sm"
+					options={{ right: "Pass the worker's proxy to jobs" }}
+					checked={nconfig?.disable_job_proxy !== true}
+					on:change={(ev) => {
+						if (nconfig !== undefined) {
+							nconfig.disable_job_proxy = ev.detail ? undefined : true
+						}
+					}}
+					disabled={!canEditConfig}
+				/>
+			</Label>
 		{/if}
 
 		<div class="mt-8"></div>
@@ -868,7 +1139,12 @@
 		<div class="mt-8"></div>
 
 		<AutoscalingConfigEditor
+			worker_group={name}
 			worker_tags={config?.worker_tags}
+			group_has_tags={nconfig.worker_tags !== undefined
+				? nconfig.worker_tags.length > 0
+				: (nconfig.dedicated_workers?.length ?? 0) > 0 || nconfig.dedicated_worker !== undefined}
+			reported_tags={reportedTags}
 			bind:config={nconfig.autoscaling}
 			disabled={!canEditEEConfig}
 			eeOnly={!hasEnterpriseFeatures}
@@ -993,6 +1269,35 @@
 		<div class="mt-8"></div>
 
 		<Section
+			label="Dependency cache object storage"
+			tooltip="Object storage this group caches dependencies in, for workers that are far from the instance bucket or cannot reach it."
+			collapsable
+			eeOnly={!hasEnterpriseFeatures}
+			initiallyCollapsed={nconfig.object_store_cache_config === undefined}
+		>
+			{#snippet header()}
+				<div class="ml-4 flex flex-row gap-2 items-center">
+					{#if nconfig.object_store_cache_config !== undefined}
+						<Badge color="green">Overridden</Badge>
+					{/if}
+				</div>
+			{/snippet}
+			<p class="text-xs text-secondary mb-2">
+				Workers of this group cache dependencies — virtual envs, bundles and compiled binaries — in
+				this bucket instead of the instance object storage. Everything else, including job results,
+				logs, codebases and app assets, keeps using the instance one. Applied without restarting the
+				workers; while the bucket is unreachable, the cache stays local to each worker.
+			</p>
+			<ObjectStoreConfigSettings
+				bind:bucket_config={nconfig.object_store_cache_config}
+				isInstanceStore={false}
+				disabled={!canEditEEConfig}
+			/>
+		</Section>
+
+		<div class="mt-8"></div>
+
+		<Section
 			label="Init script"
 			tooltip="Bash script run at start of the workers. More lightweight than requiring custom worker images."
 			collapsable
@@ -1109,7 +1414,7 @@
 				<p class="text-xs text-tertiary">Requires a superadmin token.</p>
 				<pre
 					class="mt-1 p-2 bg-surface-secondary rounded text-xs overflow-x-auto whitespace-pre-wrap break-all"
-					>curl -X POST '{window.location.origin}/api/configs/update/worker__{name}' \
+					>curl -X POST '{apiBaseUrl('cli')}/api/configs/update/worker__{name}' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer &lt;token&gt;' \
   -d '{JSON.stringify(cleanWorkerGroupConfig(nconfig ?? {}), null, 2)}'</pre
@@ -1182,9 +1487,19 @@
 									}
 								})
 
-								await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
-								sendUserToast('Configuration set')
-								dispatch('reload')
+								// A group without saved tags inherits them from the worker's environment, and
+								// an explicit empty list would override that: only send one the user asked for.
+								const inheritsTags =
+									config?.worker_tags == undefined &&
+									config?.dedicated_worker == undefined &&
+									config?.dedicated_workers == undefined &&
+									nconfig.worker_tags?.length === 0
+								const body = inheritsTags ? { ...nconfig, worker_tags: undefined } : nconfig
+								if (restartsWorkers(body)) {
+									pendingConfig = body
+								} else {
+									await saveConfig(body)
+								}
 							}}
 							disabled={(!hasChanges &&
 								!hasEnvVarChanges &&
@@ -1224,6 +1539,38 @@
 				{#if isNativeMode}
 					<Badge color="blue" small>Native</Badge>
 				{/if}
+				{#if servesDev}
+					<Badge color="violet" small>
+						Dev
+						<Tooltip>
+							{#snippet text()}
+								Serves dev workspaces and forks only: listens to its tags suffixed with
+								<code>{devSuffix}</code>, never to the tags of root workspace jobs.
+							{/snippet}
+						</Tooltip>
+					</Badge>
+				{/if}
+				{#if config?.paused === true}
+					<Badge color="yellow" small>
+						Paused
+						<Tooltip>
+							{#snippet text()}
+								Workers of this group pull no new jobs. Queued jobs wait until the group is resumed.
+							{/snippet}
+						</Tooltip>
+					</Badge>
+				{/if}
+				{#if config?.fairness_reserve === true && !isAgent}
+					<Badge color="indigo" small>
+						Fairness reserve
+						<Tooltip>
+							{#snippet text()}
+								Pulls jobs only while workspace fairness caps a workspace, and then only jobs of the
+								workspaces it does not cap. Idle otherwise.
+							{/snippet}
+						</Tooltip>
+					</Badge>
+				{/if}
 			</div>
 
 			{#if vcpus_memory?.vcpus}
@@ -1260,7 +1607,7 @@
 				</div>
 			{/if}
 		</div>
-		{#if !isAgent}
+		{#if !isAgent || config}
 			<div class="flex gap-4 items-center justify-end flex-row">
 				{#if canEditConfig}
 					{#if width > 1000}
@@ -1371,7 +1718,13 @@
 	{#if config?.worker_tags && config.worker_tags.length > 0}
 		<div class="flex flex-row items-start gap-2 w-full">
 			<div class="text-secondary text-xs mt-1">Tags:</div>
-			<TagList tags={config.worker_tags} maxVisible={25} class="flex-wrap" />
+			<TagList
+				tags={servesDev
+					? [...new Set(config.worker_tags.map((t) => withDevSuffix(t, devSuffix)))]
+					: config.worker_tags}
+				maxVisible={25}
+				class="flex-wrap"
+			/>
 		</div>
 	{:else if config?.dedicated_workers && config.dedicated_workers.length > 0}
 		<div class="flex flex-row items-start gap-2 w-full min-w-0">
@@ -1404,7 +1757,12 @@
 	<div class="mt-4">
 		<Alert type="info" title="Agent Worker Group" size="xs">
 			{#snippet children()}
-				This group is formed with agent workers, there is no associated config. {#if $superadmin || $devopsRole}
+				{#if config}
+					This group is formed with agent workers, which ignore its config except for autoscaling.
+				{:else}
+					This group is formed with agent workers, there is no associated config.
+				{/if}
+				{#if $superadmin || $devopsRole}
 					To modify the tags, generate a new <a
 						href="https://www.windmill.dev/docs/core_concepts/agent_workers#quickstart"
 						target="_blank"

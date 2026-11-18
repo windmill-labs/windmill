@@ -1,73 +1,122 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
+	import { Button, Skeleton } from '$lib/components/common'
+	import SidebarSection, {
+		flyoutRowClass,
+		type SectionActionsArgs
+	} from '$lib/components/sidebar/SidebarSection.svelte'
+	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
+	import type { Item } from '$lib/utils'
 	import {
 		Archive,
 		ArchiveRestore,
+		Building,
 		ChevronDown,
 		ChevronRight,
+		Clock,
 		EllipsisVertical,
-		Filter,
+		SlidersHorizontal,
+		GitFork,
+		ListChecks,
 		MessageSquare,
 		Pencil,
 		PencilLine,
 		Plus,
-		Trash2
+		Rows3,
+		Link2,
+		Link2Off,
+		Share2,
+		Trash2,
+		X
 	} from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
-	import { goto } from '$lib/navigation'
-	import { page } from '$app/state'
-	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { slide } from 'svelte/transition'
 	import {
-		createSession,
-		deriveForkStatus,
-		getEffectiveWorkspaceId,
+		invalidateSharedSessions,
+		SHARED_SESSIONS_FILTER_OPTIONS,
+		useSharedSessionsList,
+		type SharedSessionsFilter
+	} from './sharedSessionsList.svelte'
+	import { logSharedSessionRemove } from './sharedSessionTelemetry'
+	import { sharedSessionAppHref, sharedSessionUrl } from './sessionSharing'
+	import { copyToClipboard } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { goto } from '$lib/navigation'
+	import { leaveForHome, openDraftOnHome, openNewSession } from './sessionSwitch.svelte'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import {
+		deleteSessionsForWorkspace,
+		homeDraft,
 		isForkSession,
+		opensOnHome,
+		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
+		sessionPageHref,
+		sessionLastActivityAt,
+		sessionLastStateChangeAt,
 		sessionState,
 		setSessionArchived,
 		syncWorkspaceTo,
+		withOpenSessionTeardown,
 		type Session
 	} from './sessionState.svelte'
-	import { forgetSessionSeen, unreadCountFor } from './sessionUnread.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { unreadCountFor } from './sessionUnread.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
-		getOrCreateRuntime,
+		ensureSessionChatPeek,
 		getRuntime,
+		getSessionChatPeek,
 		getSessionChatStatus,
-		removeSession
-	} from './sessionRuntime.svelte'
+		removeSession,
+		type SessionChatStatus
+	} from './sessionRuntimeRegistry.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
-	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
-	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
+	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
+	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
+	import SidebarShowOlder, {
+		SIDEBAR_RECENT_MS
+	} from '$lib/components/sidebar/SidebarShowOlder.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { visibleWorkspaceIds } from './sessionScope.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { WorkspaceService } from '$lib/gen'
+	import {
+		superadmin,
+		userStore,
+		userWorkspaces,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
+	import { AiService, WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
+	import { page } from '$app/state'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
+	import { userColorClass, userInitials } from '$lib/components/userInitials'
+	import {
+		dateBucket,
+		GROUP_BY_OPTIONS,
+		LAST_ACTIVITY_OPTIONS,
+		type GroupBy
+	} from './sessionFilters'
 
-	// Look up the cached fork comparison for a session through its runtime
-	// (if any). The deriveForkStatus helper handles the "no runtime yet"
-	// and "comparison not loaded" cases by returning undefined; we render
-	// a neutral fork icon in that interim, then upgrade to the proper
-	// status icon once the comparison lands.
-	function forkStatusFor(session: Session) {
-		return deriveForkStatus(session, $userWorkspaces, getRuntime(session.id)?.forkComparison.val)
+	// The row icon only distinguishes "the session's fork workspace no longer
+	// exists" (detached) — never the fork's ahead/behind sync state, which is
+	// the fork bar's job.
+	function forkDetachedFor(session: Session): boolean {
+		return isUnavailableFork(session)
 	}
 
 	function isForkFor(session: Session): boolean {
-		return isForkSession(session, $userWorkspaces)
+		return isForkSession(session, $usersWorkspaceStore ? $userWorkspaces : undefined)
 	}
 
 	// Compute the unread count for a session. Driven by the per-runtime
 	// displayMessages array vs. the localStorage-backed lastSeen map;
 	// both are reactive so the badge updates without polling.
 	function unreadFor(session: Session): number {
-		return unreadCountFor(session.id, getRuntime(session.id))
+		return unreadCountFor(session.id, getRuntime(session.id), getSessionChatPeek(session.id))
 	}
 
 	// Whether the composer for a session holds non-whitespace text. We
@@ -80,20 +129,63 @@
 		return !!rt && rt.manager.instructions.trim().length > 0
 	}
 
-	// Sessions piggyback on the same dev gate as the global AI chat — when
-	// the feature flag is off, the sidebar section is hidden entirely.
-	const globalEnabled = isGlobalAiEnabled()
+	// The activity cutoff and the date buckets are wall-clock reads, which Svelte
+	// cannot track: without this the list would keep a session past its cutoff, and
+	// keep yesterday's header on today's rows, until some unrelated write forced a
+	// re-derive. Ticking a tracked timestamp bounds that staleness to a minute.
+	let clock = $state(Date.now())
+	$effect(() => {
+		const handle = setInterval(() => (clock = Date.now()), 60_000)
+		return () => clearInterval(handle)
+	})
 
-	// Only highlight the active session while we're actually on the session
-	// page — once the user navigates away, `currentSessionId` lingers but no
-	// row should appear selected.
-	const onSessionsPage = $derived(page.route.id?.includes('/sessions') ?? false)
+	// A share's page is under /sessions too, and shows none of the reader's own sessions.
+	const SHARED_PAGE_PREFIX = '/sessions/shared/'
+	const onSharedPage = $derived(page.url.pathname.startsWith(SHARED_PAGE_PREFIX))
+	const activeSharedId = $derived(
+		onSharedPage
+			? decodeURIComponent(page.url.pathname.slice(SHARED_PAGE_PREFIX.length))
+			: undefined
+	)
+
+	// The row the page is showing: the open session on its page, the draft in Home's
+	// composer on Home. Elsewhere `currentSessionId` lingers but no row is selected.
+	const activeRowId = $derived(
+		page.url.pathname.startsWith('/sessions') && !onSharedPage
+			? sessionState.currentSessionId
+			: page.url.pathname === '/'
+				? homeDraft.id
+				: undefined
+	)
 
 	interface Props {
 		isCollapsed?: boolean
+		// When false, the section is always expanded (no collapse chevron) — used
+		// where the picker is the whole rail rather than one sidebar section.
+		collapsible?: boolean
+		// Render the full workspace tree (every workspace, not just ones with
+		// sessions) with clickable workspace rows on top of the nested sessions.
+		workspaceTree?: boolean
+		// The workspace currently being browsed (highlighted) in tree mode.
+		browsedWorkspaceId?: string
+		// Clicking a workspace row → browse it (preview its home, no chat).
+		onBrowseWorkspace?: (workspaceId: string) => void
+		// Clicking a session row → leave browse mode (bring the chat back).
+		onSelectSession?: () => void
+		// Drop the section's own outer padding/border so it sits flush inside a
+		// parent container (e.g. gathered with Favorites/Search in the sidebar).
+		embedded?: boolean
 	}
 
-	let { isCollapsed = false }: Props = $props()
+	let {
+		isCollapsed = false,
+		collapsible = true,
+		workspaceTree = false,
+		browsedWorkspaceId = undefined,
+		onBrowseWorkspace = undefined,
+		onSelectSession = undefined,
+		embedded = false
+	}: Props = $props()
 
 	const sectionCollapsed = useLocalStorageValue(
 		'windmill_sessions_section_collapsed',
@@ -101,40 +193,290 @@
 		'boolean'
 	)
 	const showArchived = useLocalStorageValue('windmill_sessions_show_archived', false, 'boolean')
-
+	// Hide sessions untouched for longer than this many days. 0 = no cutoff.
+	const lastActivityDays = useLocalStorageValue('windmill_sessions_last_activity_days', 0, 'number')
+	// How the list is carved into groups. 'none' keeps the family grouping (headers
+	// only when a second family shows up); the others always draw headers.
+	const groupBy = useLocalStorageValue<GroupBy>('windmill_sessions_group_by', 'none', 'string')
 	let listRoot: HTMLDivElement | undefined = $state()
+	let sharedRoot: HTMLDivElement | undefined = $state()
 
-	// Sessions visible in the current workspace (active workspace + its
-	// forks). Drafts (no committed workspace) are scoped by their
-	// pending workspace pick — set at create time to the workspace the
-	// user was in. Archived sessions are filtered out unless the user
-	// has opted in via the filter popover.
-	const visibleSessions = $derived(
+	// Other members' shares, listed after the reader's own sessions; the reader's own shares mark
+	// their session's row instead.
+	const sharedFilter = useLocalStorageValue<SharedSessionsFilter>(
+		'windmill_sessions_shared_filter',
+		'show',
+		'string'
+	)
+	const sharedWorkspace = $derived($currentWorkspaceRootId ?? $workspaceStore ?? '')
+	const sharedList = useSharedSessionsList(() => sharedWorkspace || undefined)
+	type SharedRow = (typeof sharedList.items)[number]
+	let pendingUnshare: SharedRow | undefined = $state(undefined)
+
+	async function leaveSharedPage(id: string) {
+		if (id === activeSharedId) await goto('/')
+	}
+
+	async function forgetShared(shared: SharedRow) {
+		try {
+			await AiService.forgetOpenedAiSession({ workspace: sharedWorkspace, id: shared.id })
+			invalidateSharedSessions(sharedWorkspace)
+			logSharedSessionRemove('sidebar', sharedWorkspace)
+			sendUserToast('Removed from your shared sessions')
+			await leaveSharedPage(shared.id)
+		} catch (err) {
+			sendUserToast(`Could not remove it: ${(err as { body?: unknown })?.body ?? err}`, true)
+		}
+	}
+
+	async function confirmUnshare() {
+		const shared = pendingUnshare
+		pendingUnshare = undefined
+		if (!shared) return
+		try {
+			await AiService.unshareAiSession({ workspace: sharedWorkspace, id: shared.id })
+			invalidateSharedSessions(sharedWorkspace)
+			sendUserToast('Stopped sharing: the link no longer opens')
+			await leaveSharedPage(shared.id)
+		} catch (err) {
+			sendUserToast(`Could not stop sharing: ${(err as { body?: unknown })?.body ?? err}`, true)
+		}
+	}
+	const mySharedSessionIds = $derived(
+		new Set(sharedList.items.flatMap((s) => (s.mine && s.session_id ? [s.session_id] : [])))
+	)
+	const sharedWithMe = $derived(
+		sharedFilter.val === 'hide'
+			? []
+			: sharedList.items.filter((s) => {
+					if (s.mine) return false
+					if (s.id === activeSharedId) return true
+					if (lastActivityDays.val === 0) return true
+					return (
+						Date.parse(s.opened_at ?? s.shared_at) >=
+						clock - lastActivityDays.val * 24 * 60 * 60 * 1000
+					)
+				})
+	)
+
+	// A session's family root: the stored grouping id, else derived live.
+	function sessionRootOf(s: Session): string | undefined {
+		return (
+			s.workspace_root_id ??
+			workspaceRootId(s.workspace_id ?? s.pending_workspace_id, $userWorkspaces)
+		)
+	}
+
+	// Every session passing the archive + scope filters, the ones folded under "Show older"
+	// included.
+	const filteredSessions = $derived(
 		sessionState.sessions.filter((s) => {
-			// Transient (not-yet-sent) sessions live as their own page but
-			// don't clutter the sidebar list.
-			if (s.transient) return false
+			// A draft Home's composer holds becomes a session when its first send starts, typed
+			// or not. Unsent drafts opened onto an item stay listed: the row is their only way
+			// back. They group by pending_workspace_id via sessionRootOf.
+			if (s.transient || opensOnHome(s)) return false
+			// The row on screen always stays in the list, ignoring every filter.
+			if (s.id === activeRowId) return true
 			if (s.archived && !showArchived.val) return false
-			const ws = getEffectiveWorkspaceId(s)
-			if (!ws) return false
-			if ($visibleWorkspaceIds.has(ws)) return true
-			// Unavailable sessions (committed workspace was deleted /
-			// archived / access revoked) stay visible everywhere so the
-			// user can resolve them — move, archive, or delete. They'd
-			// otherwise be permanently hidden the moment their workspace
-			// disappeared.
-			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
-			return false
+			if (sharedFilter.val === 'only' && !mySharedSessionIds.has(s.id)) return false
+			if (lastActivityDays.val > 0) {
+				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
+				if (sessionLastActivityAt(s) < cutoff) return false
+			}
+			// Scope to the current workspace family only.
+			const currentRoot = $currentWorkspaceRootId
+			if (currentRoot && sessionRootOf(s) !== currentRoot) return false
+			return true
 		})
 	)
+
+	// With no activity cutoff picked, sessions inactive for over a week fold under a "Show older"
+	// row, except the one on screen. A picked cutoff is the reader's own choice and folds nothing.
+	const showOlder = useLocalStorageValue('windmill_sessions_show_older', false, 'boolean')
+	const olderIds = $derived.by(() => {
+		if (lastActivityDays.val > 0) return new Set<string>()
+		const cutoff = clock - SIDEBAR_RECENT_MS
+		return new Set(
+			filteredSessions
+				.filter((s) => s.id !== activeRowId && sessionLastActivityAt(s) < cutoff)
+				.map((s) => s.id)
+		)
+	})
+
+	// The rows listed. Grouping for display happens in `sessionGroups`; this flat view drives
+	// the runtime effect, the unread total, and keyboard navigation.
+	const visibleSessions = $derived(
+		showOlder.val ? filteredSessions : filteredSessions.filter((s) => !olderIds.has(s.id))
+	)
+
+	// Sessions grouped by workspace family for display, each group by its last turn
+	// start or end, latest first. Family order follows its latest session and is NOT tied
+	// to the current workspace: pinning the active family first reshuffled the
+	// whole list on every workspace switch, which is disorienting.
+	const sessionGroups = $derived.by(() => {
+		const byRoot = new Map<string, Session[]>()
+		for (const s of visibleSessions) {
+			const root = sessionRootOf(s) ?? s.workspace_id ?? s.pending_workspace_id ?? ''
+			const arr = byRoot.get(root)
+			if (arr) arr.push(s)
+			else byRoot.set(root, [s])
+		}
+		const groups = [...byRoot.entries()].map(([rootId, sessions]) => {
+			sessions.sort((a, b) => sessionLastStateChangeAt(b) - sessionLastStateChangeAt(a))
+			return {
+				rootId,
+				name: $userWorkspaces.find((w) => w.id === rootId)?.name || rootId || 'Workspace',
+				sessions,
+				mostRecent: sessions[0] ? sessionLastStateChangeAt(sessions[0]) : 0
+			}
+		})
+		groups.sort((a, b) => b.mostRecent - a.mostRecent)
+		return groups
+	})
+
+	// Workspace tree scoped to the current family (root + its forks), so the rail
+	// only shows the workspaces in the family we're in — not every workspace.
+	const workspaceTreeItems = $derived.by(() => {
+		const all = buildWorkspaceHierarchy($userWorkspaces, $userStore?.email)
+		const currentRoot = $currentWorkspaceRootId
+		if (!currentRoot) return all
+		return all.filter((i) => workspaceRootId(i.workspace.id, $userWorkspaces) === currentRoot)
+	})
+
+	// Sessions keyed by their exact workspace, latest turn first — nested under each
+	// workspace node in tree mode.
+	const sessionsByWorkspace = $derived.by(() => {
+		const map = new Map<string, Session[]>()
+		for (const s of visibleSessions) {
+			const wsId = s.workspace_id ?? s.pending_workspace_id
+			if (!wsId) continue
+			const arr = map.get(wsId)
+			if (arr) arr.push(s)
+			else map.set(wsId, [s])
+		}
+		for (const arr of map.values())
+			arr.sort((a, b) => sessionLastStateChangeAt(b) - sessionLastStateChangeAt(a))
+		return map
+	})
+
+	// Collapsed workspaces in the tree, persisted to localStorage so the state is
+	// shared between the rail and the collapsed popover (separate picker instances)
+	// and survives reloads. A collapsed workspace hides its sessions + fork subtree.
+	const collapsedWorkspaces = useLocalStorageValue<string[]>(
+		'windmill_sessions_collapsed_workspaces',
+		[]
+	)
+	function isWorkspaceCollapsed(id: string): boolean {
+		return collapsedWorkspaces.val.includes(id)
+	}
+	function toggleWorkspaceCollapsed(id: string) {
+		collapsedWorkspaces.val = isWorkspaceCollapsed(id)
+			? collapsedWorkspaces.val.filter((x) => x !== id)
+			: [...collapsedWorkspaces.val, id]
+	}
+
+	// Ids of tree items hidden because an ancestor workspace is collapsed. Computed
+	// in pre-order: once a collapsed node is seen, everything deeper is hidden until
+	// the depth returns to its level or shallower.
+	const hiddenWorkspaceIds = $derived.by(() => {
+		const hidden = new Set<string>()
+		let collapseDepth = Infinity
+		for (const item of workspaceTreeItems) {
+			if (item.depth > collapseDepth) {
+				hidden.add(item.workspace.id)
+				continue
+			}
+			collapseDepth = isWorkspaceCollapsed(item.workspace.id) ? item.depth : Infinity
+		}
+		return hidden
+	})
+
+	// Family labels are redundant when scoped to a single family — only show them
+	// if the active-session override surfaces a second family.
+	const showGroupHeaders = $derived(sessionGroups.length > 1)
+
+	// The list as the user chose to see it. `workspaceId` is set on the groups that
+	// stand for a workspace — the ones whose header offers "new session here".
+	type DisplayGroup = {
+		key: string
+		label: string
+		workspaceId?: string
+		sessions: Session[]
+		showHeader: boolean
+	}
+
+	const displayGroups: DisplayGroup[] = $derived.by(() => {
+		if (groupBy.val === 'none') {
+			return sessionGroups.map((g) => ({
+				key: g.rootId,
+				label: g.name,
+				workspaceId: g.rootId || undefined,
+				sessions: g.sessions,
+				showHeader: showGroupHeaders
+			}))
+		}
+		const byActivity = (a: Session, b: Session) =>
+			sessionLastActivityAt(b) - sessionLastActivityAt(a)
+		if (groupBy.val === 'date') {
+			const now = clock
+			const buckets = new Map<string, { label: string; rank: number; sessions: Session[] }>()
+			for (const s of visibleSessions) {
+				const b = dateBucket(sessionLastActivityAt(s), now)
+				const entry = buckets.get(b.key)
+				if (entry) entry.sessions.push(s)
+				else buckets.set(b.key, { label: b.label, rank: b.rank, sessions: [s] })
+			}
+			return [...buckets.entries()]
+				.sort((a, b) => a[1].rank - b[1].rank)
+				.map(([key, v]) => ({
+					key,
+					label: v.label,
+					sessions: v.sessions.sort(byActivity),
+					showHeader: true
+				}))
+		}
+		// Fork: one group per actual workspace — the root and each fork stand alone,
+		// unlike the family grouping that folds a whole fork tree into its root.
+		const byWorkspace = new Map<string, Session[]>()
+		for (const s of visibleSessions) {
+			const wsId = s.workspace_id ?? s.pending_workspace_id ?? ''
+			const arr = byWorkspace.get(wsId)
+			if (arr) arr.push(s)
+			else byWorkspace.set(wsId, [s])
+		}
+		// A lone workspace names itself — its header would label the whole list.
+		const headed = byWorkspace.size > 1
+		return [...byWorkspace.entries()]
+			.map(([wsId, sessions]) => {
+				sessions.sort(byActivity)
+				// Sessions on a deleted fork keep its id; only a workspace the user
+				// still has can host a new session (putSession drops the rest), so
+				// `workspaceId` — which drives the header `+` — stays unset for those.
+				const known = $userWorkspaces.find((w) => w.id === wsId)
+				return {
+					key: wsId,
+					label: known?.name || wsId || 'No workspace yet',
+					workspaceId: known ? wsId : undefined,
+					sessions,
+					showHeader: headed
+				}
+			})
+			.sort((a, b) => sessionLastActivityAt(b.sessions[0]) - sessionLastActivityAt(a.sessions[0]))
+	})
+
+	// What "Show archived" would actually reveal: every filter the list applies
+	// except the archive one, so the count never promises rows the activity
+	// cutoff would then hide.
 	const archivedCount = $derived(
 		sessionState.sessions.filter((s) => {
 			if (!s.archived || s.transient) return false
-			const ws = getEffectiveWorkspaceId(s)
-			if (!ws) return false
-			if ($visibleWorkspaceIds.has(ws)) return true
-			if (s.workspace_id && !$userWorkspaces.find((w) => w.id === s.workspace_id)) return true
-			return false
+			if (s.id === activeRowId) return true
+			if (lastActivityDays.val > 0) {
+				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
+				if (sessionLastActivityAt(s) < cutoff) return false
+			}
+			const currentRoot = $currentWorkspaceRootId
+			return !currentRoot || sessionRootOf(s) === currentRoot
 		}).length
 	)
 
@@ -143,65 +485,80 @@
 	// AI activity in some session without expanding the sidebar.
 	const totalUnread = $derived(visibleSessions.reduce((acc, s) => acc + unreadFor(s), 0))
 
+	function statusFor(session: Session): SessionChatStatus {
+		const runtime = getRuntime(session.id)
+		return runtime
+			? getSessionChatStatus(runtime)
+			: (getSessionChatPeek(session.id)?.status ?? 'idle')
+	}
+
+	// The statuses a row shows over its resting mark, most urgent first: a session that needs
+	// the user (a question, a confirmation, a failure) outranks one still generating.
+	const LIVE_STATUS_ORDER: SessionChatStatus[] = [
+		'awaiting-answer',
+		'needs-confirmation',
+		'error',
+		'streaming'
+	]
+	// What the folded section shows for the sessions it hides: one mark only. A session that
+	// needs the user hides the unread count; the unread count hides a session generating.
+	const sectionStatus = $derived.by(() => {
+		let best: number = LIVE_STATUS_ORDER.length
+		for (const s of visibleSessions) {
+			const rank = LIVE_STATUS_ORDER.indexOf(statusFor(s))
+			if (rank !== -1 && rank < best) best = rank
+			if (best === 0) break
+		}
+		const status = LIVE_STATUS_ORDER[best]
+		return status === 'streaming' && totalUnread > 0 ? undefined : status
+	})
+
 	// Clear any persisted collapsed state while the list is empty. The
 	// empty-state header is a plain label with no toggle, so a collapse
 	// carried over from a previous session (or another workspace) would
 	// otherwise hide the user's first new session with no way to expand
 	// it. Resetting here keeps the section expanded by default whenever
 	// the first session arrives. Guarded on the current value so it writes
-	// once (true → false) rather than looping.
+	// once (true → false) rather than looping, and on hydration: before the
+	// sessions load, the list is empty for every reader, and the fold is a
+	// layout they chose to keep.
 	$effect(() => {
-		if (visibleSessions.length === 0 && sectionCollapsed.val) {
+		if (sessionState.hydrated && filteredSessions.length === 0 && sectionCollapsed.val) {
 			sectionCollapsed.val = false
 		}
 	})
 
-	// Eagerly create a runtime per VISIBLE session so the status dot reflects
-	// the persisted chat (last message, pending confirmation, etc.) without
-	// requiring the user to open the session first. Sessions outside the
-	// current workspace scope are left cold to avoid opening IDB connections
-	// for unrelated work.
+	// Read each VISIBLE session's stored chat so the status dot and unread count
+	// reflect it without the user opening the session. A runtime per listed
+	// session would hold every listed chat in memory for as long as the page lives.
 	$effect(() => {
 		for (const session of visibleSessions) {
-			getOrCreateRuntime(session)
-		}
-	})
-
-	// Pre-fetch the fork comparison for every visible fork session so the
-	// sidebar icons reflect the right ahead/diverged state without
-	// requiring the user to click into each session. Cheap enough at
-	// typical session counts; falls back to a plain dot until the
-	// fetch lands.
-	$effect(() => {
-		if (sectionCollapsed.val) return
-		for (const session of visibleSessions) {
-			if (!session.workspace_id) continue
-			const ws = $userWorkspaces.find((w) => w.id === session.workspace_id)
-			if (!ws?.parent_workspace_id) continue
-			const rt = getRuntime(session.id)
-			if (!rt) continue
-			void rt.ensureForkComparison(ws.parent_workspace_id, session.workspace_id)
+			if (!getRuntime(session.id)) void ensureSessionChatPeek(session)
 		}
 	})
 
 	function isUnavailableFork(session: Session): boolean {
-		return !!session.workspace_id && !$userWorkspaces.find((w) => w.id === session.workspace_id)
+		return (
+			!!session.workspace_id &&
+			!!$usersWorkspaceStore &&
+			!$userWorkspaces.find((w) => w.id === session.workspace_id)
+		)
 	}
 
 	async function activate(session: Session, restoreFocus: boolean = false) {
-		selectSession(session.id)
-		// If the session has a committed workspace different from the
-		// active one, switch globally so the editor/forks resolve correctly.
-		// Skip for unavailable forks — switching to a deleted workspace
-		// would error out and leave the user in limbo.
-		if (!isUnavailableFork(session)) {
-			syncWorkspaceTo(session.workspace_id)
+		// Picking a session leaves browse mode so the chat comes back.
+		onSelectSession?.()
+		if (opensOnHome(session)) {
+			await openDraftOnHome(session.id)
+			return
 		}
-		// Refresh the fork diff count — users typically click back into a
-		// session after editing items elsewhere in the SPA, where neither
-		// the visibility-change nor the AI-loading signal would fire.
-		void getRuntime(session.id)?.refreshForkComparison()
-		await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
+		selectSession(session.id)
+		// The global workspaceStore is intentionally NOT switched here: a session
+		// runs against its own workspace via the chat manager's workspace resolver,
+		// so opening one must not change the user's active (navigation) workspace.
+		// Open the dedicated sessions page; its preview panel iframes the
+		// session's view (captured page / editor target).
+		await goto(sessionPageHref(session.id))
 		if (restoreFocus) {
 			// goto() resets focus to <body> — put it back on the active session button
 			// so subsequent arrow keys keep navigating the list.
@@ -214,8 +571,10 @@
 		}
 	}
 
-	async function createAndOpen() {
-		await activate(createSession())
+	// The `+` on a workspace group header: a new session in that group's workspace,
+	// which the header switches to, since Home's draft acts on the header's workspace.
+	async function createAndOpenIn(workspaceId: string) {
+		await openNewSession(workspaceId)
 	}
 
 	let editingId: string | undefined = $state(undefined)
@@ -238,17 +597,209 @@
 	}
 
 	let pendingDelete: Session | undefined = $state(undefined)
-	// Default to also deleting the fork: it's tied to this session and would be
-	// orphaned otherwise. The user can still untick it in the modal.
-	let deleteAlsoFork = $state(true)
-	// Fork workspace tied to `pendingDelete`, if any, and still accessible.
-	const pendingDeleteForkId = $derived.by(() => {
-		const wsId = pendingDelete?.workspace_id
-		if (!wsId || !wsId.startsWith('wm-fork-')) return undefined
+	// Default off: deleting a fork workspace is destructive and not what deleting a
+	// session implies. The user can tick it in the modal to also drop the fork.
+	let deleteAlsoFork = $state(false)
+	// Fork workspace tied to a session, if any, and still accessible.
+	function forkWorkspaceIdFor(session: Session | undefined): string | undefined {
+		const wsId = session?.workspace_id
+		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
-		if (!ws || !ws.parent_workspace_id) return undefined
+		// Fork = prefix OR parent (so an orphaned wm-fork- fork still qualifies); exclude persistent
+		// dev workspaces, which are not ephemeral session forks.
+		if (!ws || !workspaceIsFork(wsId, $userWorkspaces)) return undefined
+		if (ws.is_dev_workspace) return undefined
 		return wsId
+	}
+	const pendingDeleteForkId = $derived(forkWorkspaceIdFor(pendingDelete))
+
+	// Batch selection: "Edit sessions" in the header menu turns the rows into
+	// checkboxes so several sessions can be deleted in one pass.
+	let selectionMode = $state(false)
+	// Entered from the folded section's menu, whose own list then takes the checkboxes.
+	let selectionInFlyout = $state(false)
+	let selectedIds = $state<string[]>([])
+	let batchDeleteOpen = $state(false)
+	const viewportOverlays = overlayStack()
+
+	const selectableIds = $derived(visibleSessions.map((s) => s.id))
+	const allSelected = $derived(
+		selectableIds.length > 0 && selectedIds.length === selectableIds.length
+	)
+	const selectedForkCount = $derived(
+		selectedIds.filter((id) => forkWorkspaceIdFor(sessionState.sessions.find((s) => s.id === id)))
+			.length
+	)
+	// A mixed selection archives; only an all-archived selection reads as "undo
+	// that", so that's the single case the button flips to Unarchive.
+	const allSelectedArchived = $derived(
+		selectedIds.length > 0 &&
+			selectedIds.every((id) => sessionState.sessions.find((s) => s.id === id)?.archived)
+	)
+
+	// Drop selections that left the list (archive filter flipped, workspace family
+	// switched) so the count never claims more than the visible checkboxes.
+	$effect(() => {
+		if (!selectionMode) return
+		const visible = new Set(selectableIds)
+		const pruned = selectedIds.filter((id) => visible.has(id))
+		if (pruned.length !== selectedIds.length) selectedIds = pruned
 	})
+
+	function enterSelectionMode(inFlyout: boolean) {
+		selectionMode = true
+		selectionInFlyout = inFlyout
+		selectedIds = []
+		// Checkboxes are unreachable while the section is folded away.
+		if (!inFlyout) sectionCollapsed.val = false
+	}
+
+	// The session list's options, for the ⋮ menu of the open list and the View submenu of the
+	// folded section's menu. That menu lists the sessions too, so it stays open to show the change.
+	function listOptionItems(inFlyout: boolean): Item[] {
+		return [
+			{
+				displayName: archivedCount > 0 ? `Show archived (${archivedCount})` : 'Show archived',
+				icon: Archive,
+				toggle: showArchived.val,
+				keepOpen: inFlyout,
+				action: () => (showArchived.val = !showArchived.val)
+			},
+			{
+				displayName: 'Last activity',
+				icon: Clock,
+				extra: lastActivityHint,
+				submenuItems: LAST_ACTIVITY_OPTIONS.map((o) => ({
+					displayName: o.label,
+					selected: lastActivityDays.val === o.days,
+					keepOpen: inFlyout,
+					action: () => (lastActivityDays.val = o.days)
+				}))
+			},
+			{
+				displayName: 'Shared sessions',
+				icon: Share2,
+				extra: sharedFilterHint,
+				submenuItems: SHARED_SESSIONS_FILTER_OPTIONS.map((o) => ({
+					displayName: o.label,
+					selected: sharedFilter.val === o.value,
+					keepOpen: inFlyout,
+					action: () => (sharedFilter.val = o.value)
+				}))
+			},
+			{
+				displayName: 'Group by',
+				icon: Rows3,
+				extra: groupByHint,
+				submenuItems: GROUP_BY_OPTIONS.map((o) => ({
+					displayName: o.label,
+					selected: groupBy.val === o.value,
+					keepOpen: inFlyout,
+					action: () => (groupBy.val = o.value)
+				}))
+			},
+			{
+				displayName: 'Edit sessions',
+				icon: ListChecks,
+				keepOpen: inFlyout,
+				action: () => enterSelectionMode(inFlyout),
+				separatorTop: true,
+				// Selection is built from `visibleSessions`, which the tree render
+				// path doesn't follow — it drops workspace-less sessions and hides
+				// rows under a collapsed workspace, so "Select all" there would
+				// reach rows that never showed a checkbox.
+				hide: visibleSessions.length === 0 || workspaceTree
+			}
+		]
+	}
+
+	function exitSelectionMode() {
+		selectionMode = false
+		selectionInFlyout = false
+		selectedIds = []
+		rangeAnchorId = undefined
+	}
+
+	// A checkbox's `click` carries the modifier keys and its `change` carries the
+	// state, and only `change` may drive the value — preventing the click's default
+	// leaves the input's own checked flag out of step with the prop. So the click
+	// only records whether shift was down, for the change handler that follows it.
+	let shiftHeldOnClick = false
+
+	// Anchor for shift-click: the row whose checkbox was last set, as in a file list.
+	let rangeAnchorId: string | undefined = $state(undefined)
+
+	// Every visible row in display order, which is what a shift-range spans — it
+	// runs across group boundaries, matching what the user sees.
+	const orderedIds = $derived(displayGroups.flatMap((g) => g.sessions.map((s) => s.id)))
+
+	function toggleSelected(id: string, extendRange = false) {
+		const anchor = rangeAnchorId
+		rangeAnchorId = id
+		if (extendRange && anchor && anchor !== id) {
+			const from = orderedIds.indexOf(anchor)
+			const to = orderedIds.indexOf(id)
+			if (from !== -1 && to !== -1) {
+				const range = orderedIds.slice(Math.min(from, to), Math.max(from, to) + 1)
+				const merged = new Set([...selectedIds, ...range])
+				selectedIds = orderedIds.filter((x) => merged.has(x))
+				return
+			}
+		}
+		selectedIds = selectedIds.includes(id)
+			? selectedIds.filter((x) => x !== id)
+			: [...selectedIds, id]
+	}
+
+	function toggleSelectAll() {
+		selectedIds = allSelected ? [] : [...selectableIds]
+	}
+
+	// Home shows no archived draft, so archiving the one its composer holds moves Home on.
+	function leaveArchivedHomeDraft(ids: string[]) {
+		if (page.url.pathname === '/' && homeDraft.id && ids.includes(homeDraft.id)) {
+			void leaveForHome()
+		}
+	}
+
+	function handleBatchArchive() {
+		const archive = !allSelectedArchived
+		let skipped = 0
+		for (const id of selectedIds) {
+			const session = sessionState.sessions.find((s) => s.id === id)
+			if (!session) continue
+			// Unarchiving a session whose fork workspace is gone can't persist (the
+			// putSession guard drops it) and reconcile would re-archive it, so the row
+			// would silently revert. Same guard as the per-row menu.
+			if (!archive && isUnavailableFork(session)) {
+				skipped++
+				continue
+			}
+			setSessionArchived(id, archive)
+		}
+		if (archive) leaveArchivedHomeDraft(selectedIds)
+		exitSelectionMode()
+		if (skipped > 0) {
+			sendUserToast(
+				`${skipped} session${skipped === 1 ? '' : 's'} kept archived: their forked workspace no longer exists`
+			)
+		}
+	}
+
+	// Batch delete never touches fork workspaces — same default as the single
+	// delete, where the user has to tick the fork box explicitly.
+	async function handleConfirmedBatchDelete() {
+		const ids = selectedIds
+		batchDeleteOpen = false
+		if (ids.length === 0) return
+		const active = activeRowId
+		const wasActive = !!active && ids.includes(active)
+		await withOpenSessionTeardown(async () => {
+			for (const id of ids) removeSession(id)
+			exitSelectionMode()
+			if (wasActive) await leaveForHome()
+		})
+	}
 
 	async function handleConfirmedDelete() {
 		const session = pendingDelete
@@ -260,36 +811,40 @@
 			? $userWorkspaces.find((w) => w.id === forkToDelete)?.parent_workspace_id
 			: undefined
 		pendingDelete = undefined
-		deleteAlsoFork = true
+		deleteAlsoFork = false
 		if (!session) return
-		const wasActive = sessionState.currentSessionId === session.id
-		removeSession(session.id)
-		forgetSessionSeen(session.id)
-		if (forkToDelete) {
-			try {
-				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
-				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			} catch (e: any) {
-				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
+		const wasActive = activeRowId === session.id
+		await withOpenSessionTeardown(async () => {
+			removeSession(session.id)
+			if (forkToDelete) {
+				try {
+					await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+					await deleteSessionsForWorkspace(forkToDelete)
+					sendUserToast(`Deleted forked workspace ${forkToDelete}`)
+					await reconcileAfterWorkspaceChange()
+				} catch (e: any) {
+					sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
+				}
 			}
-		}
-		// If the deleted fork was the active workspace, fall back to its parent
-		// so the user isn't stranded on a workspace that no longer exists.
-		if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
-			syncWorkspaceTo(forkParentId)
-		}
-		if (wasActive) {
-			const next = sessionState.sessions[0]
-			if (next) await activate(next)
-			else await goto('/sessions')
-		}
+			// If the deleted fork was the active workspace, fall back to its parent
+			// so the user isn't stranded on a workspace that no longer exists.
+			if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
+				syncWorkspaceTo(forkParentId)
+			}
+			if (wasActive) await leaveForHome()
+		})
+	}
+
+	// One sequence across the reader's own sessions and the shared ones below "Show older". Shared
+	// rows are links, the reader's own sessions buttons: both are rows.
+	function sessionRows(): HTMLElement[] {
+		return [listRoot, sharedRoot].flatMap((root) =>
+			root ? Array.from(root.querySelectorAll<HTMLElement>('[data-session-button]')) : []
+		)
 	}
 
 	function focusAt(index: number) {
-		const buttons = listRoot
-			? Array.from(listRoot.querySelectorAll<HTMLButtonElement>('button[data-session-button]'))
-			: []
+		const buttons = sessionRows()
 		if (buttons.length === 0) return
 		const wrapped = ((index % buttons.length) + buttons.length) % buttons.length
 		buttons[wrapped]?.focus()
@@ -299,302 +854,629 @@
 		if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') {
 			return
 		}
-		const buttons = listRoot
-			? Array.from(listRoot.querySelectorAll<HTMLButtonElement>('button[data-session-button]'))
-			: []
+		const buttons = sessionRows()
 		if (buttons.length === 0) return
-		const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+		const current = buttons.indexOf(document.activeElement as HTMLElement)
 		e.preventDefault()
 		if (e.key === 'ArrowDown') focusAt(current < 0 ? 0 : current + 1)
 		else if (e.key === 'ArrowUp') focusAt(current < 0 ? buttons.length - 1 : current - 1)
 		else if (e.key === 'Home') focusAt(0)
 		else if (e.key === 'End') focusAt(buttons.length - 1)
 	}
-
-	const menuItemBase = twMerge(
-		'text-secondary text-left font-normal text-xs',
-		'flex flex-row items-center gap-2 px-3 py-1.5 w-full',
-		'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-	)
 </script>
 
-{#if !globalEnabled}
-	<!-- Sessions hidden until the global-ai dev gate is enabled. -->
-{:else if isCollapsed}
-	<div class="px-2 pt-3 pb-2 border-b border-light dark:border-gray-700">
-		<Menubar>
-			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside>
-					{#snippet triggr({ trigger })}
-						<div class="relative">
-							<MenuButton
-								class="!text-xs"
-								icon={MessageSquare}
-								label="AI sessions"
-								{isCollapsed}
-								{trigger}
-							/>
-							{#if totalUnread > 0}
-								<span
-									class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-blue-500"
-									aria-label="{totalUnread} unread message{totalUnread === 1
-										? ''
-										: 's'} across all sessions"
-								></span>
-							{/if}
-						</div>
-					{/snippet}
-					{#snippet children({ item })}
-						<div class="divide-y min-w-48" role="none">
-							<div class="py-1" role="none">
-								<MenuItem class={menuItemBase} onClick={createAndOpen} {item}>
-									<Plus size={14} />
-									New session
-								</MenuItem>
-							</div>
-							<div class="py-1" role="none">
-								{#each visibleSessions as session (session.id)}
-									{@const runtime = getRuntime(session.id)}
-									{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
-									{@const isSelected =
-										onSessionsPage && session.id === sessionState.currentSessionId}
-									{@const unread = unreadFor(session)}
-									{@const draft = hasDraft(session)}
-									<MenuItem
-										class={twMerge(menuItemBase, isSelected ? 'bg-surface-hover' : '')}
-										onClick={() => activate(session)}
-										{item}
-									>
-										<SessionStatusDot
-											{status}
-											isFork={isForkFor(session)}
-											forkStatus={forkStatusFor(session)}
-										/>
-										<span
-											class={twMerge(
-												'truncate flex-1 text-left',
-												unread > 0 ? 'font-semibold text-primary' : ''
-											)}
-										>
-											{session.summary ?? 'Untitled session'}
-										</span>
-										{#if draft || unread > 0}
-											<span class="ml-auto shrink-0 inline-flex items-center gap-1">
-												{#if draft}
-													<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-												{/if}
-												{#if unread > 0}
-													<span
-														class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
-														aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
-													>
-														{unread > 9 ? '9+' : unread}
-													</span>
-												{/if}
-											</span>
-										{/if}
-									</MenuItem>
-								{/each}
-							</div>
-						</div>
-					{/snippet}
-				</Menu>
-			{/snippet}
-		</Menubar>
-	</div>
-{:else}
-	<div class="px-2 pt-3 pb-2 flex flex-col gap-1 border-b border-light dark:border-gray-700">
-		<div class="flex flex-row items-center justify-between pl-1 pr-0.5">
-			{#if visibleSessions.length > 0}
-				<button
-					type="button"
-					onclick={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
-					aria-expanded={!sectionCollapsed.val}
-				>
-					AI sessions
-					{#if sectionCollapsed.val}
-						<ChevronRight size={10} />
-					{:else}
-						<ChevronDown size={10} />
-					{/if}
-				</button>
-			{:else}
-				<!-- No sessions yet: render the label as plain text (no collapse toggle). -->
-				<span
-					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 px-1 -mx-1 py-0.5"
-				>
-					AI sessions
-				</span>
-			{/if}
-			<div class="flex flex-row items-center gap-0.5">
-				<Popover placement="bottom-end" usePointerDownOutside disableFocusTrap class="inline-flex">
-					{#snippet trigger()}
-						<button
-							type="button"
-							title="Filter sessions"
-							aria-label="Filter sessions"
-							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary {showArchived.val
-								? 'text-emphasis'
-								: ''}"
-						>
-							<Filter size={12} />
-						</button>
-					{/snippet}
-					{#snippet content()}
-						<div
-							class="w-56 p-2 bg-surface-tertiary dark:border rounded-md shadow-lg flex flex-col gap-1"
-						>
-							<Toggle
-								bind:checked={showArchived.val}
-								size="xs"
-								options={{ right: 'Show archived' }}
-							/>
-							{#if archivedCount > 0}
-								<span class="text-2xs text-tertiary pl-1">
-									{archivedCount} archived session{archivedCount === 1 ? '' : 's'}
-								</span>
-							{/if}
-						</div>
-					{/snippet}
-				</Popover>
-				<Button
-					variant="subtle"
-					size="xs2"
-					iconOnly
-					startIcon={{ icon: Plus }}
-					onclick={createAndOpen}
-					title="New session"
-				/>
-			</div>
-		</div>
-		{#if !sectionCollapsed.val}
-			<div
-				bind:this={listRoot}
-				transition:slide={{ duration: 180 }}
-				class="flex flex-col gap-0.5 max-h-[40vh] overflow-y-auto"
-				onkeydown={handleListKeydown}
-				role="listbox"
-				tabindex="-1"
+<div
+	class="flex flex-col gap-1 {embedded ? '' : 'px-2 pt-3 pb-2'} {!embedded && collapsible
+		? 'border-b border-light'
+		: ''}"
+>
+	<!-- Selection mode reuses the options row (same h-8 slot) so the list below it
+		     never moves. -->
+	{#snippet selectionBar()}
+		<div class="flex flex-row items-center gap-1.5 h-8 px-2">
+			<Checkbox
+				checked={allSelected}
+				indeterminate={selectedIds.length > 0 && !allSelected}
+				onChange={toggleSelectAll}
+				class="shrink-0 !w-4 !h-4 !p-0"
+				title="Select all sessions"
+			/>
+			<Button
+				unifiedSize="2xs"
+				variant="subtle"
+				on:click={toggleSelectAll}
+				btnClasses="!text-xs !h-5 w-auto !px-0 text-secondary whitespace-nowrap"
 			>
-				{#each visibleSessions as session (session.id)}
-					{@const runtime = getRuntime(session.id)}
-					{@const status = runtime ? getSessionChatStatus(runtime) : 'idle'}
-					{@const isSelected = onSessionsPage && session.id === sessionState.currentSessionId}
-					{@const isEditing = editingId === session.id}
-					{@const unread = unreadFor(session)}
-					{@const draft = hasDraft(session)}
-					<div
-						class={twMerge(
-							'flex flex-row items-center group rounded',
-							isSelected ? 'bg-surface-hover text-primary' : 'hover:bg-surface-hover',
-							session.archived ? 'italic opacity-60' : ''
-						)}
-					>
-						{#if isEditing}
-							<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
+				Select all
+			</Button>
+			<span class="ml-auto text-2xs text-tertiary whitespace-nowrap">
+				{selectedIds.length} selected
+			</span>
+		</div>
+	{/snippet}
+	{#if selectionMode && !selectionInFlyout}
+		{@render selectionBar()}
+		{@render sessionList(false)}
+	{:else}
+		{#snippet listOptions(size: 'xs' | 'sm' | 'md')}
+			<DropdownV2
+				fixedHeight={false}
+				placement="bottom-end"
+				enableFlyTransition
+				items={listOptionItems(false)}
+			>
+				{#snippet buttonReplacement()}
+					<Button
+						nonCaptureEvent
+						unifiedSize={size}
+						variant="subtle"
+						iconOnly
+						startIcon={{ icon: EllipsisVertical }}
+						title="Session list options"
+						aria-label="Session list options"
+						btnClasses="text-secondary"
+					/>
+				{/snippet}
+			</DropdownV2>
+		{/snippet}
+		{#snippet sectionOptions({ menu }: SectionActionsArgs)}
+			<!-- In the folded section's menu the options are one of its rows, opening beside it as a
+				     submenu. -->
+			{#if menu}
+				<DropdownSubmenuItem
+					item={{
+						displayName: 'View',
+						icon: SlidersHorizontal,
+						submenuItems: listOptionItems(true)
+					}}
+					builders={menu.builders}
+					meltItem={menu.item}
+					class={flyoutRowClass}
+				/>
+			{:else}
+				{@render listOptions('sm')}
+			{/if}
+		{/snippet}
+		{#if collapsible}
+			<!-- Not disabled while loading: a disabled section ignores its fold, so a folded one
+			     would open for the skeleton and fold again once the sessions arrive. -->
+			<SidebarSection
+				title="AI sessions"
+				icon={MessageSquare}
+				folded={sectionCollapsed.val}
+				onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
+				disabled={sessionState.hydrated && filteredSessions.length === 0}
+				notify={totalUnread > 0}
+				unreadCount={totalUnread}
+				status={sectionStatus}
+				actions={sectionOptions}
+				{isCollapsed}
+				onClose={() => {
+					// The batch delete's confirmation is outside the menu and closes it, but still
+					// needs the selection.
+					if (selectionInFlyout && !batchDeleteOpen) exitSelectionMode()
+				}}
+			>
+				{#snippet children(inPopover, menu)}
+					<!-- In the folded section's menu the selection bar takes New session's row: the View
+					     row stays, since Edit sessions is picked from the submenu it holds open. -->
+					{#if inPopover && selectionMode}
+						{@render selectionBar()}
+					{:else}
+						<!-- Outside the listbox, so arrow keys move through sessions only. -->
+						<div class="mb-0.5" data-asks-for-composer>
+							<MenuButton
+								icon={Plus}
+								label="New session"
+								isCollapsed={isCollapsed && !inPopover}
+								item={menu?.item}
+								on:click={() => openNewSession()}
+							/>
+						</div>
+					{/if}
+					{@render sessionList(inPopover)}
+				{/snippet}
+			</SidebarSection>
+		{:else}
+			<!-- Where the list owns the pane, a title would only repeat what the pane is. -->
+			<div class="flex flex-row items-center gap-0.5 h-8 pr-0.5 justify-end">
+				{@render listOptions('md')}
+			</div>
+			{@render sessionList(false)}
+		{/if}
+	{/if}
+	<!-- In the rail the rows keep their height with their names hidden, so each sits where the
+		     open sidebar has it. -->
+	{#snippet sessionList(inPopover: boolean)}
+		{@const rail = isCollapsed && !inPopover}
+		<!-- Only the list selection mode was entered from: the folded section's menu, or the sidebar. -->
+		{@const selecting = selectionMode && inPopover === selectionInFlyout}
+		<div
+			bind:this={listRoot}
+			class={twMerge(
+				'flex flex-col gap-0.5',
+				// Shift-clicking rows would otherwise paint a text selection across them.
+				selecting ? 'select-none' : ''
+			)}
+			onkeydown={handleListKeydown}
+			data-sessions-selecting={selecting || undefined}
+			role="listbox"
+			tabindex="-1"
+		>
+			{#snippet vline()}
+				<span class="relative w-3.5 shrink-0 self-stretch">
+					<span class="absolute inset-y-0 left-1/2 w-px bg-surface-tertiary"></span>
+				</span>
+			{/snippet}
+			{#snippet sessionRow(session, indented, treeDepth)}
+				<!-- The rail has no room for tree guides, but keeps the grouped rows' indent so a row
+					     stays put when a hover widens the rail. -->
+				{@const depth = rail ? undefined : treeDepth}
+				{@const status = statusFor(session)}
+				{@const isSelected = session.id === activeRowId}
+				{@const isEditing = editingId === session.id}
+				{@const unread = unreadFor(session)}
+				{@const draft = hasDraft(session)}
+				{@const isChecked = selectedIds.includes(session.id)}
+				<div
+					class={twMerge(
+						'flex flex-row group rounded',
+						depth === undefined ? 'items-center' : 'items-stretch',
+						isSelected ? sidebarClasses.selectedBg : 'hover:bg-surface-hover',
+						session.archived ? 'opacity-60' : '',
+						// Grouped rows sit slightly in from their header; tree mode uses guide columns.
+						depth === undefined && indented ? 'pl-1' : ''
+					)}
+				>
+					{#if depth !== undefined}
+						{#each Array(depth) as _}{@render vline()}{/each}
+					{/if}
+					{#if selecting}
+						<!-- Takes over the status-dot slot exactly (pl-2 + 16px, the row button's
+							     own px-2 supplying the trailing gap), so entering selection mode
+							     doesn't shift a single row label sideways. -->
+						<span class="flex items-center pl-2">
+							<Checkbox
+								checked={isChecked}
+								onChange={() => {
+									toggleSelected(session.id, shiftHeldOnClick)
+									shiftHeldOnClick = false
+								}}
+								onClick={(e) => (shiftHeldOnClick = e.shiftKey)}
+								class="shrink-0 !w-4 !h-4 !p-0"
+								title={session.summary ?? 'Untitled session'}
+							/>
+						</span>
+					{/if}
+					{#if isEditing}
+						<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
+							{#if depth === undefined}
 								<SessionStatusDot
 									{status}
 									isFork={isForkFor(session)}
-									forkStatus={forkStatusFor(session)}
+									forkDetached={forkDetachedFor(session)}
 								/>
-								<!-- svelte-ignore a11y_autofocus -->
-								<input
-									type="text"
-									bind:value={renameDraft}
-									onkeydown={(e) => {
+							{/if}
+							<TextInput
+								bind:value={renameDraft}
+								size="xs"
+								unifiedHeight={false}
+								class="flex-1 min-w-0 !bg-transparent !border-0 !border-transparent !shadow-none focus:!ring-0 px-0 text-xs font-normal text-primary"
+								inputProps={{
+									type: 'text',
+									placeholder: 'Untitled session',
+									autofocus: true,
+									spellcheck: false,
+									onkeydown: (e) => {
 										if (e.key === 'Enter') commitRename()
 										else if (e.key === 'Escape') cancelRename()
-									}}
-									onblur={commitRename}
-									placeholder="Untitled session"
-									autofocus
-									spellcheck="false"
-									class="flex-1 min-w-0 bg-transparent border-0 outline-none text-xs font-normal text-primary"
-								/>
-							</span>
-						{:else}
-							<button
-								type="button"
-								data-session-button
-								role="option"
-								aria-selected={isSelected}
-								onclick={() => activate(session)}
-								class={twMerge(
-									'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
-									unread > 0 ? 'text-primary font-semibold' : 'text-secondary'
-								)}
-							>
+									},
+									onblur: commitRename
+								}}
+							/>
+						</span>
+					{:else}
+						<button
+							type="button"
+							data-session-button
+							role="option"
+							aria-selected={selecting ? isChecked : isSelected}
+							onclick={(e) => {
+								if (!selecting) return activate(session)
+								// Ticking a row in the folded section's menu must not close it as picking one does.
+								e.stopPropagation()
+								toggleSelected(session.id, e.shiftKey)
+							}}
+							title={rail ? (session.summary ?? 'Untitled session') : undefined}
+							class={twMerge(
+								'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 h-6',
+								isSelected ? sidebarClasses.selectedText : 'text-secondary'
+							)}
+						>
+							{#if depth === undefined && !selecting}
 								<SessionStatusDot
 									{status}
 									isFork={isForkFor(session)}
-									forkStatus={forkStatusFor(session)}
+									forkDetached={forkDetachedFor(session)}
 								/>
-								<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
-								{#if draft || unread > 0}
-									<span class="shrink-0 inline-flex items-center gap-1">
-										{#if draft}
-											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-										{/if}
-										{#if unread > 0}
-											<span
-												class="inline-flex items-center justify-center rounded-full bg-blue-500 text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
-												aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
-											>
-												{unread > 9 ? '9+' : unread}
-											</span>
-										{/if}
-									</span>
-								{/if}
-							</button>
-							<div
-								class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity pr-0.5"
+							{/if}
+							<span class={rail ? 'sr-only' : 'truncate flex-1'}
+								>{session.summary ?? 'Untitled session'}</span
 							>
-								<DropdownV2
-									fixedHeight={false}
-									placement="bottom-end"
-									items={[
-										{
-											displayName: 'Rename',
-											icon: Pencil,
-											action: () => startRename(session)
-										},
-										session.archived
-											? {
-													displayName: 'Unarchive',
-													icon: ArchiveRestore,
-													action: () => setSessionArchived(session.id, false)
-												}
-											: {
+							{#if !rail && (draft || unread > 0 || mySharedSessionIds.has(session.id))}
+								<span class="shrink-0 inline-flex items-center gap-1">
+									{#if mySharedSessionIds.has(session.id)}
+										<Link2 class="w-3 h-3 text-tertiary" aria-label="Shared by link" />
+									{/if}
+									{#if draft}
+										<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
+									{/if}
+									<UnreadCountBadge count={unread} class="min-w-4 h-4 text-[10px]" />
+								</span>
+							{/if}
+						</button>
+						<!-- Hidden rather than dropped while selecting: removing it would widen
+							     every label and re-truncate the list. -->
+						<div
+							class={twMerge(
+								'transition-opacity pr-0.5',
+								rail
+									? 'hidden'
+									: selecting
+										? 'invisible pointer-events-none'
+										: 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+							)}
+						>
+							<DropdownV2
+								fixedHeight={false}
+								placement="bottom-end"
+								enableFlyTransition
+								items={[
+									{
+										displayName: 'Rename',
+										icon: Pencil,
+										action: () => startRename(session)
+									},
+									...(session.archived
+										? // No Unarchive when the workspace is gone — it can't persist
+											// (putSession guard) and reconcile would re-archive it.
+											isUnavailableFork(session)
+											? []
+											: [
+													{
+														displayName: 'Unarchive',
+														icon: ArchiveRestore,
+														action: () => setSessionArchived(session.id, false)
+													}
+												]
+										: [
+												{
 													displayName: 'Archive',
 													icon: Archive,
-													action: () => setSessionArchived(session.id, true)
-												},
-										{
-											displayName: 'Delete',
-											icon: Trash2,
-											type: 'delete',
-											action: () => (pendingDelete = session)
-										}
-									]}
+													action: () => {
+														setSessionArchived(session.id, true)
+														leaveArchivedHomeDraft([session.id])
+													}
+												}
+											]),
+									{
+										displayName: 'Delete',
+										icon: Trash2,
+										type: 'delete',
+										action: () => (pendingDelete = session)
+									}
+								]}
+							>
+								{#snippet buttonReplacement()}
+									<span
+										class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+										title="More"
+									>
+										<EllipsisVertical size={14} />
+									</span>
+								{/snippet}
+							</DropdownV2>
+						</div>
+					{/if}
+				</div>
+			{/snippet}
+			{#if workspaceTree}
+				{#each workspaceTreeItems as item, wi (item.workspace.id)}
+					{#if !hiddenWorkspaceIds.has(item.workspace.id)}
+						{@const wsSessions = sessionsByWorkspace.get(item.workspace.id) ?? []}
+						{@const collapsed = isWorkspaceCollapsed(item.workspace.id)}
+						{@const collapsible = item.hasChildren || wsSessions.length > 0}
+						<!-- Workspace = folder. Stroke-colored building/fork glyph; the guide
+							     columns render the workspace tree (fork nesting). A chevron
+							     collapses the workspace (hides its sessions + fork subtree). -->
+						<div
+							class={twMerge(
+								'flex items-stretch w-full rounded',
+								wi > 0 && item.depth === 0 ? 'mt-3' : '',
+								browsedWorkspaceId === item.workspace.id
+									? sidebarClasses.selectedBg
+									: 'hover:bg-surface-hover'
+							)}
+						>
+							{#each Array(item.depth) as _}{@render vline()}{/each}
+							<button
+								type="button"
+								onclick={() => onBrowseWorkspace?.(item.workspace.id)}
+								title={item.workspace.name}
+								class="flex items-center gap-1.5 py-1 pl-1 pr-2 min-w-0 flex-1 text-left"
+							>
+								{#if item.isForked}
+									<GitFork size={14} class="shrink-0" style="color: {item.workspace.color}" />
+								{:else}
+									<Building size={14} class="shrink-0" style="color: {item.workspace.color}" />
+								{/if}
+								<span
+									class={twMerge(
+										'text-xs truncate font-normal',
+										browsedWorkspaceId === item.workspace.id
+											? 'text-emphasis font-medium'
+											: 'text-primary'
+									)}>{item.workspace.name}</span
 								>
-									{#snippet buttonReplacement()}
-										<span
-											class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-											title="More"
-										>
-											<EllipsisVertical size={14} />
-										</span>
-									{/snippet}
-								</DropdownV2>
-							</div>
+							</button>
+							{#if collapsible}
+								<button
+									type="button"
+									onclick={() => toggleWorkspaceCollapsed(item.workspace.id)}
+									title={collapsed ? 'Expand' : 'Collapse'}
+									aria-label={collapsed ? 'Expand workspace' : 'Collapse workspace'}
+									class="shrink-0 flex items-center justify-center w-6 text-tertiary hover:text-primary"
+								>
+									{#if collapsed}
+										<ChevronRight size={12} />
+									{:else}
+										<ChevronDown size={12} />
+									{/if}
+								</button>
+							{/if}
+						</div>
+						{#if !collapsed}
+							{#each wsSessions as session (session.id)}
+								{@render sessionRow(session, true, item.depth + 1)}
+							{/each}
 						{/if}
+					{/if}
+				{/each}
+			{:else}
+				{#each displayGroups as group, groupIdx (group.key)}
+					{#if group.showHeader}
+						{@const groupWsId = group.workspaceId}
+						{@const groupWs = groupWsId
+							? $userWorkspaces.find((w) => w.id === groupWsId)
+							: undefined}
+						<!-- A group header is the section title for the rows under it:
+							     plain text, no workspace icon or chip. -->
+						<div
+							class={twMerge(
+								'group flex flex-row items-center gap-1 pl-2 pr-0.5 pt-2 pb-1 min-w-0',
+								// Space groups apart so their boundaries read clearly.
+								groupIdx > 0 ? 'mt-4' : '',
+								// The rail keeps the header's height, not its words.
+								rail ? 'invisible' : ''
+							)}
+							title={group.label}
+						>
+							<span class="text-secondary text-3xs truncate min-w-0">
+								{group.label}
+							</span>
+							{#if groupWs?.is_dev_workspace}
+								<DevWorkspaceBadge
+									label={groupWs.dev_workspace_label}
+									color={groupWs.color}
+									fallbackColor="gray"
+									class="text-3xs px-1 py-0 shrink-0"
+								/>
+							{/if}
+							{#if groupWsId}
+								<Button
+									unifiedSize="xs"
+									variant="subtle"
+									iconOnly
+									startIcon={{ icon: Plus }}
+									on:click={() => createAndOpenIn(groupWsId)}
+									title="New session in {group.label}"
+									aria-label="New session in {group.label}"
+									data-asks-for-composer
+									wrapperClasses="ml-auto shrink-0"
+									btnClasses="text-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+								/>
+							{/if}
+						</div>
+					{/if}
+					{#each group.sessions as session (session.id)}
+						{@render sessionRow(session, group.showHeader, undefined)}
+					{/each}
+				{/each}
+			{/if}
+		</div>
+		{#if !sessionState.hydrated}
+			<!-- Bars sized and spaced like session rows (h-6, gap-0.5), so rows replace them
+			     without a shift. The rail shows no names, so its bars don't vary like text. -->
+			{@const w = rail ? [100, 100, 100] : [75, 55, 65]}
+			<Skeleton
+				class="px-2 pt-1.5"
+				layout={[
+					[{ h: 0.75, w: w[0] }],
+					0.875,
+					[{ h: 0.75, w: w[1] }],
+					0.875,
+					[{ h: 0.75, w: w[2] }]
+				]}
+			/>
+		{/if}
+		<!-- Outside the listbox, so arrow keys move through sessions only. -->
+		{#if olderIds.size > 0}
+			<SidebarShowOlder
+				count={olderIds.size}
+				expanded={showOlder.val}
+				onToggle={() => (showOlder.val = !showOlder.val)}
+				{rail}
+			/>
+		{/if}
+		<!-- After "Show older", which belongs to the reader's own sessions above. -->
+		{#if !workspaceTree && sharedWithMe.length > 0 && !selecting}
+			<div
+				bind:this={sharedRoot}
+				class="flex flex-col gap-0.5"
+				onkeydown={handleListKeydown}
+				role="listbox"
+				aria-label="Shared with you"
+				tabindex="-1"
+			>
+				<div
+					class={twMerge(
+						'flex flex-row items-center pl-2 pr-0.5 pt-2 pb-1 min-w-0',
+						displayGroups.length > 0 ? 'mt-4' : '',
+						rail ? 'invisible' : ''
+					)}
+				>
+					<span class="text-secondary text-3xs truncate min-w-0">Shared with you</span>
+				</div>
+				{#each sharedWithMe as shared (shared.id)}
+					{@const isActive = shared.id === activeSharedId}
+					<div
+						class={twMerge(
+							'flex flex-row items-center group rounded min-w-0',
+							isActive ? sidebarClasses.selectedBg : 'hover:bg-surface-hover'
+						)}
+					>
+						<a
+							href={sharedSessionAppHref(sharedWorkspace, shared.id)}
+							data-session-button
+							role="option"
+							aria-selected={isActive}
+							title={rail ? shared.name : `Shared by ${shared.created_by}`}
+							class={twMerge(
+								'flex flex-1 flex-row items-center gap-2 rounded text-left text-xs font-normal focus:outline-none min-w-0 px-2 h-6',
+								isActive ? sidebarClasses.selectedText : 'text-secondary',
+								displayGroups.some((g) => g.showHeader) ? 'pl-3' : ''
+							)}
+						>
+							<Share2 class="w-3 h-3 shrink-0 text-tertiary" aria-hidden="true" />
+							<span class={rail ? 'sr-only' : 'truncate flex-1'}>{shared.name}</span>
+							{#if !rail}
+								<span
+									class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold text-white {userColorClass(
+										shared.created_by
+									)}"
+									aria-hidden="true"
+								>
+									{userInitials(shared.created_by)}
+								</span>
+							{/if}
+						</a>
+						<div
+							class={twMerge(
+								'transition-opacity pr-0.5',
+								rail ? 'hidden' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+							)}
+						>
+							<DropdownV2
+								fixedHeight={false}
+								placement="bottom-end"
+								enableFlyTransition
+								items={[
+									{
+										displayName: 'Copy link',
+										icon: Link2,
+										action: () => void copyToClipboard(sharedSessionUrl(sharedWorkspace, shared.id))
+									},
+									{
+										displayName: 'Remove from my list',
+										icon: X,
+										action: () => void forgetShared(shared)
+									},
+									// The server decides; offering it only to admins keeps it off the
+									// menu of a reader it would refuse.
+									...($userStore?.is_admin || $superadmin
+										? [
+												{
+													displayName: 'Stop sharing',
+													icon: Link2Off,
+													type: 'delete' as const,
+													action: () => (pendingUnshare = shared)
+												}
+											]
+										: [])
+								]}
+							>
+								{#snippet buttonReplacement()}
+									<span
+										class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+										title="More"
+									>
+										<EllipsisVertical size={14} />
+									</span>
+								{/snippet}
+							</DropdownV2>
+						</div>
 					</div>
 				{/each}
 			</div>
 		{/if}
-	</div>
-{/if}
+		{#if selecting}
+			<!-- Pinned to the bottom edge of whatever scrolls the list, the sidebar or the folded
+				     section's menu, while the rows scroll under it; z-10 keeps it above the sidebar's
+				     bottom fade. One row, so it covers as few of them as it can. -->
+			<div
+				class={twMerge(
+					'sticky bottom-0 z-10 flex flex-row items-center gap-1 px-1 pt-1.5 pb-2',
+					inPopover ? 'bg-surface' : 'bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)]'
+				)}
+			>
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					iconOnly
+					disabled={selectedIds.length === 0}
+					startIcon={{ icon: allSelectedArchived ? ArchiveRestore : Archive }}
+					title={allSelectedArchived ? 'Unarchive selected' : 'Archive selected'}
+					aria-label={allSelectedArchived ? 'Unarchive selected' : 'Archive selected'}
+					onClick={handleBatchArchive}
+				/>
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					destructive
+					iconOnly
+					disabled={selectedIds.length === 0}
+					startIcon={{ icon: Trash2 }}
+					title="Delete selected"
+					aria-label="Delete selected"
+					onClick={() => (batchDeleteOpen = true)}
+				/>
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					wrapperClasses="flex-1"
+					btnClasses="w-full"
+					onClick={exitSelectionMode}
+				>
+					Done
+				</Button>
+			</div>
+		{/if}
+	{/snippet}
+</div>
+
+<!-- Selection holds the sidebar open (see the layout), so Esc, which closes it, ends selection too. -->
+<!-- An Esc that closes an overlay (Search) or a menu is theirs: the overlay is read now, as it
+     is off the stack once its own listener has run, and the rest once every listener has. -->
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key !== 'Escape' || !selectionMode || batchDeleteOpen) return
+		if (viewportOverlays.val.length > 0) return
+		setTimeout(() => {
+			if (e.defaultPrevented || document.querySelector('[role="menu"]:not([hidden])')) return
+			exitSelectionMode()
+		})
+	}}
+/>
 
 <ConfirmationModal
 	open={!!pendingDelete}
@@ -603,13 +1485,13 @@
 	onConfirmed={handleConfirmedDelete}
 	onCanceled={() => {
 		pendingDelete = undefined
-		deleteAlsoFork = true
+		deleteAlsoFork = false
 	}}
 >
 	<div class="flex flex-col gap-3">
 		<p>
 			Delete session <span class="font-medium text-primary"
-				>{pendingDelete?.summary ?? pendingDelete?.name}</span
+				>{pendingDelete?.summary ?? 'Untitled session'}</span
 			>? This cannot be undone.
 		</p>
 		{#if pendingDeleteForkId}
@@ -627,3 +1509,65 @@
 		{/if}
 	</div>
 </ConfirmationModal>
+
+<ConfirmationModal
+	open={!!pendingUnshare}
+	title="Stop sharing"
+	confirmationText="Stop sharing"
+	onConfirmed={confirmUnshare}
+	onCanceled={() => (pendingUnshare = undefined)}
+>
+	<p>
+		Take down <span class="font-medium text-primary">{pendingUnshare?.name}</span>, shared by
+		{pendingUnshare?.created_by}? The link stops opening for everyone, and only its author can share
+		it again.
+	</p>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={batchDeleteOpen}
+	title="Delete sessions"
+	confirmationText="Delete"
+	onConfirmed={handleConfirmedBatchDelete}
+	onCanceled={() => {
+		batchDeleteOpen = false
+		// The confirmation closed the folded section's menu the selection was made in.
+		if (selectionInFlyout) exitSelectionMode()
+	}}
+>
+	<div class="flex flex-col gap-3">
+		<p>
+			Delete <span class="font-medium text-primary"
+				>{selectedIds.length} session{selectedIds.length === 1 ? '' : 's'}</span
+			>? This cannot be undone.
+		</p>
+		{#if selectedForkCount > 0}
+			<p class="text-xs text-tertiary">
+				{selectedForkCount} of them {selectedForkCount === 1 ? 'has a' : 'have'} forked workspace{selectedForkCount ===
+				1
+					? ''
+					: 's'}, which {selectedForkCount === 1 ? 'is' : 'are'} kept. Delete a session on its own to
+				drop its fork too.
+			</p>
+		{/if}
+	</div>
+</ConfirmationModal>
+
+<!-- The submenu collapses to one row, so the picked cutoff would otherwise only be visible after
+     opening it. -->
+{#snippet lastActivityHint()}
+	<span class="text-2xs text-tertiary whitespace-nowrap">
+		{LAST_ACTIVITY_OPTIONS.find((o) => o.days === lastActivityDays.val)?.hint ?? ''}
+	</span>
+{/snippet}
+{#snippet sharedFilterHint()}
+	<span class="text-2xs text-tertiary">
+		{SHARED_SESSIONS_FILTER_OPTIONS.find((o) => o.value === sharedFilter.val)?.hint ?? ''}
+	</span>
+{/snippet}
+
+{#snippet groupByHint()}
+	<span class="text-2xs text-tertiary whitespace-nowrap">
+		{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
+	</span>
+{/snippet}

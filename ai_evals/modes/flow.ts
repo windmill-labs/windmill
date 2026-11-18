@@ -61,6 +61,7 @@ export function createFlowModeRunner(
         toolCallDetails: result.toolCallDetails,
         skillsInvoked: [],
         tokenUsage: result.tokenUsage,
+        finalContextTokens: result.finalContextTokens,
       };
     },
     validate({ evalCase, actual, initial, expected }) {

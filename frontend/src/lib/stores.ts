@@ -1,10 +1,11 @@
 import { BROWSER } from 'esm-env'
-import { derived, type Readable, writable } from 'svelte/store'
+import { derived, get, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
 	CancelablePromise,
 	type OperatorSettings,
+	type RoleCapabilities,
 	type TokenResponse,
 	type UserWorkspaceList,
 	type Workspace,
@@ -12,11 +13,17 @@ import {
 	WorkspaceService
 } from './gen'
 import { getLocalSetting, type StateStore } from './utils'
+import { capabilitiesIn } from './roleCapabilities'
 import { createState } from './svelte5Utils.svelte'
 import { DEFAULT_HUB_BASE_URL } from './hub'
 import type { DbManagerUriState } from './components/dbManagerDrawerModel.svelte'
 
 export interface UserExt {
+	// Workspace this membership was fetched for. `$workspaceStore` flips
+	// synchronously on a switch while the new `whoami` is still in flight, so a
+	// consumer whose behavior depends on the role must compare this against the
+	// active workspace rather than read a role that still describes the previous one.
+	workspace_id: string
 	email: string
 	name?: string
 	username: string
@@ -27,9 +34,12 @@ export interface UserExt {
 	groups: string[]
 	pgroups: string[]
 	folders: string[]
+	folders_read: string[]
 	folders_owners: string[]
 	is_service_account?: boolean
 	impersonating_email?: string
+	// true when the user is a superadmin viewing a workspace they are not a member of
+	non_member?: boolean
 }
 
 export interface UserWorkspace {
@@ -38,7 +48,13 @@ export interface UserWorkspace {
 	username: string
 	color?: string
 	operator_settings?: OperatorSettings
+	/** Absent from a server that predates roles; read it through `capabilitiesIn`. */
+	role?: string
+	capabilities?: RoleCapabilities
 	parent_workspace_id?: string | null
+	is_dev_workspace?: boolean
+	dev_workspace_label?: string | null
+	created_by?: string | null
 	disabled: boolean
 }
 
@@ -57,8 +73,6 @@ export function clearWorkspaceFromStorage() {
 	sessionStorage.removeItem('workspace')
 }
 
-export const tutorialsToDo = writable<number[]>([])
-export const skippedAll = writable<boolean>(false)
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
@@ -69,8 +83,10 @@ export const whitelabelNameStore = derived([enterpriseLicense], ([enterpriseLice
 	return undefined
 })
 export const workerTags = writable<string[] | undefined>(undefined)
-export const usageStore = writable<number>(0)
-export const workspaceUsageStore = writable<number>(0)
+// `undefined` while unresolved. `0` is a real usage value, so a placeholder that
+// reads as one lets a failed or in-flight fetch render as "no executions used".
+export const usageStore = writable<number | undefined>(undefined)
+export const workspaceUsageStore = writable<number | undefined>(undefined)
 export const initialArgsStore = writable<any>(undefined)
 export const oauthStore = writable<TokenResponse | undefined>(undefined)
 export const userStore = writable<UserExt | undefined>(undefined)
@@ -79,34 +95,117 @@ export const workspaceStore = writable<string | undefined>(
 )
 export const defaultScripts = writable<WorkspaceDefaultScripts | undefined>(undefined)
 export const dbClockDrift = writable<number | undefined>(undefined)
-export const isPremiumStore = writable<boolean>(false)
+// `undefined` until the active workspace's tier is known — a tier belongs to a
+// workspace, so consumers rendering a number from it must not read the previous
+// one's value across a switch. `false` is a claim, not a safe default: it meters a
+// paid workspace against the free cap, so a failed fetch leaves this `undefined`.
+export const isPremiumStore = writable<boolean | undefined>(undefined)
+// Set when the tier fetch for the active workspace failed, which is indistinguishable
+// from "still pending" in `isPremiumStore` alone.
+export const premiumFetchFailed = writable<boolean>(false)
+// For affordances rather than numbers: gate on this so a paid→paid switch doesn't
+// retract a button for the length of the fetch, while a failed fetch still fails
+// closed instead of leaving it enabled for the session.
+export const maybePremium: Readable<boolean> = derived(
+	[isPremiumStore, premiumFetchFailed],
+	([premium, failed]) => premium !== false && !failed
+)
+// Bumped when the active workspace's membership is seen to have changed, so anything
+// deriving a number from the member count (paid seats) can re-resolve it without
+// polling or owning its own invalidation.
+export const workspaceMembershipVersion = writable<number>(0)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
+// Stands in for `UserWorkspace.username` on entries with no `usr` row behind them. It
+// names nobody, so anything that would address a user by it (a `u/<username>/...` path)
+// must treat it as "no username here" rather than render it.
+export const NON_MEMBER_USERNAME = 'superadmin'
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
+// Whether the store above is the instance's answer or still the default it was seeded with.
+// It reads as the public hub either way, which is fine for a link and wrong for anything
+// deciding what may be reported about a hub — those must treat unknown as private.
+export const hubBaseUrlKnown = writable<boolean>(false)
 export const wsBaseUrlStore = writable<string | undefined>(undefined)
 export const disableHubStore = writable<boolean>(false)
-export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
-	[usersWorkspaceStore, superadmin],
-	([store, superadmin]) => {
-		const originalWorkspaces = store?.workspaces ?? []
-		if (superadmin) {
-			return [
-				...originalWorkspaces.filter((x) => x.id != 'admins'),
-				{
-					id: 'admins',
-					name: 'Admins',
-					username: 'superadmin',
-					color: undefined,
-					operator_settings: undefined,
-					disabled: false
-				}
-			]
-		} else {
-			return originalWorkspaces
-		}
+// What a superadmin standing in a workspace they are not a member of needs to see it as a
+// fork: the workspace itself and its parent. `listUserWorkspaces` is membership-gated, so
+// `$userWorkspaces` would miss them and every fork lookup would read the workspace as a
+// parentless root. Owned by exactly one workspace (`forWorkspace`) — held past a switch,
+// these would go on presenting themselves as memberships (picker, workspace-family lookups).
+export const nonMemberWorkspaces = writable<
+	{ forWorkspace: string; workspaces: UserWorkspace[] } | undefined
+>(undefined)
+
+/**
+ * Records what was resolved for `forWorkspace`, dropping archived workspaces —
+ * `userWorkspaces` must never offer one. An archived workspace therefore resolves to an
+ * empty set, which still marks it as resolved and stops it being fetched again.
+ */
+export function setNonMemberWorkspaces(forWorkspace: string, workspaces: Workspace[]): void {
+	nonMemberWorkspaces.set({
+		forWorkspace,
+		workspaces: workspaces
+			.filter((w) => !w.deleted)
+			.map((w) => ({
+				id: w.id,
+				name: w.name,
+				// No `usr` row here, hence no per-workspace username — same stand-in as the
+				// synthetic `admins` entry below.
+				username: NON_MEMBER_USERNAME,
+				color: w.color,
+				parent_workspace_id: w.parent_workspace_id,
+				is_dev_workspace: w.is_dev_workspace,
+				dev_workspace_label: w.dev_workspace_label,
+				disabled: false
+			}))
+	})
+}
+
+export function clearNonMemberWorkspaces(): void {
+	// A Svelte store notifies on every write of an object value, so clearing an already
+	// empty store is not free: the layout effect that fills this one also reads it, and
+	// would re-run itself forever.
+	if (get(nonMemberWorkspaces) != undefined) {
+		nonMemberWorkspaces.set(undefined)
 	}
+}
+
+export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
+	[usersWorkspaceStore, superadmin, nonMemberWorkspaces],
+	([store, superadmin, nonMember]) => {
+		const originalWorkspaces = store?.workspaces ?? []
+		const workspaces = superadmin
+			? [
+					...originalWorkspaces.filter((x) => x.id != 'admins'),
+					{
+						id: 'admins',
+						name: 'Admins',
+						username: NON_MEMBER_USERNAME,
+						color: undefined,
+						operator_settings: undefined,
+						disabled: false
+					}
+				]
+			: originalWorkspaces
+		const extra = (nonMember?.workspaces ?? []).filter(
+			(w) => !workspaces.some((x) => x.id === w.id)
+		)
+		return extra.length > 0 ? [...workspaces, ...extra] : workspaces
+	}
+)
+
+/** The user's role capabilities in the navigation workspace. A component acting on another
+ * workspace (an AI session) reads `useRoleCapabilities` instead. */
+export const roleCapabilities: Readable<RoleCapabilities> = derived(
+	[userStore, userWorkspaces, workspaceStore],
+	([user, workspaces, workspace]) =>
+		capabilitiesIn(
+			// Mid-switch `user` still describes the workspace being left: only superadmin carries over.
+			user?.workspace_id === workspace ? user : { is_super_admin: user?.is_super_admin },
+			workspaces.find((w) => w.id === workspace)
+		)
 )
 
 export const codeCompletionLoading = writable<boolean>(false)
@@ -130,9 +229,25 @@ export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
 
+export const AI_USER_DISABLED_SETTING_NAME = 'aiUserDisabled'
+// Master per-user (per-device) opt-out for all Windmill AI features. Initialized at
+// module load so it applies on startup, not only once the settings panel mounts.
+export const aiUserDisabled = writable<boolean>(
+	getLocalSetting(AI_USER_DISABLED_SETTING_NAME) === 'true'
+)
+
 export const usedTriggerKinds = writable<string[]>([])
 
 export let globalDbManagerDrawer: StateStore<DbManagerUriState | undefined> = { val: undefined }
+/** Read-only S3 file browser (S3FilePicker instance) mounted in the logged
+ * layout, used by Explore buttons in contexts that don't wire their own picker
+ * instance. Typed loosely because the component instance type resolves
+ * differently in .ts and .svelte contexts. */
+export let globalS3FilePickerExplorer: StateStore<
+	{ open: (fileKey?: any, opts?: { s3ResourcePath?: string }) => Promise<void> } | undefined
+> = createState({
+	val: undefined
+})
 export let globalForkModal: StateStore<GlobalForkModalState | undefined> = createState({
 	val: undefined
 })
@@ -144,7 +259,7 @@ export type GlobalForkModalState = {
 export type ForkConflictModalState = {
 	kind: string
 	kindLabel: string
-	parentWorkspaceId: string
+	upstreamWorkspaceId: string
 	resolve: (proceed: boolean) => void
 }
 
@@ -178,6 +293,10 @@ export interface SQLSchema {
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string
+	/** MySQL only: the connection's default database (`DATABASE()`), surfaced by the
+	 * introspection script. Lets the table picker render the default db's tables
+	 * unprefixed even when the connection can also see other (non-system) schemas. */
+	defaultDb?: string
 }
 
 export interface GraphqlSchema {
@@ -232,8 +351,6 @@ export const workspaceColor: Readable<string | null | undefined> = derived(
 			})
 	}
 )
-
-export const isCurrentlyInTutorial: StateStore<boolean> = createState({ val: false })
 
 export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
 	const schema = dbSchema?.schema ?? {}

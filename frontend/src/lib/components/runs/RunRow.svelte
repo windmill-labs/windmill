@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
 	import {
@@ -22,31 +21,34 @@
 	import { forLater } from '$lib/forLater'
 	import { twMerge } from 'tailwind-merge'
 	import Portal from '$lib/components/Portal.svelte'
+	import { useHostedPage } from '../hostedPage'
 
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { Tooltip } from '../meltComponents'
 	import RunLabels from './RunLabels.svelte'
-	import './runs-grid.css'
+	import type { RunsColumnId } from './runsColumns'
+	import { triggerDisplayNamesMap } from '../triggers/utils'
 
 	const dispatch = createEventDispatcher()
+	const hosted = useHostedPage()
 
 	interface Props {
 		job: Job
 		selected?: boolean
 		containerWidth?: number
-		containsLabel?: boolean
-		showTag?: boolean
+		columns: RunsColumnId[]
+		gridTemplateColumns: string
 		activeLabel: string | null
-		manualSelectionMode?: undefined | 'cancel' | 'rerun'
+		manualSelectionMode?: undefined | 'cancel' | 'rerun' | 'resolve'
 	}
 
 	let {
 		job,
 		selected = false,
 		containerWidth = 0,
-		containsLabel = false,
-		showTag = true,
+		columns,
+		gridTemplateColumns,
 		activeLabel,
 		manualSelectionMode
 	}: Props = $props()
@@ -58,10 +60,15 @@
 	let labelWidth = $state(0)
 
 	let isJobRecent = $state(true)
+
+	let shown = $derived(new Set(columns))
 </script>
 
 <Portal name="run-row">
-	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
+	<ScheduleEditor
+		onUpdate={() => (hosted ? hosted.openLink('/schedules') : goto('/schedules'))}
+		bind:this={scheduleEditor}
+	/>
 </Portal>
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -69,19 +76,10 @@
 	class={twMerge(
 		'cursor-pointer',
 		selected ? 'bg-surface-accent-selected' : 'hover:bg-surface-hover',
-		'grid items-center h-full'
+		'grid items-center h-full',
+		'success' in job && job.resolved && 'opacity-60'
 	)}
-	class:grid-runs-table={!containsLabel && !manualSelectionMode && showTag}
-	class:grid-runs-table-with-labels={containsLabel && !manualSelectionMode && showTag}
-	class:grid-runs-table-selection={!containsLabel && manualSelectionMode && showTag}
-	class:grid-runs-table-with-labels-selection={containsLabel && manualSelectionMode && showTag}
-	class:grid-runs-table-no-tag={!containsLabel && !manualSelectionMode && !showTag}
-	class:grid-runs-table-with-labels-no-tag={containsLabel && !manualSelectionMode && !showTag}
-	class:grid-runs-table-selection-no-tag={!containsLabel && manualSelectionMode && !showTag}
-	class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
-		manualSelectionMode &&
-		!showTag}
-	style="width: {containerWidth}px"
+	style="width: {containerWidth}px; grid-template-columns: {gridTemplateColumns}"
 	onclick={() => dispatch('select')}
 	oncontextmenu={(e) => !selected && dispatch('select')}
 >
@@ -97,7 +95,7 @@
 		<JobStatusIcon {job} {isExternal} />
 	</div>
 
-	<!-- Job time -->
+	{#if shown.has('started')}
 	<div class="overflow-hidden min-w-0">
 		<div class="flex flex-row items-center gap-1 text-secondary text-2xs">
 			{#if job}
@@ -126,14 +124,17 @@
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Waiting executor (<TimeAgo agoOnlyIfRecent date={job.scheduled_for || ''} />)
+				{:else if 'running' in job && job.running && job.suspend}
+					Suspended (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{:else}
 					Waiting executor (<TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}
 			{/if}
 		</div>
 	</div>
+	{/if}
 
-	<!-- Job duration-->
+	{#if shown.has('duration')}
 	<div class="text-2xs font-normal text-primary pr-2">
 		{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 			{msToReadableTime(job.duration_ms, 2)}
@@ -141,8 +142,9 @@
 			-
 		{/if}
 	</div>
+	{/if}
 
-	<!-- Job path-->
+	{#if shown.has('path')}
 	<div class="flex justify-start flex-col pr-4">
 		{#if job === undefined}
 			No job found
@@ -163,12 +165,12 @@
 							{/if}
 							{#if job && job.is_flow_step && job.parent_job}
 								<br /> Step of flow
-								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+								<a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 									{truncateRev(job.parent_job, 10)}
 								</a>
 							{:else if job && job.parent_job}
 								<br /> Parent
-								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+								<a href={`/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 									{truncateRev(job.parent_job, 10)}
 								</a>
 							{/if}
@@ -232,8 +234,8 @@
 			</div>
 		{/if}
 	</div>
-	<!-- Labels-->
-	{#if containsLabel}
+	{/if}
+	{#if shown.has('labels')}
 		<div class="flex justify-start overflow-hidden" bind:clientWidth={labelWidth}>
 			<RunLabels
 				{job}
@@ -243,7 +245,7 @@
 			/>
 		</div>
 	{/if}
-	<!-- Author and schedule-->
+	{#if shown.has('triggered_by')}
 	<div class="flex justify-start pr-4 text-primary">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1 w-full -ml-2">
@@ -305,11 +307,93 @@
 		{/if}
 	</div>
 
-	<!-- Job tag-->
-	{#if showTag}
-		<div class="flex justify-start gap-1">
+	{/if}
+
+	{#if shown.has('trigger_kind')}
+		<div class="flex flex-row gap-1 items-center min-w-0 pr-2">
+			{#if job.trigger_kind}
+				<span class="text-xs text-primary font-normal truncate">
+					{triggerDisplayNamesMap[job.trigger_kind] ?? job.trigger_kind}
+				</span>
+				{#if !isExternal}
+					<DropdownV2
+						items={[
+							{
+								displayName: `Filter by trigger kind: ${triggerDisplayNamesMap[job.trigger_kind] ?? job.trigger_kind}`,
+								action: () => dispatch('filterByTriggerKind', job.trigger_kind)
+							}
+						]}
+						class="w-fit"
+					>
+						{#snippet buttonReplacement()}
+							{@render filterButton()}
+						{/snippet}
+					</DropdownV2>
+				{/if}
+			{/if}
+		</div>
+	{/if}
+
+	{#if shown.has('trigger_path')}
+		<div class="min-w-0 pr-2">
+			{#if job.trigger_path}
+				<div
+					class="text-xs text-primary font-normal truncate text-left"
+					dir="rtl"
+					title={job.trigger_path}
+				>
+					{job.trigger_path}
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	{#if shown.has('run_as')}
+		<div class="min-w-0 pr-2">
+			<div
+				class="text-xs text-primary font-normal truncate text-left"
+				title={job.email ?? job.permissioned_as}
+			>
+				{job.permissioned_as}
+			</div>
+		</div>
+	{/if}
+
+	{#if shown.has('tag')}
+		<div class="flex justify-start gap-1 min-w-0">
 			{#if job.tag}
 				<span class="text-xs text-primary font-normal truncate" title={job.tag}>{job.tag}</span>
+			{/if}
+		</div>
+	{/if}
+
+	{#if shown.has('worker')}
+		<div class="flex flex-row gap-1 items-center min-w-0 pr-2">
+			{#if job.worker}
+				<span class="text-xs text-primary font-normal truncate" title={job.worker}>
+					{job.worker}
+				</span>
+				<DropdownV2
+					items={[
+						{
+							displayName: `Filter by worker: ${job.worker}`,
+							action: () => dispatch('filterByWorker', job.worker)
+						}
+					]}
+					class="w-fit"
+				>
+					{#snippet buttonReplacement()}
+						{@render filterButton()}
+					{/snippet}
+				</DropdownV2>
+			{/if}
+		</div>
+	{/if}
+
+	{#if shown.has('id')}
+		<div class="min-w-0 pr-2">
+			{#if !isExternal}
+				<span class="text-xs text-secondary font-mono truncate block" title={job.id}>{job.id}</span>
 			{/if}
 		</div>
 	{/if}
@@ -319,7 +403,7 @@
 		<div class="flex justify-end pr-2">
 			<a
 				target="_blank"
-				href="{base}/run/{job.id}?workspace={job.workspace_id}"
+				href="/run/{job.id}?workspace={job.workspace_id}"
 				class={twMerge(
 					'text-right float-right  px-2',
 					selected ? 'text-accent' : 'text-secondary hover:text-accent'

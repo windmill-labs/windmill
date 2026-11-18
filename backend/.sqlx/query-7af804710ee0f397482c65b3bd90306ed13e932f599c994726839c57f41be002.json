@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH ping AS (\n                UPDATE v2_job_runtime SET ping = null WHERE id = $2\n            ), place AS (\n                UPDATE concurrency_key ck\n                SET original_scheduled_for = q.scheduled_for,\n                    place = COALESCE(ck.place, q.scheduled_for),\n                    tag = COALESCE(ck.tag, q.tag),\n                    priority = COALESCE(ck.priority, q.priority, -32768)\n                FROM v2_job_queue q\n                WHERE ck.job_id = $2 AND q.id = $2 AND ck.original_scheduled_for IS NULL\n            )\n            UPDATE v2_job_queue SET\n                running = false,\n                started_at = null,\n                scheduled_for = $1\n            WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7af804710ee0f397482c65b3bd90306ed13e932f599c994726839c57f41be002"
+}

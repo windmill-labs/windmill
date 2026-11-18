@@ -1,11 +1,14 @@
 import {
 	ScriptService,
+	ResourceService,
 	type MainArgSignature,
 	FlowService,
 	type Script,
 	type AssetUsageAccessType
 } from '$lib/gen'
 import { get, writable } from 'svelte/store'
+import type { PathRunType } from './components/apps/inputType.js'
+import { agentRunnableSchema } from './components/raw_apps/agentRunnable.js'
 import type { Schema, SupportedLanguage } from './common.js'
 import {
 	type DynamicInput,
@@ -44,6 +47,14 @@ import initYamlParser, {
 	parse_ansible,
 	parse_ansible_delegate
 } from 'windmill-parser-wasm-yaml'
+// `parse_dbt` is newer than the published `windmill-parser-wasm-yaml`, and a
+// NAMED import of an export a package does not have is a link-time failure —
+// which takes this whole module down, and with it every language's inference.
+// Reached through the namespace instead, so a package predating it degrades to
+// "no schema inferred for dbt" (the deployed script's own, derived server-side
+// by `dbt_arg_schema`, is unaffected).
+import * as yamlParser from 'windmill-parser-wasm-yaml'
+const parse_dbt: ((code: string) => string) | undefined = (yamlParser as any).parse_dbt
 import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
 import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
@@ -68,6 +79,7 @@ import wasmUrlWac from 'windmill-parser-wasm-wac/windmill_parser_wasm_bg.wasm?ur
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
+import { type ColumnLineage } from './components/assets/AssetGraph/parsePipelineAnnotations'
 
 const loadSchemaLastRun = writable<
 	| [
@@ -169,6 +181,10 @@ type InferAssetsResult =
 			assets: AssetWithAccessType[]
 			sql_queries?: InferAssetsSqlQueryDetails[]
 			columns?: Record<string, AssetUsageAccessType>
+			// Body-inferred column lineage (DuckDB SQL AST). Present once the
+			// `windmill-parser-wasm-asset` package is rebuilt with the inference;
+			// the spread below already forwards it from the parser output.
+			column_lineage?: ColumnLineage[]
 	  }
 	| {
 			status: 'error'
@@ -191,16 +207,22 @@ export type PreparedAssetsSqlQuery =
 	| { columns: Record<string, string> } // e.g { id: "number", name: "text" }
 	| { error: string; columns?: undefined } // error message if preparation failed
 
+// Scans the leading comment block, stopping at the first line that is neither blank
+// nor a comment. A PHP script opens with `<?php`, which is not a comment, so that line
+// is skipped like a blank one; otherwise the block would end before reaching any
+// annotation. The whole line goes, since the tag may carry code (`<?php declare(…);`) —
+// so an annotation must sit on its own line, below the opener.
 function parseVolumeAnnotations(code: string, commentPrefix: string): AssetWithAccessType[] {
 	const volumes: AssetWithAccessType[] = []
 	for (const line of code.split('\n')) {
 		const trimmed = line.trim()
-		if (!trimmed) continue
+		if (!trimmed || trimmed.slice(0, 5).toLowerCase() === '<?php') continue
 		if (!trimmed.startsWith(commentPrefix)) break
 		const after = trimmed.slice(commentPrefix.length).trim()
-		const match = after.match(/^volume:\s*(\S+)/)
+		// `volume:ro <name>`; with a space after the colon, `ro` is the volume's name
+		const match = after.match(/^volume:(ro(?=\s))?\s*(\S+)/)
 		if (match) {
-			volumes.push({ kind: 'volume', path: match[1], access_type: 'rw' })
+			volumes.push({ kind: 'volume', path: match[2], access_type: match[1] ? 'r' : 'rw' })
 		}
 	}
 	return volumes
@@ -220,6 +242,7 @@ function getCommentPrefix(language: SupportedLanguage | undefined): string | und
 		case 'bunnative':
 		case 'nativets':
 		case 'go':
+		case 'php':
 			return '//'
 		default:
 			return undefined
@@ -282,7 +305,7 @@ export async function inferAnsibleExecutionMode(code: string): Promise<any> {
 	}
 }
 
-const SQL_LANGUAGES = [
+export const SQL_LANGUAGES = [
 	'postgresql',
 	'mysql',
 	'bigquery',
@@ -516,6 +539,12 @@ export async function inferArgs(
 			} catch {
 				inferedSchema = parseRSignatureFallback(code)
 			}
+		} else if (language == 'dbt') {
+			// Absent on a parser package predating dbt: the editor keeps whatever
+			// schema it has rather than clearing the run form to nothing.
+			if (!parse_dbt) return null
+			await initWasmYaml()
+			inferedSchema = JSON.parse(parse_dbt(code))
 			// for related places search: ADD_NEW_LANG
 		} else {
 			return null
@@ -546,7 +575,21 @@ export async function inferArgs(
 			schema.properties[arg.name].originalType = (arg as any).otyp
 		}
 
-		schema.properties[arg.name].default = arg.default
+		// Most languages cannot write a resource default in code, so one picked in the
+		// schema (`$res:` path) is kept while the code sets none and the arg is still that
+		// resource type; any code default wins.
+		const old = oldProperties[arg.name]
+		const format = schema.properties[arg.name].format
+		const keepResourceDefault =
+			arg.default == null &&
+			typeof old?.default == 'string' &&
+			old.default.startsWith('$res:') &&
+			schema.properties[arg.name].type == 'object' &&
+			format?.startsWith('resource-') &&
+			format == old.format
+		if (!keepResourceDefault) {
+			schema.properties[arg.name].default = arg.default
+		}
 
 		if (!arg.has_default && !schema.required.includes(arg.name)) {
 			schema.required.push(arg.name)
@@ -574,7 +617,12 @@ export async function inferArgs(
 	}
 }
 
-export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
+export async function loadSchemaFromPath(
+	path: string,
+	hash?: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<Schema> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
@@ -587,14 +635,14 @@ export async function loadSchemaFromPath(path: string, hash?: string): Promise<S
 		}
 	} else if (hash) {
 		const script = await ScriptService.getScriptByHash({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			hash
 		})
 
 		return inferSchemaIfNecessary(script)
 	} else {
 		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			path: path ?? ''
 		})
 		return inferSchemaIfNecessary(script)
@@ -614,9 +662,15 @@ async function inferSchemaIfNecessary(script: Script) {
 export async function loadSchema(
 	workspace: string,
 	path: string,
-	runType: 'script' | 'flow' | 'hubscript'
+	runType: PathRunType
 ): Promise<{ schema: Schema; summary: string | undefined }> {
-	if (runType === 'script') {
+	if (runType === 'agent') {
+		const agent = await ResourceService.getResource({ workspace, path })
+		return {
+			schema: agentRunnableSchema((agent.value as any)?.memory),
+			summary: agent.description || undefined
+		}
+	} else if (runType === 'script') {
 		const script = await ScriptService.getScriptByPath({
 			workspace,
 			path

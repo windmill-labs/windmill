@@ -4,6 +4,7 @@
 	import IconedPath from './IconedPath.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
+	import { Link } from 'lucide-svelte'
 	import { Highlight } from 'svelte-highlight'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import typescript from 'svelte-highlight/languages/typescript'
@@ -18,15 +19,32 @@
 	import { Copy, Expand } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
+	import FlowGraphViewerStepHeader from './FlowGraphViewerStepHeader.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema?: any | undefined
 		stepDetail?: FlowModule | string | undefined
 		jobScriptHash?: string | undefined
 		hideDefaultInputs?: boolean
+		// The workspace the viewed flow belongs to (differs from the nav workspace in fork/session
+		// editors); used to qualify resource links.
+		workspace?: string
+		/** Given, the step header starts with a back control that calls it. */
+		onBack?: () => void
 	}
 
-	let { schema = undefined, stepDetail = undefined, jobScriptHash = undefined, hideDefaultInputs = false }: Props = $props()
+	let {
+		schema = undefined,
+		stepDetail = undefined,
+		jobScriptHash = undefined,
+		hideDefaultInputs = false,
+		workspace = undefined,
+		onBack = undefined
+	}: Props = $props()
+	let ws = $derived(workspace ?? $operatingWorkspace)
 	let codeViewer: Drawer | undefined = $state()
 </script>
 
@@ -86,66 +104,27 @@
 <div class={twMerge('p-2 overflow-y-scroll')}>
 	{#if stepDetail == undefined}
 		<div>
-			<p class="text-secondary text-xs italic px-2 pt-2">
-				Click on a step to see its details
-			</p>
+			<p class="text-secondary text-xs italic px-2 pt-2"> Click on a step to see its details </p>
 			{#if schema && !hideDefaultInputs}
 				<h3 class="mb-2 font-semibold">Flow Inputs</h3>
 				<SchemaViewer {schema} />
 			{/if}
 		</div>
 	{:else if stepDetail == 'Input'}
+		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
 		{#if schema}
 			<SchemaViewer {schema} />
 		{:else}
 			<p class="font-medium text-secondary text-center pt-4 pb-8"> No input schema </p>
 		{/if}
 	{:else if stepDetail == 'Result'}
+		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
 		<p class="font-medium text-secondary text-center pt-4 pb-8"> End of the flow </p>
 	{:else if typeof stepDetail != 'string' && stepDetail.value}
+		<!-- A direct child of the scrolling root: a sticky row can only hold within its parent's
+		     box, so wrapped with the path link below it would scroll away with that wrapper. -->
+		<FlowGraphViewerStepHeader {stepDetail} {onBack} />
 		<div class="">
-			<div class="sticky top-0 bg-surface w-full flex items-center py-2">
-				{#if stepDetail.id && stepDetail.id != 'failure' && stepDetail.id != 'preprocessor'}
-					<Badge color="indigo">
-						{stepDetail.id}
-					</Badge>
-				{/if}
-				<span
-					class={twMerge(
-						'font-semibold text-emphasis text-sm',
-						stepDetail.id !== 'failure' && stepDetail.id !== 'preprocessor' ? 'ml-2' : ''
-					)}
-				>
-					{#if stepDetail.summary}
-						{stepDetail.summary}
-					{:else if stepDetail.value.type == 'identity'}
-						Identity
-					{:else if stepDetail.value.type == 'forloopflow'}
-						For loop {#if stepDetail.value.parallel}(parallel){/if}
-						{#if stepDetail.value.skip_failures}(skip failures){/if}
-						{#if stepDetail.value.squash}(squash){/if}
-					{:else if stepDetail.value.type == 'branchall'}
-						Run all branches {#if stepDetail.value.parallel}(parallel){/if}
-					{:else if stepDetail.value.type == 'branchone'}
-						Run one branch
-					{:else if stepDetail.value.type == 'flow'}
-						Inner flow
-					{:else if stepDetail.value.type == 'whileloopflow'}
-						While loop {#if stepDetail.value.skip_failures}(skip failures){/if}
-						{#if stepDetail.value.squash}(squash){/if}
-					{:else if stepDetail.id === 'failure'}
-						Error handler
-					{:else if stepDetail.id === 'preprocessor'}
-						Preprocessor
-					{:else if stepDetail.value.type == 'rawscript'}
-						Inline {stepDetail.value.language} script
-					{:else if stepDetail.value.type == 'script'}
-						Workspace script
-					{:else if stepDetail.value.type == 'aiagent'}
-						AI Agent
-					{/if}
-				</span>
-			</div>
 			{#if stepDetail.value.type == 'script'}
 				<div class="pb-2">
 					<a
@@ -223,8 +202,24 @@
 			<FlowModuleScript path={stepDetail.value.path} hash={jobScriptHash} />
 		{:else if stepDetail.value.type == 'aiagent'}
 			<div class="text-xs">
+				{#if stepDetail.value.agent}
+					<div class="mb-1 flex items-center gap-1.5 text-2xs text-secondary">
+						<Link size={12} class="shrink-0" />
+						<span class="shrink-0">Linked to</span>
+						<a
+							class="truncate font-medium"
+							href={`/resources?path=${stepDetail.value.agent}&workspace=${ws}`}
+							title={stepDetail.value.agent}>{stepDetail.value.agent}</a
+						>
+					</div>
+				{/if}
 				<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
 				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
+			</div>
+		{:else if stepDetail.value.type == 'aidecision'}
+			<div class="text-xs">
+				<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
+				<InputTransformsViewer inputTransforms={stepDetail.value.input_transforms ?? {}} />
 			</div>
 		{:else if stepDetail.value.type == 'forloopflow'}
 			<div>

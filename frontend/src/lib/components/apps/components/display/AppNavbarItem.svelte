@@ -13,7 +13,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { Output } from '../../rx'
 	import ResolveNavbarItemPath from './ResolveNavbarItemPath.svelte'
-	import { urlParamsToObject } from '$lib/utils'
+	import { urlParamsToObject, WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils'
 
 	interface Props {
 		navbarItem: NavbarItem
@@ -54,8 +54,22 @@
 	let resolvedHidden: boolean | undefined = $state(undefined)
 
 	function extractPathDetails() {
-		const url = window.location.pathname + window.location.search + window.location.hash
-		const processedUrl = url.replace('/apps/edit/', '').replace('/apps/get/', '')
+		// Drop Windmill transport params (wm_embed, …) so they don't poison the
+		// comparison against the item's resolved path.
+		const params = new URLSearchParams(window.location.search)
+		const reserved: string[] = []
+		params.forEach((_v, k) => {
+			if (WINDMILL_RESERVED_QUERY_PARAMS.has(k)) reserved.push(k)
+		})
+		reserved.forEach((k) => params.delete(k))
+		const qs = params.toString()
+		const url = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
+		// `/app_embed/{workspace}/` is the opaque in-workspace viewer route
+		// (WIN-2006) — same app-path suffix as `/apps/get/`.
+		const processedUrl = url
+			.replace('/apps/edit/', '')
+			.replace('/apps/get/', '')
+			.replace(/^\/app_embed\/[^/]+\//, '')
 		return processedUrl
 	}
 
@@ -101,13 +115,17 @@
 					onClick: undefined
 				}
 			} else {
+				const href = resolvedPath ? `/apps/get/${resolvedPath}` : undefined
 				return {
-					onClick: () => {
-						if (resolvedPath) {
-							gotoFn?.(`/apps/get/${resolvedPath}`)
-						}
+					// A plain click goes through `gotoFn`, which an embedded app routes to its top window.
+					onClick: (e?: Event) => {
+						// Not `isNewTabClick`: `$lib/navigation` imports `$app/navigation`, which no app
+						// component pulls in (the packaged `AppPreview` renders them outside SvelteKit).
+						if (e instanceof MouseEvent && (e.ctrlKey || e.metaKey)) return
+						e?.preventDefault()
+						if (href) gotoFn?.(href)
 					},
-					href: undefined,
+					href,
 					target: undefined
 				}
 			}
@@ -163,7 +181,7 @@
 		}`}
 	>
 		<Button
-			on:click={buttonProps.onClick ?? (() => {})}
+			onClick={buttonProps.onClick}
 			href={buttonProps.href}
 			target={buttonProps.target ?? '_self'}
 			color="light"

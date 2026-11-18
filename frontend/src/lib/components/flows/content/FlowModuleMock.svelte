@@ -2,11 +2,14 @@
 	import { run } from 'svelte/legacy'
 
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { Section } from '$lib/components/common'
+	import Label from '$lib/components/Label.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import { untrack } from 'svelte'
+	import { slideDynamic } from '$lib/transitions'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { nextMock } from '../flowMock'
 
 	interface Props {
 		flowModule: FlowModule
@@ -45,10 +48,11 @@
 	})
 
 	function updateMockValue({ detail }: any) {
-		const newMock = {
+		const newMock = nextMock(flowModule.mock, {
+			...flowModule.mock,
 			enabled: true,
 			return_value: detail
-		}
+		})
 
 		// Update the last value to prevent circular updates
 		lastMockValue = JSON.stringify(newMock)
@@ -56,47 +60,58 @@
 	}
 </script>
 
-<Section label="Mock">
-	{#snippet header()}
-		<div class="flex flex-row items-center gap-2">
-			<Tooltip>
-				If defined and enabled, the step will immediately return the mock value instead of being
-				executed.
-			</Tooltip>
-			<Toggle
-				checked={isMockEnabled}
-				on:change={() => {
-					if (isMockEnabled) {
+<div class="flex flex-col gap-2">
+	<Toggle
+		size="xs"
+		textClass="text-xs font-normal text-primary"
+		checked={isMockEnabled}
+		on:change={() => {
+			if (isMockEnabled) {
+				flowModule.mock = { ...flowModule.mock, enabled: false }
+			} else {
+				flowModule.mock = nextMock(flowModule.mock, {
+					...flowModule.mock,
+					enabled: true,
+					return_value: flowModule.mock?.return_value ?? { example: 'value' }
+				})
+				code = JSON.stringify(flowModule.mock?.return_value, null, 2)
+			}
+		}}
+		options={{
+			right: 'Pin output',
+			rightTooltip:
+				'While pinned, the step returns this value immediately instead of executing. The same control lives on the step in the graph.'
+		}}
+	/>
+	{#if isMockEnabled}
+		<div class="pl-9 flex flex-col gap-2" transition:slideDynamic>
+			<Label label="Applies to">
+				<ToggleButtonGroup
+					selected={flowModule.mock?.preview_only ? 'preview' : 'every'}
+					onSelected={(v) => {
 						flowModule.mock = {
-							enabled: false,
-							return_value: flowModule.mock?.return_value
-						}
-					} else {
-						flowModule.mock = {
+							...flowModule.mock,
 							enabled: true,
-							return_value: flowModule.mock?.return_value ?? { example: 'value' }
+							preview_only: v === 'preview'
 						}
-						code = JSON.stringify(flowModule.mock?.return_value, null, 2)
-					}
-				}}
-				size="xs"
-			/>
+					}}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="preview" label="Test runs" {item} />
+						<ToggleButton value="every" label="Every run" {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+				<span class="text-2xs font-normal text-secondary">
+					{flowModule.mock?.preview_only
+						? 'Only runs started from the editor, and the subflows they call, use the pin.'
+						: 'Deployed runs also return the pinned value.'}
+				</span>
+			</Label>
+			<Label label="Pinned value">
+				{#key renderCount}
+					<JsonEditor {code} on:changeValue={updateMockValue} />
+				{/key}
+			</Label>
 		</div>
-	{/snippet}
-
-	<div>
-		<span class="text-xs py-1">Mocked Return value</span>
-
-		{#if isMockEnabled}
-			{#key renderCount}
-				<JsonEditor {code} on:changeValue={updateMockValue} />
-			{/key}
-		{:else}
-			<pre class="text-xs border rounded p-2 bg-surface-disabled"
-				>{flowModule.mock?.return_value
-					? JSON.stringify(flowModule.mock?.return_value, null, 2)
-					: ''}</pre
-			>
-		{/if}
-	</div>
-</Section>
+	{/if}
+</div>

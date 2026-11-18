@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE tree AS (\n                SELECT id, 0 AS depth FROM workspace WHERE id = $1\n                UNION ALL\n                SELECT w.id, tree.depth + 1 FROM workspace w\n                JOIN tree ON w.parent_workspace_id = tree.id\n                WHERE tree.depth < 20\n            )\n            SELECT id AS \"id!\" FROM tree WHERE id != $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "71ee328f016bac75a9050dc3c13dc898c0b40fe6f1c4e5c631b6f784f7e73a3d"
+}

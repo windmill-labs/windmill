@@ -201,6 +201,13 @@
 		}
 	}
 
+	/** Open the file chooser without the dropzone being clicked, for a caller whose
+	 * affordance is a button elsewhere. The component is still what reads and filters
+	 * the files, so the two paths cannot drift. */
+	export function openPicker() {
+		input?.click()
+	}
+
 	export function clearFiles() {
 		files = undefined
 		dispatchChange()

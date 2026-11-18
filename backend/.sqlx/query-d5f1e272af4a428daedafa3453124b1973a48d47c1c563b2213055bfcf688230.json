@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM flow_conversation_message WHERE COALESCE(turn_job_id, job_id) = ANY($1)\n         RETURNING conversation_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "conversation_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d5f1e272af4a428daedafa3453124b1973a48d47c1c563b2213055bfcf688230"
+}

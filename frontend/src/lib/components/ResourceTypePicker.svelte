@@ -2,13 +2,20 @@
 	import { createEventDispatcher } from 'svelte'
 
 	import { ResourceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { Button, ClearableInput } from './common'
 	import Label from './Label.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import { untrack } from 'svelte'
+	import {
+		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
+		sortResourceTypesByMatch
+	} from './resourceTypeDisplay'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	interface Props {
 		value: string | undefined
 		notPickable?: boolean
@@ -17,10 +24,16 @@
 
 	let { value = $bindable(), notPickable = false, nonePickable = false }: Props = $props()
 
-	let resources: string[] = $state([])
+	let resources: { name: string; description?: string; searchText: string }[] = $state([])
 
 	async function loadResources() {
-		resources = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
+		const types = await ResourceService.listResourceType({ workspace: $operatingWorkspace! })
+		setResourceTypeDisplayNames(types)
+		resources = types.map((t) => ({
+			name: t.name,
+			description: t.description,
+			searchText: resourceTypeSearchText(t.name, t.description)
+		}))
 	}
 
 	const dispatch = createEventDispatcher()
@@ -31,7 +44,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			untrack(() => {
 				loadResources()
 			})
@@ -40,7 +53,12 @@
 	let search: string = $state('')
 
 	let filteredResources = $derived(
-		resources.filter((r) => r.toLowerCase().includes(search.toLowerCase()))
+		sortResourceTypesByMatch(
+			resources.filter((r) => r.searchText.toLowerCase().includes(search.trim().toLowerCase())),
+			search,
+			(r) => r.name,
+			(r) => r.description
+		)
 	)
 </script>
 
@@ -66,7 +84,7 @@
 					{@const isPicked = value === undefined}
 					<Button
 						size="sm"
-						variant="default"
+						variant="subtle"
 						selected={isPicked}
 						disabled={notPickable}
 						on:click={() => {
@@ -78,18 +96,19 @@
 					</Button>
 				{/if}
 				{#each filteredResources as r}
-					{@const isPicked = value === r}
+					{@const isPicked = value === r.name}
 					<Button
 						size="sm"
-						variant="default"
+						variant="subtle"
+						btnClasses="justify-start"
 						selected={isPicked}
 						disabled={notPickable}
 						on:click={() => {
-							onClick(r)
+							onClick(r.name)
 							close()
 						}}
 					>
-						<IconedResourceType name={r} after={true} width="20px" height="20px" />
+						<IconedResourceType name={r.name} after={true} width="20px" height="20px" />
 					</Button>
 				{/each}
 

@@ -11,8 +11,8 @@
 //! This module provides functionality to detect and parse Pydantic models and Python
 //! dataclasses from Python AST, enabling automatic UI generation for complex data structures.
 
-use rustpython_parser::ast::{
-    Constant, Expr, ExprAttribute, ExprCall, ExprConstant, ExprName, ExprTuple, Stmt, StmtAnnAssign,
+use ruff_python_ast::{
+    Decorator, Expr, ExprAttribute, ExprCall, ExprName, ExprTuple, Stmt, StmtAnnAssign,
 };
 use std::collections::HashSet;
 use windmill_parser::{ObjectProperty, ObjectType, Typ};
@@ -64,7 +64,7 @@ fn detect_model_type_impl(
                 // Mark as being visited
                 visited.insert(class_name.to_string());
 
-                let result = if is_pydantic_base(&class_def.bases) {
+                let result = if is_pydantic_base(class_def.bases()) {
                     // Pydantic BaseModel
                     parse_model_fields(&class_def.body, class_def.name.as_str(), module, visited)
                 } else if has_dataclass_decorator(&class_def.decorator_list)
@@ -115,9 +115,9 @@ fn is_pydantic_base(bases: &[Expr]) -> bool {
 }
 
 /// Checks if a class has @dataclass decorator (standard library)
-fn has_dataclass_decorator(decorators: &[Expr]) -> bool {
+fn has_dataclass_decorator(decorators: &[Decorator]) -> bool {
     for decorator in decorators {
-        match decorator {
+        match &decorator.expression {
             // Match: @dataclass
             Expr::Name(ExprName { id, .. }) if id.as_str() == "dataclass" => {
                 return true;
@@ -160,9 +160,9 @@ fn has_dataclass_decorator(decorators: &[Expr]) -> bool {
 }
 
 /// Checks if a class has @pydantic.dataclasses.dataclass decorator (Pydantic v2)
-fn has_pydantic_dataclass_decorator(decorators: &[Expr]) -> bool {
+fn has_pydantic_dataclass_decorator(decorators: &[Decorator]) -> bool {
     for decorator in decorators {
-        match decorator {
+        match &decorator.expression {
             // Match: @pydantic.dataclasses.dataclass
             Expr::Attribute(ExprAttribute { attr, value, .. }) if attr.as_str() == "dataclass" => {
                 if let Expr::Attribute(ExprAttribute {
@@ -350,10 +350,10 @@ fn extract_field_type(
 
         // String annotations: "ForwardRef" (forward references)
         // Not fully supported - return Unknown with warning
-        Expr::Constant(ExprConstant { value: Constant::Str(s), .. }) => {
+        Expr::StringLiteral(s) => {
             eprintln!(
                 "Forward references like \"{forward_ref}\" are not yet supported, treating as Unknown",
-                forward_ref = s,
+                forward_ref = s.value.to_str(),
             );
             Typ::Unknown
         }

@@ -75,31 +75,36 @@ Public CLI surface:
 - `--model <alias>`: choose the model under test
 - `--models <a,b,c>`: run the same cases sequentially against several model aliases
 - `--verbose`: stream assistant output for frontend runs
+- `--skip-judge`: skip LLM judge scoring for the run
+- `--execution-only`: only require the model/proxy/frontend loop to complete; skip validators, tool expectations, backend artifact validation, and judge scoring
+- `--reasoning <effort>`: reasoning effort for frontend modes (`off`, `low`, `medium`, `high`, `max`, …); without it the product's default applies (`high` on models that can reason). The effort is appended to the recorded model label (`anthropic:claude-sonnet-5-5@max`)
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
 
 ## Models
 
-Use `bun run cli -- models` to see the current aliases.
-
-Today:
-
-- `haiku`
-- `sonnet`
-- `opus`
-- `4o`
-- `gpt-5.5`
-- `gemini-3-flash-preview`
-- `gemini-3.1-pro-preview`
-- `deepseek-v4-flash`
-- `deepseek-v4-pro`
+Use `bun run cli -- models` to see the current aliases; `core/models.ts` is the list.
 
 Notes:
 
 - the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
 - frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
-- `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
-- the judge model is separate and currently defaults to `claude-sonnet-4-6`
+- `cli` mode runs a coding agent over the workspace, chosen by the alias's `cli` entry; aliases without one are rejected there:
+
+  | Agent | Models | Label | Needs |
+  | --- | --- | --- | --- |
+  | Claude Code (`@anthropic-ai/claude-agent-sdk`) | Claude aliases | `anthropic:<model>` | `ANTHROPIC_API_KEY` |
+  | Claude Code on DeepSeek's Anthropic-compatible endpoint | `deepseek-v4-pro` | `claude-code:<model>` | `DEEPSEEK_API_KEY` |
+  | Codex (`codex exec --json`) | `gpt-6.1-sol`, `gpt-6-astra` | `codex:<model>` | `codex` on `PATH` (CI pins 0.159.3), `OPENAI_API_KEY` |
+
+  Codex runs with a throwaway `HOME`, so your own `~/.codex` config and skills stay out of the run. It has no
+  Skill tool: it finds `.agents/skills` on its own and loads a skill by reading its `SKILL.md`, so the trace
+  records any command that touches `.agents/skills/<name>/SKILL.md` as a `Skill` call to `<name>`, just
+  before that command, or just after it when the command mutates something before reading the skill. Its shell commands are recorded as `Bash` and its patches as `Edit`, so the
+  `invokes skill … before first mutation` checks compare the same things for both agents. Codex has no
+  turn cap; a run stops at `maxTurns` rounds of tool calls (parallel calls count once) and fails, as a
+  Claude Code run does at its cap.
+- the judge model is separate and currently defaults to `claude-sonnet-5-5`; use `--skip-judge` for deterministic-only runs
 
 ## Case Format
 
@@ -148,21 +153,128 @@ Global initial fixtures can also seed `liveEditorDrafts` with `type`,
 currently open script, flow, or raw app editor so cases can test prompts that
 refer to "this" or the "current" item.
 
-Global (and flow) initial fixtures can seed `workspace.datatables` so the
-`list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql` tools
-return seeded data during evals. Each entry is
-`{ datatable_name, schemas: { <schema>: { <table>: { columns, rows? } } } }`.
-SQL runs through a small in-memory engine (`datatableSqlEngine.ts`), not a real
-database. Writes are **stateful within a case**: `CREATE`/`DROP`/`INSERT`/`UPDATE`/
-`DELETE` mutate the seeded datatable in place, so a later `list_datatables`,
-`get_datatable_table_schema`, `SELECT`, or `information_schema` query reflects them
-— this is what stops a model from looping when it re-queries to verify a write.
-The engine is best-effort: `SELECT` returns all rows of the referenced (or first)
-table with no WHERE filtering/projection/joins, `WHERE` on UPDATE/DELETE supports
-`col = value` predicates joined by `AND`, and anything unparseable is a no-op
-success. So validate datatable cases through tool-use and SQL-argument assertions
-(`requiredToolsUsed`, `stringIncludesAnyOf`) — not through exact returned row
-values. An empty/absent `datatables` seed makes `list_datatables` return `[]`,
+Global initial fixtures can seed the session's `artifacts` — `{ name, versions: [{ content,
+note? }], role?, approvedVersion? }`, oldest version first, so the artifact starts with the
+history `list_artifact_versions` reports — and the `previewTabs` open in its side panel, for
+cases that run with `runtime.sessionChat: true`. A tab entry names one destination and may
+be the `active` one:
+
+```json
+"previewTabs": [{ "artifact": { "name": "Onboarding plan", "version": 2 }, "active": true }]
+```
+
+`page` (`{ href, label }`) and `item` (`{ kind, path }`) tabs work the same way. Tabs are
+driven by the production tab model, so `open_preview`, `get_preview_status` and
+`close_page` really open, report and close them, and a `version` is the pin a reader
+chose in the artifact's version picker — which only `get_preview_status` reports.
+
+Global initial fixtures can seed `workspace.variables` with
+`{ path, value, is_secret, description?, labels?, ws_specific? }` entries so cases can
+read and edit variables that already exist in the workspace. Seed a recognizable secret
+(the existing fixture uses `sk_live_do_not_leak_me`) and assert it via `valueExcludes` to
+catch a leak.
+
+### Global mode runs against a real workspace
+
+The session's tools run on the backend, so each global attempt creates its own workspace on
+the eval backend, seeds the fixture there through the API, and deletes it afterwards. What
+that backend needs:
+
+- a worker serving the `postgresql` tag (the `native` group) for datatable fixtures and the
+  SQL tools, and `WMILL_AI_EVAL_DATATABLE_PG_URL` (default
+  `postgres://postgres:changeme@localhost:5432/postgres`) naming a Postgres the worker can
+  reach, where each datatable fixture gets a scratch database;
+- a superadmin login (the default `admin@windmill.dev`), since it creates and deletes
+  workspaces. `WMILL_AI_EVAL_BACKEND_WORKSPACE` does not apply to global mode. A CE backend
+  allows two workspaces besides `admins`, so attempts past that wait for a free slot;
+- `WMILL_AI_EVAL_DATABASE_URL`, the eval backend's own database, for fixtures whose `user` is
+  not the admin: the harness writes that user and a token of theirs there with `psql` (CE cannot create
+  users through the API), adds them to the workspace, and revokes the token afterwards;
+- network access to the hub, which the hub tools reach through the backend, and the
+  `embedding` cargo feature, without which `search_hub_scripts` has no index to search;
+- the `http_trigger` cargo feature, which mounts the routes HTTP trigger drafts are checked
+  against;
+- `RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS` set low (CI uses 2): each attempt seeds the
+  hub's resource types into its workspace and waits until the resource type search sees them,
+  which takes up to that interval (60 s by default).
+
+#### Running the pipeline a case built
+
+A case with `validate.pipelineRun` runs the data pipeline the chat drafted, once the chat is
+over. The harness deploys every pipeline node drafted under `f/<folder>/`, waits for the
+deployments, points each DuckLake at an empty catalog, runs the nodes that no other node
+feeds, and waits for the asset triggers to run the rest. Then it runs the case's `queries`
+(DuckDB, with the lake attached as `dl`) and checks their rows. A node that never ran fails
+its check, so a downstream node whose `on` wiring is wrong cannot pass on the tables the
+model's own test runs left behind. A node is started directly when no recorded read or
+trigger ties it to another node's output, which also happens when the asset parser records a
+read under another path than the write it matches; `maxRoots` caps how many nodes may start
+that way. The run's outcome is part of the drafts the judge reads.
+
+The fixture's `workspace.objectStorage` gives the workspace an S3 storage holding its
+`files`, and turns its `ducklakes` into catalogs on that storage. That needs more of the
+backend:
+
+- the `duckdb`, `parquet` and `private` cargo features, and the DuckDB runner
+  (`backend/windmill-duckdb-ffi-internal/build_dev.sh`). `private` provides the S3 proxy
+  DuckDB reaches the storage through. A CE build without a license key is enough;
+- an S3-compatible store with an existing bucket: `WMILL_AI_EVAL_S3_ENDPOINT` (e.g.
+  `http://localhost:9000`), `WMILL_AI_EVAL_S3_BUCKET` (default `evals`),
+  `WMILL_AI_EVAL_S3_ACCESS_KEY` / `WMILL_AI_EVAL_S3_SECRET_KEY` (default `minioadmin`) and
+  `WMILL_AI_EVAL_S3_REGION` (default `us-east-1`). Attempts share the bucket and seed the same
+  keys; each one's DuckLake data goes under `ai_evals_lakes/<workspace>/`, which nothing
+  deletes. MinIO, or `docker run -p 8333:8333 chrislusf/seaweedfs server -s3` (any key, and
+  `curl -X PUT localhost:8333/evals` creates the bucket), both work.
+
+Without `WMILL_AI_EVAL_S3_ENDPOINT` the run is skipped with a warning, and the case is
+checked on its drafts and judge alone.
+
+A fixture's `jobs` become completed preview runs with the given id, path, args, logs and
+outcome; `createdBy` is not reproduced. Its `resourceTypes` are created as workspace types,
+alongside whatever types the instance already holds; a fixture that sets none gets the types
+of an instance synced with the hub.
+
+`runtime.userAnswers` scripts the user's side of `askUserQuestion` in a global case: one
+answer per question, in the order they are asked, and a question past the last answer is
+dismissed, so `userAnswers: []` dismisses every question. Without it the tool reports that
+it cannot ask, and the model usually carries on with its own guess, which makes "asks
+before creating anything" impossible to assert.
+
+`runtime.profile` runs a session-chat case (`sessionChat: true`) as a non-admin role
+instead of full access: the prompt, toolset and tool schemas are cut as production's
+`capabilitiesForRole` cuts them, and the workspace's `operator_settings` are seeded for the
+tools that read them directly:
+
+```yaml
+profile:
+  operator: true
+  operatorSettings: { builder_apps: true }   # also builder_flows, manage_schedules, manage_triggers
+```
+
+A role that builds nothing (no builder rights, `manage_schedules` and `manage_triggers` both
+`false`) holds the session in Use, as the chat does in production: the toolset is the
+read-only one and the prompt carries the session section that names the role as the reason.
+
+`judgeAssistantText: true` hands the judge what the assistant said alongside the mode's
+output. Use it when the deliverable is the answer itself, such as a refusal and where to go
+instead: the `global` judge otherwise reads only the drafts, and a substring check cannot tell
+"you can't create it yourself" from "create it yourself".
+
+`toolExpect.toolCallArgs` entries support `sharedByAtLeast: <n>`: at least `n` recorded
+calls to that tool must carry the same non-blank string in the field. Use it for calls that
+have to share an identifier, like two test runs of one chat conversation.
+
+`toolExpect.toolCallArgs` entries additionally support `fieldMustBeAbsent: true`: no
+recorded call to that tool may pass the field at all (an explicit `null` counts as
+passing it). Use it for partial-update tools, where supplying a field the model could
+not have read is itself the failure — e.g. `write_variable.value` on a secret variable.
+
+Global initial fixtures can seed `workspace.datatables`. Each entry is
+`{ datatable_name, schemas: { <schema>: { <table>: { columns, rows? } } } }`,
+plus `migrations_enabled: true` and `migrations: [{ timestamp, name, code_up, code_down?, applied? }]`
+for a datatable that keeps its schema as migrations. Each one becomes a real datatable of
+the case's workspace, backed by its scratch database, so the datatable and SQL tools see
+exactly what a query would. An absent `datatables` seed leaves the workspace with none,
 which is what the "no datatable configured" blocking cases rely on.
 
 Set `WMILL_AI_EVAL_DISABLE_ACTIVE_EDITOR_CONTEXT=1` to run those cases with
@@ -247,6 +359,10 @@ Typical artifacts by mode:
 - `modes/`: one runner per mode
 - `history/`: optional tracked pass-rate history written by `run --record`, one JSONL file per mode
 - `results/`: local benchmark output and artifacts
+
+Harness unit tests run in two lanes: `bun test adapters/` for plain TypeScript, and
+`bun run test:frontend-graph` for `*.vitest.ts` files, which exercise adapters built on
+frontend code (Svelte runes, SvelteKit aliases) that bun cannot load.
 
 ## Notes
 

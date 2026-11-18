@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n               SET ducklake = jsonb_set(ducklake, ARRAY['ducklakes', $2, 'fork_behavior'], '\"shared\"')\n               WHERE workspace_id = $1 AND ducklake->'ducklakes' ? $2\n               RETURNING 1 AS \"one!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "one!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6ca5cbe50df89e6eead890758e34a6ae5091c37ec901975c3d564fd817a405b7"
+}

@@ -143,6 +143,11 @@ lazy_static::lazy_static! {
     static ref RE_00: Regex = Regex::new('\u{00}'.to_string().as_str()).unwrap();
     pub static ref NO_LOGS_AT_ALL: bool = std::env::var("NO_LOGS_AT_ALL").ok().is_some_and(|x| x == "1" || x == "true");
 }
+/// Drop NUL bytes: Postgres rejects them in both `text` logs and a `jsonb` result.
+pub fn strip_nul(src: &str) -> std::borrow::Cow<'_, str> {
+    RE_00.replace_all(src, "")
+}
+
 // as a detail, `BufReader::lines()` removes \n and \r\n from the strings it yields,
 // so this pushes \n to thd destination string in each call
 pub fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
@@ -152,7 +157,7 @@ pub fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
 
     let src_str;
     let src = {
-        src_str = RE_00.replace_all(src, "");
+        src_str = strip_nul(src);
         src_str.as_ref()
     };
     if !*CLOUD_HOSTED {

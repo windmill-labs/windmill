@@ -5,18 +5,18 @@
 	import { Badge } from '$lib/components/common'
 	import { DollarSign, Settings, StickyNote } from 'lucide-svelte'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
-	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 
 	interface Props {
 		disableSettings?: boolean
 		disableStaticInputs?: boolean
 		smallErrorHandler: boolean
-		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
-		toggleAiChat?: () => void
+		sessionOpen?: OpenInSessionSource
 		noteMode?: boolean
 		toggleNoteMode?: () => void
 		disableAi?: boolean
@@ -28,9 +28,8 @@
 		disableSettings,
 		disableStaticInputs,
 		smallErrorHandler,
-		aiChatOpen,
 		showFlowAiButton,
-		toggleAiChat,
+		sessionOpen,
 		noteMode,
 		toggleNoteMode,
 		disableAi,
@@ -68,7 +67,13 @@
 		</Popover>
 	{/if}
 	<Popover>
-		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} {compact} {diffManager} on:generateStep />
+		<FlowErrorHandlerItem
+			{disableAi}
+			small={smallErrorHandler}
+			{compact}
+			{diffManager}
+			on:generateStep
+		/>
 		{#snippet text()}
 			Error Handler
 		{/snippet}
@@ -90,17 +95,7 @@
 		</Popover>
 	{/if}
 	{#if showFlowAiButton}
-		<Popover>
-			<AIButton
-				togglePanel={() => {
-					toggleAiChat?.()
-				}}
-				btnClasses={AIBtnClasses(aiChatOpen ? 'selected' : 'default')}
-			/>
-			{#snippet text()}
-				Flow AI Chat
-			{/snippet}
-		</Popover>
+		<OpenInSessionButton source={sessionOpen} deferToHeader />
 	{/if}
 	<Popover>
 		<Button

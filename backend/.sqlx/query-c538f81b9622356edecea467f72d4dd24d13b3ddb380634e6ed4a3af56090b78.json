@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM alerts\n            WHERE alert_type = 'critical_error' AND resource = $1\n                AND created_at > now() - $2::bigint * interval '1 second') AS \"exists!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c538f81b9622356edecea467f72d4dd24d13b3ddb380634e6ed4a3af56090b78"
+}

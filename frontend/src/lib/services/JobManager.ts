@@ -86,15 +86,10 @@ export class JobManager {
 						throw new Error('Job was cancelled')
 					}
 
-					let jobResult
-					try {
-						jobResult = await JobService.getCompletedJob({
-							workspace,
-							id: jobId
-						})
-					} catch (error) {
-						throw error
-					}
+					const jobResult = await JobService.getCompletedJob({
+						workspace,
+						id: jobId
+					})
 
 					const success = !!jobResult.success
 					const status: JobStatus = {

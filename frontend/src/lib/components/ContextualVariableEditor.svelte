@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -10,6 +9,14 @@
 	import autosize from '$lib/autosize'
 	import Label from './Label.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import {
+		useOperatingWorkspace,
+		useReadOnlyWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	// An editor opened in Build stays open when the session switches to Use.
+	const readOnly = useReadOnlyWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -34,8 +41,9 @@
 	let drawer: Drawer | undefined = $state()
 
 	async function updateVariable(): Promise<void> {
+		if (readOnly($operatingWorkspace)) return
 		await WorkspaceService.setEnvironmentVariable({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			requestBody: {
 				value: value,
 				name: name
@@ -77,7 +85,7 @@
 		{#snippet actions()}
 			<Button
 				on:click={() => updateVariable()}
-				disabled={value === '' || name === ''}
+				disabled={value === '' || name === '' || readOnly($operatingWorkspace)}
 				startIcon={{ icon: Save }}
 				variant="accent"
 				unifiedSize="md"

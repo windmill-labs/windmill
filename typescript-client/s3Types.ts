@@ -4,7 +4,8 @@
 export type S3Object = S3ObjectURI | S3ObjectRecord;
 
 /**
- * S3 object URI in the format `s3://storage/key`
+ * S3 object URI in the format `s3://storage/key` (`s3:///key` targets the
+ * workspace default storage)
  */
 export type S3ObjectURI = `s3://${string}/${string}`;
 
@@ -39,3 +40,26 @@ export type DenoS3LightClientSettings = {
   /** Use path-style URLs instead of virtual-hosted style */
   pathStyle?: boolean;
 };
+
+/**
+ * Parse an S3 object from URI string or record format
+ * @param s3Object - S3 object as URI string (`s3://storage/key`, `s3:///key`
+ *   for the default storage) or record. Any other string throws rather than
+ *   falling back to an auto-generated key: an auto key is requested by
+ *   omitting the object, and a fallback would silently misplace the upload
+ *   on any typo.
+ * @returns S3 object record with storage and s3 key
+ */
+export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
+  if (typeof s3Object === "object") return s3Object;
+  const match = s3Object.match(/^s3:\/\/([^/]*)\/(.+)$/);
+  if (match) return { storage: match[1] || undefined, s3: match[2] };
+  if (s3Object.startsWith("s3://")) {
+    throw new Error(
+      `Invalid s3 object URI ${JSON.stringify(s3Object)}: expected s3://<storage>/<key> with a non-empty key (s3:///<key> for the default storage)`
+    );
+  }
+  throw new Error(
+    `Invalid s3 object ${JSON.stringify(s3Object)}: expected an s3://<storage>/<key> URI (e.g. "s3:///${s3Object}" for key "${s3Object}" in the default storage) or { s3: <key> }`
+  );
+}

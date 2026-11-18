@@ -1,5 +1,6 @@
 use windmill_parser::asset_parser::{
-    merge_assets, AssetKind, AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult,
+    merge_assets, parse_pipeline_annotations, AssetKind, AssetUsageAccessType, ParseAssetsOutput,
+    ParseAssetsResult,
 };
 
 use crate::{parse_ansible_reqs, ResourceOrVariablePath};
@@ -39,5 +40,10 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
         }
     }
 
-    Ok(ParseAssetsOutput { assets: merge_assets(assets), ..Default::default() })
+    let pipeline = parse_pipeline_annotations(input);
+    Ok(ParseAssetsOutput::new(
+        merge_assets(assets),
+        Vec::new(),
+        pipeline,
+    ))
 }

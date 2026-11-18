@@ -1,0 +1,44 @@
+<script lang="ts">
+	import { tickPainted } from '$lib/utils/paint'
+	import AmqpTriggerEditorInner from './AmqpTriggerEditorInner.svelte'
+
+	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
+
+	let open = $state(false)
+	export async function openEdit(ePath: string, isFlow: boolean, fixedScriptPath?: string) {
+		open = true
+		await tickPainted()
+		drawer?.openEdit(ePath, isFlow, undefined, fixedScriptPath)
+	}
+
+	export async function openNew(
+		is_flow: boolean,
+		initial_script_path?: string,
+		defaultValues?: Record<string, any>
+	) {
+		open = true
+		await tickPainted()
+		drawer?.openNew(is_flow, initial_script_path, defaultValues)
+	}
+
+	/** Edit a trigger that exists only as the caller's draft; Save hands the config back. */
+	export async function openDraft(
+		scriptPath: string,
+		defaults: Record<string, any>,
+		saved: Record<string, any> | undefined,
+		onSaveDraft: (cfg: Record<string, any>) => boolean
+	) {
+		open = true
+		await tickPainted()
+		drawer?.openNew(false, scriptPath, defaults as any, {
+			onSaveDraft,
+			draftConfig: saved
+		})
+	}
+
+	let drawer: AmqpTriggerEditorInner | undefined = $state()
+</script>
+
+{#if open}
+	<AmqpTriggerEditorInner {onUpdate} bind:this={drawer} />
+{/if}

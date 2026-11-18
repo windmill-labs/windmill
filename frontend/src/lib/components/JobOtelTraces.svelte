@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { Alert, Skeleton } from './common'
 	import { Activity } from 'lucide-svelte'
 	import { JobService } from '$lib/gen'
 	import { msToReadableTime } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// OTEL SpanKind enum values from opentelemetry-proto/opentelemetry/proto/trace/v1/trace.proto
 	const SpanKind = {
@@ -54,14 +56,14 @@
 	})
 
 	async function loadTraces() {
-		if (!$workspaceStore || !jobId) return
+		if (!$operatingWorkspace || !jobId) return
 
 		loading = true
 		error = null
 
 		try {
 			const response = await JobService.getJobOtelTraces({
-				workspace: $workspaceStore,
+				workspace: $operatingWorkspace,
 				id: jobId
 			})
 			traces = response as unknown as OtelSpan[]
@@ -123,12 +125,18 @@
 
 	function getKindLabel(kind: number): string {
 		switch (kind) {
-			case SpanKind.INTERNAL: return 'Internal'
-			case SpanKind.SERVER: return 'Server'
-			case SpanKind.CLIENT: return 'Client'
-			case SpanKind.PRODUCER: return 'Producer'
-			case SpanKind.CONSUMER: return 'Consumer'
-			default: return 'Unknown'
+			case SpanKind.INTERNAL:
+				return 'Internal'
+			case SpanKind.SERVER:
+				return 'Server'
+			case SpanKind.CLIENT:
+				return 'Client'
+			case SpanKind.PRODUCER:
+				return 'Producer'
+			case SpanKind.CONSUMER:
+				return 'Consumer'
+			default:
+				return 'Unknown'
 		}
 	}
 
@@ -182,17 +190,15 @@
 			<Activity size={48} class="mb-4 opacity-50" />
 			<p class="text-lg font-medium">No HTTP requests captured</p>
 			<p class="text-sm mt-2">
-				This job did not make any HTTP/HTTPS requests, or HTTP Request Tracing is not enabled in instance settings.
+				This job did not make any HTTP/HTTPS requests, or HTTP Request Tracing is not enabled in
+				instance settings.
 			</p>
 		</div>
 	{:else}
 		<div class="space-y-4">
 			<div class="flex items-center justify-between">
 				<h3 class="text-lg font-semibold">Traces ({traces.length} spans)</h3>
-				<button
-					class="text-sm text-blue-600 hover:underline"
-					onclick={loadTraces}
-				>
+				<button class="text-sm text-blue-600 hover:underline" onclick={loadTraces}>
 					Refresh
 				</button>
 			</div>
@@ -219,10 +225,7 @@
 						{@const statusCode = span.status?.code ?? 0}
 
 						<div class="hover:bg-surface-hover">
-							<button
-								class="w-full px-4 py-2 text-left"
-								onclick={() => toggleSpan(span.span_id)}
-							>
+							<button class="w-full px-4 py-2 text-left" onclick={() => toggleSpan(span.span_id)}>
 								<div class="grid grid-cols-12 gap-2 items-center">
 									<div class="col-span-4 flex items-center gap-2">
 										<span class="text-xs text-secondary">
@@ -293,7 +296,9 @@
 													{#each Object.entries(parsedAttrs) as [key, value]}
 														<div class="flex gap-2">
 															<span class="text-secondary font-medium shrink-0">{key}:</span>
-															<span class="font-mono break-all">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
+															<span class="font-mono break-all"
+																>{typeof value === 'object' ? JSON.stringify(value) : value}</span
+															>
 														</div>
 													{/each}
 												</div>

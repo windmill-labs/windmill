@@ -14,6 +14,8 @@
   ],
   "exclude": [
     "./**/*.test.ts",
-    "./adapters/frontend/vitest.config.ts"
+    "./**/*.vitest.ts",
+    "./adapters/frontend/vitest.config.ts",
+    "./adapters/frontend/vitest.unit.config.ts"
   ]
 }

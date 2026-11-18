@@ -154,7 +154,7 @@ numpy>=1.24.0
 
 		// 		go: `module mymod
 
-		// go 1.26
+		// go 1.27
 
 		// require (
 		// 	rsc.io/quote v1.5.2

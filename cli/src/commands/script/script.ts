@@ -1,8 +1,15 @@
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import {
+  assertRemotePath,
+  resolveWorkspace,
+  toSyncRootRelativePath,
+  validatePath,
+} from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
+import { ciTestBatchDeployed, ciTestBatchSkip } from "../../core/ci_test_batch.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -13,7 +20,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { deepEqual, getHeaders, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { deepEqual, getHeaders, isFileResource, isFilesetResource, readTextFile, readTextFileSync, sleep } from "../../utils/utils.ts";
 import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
@@ -53,11 +60,18 @@ import {
   SyncOptions,
   mergeConfigWithConfigFile,
   readConfigFile,
+  readEffectiveSyncBehavior,
 } from "../../core/conf.ts";
-import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import {
+  SyncCodebase,
+  isPerScriptDigest,
+  listSyncCodebases,
+  uncoveredBundleInputs,
+} from "../../utils/codebase.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
+import { withEsbuild } from "../../utils/esbuild_loader.ts";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
@@ -70,10 +84,19 @@ import {
   isScriptModulePath,
   buildModuleFolderPath,
   getModuleFolderSuffix,
+  dbtGeneratedDirs,
+  isUnderGeneratedDir,
+  isLocalSecretFile,
+  moduleFileExclusion,
+  oversizedModuleFileError,
+  MAX_MODULE_BYTES,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
   scriptPathToRemotePath,
   isRawAppPath,
+  DBT_DESCRIPTOR_NAME,
+  isDbtDescriptorPath,
+  isMissingDbtDescriptor,
 } from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
@@ -97,6 +120,30 @@ export interface ScriptFile {
  */
 export function isRawAppBackendPath(filePath: string): boolean {
   return isRawAppBackendPathInternal(filePath);
+}
+
+/**
+ * The positive-only runnable settings (concurrent_limit, timeout, ...) treat any `<= 0`
+ * value as "unset": the backend coerces it to null (a 0-slot concurrency limit bricks the
+ * runnable, a 0s timeout kills every run). Coerce to undefined so it is serialized as
+ * omitted, never as 0, and redeploys don't churn against the backend-normalized value.
+ */
+export function nonePositiveInt(
+  v: number | undefined | null
+): number | undefined {
+  return v != null && v > 0 ? v : undefined;
+}
+
+/**
+ * Normalize a concurrent_limit + its time window together: when the limit is disabled
+ * (<= 0) the window is dropped too. Returns [concurrent_limit, concurrency_time_window_s].
+ */
+export function normalizeConcurrency(
+  concurrentLimit: number | undefined | null,
+  concurrencyTimeWindowS?: number | undefined | null
+): [number | undefined, number | undefined] {
+  const limit = nonePositiveInt(concurrentLimit);
+  return limit === undefined ? [undefined, undefined] : [limit, concurrencyTimeWindowS ?? undefined];
 }
 
 /**
@@ -134,9 +181,18 @@ async function push(opts: PushOptions, filePath: string) {
     return;
   }
 
-  const fstat = await stat(filePath);
-  if (!fstat.isFile()) {
-    throw new Error("file path must refer to a file.");
+  // A dbt project's descriptor is optional, so the one content path a
+  // descriptor-less project has is deliberately not on disk. The project beside
+  // it is what says the script is real.
+  const absentDescriptor = await stat(filePath).then(
+    () => false,
+    (e) => isMissingDbtDescriptor(filePath, e)
+  );
+  if (!absentDescriptor) {
+    const fstat = await stat(filePath);
+    if (!fstat.isFile()) {
+      throw new Error("file path must refer to a file.");
+    }
   }
 
   if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
@@ -145,11 +201,17 @@ async function push(opts: PushOptions, filePath: string) {
     );
   }
 
+  if (isFileResource(filePath) || isFilesetResource(filePath)) {
+    throw Error(
+      "Cannot push a file/fileset resource content file as a script, push its .resource.yaml with 'wmill resource push' instead"
+    );
+  }
+
   await requireLogin(opts);
 
   // Warn about metadata state before pushing
   try {
-    const content = await readTextFile(filePath);
+    const content = await readScriptContent(filePath);
     const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
     const contentHash = await computePushMetadataHash(filePath, content);
     const conf = await readLockfile();
@@ -177,7 +239,11 @@ async function push(opts: PushOptions, filePath: string) {
     opts.message,
     opts,
     await getRawWorkspaceDependencies(true),
-    codebases
+    codebases,
+    await buildPermissionedAsContext(
+      workspace.workspaceId,
+      await readEffectiveSyncBehavior(opts, workspace)
+    )
   );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
@@ -237,6 +303,20 @@ export async function findResourceFile(path: string) {
   return validCandidates[0];
 }
 
+// The separator is whatever the local filesystem uses, so both are accepted:
+// on Windows these paths reach us as `my_script__mod\script.yaml`.
+const MODULE_ENTRY_META_RE = /([\\/])script\.(yaml|json|lock)$/;
+
+/**
+ * Whether a path is a module folder's own metadata file (`__mod/script.yaml`).
+ * `isModuleEntryPoint` already pins the file to `script.*` directly under
+ * `__mod/`, so this only narrows it to the metadata extensions: a `script.yaml`
+ * nested deeper in the module tree is a module file, not the script's metadata.
+ */
+export function isModuleEntryMetadata(p: string): boolean {
+  return isModuleEntryPoint(p) && MODULE_ENTRY_META_RE.test(p);
+}
+
 export async function handleScriptMetadata(
   path: string,
   workspace: Workspace,
@@ -251,12 +331,7 @@ export async function handleScriptMetadata(
   const isFlatMeta = path.endsWith(".script.json") ||
     path.endsWith(".script.yaml") ||
     path.endsWith(".script.lock");
-  // Folder layout: my_script__mod/script.yaml
-  const isFolderMeta = !isFlatMeta && isScriptModulePath(path) && (
-    path.endsWith("/script.yaml") ||
-    path.endsWith("/script.json") ||
-    path.endsWith("/script.lock")
-  );
+  const isFolderMeta = !isFlatMeta && isModuleEntryMetadata(path);
   if (isFlatMeta || isFolderMeta) {
     const contentPath = await findContentFile(path);
     return handleFile(
@@ -292,6 +367,12 @@ export async function handleFile(
   codebases: SyncCodebase[],
   permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
+  // A file/fileset resource's content file can carry a script extension
+  // (.sql, .ts, …) but belongs to its parent resource, never to a
+  // standalone script.
+  if (isFileResource(path) || isFilesetResource(path)) {
+    return false;
+  }
   // Detect module entry point: e.g., my_script__mod/script.ts
   const moduleEntryPoint = isModuleEntryPoint(path);
   if (
@@ -301,7 +382,7 @@ export async function handleFile(
     // standalone scripts — pushed via pushRawApp, not here.
     !isRawAppPath(path) &&
     (!isScriptModulePath(path) || moduleEntryPoint) &&
-    exts.some((exts) => path.endsWith(exts))
+    hasScriptExt(path)
   ) {
     if (alreadySynced.includes(path)) {
       return true;
@@ -310,6 +391,29 @@ export async function handleFile(
 
     alreadySynced.push(path);
     const remotePath = scriptPathToRemotePath(path);
+
+    // Before anything is written: `<base>.py` and `<base>__dbt/` deploy to ONE
+    // remote path, so whichever is pushed last replaces the other's script.
+    // Refused from either side — the descriptor is exempt only from finding its
+    // OWN project (it is that project's content file, so its base resolves to
+    // the same `dbt_project.yml`), never from an ordinary sibling.
+    // A folder-layout script is `<base>__mod/script.ts`, so stripping its
+    // extension yields `<base>__mod/script`, not the base both layouts deploy
+    // to. Wrong base, and the probe below looks in a directory that cannot
+    // exist — which is how a `__mod` script and a dbt project at one path were
+    // both pushed, each replacing the other.
+    const base = isScriptModulePath(path)
+      ? getScriptBasePathFromModulePath(path) ?? removeExtensionToPath(path)
+      : removeExtensionToPath(path);
+    const isDescriptor = isDbtDescriptorPath(path);
+    const other = isDescriptor
+      ? await collidingOrdinaryScript(base)
+      : await collidingDbtProject(base);
+    if (other) {
+      throw isDescriptor
+        ? dbtPathCollisionError(path, other)
+        : dbtPathCollisionError(other, path);
+    }
 
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
 
@@ -328,12 +432,10 @@ export async function handleFile(
         }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
-        const esbuild = await import("esbuild");
-
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
         const format = codebase.format ?? "cjs";
-        const out = await esbuild.build({
+        const out = await withEsbuild((esbuild) => esbuild.build({
           entryPoints: [path],
           format: format,
           bundle: true,
@@ -348,8 +450,21 @@ export async function handleFile(
           target: format == "cjs" ? "node20.15.1" : "esnext",
           banner: codebase.banner,
           // ...(codebase.banner != null && { banner: codebase.banner }),
-        });
+          metafile: true,
+        }));
         const endTime = performance.now();
+        const uncovered = isPerScriptDigest(codebase)
+          ? []
+          : uncoveredBundleInputs(
+              codebase,
+              path,
+              Object.keys(out.metafile?.inputs ?? {})
+            );
+        if (uncovered.length > 0) {
+          log.warnAlways(
+            `${path} bundles files outside codebase ${codebase.relative_path}; edits to them won't be detected as changes unless listed in extra_digest_paths: ${uncovered.join(", ")}`
+          );
+        }
         bundleContent = out.outputFiles[0].text;
         outputFiles = out.outputFiles ?? [];
         if (outputFiles.length == 0) {
@@ -445,7 +560,7 @@ export async function handleFile(
     } catch {
       log.debug(`Script ${remotePath} does not exist on remote`);
     }
-    const content = await readTextFile(path);
+    const content = await readScriptContent(path);
 
     if (opts?.skipScriptsMetadata) {
       // if (codebase) {
@@ -458,15 +573,30 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = await codebase.getDigest(forceTar);
+      typed.codebase = await codebase.getDigest(path, forceTar);
     }
 
     // Scan for modules: folder layout (entry point inside __mod/) or flat layout
     const scriptBasePath = moduleEntryPoint
       ? getScriptBasePathFromModulePath(path)!
       : path.substring(0, path.indexOf("."));
-    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
-    const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, moduleEntryPoint);
+    const isDbt = language === "dbt";
+    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix(language);
+    const modules = await readModulesFromDisk(
+      moduleFolderPath,
+      opts?.defaultTs,
+      moduleEntryPoint,
+      isDbt,
+    );
+
+    // A concurrent_limit of <= 0 means "concurrency disabled", not "zero slots" (which
+    // would brick the runnable at the queue's concurrency gate). Emit it as omitted rather
+    // than 0 so a redeploy never re-persists a zero-slot limit, and drop the now-meaningless
+    // time window alongside it. Mirrors the backend's ConcurrencySettings::normalized.
+    const [normConcurrentLimit, normConcurrencyTimeWindowS] = normalizeConcurrency(
+      typed?.concurrent_limit,
+      typed?.concurrency_time_window_s
+    );
 
     const requestBodyCommon: NewScript = {
       content,
@@ -475,36 +605,57 @@ export async function handleFile(
       path: remotePath.replaceAll(SEP, "/"),
       summary: typed?.summary ?? "",
       kind: typed?.kind,
-      lock: typed?.lock,
+      // A dbt lock pins a resolved commit and engine versions that only a
+      // dependency job can determine, and that job is also what publishes the
+      // script's manifest graph. Sending one suppresses that job, so the push
+      // would deploy a stale lock AND leave the graph unpublished.
+      lock: language === "dbt" ? undefined : typed?.lock,
       schema: typed?.schema,
       tag: typed?.tag,
       ws_error_handler_muted: typed?.ws_error_handler_muted,
       dedicated_worker: typed?.dedicated_worker,
       cache_ttl: typed?.cache_ttl,
-      concurrency_time_window_s: typed?.concurrency_time_window_s,
-      concurrent_limit: typed?.concurrent_limit,
+      cache_ignore_s3_path: typed?.cache_ignore_s3_path,
+      concurrency_time_window_s: normConcurrencyTimeWindowS,
+      concurrent_limit: normConcurrentLimit,
       deployment_message: message,
       restart_unless_cancelled: typed?.restart_unless_cancelled,
       visible_to_runner_only: typed?.visible_to_runner_only,
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
+      on_concurrency_limit: typed?.on_concurrency_limit,
       debounce_key: typed?.debounce_key,
       debounce_delay_s: typed?.debounce_delay_s,
-      codebase: await codebase?.getDigest(forceTar),
-      timeout: typed?.timeout,
+      debounce_args_to_accumulate: typed?.debounce_args_to_accumulate,
+      max_total_debouncing_time: typed?.max_total_debouncing_time,
+      max_total_debounces_amount: typed?.max_total_debounces_amount,
+      codebase: await codebase?.getDigest(path, forceTar),
+      timeout: nonePositiveInt(typed?.timeout),
+      // 0 means "delete immediately after completion", so it must survive as 0
+      // rather than being folded into "unset" the way the positive-only settings are.
+      delete_after_secs: typed?.delete_after_secs,
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
       modules: modules,
       labels: typed?.labels,
+      // Always sent: the server keeps a restriction the body omits, so a script.yaml without
+      // the key has to clear it explicitly.
+      job_token_scopes: typed?.job_token_scopes ?? null,
     };
 
     const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
     delete (typed as any)?.has_on_behalf_of;
+    // The authorization half of the identity is never exported to the repo (the
+    // workspace tarball strips it); it only ever travels back from the remote row.
+    delete (typed as any)?.on_behalf_of;
 
     if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
       if (remote && remote.on_behalf_of_email) {
         requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
+        (requestBodyCommon as any).on_behalf_of = (
+          remote as any
+        ).on_behalf_of;
         (requestBodyCommon as any).preserve_on_behalf_of = true;
         log.info(`Preserving ${remote.on_behalf_of_email} as on_behalf_of for script ${remotePath}`);
       }
@@ -518,6 +669,12 @@ export async function handleFile(
           (typed.description === remote.description &&
             typed.summary === remote.summary &&
             typed.kind == remote.kind &&
+            // A `.ts` file changes language when defaultTs flips, content untouched.
+            // bun and bunnative share that extension, so the inferred language is always
+            // bun; the server derives bunnative back from the `//native` annotation in
+            // the content, which is compared above.
+            language ==
+              (remote.language === "bunnative" ? "bun" : remote.language) &&
             !remote.archived &&
             (Array.isArray(remote?.lock)
               ? remote?.lock?.join("\n")
@@ -529,24 +686,41 @@ export async function handleFile(
               remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
-            typed.concurrency_time_window_s ==
-              remote.concurrency_time_window_s &&
-            typed.concurrent_limit == remote.concurrent_limit &&
+            Boolean(typed.cache_ignore_s3_path) ==
+              Boolean(remote.cache_ignore_s3_path) &&
+            normConcurrencyTimeWindowS ==
+              normalizeConcurrency(
+                remote.concurrent_limit,
+                remote.concurrency_time_window_s
+              )[1] &&
+            normConcurrentLimit ==
+              normalizeConcurrency(remote.concurrent_limit)[0] &&
             Boolean(typed.restart_unless_cancelled) ==
               Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
               Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
-            typed.priority == Boolean(remote.priority) &&
-            typed.timeout == remote.timeout &&
+            typed.priority == remote.priority &&
+            nonePositiveInt(typed.timeout) == nonePositiveInt(remote.timeout) &&
+            typed.delete_after_secs == remote.delete_after_secs &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
+            (typed.on_concurrency_limit ?? "queue") ==
+              (remote.on_concurrency_limit ?? "queue") &&
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
+            deepEqual(
+              typed.debounce_args_to_accumulate ?? null,
+              remote.debounce_args_to_accumulate ?? null
+            ) &&
+            typed.max_total_debouncing_time == remote.max_total_debouncing_time &&
+            typed.max_total_debounces_amount == remote.max_total_debounces_amount &&
             typed.codebase == remote.codebase &&
             (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
+            deepEqual(typed.labels ?? null, remote.labels ?? null) &&
+            deepEqual(typed.job_token_scopes ?? null, remote.job_token_scopes ?? null) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
@@ -603,14 +777,10 @@ export async function handleFile(
     // create_script (which would bump the script hash) and instead route
     // through /acls/* via applyExtraPermsDiff.
     //
-    // No refetch is needed:
-    //  - folder perms are additive at auth time, never merged onto item rows;
-    //  - the body sent to create_script doesn't carry extra_perms, so a fresh
-    //    deploy of an existing path inherits the previous version's perms
-    //    unchanged. The diff against `remote` (captured before the deploy)
-    //    therefore matches what `wmill acl remove` would do — and the granular
-    //    ACL endpoint updates every matching row, so the inheritance on the
-    //    new version doesn't leave ghost entries.
+    // No refetch is needed: folder perms are additive at auth time and never merged
+    // onto item rows, and each branch above leaves the new version's perms where the
+    // diff expects them — the update branch names a parent, which carries them over,
+    // while the create branch has no `remote` to diff against and sends the whole set.
     await applyExtraPermsDiff(
       workspaceId,
       "script",
@@ -632,6 +802,11 @@ export async function readModulesFromDisk(
   moduleFolderPath: string,
   defaultTs: "bun" | "deno" | undefined,
   folderLayout: boolean = false,
+  // A dbt project rides in its module folder as-is: `.sql` models (which the
+  // language inference below rejects as an ambiguous dialect), `.yml` schemas
+  // and `.csv` seeds are all part of the project and none is a Windmill script.
+  // Verbatim, or dbt receives a project missing exactly the files it needs.
+  verbatim: boolean = false,
 ): Promise<Record<string, ScriptModule> | undefined> {
   if (!fs.existsSync(moduleFolderPath) || !fs.statSync(moduleFolderPath).isDirectory()) {
     return undefined;
@@ -639,9 +814,18 @@ export async function readModulesFromDisk(
 
   const modules: Record<string, ScriptModule> = {};
 
+  const skipDirs = verbatim
+    ? dbtGeneratedDirs(moduleFolderPath)
+    : new Set<string>();
+
   // In folder layout mode, skip the entry point files (script.*, script.yaml, etc.)
   const isEntryPointFile = (name: string, isTopLevel: boolean) => {
-    if (!folderLayout || !isTopLevel) return false;
+    if (!isTopLevel) return false;
+    // A dbt project's descriptor is the script's CONTENT, so it must not also
+    // ride along as a module: the push would send the same text twice and dbt
+    // would find a stray file at its project root.
+    if (verbatim) return name === DBT_DESCRIPTOR_NAME;
+    if (!folderLayout) return false;
     return (
       name.startsWith("script.") ||
       name === "script.lock" ||
@@ -658,10 +842,63 @@ export async function readModulesFromDisk(
       const isTopLevel = relPrefix === "";
 
       if (entry.isDirectory()) {
+        // A configured `target-path` may be nested (`build/target`), so the
+        // comparison is on the project-relative path, not the entry name.
+        if (skipDirs.size > 0 && isUnderGeneratedDir(relPath, skipDirs)) continue;
         readDir(fullPath, relPath);
-      } else if (entry.isFile() && !entry.name.endsWith(".lock") && !isEntryPointFile(entry.name, isTopLevel)) {
-        // Skip lock files — they're handled as the `lock` field on ScriptModule
-        if (exts.some((ext) => entry.name.endsWith(ext))) {
+        // `.lock` is the script's own lockfile in a `__mod` bundle (the `lock`
+        // field on ScriptModule) — but a dbt project's files are its author's,
+        // and one may legitimately be named `uv.lock`. Dropping it would break
+        // the unmodified-project round trip this bundle exists to keep.
+      } else if (
+        entry.isFile() &&
+        (verbatim || !entry.name.endsWith(".lock")) &&
+        !isEntryPointFile(entry.name, isTopLevel)
+      ) {
+        if (verbatim) {
+          // Secrets stay on the machine that holds them. Skipped before the
+          // read, and loudly: a `.env` swept into the bundle is a credential
+          // stored in every version of the script and handed back on pull.
+          if (isLocalSecretFile(entry.name)) {
+            log.warn(
+              `Skipping ${relPath}: a local secrets file is not part of the dbt project — ` +
+                `dbt reads its values from the environment, so set them in the script's ` +
+                `environment variables or the descriptor's \`env\``,
+            );
+            continue;
+          }
+          // A dbt project's authored files are text. A binary one -- an image
+          // under `docs/`, a `.DS_Store`, a parquet seed -- would be read as
+          // mojibake and, if it carries a NUL, rejected by Postgres with an
+          // opaque `unsupported Unicode escape sequence`, which the push then
+          // reports as success. Skip it, loudly: dbt does not read it either.
+          //
+          // Asked BEFORE reading: the predicate only stats the file and reads
+          // its first 8 KB, so a multi-gigabyte seed next to the project costs
+          // that rather than being loaded whole just to be rejected.
+          const exclusion = moduleFileExclusion(fullPath);
+          if (exclusion !== undefined) {
+            // Over the limit but readable as text — a large seed CSV is the
+            // realistic case — is refused rather than skipped: dbt WOULD have
+            // read it, so shipping the project without it deploys something that
+            // compiles here and fails at run time with a missing relation.
+            if (exclusion === "oversized") {
+              throw oversizedModuleFileError(relPath, fs.statSync(fullPath).size);
+            }
+            log.warn(
+              `Skipping ${relPath}: not a text file, so it is not part of the dbt project the ` +
+                `bundle carries — dbt does not read it either`,
+            );
+            continue;
+          }
+          // `language` is a required field of the API type and is not used for
+          // these: the worker writes them to their relative path and dbt reads
+          // the tree.
+          modules[relPath] = {
+            content: fs.readFileSync(fullPath).toString("utf-8"),
+            language: "dbt" as ScriptModule["language"],
+          };
+        } else if (exts.some((ext) => entry.name.endsWith(ext))) {
           const content = readTextFileSync(fullPath);
           const language = inferContentTypeFromFilePath(entry.name, defaultTs);
 
@@ -766,7 +1003,9 @@ async function createScript(
   // skip_if_noop asks the backend to treat deploys identical to the parent
   // (same content, lockfile, and metadata) as a no-op, so the CLI does not
   // produce phantom git-sync / promotion commits on re-pushes.
-  const skipIfNoop = "skip_if_noop=true";
+  const skipIfNoop =
+    "skip_if_noop=true" +
+    (ciTestBatchSkip().skipCiTests ? "&skip_ci_tests=true" : "");
   const extraHeaders = getHeaders();
   if (!bundleContent) {
     try {
@@ -831,25 +1070,136 @@ async function createScript(
       );
     }
   }
+  ciTestBatchDeployed("script", body.path);
   return performance.now() - start;
 }
 
-export async function findContentFile(filePath: string) {
+/**
+ * A script metadata file could not be paired with exactly one script file on
+ * disk, so nothing can be deployed for it. Distinct from a deploy that reached
+ * the remote and was rejected: callers that can carry on with the rest of a
+ * changeset catch this specifically.
+ */
+export class UnresolvableScriptContentFileError extends Error {}
+
+/**
+ * A path claimed by both a dbt project and an ordinary script.
+ *
+ * Its own class because the module push tolerates "no parent found" and must
+ * NOT tolerate this: swallowed, the command reports success while deploying
+ * nothing.
+ */
+export class DbtPathCollisionError extends UnresolvableScriptContentFileError {}
+
+/**
+ * The dbt project a path would collide with, if there is one.
+ *
+ * `<base>.py` and `<base>__dbt/` deploy to the SAME remote path, so whichever
+ * is pushed last wins and replaces the other's script. The descriptor is
+ * optional, so `dbt_project.yml` — not the descriptor — is what says a project
+ * is there. Asked on BOTH push paths: an ordinary file goes straight to
+ * `handleFile`, a model reaches its parent through `findContentFile`, and a
+ * guard on one of them leaves the other silently overwriting.
+ */
+export async function collidingDbtProject(
+  basePath: string,
+  baseDir?: string
+): Promise<string | undefined> {
+  const project = basePath + "__dbt/dbt_project.yml";
+  const onDisk = baseDir ? path.join(baseDir, project) : project;
+  return (await stat(onDisk).then(() => true).catch(() => false))
+    ? project
+    : undefined;
+}
+
+/**
+ * The ordinary script file sharing a base with a dbt project, if there is one —
+ * the same collision as [`collidingDbtProject`], seen from the dbt side.
+ *
+ * Needed because a descriptor may be pushed DIRECTLY (`wmill script push
+ * <base>__dbt/wm_dbt.yaml`), which never passes through the metadata resolution
+ * that would otherwise catch it.
+ */
+export async function collidingOrdinaryScript(
+  basePath: string
+): Promise<string | undefined> {
+  for (const ext of exts) {
+    if (ext === "__dbt/" + DBT_DESCRIPTOR_NAME) continue;
+    // Both layouts, because both deploy to `basePath`: the flat file, and the
+    // folder layout's entry point.
+    for (const candidate of [
+      basePath + ext,
+      `${basePath}${getModuleFolderSuffix()}/script${ext}`,
+    ]) {
+      const isFile = await stat(candidate)
+        .then((s) => s.isFile())
+        .catch(() => false);
+      if (isFile) return candidate;
+    }
+  }
+  return undefined;
+}
+
+export function dbtPathCollisionError(
+  project: string,
+  other: string
+): DbtPathCollisionError {
+  return new DbtPathCollisionError(
+    `${project} and ${other} deploy to the same path, so pushing either one ` +
+      `replaces the other's script. Keep one: move the dbt project to a path ` +
+      `of its own, or remove ${other}.`
+  );
+}
+
+
+/**
+ * A script's content, tolerating the one content file that may not exist: a dbt
+ * project's descriptor is optional, and absent means an empty descriptor.
+ */
+async function readScriptContent(filePath: string): Promise<string> {
+  try {
+    return await readTextFile(filePath);
+  } catch (e) {
+    // ONLY a missing file is an empty descriptor. A permission or I/O error on a
+    // descriptor that does exist would otherwise deploy the defaults — the
+    // `main` warehouse and the whole project — in place of what the file says.
+    if (isMissingDbtDescriptor(filePath, e)) return "";
+    throw e;
+  }
+}
+
+/**
+ * The script file `filePath`'s metadata belongs to. `baseDir`, when given, is
+ * where the disk lookups happen, leaving `filePath` classified as written: the
+ * layout helpers below match their suffixes ANYWHERE in a path, so a caller
+ * that prefixed a checkout named `repo__mod` would have it read as the module.
+ */
+export async function findContentFile(filePath: string, baseDir?: string) {
+  const onDisk = (p: string) => (baseDir ? path.join(baseDir, p) : p);
   // Folder layout: __mod/script.yaml -> __mod/script.ts
-  const isModuleFolderMeta =
-    filePath.endsWith("/script.yaml") || filePath.endsWith("/script.json") || filePath.endsWith("/script.lock");
-  const candidates = isModuleFolderMeta
-    ? exts.map((x) => filePath.replace(/\/script\.(yaml|json|lock)$/, "/script" + x))
-    : filePath.endsWith("script.json")
-    ? exts.map((x) => filePath.replace(".script.json", x))
-    : filePath.endsWith("script.lock")
-    ? exts.map((x) => filePath.replace(".script.lock", x))
-    : exts.map((x) => filePath.replace(".script.yaml", x));
+  const isModuleFolderMeta = isModuleEntryMetadata(filePath);
+  const toCandidate = (ext: string) =>
+    isModuleFolderMeta
+      ? filePath.replace(MODULE_ENTRY_META_RE, "$1script" + ext)
+      : filePath.endsWith("script.json")
+      ? filePath.replace(".script.json", ext)
+      : filePath.endsWith("script.lock")
+      ? filePath.replace(".script.lock", ext)
+      : filePath.replace(".script.yaml", ext);
+  // Every branch above is a no-op on a path that is neither flat nor
+  // module-entry metadata, which would make toCandidate the identity function
+  // and "resolve" the input to itself.
+  if (!isModuleFolderMeta && !/\.script\.(yaml|json|lock)$/.test(filePath)) {
+    throw new UnresolvableScriptContentFileError(
+      `${filePath} is not a script metadata file — no script file can be resolved from it.`
+    );
+  }
+  const candidates = exts.map(toCandidate);
 
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
-        return stat(x)
+        return stat(onDisk(x))
           .catch(() => undefined)
           .then((x) => x?.isFile())
           .then((e) => {
@@ -860,15 +1210,38 @@ export async function findContentFile(filePath: string) {
   )
     .filter((x) => x.file)
     .map((x) => x.path);
+  // A dbt project's descriptor is OPTIONAL, so `dbt_project.yml` is what says a
+  // dbt script lives at this path — the descriptor is often absent from the
+  // candidates above while the project is perfectly real. Asked BEFORE the
+  // counts below: a project beside an ordinary script is not "one candidate",
+  // it is two scripts claiming one remote path, and returning the ordinary one
+  // deploys it OVER the dbt script on the next push of any model.
+  const dbtCandidate = toCandidate("__dbt/" + DBT_DESCRIPTOR_NAME);
+  const dbtProject = await collidingDbtProject(
+    dbtCandidate.slice(0, -("__dbt/" + DBT_DESCRIPTOR_NAME).length),
+    baseDir,
+  );
+  const nonDbtCandidates = validCandidates.filter((c) => c !== dbtCandidate);
+  if (dbtProject && nonDbtCandidates.length > 0) {
+    throw dbtPathCollisionError(dbtProject, nonDbtCandidates.join(", "));
+  }
   if (validCandidates.length > 1) {
-    throw new Error(
-      "No content path given and more than one candidate found: " +
-        validCandidates.join(", ")
+    throw new UnresolvableScriptContentFileError(
+      `Multiple script files found next to ${filePath}: ${validCandidates.join(", ")} — ` +
+        `cannot tell which one the metadata belongs to. Keep exactly one.`
     );
   }
   if (validCandidates.length < 1) {
-    throw new Error(
-      `No content path given and no content file found for ${filePath}.`
+    // Resolving to the absent descriptor keeps one content path for every
+    // caller; reading it yields an empty descriptor.
+    if (dbtProject) {
+      return dbtCandidate;
+    }
+    throw new UnresolvableScriptContentFileError(
+      `No script file found next to ${filePath} — a script cannot be deployed from its metadata alone. ` +
+        `Add the matching script file (e.g. ${toCandidate(".ts")} or ${toCandidate(
+          ".py"
+        )}) or remove ${filePath}.`
     );
   }
   return validCandidates[0];
@@ -932,6 +1305,10 @@ export function filePathExtensionFromContentType(
     return ".rb";
   } else if (language === "rlang") {
     return ".r";
+  } else if (language === "dbt") {
+    // Not an extension but a path suffix: a dbt script's content file lives
+    // inside the project folder, so `<base> + this` is where it belongs.
+    return "__dbt/" + DBT_DESCRIPTOR_NAME;
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
@@ -964,12 +1341,28 @@ export const exts = [
   ".java",
   ".rb",
   ".r",
+  // Not an extension: a dbt script's content file is its descriptor, inside
+  // the project folder. `<base>.script.yaml` -> `<base>__dbt/wm_dbt.yaml`.
+  "__dbt/" + DBT_DESCRIPTOR_NAME,
   // for related places search: ADD_NEW_LANG
 ];
 
+/**
+ * Whether a path is a script's content file.
+ *
+ * Separators are normalized first: one "extension" is the path suffix
+ * `__dbt/wm_dbt.yaml`, which on Windows is spelled `__dbt\wm_dbt.yaml` and
+ * would match nothing — silently skipping every dbt project on that platform.
+ */
+export function hasScriptExt(p: string): boolean {
+  const norm = p.replaceAll("\\", "/");
+  return exts.some((ext) => norm.endsWith(ext));
+}
+
 export function removeExtensionToPath(path: string): string {
+  const norm = path.replaceAll("\\", "/");
   for (const ext of exts) {
-    if (path.endsWith(ext)) {
+    if (norm.endsWith(ext)) {
       return path.substring(0, path.length - ext.length);
     }
   }
@@ -1044,6 +1437,7 @@ async function run(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
+    tag?: string;
   },
   path: string
 ) {
@@ -1074,6 +1468,7 @@ async function run(
     id = await wmill.runScriptByPath({
       workspace: workspace.workspaceId,
       path,
+      tag: opts.tag,
       requestBody: input,
     });
   } catch (e: any) {
@@ -1105,45 +1500,49 @@ async function run(
     await track_job(workspace.workspaceId, id);
   }
 
-  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
-  let retries = 0;
-  while (retries < MAX_RETRIES) {
-    try {
-      const completedJob = await wmill.getCompletedJob({
-        workspace: workspace.workspaceId,
-        id,
-      });
-
-      if (completedJob.success === false) {
-        process.exitCode = 1;
-      }
-
-      const result = completedJob.result ?? {};
-      if (opts.silent) {
-        console.log(JSON.stringify(result));
-      } else {
-        log.info(JSON.stringify(result, null, 2));
-      }
-
-      break;
-    } catch {
-      retries++;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+  let { result, success } = await pollForJobResult(workspace.workspaceId, id);
+  // Prefer getCompletedJob: unlike the poller, it counts a skipped
+  // (debounced) job as a success.
+  try {
+    const completedJob = await wmill.getCompletedJob({
+      workspace: workspace.workspaceId,
+      id,
+    });
+    result = completedJob.result;
+    success = completedJob.success !== false;
+  } catch {
+    /* keep the poller's result */
   }
-  if (retries >= MAX_RETRIES) {
-    throw new Error(`Timed out waiting for job ${id} to complete`);
+  if (!success) {
+    process.exitCode = 1;
+  }
+  result = result ?? {};
+  if (opts.silent) {
+    console.log(JSON.stringify(result));
+  } else {
+    log.info(JSON.stringify(result, null, 2));
   }
 }
+
+function logJobCompleted(success: boolean | undefined) {
+  log.info("\n");
+  log.info(
+    success === false
+      ? colors.bold.underline.red("Job Completed")
+      : colors.bold.underline.green("Job Completed")
+  );
+  log.info("\n");
+}
+
+const JOB_UPDATES_POLL_INTERVAL_MS = 500;
+const MAX_CONSECUTIVE_JOB_UPDATE_ERRORS = 5;
 
 export async function track_job(workspace: string, id: string) {
   try {
     const result = await wmill.getCompletedJob({ workspace, id });
 
     log.info(result.logs);
-    log.info("\n");
-    log.info(colors.bold.underline.green("Job Completed"));
-    log.info("\n");
+    logJobCompleted(result.success);
     return;
   } catch {
     /* ignore */
@@ -1151,15 +1550,13 @@ export async function track_job(workspace: string, id: string) {
 
   log.info(colors.yellow("Waiting for Job " + id + " to start..."));
 
+  // Server-side character position (1-based, as returned in `log_offset`), not
+  // a JS string length: UTF-16 lengths drift from it on non-BMP characters.
   let logOffset = 0;
   let running = false;
-  let retry = 0;
+  let errors = 0;
   while (true) {
-    let updates: {
-      running?: boolean | undefined;
-      completed?: boolean | undefined;
-      new_logs?: string | undefined;
-    };
+    let updates: Awaited<ReturnType<typeof wmill.getJobUpdates>>;
     try {
       updates = await wmill.getJobUpdates({
         workspace,
@@ -1167,13 +1564,16 @@ export async function track_job(workspace: string, id: string) {
         logOffset,
         running,
       });
-    } catch {
-      retry++;
-      if (retry > 3) {
-        log.info("failed to get job updated. skipping log streaming.");
+      errors = 0;
+    } catch (e: any) {
+      errors++;
+      if (errors >= MAX_CONSECUTIVE_JOB_UPDATE_ERRORS) {
+        log.warn(
+          `Failed to get job updates (${e?.message ?? e}), log streaming stopped. Waiting for the job to complete...`
+        );
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await sleep(JOB_UPDATES_POLL_INTERVAL_MS);
       continue;
     }
 
@@ -1184,11 +1584,10 @@ export async function track_job(workspace: string, id: string) {
 
     if (updates.new_logs) {
       process.stdout.write(updates.new_logs);
-      logOffset += updates.new_logs.length;
     }
+    logOffset = updates.log_offset ?? logOffset;
 
     if (updates.completed === true) {
-      running = false;
       break;
     }
 
@@ -1196,24 +1595,25 @@ export async function track_job(workspace: string, id: string) {
       running = false;
       log.info(colors.yellow("Job suspended. Waiting for it to continue..."));
     }
+    await sleep(JOB_UPDATES_POLL_INTERVAL_MS);
   }
-  await new Promise((resolve, _) => setTimeout(() => resolve(undefined), 1000));
 
+  await pollForJobResult(workspace, id);
+
+  let success: boolean | undefined;
   try {
     const final_job = await wmill.getCompletedJob({ workspace, id });
-    if ((final_job.logs?.length ?? -1) > logOffset) {
-      log.info(final_job.logs!.substring(logOffset));
+    success = final_job.success;
+    const remaining = Array.from(final_job.logs ?? "")
+      .slice(Math.max(logOffset - 1, 0))
+      .join("");
+    if (remaining) {
+      log.info(remaining);
     }
-    log.info("\n");
-    if (final_job.success) {
-      log.info(colors.bold.underline.green("Job Completed"));
-    } else {
-      log.info(colors.bold.underline.red("Job Completed"));
-    }
-    log.info("\n");
-  } catch {
-    log.info("Job appears to have completed, but no data can be retrieved");
+  } catch (e: any) {
+    log.warn(`Could not retrieve the job's remaining logs: ${e?.message ?? e}`);
   }
+  logJobCompleted(success);
 }
 
 export async function pollForJobResult(
@@ -1221,6 +1621,32 @@ export async function pollForJobResult(
   jobId: string,
 ): Promise<{ result: unknown; success: boolean }> {
   return await pollJobWithQueueLogging(workspace, jobId);
+}
+
+/**
+ * A server that predates preview `on_behalf_of` drops the field and runs the preview as the
+ * caller, which would pass for a reproduction of the other identity's run. Probe it with an
+ * `identity` preview, which runs no code, before submitting any.
+ */
+export async function ensurePreviewOnBehalfOfSupported(
+  workspace: string,
+  onBehalfOf: string | undefined,
+) {
+  if (!onBehalfOf) return;
+  const probeId = await wmill.runScriptPreview({
+    workspace,
+    requestBody: { kind: "identity", args: {}, on_behalf_of: onBehalfOf },
+  });
+  const job = await wmill.getJob({ workspace, id: probeId });
+  if (
+    job.permissioned_as === onBehalfOf ||
+    job.email?.toLowerCase() === onBehalfOf.toLowerCase()
+  ) {
+    return;
+  }
+  throw new Error(
+    `The server does not support --on-behalf-of: it would run the preview as ${job.permissioned_as}, not ${onBehalfOf}. Upgrade the Windmill instance.`
+  );
 }
 
 async function show(opts: GlobalOptions, path: string) {
@@ -1381,7 +1807,7 @@ export async function generateMetadata(
       await FSFSElement(process.cwd(), codebases, false),
       (p, isD) => {
         return (
-          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          (!isD && !hasScriptExt(p)) ||
           ignore(p, isD) ||
           isFlowPath(p) ||
           isAppPath(p) ||
@@ -1485,23 +1911,37 @@ async function preview(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
+    tag?: string;
+    onBehalfOf?: string;
   } & SyncOptions,
   filePath: string
 ) {
   if (opts.silent) {
     log.setSilent(true);
   }
+  // Captured before the config read, which chdirs to the wmill.yaml root.
+  const cwdBeforeConfig = process.cwd();
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  await ensurePreviewOnBehalfOfSupported(workspace.workspaceId, opts.onBehalfOf);
 
-  if (!validatePath(filePath)) {
-    return;
-  }
+  const argPath = filePath;
+  filePath = toSyncRootRelativePath(filePath, cwdBeforeConfig);
+  const remotePath = scriptPathToRemotePath(filePath);
+  assertRemotePath(remotePath, argPath);
 
-  const fstat = await stat(filePath);
-  if (!fstat.isFile()) {
-    throw new Error("file path must refer to a file.");
+  // Same as push: a descriptor-less dbt project's content path is deliberately
+  // absent, and the project beside it is what says the script is real.
+  const absentDescriptor = await stat(filePath).then(
+    () => false,
+    (e) => isMissingDbtDescriptor(filePath, e)
+  );
+  if (!absentDescriptor) {
+    const fstat = await stat(filePath);
+    if (!fstat.isFile()) {
+      throw new Error("file path must refer to a file.");
+    }
   }
 
   if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
@@ -1512,15 +1952,23 @@ async function preview(
 
   const codebases = await listSyncCodebases(opts);
   const language = inferContentTypeFromFilePath(filePath, opts?.defaultTs);
-  const content = await readTextFile(filePath);
+  const content = await readScriptContent(filePath);
   const input = opts.data ? await resolve(opts.data) : {};
 
-  // Read modules from __mod/ folder if present
+  // Read modules from the bundle folder if present. Same suffix and same
+  // verbatim read as deploy: a dbt project lives in `__dbt/`, and parsing its
+  // files as scripts would drop the `dbt_project.yml` the executor looks for.
   const isFolderLayout = isModuleEntryPoint(filePath);
+  const isDbt = language === "dbt";
   const moduleFolderPath = isFolderLayout
     ? path.dirname(filePath)
-    : filePath.substring(0, filePath.indexOf(".")) + getModuleFolderSuffix();
-  const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, isFolderLayout);
+    : filePath.substring(0, filePath.indexOf(".")) + getModuleFolderSuffix(language);
+  const modules = await readModulesFromDisk(
+    moduleFolderPath,
+    opts?.defaultTs,
+    isFolderLayout,
+    isDbt
+  );
 
   // Check if this is a codebase script
   const codebase =
@@ -1536,11 +1984,7 @@ async function preview(
   const { extractRelativeImports } = await import(
     "../../utils/relative_imports.ts"
   );
-  const relImports = await extractRelativeImports(
-    content,
-    scriptPathToRemotePath(filePath),
-    language
-  );
+  const relImports = await extractRelativeImports(content, remotePath, language);
   if (relImports.length > 0) {
     const { buildPreviewTempScriptRefs } = await import(
       "../generate-metadata/generate-metadata.ts"
@@ -1565,14 +2009,12 @@ async function preview(
         maxBuffer: 1024 * 1024 * 50,
       }).toString();
     } else {
-      const esbuild = await import("esbuild");
-
       if (!opts.silent) {
         log.info(`Bundling ${filePath} for preview...`);
       }
       const startTime = performance.now();
       const format = codebase.format ?? "cjs";
-      const out = await esbuild.build({
+      const out = await withEsbuild((esbuild) => esbuild.build({
         entryPoints: [filePath],
         format: format,
         bundle: true,
@@ -1586,7 +2028,7 @@ async function preview(
         packages: "bundle",
         target: format == "cjs" ? "node20.15.1" : "esnext",
         banner: codebase.banner,
-      });
+      }));
       const endTime = performance.now();
       bundledContent = out.outputFiles[0].text;
 
@@ -1643,12 +2085,14 @@ async function preview(
     const form = new FormData();
     const previewPayload = {
       content: content, // Pass the original content (frontend does this too)
-      path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+      path: remotePath,
       args: input,
       language: language,
+      tag: opts.tag,
       kind: isTar ? "tarbundle" : "bundle",
       format: codebase?.format ?? "cjs",
       temp_script_refs: tempScriptRefs,
+      on_behalf_of: opts.onBehalfOf,
     };
     form.append("preview", JSON.stringify(previewPayload));
     form.append(
@@ -1712,11 +2156,13 @@ async function preview(
       workspace: workspace.workspaceId,
       requestBody: {
         content,
-        path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+        path: remotePath,
         args: input,
         language: language as any,
+        tag: opts.tag,
         modules: modules ?? undefined,
         temp_script_refs: tempScriptRefs,
+        on_behalf_of: opts.onBehalfOf,
       },
     });
 
@@ -1800,6 +2246,10 @@ async function setPermissionedAs(
       lock: Array.isArray(remote.lock) ? remote.lock.join("\n") : remote.lock ?? undefined,
       parent_hash: remote.hash,
       on_behalf_of_email: email,
+      // The principal is derived server-side from the email, which resolves workspace
+      // members, groups and superadmins acting outside their workspaces alike — a
+      // client-side `usr` lookup would see only the first of those.
+      on_behalf_of: undefined,
       preserve_on_behalf_of: true,
       // Preserve any user draft at this path (see backend skip_draft_deletion).
       skip_draft_deletion: true,
@@ -1835,11 +2285,15 @@ const command = new Command()
   .arguments("<path:file>")
   .option(
     "-d --data <data:file>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",
     "Do not output anything other then the final output. Useful for scripting."
+  )
+  .option(
+    "--tag <tag:string>",
+    "Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag)."
   )
   .action(run as any)
   .command(
@@ -1849,11 +2303,19 @@ const command = new Command()
   .arguments("<path:file>")
   .option(
     "-d --data <data:file>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",
     "Do not output anything other than the final output. Useful for scripting."
+  )
+  .option(
+    "--tag <tag:string>",
+    "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag)."
+  )
+  .option(
+    "--on-behalf-of <identity:string>",
+    "Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers."
   )
   .action(preview as any)
   .command("new", "create a new script")

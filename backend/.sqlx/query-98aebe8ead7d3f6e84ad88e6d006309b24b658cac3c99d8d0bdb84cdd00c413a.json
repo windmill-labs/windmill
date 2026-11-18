@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT large_file_storage, ducklake FROM workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "large_file_storage",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "ducklake",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "98aebe8ead7d3f6e84ad88e6d006309b24b658cac3c99d8d0bdb84cdd00c413a"
+}

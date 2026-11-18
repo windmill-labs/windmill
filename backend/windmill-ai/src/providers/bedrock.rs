@@ -6,9 +6,14 @@
 //! - Stream event parsing
 //! - Helper utilities
 
+use super::{
+    anthropic_model_rejects_sampling_params, force_claude_structured_output_tool,
+    REASONING_OFF_SENTINEL,
+};
 use crate::{
     ai_bedrock::{
-        bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
+        bedrock_model_supports_prompt_caching, bedrock_stream_error,
+        bedrock_stream_event_is_block_stop, bedrock_stream_event_to_reasoning_delta,
         bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
         bedrock_stream_event_to_tool_delta_with_block_index, bedrock_stream_event_to_tool_start,
         bedrock_stream_event_to_tool_start_with_block_index, build_tool_config,
@@ -23,6 +28,7 @@ use crate::{
     image_handler::prepare_messages_for_api,
     proxy::ProxyBuildArgs,
     query_builder::{ParsedResponse, StreamEventSink},
+    retry::{openai_stream_error_chunk, truncated_stream_error},
     types::{OpenAIMessage, StreamingEvent, TokenUsage, ToolDef},
 };
 use bytes::Bytes;
@@ -357,12 +363,11 @@ async fn handle_bedrock_sdk_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = openai_req
-        .reasoning_effort
-        .is_none()
-        .then_some(openai_req.temperature)
-        .flatten();
+    let temperature = bedrock_temperature(
+        model,
+        openai_req.reasoning_effort.as_deref(),
+        openai_req.temperature,
+    );
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
@@ -410,11 +415,35 @@ async fn handle_bedrock_sdk_streaming(
     })
 }
 
-/// Build the Converse `additionalModelRequestFields` enabling Claude adaptive
-/// thinking at the given effort. `display: summarized` is billing-neutral on
-/// Anthropic models and matches the direct-Anthropic chat path, which renders
-/// summarized thinking in the UI.
+/// Whether an effort token turns adaptive thinking on. `"none"` is the disable
+/// sentinel rather than a level.
+fn effort_enables_thinking(effort: Option<&str>) -> bool {
+    matches!(effort, Some(effort) if effort != REASONING_OFF_SENTINEL)
+}
+
+/// Temperature survives only when thinking is not adaptive — which rejects
+/// sampling params — and the model still accepts them at all. Non-Anthropic
+/// Bedrock models (Nova, Llama) are unaffected by the second check.
+fn bedrock_temperature(model: &str, effort: Option<&str>, temperature: Option<f32>) -> Option<f32> {
+    if effort_enables_thinking(effort) || anthropic_model_rejects_sampling_params(model) {
+        return None;
+    }
+    temperature
+}
+
+/// Build the Converse `additionalModelRequestFields` carrying Claude's thinking
+/// config. `display: summarized` is billing-neutral on Anthropic models and
+/// matches the direct-Anthropic chat path, which renders summarized thinking in
+/// the UI.
 fn bedrock_thinking_fields(effort: &str) -> aws_smithy_types::Document {
+    if effort == REASONING_OFF_SENTINEL {
+        // The disable carries no effort: pairing it with xhigh or max is a 400
+        // on Opus 5, and omitting it leaves the model at the effort where the
+        // disable is accepted.
+        return json_to_document(serde_json::json!({
+            "thinking": { "type": "disabled" }
+        }));
+    }
     json_to_document(serde_json::json!({
         "thinking": { "type": "adaptive", "display": "summarized" },
         "output_config": { "effort": effort }
@@ -437,26 +466,31 @@ pub fn sdk_stream_to_sse(
     async_stream::stream! {
         let mut stream = stream;
         let mut state = BedrockSseStreamState::new(id, model, created);
+        let mut message_stopped = false;
 
-        loop {
+        let failure = loop {
             match stream.recv().await {
                 Ok(Some(event)) => {
+                    if matches!(
+                        event,
+                        aws_sdk_bedrockruntime::types::ConverseStreamOutput::MessageStop(_)
+                    ) {
+                        message_stopped = true;
+                    }
                     for chunk in bedrock_sse_chunks_for_event(&event, &mut state) {
                         yield Ok(chunk);
                     }
                 }
-                Ok(None) => break,
-                Err(e) => {
-                    yield Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e.to_string(),
-                    ));
-                    break;
-                }
+                Ok(None) => break (!message_stopped).then(truncated_stream_error),
+                Err(_) if message_stopped => break None,
+                Err(e) => break Some(bedrock_stream_error(&e)),
             }
-        }
+        };
 
-        yield Ok(Bytes::from("data: [DONE]\n\n"));
+        match failure {
+            Some(error) => yield Ok(Bytes::from(openai_stream_error_chunk(&error))),
+            None => yield Ok(Bytes::from("data: [DONE]\n\n")),
+        }
     }
 }
 
@@ -636,62 +670,53 @@ fn bedrock_sse_chunks_for_event(
         chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
     }
 
+    // Usage arrives only on the trailing Metadata event, and only this converter
+    // reaches the chat: without a chunk for it a Bedrock chat reports no tokens at
+    // all. Bedrock counts cache reads and writes apart from `inputTokens`, while the
+    // OpenAI shape the client parses treats `prompt_tokens` as the whole input, so
+    // they are folded in here and split back out through `prompt_tokens_details`.
+    if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::Metadata(metadata) = event {
+        if let Some(token_usage) = metadata.usage() {
+            let cache_read = token_usage.cache_read_input_tokens().unwrap_or(0);
+            let cache_write = token_usage.cache_write_input_tokens().unwrap_or(0);
+            let prompt_tokens = token_usage
+                .input_tokens()
+                .saturating_add(cache_read)
+                .saturating_add(cache_write);
+
+            let chunk = serde_json::json!({
+                "id": state.id,
+                "object": "chat.completion.chunk",
+                "created": state.created,
+                "model": state.model,
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": token_usage.output_tokens(),
+                    "total_tokens": token_usage.total_tokens(),
+                    "prompt_tokens_details": {
+                        "cached_tokens": cache_read,
+                        "cache_write_tokens": cache_write
+                    }
+                }
+            });
+
+            chunks.push(Bytes::from(format!("data: {}\n\n", chunk)));
+        }
+    }
+
     chunks
 }
 
 /// Fold a `ReasoningContent` stream delta into the state's pending reasoning
 /// block. Returns the text delta (for a `reasoning_content` SSE chunk) when the
-/// event carried readable reasoning text.
+/// event carried readable reasoning text. Shares the worker path's folding so
+/// the two never drift.
 fn accumulate_reasoning_delta(
     event: &aws_sdk_bedrockruntime::types::ConverseStreamOutput,
     state: &mut BedrockSseStreamState,
 ) -> Option<String> {
-    let aws_sdk_bedrockruntime::types::ConverseStreamOutput::ContentBlockDelta(delta_event) = event
-    else {
-        return None;
-    };
-    let aws_sdk_bedrockruntime::types::ContentBlockDelta::ReasoningContent(reasoning) =
-        delta_event.delta()?
-    else {
-        return None;
-    };
-
-    let entry = state.reasoning.get_or_insert_with(Default::default);
-    match reasoning {
-        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Text(text) => {
-            entry
-                .reasoning_text
-                .get_or_insert_with(String::new)
-                .push_str(text);
-            Some(text.clone())
-        }
-        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Signature(signature) => {
-            entry
-                .signature
-                .get_or_insert_with(String::new)
-                .push_str(signature);
-            None
-        }
-        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::RedactedContent(blob) => {
-            // Base64 of concatenated fragments != concatenated base64 fragments,
-            // so accumulate raw bytes and re-encode.
-            let mut bytes = entry
-                .redacted_content
-                .as_deref()
-                .and_then(|existing| {
-                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, existing)
-                        .ok()
-                })
-                .unwrap_or_default();
-            bytes.extend_from_slice(blob.as_ref());
-            entry.redacted_content = Some(base64::Engine::encode(
-                &base64::engine::general_purpose::STANDARD,
-                bytes,
-            ));
-            None
-        }
-        _ => None,
-    }
+    bedrock_stream_event_to_reasoning_delta(event, &mut state.reasoning)
 }
 
 async fn handle_bedrock_sdk_non_streaming(
@@ -707,12 +732,11 @@ async fn handle_bedrock_sdk_non_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = openai_req
-        .reasoning_effort
-        .is_none()
-        .then_some(openai_req.temperature)
-        .flatten();
+    let temperature = bedrock_temperature(
+        model,
+        openai_req.reasoning_effort.as_deref(),
+        openai_req.temperature,
+    );
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
@@ -942,6 +966,7 @@ impl BedrockQueryBuilder {
         tools: Option<&[ToolDef]>,
         model: &str,
         temperature: Option<f32>,
+        reasoning_effort: Option<&str>,
         max_tokens: Option<u32>,
         api_key: &str,
         region: &str,
@@ -977,13 +1002,16 @@ impl BedrockQueryBuilder {
         let (bedrock_messages, system_prompts) =
             openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 
+        let temperature = bedrock_temperature(model, reasoning_effort, temperature);
+
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
 
-        // Build tool configuration with optional ToolChoice
         let tool_config = build_tool_config(
             tools,
-            structured_output_tool_name.is_some(),
+            structured_output_tool_name.is_some()
+                && (!model.to_lowercase().contains("claude")
+                    || force_claude_structured_output_tool(model, reasoning_effort)),
             enable_prompt_caching,
         )?;
 
@@ -994,6 +1022,7 @@ impl BedrockQueryBuilder {
             system_prompts,
             inference_config,
             tool_config,
+            reasoning_effort,
             stream_event_sink,
         )
         .await
@@ -1008,6 +1037,7 @@ impl BedrockQueryBuilder {
         system_prompts: Vec<aws_sdk_bedrockruntime::types::SystemContentBlock>,
         inference_config: Option<aws_sdk_bedrockruntime::types::InferenceConfiguration>,
         tool_config: Option<aws_sdk_bedrockruntime::types::ToolConfiguration>,
+        reasoning_effort: Option<&str>,
         stream_event_sink: Option<Box<dyn StreamEventSink>>,
     ) -> Result<ParsedResponse, Error> {
         tracing::debug!(
@@ -1035,6 +1065,11 @@ impl BedrockQueryBuilder {
             request_builder = request_builder.set_tool_config(Some(config));
         }
 
+        if let Some(effort) = reasoning_effort {
+            request_builder =
+                request_builder.additional_model_request_fields(bedrock_thinking_fields(effort));
+        }
+
         let mut stream = request_builder
             .send()
             .await
@@ -1050,14 +1085,44 @@ impl BedrockQueryBuilder {
 
         let mut accumulated_text = String::new();
         let mut events_str = String::new();
-        let mut accumulated_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
+        let mut accumulated_tool_calls: indexmap::IndexMap<String, StreamingToolCall> =
+            indexmap::IndexMap::new();
         let mut current_tool_use_id: Option<String> = None;
         let mut usage: Option<TokenUsage> = None;
+        // Claude reasoning block for the turn (only populated when thinking is on),
+        // attached to the first tool call for replay before toolUse.
+        let mut reasoning: Option<crate::ai_types::BedrockExtraContent> = None;
+        let mut message_stopped = false;
 
         // Process stream events using shared parsing functions
         loop {
             match stream.recv().await {
                 Ok(Some(event)) => {
+                    if matches!(
+                        event,
+                        aws_sdk_bedrockruntime::types::ConverseStreamOutput::MessageStop(_)
+                    ) {
+                        message_stopped = true;
+                    }
+
+                    // Fold reasoning deltas into the turn's reasoning block (for
+                    // replay before toolUse, required by Claude when thinking is
+                    // on) and stream the readable summary as a thinking affordance.
+                    if let Some(reasoning_delta) =
+                        bedrock_stream_event_to_reasoning_delta(&event, &mut reasoning)
+                    {
+                        if let Some(processor) = stream_event_sink.as_ref() {
+                            processor
+                                .send(
+                                    StreamingEvent::ReasoningTokenDelta {
+                                        content: reasoning_delta,
+                                    },
+                                    &mut events_str,
+                                )
+                                .await?;
+                        }
+                    }
+
                     // Handle tool use start using shared parser
                     if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
                         current_tool_use_id = Some(tool_call.id.clone());
@@ -1102,7 +1167,7 @@ impl BedrockQueryBuilder {
                                     Some(token_usage.output_tokens()),
                                     Some(token_usage.total_tokens()),
                                 )
-                                .with_cache(
+                                .with_cache_beside_input(
                                     token_usage
                                         .cache_read_input_tokens()
                                         .map(|v| i32::try_from(v).unwrap_or(i32::MAX)),
@@ -1115,10 +1180,12 @@ impl BedrockQueryBuilder {
                     }
                 }
                 Ok(None) => break,
-                Err(e) => {
-                    return Err(Error::internal_err(format!("Bedrock stream error: {}", e)));
-                }
+                Err(_) if message_stopped => break,
+                Err(e) => return Err(bedrock_stream_error(&e)),
             }
+        }
+        if !message_stopped {
+            return Err(truncated_stream_error());
         }
 
         // Send tool call events to stream processor
@@ -1143,11 +1210,21 @@ impl BedrockQueryBuilder {
             Some(accumulated_text)
         };
 
-        let tool_calls =
-            streaming_tool_calls_to_openai(accumulated_tool_calls.into_values().collect());
+        // The block folded for replay is also what the reader sees as thinking. Read out
+        // before the block itself moves into the tool calls below.
+        let reasoning_text = reasoning
+            .as_ref()
+            .and_then(|r| r.reasoning_text.clone())
+            .filter(|t| !t.is_empty());
+
+        let tool_calls = streaming_tool_calls_to_openai(
+            accumulated_tool_calls.into_values().collect(),
+            reasoning,
+        );
 
         Ok(ParsedResponse::Text {
             content,
+            reasoning: reasoning_text,
             tool_calls,
             events_str: if events_str.is_empty() {
                 None
@@ -1176,6 +1253,46 @@ mod tests {
             .and_then(|chunk| chunk.strip_suffix("\n\n"))
             .expect("chunk should be SSE data");
         serde_json::from_str(payload).expect("chunk should contain JSON")
+    }
+
+    #[test]
+    fn metadata_event_emits_usage_chunk_with_cache_split() {
+        let mut state = BedrockSseStreamState::new("id".to_string(), "model".to_string(), 0);
+        let event = ConverseStreamOutput::Metadata(
+            aws_sdk_bedrockruntime::types::ConverseStreamMetadataEvent::builder()
+                .usage(
+                    aws_sdk_bedrockruntime::types::TokenUsage::builder()
+                        .input_tokens(10)
+                        .output_tokens(7)
+                        .total_tokens(1017)
+                        .cache_read_input_tokens(900)
+                        .cache_write_input_tokens(100)
+                        .build()
+                        .expect("usage"),
+                )
+                .build(),
+        );
+
+        let chunks = bedrock_sse_chunks_for_event(&event, &mut state);
+        let usage = chunks
+            .iter()
+            .map(sse_json)
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("the metadata event should carry usage");
+
+        // Bedrock reports cache reads and writes apart from `inputTokens`; the OpenAI
+        // shape the client parses treats `prompt_tokens` as the whole input, and
+        // recovers the uncached share by subtracting the details back out.
+        assert_eq!(usage["usage"]["prompt_tokens"], 1010);
+        assert_eq!(usage["usage"]["completion_tokens"], 7);
+        assert_eq!(
+            usage["usage"]["prompt_tokens_details"]["cached_tokens"],
+            900
+        );
+        assert_eq!(
+            usage["usage"]["prompt_tokens_details"]["cache_write_tokens"],
+            100
+        );
     }
 
     #[test]
@@ -1293,6 +1410,37 @@ mod tests {
             delta_json["choices"][0]["delta"]["tool_calls"][0]["index"],
             0
         );
+    }
+
+    #[test]
+    fn bedrock_thinking_fields_translate_the_off_sentinel_to_a_disable() {
+        let fields = document_to_json(&bedrock_thinking_fields("none"));
+        assert_eq!(fields["thinking"]["type"], "disabled");
+        // An effort alongside the disable is a 400 on Opus 5.
+        assert!(fields.get("output_config").is_none());
+        assert!(effort_enables_thinking(Some("xhigh")));
+        assert!(!effort_enables_thinking(Some("none")));
+        assert!(!effort_enables_thinking(None));
+    }
+
+    #[test]
+    fn bedrock_temperature_drops_sampling_params_per_thinking_mode_and_model() {
+        // Adaptive thinking rejects sampling params on every model...
+        let adaptive = bedrock_temperature("anthropic.claude-sonnet-4-6", Some("xhigh"), Some(0.5));
+        assert!(adaptive.is_none());
+        // ...while a model that still accepts them keeps them when off.
+        let off = bedrock_temperature("anthropic.claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(off, Some(0.5));
+        // The models that removed them drop them on every mode.
+        for (model, effort) in [
+            ("global.anthropic.claude-opus-5", Some("none")),
+            ("anthropic.claude-opus-4-8", None),
+        ] {
+            assert!(bedrock_temperature(model, effort, Some(0.5)).is_none());
+        }
+        // A non-Anthropic Bedrock model keeps its sampling params.
+        let nova = bedrock_temperature("amazon.nova-pro-v1:0", None, Some(0.5));
+        assert_eq!(nova, Some(0.5));
     }
 
     #[test]

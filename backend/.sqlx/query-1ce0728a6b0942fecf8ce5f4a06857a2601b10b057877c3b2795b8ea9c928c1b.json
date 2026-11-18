@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag, running)\n             VALUES ($1, $2, now() + ($3::bigint::text || ' s')::interval, 'other', $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1ce0728a6b0942fecf8ce5f4a06857a2601b10b057877c3b2795b8ea9c928c1b"
+}

@@ -27,6 +27,10 @@ pub struct StandardTriggerQuery {
     pub is_flow: Option<bool>,
     pub path_start: Option<String>,
     pub label: Option<String>,
+    /// When true, append per-user draft rows whose path has no
+    /// deployed trigger of this kind. Same gate as scripts/flows/apps:
+    /// non-operators, offset 0, no narrowing filters.
+    pub include_draft_only: Option<bool>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -42,6 +46,22 @@ pub struct BaseTrigger {
     pub extra_perms: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// True when this row is a per-user draft with no deployed trigger
+    /// at the same path. Set by `list_triggers` when the response
+    /// includes synthesized draft-only rows (gated on
+    /// `include_draft_only`). Always `None`/omitted on deployed rows
+    /// fetched from the trigger table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_only: Option<bool>,
+    /// True when the authed user has a per-user draft at this path —
+    /// either layered over a deployed trigger (EXISTS subquery in the
+    /// list SQL) or a synthesized draft-only row. Drives the `*` suffix
+    /// on the trigger list pages. `None`/omitted for callers that list
+    /// without an authed context (e.g. workspace export).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub is_draft: Option<bool>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
@@ -64,6 +84,32 @@ pub struct TriggerErrorHandling {
     pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }
 
+impl TriggerErrorHandling {
+    /// Schedule and workspace error handlers encode script-vs-flow as a
+    /// `script/`/`flow/` prefix; a trigger's handler is always a script, so a
+    /// prefixed path here would be looked up verbatim as a script name and fail
+    /// only once the trigger errors, which is when the handler is needed.
+    pub fn validate(&self) -> windmill_common::error::Result<()> {
+        let Some(path) = self.error_handler_path.as_deref() else {
+            return Ok(());
+        };
+        if let Some(bare) = path.strip_prefix("script/") {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "error_handler_path is a plain script path, not the prefixed form a schedule \
+                 error handler takes: got '{path}', use '{bare}'"
+            )));
+        }
+        if path.starts_with("flow/") {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "error_handler_path must be a script: a trigger error handler cannot be a flow \
+                 (got '{path}')"
+            )));
+        }
+        windmill_common::runnable_ref::RunnableRef::from_path(path, false)?;
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Trigger<T>
 where
@@ -80,6 +126,28 @@ where
 
     #[serde(flatten)]
     pub error_handling: TriggerErrorHandling,
+}
+
+/// Path accessor for the associated `Trigger` row type, so the shared list
+/// handler can apply scoped-token path filtering without knowing the concrete
+/// row shape. The `()` OSS stub returns "" (its endpoints 404 anyway).
+pub trait HasPath {
+    fn trigger_path(&self) -> &str;
+}
+
+impl<T> HasPath for Trigger<T>
+where
+    T: for<'r> FromRow<'r, sqlx::postgres::PgRow>,
+{
+    fn trigger_path(&self) -> &str {
+        &self.base.path
+    }
+}
+
+impl HasPath for () {
+    fn trigger_path(&self) -> &str {
+        ""
+    }
 }
 
 impl<T> FromRow<'_, sqlx::postgres::PgRow> for Trigger<T>
@@ -143,6 +211,20 @@ impl BaseTriggerData {
         self.mode = Some(mode);
     }
 
+    /// Stored as parsed: a rename retargets triggers, and a runnable lists its own, by exact
+    /// `script_path`, so one saved with a leading `/` would run but be missed by both. Empty is
+    /// left alone: a static HTTP route has no runnable.
+    pub fn normalize_script_path(&mut self) -> windmill_common::error::Result<()> {
+        if self.script_path.is_empty() {
+            return Ok(());
+        }
+        self.script_path =
+            windmill_common::runnable_ref::RunnableRef::from_path(&self.script_path, self.is_flow)?
+                .path()
+                .to_string();
+        Ok(())
+    }
+
     pub fn resolve_permissioned_as(&self, authed: &impl Authable) -> String {
         if let Some(ref permissioned_as) = self.permissioned_as {
             if self.preserve_permissioned_as.unwrap_or(false)
@@ -192,6 +274,7 @@ impl Default for StandardTriggerQuery {
             path_start: None,
             is_flow: None,
             label: None,
+            include_draft_only: None,
         }
     }
 }
@@ -209,6 +292,51 @@ pub enum TriggerMode {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // --- TriggerErrorHandling::validate ---
+
+    fn error_handling(path: Option<&str>) -> TriggerErrorHandling {
+        TriggerErrorHandling {
+            error_handler_path: path.map(str::to_string),
+            error_handler_args: None,
+            retry: None,
+        }
+    }
+
+    #[test]
+    fn test_error_handler_path_accepts_bare_and_hub_paths() {
+        for path in [None, Some("f/team/handler"), Some("u/admin/handler")] {
+            assert!(error_handling(path).validate().is_ok(), "{path:?}");
+        }
+        assert!(error_handling(Some("hub/13953/windmill/handler"))
+            .validate()
+            .is_ok());
+    }
+
+    #[test]
+    fn test_error_handler_path_rejects_prefixed_paths() {
+        // The rejection names the bare path to use, so the caller can fix it
+        // without knowing which of the two conventions a trigger follows.
+        let err = error_handling(Some("script/f/team/handler"))
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("f/team/handler"), "{err}");
+
+        let err = error_handling(Some("flow/f/team/handler"))
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cannot be a flow"), "{err}");
+    }
+
+    #[test]
+    fn test_error_handler_path_rejects_what_does_not_parse() {
+        for path in ["hub/abc", "hub/0", "//u/admin/handler", ""] {
+            assert!(error_handling(Some(path)).validate().is_err(), "{path:?}");
+        }
+        assert!(error_handling(Some("/u/admin/handler")).validate().is_ok());
+    }
 
     // --- TriggerMode serde ---
 
@@ -260,6 +388,7 @@ mod tests {
             is_flow: None,
             path_start: None,
             label: None,
+            include_draft_only: None,
         };
         assert_eq!(q.offset(), 100);
         assert_eq!(q.limit(), 50);
@@ -274,6 +403,7 @@ mod tests {
             is_flow: None,
             path_start: None,
             label: None,
+            include_draft_only: None,
         };
         assert_eq!(q.offset(), 0);
         assert_eq!(q.limit(), 100);

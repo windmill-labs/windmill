@@ -31,6 +31,15 @@ logger = logging.getLogger("windmill_client")
 JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 
+def _sign_s3_objects_body(s3_objects: list, expiry_secs: int | None) -> dict:
+    # `expiry_secs` is optional but not nullable in the spec, so omit it rather than
+    # sending an explicit null a validating gateway would reject.
+    body: dict = {"s3_objects": s3_objects}
+    if expiry_secs is not None:
+        body["expiry_secs"] = expiry_secs
+    return body
+
+
 class Windmill:
     """Windmill client for interacting with the Windmill API."""
 
@@ -168,16 +177,17 @@ class Windmill:
         hash_: str = None,
         args: dict = None,
         scheduled_in_secs: int = None,
+        tag: str = None,
     ) -> str:
         """Create a script job and return its job id.
-        
+
         .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
         """
         logging.warning(
             "run_script_async is deprecated. Use run_script_by_path_async or run_script_by_hash_async instead.",
         )
         assert not (path and hash_), "path and hash_ are mutually exclusive"
-        return self._run_script_async_internal(path=path, hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
+        return self._run_script_async_internal(path=path, hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag)
 
     def _run_script_async_internal(
         self,
@@ -185,10 +195,16 @@ class Windmill:
         hash_: str = None,
         args: dict = None,
         scheduled_in_secs: int = None,
+        tag: str = None,
+        retry: dict = None,
     ) -> str:
         """Internal helper for running scripts asynchronously."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if tag:
+            params["tag"] = tag
+        if retry:
+            params["retry"] = json.dumps(retry)
         if os.environ.get("WM_JOB_ID"):
             params["parent_job"] = os.environ.get("WM_JOB_ID")
         if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
@@ -208,18 +224,27 @@ class Windmill:
         path: str,
         args: dict = None,
         scheduled_in_secs: int = None,
+        tag: str = None,
+        retry: dict = None,
     ) -> str:
-        """Create a script job by path and return its job id."""
-        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs)
+        """Create a script job by path and return its job id.
+
+        ``retry`` re-runs the job when it fails, with the policy a schedule takes,
+        e.g. ``{"constant": {"attempts": 3, "seconds": 10}}``. The returned id is
+        the first attempt's; each retry is a job of its own, recorded as a child of it.
+        """
+        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag, retry=retry)
 
     def run_script_by_hash_async(
         self,
         hash_: str,
         args: dict = None,
         scheduled_in_secs: int = None,
+        tag: str = None,
+        retry: dict = None,
     ) -> str:
-        """Create a script job by hash and return its job id."""
-        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
+        """Create a script job by hash and return its job id. See ``run_script_by_path_async`` for ``retry``."""
+        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs, tag=tag, retry=retry)
 
     def run_flow_async(
         self,
@@ -230,10 +255,13 @@ class Windmill:
         # as otherwise the child flow and its own child will store their state in the parent job which will
         # lead to incorrectness and failures
         do_not_track_in_parent: bool = True,
+        tag: str = None,
     ) -> str:
         """Create a flow job and return its job id."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
+        if tag:
+            params["tag"] = tag
         if not do_not_track_in_parent:
             if os.environ.get("WM_JOB_ID"):
                 params["parent_job"] = os.environ.get("WM_JOB_ID")
@@ -254,9 +282,10 @@ class Windmill:
         verbose: bool = False,
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
+        tag: str = None,
     ) -> Any:
         """Run script synchronously and return its result.
-        
+
         .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
         """
         logging.warning(
@@ -265,7 +294,7 @@ class Windmill:
         assert not (path and hash_), "path and hash_ are mutually exclusive"
         return self._run_script_internal(
             path=path, hash_=hash_, args=args, timeout=timeout, verbose=verbose,
-            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none, tag=tag
         )
 
     def _run_script_internal(
@@ -277,6 +306,7 @@ class Windmill:
         verbose: bool = False,
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
+        tag: str = None,
     ) -> Any:
         """Internal helper for running scripts synchronously."""
         args = args or {}
@@ -290,7 +320,7 @@ class Windmill:
         if isinstance(timeout, dt.timedelta):
             timeout = timeout.total_seconds()
 
-        job_id = self._run_script_async_internal(path=path, hash_=hash_, args=args)
+        job_id = self._run_script_async_internal(path=path, hash_=hash_, args=args, tag=tag)
         return self.wait_job(
             job_id, timeout, verbose, cleanup, assert_result_is_not_none
         )
@@ -303,11 +333,12 @@ class Windmill:
         verbose: bool = False,
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
+        tag: str = None,
     ) -> Any:
         """Run script by path synchronously and return its result."""
         return self._run_script_internal(
             path=path, args=args, timeout=timeout, verbose=verbose,
-            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none, tag=tag
         )
 
     def run_script_by_hash(
@@ -318,11 +349,12 @@ class Windmill:
         verbose: bool = False,
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
+        tag: str = None,
     ) -> Any:
         """Run script by hash synchronously and return its result."""
         return self._run_script_internal(
             hash_=hash_, args=args, timeout=timeout, verbose=verbose,
-            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none, tag=tag
         )
 
     def run_inline_script_preview(
@@ -791,6 +823,22 @@ class Windmill:
         else:
             return r.json()
 
+    def worker_is_draining(self, job_id: Optional[str] = None) -> bool:
+        """Whether the worker running the job has received its shutdown signal.
+
+        A draining worker waits for its current job to finish before exiting. A long-running
+        script can poll this and return early so the worker can be replaced.
+
+        Args:
+            job_id: Job ID (defaults to current WM_JOB_ID)
+
+        Returns:
+            True if the worker running the job is draining
+        """
+        job_id = job_id or os.environ.get("WM_JOB_ID")
+
+        return self.get(f"/w/{self.workspace}/jobs/worker_is_draining/{job_id}").json()
+
     def set_flow_user_state(self, key: str, value: Any) -> None:
         """Set the user state of a flow at a given key"""
         flow_id = self.get_root_job_id()
@@ -824,15 +872,75 @@ class Windmill:
         """
         return self.get("version").text
 
+    def _s3_proxy_connection(self) -> dict | None:
+        """Where an S3 client reaches the workspace storage through Windmill's S3 proxy, so the
+        storage's permission rules apply and its credentials stay on the server.
+
+        None when the workspace storage is not S3, when the token is not one the server signs
+        itself (the proxy re-derives the SigV4 secret from a ``jwt_`` token's header and payload,
+        which an external ``jwt_ext_`` token's signature does not match), or when the server
+        predates the proxy's bucket-addressed routes: the caller then connects with the
+        storage's own credentials.
+        """
+        if (
+            not self.token
+            or not self.token.startswith("jwt_")
+            or self.token.startswith(("jwt_ext_", "jwt_agent_"))
+        ):
+            return None
+        resp = self.get(
+            f"/w/{self.workspace}/job_helpers/v2/s3_proxy_bucket",
+            raise_for_status=False,
+        )
+        if resp.status_code != 200:
+            return None
+        bucket = resp.json().get("bucket")
+        if bucket is None:
+            return None
+        access_key, secret_key = self.token.rsplit(".", 1)
+        return {
+            "endpoint_url": f"{self.base_url}/w/{self.workspace}/s3_proxy/_wm_bucket_/_default_",
+            "use_ssl": self.base_url.startswith("https://"),
+            "access_key": access_key,
+            "secret_key": secret_key,
+            # The proxy checks the signature with whatever region the client signed for.
+            "region": "us-east-1",
+            "bucket": bucket,
+        }
+
     def get_duckdb_connection_settings(
         self,
         s3_resource_path: str = "",
     ) -> DuckDbConnectionSettings | None:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-        initiate an S3 connection from DuckDB
+        initiate an S3 connection from DuckDB.
+
+        Without a resource path, the connection goes to the workspace storage through Windmill's
+        S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+        storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+        the storage's own credentials instead.
         """
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
+        proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
+        if proxy is not None:
+            endpoint = proxy["endpoint_url"].split("://", 1)[1]
+            settings = (
+                "SET home_directory='./';\n"
+                "INSTALL 'httpfs';\n"
+                "SET s3_url_style='path';\n"
+                f"SET s3_region='{proxy['region']}';\n"
+                f"SET s3_endpoint='{endpoint}';\n"
+                f"SET s3_access_key_id='{proxy['access_key']}';\n"
+                f"SET s3_secret_access_key='{proxy['secret_key']}';\n"
+            )
+            if not proxy["use_ssl"]:
+                settings += "SET s3_use_ssl=0;\n"
+            if self.verify is False:
+                settings += "SET enable_server_cert_verification=false;\n"
+            return DuckDbConnectionSettings(
+                {"connection_settings_str": settings, "s3_bucket": proxy["bucket"]}
+            )
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/duckdb_connection_settings",
@@ -840,6 +948,7 @@ class Windmill:
                 if s3_resource_path == ""
                 else {"s3_resource_path": s3_resource_path},
             ).json()
+            raw_obj.setdefault("s3_bucket", None)
             return DuckDbConnectionSettings(raw_obj)
         except JSONDecodeError as e:
             raise Exception(
@@ -852,9 +961,44 @@ class Windmill:
     ) -> PolarsConnectionSettings:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-        initiate an S3 connection from Polars
+        initiate an S3 connection from Polars.
+
+        Without a resource path, the connection goes to the workspace storage through Windmill's
+        S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+        storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+        the storage's own credentials instead.
         """
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
+        proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
+        if proxy is not None:
+            client_kwargs = {"region_name": proxy["region"]}
+            storage_options = {
+                "aws_endpoint_url": proxy["endpoint_url"],
+                "aws_access_key_id": proxy["access_key"],
+                "aws_secret_access_key": proxy["secret_key"],
+                "aws_region": proxy["region"],
+                "aws_allow_http": str(not proxy["use_ssl"]).lower(),
+                "aws_virtual_hosted_style_request": "false",
+            }
+            if self.verify is not True:
+                client_kwargs["verify"] = self.verify
+            if self.verify is False:
+                storage_options["allow_invalid_certificates"] = "true"
+            return PolarsConnectionSettings(
+                {
+                    "s3fs_args": {
+                        "endpoint_url": proxy["endpoint_url"],
+                        "key": proxy["access_key"],
+                        "secret": proxy["secret_key"],
+                        "use_ssl": proxy["use_ssl"],
+                        "cache_regions": False,
+                        "client_kwargs": client_kwargs,
+                        "config_kwargs": {"s3": {"addressing_style": "path"}},
+                    },
+                    "storage_options": storage_options,
+                    "s3_bucket": proxy["bucket"],
+                }
+            )
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/polars_connection_settings",
@@ -862,6 +1006,7 @@ class Windmill:
                 if s3_resource_path == ""
                 else {"s3_resource_path": s3_resource_path},
             ).json()
+            raw_obj.setdefault("s3_bucket", None)
             return PolarsConnectionSettings(raw_obj)
         except JSONDecodeError as e:
             raise Exception(
@@ -874,9 +1019,30 @@ class Windmill:
     ) -> Boto3ConnectionSettings:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-        initiate an S3 connection using boto3
+        initiate an S3 connection using boto3.
+
+        Without a resource path, the connection goes to the workspace storage through Windmill's
+        S3 proxy when that storage is S3: pass the storage's own bucket as ``Bucket``. The proxy
+        serves object reads, writes, deletes, listing and multipart uploads of that bucket only;
+        presigned URLs, other buckets and bucket-level APIs need the storage's own credentials,
+        which passing the resource path returns.
         """
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
+        proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
+        if proxy is not None:
+            # botocore addresses a custom endpoint path-style, which the proxy's routes need.
+            settings = Boto3ConnectionSettings(
+                {
+                    "endpoint_url": proxy["endpoint_url"],
+                    "region_name": proxy["region"],
+                    "use_ssl": proxy["use_ssl"],
+                    "aws_access_key_id": proxy["access_key"],
+                    "aws_secret_access_key": proxy["secret_key"],
+                }
+            )
+            if self.verify is not True:
+                settings["verify"] = self.verify
+            return settings
         try:
             s3_resource = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
@@ -1031,37 +1197,45 @@ class Windmill:
         except Exception as e:
             raise Exception("Could not delete file from S3") from e
 
-    def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
+    def sign_s3_objects(
+        self, s3_objects: list[S3Object | str], expiry_secs: int | None = None
+    ) -> list[S3Object]:
         """Sign S3 objects for use by anonymous users in public apps.
 
         Args:
             s3_objects: List of S3 objects to sign
+            expiry_secs: How long the signature stays valid, in seconds
+                (defaults to 43200 = 12h, clamped to [60, 604800])
 
         Returns:
             List of signed S3 objects
         """
         return self.post(
-            f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": list(map(parse_s3_object, s3_objects))}
+            f"/w/{self.workspace}/apps/sign_s3_objects",
+            json=_sign_s3_objects_body(list(map(parse_s3_object, s3_objects)), expiry_secs),
         ).json()
 
-    def sign_s3_object(self, s3_object: S3Object | str) -> S3Object:
+    def sign_s3_object(self, s3_object: S3Object | str, expiry_secs: int | None = None) -> S3Object:
         """Sign a single S3 object for use by anonymous users in public apps.
 
         Args:
             s3_object: S3 object to sign
+            expiry_secs: How long the signature stays valid, in seconds
+                (defaults to 43200 = 12h, clamped to [60, 604800])
 
         Returns:
             Signed S3 object
         """
         return self.post(
             f"/w/{self.workspace}/apps/sign_s3_objects",
-            json={"s3_objects": [s3_object]},
+            json=_sign_s3_objects_body([s3_object], expiry_secs),
         ).json()[0]
 
     def get_presigned_s3_public_urls(
         self,
         s3_objects: list[S3Object | str],
         base_url: str | None = None,
+        expiry_secs: int | None = None,
     ) -> list[str]:
         """
         Generate presigned public URLs for an array of S3 objects.
@@ -1070,6 +1244,8 @@ class Windmill:
         Args:
             s3_objects: List of S3 objects to sign
             base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+            expiry_secs: How long the signatures stay valid, in seconds
+                (defaults to 43200 = 12h, clamped to [60, 604800])
 
         Returns:
             List of signed public URLs
@@ -1091,7 +1267,7 @@ class Windmill:
 
         if s3_objs_to_sign:
             signed_s3_objs = self.sign_s3_objects(
-                [s3_obj for s3_obj, _ in s3_objs_to_sign]
+                [s3_obj for s3_obj, _ in s3_objs_to_sign], expiry_secs
             )
             for i, (_, original_index) in enumerate(s3_objs_to_sign):
                 s3_objs[original_index] = parse_s3_object(signed_s3_objs[i])
@@ -1110,6 +1286,7 @@ class Windmill:
         self,
         s3_object: S3Object | str,
         base_url: str | None = None,
+        expiry_secs: int | None = None,
     ) -> str:
         """
         Generate a presigned public URL for an S3 object.
@@ -1118,6 +1295,8 @@ class Windmill:
         Args:
             s3_object: S3 object to sign
             base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+            expiry_secs: How long the signature stays valid, in seconds
+                (defaults to 43200 = 12h, clamped to [60, 604800])
 
         Returns:
             Signed public URL
@@ -1126,7 +1305,7 @@ class Windmill:
             >>> s3_obj = S3Object(s3="/path/to/file.txt")
             >>> url = client.get_presigned_s3_public_url(s3_obj)
         """
-        urls = self.get_presigned_s3_public_urls([s3_object], base_url)
+        urls = self.get_presigned_s3_public_urls([s3_object], base_url, expiry_secs)
         return urls[0]
 
     def _get_public_base_url(self) -> str:
@@ -1253,11 +1432,35 @@ class Windmill:
         """
         nonce = random.randint(0, 1000000000)
         job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
-        params = {"approver": approver}
+        # See get_approval_urls for why an absent approver is omitted.
+        params = {"approver": approver} if approver is not None else {}
         if flow_level is not None:
             params["flow_level"] = flow_level
         return self.get(
             f"/w/{self.workspace}/jobs/resume_urls/{job_id}/{nonce}",
+            params=params,
+        ).json()
+
+    def get_approval_urls(self, step_key: str = "approval", approver: str = None) -> dict:
+        """Get the resume URLs bound to one ``wait_for_approval`` step of this workflow.
+
+        Args:
+            step_key: Checkpoint key of the approval step, as passed to
+                ``wait_for_approval(key=...)``
+            approver: Optional approver name
+
+        Returns:
+            Dictionary with approvalPage, resume, and cancel URLs
+        """
+        from urllib.parse import quote
+
+        _assert_usable_step_key(step_key, "get_approval_urls step_key")
+        job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
+        # Omit rather than send `approver=`: an empty value is echoed into the
+        # returned URLs and recorded as the approver instead of "anonymous".
+        params = {"approver": approver} if approver is not None else {}
+        return self.get(
+            f"/w/{self.workspace}/jobs/wac_approval_urls/{job_id}/{quote(step_key, safe='')}",
             params=params,
         ).json()
 
@@ -1341,8 +1544,14 @@ class Windmill:
     def username_to_email(self, username: str) -> str:
         """
         Get email from workspace username
-        This method is particularly useful for apps that require the email address of the viewer.
-        Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+
+        .. deprecated:: Read the contextual variables instead:
+        `os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`.
+        WM_END_USER_EMAIL is the email of whoever triggered the run when it came from an app, so
+        the fallback yields the app viewer inside an app and the executing user everywhere else -
+        without an extra API call, and unlike this method it also resolves viewers who are not
+        workspace members. An app viewed anonymously has no identity to report: the variable is
+        then empty and the fallback yields the app publisher.
         """
         return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
 
@@ -1366,16 +1575,19 @@ class Windmill:
             },
         )
 
-    def datatable(self, name: str = "main"):
+    def datatable(self, name: str = "main", *, role: Optional[str] = None):
         """Get a DataTable client for SQL queries.
 
         Args:
             name: Database name (default: "main")
+            role: Connect as this data table role instead of the data table's default one.
+                Only meaningful on a data table under roles, and only for a role you are a
+                tenant of.
 
         Returns:
             DataTableClient instance
         """
-        return DataTableClient(self, name)
+        return DataTableClient(self, name, role=role)
 
     def ducklake(self, name: str = "main"):
         """Get a DuckLake client for DuckDB queries.
@@ -1453,6 +1665,7 @@ def run_script_async(
     hash_or_path: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: int = None,
+    tag: str = None,
 ) -> str:
     """Create a script job and return its job ID.
 
@@ -1460,6 +1673,7 @@ def run_script_async(
         hash_or_path: Script hash or path (determined by presence of '/')
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
+        tag: Override the worker tag the job runs on
 
     Returns:
         Job ID string
@@ -1472,6 +1686,7 @@ def run_script_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
+        tag=tag,
     )
 
 
@@ -1484,6 +1699,7 @@ def run_flow_async(
     # as otherwise the child flow and its own child will store their state in the parent job which will
     # lead to incorrectness and failures
     do_not_track_in_parent: bool = True,
+    tag: str = None,
 ) -> str:
     """Create a flow job and return its job ID.
 
@@ -1492,6 +1708,7 @@ def run_flow_async(
         args: Flow arguments
         scheduled_in_secs: Delay before execution in seconds
         do_not_track_in_parent: Whether to track in parent job (default: True)
+        tag: Override the worker tag the job runs on
 
     Returns:
         Job ID string
@@ -1501,6 +1718,7 @@ def run_flow_async(
         args=args,
         scheduled_in_secs=scheduled_in_secs,
         do_not_track_in_parent=do_not_track_in_parent,
+        tag=tag,
     )
 
 
@@ -1512,6 +1730,7 @@ def run_script_sync(
     assert_result_is_not_none: bool = True,
     cleanup: bool = True,
     timeout: dt.timedelta = None,
+    tag: str = None,
 ) -> Any:
     """Run a script synchronously by hash and return its result.
 
@@ -1522,6 +1741,7 @@ def run_script_sync(
         assert_result_is_not_none: Raise exception if result is None
         cleanup: Register cleanup handler to cancel job on exit
         timeout: Maximum time to wait
+        tag: Override the worker tag the job runs on
 
     Returns:
         Script result
@@ -1533,6 +1753,7 @@ def run_script_sync(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 
@@ -1541,6 +1762,8 @@ def run_script_by_path_async(
     path: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
+    tag: str = None,
+    retry: Dict[str, Any] = None,
 ) -> str:
     """Create a script job by path and return its job ID.
 
@@ -1548,6 +1771,9 @@ def run_script_by_path_async(
         path: Script path
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
+        tag: Override the worker tag the job runs on
+        retry: Re-run the job when it fails, with the policy a schedule takes,
+            e.g. ``{"constant": {"attempts": 3, "seconds": 10}}``
 
     Returns:
         Job ID string
@@ -1556,6 +1782,8 @@ def run_script_by_path_async(
         path=path,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
+        tag=tag,
+        retry=retry,
     )
 
 
@@ -1564,6 +1792,8 @@ def run_script_by_hash_async(
     hash_: str,
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
+    tag: str = None,
+    retry: Dict[str, Any] = None,
 ) -> str:
     """Create a script job by hash and return its job ID.
 
@@ -1571,6 +1801,8 @@ def run_script_by_hash_async(
         hash_: Script hash
         args: Script arguments
         scheduled_in_secs: Delay before execution in seconds
+        tag: Override the worker tag the job runs on
+        retry: Re-run the job when it fails, see ``run_script_by_path_async``
 
     Returns:
         Job ID string
@@ -1579,6 +1811,8 @@ def run_script_by_hash_async(
         hash_=hash_,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
+        tag=tag,
+        retry=retry,
     )
 
 
@@ -1590,6 +1824,7 @@ def run_script_by_path_sync(
     assert_result_is_not_none: bool = True,
     cleanup: bool = True,
     timeout: dt.timedelta = None,
+    tag: str = None,
 ) -> Any:
     """Run a script synchronously by path and return its result.
 
@@ -1600,6 +1835,7 @@ def run_script_by_path_sync(
         assert_result_is_not_none: Raise exception if result is None
         cleanup: Register cleanup handler to cancel job on exit
         timeout: Maximum time to wait
+        tag: Override the worker tag the job runs on
 
     Returns:
         Script result
@@ -1611,6 +1847,7 @@ def run_script_by_path_sync(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 
@@ -1754,27 +1991,38 @@ def delete_s3_object(
 
 
 @init_global_client
-def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]:
+def sign_s3_objects(s3_objects: list[S3Object | str], expiry_secs: int | None = None) -> list[S3Object]:
     """
     Sign S3 objects to be used by anonymous users in public apps
     Returns a list of signed s3 tokens
+
+    Args:
+        s3_objects: List of S3 objects to sign
+        expiry_secs: How long the signatures stay valid, in seconds
+            (defaults to 43200 = 12h, clamped to [60, 604800])
     """
-    return _client.sign_s3_objects(s3_objects)
+    return _client.sign_s3_objects(s3_objects, expiry_secs)
 
 
 @init_global_client
-def sign_s3_object(s3_object: S3Object| str) -> S3Object:
+def sign_s3_object(s3_object: S3Object| str, expiry_secs: int | None = None) -> S3Object:
     """
     Sign S3 object to be used by anonymous users in public apps
     Returns a signed s3 object
+
+    Args:
+        s3_object: S3 object to sign
+        expiry_secs: How long the signature stays valid, in seconds
+            (defaults to 43200 = 12h, clamped to [60, 604800])
     """
-    return _client.sign_s3_object(s3_object)
+    return _client.sign_s3_object(s3_object, expiry_secs)
 
 
 @init_global_client
 def get_presigned_s3_public_urls(
     s3_objects: list[S3Object | str],
     base_url: str | None = None,
+    expiry_secs: int | None = None,
 ) -> list[str]:
     """
     Generate presigned public URLs for an array of S3 objects.
@@ -1783,6 +2031,8 @@ def get_presigned_s3_public_urls(
     Args:
         s3_objects: List of S3 objects to sign
         base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+        expiry_secs: How long the signatures stay valid, in seconds
+            (defaults to 43200 = 12h, clamped to [60, 604800])
 
     Returns:
         List of signed public URLs
@@ -1793,13 +2043,14 @@ def get_presigned_s3_public_urls(
         >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
         >>> urls = wmill.get_presigned_s3_public_urls(s3_objs)
     """
-    return _client.get_presigned_s3_public_urls(s3_objects, base_url)
+    return _client.get_presigned_s3_public_urls(s3_objects, base_url, expiry_secs)
 
 
 @init_global_client
 def get_presigned_s3_public_url(
     s3_object: S3Object | str,
     base_url: str | None = None,
+    expiry_secs: int | None = None,
 ) -> str:
     """
     Generate a presigned public URL for an S3 object.
@@ -1808,6 +2059,8 @@ def get_presigned_s3_public_url(
     Args:
         s3_object: S3 object to sign
         base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+        expiry_secs: How long the signature stays valid, in seconds
+            (defaults to 43200 = 12h, clamped to [60, 604800])
 
     Returns:
         Signed public URL
@@ -1818,7 +2071,7 @@ def get_presigned_s3_public_url(
         >>> s3_obj = S3Object(s3="/path/to/file.txt")
         >>> url = wmill.get_presigned_s3_public_url(s3_obj)
     """
-    return _client.get_presigned_s3_public_url(s3_object, base_url)
+    return _client.get_presigned_s3_public_url(s3_object, base_url, expiry_secs)
 
 
 @init_global_client
@@ -1909,6 +2162,17 @@ def get_progress(job_id: Optional[str] = None) -> Any:
     return _client.get_progress(job_id)
 
 
+@init_global_client
+def worker_is_draining(job_id: Optional[str] = None) -> bool:
+    """
+    Whether the worker running this job has received its shutdown signal.
+
+    A draining worker waits for its current job to finish before exiting. A long-running
+    script can poll this and return early so the worker can be replaced.
+    """
+    return _client.worker_is_draining(job_id)
+
+
 def set_shared_state_pickle(value: Any, path="state.pickle") -> None:
     """
     Set the state in the shared folder using pickle
@@ -1997,6 +2261,33 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict:
 
 
 @init_global_client
+def get_approval_urls(step_key: str = "approval", approver: str = None) -> dict:
+    """Get the resume/cancel/approval-page URLs bound to one ``wait_for_approval`` step.
+
+    Unlike :func:`get_resume_urls`, which signs a random nonce, these address the
+    very ``resume_job`` record the step's built-in approval buttons use, so they
+    are stable across replays and safe to embed in a custom notification.
+
+    Args:
+        step_key: Checkpoint key of the approval step, as passed to
+            ``wait_for_approval(key=...)``. Keys must be unique within a workflow;
+            reusing one raises rather than silently renaming it. The URL only
+            resumes while that step is awaiting approval; used at any other moment
+            it is rejected rather than banking a row a different approval would
+            consume. Send it ahead of time — approvers just cannot act before the
+            workflow reaches the step.
+            ``resume`` and ``cancel`` are step-bound; ``approvalPage`` is not — it
+            opens the job's approval page, which acts on whichever approval is
+            pending when it is used.
+        approver: Optional approver name
+
+    Returns:
+        Dictionary with approvalPage, resume, and cancel URLs
+    """
+    return _client.get_approval_urls(step_key, approver)
+
+
+@init_global_client
 def request_interactive_slack_approval(
     slack_resource_path: str,
     channel_id: str,
@@ -2062,9 +2353,10 @@ def run_script(
     verbose: bool = False,
     cleanup: bool = True,
     assert_result_is_not_none: bool = True,
+    tag: str = None,
 ) -> Any:
     """Run script synchronously and return its result.
-    
+
     .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
     """
     return _client.run_script(
@@ -2075,6 +2367,7 @@ def run_script(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 
@@ -2086,6 +2379,7 @@ def run_script_by_path(
     verbose: bool = False,
     cleanup: bool = True,
     assert_result_is_not_none: bool = True,
+    tag: str = None,
 ) -> Any:
     """Run script by path synchronously and return its result."""
     return _client.run_script_by_path(
@@ -2095,6 +2389,7 @@ def run_script_by_path(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 
@@ -2106,6 +2401,7 @@ def run_script_by_hash(
     verbose: bool = False,
     cleanup: bool = True,
     assert_result_is_not_none: bool = True,
+    tag: str = None,
 ) -> Any:
     """Run script by hash synchronously and return its result."""
     return _client.run_script_by_hash(
@@ -2115,6 +2411,7 @@ def run_script_by_hash(
         assert_result_is_not_none=assert_result_is_not_none,
         cleanup=cleanup,
         timeout=timeout,
+        tag=tag,
     )
 
 @init_global_client
@@ -2134,23 +2431,30 @@ def run_inline_script_preview(
 def username_to_email(username: str) -> str:
     """
     Get email from workspace username
-    This method is particularly useful for apps that require the email address of the viewer.
-    Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+
+    .. deprecated:: Read the contextual variables instead:
+    `os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`.
+    WM_END_USER_EMAIL is the email of whoever triggered the run when it came from an app, so the
+    fallback yields the app viewer inside an app and the executing user everywhere else - without
+    an extra API call, and unlike this function it also resolves viewers who are not workspace
+    members. An app viewed anonymously has no identity to report: the variable is then empty and
+    the fallback yields the app publisher.
     """
     return _client.username_to_email(username)
 
 
 @init_global_client
-def datatable(name: str = "main") -> DataTableClient:
+def datatable(name: str = "main", *, role: Optional[str] = None) -> DataTableClient:
     """Get a DataTable client for SQL queries.
 
     Args:
         name: Database name (default: "main")
+        role: Connect as this data table role instead of the data table's default one.
 
     Returns:
         DataTableClient instance
     """
-    return _client.datatable(name)
+    return _client.datatable(name, role=role)
 
 @init_global_client
 def ducklake(name: str = "main") -> DucklakeClient:
@@ -2175,12 +2479,27 @@ def parse_resource_syntax(s: str) -> Optional[str]:
     return None
 
 def parse_s3_object(s3_object: S3Object | str) -> S3Object:
-    """Parse S3 object from string or S3Object format."""
+    """Parse S3 object from a `s3://<storage>/<key>` URI string (`s3:///<key>`
+    for the default storage) or S3Object format. Any other string raises
+    rather than falling back to an auto-generated key: an auto key is
+    requested by omitting the object, and a fallback would silently misplace
+    the upload on any typo.
+    """
     if isinstance(s3_object, str):
-        match = re.match(r'^s3://([^/]*)/(.*)$', s3_object)
+        match = re.fullmatch(r's3://([^/\n]*)/(.+)', s3_object)
         if match:
-            return S3Object(s3=match.group(2) or "", storage=match.group(1) or None)
-        return S3Object(s3="")
+            return S3Object(s3=match.group(2), storage=match.group(1) or None)
+        if s3_object.startswith("s3://"):
+            raise ValueError(
+                f"Invalid s3 object URI {s3_object!r}: expected "
+                "s3://<storage>/<key> with a non-empty key "
+                "(s3:///<key> for the default storage)"
+            )
+        raise ValueError(
+            f"Invalid s3 object {s3_object!r}: expected an s3://<storage>/<key> "
+            f"URI (e.g. 's3:///{s3_object}' for key {s3_object!r} in the default "
+            "storage) or S3Object(s3=<key>)"
+        )
     else:
         return s3_object
 
@@ -2210,17 +2529,28 @@ def stream_result(stream) -> None:
     for text in stream:
         append_to_result_stream(text)
 
+# Interpolated into a `-- role <name>` line, so a value carrying a newline could append
+# statements of its own. Mirrors the server's own role-name rule.
+_ROLE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,63}$")
+
+
 class DataTableClient:
     """Client for executing SQL queries against Windmill DataTables."""
 
-    def __init__(self, client: Windmill, name: str):
+    def __init__(self, client: Windmill, name: str, role: Optional[str] = None):
         """Initialize DataTableClient.
 
         Args:
             client: Windmill client instance
             name: DataTable name
+            role: Data table role to connect as, or None for the data table's default
         """
+        if role is not None and not _ROLE_NAME_RE.match(role):
+            raise ValueError(
+                f"Invalid data table role '{role}': only letters, digits, '_' and '-' are allowed"
+            )
         self.client = client
+        self.role = role
         self.name, self.schema = parse_sql_client_name(name)
     def query(self, sql: str, *args) -> SqlQuery:
         """Execute a SQL query against the DataTable.
@@ -2241,6 +2571,9 @@ class DataTableClient:
             args_dict[f"arg{i+1}"] = arg
             args_def += f"-- ${i+1} arg{i+1} ({infer_sql_type(arg)})\n"
         sql = args_def + sql
+        # Must lead: the executor's annotation parser stops at the first non-comment line.
+        if self.role is not None:
+            sql = f"-- role {self.role}\n" + sql
         return SqlQuery(
             sql,
             lambda sql: self.client.run_inline_script_preview(
@@ -2288,6 +2621,131 @@ class DucklakeClient:
                 args=args_dict,
             )
         )
+
+    def _qualified(self, table: str, schema: str = None) -> str:
+        return f'dl."{schema}"."{table}"' if schema else f"dl.{table}"
+
+    def _materialize_finish(self, sql, table, schema, partition, partition_col):
+        """Return the materialize query; in a pipeline (WM_PIPELINE) append a
+        summary read and record materialized_partition state after a successful
+        run so SDK-materialized slices appear in the grid like `// materialize`
+        ones. Outside a pipeline it stays a plain query (no recording)."""
+        bind = {} if partition is None else {"_wm_partition": partition}
+        if os.environ.get("WM_PIPELINE") != "true":
+            return self.query(sql, **bind)
+        t = self._qualified(table, schema)
+        where = f" WHERE {partition_col} = $_wm_partition" if partition is not None else ""
+        summary = (
+            f"\nSELECT (SELECT count(*) FROM {t}{where}) AS rows, "
+            f"(SELECT max(snapshot_id) FROM ducklake_snapshots('dl')) AS snapshot_id;"
+        )
+        q = self.query(sql + summary, **bind)
+        # Asset path mirrors the `// materialize` engine: <lake>/<schema>.<table>
+        # for an explicit schema, else <lake>/<table>. Dropping the schema would
+        # hide the row from the grid and collide distinct schemas under one key.
+        asset_path = f"{self.name}/{schema}.{table}" if schema else f"{self.name}/{table}"
+        return _RecordingSqlQuery(q, self.client, asset_path, partition or "")
+
+    def upsert_partition(
+        self,
+        table: str,
+        select_sql: str,
+        partition: str = None,
+        unique_key: str = None,
+        partition_col: str = "_wm_partition",
+        schema: str = None,
+    ):
+        """Idempotently materialize the rows of `select_sql` into ducklake
+        `table` for one `partition` (or the whole table when `partition` is
+        None). Client-side equivalent of the `// materialize` engine: with
+        `unique_key` it upserts within the slice (delete-by-key + insert);
+        without it, it replaces (whole table → CREATE OR REPLACE; partition →
+        delete the partition + insert). Re-running the same slice is safe — the
+        backfill / failure-recovery contract.
+
+        The partition value is bound as a DuckDB arg (never string-interpolated)
+        so it cannot inject SQL. `select_sql` is trusted (your own query).
+        """
+        t = self._qualified(table, schema)
+        # Whole-table (no partition): no partition column; replace rebuilds the
+        # table with CREATE OR REPLACE, merge upserts the whole table by key.
+        if partition is None:
+            if unique_key:
+                sql = (
+                    f"CREATE TABLE IF NOT EXISTS {t} AS SELECT * FROM ({select_sql}) WHERE false;\n"
+                    f"BEGIN TRANSACTION;\n"
+                    f"DELETE FROM {t} WHERE {unique_key} IN (SELECT {unique_key} FROM ({select_sql}));\n"
+                    f"INSERT INTO {t} SELECT * FROM ({select_sql});\n"
+                    f"COMMIT;"
+                )
+            else:
+                sql = f"CREATE OR REPLACE TABLE {t} AS SELECT * FROM ({select_sql});"
+            return self._materialize_finish(sql, table, schema, partition, partition_col)
+        src = f"SELECT *, $_wm_partition AS {partition_col} FROM ({select_sql})"
+        if unique_key:
+            # Upsert via delete-by-key + insert (not MERGE — DuckLake's MERGE
+            # fails writing the first rows of a fresh partition).
+            body = (
+                f"DELETE FROM {t} WHERE {partition_col} = $_wm_partition "
+                f"AND {unique_key} IN (SELECT {unique_key} FROM ({select_sql}));\n"
+                f"INSERT INTO {t} {src};"
+            )
+        else:
+            body = (
+                f"DELETE FROM {t} WHERE {partition_col} = $_wm_partition;\n"
+                f"INSERT INTO {t} {src};"
+            )
+        sql = (
+            f"CREATE TABLE IF NOT EXISTS {t} AS "
+            f"SELECT *, CAST(NULL AS VARCHAR) AS {partition_col} FROM ({select_sql}) WHERE false;\n"
+            f"ALTER TABLE {t} SET PARTITIONED BY ({partition_col});\n"
+            f"BEGIN TRANSACTION;\n{body}\nCOMMIT;"
+        )
+        return self._materialize_finish(sql, table, schema, partition, partition_col)
+
+    def append_partition(
+        self,
+        table: str,
+        select_sql: str,
+        partition: str = None,
+        partition_col: str = "_wm_partition",
+        schema: str = None,
+    ):
+        """INSERT-only materialization (no dedup / no replace) for an immutable
+        event-log table — for one `partition`, or the whole table when
+        `partition` is None. NOTE: unlike `upsert_partition`, re-running the same
+        slice duplicates rows — use only for append-only sources."""
+        t = self._qualified(table, schema)
+        # Whole-table (no partition): insert into the bare table, no partition col.
+        if partition is None:
+            sql = (
+                f"CREATE TABLE IF NOT EXISTS {t} AS SELECT * FROM ({select_sql}) WHERE false;\n"
+                f"INSERT INTO {t} SELECT * FROM ({select_sql});"
+            )
+            return self._materialize_finish(sql, table, schema, partition, partition_col)
+        sql = (
+            f"CREATE TABLE IF NOT EXISTS {t} AS "
+            f"SELECT *, CAST(NULL AS VARCHAR) AS {partition_col} FROM ({select_sql}) WHERE false;\n"
+            f"ALTER TABLE {t} SET PARTITIONED BY ({partition_col});\n"
+            f"INSERT INTO {t} SELECT *, $_wm_partition AS {partition_col} FROM ({select_sql});"
+        )
+        return self._materialize_finish(sql, table, schema, partition, partition_col)
+
+    def read(
+        self,
+        table: str,
+        partition: str = None,
+        partition_col: str = "_wm_partition",
+        schema: str = None,
+    ):
+        """Read a materialized ducklake table, optionally a single partition."""
+        t = self._qualified(table, schema)
+        if partition is not None:
+            return self.query(
+                f"SELECT * FROM {t} WHERE {partition_col} = $_wm_partition",
+                _wm_partition=partition,
+            )
+        return self.query(f"SELECT * FROM {t}")
 
 class SqlQuery:
     """Query result handler for DataTable and DuckLake queries."""
@@ -2337,6 +2795,60 @@ class SqlQuery:
         """
         self.fetch_one()
 
+
+class _RecordingSqlQuery:
+    """Wraps a ducklake materialize query so that, on a successful run, the
+    trailing summary (row count + snapshot id) is captured and the
+    materialized_partition state is recorded (best-effort). Only used in pipeline
+    context — outside it the helpers return a plain SqlQuery. Mirrors SqlQuery's
+    terminal methods so `.execute()` / `.fetch_one()` behave the same."""
+
+    def __init__(self, inner, client, asset_path, partition):
+        self._inner = inner
+        self._client = client
+        self._asset_path = asset_path
+        self._partition = partition
+        self.sql = inner.sql
+
+    def execute(self):
+        self._run()
+
+    def fetch_one(self):
+        return self._run()
+
+    def fetch(self, result_collection=None):
+        return self._run()
+
+    def _run(self):
+        try:
+            row = self._inner.fetch_one()
+        except Exception as e:
+            self._record("failed", None, None, str(e))
+            raise
+        snap = row.get("snapshot_id") if isinstance(row, dict) else None
+        rows = row.get("rows") if isinstance(row, dict) else None
+        self._record("materialized", snap, rows, None)
+        return row
+
+    def _record(self, status, snapshot_id, row_count, error):
+        try:
+            self._client.post(
+                f"/w/{self._client.workspace}/assets/record_materialization",
+                json={
+                    "asset_kind": "ducklake",
+                    "asset_path": self._asset_path,
+                    "partition": self._partition,
+                    "status": status,
+                    "snapshot_id": snapshot_id,
+                    "row_count": row_count,
+                    "job_id": os.environ.get("WM_JOB_ID"),
+                    "error": error,
+                },
+            )
+        except Exception:
+            pass  # best-effort; never fail the user's materialization
+
+
 def infer_sql_type(value) -> str:
     """
     DuckDB executor requires explicit argument types at declaration
@@ -2373,6 +2885,18 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
 
 import asyncio as _asyncio
 import contextvars as _contextvars
+import inspect as _inspect
+import sys as _sys
+import traceback as _traceback
+
+
+def _assert_usable_step_key(key: str, what: str) -> None:
+    """A step key travels as one path segment when its URLs are minted, so it must be
+    non-empty and free of ``/`` and dot segments — otherwise ``wait_for_approval``
+    would accept a key ``get_approval_urls`` can never address."""
+    k = key.strip()
+    if not k or k in (".", "..") or "/" in key or "\\" in key:
+        raise RuntimeError(f"{what} must be a non-empty step name without `/` or dot segments")
 
 
 class _StepSuspend(BaseException):
@@ -2383,25 +2907,269 @@ class _StepSuspend(BaseException):
         self.dispatch_info = dispatch_info
 
 
+class _StepFailure(BaseException):
+    """Carries the exception raised by the step a child round executes directly.
+
+    That exception *is* the round's result, so a broad ``except Exception`` in the
+    body must not be able to turn it into a successful complete — the parent would
+    then record the caught branch's value as the step result. BaseException for the
+    same reason ``_StepSuspend`` is; a bare ``except:`` still swallows both.
+    """
+
+    def __init__(self, exc: BaseException):
+        self.exc = exc
+
+
 class TaskError(Exception):
-    """Raised when a WAC task step failed.
+    """Raised when a WAC ``task`` or ``step`` failed.
 
     Attributes:
         step_key: The checkpoint key of the failed step.
-        child_job_id: The UUID of the failed child job.
-        result: The error result from the child job.
+        child_job_id: The UUID of the failed child job, or ``None`` for a
+            ``step()``, which runs in the workflow job and has no child job.
+        result: ``{"error": {"name", "message", "stack"?, "extra"?}}`` — the
+            same shape whether a task or a step failed. ``name`` and ``message``
+            are always present; ``stack`` only when the failure had a traceback,
+            and ``extra`` only when it carried custom fields of its own, dropped
+            with ``extra_omitted: True`` beside it when too large to checkpoint.
     """
 
-    def __init__(self, message: str, *, step_key: str = "", child_job_id: str = "", result=None):
+    def __init__(self, message: str, *, step_key: str = "", child_job_id: Optional[str] = None, result=None):
         super().__init__(message)
         self.step_key = step_key
         self.child_job_id = child_job_id
         self.result = result
 
 
+def _safe_str(o) -> str:
+    """``str()`` on the failing side's own object, which can raise in turn — a
+    detached ORM row, a proxy over a closed connection, an ``__str__`` that
+    itself fails. Every coercion here runs inside the ``except`` that is
+    reporting the user's failure, so an escape would replace their error with an
+    unrelated one and skip the checkpoint entirely."""
+    try:
+        return str(o)
+    except Exception:
+        return f"<unrepresentable {type(o).__name__}>"
+
+
+def _step_error_stack(exc: BaseException) -> str:
+    """The traceback of a failed ``step()`` body, formatted the way the python
+    executor formats a failed job's: frames only, and the frame that called into
+    the user's code dropped. Here that first frame is ``_run_inline_step``'s own
+    ``result = fn()``, the counterpart of the generated wrapper frame the
+    executor strips, so a step's stack and a task's stack read alike.
+
+    Taken from ``sys.exc_info()`` the way the executor takes it, falling back to
+    the attribute: an exception overriding ``__getattribute__`` makes reading
+    ``__traceback__`` raise, and this runs inside the ``except`` reporting the
+    user's failure, so an escape would lose both their error and the checkpoint.
+    """
+    tb = _sys.exc_info()[2]
+    if tb is None:
+        try:
+            tb = exc.__traceback__
+        except Exception:
+            return ""
+    try:
+        return "".join(_traceback.format_tb(tb)[1:]).strip()
+    except Exception:
+        return ""
+
+
+def _json_round_trip(value):
+    """Put a value through the checkpoint's encoding without checkpointing it, so
+    the paths that never persist anything still hand back the shape the ones that
+    do would. ``default=str`` matches the worker wrapper's encoder."""
+    return json.loads(json.dumps(value, default=str))
+
+
+def _step_error_marker(key: str, exc: BaseException) -> dict:
+    """Serialize a failed ``step()`` body into the ``__wmill_error`` marker that
+    task failures also use, so it can be stored in ``completed_steps``.
+
+    The marker's final shape is decided by the backend (``wac_failure_record``),
+    which normalizes task failures through the same function; what is built here
+    is the raw material plus the envelope the backend recognizes."""
+    error = {"name": type(exc).__name__, "message": _safe_str(exc)}
+    stack = _step_error_stack(exc)
+    if stack:
+        error["stack"] = stack
+    # Custom attributes go under ``extra``, the same key the python executor uses
+    # for a failed child job, so an exception carrying e.g. a ``code`` keeps it
+    # whether it failed as a task or as a step.
+    #
+    # Coerced through ``default=str`` the way the executor writes its own error:
+    # the fast-path POST serializes strictly, and the commonest failing step
+    # there is — ``resp.raise_for_status()``, whose ``__dict__`` holds a request
+    # and a response object — would otherwise fail to serialize and silently
+    # drop every such failure onto the slow suspend-and-replay path.
+    # Everything about the failing exception can fight back, and this runs inside
+    # the ``except`` reporting it, so an escape replaces the user's error and
+    # skips the checkpoint. Only a genuine ``dict`` is walked: an overridden
+    # ``__dict__`` can raise on access, on ``.items()``, or yield non-pairs.
+    try:
+        _raw_extra = getattr(exc, "__dict__", None)
+    except Exception:
+        _raw_extra = None
+    if type(_raw_extra) is dict and _raw_extra:
+        safe_extra = {}
+        for _k, _v in _raw_extra.items():
+            # Rebuilding the pair hashes the key again, so only the types json
+            # can represent, and exactly those: a subclass may define __hash__.
+            if type(_k) not in (str, int, float, bool, type(None)):
+                continue
+            # Per attribute so one bad value cannot take the rest, and as a pair
+            # so an int/bool/None key arrives as the string a replay reads.
+            # ``parse_constant`` catches what ``default`` cannot: a float is
+            # serializable, so NaN/Infinity would go out as invalid JSON.
+            try:
+                safe_extra.update(
+                    json.loads(
+                        json.dumps({_k: _v}, default=_safe_str),
+                        parse_constant=lambda c: c,
+                    )
+                )
+            except (TypeError, ValueError, RecursionError):
+                pass
+        if safe_extra:
+            error["extra"] = safe_extra
+    return {
+        "__wmill_error": True,
+        "message": _safe_str(exc),
+        "step_key": key,
+        "result": {"error": error},
+    }
+
+
+def _task_error_from_marker(marker: dict, fallback_message: str) -> TaskError:
+    """Rebuild the exception a failed task or step raises. The run that produced
+    the failure and every later replay go through here: ``except`` is control
+    flow, ``@workflow`` re-runs its body from the top every round, so a handler
+    that branches on the failure it caught must be handed the same thing in
+    every round or it dispatches different tasks on the way back."""
+    return TaskError(
+        marker.get("message") or fallback_message,
+        step_key=marker.get("step_key", ""),
+        child_job_id=marker.get("child_job_id"),
+        result=marker.get("result"),
+    )
+
+
+# The worker deserializes a sleep into a ``u32`` of seconds and fails the whole
+# job on anything wider, so a delay a multiplier has run away with has to be
+# capped here rather than sent.
+_MAX_SLEEP_SECONDS = 2**32 - 1
+
+_RETRY_KEYS = ("attempts", "delay", "multiplier", "max_delay")
+
+# Every attempt claims its keys before the first one is dispatched, so an
+# unbounded ``attempts`` is a workflow that hangs allocating rather than a very
+# patient one.
+_MAX_RETRY_ATTEMPTS = 100
+
+
+def _checked_retry(retry: Optional[dict]) -> Optional[dict]:
+    """Reject a policy where it is written, rather than mid-run on a replay: the
+    policy is a plain dict, so a misspelled key would otherwise be dropped in
+    silence and the task would retry on a policy nobody wrote."""
+    if retry is None:
+        return None
+    unknown = sorted(k for k in retry if k not in _RETRY_KEYS)
+    if unknown:
+        raise ValueError(
+            f"unknown retry option(s): {', '.join(unknown)}. Expected any of: {', '.join(_RETRY_KEYS)}"
+        )
+    attempts = retry.get("attempts")
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or not 0 <= attempts <= _MAX_RETRY_ATTEMPTS:
+        raise ValueError(
+            f"retry attempts must be a whole number between 0 and {_MAX_RETRY_ATTEMPTS}, got {attempts!r}"
+        )
+    return retry
+
+
+def _retry_delay_seconds(retry: dict, attempt: int) -> int:
+    """Seconds to wait before retry number ``attempt`` (0 is the first retry)."""
+    base = retry.get("delay") or 0
+    if base <= 0:
+        return 0
+    # `or 1` would read an explicit `multiplier: 0` — every retry after the
+    # first going out with no wait — as the default of 1.
+    multiplier = retry.get("multiplier")
+    if multiplier is None:
+        multiplier = 1
+    try:
+        grown = base * multiplier**attempt
+    except OverflowError:
+        # A float delay times an integer multiplier raised past ~1e308.
+        grown = _MAX_SLEEP_SECONDS
+    max_delay = retry.get("max_delay")
+    if max_delay is not None:
+        grown = min(grown, max_delay)
+    return max(0, int(min(grown, _MAX_SLEEP_SECONDS)))
+
+
 _workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
     "_workflow_ctx"
 )
+
+# Set while a task body runs in its child job: ``"async"`` or ``"sync"`` after
+# the kind of function the body is. A flag on the ctx cannot stand in: under
+# ``asyncio.gather`` the workflow body keeps replaying beside the task body, and
+# its calls must still park rather than run a sibling task's body in this job.
+_in_task_body: _contextvars.ContextVar[Optional[str]] = _contextvars.ContextVar(
+    "_in_task_body", default=None
+)
+
+
+def _dispatch_ctx() -> "WorkflowCtx | None":
+    """The ctx SDK calls dispatch through, or None where they run in place:
+    outside a workflow, and inside a task body, which is one job and has no
+    rounds of its own to dispatch or checkpoint a step in."""
+    if _in_task_body.get():
+        return None
+    return _workflow_ctx.get(None)
+
+
+async def _resolved(value):
+    return value
+
+
+def _call_in_task_body(func, caller: str, args, kwargs):
+    """Run a task called from inside a task body in place, round-tripping its
+    result as a dispatched one would be.
+
+    The workflow body awaits every task, sync ones included, so an async caller
+    gets an awaitable back either way; a sync caller gets the value. The scope
+    is re-marked for the nested body, which may be of the other kind."""
+
+    async def run_async(coro):
+        token = _in_task_body.set("async")
+        try:
+            return _json_round_trip(await coro)
+        finally:
+            _in_task_body.reset(token)
+
+    if _inspect.iscoroutinefunction(func):
+        return run_async(func(*args, **kwargs))
+    token = _in_task_body.set("sync")
+    try:
+        result = func(*args, **kwargs)
+    finally:
+        _in_task_body.reset(token)
+    if _asyncio.iscoroutine(result):
+        return run_async(result)
+    result = _json_round_trip(result)
+    return _resolved(result) if caller == "async" else result
+
+
+def _assert_not_inside_task_body(what: str) -> None:
+    if _in_task_body.get():
+        raise RuntimeError(
+            f"{what} cannot be called from inside a task: a task runs as a single "
+            "job and cannot suspend or dispatch steps. Call it from the @workflow "
+            "body instead."
+        )
 
 
 class WorkflowCtx:
@@ -2414,6 +3182,8 @@ class WorkflowCtx:
         checkpoint = checkpoint or {}
         self._completed: dict = checkpoint.get("completed_steps", {})
         self._counters: dict[str, int] = {}
+        # Every key handed out by _alloc_key, so distinct names can't alias one key.
+        self._used_keys: set[str] = set()
         self._pending: list = []
         self._executing_key: str | None = checkpoint.get("_executing_key")
         # Reuse a single httpx.AsyncClient across all fast-path step() calls
@@ -2435,48 +3205,110 @@ class WorkflowCtx:
         self._inline_lock: "_asyncio.Lock | None" = None
 
     def _alloc_key(self, name: str = "step") -> str:
-        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
+        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent.
+
+        Suffixing alone can alias — a second ``step("x")`` and a first ``step("x_2")``
+        both want ``x_2`` — so keep bumping past keys already handed out. Allocation
+        order is fixed by the workflow body, so replays reproduce the same keys.
+        """
         n = self._counters.get(name, 0) + 1
+        key = name if n == 1 else f"{name}_{n}"
+        while key in self._used_keys:
+            n += 1
+            key = f"{name}_{n}"
         self._counters[name] = n
-        return name if n == 1 else f"{name}_{n}"
+        self._used_keys.add(key)
+        return key
 
     def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", _task_options: Optional[dict] = None, **kwargs):
         """Return an awaitable that either resolves from cache or suspends."""
-        key = self._alloc_key(name or script or "step")
+        step_name = name or script or "step"
+        retry = (_task_options or {}).get("retry") or {}
+        # Clamped as well as validated at decoration: a policy that reached here
+        # another way must not spin the key loop below.
+        max_retries = min(max(0, int(retry.get("attempts") or 0)), _MAX_RETRY_ATTEMPTS)
 
+        # Claimed up front, all of them, and named off the first attempt's key:
+        # one allocated later would shift the keys of the steps beside it, and a
+        # ``step()`` named ``t#2`` — names are arbitrary — could alias one.
+        # Whichever is allocated second is the one renamed, in every round alike.
+        base_key = self._alloc_key(step_name)
+        attempt_keys = [base_key]
+        backoff_keys = []
+        for i in range(max_retries):
+            backoff_keys.append(self._alloc_key(f"{base_key}#retry{i + 2}"))
+            attempt_keys.append(self._alloc_key(f"{base_key}#{i + 2}"))
+
+        # One pass per attempt. Every attempt the checkpoint already holds is
+        # decided here — a failed one either retries (moving to the next key) or
+        # is handed back to the body — so the loop always ends at the first
+        # attempt that has yet to run.
+        attempt = 0
+        while True:
+            key = attempt_keys[attempt]
+
+            if key in self._completed:
+                val = self._completed[key]
+                if isinstance(val, dict) and val.get("__wmill_error"):
+                    if attempt < max_retries:
+                        self._retry_backoff(backoff_keys[attempt], base_key, retry, attempt)
+                        attempt += 1
+                        continue
+                    raise _task_error_from_marker(val, f"Task '{name}' failed")
+                return self._resolved(val)
+
+            if self._executing_key is not None:
+                if key == self._executing_key:
+                    return self._execute_directly(func, **kwargs)
+                else:
+                    return self._never_resolve()
+
+            print(f"\n--- WAC: {key} ---")
+            info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
+            if _task_options:
+                for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s"):
+                    if opt_key in _task_options and _task_options[opt_key] is not None:
+                        info[opt_key] = _task_options[opt_key]
+            self._pending.append(info)
+            return self._suspend()
+
+    def _retry_backoff(self, key: str, base_key: str, retry: dict, attempt: int) -> None:
+        """Wait out the backoff between two attempts of a retried task, as a
+        durable sleep, and return once there is nothing to wait for — no delay
+        configured, or the sleep already in the checkpoint.
+
+        Raises where it stands rather than from a coroutine the caller has to
+        await: a task call the body never awaits is still dispatched (the runner
+        flushes ``_pending``), so a backoff that only fired when awaited would
+        drop the retry and let the round report the workflow complete."""
+        seconds = _retry_delay_seconds(retry, attempt)
+        if seconds < 1:
+            return
         if key in self._completed:
-            val = self._completed[key]
-            if isinstance(val, dict) and val.get("__wmill_error"):
-                raise TaskError(
-                    val.get("message", f"Task '{name}' failed"),
-                    step_key=val.get("step_key", ""),
-                    child_job_id=val.get("child_job_id", ""),
-                    result=val.get("result"),
-                )
-            return self._resolved(val)
-
+            return
+        # Child mode never raises: the parent dispatched this child only after
+        # its own round had slept, so the loop moves on to the attempt being
+        # executed.
         if self._executing_key is not None:
-            if key == self._executing_key:
-                return self._execute_directly(func, **kwargs)
-            else:
-                return self._never_resolve()
-
-        print(f"\n--- WAC: {key} ---")
-        info = {"name": name or key, "script": script or key, "args": kwargs, "key": key, "dispatch_type": dispatch_type}
-        if _task_options:
-            for opt_key in ("timeout", "tag", "cache_ttl", "priority", "concurrent_limit", "concurrency_key", "concurrency_time_window_s"):
-                if opt_key in _task_options and _task_options[opt_key] is not None:
-                    info[opt_key] = _task_options[opt_key]
-        self._pending.append(info)
-        return self._suspend()
+            return
+        print(f"\n--- WAC: sleep({key}, {seconds}s) before retrying {base_key} ---")
+        raise _StepSuspend({"mode": "sleep", "key": key, "seconds": seconds, "steps": []})
 
     async def _resolved(self, value):
-        return value
+        return await _resolved(value)
 
     async def _execute_directly(self, func, **kwargs):
-        result = func(**kwargs)
-        if _asyncio.iscoroutine(result):
-            result = await result
+        token = _in_task_body.set(
+            "async" if _inspect.iscoroutinefunction(func) else "sync"
+        )
+        try:
+            result = func(**kwargs)
+            if _asyncio.iscoroutine(result):
+                result = await result
+        except Exception as exc:
+            raise _StepFailure(exc) from exc
+        finally:
+            _in_task_body.reset(token)
         raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
 
     async def _never_resolve(self):
@@ -2493,9 +3325,27 @@ class WorkflowCtx:
         )
 
     async def _wait_for_approval(
-        self, timeout: int = 1800, form: dict | None = None, self_approval: bool = True
+        self,
+        timeout: int = 1800,
+        form: dict | None = None,
+        self_approval: bool = True,
+        key: str | None = None,
+        skin: str | None = None,
+        description: str | dict | None = None,
     ):
-        key = self._alloc_key("approval")
+        if key is not None:
+            _assert_usable_step_key(key, "wait_for_approval key")
+        requested_key, key = key, self._alloc_key(key or "approval")
+
+        # An explicit key is an identifier callers mint URLs against, so silently
+        # renaming a duplicate to ``<key>_2`` would hand them a URL for the *first*
+        # step — which then fails with "resume request already sent" and parks the
+        # workflow until timeout. Unnamed approvals keep auto-numbering.
+        if requested_key and key != requested_key:
+            raise RuntimeError(
+                f'WAC step key "{requested_key}" is already used in this workflow. '
+                "Give each wait_for_approval() its own key so get_approval_urls() can address it."
+            )
 
         if key in self._completed:
             return self._completed[key]
@@ -2510,6 +3360,8 @@ class WorkflowCtx:
             "timeout": timeout,
             "form": form,
             "self_approval_disabled": not self_approval,
+            "skin": skin,
+            "description": description,
             "steps": [],
         })
 
@@ -2540,12 +3392,7 @@ class WorkflowCtx:
         if key in self._completed:
             val = self._completed[key]
             if isinstance(val, dict) and val.get("__wmill_error"):
-                raise TaskError(
-                    val.get("message", f"Step '{name}' failed"),
-                    step_key=val.get("step_key", ""),
-                    child_job_id=val.get("child_job_id", ""),
-                    result=val.get("result"),
-                )
+                raise _task_error_from_marker(val, f"Step '{name}' failed")
             return val
 
         if self._executing_key is not None:
@@ -2555,9 +3402,27 @@ class WorkflowCtx:
         started_at = _dt.now(_tz.utc).isoformat()
         print(f"WM_WAC_STEP: {_json_mod.dumps({'key': key, 'started_at': started_at})}")
         t0 = _time_mod.monotonic()
-        result = fn()
-        if _asyncio.iscoroutine(result):
-            result = await result
+        # A raised step still has to reach ``completed_steps``, or a replay with
+        # ``_executing_key`` set finds nothing recorded and parks forever on the
+        # ``_asyncio.Future()`` above. The control-flow signals (``_StepSuspend``,
+        # ``_StepFailure``) and ``CancelledError`` are ``BaseException``, so they
+        # pass through untouched.
+        step_failed = False
+        try:
+            result = fn()
+            if _asyncio.iscoroutine(result):
+                result = await result
+        except Exception as _exc:
+            step_failed = True
+            result = _step_error_marker(key, _exc)
+            # The failure is reported as a value from here on, so nothing else
+            # prints the traceback. Without this a step that fails and is never
+            # caught leaves a job log whose deepest frame is inside this client.
+            print(f"--- WAC: {key} failed ---")
+            print(f"{type(_exc).__name__}: {_safe_str(_exc)}")
+            _step_stack = result["result"]["error"].get("stack")
+            if _step_stack:
+                print(_step_stack)
         duration_ms = int((_time_mod.monotonic() - t0) * 1000)
 
         # Fast path: POST the delta to the new per-job API endpoint and return
@@ -2574,7 +3439,24 @@ class WorkflowCtx:
         _base = os.environ.get("BASE_INTERNAL_URL")
         _token = os.environ.get("WM_TOKEN")
         if _fast_path_enabled and _job_id and _workspace and _base and _token:
+            _fast_path_ok = False
+            _stored_failure = None
+            _replay_result = None
             try:
+                # ``default=str`` is the encoder the worker wrapper uses on the
+                # suspend path, so both arms checkpoint the same value — and a
+                # datetime or set takes the fast path instead of silently
+                # degrading to a suspend round.
+                _payload = _json_mod.dumps(
+                    {
+                        "key": key,
+                        "result": result,
+                        "started_at": started_at,
+                        "duration_ms": duration_ms,
+                    },
+                    default=str,
+                )
+                _replay_result = _json_mod.loads(_payload)["result"]
                 if self._inline_lock is None:
                     self._inline_lock = _asyncio.Lock()
                 # Lock wraps only the POST, not fn() above — concurrent
@@ -2591,15 +3473,24 @@ class WorkflowCtx:
                         )
                     _resp = await self._inline_http_client.post(
                         f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
-                        json={
-                            "key": key,
-                            "result": result,
-                            "started_at": started_at,
-                            "duration_ms": duration_ms,
-                        },
+                        content=_payload,
                     )
                     _resp.raise_for_status()
-                return result
+                    if step_failed:
+                        # The backend normalizes the failure before storing it,
+                        # and hands back what it stored. Raising from that, not
+                        # from the marker posted above, is what makes this round
+                        # and every replay read the same record even if the two
+                        # sides ever disagree about how to build one.
+                        #
+                        # A backend predating the echo answers without a JSON
+                        # body, and the round-tripped marker below stands in. A
+                        # JSON body that will not parse is different: the record
+                        # may already be committed and its content is unknown,
+                        # so let it raise and take the suspend path instead.
+                        if "json" in _resp.headers.get("content-type", ""):
+                            _stored_failure = (_resp.json() or {}).get("failure")
+                _fast_path_ok = True
             except Exception as _e:
                 logger.info(
                     "WAC v2 inline fast path failed for key %s, falling back to suspend: %s",
@@ -2607,6 +3498,27 @@ class WorkflowCtx:
                     _e,
                 )
                 # fall through to the legacy suspend path
+            if _fast_path_ok:
+                # Raise what a replay would rebuild from the record, never the
+                # original: a replay cannot reconstruct the original type, so
+                # raising it here would make ``except ValueError:`` catch on this
+                # run and miss on the next. Nothing is chained onto
+                # ``__cause__`` for the same reason — the traceback a replay can
+                # still show is in ``result["error"]["stack"]``. ``_stored_failure``
+                # is None against a backend that predates the echoed record,
+                # which is what ``_replay_result`` below stands in for.
+                if step_failed:
+                    # ``_replay_result``, not ``result``: the fallback has to be
+                    # what the checkpoint holds, so the round that ran the body
+                    # reads what every replay of it will.
+                    raise _task_error_from_marker(
+                        _stored_failure or _replay_result, f"Step '{name}' failed"
+                    )
+                # Return the round trip of what was checkpointed, never the
+                # in-memory value: handing back the live object would let the
+                # round that ran the body branch on a type — tuple, datetime —
+                # that no replay of it ever sees.
+                return _replay_result
 
         raise _StepSuspend({
             "mode": "inline_checkpoint",
@@ -2629,6 +3541,7 @@ def task(
     concurrency_limit: Optional[int] = None,
     concurrency_key: Optional[str] = None,
     concurrency_time_window_s: Optional[int] = None,
+    retry: Optional[dict] = None,
 ):
     """Decorator that marks a function as a workflow task.
 
@@ -2637,7 +3550,37 @@ def task(
 
     - **v2 (inside @workflow)**: dispatches as a checkpoint step.
     - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-    - **Standalone**: executes the function body directly.
+    - **Standalone, or called from inside another v2 task**: executes the
+      function body directly. A task runs as a single job, so the tasks it
+      calls run in that same job, without their own options.
+
+    A task runs as its own job, so its result is always encoded as JSON and
+    decoded back before the caller sees it: a ``datetime`` comes back as a
+    string, a tuple as a list.
+
+    ``retry`` re-dispatches the task after a failure, inside ``@workflow`` only.
+    Every attempt is a step of its own (``call_api``, ``call_api#2``, ...) and
+    the wait between two of them is a durable sleep, so a retrying task holds no
+    worker while it backs off. Keys: ``attempts`` (retries after the first
+    failure, a whole number from 0 to 100), ``delay`` (seconds before the first
+    retry, sub-second delays dropped), ``multiplier`` (applied to the delay
+    after each attempt, 1 keeps it constant), ``max_delay`` (ceiling in
+    seconds). ``attempts`` is required, and an out-of-range or unknown key is
+    rejected where the policy is written.
+
+    A workflow sleeps once per round, so tasks backing off in the same fan-out
+    wait one after another rather than together: the delay before a fan-out
+    retries is the sum of every backoff pending in it, not the longest one, and
+    it grows with both the width of the fan-out and ``attempts``. Retries with
+    no ``delay`` all go out in a single round.
+
+    ``cache_ttl`` serves a previous result of the task for that many seconds
+    instead of running it again. A task is keyed on its step key (its name and
+    call order) and the workflow's input, not on the arguments it is called
+    with, so cache one only when whether it runs, and what it receives, follow
+    from the workflow's input alone. A ``task_script`` target is keyed on the
+    arguments it is called with. It has no effect on a ``task_flow`` target,
+    which keeps its flow's own cache policy.
 
     Usage::
 
@@ -2646,6 +3589,9 @@ def task(
 
         @task(path="f/external_script", timeout=600, tag="gpu")
         async def run_external(x: int): ...
+
+        @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
+        async def call_api(payload: dict): ...
     """
     from inspect import signature as _sig
 
@@ -2657,6 +3603,7 @@ def task(
         "concurrent_limit": concurrency_limit,
         "concurrency_key": concurrency_key,
         "concurrency_time_window_s": concurrency_time_window_s,
+        "retry": _checked_retry(retry),
     }
     # Remove None values
     _task_opts = {k: v for k, v in _task_opts.items() if v is not None} or None
@@ -2678,13 +3625,22 @@ def task(
                     merged[f"arg{i}"] = arg
             return merged
 
+        # Keeps the decorated function's identity: `@task` is applied to a
+        # top-level `async def`, and a caller introspecting it should see that
+        # function, not `wrapper`. The step key is computed from `func` above,
+        # so this does not affect dispatch.
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             # WAC v2: inside a @workflow context
-            ctx = _workflow_ctx.get(None)
+            ctx = _dispatch_ctx()
             if ctx is not None:
                 script = task_path if task_path else task_name
                 merged = _merge_args(args, kwargs)
                 return ctx._next_step(task_name, script, func, _task_options=_task_opts, **merged)
+
+            caller = _in_task_body.get()
+            if caller is not None:
+                return _call_in_task_body(func, caller, args, kwargs)
 
             # WAC v1: running inside a Windmill job but not in a @workflow
             if (
@@ -2711,8 +3667,19 @@ def task(
                 print(f"Task {func.__name__} ({child_job_id}) completed")
                 return job_result
 
-            # Standalone — execute directly
-            return func(*args, **kwargs)
+            # Standalone — execute directly, but round-trip the result: a task's
+            # value crosses JSON in every other path, so a local run must agree.
+            # This wrapper is sync, so an ``async def`` task hands back a
+            # coroutine here — round-tripping that would serialize the coroutine
+            # object itself.
+            result = func(*args, **kwargs)
+            if _asyncio.iscoroutine(result):
+
+                async def _round_trip_awaited():
+                    return _json_round_trip(await result)
+
+                return _round_trip_awaited()
+            return _json_round_trip(result)
 
         wrapper._is_task = True
         wrapper._task_path = task_path
@@ -2735,8 +3702,11 @@ def task_script(
     concurrency_limit: Optional[int] = None,
     concurrency_key: Optional[str] = None,
     concurrency_time_window_s: Optional[int] = None,
+    retry: Optional[dict] = None,
 ):
     """Create a task that dispatches to a separate Windmill script.
+
+    ``retry`` takes the same policy as :func:`task`.
 
     Usage::
 
@@ -2747,9 +3717,10 @@ def task_script(
             data = await extract(url="https://...")
     """
     name = path.rsplit("/", 1)[-1]
-    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
+        _assert_not_inside_task_body(f'task_script("{path}")')
         ctx = _workflow_ctx.get(None)
         if ctx is not None:
             return ctx._next_step(name, path, dispatch_type="script", _task_options=_opts, **kwargs)
@@ -2771,8 +3742,11 @@ def task_flow(
     concurrency_limit: Optional[int] = None,
     concurrency_key: Optional[str] = None,
     concurrency_time_window_s: Optional[int] = None,
+    retry: Optional[dict] = None,
 ):
     """Create a task that dispatches to a separate Windmill flow.
+
+    ``retry`` takes the same policy as :func:`task`.
 
     Usage::
 
@@ -2783,9 +3757,10 @@ def task_flow(
             result = await pipeline(input=data)
     """
     name = path.rsplit("/", 1)[-1]
-    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s}.items() if v is not None} or None
+    _opts = {k: v for k, v in {"timeout": timeout, "tag": tag, "cache_ttl": cache_ttl, "priority": priority, "concurrent_limit": concurrency_limit, "concurrency_key": concurrency_key, "concurrency_time_window_s": concurrency_time_window_s, "retry": _checked_retry(retry)}.items() if v is not None} or None
 
     def wrapper(**kwargs):
+        _assert_not_inside_task_body(f'task_flow("{path}")')
         ctx = _workflow_ctx.get(None)
         if ctx is not None:
             return ctx._next_step(name, path, dispatch_type="flow", _task_options=_opts, **kwargs)
@@ -2816,23 +3791,32 @@ async def step(name: str, fn):
     On replay the cached value is returned without re-executing ``fn``.
     Use for lightweight deterministic operations (timestamps, random IDs,
     config reads) that should not incur the overhead of a child job.
+
+    ``fn``'s result is encoded as JSON and decoded back before it is returned,
+    so the round that runs the body sees the same types every replay sees:
+    a ``datetime`` comes back as a string, a tuple as a list.
+
+    Called from inside a task body, ``fn`` runs in place and nothing is
+    checkpointed: a task is a single job and is never replayed.
     """
-    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    ctx = _dispatch_ctx()
     if ctx is not None:
         return await ctx._run_inline_step(name, fn)
     result = fn()
     if _asyncio.iscoroutine(result):
         result = await result
-    return result
+    # Outside a workflow nothing is checkpointed, but round-trip anyway: running
+    # the script locally must not hand back a shape a deployed run never sees.
+    return _json_round_trip(result)
 
 
 async def sleep(seconds: int):
     """Server-side sleep — suspend the workflow for the given duration without holding a worker.
 
     Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
-    Outside a workflow, falls back to ``asyncio.sleep``.
+    Outside a workflow, or inside a task body, falls back to ``asyncio.sleep``.
     """
-    ctx: WorkflowCtx | None = _workflow_ctx.get(None)
+    ctx = _dispatch_ctx()
     if ctx is not None:
         return await ctx._sleep(seconds)
     await _asyncio.sleep(seconds)
@@ -2842,11 +3826,15 @@ async def wait_for_approval(
     timeout: int = 1800,
     form: dict | None = None,
     self_approval: bool = True,
+    key: str | None = None,
+    skin: Literal["detailed", "minimal"] | None = None,
+    description: str | dict | None = None,
 ) -> dict:
     """Suspend the workflow and wait for an external approval.
 
-    Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
-    resume/cancel/approval URLs before calling this function.
+    Pass ``key`` to name the step, then ``get_approval_urls(key)`` yields the URLs
+    that resume exactly this approval — route them through your own channel.
+    Without a key the steps are named ``approval``, ``approval_2``, ...
 
     Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
 
@@ -2854,16 +3842,29 @@ async def wait_for_approval(
         timeout: Approval timeout in seconds (default 1800).
         form: Optional form schema for the approval page.
         self_approval: Whether the user who triggered the flow can approve it (default True).
+        key: Optional checkpoint key naming this approval step.
+        skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+            instead of the detailed page with the workflow's details.
+        description: Shown to approvers above the form: a string, or a rich value such as
+            ``{"markdown": "..."}``.
 
     Example::
 
-        urls = await step("urls", lambda: get_resume_urls())
-        await step("notify", lambda: send_email(urls["approvalPage"]))
-        result = await wait_for_approval(timeout=3600)
+        urls = await step("urls", lambda: get_approval_urls("manager"))
+        await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+        result = await wait_for_approval(key="manager", timeout=3600)
     """
+    _assert_not_inside_task_body("wait_for_approval()")
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
-        return await ctx._wait_for_approval(timeout=timeout, form=form, self_approval=self_approval)
+        return await ctx._wait_for_approval(
+            timeout=timeout,
+            form=form,
+            self_approval=self_approval,
+            key=key,
+            skin=skin,
+            description=description,
+        )
     raise RuntimeError("wait_for_approval can only be called inside a @workflow")
 
 
@@ -2907,6 +3908,9 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "steps": steps,
             }
         return {"type": "complete", "result": result}
+    except _StepFailure as e:
+        # Re-raise the step's own exception so the child job fails with it.
+        raise e.exc
     except _StepSuspend as e:
         info = e.dispatch_info
         mode = info.get("mode")
@@ -2929,6 +3933,8 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "key": info["key"],
                 "timeout": info.get("timeout"),
                 "form": info.get("form"),
+                "skin": info.get("skin"),
+                "description": info.get("description"),
             }
         if mode == "sleep":
             return {

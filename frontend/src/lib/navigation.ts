@@ -1,28 +1,62 @@
-import { goto as svelteGoto } from '$app/navigation'
-import { base as svelteBase } from '$app/paths'
+import { goto } from '$app/navigation'
+import { serializeParam } from '$lib/utils/serializeParam'
 
-export function goto(path: string, options = {}) {
-	if (svelteBase == '' || path.startsWith('?')) {
-		return svelteGoto(path, options)
-	} else {
-		const fullPath = path.startsWith(svelteBase) ? path : `${svelteBase}${path}`
-		return svelteGoto(fullPath, options)
-	}
+export { goto }
+
+/**
+ * Whether the browser handles a click on an `<a href>` itself, opening it elsewhere (new tab,
+ * new window, download): a modified or non-primary click. A link whose `onclick` also opens
+ * something in place (a drawer) must skip that work then.
+ */
+export function isNewTabClick(e: MouseEvent): boolean {
+	return e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0
 }
 
+/**
+ * Build an in-app deep-link to `pathname` with query-param filters, encoded exactly
+ * as the pages write them (via `serializeParam`) so `useUrlSyncedFilterInstance`
+ * round-trips them back into filter state. Nullish/empty values are dropped; when
+ * `validKeys` is provided, unknown keys are dropped too (structured output guarantees
+ * shape, not truth). Returns an app path to pass to `goto`.
+ */
+export function buildFilterUrl(
+	pathname: string,
+	values: Record<string, unknown>,
+	opts?: { validKeys?: Iterable<string>; hash?: string }
+): string {
+	const allow = opts?.validKeys ? new Set(opts.validKeys) : undefined
+	const sp = new URLSearchParams()
+	for (const [key, value] of Object.entries(values)) {
+		if (value === undefined || value === null || value === '') continue
+		if (allow && !allow.has(key)) continue
+		sp.set(key, serializeParam(value))
+	}
+	const qs = sp.toString()
+	const hash = opts?.hash ? `#${opts.hash}` : ''
+	return qs ? `${pathname}?${qs}${hash}` : `${pathname}${hash}`
+}
+
+/**
+ * Set (or, with an undefined value, drop) one query param on the current page and
+ * navigate, leaving every other param untouched.
+ *
+ * The starting query must come from `window.location`, never from a URL held
+ * elsewhere — above all `page.url`, which SvelteKit refreshes only on router-driven
+ * navigations. Params written with shallow routing (a workspace switch's
+ * `?workspace=`, anything `useSearchParams` writes) never reach `page.url`, so
+ * rebuilding the query from it navigates back to their pre-write values.
+ */
 export async function setQuery(
-	url: URL,
 	key: string,
 	value: string | undefined,
 	currentHash: string | undefined = undefined
 ): Promise<void> {
+	const searchParams = new URLSearchParams(window.location.search)
 	if (value !== undefined) {
-		url.searchParams.set(key, value)
+		searchParams.set(key, value)
 	} else {
-		url.searchParams.delete(key)
+		searchParams.delete(key)
 	}
-
-	let searchParams = url.searchParams.toString()
 
 	await goto(currentHash ? `?${searchParams}${currentHash}` : `?${searchParams}`)
 }

@@ -1,0 +1,8 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true,
+    "folders": ["evals"],
+    "folders_read": ["evals"]
+  }
+}

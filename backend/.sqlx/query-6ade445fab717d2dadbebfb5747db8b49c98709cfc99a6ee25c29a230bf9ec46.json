@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ahead FROM workspace_diff\n                 WHERE source_workspace_id = 'test-workspace'\n                   AND fork_workspace_id = 'wm-fork-no-deploy-to'\n                   AND kind = 'script'\n                   AND path = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ahead",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6ade445fab717d2dadbebfb5747db8b49c98709cfc99a6ee25c29a230bf9ec46"
+}

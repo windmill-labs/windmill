@@ -6,14 +6,21 @@
 	import { X } from 'lucide-svelte'
 	import type { BranchAllStartN } from '../../graphBuilder.svelte'
 	import { getGraphContext } from '../../graphContext'
+	import { computeBorderStatus } from '../utils'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 	interface Props {
 		data: BranchAllStartN['data']
 		id: string
 	}
 
 	let { data, id }: Props = $props()
+	const flowRunStatus = getFlowRunStatusContext()
 
 	const { selectionManager } = getGraphContext()
+
+	let borderStatus = $derived(
+		computeBorderStatus(data.branchIndex, 'branchall', flowRunStatus?.getModuleState(data.id))
+	)
 </script>
 
 <NodeWrapper nodeId={id}>
@@ -22,6 +29,7 @@
 			label={data.label}
 			selectable
 			selected={selectionManager && selectionManager.isNodeSelected(id)}
+			borderState={borderStatus}
 			on:select={() => {
 				setTimeout(() => data.eventHandlers.select(data.id))
 			}}

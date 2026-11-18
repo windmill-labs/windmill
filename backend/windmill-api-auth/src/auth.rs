@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::TimeZone;
 use http::{request::Parts, StatusCode};
+use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -26,10 +27,12 @@ use windmill_common::DB;
 
 use windmill_common::{
     auth::{
-        get_folders_for_user, get_groups_for_user, hash_token, safe_token_prefix, JWTAuthClaims,
+        get_folders_for_user, get_groups_for_user, hash_token, is_session_label, safe_token_prefix,
+        JWTAuthClaims,
     },
     error::{Error, JsonResult},
     jwt,
+    usernames::get_instance_username_or_fallback_to_email,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
 
@@ -37,15 +40,21 @@ lazy_static::lazy_static! {
     // Global auth cache accessible from main.rs for direct invalidation
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
     // Cache for token -> email lookups (for non-workspace-member authenticated users)
-    static ref TOKEN_EMAIL_CACHE: Cache<String, Option<String>> = Cache::new(500);
+    static ref TOKEN_EMAIL_CACHE: Cache<String, (Option<String>, std::time::Instant)> = Cache::new(500);
 }
+
+/// A token keeps its identity when a superadmin moves the account to another address, so entries
+/// here must expire on their own; nothing invalidates them by token hash.
+const TOKEN_EMAIL_CACHE_TTL_SECS: u64 = 60;
 
 /// Get email from a valid token, with caching.
 /// Used for WM_END_USER_EMAIL when user is authenticated but not a workspace member.
 async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
     let t_hash = hash_token(token);
-    if let Some(cached) = TOKEN_EMAIL_CACHE.get(&t_hash) {
-        return cached;
+    if let Some((cached, cached_at)) = TOKEN_EMAIL_CACHE.get(&t_hash) {
+        if cached_at.elapsed().as_secs() < TOKEN_EMAIL_CACHE_TTL_SECS {
+            return cached;
+        }
     }
 
     let email = sqlx::query_scalar!(
@@ -58,7 +67,7 @@ async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
     .flatten()
     .flatten(); // email column is nullable, so we get Option<Option<String>>
 
-    TOKEN_EMAIL_CACHE.insert(t_hash, email.clone());
+    TOKEN_EMAIL_CACHE.insert(t_hash, (email.clone(), std::time::Instant::now()));
     email
 }
 
@@ -96,6 +105,32 @@ pub struct ExpiringAuthCache {
     pub job_id: Option<uuid::Uuid>,
 }
 
+/// Whether `target` belongs to the flow run of the job `job_id`: the job itself, one of its
+/// ancestors, or a job whose parent or root is one of them (a sibling step, a loop or branch
+/// iteration, any job pushed as a child of one of them). A lookup that fails reads as no.
+pub async fn job_in_same_flow_run(db: &DB, job_id: uuid::Uuid, target: uuid::Uuid) -> bool {
+    if job_id == target {
+        return true;
+    }
+    sqlx::query_scalar!(
+        "SELECT EXISTS (
+            SELECT 1 FROM v2_job o, v2_job t,
+                LATERAL (SELECT ARRAY_REMOVE(ARRAY[o.id, o.parent_job, o.root_job,
+                    o.flow_innermost_root_job], NULL) AS run) l
+            WHERE o.id = $1 AND t.id = $2 AND t.workspace_id = o.workspace_id
+                AND (t.id = ANY(l.run) OR t.parent_job = ANY(l.run)
+                    OR t.root_job = ANY(l.run) OR t.flow_innermost_root_job = ANY(l.run))
+        )",
+        job_id,
+        target
+    )
+    .fetch_one(db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false)
+}
+
 pub struct AuthCache {
     db: DB,
     superadmin_secret: Option<String>,
@@ -130,6 +165,64 @@ impl AuthCache {
         w_id: Option<String>,
         token: &str,
     ) -> Option<OptJobAuthed> {
+        let mut opt_job_authed = self.get_opt_job_authed_inner(w_id.clone(), token).await?;
+        // Single source of truth: mirror the resolved job_id onto the authed so
+        // every consumer (require_super_admin, ...) sees that this identity came
+        // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
+        // predates this field.
+        opt_job_authed.authed.job_id = opt_job_authed.job_id;
+        // Read for each request, before any handler opens a transaction, so a check inside one
+        // never needs a second connection. Never cached with the login: the role caches it reads
+        // are the ones role changes clear. An unreadable role stays `None`, read again later.
+        if let Some(w_id) = w_id.as_deref() {
+            opt_job_authed.authed.capabilities =
+                windmill_common::roles::caller_capabilities(&self.db, w_id, &opt_job_authed.authed)
+                    .await
+                    .ok();
+        }
+        // The no-account rule is enforced here, once, for every guest request — not per
+        // handler, where each guest-reachable route would have to remember it. Uncached,
+        // so an account provisioned after the mint ends the guest session, and every
+        // token derived from one, on its next request.
+        if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
+            let Some(w_id) = w_id else { return None };
+            let email = &opt_job_authed.authed.email;
+            match windmill_common::workspaces::guest_session_stands(&self.db, &w_id, email).await {
+                Ok(true) => {}
+                Ok(false) => return None,
+                Err(e) => {
+                    tracing::error!("guest session check failed for {w_id}: {e:#}");
+                    return None;
+                }
+            }
+        }
+        Some(opt_job_authed)
+    }
+
+    async fn get_opt_job_authed_inner(
+        &self,
+        w_id: Option<String>,
+        token: &str,
+    ) -> Option<OptJobAuthed> {
+        // In no-auth mode there are no real tokens: resolve directly as the
+        // admin superadmin so direct cache callers (e.g. get_all_runnables,
+        // which re-validates the request token per workspace) don't reject the
+        // fabricated token.
+        if is_no_auth() {
+            return Some(OptJobAuthed { authed: no_auth_admin_authed(), job_id: None });
+        }
+        // Reject an oversized guest bearer before the cache key is built from it: the key
+        // copies and hashes the whole token, so the cap should bound that work too. Log it
+        // like the other guest refusals, since get_opt_job_authed turns None into a bare 401.
+        if token.starts_with(windmill_common::guest_jwt::BEARER_PREFIX)
+            && token.len() > windmill_common::guest_jwt::MAX_GUEST_JWT_LEN
+        {
+            tracing::error!(
+                "guest JWT refused: bearer is longer than {} bytes",
+                windmill_common::guest_jwt::MAX_GUEST_JWT_LEN
+            );
+            return None;
+        }
         let key = (
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
@@ -171,6 +264,111 @@ impl AuthCache {
                     None
                 }
             }
+            _ if token.starts_with(windmill_common::guest_jwt::BEARER_PREFIX) => {
+                // A workspace-less route never accepts a guest JWT: the identity is
+                // pinned to the workspace its claim names, like a DB guest session.
+                let Some(w_id) = w_id.as_deref() else {
+                    return None;
+                };
+                // Strip exactly one prefix: `trim_start_matches` would strip repeated prefixes,
+                // so `jwt_guest_jwt_guest_<jwt>` would reduce to a valid token that verifies and
+                // is then cached under the full, non-canonical bearer key.
+                let jwt = token
+                    .strip_prefix(windmill_common::guest_jwt::BEARER_PREFIX)
+                    .unwrap_or(token);
+                let claims =
+                    match windmill_common::guest_jwt::verify_for_workspace(&self.db, w_id, jwt)
+                        .await
+                    {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::error!("guest JWT auth error for {w_id}: {e:#}");
+                            return None;
+                        }
+                    };
+                // The app being in guest mode (guest_app_admits). The door re-reads the
+                // no-account rule per request through the sentinel below
+                // (guest_session_stands), and the on-behalf resolver re-reads the mode.
+                match windmill_common::workspaces::guest_app_admits(
+                    &self.db,
+                    w_id,
+                    &claims.app_path,
+                )
+                .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => return None,
+                    Err(e) => {
+                        tracing::error!("guest JWT admit check failed for {w_id}: {e:#}");
+                        return None;
+                    }
+                }
+                // Resolve on the lowercased email: accounts are stored lowercased, so a
+                // mixed-case claim would otherwise slip past the no-account gate and
+                // resolve an account holder to a guest, and split the activity rows the
+                // seat count reads.
+                let email = claims.email.to_lowercase();
+                // A guest is someone with no account at all; an account holder is refused,
+                // never downgraded (the same rule as the signed-in guest mint).
+                match windmill_common::users::has_any_account(&self.db, &email).await {
+                    Ok(false) => {}
+                    Ok(true) => return None,
+                    Err(e) => {
+                        tracing::error!("guest JWT account check failed: {e:#}");
+                        return None;
+                    }
+                }
+                // The instance allowance, checked and recorded transactionally. A stranger
+                // past the cap on a capped instance is refused here; a returning guest
+                // always passes. Recording an account holder is avoided by the check above.
+                if !admit_and_record_guest_jwt(&self.db, w_id, &email, &claims.app_path).await {
+                    return None;
+                }
+                // guest_session_scopes already carries the sentinel, and it is the whole
+                // grant; a JWT has no label, so the sentinel is what governs it. It also
+                // re-checks the path holds no scope metacharacter (verify already did).
+                let scopes = match crate::scopes::guest_session_scopes(&claims.app_path) {
+                    Ok(s) => Some(s),
+                    Err(e) => {
+                        tracing::error!("guest JWT app_path cannot be scoped for {w_id}: {e:#}");
+                        return None;
+                    }
+                };
+                // The JWT's own expiry caps a token minted from this session. The auth
+                // cache entry itself is capped far shorter (GUEST_JWT_CACHE_TTL) so a
+                // rotated or cleared key stops the session on re-verification, within
+                // minutes, rather than only at exp (up to 24h away).
+                let credential_expiry =
+                    chrono::Utc.timestamp_nanos(claims.exp as i64 * 1_000_000_000);
+                let cache_expiry = credential_expiry.min(chrono::Utc::now() + GUEST_JWT_CACHE_TTL);
+                let authed = ApiAuthed {
+                    username: email.clone(),
+                    email,
+                    is_admin: false,
+                    is_operator: true,
+                    groups: vec![],
+                    folders: vec![],
+                    scopes,
+                    username_override: None,
+                    username_override_is_token_label: false,
+                    is_session_token: false,
+                    token_prefix: Some(safe_token_prefix(token)),
+                    read_only: false,
+                    job_id: None,
+                    credential_expiry: Some(credential_expiry),
+                    mcp_client: None,
+                    capabilities: None,
+                };
+                AUTH_CACHE.insert(
+                    key,
+                    ExpiringAuthCache {
+                        authed: authed.clone(),
+                        expiry: cache_expiry,
+                        job_id: None,
+                    },
+                );
+                Some(OptJobAuthed { authed, job_id: None })
+            }
             _ if token.starts_with("jwt_") => {
                 let jwt_token = token.trim_start_matches("jwt_");
 
@@ -182,7 +380,9 @@ impl AuthCache {
                             tracing::error!("JWT auth error: workspace_id mismatch");
                             return None;
                         }
-                        let username_override = username_override_from_label(claims.label);
+                        let is_session_token = is_session_label(claims.label.as_deref());
+                        let (username_override, username_override_is_token_label) =
+                            username_override_from_label(claims.label);
 
                         let authed = ApiAuthed {
                             email: claims.email,
@@ -191,12 +391,34 @@ impl AuthCache {
                             is_operator: claims.is_operator,
                             groups: claims.groups,
                             folders: claims.folders,
-                            scopes: None,
+                            // Honor the scopes embedded in the JWT (mirrors the EE
+                            // jwt_ext_ branch). The route middleware only enforces
+                            // scopes when Some, so a None-scoped JWT (e.g. the job
+                            // WM_TOKEN) keeps full user privileges as before.
+                            scopes: claims.scopes,
                             username_override,
+                            username_override_is_token_label,
+                            is_session_token,
                             token_prefix: claims.audit_span,
                             read_only: false,
+                            job_id: None,
+                            credential_expiry: None,
+                            mcp_client: claims.mcp_client,
+                            capabilities: None,
                         };
-                        let job_id = claims.job_id.and_then(|j| uuid::Uuid::from_str(&j).ok());
+                        // Fail closed: a `job_id` claim that does not parse must reject
+                        // the token rather than resolve to `None`, which would clear the
+                        // job provenance and uncap the token (GHSA-hfh4-cx4h-3fcr).
+                        let job_id = match claims.job_id {
+                            Some(j) => match uuid::Uuid::from_str(&j) {
+                                Ok(job_id) => Some(job_id),
+                                Err(_) => {
+                                    tracing::error!("JWT auth error: job_id claim is not a uuid");
+                                    return None;
+                                }
+                            },
+                            None => None,
+                        };
                         AUTH_CACHE.insert(
                             key,
                             ExpiringAuthCache {
@@ -247,14 +469,16 @@ impl AuthCache {
                             (Some(owner), Some(email), super_admin, _, label, read_only)
                                 if w_id.is_some() =>
                             {
-                                let username_override = username_override_from_label(label);
+                                let is_session_token = is_session_label(label.as_deref());
+                                let (username_override, username_override_is_token_label) =
+                                    username_override_from_label(label);
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let lookup = if super_admin {
                                             Some((true, false))
                                         } else {
-                                            sqlx::query!(
-                                                "SELECT is_admin, operator FROM usr where username = $1 AND \
+                                            let row = sqlx::query!(
+                                                "SELECT is_admin, operator, workspace_role FROM usr where username = $1 AND \
                                                  workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
@@ -262,8 +486,24 @@ impl AuthCache {
                                             .fetch_optional(&self.db)
                                             .await
                                             .ok()
-                                            .flatten()
-                                            .map(|r| (r.is_admin, r.operator))
+                                            .flatten();
+                                            match row {
+                                                Some(r) => {
+                                                    // Fails closed: an unreadable role config
+                                                    // gates the member rather than freeing it.
+                                                    let restricted =
+                                                        windmill_common::roles::member_is_restricted_db(
+                                                            &self.db,
+                                                            w_id.as_ref().unwrap(),
+                                                            r.workspace_role,
+                                                            r.operator,
+                                                        )
+                                                        .await
+                                                        .unwrap_or(true);
+                                                    Some((r.is_admin, restricted && !r.is_admin))
+                                                }
+                                                None => None,
+                                            }
                                         };
 
                                         if let Some((is_admin, is_operator)) = lookup {
@@ -290,8 +530,14 @@ impl AuthCache {
                                                 folders,
                                                 scopes: None,
                                                 username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                job_id: None,
+                                                credential_expiry: None,
+                                                mcp_client: None,
+                                                capabilities: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -340,8 +586,14 @@ impl AuthCache {
                                                 folders,
                                                 scopes: None,
                                                 username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                job_id: None,
+                                                credential_expiry: None,
+                                                mcp_client: None,
+                                                capabilities: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -368,18 +620,42 @@ impl AuthCache {
                                 }
                             }
                             (_, Some(email), super_admin, scopes, label, read_only) => {
-                                let username_override = username_override_from_label(label);
+                                let is_session_token = is_session_label(label.as_deref());
+                                let is_guest_session =
+                                    windmill_common::auth::is_guest_session_label(label.as_deref());
+                                let (username_override, username_override_is_token_label) =
+                                    username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query!(
-                                        "SELECT username, is_admin, operator FROM usr WHERE
+                                        "SELECT username, is_admin, operator, workspace_role FROM usr WHERE
                                             email = $1 AND workspace_id = $2 AND disabled = false",
                                         &email,
                                         w_id.as_ref().unwrap()
                                     )
-                                    .map(|x| (x.username, x.is_admin, x.operator))
+                                    .map(|x| (x.username, x.is_admin, x.operator, x.workspace_role))
                                     .fetch_optional(&self.db)
                                     .await
-                                    .unwrap_or(Some(("error".to_string(), false, false)));
+                                    .unwrap_or(Some(("error".to_string(), false, false, None)));
+                                    let row_o = match row_o {
+                                        Some((username, is_admin, operator, workspace_role)) => {
+                                            // Fails closed, as above.
+                                            let restricted =
+                                                windmill_common::roles::member_is_restricted_db(
+                                                    &self.db,
+                                                    w_id.as_ref().unwrap(),
+                                                    workspace_role,
+                                                    operator,
+                                                )
+                                                .await
+                                                .unwrap_or(true);
+                                            Some((
+                                                username,
+                                                is_admin,
+                                                restricted && !is_admin && !super_admin,
+                                            ))
+                                        }
+                                        None => None,
+                                    };
 
                                     match row_o {
                                         Some((username, is_admin, is_operator)) => {
@@ -411,22 +687,83 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                job_id: None,
+                                                credential_expiry: None,
+                                                mcp_client: None,
+                                                capabilities: None,
                                             })
                                         }
-                                        None if super_admin => Some(ApiAuthed {
-                                            email: email.clone(),
-                                            username: email,
-                                            is_admin: super_admin,
-                                            is_operator: false,
-                                            groups: vec![],
-                                            folders: vec![],
-                                            scopes,
-                                            username_override,
-                                            token_prefix: Some(safe_token_prefix(token)),
-                                            read_only,
-                                        }),
+                                        None if super_admin => {
+                                            // Fail closed on a DB error rather than
+                                            // letting the email leak in as the username.
+                                            match get_instance_username_or_fallback_to_email(
+                                                &self.db, &email,
+                                            )
+                                            .await
+                                            {
+                                                Ok(username) => Some(ApiAuthed {
+                                                    email,
+                                                    username,
+                                                    is_admin: super_admin,
+                                                    is_operator: false,
+                                                    groups: vec![],
+                                                    folders: vec![],
+                                                    scopes,
+                                                    username_override,
+                                                    username_override_is_token_label,
+                                                    is_session_token,
+                                                    token_prefix: Some(safe_token_prefix(token)),
+                                                    read_only,
+                                                    job_id: None,
+                                                    credential_expiry: None,
+                                                    mcp_client: None,
+                                                    capabilities: None,
+                                                }),
+                                                Err(e) => {
+                                                    tracing::error!(
+                                                        "Failed to resolve instance username for superadmin {email}: {e:#}"
+                                                    );
+                                                    None
+                                                }
+                                            }
+                                        }
+                                        // A guest session: IdP-authenticated, member of
+                                        // nothing. No `usr` lookup, groups or folders, so
+                                        // every ACL denies it and the token's scopes are
+                                        // its whole grant. After the superadmin arm, so
+                                        // that token is never demoted into this one.
+                                        None if is_guest_session => {
+                                            // The server-minted label is the grant, never
+                                            // the `guest` scope (a user-minted token's
+                                            // scopes are whatever the caller typed); the
+                                            // sentinel is pinned on here so every guest
+                                            // control downstream sees a guest regardless.
+                                            let scopes = Some(crate::scopes::with_guest_sentinel(
+                                                scopes.unwrap_or_default(),
+                                            ));
+                                            Some(ApiAuthed {
+                                                username: email.clone(),
+                                                email,
+                                                is_admin: false,
+                                                is_operator: true,
+                                                groups: vec![],
+                                                folders: vec![],
+                                                scopes,
+                                                username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
+                                                token_prefix: Some(safe_token_prefix(token)),
+                                                read_only,
+                                                job_id: None,
+                                                credential_expiry: None,
+                                                mcp_client: None,
+                                                capabilities: None,
+                                            })
+                                        }
                                         None => None,
                                     }
                                 } else {
@@ -439,8 +776,14 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
+                                        username_override_is_token_label,
+                                        is_session_token,
                                         token_prefix: Some(safe_token_prefix(token)),
                                         read_only,
+                                        job_id: None,
+                                        credential_expiry: None,
+                                        mcp_client: None,
+                                        capabilities: None,
                                     })
                                 }
                             }
@@ -467,15 +810,22 @@ impl AuthCache {
                 {
                     let authed = ApiAuthed {
                         email: SUPERADMIN_SECRET_EMAIL.to_string(),
-                        username: "superadmin_secret".to_string(),
+                        username: windmill_common::usernames::SUPERADMIN_SECRET_USERNAME
+                            .to_string(),
                         is_admin: true,
                         is_operator: false,
                         groups: Vec::new(),
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
+                        username_override_is_token_label: false,
+                        is_session_token: false,
                         token_prefix: Some(safe_token_prefix(token)),
                         read_only: false,
+                        job_id: None,
+                        credential_expiry: None,
+                        mcp_client: None,
+                        capabilities: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -484,6 +834,126 @@ impl AuthCache {
             }
         }
     }
+}
+
+/// How long a guest JWT resolves from the auth cache before the arm re-runs (and
+/// re-reads the key). A guest JWT is not revocable except by taking its app out of
+/// guest mode or by rotating the key, so the entry must be short enough that a rotated key bites
+/// soon, unlike a normal token whose row can be deleted. Also what makes the
+/// day-keyed activity dedupe below reachable across a midnight.
+const GUEST_JWT_CACHE_TTL: chrono::Duration = chrono::Duration::minutes(5);
+
+/// A refused JWT (a stranger past the allowance) is remembered this long so a replayed
+/// bearer does not take the instance-wide allowance advisory lock on every request.
+/// Short, so a stranger admitted once the window frees is re-checked soon.
+const GUEST_JWT_REFUSED_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+lazy_static::lazy_static! {
+    // One `guest_activity` upsert and one `users.login_guest` audit per email,
+    // workspace and day: the arm re-runs every GUEST_JWT_CACHE_TTL, and neither the
+    // seat scan nor the audit trail wants a write each time. LRU-bounded; the day is in
+    // the key, so a new day writes again.
+    static ref GUEST_JWT_ACTIVITY_CACHE: Cache<String, ()> = Cache::new(2000);
+    static ref GUEST_JWT_REFUSED_CACHE: Cache<String, std::time::Instant> = Cache::new(2000);
+}
+
+/// Admit a JWT guest against the instance allowance and record today's activity, in one
+/// transaction so the advisory lock in `guest_admission` spans the count check and the
+/// row that changes it. Returns false when the allowance refuses the email or on a DB
+/// error, both of which deny the guest. Cached per email, workspace and day: a bearer
+/// replayed every request runs this at most once a day, and a refused one is remembered
+/// briefly so it does not re-take the allowance lock. `email` is already lowercased.
+async fn admit_and_record_guest_jwt(db: &DB, w_id: &str, email: &str, app_path: &str) -> bool {
+    let cache_key = format!("{email}|{w_id}|{}", chrono::Utc::now().date_naive());
+    if GUEST_JWT_ACTIVITY_CACHE.get(&cache_key).is_some() {
+        return true;
+    }
+    if GUEST_JWT_REFUSED_CACHE
+        .get(&cache_key)
+        .is_some_and(|at| at.elapsed() < GUEST_JWT_REFUSED_TTL)
+    {
+        return false;
+    }
+    let mut tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("guest JWT tx begin failed for {w_id}: {e:#}");
+            return false;
+        }
+    };
+    // The allowance and the row that changes it, in one transaction: guest_admission
+    // takes a transaction-scoped advisory lock, so the count check and the insert cannot
+    // race two strangers past the cap. Only a real allowance refusal is negative-cached;
+    // a transient DB error denies this request but must not lock the email out for 30s.
+    match windmill_common::workspaces::guest_admission(&mut *tx, email).await {
+        Ok(()) => {}
+        Err(e @ windmill_common::error::Error::PermissionDenied(_)) => {
+            // The guest hits a bare 401 (the reason must not leak to an unauthenticated caller);
+            // warn so an admin sees the cap in logs, since it is the actionable signal here.
+            tracing::warn!("guest JWT refused (guest allowance) for {w_id}: {e:#}");
+            GUEST_JWT_REFUSED_CACHE.insert(cache_key, std::time::Instant::now());
+            return false;
+        }
+        Err(e) => {
+            tracing::error!("guest JWT allowance check failed for {w_id}: {e:#}");
+            return false;
+        }
+    }
+    // The conditional `WHERE NOT jwt_entry` flips the flag only on its false-to-true
+    // transition, so the upsert returns a row exactly once per email per day: on the
+    // fresh insert, or on the first JWT after an identity-provider sign-in created
+    // today's row with `jwt_entry = false`. The audit is gated on that, decided
+    // atomically by the conflicting tuple, so concurrent first requests (a metered
+    // instance takes no advisory lock) audit at most once.
+    let first_jwt = sqlx::query_scalar!(
+        r#"INSERT INTO guest_activity (email, workspace_id, day, jwt_entry)
+         VALUES ($1, $2, CURRENT_DATE, true)
+         ON CONFLICT (email, workspace_id, day)
+         DO UPDATE SET jwt_entry = true, last_seen_at = now()
+         WHERE NOT guest_activity.jwt_entry
+         RETURNING 1 AS "audited!""#,
+        email,
+        w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await;
+    let first_jwt = match first_jwt {
+        Ok(v) => v.is_some(),
+        Err(e) => {
+            tracing::error!("recording guest JWT activity for {w_id}: {e:#}");
+            return false;
+        }
+    };
+    if let Err(e) = tx.commit().await {
+        tracing::error!("guest JWT tx commit failed for {w_id}: {e:#}");
+        return false;
+    }
+    GUEST_JWT_ACTIVITY_CACHE.insert(cache_key, ());
+    // Audit last, best-effort, on its own connection: a failed `audit_partitioned`
+    // insert aborts the transaction it runs in, so auditing before the commit would
+    // let an audit failure drop the activity row that counts this guest.
+    if first_jwt {
+        let author = windmill_common::audit::AuditAuthor {
+            email: email.to_string(),
+            username: email.to_string(),
+            username_override: None,
+            token_prefix: None,
+        };
+        if let Err(e) = windmill_audit::audit_oss::audit_log(
+            db,
+            &author,
+            "users.login_guest",
+            windmill_audit::ActionKind::Create,
+            w_id,
+            Some(app_path),
+            Some([("entry", "jwt")].into()),
+        )
+        .await
+        {
+            tracing::error!("auditing guest JWT login for {w_id}: {e:#}");
+        }
+    }
+    true
 }
 
 pub(crate) async fn extract_token<S: Send + Sync>(parts: &mut Parts, state: &S) -> Option<String> {
@@ -577,6 +1047,12 @@ where
                 let tokened = Self { token };
                 parts.extensions.insert(tokened.clone());
                 Ok(tokened)
+            } else if is_no_auth() {
+                // In `--no-auth` mode requests carry no token, but handlers that
+                // also require Tokened (e.g. global_whoami) must still resolve.
+                let tokened = Self { token: "no_auth".to_string() };
+                parts.extensions.insert(tokened.clone());
+                Ok(tokened)
             } else {
                 BRUTE_FORCE_COUNTER.increment().await;
                 Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
@@ -605,6 +1081,49 @@ where
             let token_o = extract_token(parts, state).await;
             Ok(OptTokened { token: token_o })
         }
+    }
+}
+
+/// Adds the suffixed form of each tag of an `if_jobs:filter_tags:` scope: in a dev workspace a
+/// job allowed on `gpu` is queued on `gpu-dev`, and the token must still reach the jobs it starts.
+fn expand_filter_tags_with_dev_suffix(scopes: &mut [String], suffix: &str) {
+    for scope in scopes.iter_mut() {
+        if let Some(tags) = scope.strip_prefix("if_jobs:filter_tags:") {
+            let expanded = tags
+                .split(',')
+                .flat_map(|t| {
+                    let suffixed = windmill_common::worker::with_dev_workspace_suffix(t, suffix);
+                    [t.to_string(), suffixed]
+                })
+                .unique()
+                .join(",");
+            *scope = format!("if_jobs:filter_tags:{expanded}");
+        }
+    }
+}
+
+/// Only while isolation is on and for a workspace whose jobs get the suffix then: otherwise the
+/// suffixed tags are other tags the token was not given.
+async fn expand_filter_tags_for_dev_workspace(
+    db: &DB,
+    workspace_id: &str,
+    scopes: Option<&mut Vec<String>>,
+) {
+    let Some(scopes) = scopes else { return };
+    if !windmill_common::worker::DEV_WORKSPACE_ISOLATION.load(std::sync::atomic::Ordering::Relaxed)
+        || !scopes.iter().any(|s| s.starts_with("if_jobs:filter_tags:"))
+    {
+        return;
+    }
+    let (is_dev, in_dev_lineage) = windmill_common::workspaces::dev_lineage(db, workspace_id)
+        .await
+        .unwrap_or((
+            workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX),
+            true,
+        ));
+    if windmill_common::worker::is_isolated_workspace(is_dev, in_dev_lineage) {
+        let suffix = windmill_common::worker::DEV_WORKSPACE_TAG_SUFFIX.load();
+        expand_filter_tags_with_dev_suffix(scopes, &suffix);
     }
 }
 
@@ -656,8 +1175,39 @@ fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
     workspace_id
 }
 
+/// `--no-auth` mode: compiled-in `oss` builds, or the `NO_AUTH` runtime flag on
+/// any build (the runtime flag is force-disabled on CLOUD_HOSTED). When on,
+/// every request resolves as the admin superadmin so a fronting gateway can
+/// handle authentication instead.
+pub fn is_no_auth() -> bool {
+    cfg!(feature = "no_auth") || *windmill_common::worker::NO_AUTH
+}
+
+/// The synthetic superadmin identity returned for every request in no-auth mode.
+fn no_auth_admin_authed() -> ApiAuthed {
+    ApiAuthed {
+        email: "admin@windmill.dev".to_string(),
+        username: "admin".to_string(),
+        is_admin: true,
+        is_operator: false,
+        groups: Vec::new(),
+        folders: Vec::new(),
+        scopes: None,
+        username_override: None,
+        username_override_is_token_label: false,
+        is_session_token: false,
+        token_prefix: None,
+        read_only: false,
+        job_id: None,
+        credential_expiry: None,
+        mcp_client: None,
+        capabilities: None,
+    }
+}
+
 /// Resolves OptJobAuthed from request parts.
-/// Takes ownership of Parts and returns them back.
+/// Takes ownership of Parts and returns them back, memoized into the extensions so a
+/// second extraction in the same request is free.
 #[allow(unreachable_code, unused_mut)]
 pub async fn resolve_opt_job_authed(
     mut parts: Parts,
@@ -666,27 +1216,18 @@ pub async fn resolve_opt_job_authed(
         return Ok((OptJobAuthed::default(), parts));
     };
 
-    #[cfg(feature = "no_auth")]
-    {
-        let authed = ApiAuthed {
-            email: "admin@windmill.dev".to_string(),
-            username: "admin".to_string(),
-            is_admin: true,
-            is_operator: false,
-            groups: Vec::new(),
-            folders: Vec::new(),
-            scopes: None,
-            username_override: None,
-            token_prefix: None,
-            read_only: false,
-        };
+    if is_no_auth() {
+        let authed = no_auth_admin_authed();
+        // Handlers taking `Extension<ApiAuthed>` read this insert, as on the token path.
+        parts.extensions.insert(authed.clone());
         return Ok((OptJobAuthed { authed, job_id: None }, parts));
     }
 
-    let already_authed = parts.extensions.get::<OptJobAuthed>().cloned();
-
-    if let Some(authed) = already_authed {
-        return Ok((authed, parts));
+    // Safe only while what the route checks below read is fixed before the first
+    // extraction: path and method always are, `workspace_id` only while every
+    // `GatewayWorkspaceId` writer stays layered outside auth extraction.
+    if let Some(opt_job_authed) = parts.extensions.get::<OptJobAuthed>().cloned() {
+        return Ok((opt_job_authed, parts));
     }
 
     let already_tokened = parts.extensions.get::<Tokened>().cloned();
@@ -715,11 +1256,37 @@ pub async fn resolve_opt_job_authed(
             if let Some(mut opt_job_authed) =
                 cache.get_opt_job_authed(workspace_id.clone(), &token).await
             {
-                let authed = &mut opt_job_authed.authed;
                 let path = original_uri.path();
                 let method = parts.method.as_str();
-                if authed.scopes.is_some() {
+                if workspace_id.is_none() && opt_job_authed.job_id.is_some() {
+                    if let Err(err) = crate::scopes::check_job_token_for_global_route(path, method)
+                    {
+                        return Err((err, parts));
+                    }
+                }
+                let own_job_runtime_route = match opt_job_authed.job_id {
+                    Some(job_id) if opt_job_authed.authed.scopes.is_some() => {
+                        crate::scopes::is_own_job_runtime_route(path, method, job_id)
+                            || match crate::scopes::flow_run_read_route_job(path, method) {
+                                Some(target) => {
+                                    job_in_same_flow_run(&cache.db, job_id, target).await
+                                }
+                                None => false,
+                            }
+                    }
+                    _ => false,
+                };
+                let authed = &mut opt_job_authed.authed;
+                if authed.scopes.is_some() && !own_job_runtime_route {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());
+                    if let Some(w_id) = workspace_id.as_deref() {
+                        expand_filter_tags_for_dev_workspace(
+                            &cache.db,
+                            w_id,
+                            authed.scopes.as_mut(),
+                        )
+                        .await;
+                    }
 
                     if let Err(err) = crate::scopes::check_scopes_for_route(
                         authed.scopes.as_deref(),
@@ -740,6 +1307,7 @@ pub async fn resolve_opt_job_authed(
                     // could approve an OAuth flow that mints a new non-read-only
                     // token.
                     let is_mcp_transport = path == "/api/mcp/gateway"
+                        || path == "/api/mcp"
                         || (path.starts_with("/api/mcp/w/")
                             && (path.ends_with("/mcp")
                                 || path.ends_with("/sse")
@@ -773,6 +1341,9 @@ pub async fn resolve_opt_job_authed(
                 if let Some(workspace_id) = workspace_id {
                     Span::current().record("workspace_id", &workspace_id);
                 }
+                // Separate from the ApiAuthed insert above, which handlers taking
+                // `Extension<ApiAuthed>` read.
+                parts.extensions.insert(opt_job_authed.clone());
                 return Ok((opt_job_authed, parts));
             }
         }
@@ -781,27 +1352,54 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
-fn username_override_from_label(label: Option<String>) -> Option<String> {
+/// Returns the override and whether it names the token's *label* rather than the entity that
+/// fired the request. Callers must not re-derive the second element from the first: the
+/// `ephemeral-script-end-user-` arm forwards a `created_by` verbatim, and `created_by` is
+/// unconstrained, so it may itself look like any of these shapes.
+///
+/// Only namespaces `create_token` rejects (`is_server_minted_label`) are trusted to name the
+/// entity acting, so the label can only have come from a server-side mint. Tokens minted
+/// before that guard existed are the remaining hole; closing it needs the token row to record
+/// who minted it rather than inferring it from the label.
+///
+/// Note that a trigger whose identity is set server-side — the SMTP one builds an `email-*`
+/// override directly — does not rely on this at all, so its prefix must not be trusted here.
+pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<String>, bool) {
     match label {
+        Some(label) if label.starts_with("ephemeral-webhook-") => (Some(label), false),
+        Some(label) if label.starts_with("ephemeral-script-end-user-") => (
+            Some(
+                label
+                    .trim_start_matches("ephemeral-script-end-user-")
+                    .to_string(),
+            ),
+            false,
+        ),
+        // User-mintable, so they name nobody in particular — the trigger panels merely
+        // pre-fill `webhook-`/`http-`, and the editor mints the lsp one. The override keeps
+        // its value because `require_job_read_access` matches it against the `created_by` of
+        // jobs launched under it, which these shapes produced while they were trusted.
+        Some(label) if label == "Ephemeral lsp token" => (Some("lsp".to_string()), true),
         Some(label)
-            if label.starts_with("ephemeral-webhook-")
-                || label.starts_with("webhook-")
+            if label.starts_with("webhook-")
                 || label.starts_with("http-")
                 || label.starts_with("email-")
                 || label.starts_with("ws-") =>
         {
-            Some(label)
+            (Some(label), true)
         }
-        Some(label) if label.starts_with("ephemeral-script-end-user-") => Some(
-            label
-                .trim_start_matches("ephemeral-script-end-user-")
-                .to_string(),
-        ),
-        Some(label) if label == "Ephemeral lsp token" => Some("lsp".to_string()),
-        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => {
-            Some(format!("label-{label}"))
+        Some(label)
+            if label != "ephemeral-script"
+                && label != "session"
+                && label != windmill_common::auth::GUEST_SESSION_LABEL
+                && !label.is_empty() =>
+        {
+            (
+                Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX)),
+                true,
+            )
         }
-        _ => None,
+        _ => (None, false),
     }
 }
 
@@ -871,4 +1469,83 @@ pub async fn list_tokens_internal(
     };
 
     Ok(Json(tokens))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filter_tags_reach_their_dev_workspace_form() {
+        let mut scopes = vec![
+            "jobs:read".to_string(),
+            "if_jobs:filter_tags:gpu,bash-dev".to_string(),
+        ];
+        expand_filter_tags_with_dev_suffix(&mut scopes, "-dev");
+        assert_eq!(
+            scopes,
+            vec!["jobs:read", "if_jobs:filter_tags:gpu,gpu-dev,bash-dev"]
+        );
+    }
+
+    /// Dropping the `AUTH_CACHE` entry between the two resolutions is what makes a memo
+    /// hit observable: only a working memo can answer the second one.
+    #[tokio::test]
+    async fn resolve_opt_job_authed_is_memoized() {
+        // Never connected: an AUTH_CACHE hit resolves without a query, and AuthCache
+        // only needs the handle to exist. Without the timeout a regression — which
+        // falls through to a real lookup — spends sqlx's 30s default failing.
+        let db = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(50))
+            .connect_lazy("postgres://memo@127.0.0.1:1/memo")
+            .expect("lazy pool");
+
+        let token = "memo_guard_token";
+        // Workspace-scoped: a job token on a workspace-less route is refused by
+        // check_job_token_for_global_route before the memo is ever taken.
+        let key = ("memo_workspace".to_string(), token.to_string());
+        let job_id = uuid::Uuid::from_u128(0x6d656d6f);
+        AUTH_CACHE.insert(
+            key.clone(),
+            ExpiringAuthCache {
+                authed: ApiAuthed {
+                    email: "memo@windmill.dev".to_string(),
+                    username: "memo".to_string(),
+                    ..Default::default()
+                },
+                expiry: chrono::Utc::now() + chrono::Duration::hours(1),
+                job_id: Some(job_id),
+            },
+        );
+
+        #[cfg(feature = "enterprise")]
+        let cache = AuthCache::new(db, None, None);
+        #[cfg(not(feature = "enterprise"))]
+        let cache = AuthCache::new(db, None);
+
+        let mut parts = http::Request::builder()
+            .uri("/api/w/memo_workspace/jobs/list")
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+        parts.extensions.insert(Arc::new(cache));
+
+        let (_, parts) = resolve_opt_job_authed(parts)
+            .await
+            .map_err(|(e, _)| e)
+            .expect("first resolution");
+
+        AUTH_CACHE.remove(&key);
+
+        let (second, _) = resolve_opt_job_authed(parts)
+            .await
+            .map_err(|(e, _)| e)
+            .expect("second resolution must hit the memo, not re-resolve");
+        assert_eq!(second.authed.username, "memo");
+        // The wrapper must survive whole: memoizing only the inner ApiAuthed and
+        // rebuilding around it drops the provenance forbid_elevated_job_token gates on.
+        assert_eq!(second.job_id, Some(job_id));
+    }
 }

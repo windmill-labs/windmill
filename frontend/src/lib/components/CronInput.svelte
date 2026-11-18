@@ -12,6 +12,7 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import { untrack } from 'svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import { latestRequest } from '$lib/utils/latestRequest'
 
 	interface Props {
 		schedule: string
@@ -68,13 +69,19 @@
 	let daysOfWeek: string[] = $state([])
 	let UTCTime: string = $state('')
 
+	// A slower reply for an earlier cron or timezone must not overwrite the current preview.
+	const previewRequests = latestRequest()
 	async function handleScheduleInput(input: string, timezone: string): Promise<void> {
+		const isLatest = previewRequests.start()
 		try {
-			preview = await ScheduleService.previewSchedule({
+			const result = await ScheduleService.previewSchedule({
 				requestBody: { schedule: formatCron(input), timezone, cron_version: cronVersion }
 			})
+			if (!isLatest()) return
+			preview = result
 			validCRON = true
 		} catch (err) {
+			if (!isLatest()) return
 			if (err.status == 400 && err.body.includes('cron')) {
 				validCRON = false
 			} else {
@@ -118,7 +125,7 @@
 		}
 	}
 
-	const items = Object.keys(timezones)
+	const timezoneItems = Object.keys(timezones)
 		.map((key) => {
 			return Object.keys(timezones[key])
 				.map((subKey) => {
@@ -131,8 +138,17 @@
 				.flat()
 		})
 		.flat()
+	// The list holds no legacy aliases, but browsers report some zones by their old name
+	// (Asia/Calcutta, Europe/Kiev) and saved schedules may use one (US/Eastern): keep it selectable.
+	const items = $derived(
+		!timezone || timezoneItems.some((i) => i.value === timezone)
+			? timezoneItems
+			: [{ value: timezone, label: timezone, group: 'Current' }, ...timezoneItems]
+	)
 	$effect(() => {
+		// The preview is computed in the timezone, so changing it must refetch.
 		schedule
+		timezone
 		untrack(() => {
 			!emptyString(schedule) && handleScheduleInput(schedule, timezone)
 		})
@@ -204,18 +220,20 @@
 		<div class="flex flex-col gap-1">
 			<label for="cron-schedule" class="text-xs font-semibold text-emphasis">Cron</label>
 
-			<div class="flex flex-row gap-2 items-center">
-				<TextInput
-					inputProps={{
-						type: 'text',
-						id: 'cron-schedule',
-						name: 'cron-schedule',
-						placeholder: '0 0 */1 * * *',
-						disabled: disabled
-					}}
-					bind:value={schedule}
-					error={!validCRON}
-				/>
+			<div class="flex flex-row flex-wrap gap-2 items-center">
+				<div class="flex-1 min-w-[160px]">
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'cron-schedule',
+							name: 'cron-schedule',
+							placeholder: '0 0 */1 * * *',
+							disabled: disabled
+						}}
+						bind:value={schedule}
+						error={!validCRON}
+					/>
+				</div>
 				{#if !disabled}
 					<div class="flex flex-row gap-2 shrink-0">
 						{@render cronBuilder()}
@@ -276,39 +294,46 @@
 				<div class="w-full flex flex-col gap-1">
 					<div class="text-emphasis font-semibold text-xs leading-none">Execute schedule every</div>
 
-					<div class="w-full flex gap-4">
-						<div class="w-full flex flex-col gap-1 mb-2">
-							<select {disabled} name="execute_every" id="execute_every" bind:value={executeEvery}>
-								<option value="second">Second(s)</option>
-								<option value="minute">Minute(s)</option>
-								<option value="hour">Hour(s)</option>
-								<option value="day-month">Day of the month</option>
-								<option value="month">Month(s)</option>
-								<option value="day-week">Day of the week</option>
-							</select>
-						</div>
+					<div class="w-full flex gap-4 items-start">
+						<Select
+							class="flex-1 min-w-0"
+							disablePortal
+							{disabled}
+							id="execute_every"
+							bind:value={executeEvery}
+							items={[
+								{ value: 'second', label: 'Second(s)' },
+								{ value: 'minute', label: 'Minute(s)' },
+								{ value: 'hour', label: 'Hour(s)' },
+								{ value: 'day-month', label: 'Day of the month' },
+								{ value: 'month', label: 'Month(s)' },
+								{ value: 'day-week', label: 'Day of the week' }
+							]}
+						/>
 
-						<div class="w-full flex flex-col gap-1 justify-center">
-							{#if executeEvery == 'second'}
-								<input {disabled} type="number" min="0" max="59" bind:value={seconds} />
-								<small class="text-secondary text-2xs">Valid range 0-59</small>
-							{:else if executeEvery == 'minute'}
-								<input {disabled} type="number" min="0" max="59" bind:value={minutes} />
-								<small class="text-secondary text-2xs">Valid range 0-59</small>
-							{:else if executeEvery == 'hour'}
-								<input {disabled} type="number" min="0" max="23" bind:value={hours} />
-								<small class="text-secondary text-2xs">Valid range 0-23</small>
-							{:else if executeEvery == 'day-month'}
-								<!-- <div class="w-full flex">
-						<label for="lastDayOfMonth" class="w-full flex items-center gap-2">
-							<div class="flex">
-								<input type="checkbox" id="lastDayOfMonth" bind:checked={lastDayOfMonth} />
+						{#if executeEvery == 'second' || executeEvery == 'minute' || executeEvery == 'hour'}
+							<div class="flex-1 min-w-0 flex flex-col gap-1">
+								{#if executeEvery == 'second'}
+									<TextInput
+										inputProps={{ type: 'number', min: 0, max: 59, disabled }}
+										bind:value={seconds}
+									/>
+									<small class="text-secondary text-2xs">Valid range 0-59</small>
+								{:else if executeEvery == 'minute'}
+									<TextInput
+										inputProps={{ type: 'number', min: 0, max: 59, disabled }}
+										bind:value={minutes}
+									/>
+									<small class="text-secondary text-2xs">Valid range 0-59</small>
+								{:else}
+									<TextInput
+										inputProps={{ type: 'number', min: 0, max: 23, disabled }}
+										bind:value={hours}
+									/>
+									<small class="text-secondary text-2xs">Valid range 0-23</small>
+								{/if}
 							</div>
-							<small> Last day of the month </small>
-						</label>
-					</div> -->
-							{/if}
-						</div>
+						{/if}
 					</div>
 				</div>
 
@@ -317,6 +342,7 @@
 						<MultiSelect
 							disablePortal
 							{disabled}
+							class="w-full"
 							bind:value={monthsOfYear}
 							items={safeSelectItems(monthsOfYearOptions)}
 							placeholder="Every month"
@@ -329,6 +355,7 @@
 						<MultiSelect
 							disablePortal
 							{disabled}
+							class="w-full"
 							bind:value={daysOfWeek}
 							items={safeSelectItems(daysOfWeekOptions)}
 							placeholder="Every day"
@@ -341,28 +368,14 @@
 						{#if executeEvery == 'month'}
 							<small class="text-secondary text-2xs font-normal">On day of the month</small>
 						{/if}
-						<div class="w-full flex gap-4">
-							<div class="w-full flex">
-								<MultiSelect
-									disablePortal
-									{disabled}
-									bind:value={daysOfMonth}
-									items={safeSelectItems(daysOfMonthOptions)}
-									placeholder="Every day"
-								/>
-							</div>
-
-							<!-- {#if executeEvery == 'month'}
-						<div class="w-full flex">
-							<label for="lastDayOfMonth" class="w-full flex items-center gap-2">
-								<div class="flex">
-									<input type="checkbox" id="lastDayOfMonth" bind:checked={lastDayOfMonth} />
-								</div>
-								<small> Last day of the month </small>
-							</label>
-						</div>
-					{/if} -->
-						</div>
+						<MultiSelect
+							class="w-full"
+							disablePortal
+							{disabled}
+							bind:value={daysOfMonth}
+							items={safeSelectItems(daysOfMonthOptions)}
+							placeholder="Every day"
+						/>
 						<small class="text-secondary text-2xs font-normal"
 							>Schedule will only execute on valid calendar days</small
 						>
@@ -372,7 +385,10 @@
 				{#if executeEvery == 'day-month' || executeEvery == 'month' || executeEvery == 'day-week'}
 					<div class="w-full flex flex-col gap-1">
 						<small class="font-semibold text-emphasis text-xs">At time</small>
-						<input {disabled} type="time" name="atUTCTime" id="atUTCTime" bind:value={UTCTime} />
+						<TextInput
+							inputProps={{ type: 'time', name: 'atUTCTime', id: 'atUTCTime', disabled }}
+							bind:value={UTCTime}
+						/>
 					</div>
 				{/if}
 
@@ -388,7 +404,7 @@
 			<div class="mt-8">
 				<Button
 					variant="accent"
-					size="xs"
+					unifiedSize="md"
 					on:click={() => {
 						schedule = nschedule
 						close()

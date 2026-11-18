@@ -1,13 +1,35 @@
-import { Webhook, Mail, Calendar, Route, Unplug, Database, Terminal } from 'lucide-svelte'
+import {
+	Webhook,
+	Mail,
+	Calendar,
+	Route,
+	Unplug,
+	Database,
+	Terminal,
+	Timer,
+	Zap,
+	LayoutDashboard,
+	MousePointerClick
+} from 'lucide-svelte'
 import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
+import KafkaMonoIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
+import NatsMonoIcon from '$lib/components/icons/triggers/NatsIcon.svelte'
+import MqttMonoIcon from '$lib/components/icons/triggers/MqttIcon.svelte'
+import AmqpMonoIcon from '$lib/components/icons/triggers/AmqpIcon.svelte'
+import AwsMonoIcon from '$lib/components/icons/triggers/AwsIcon.svelte'
+import GoogleCloudMonoIcon from '$lib/components/icons/triggers/GoogleCloudIcon.svelte'
+import AzureMonoIcon from '$lib/components/icons/triggers/AzureIcon.svelte'
+import NextcloudMonoIcon from '$lib/components/icons/triggers/NextcloudIcon.svelte'
+import GoogleMonoIcon from '$lib/components/icons/triggers/GoogleIcon.svelte'
+import GithubMonoIcon from '$lib/components/icons/triggers/GithubIcon.svelte'
 import type {
 	CaptureTriggerKind,
-	ErrorHandler,
 	Flow,
 	JobTriggerKind,
 	NewScript,
@@ -24,6 +46,7 @@ import { saveKafkaTriggerFromCfg } from './kafka/utils'
 import { saveSqsTriggerFromCfg } from './sqs/utils'
 import { saveNatsTriggerFromCfg } from './nats/utils'
 import { saveMqttTriggerFromCfg } from './mqtt/utils'
+import { saveAmqpTriggerFromCfg } from './amqp/utils'
 import { saveGcpTriggerFromCfg } from './gcp/utils'
 import { saveAzureTriggerFromCfg } from './azure/utils'
 import type { Triggers } from './triggers.svelte'
@@ -39,6 +62,7 @@ export const CLOUD_DISABLED_TRIGGER_TYPES = [
 	'kafka',
 	'sqs',
 	'mqtt',
+	'amqp',
 	'gcp',
 	'azure',
 	'websocket',
@@ -56,6 +80,7 @@ export type TriggerType =
 	| 'kafka'
 	| 'nats'
 	| 'mqtt'
+	| 'amqp'
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
@@ -75,13 +100,19 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'email',
 	'nats',
 	'mqtt',
+	'amqp',
 	'sqs',
 	'postgres',
 	'schedule',
 	'gcp',
 	'azure',
 	'google',
-	'github'
+	'github',
+	'asset',
+	'freshness',
+	'app'
+	// `ui` is deliberately absent: the backend does not stamp it yet, so offering it here
+	// would be a filter that can only ever return nothing.
 ]
 
 export type Trigger = {
@@ -89,7 +120,6 @@ export type Trigger = {
 	path?: string
 	isDraft?: boolean
 	isPrimary?: boolean
-	canWrite?: boolean
 	id?: string
 	draftConfig?: Record<string, any>
 	captureConfig?: Record<string, any>
@@ -109,6 +139,7 @@ export const triggerIconMap = {
 	kafka: KafkaIcon,
 	nats: NatsIcon,
 	mqtt: MqttIcon,
+	amqp: AmqpIcon,
 	sqs: AwsIcon,
 	gcp: GoogleCloudIcon,
 	azure: AzureIcon,
@@ -117,7 +148,35 @@ export const triggerIconMap = {
 	cli: Terminal,
 	nextcloud: NextcloudIcon,
 	google: GoogleIcon,
-	github: GithubIcon
+	github: GithubIcon,
+	// Job-attribution-only kinds (no trigger CRUD page): the pipeline asset cascade,
+	// the freshness watchdog and app-component runs. Needed so the Runs filter and job
+	// detail render these trigger kinds instead of a blank label / no icon. `ui` is
+	// mapped ahead of the backend stamping it, so the day it does nothing renders blank.
+	asset: Zap,
+	freshness: Timer,
+	app: LayoutDashboard,
+	ui: MousePointerClick
+}
+
+/**
+ * Same map with the desaturated variants swapped in, for dropdowns and the sidebar --
+ * dense lists where a brand mark sits next to lucide glyphs and a coloured one reads as
+ * a different kind of thing. Everything else (tables, panels, job detail, the flow-graph
+ * badge itself) uses triggerIconMap. See icons/index.ts for the rule.
+ */
+export const triggerIconMapMono = {
+	...triggerIconMap,
+	kafka: KafkaMonoIcon,
+	nats: NatsMonoIcon,
+	mqtt: MqttMonoIcon,
+	amqp: AmqpMonoIcon,
+	sqs: AwsMonoIcon,
+	gcp: GoogleCloudMonoIcon,
+	azure: AzureMonoIcon,
+	nextcloud: NextcloudMonoIcon,
+	google: GoogleMonoIcon,
+	github: GithubMonoIcon
 }
 
 export const triggerDisplayNamesMap = {
@@ -128,6 +187,7 @@ export const triggerDisplayNamesMap = {
 	kafka: 'Kafka',
 	nats: 'NATS',
 	mqtt: 'MQTT',
+	amqp: 'AMQP',
 	sqs: 'SQS',
 	gcp: 'GCP Pub/Sub',
 	azure: 'Azure Event Grid',
@@ -138,8 +198,14 @@ export const triggerDisplayNamesMap = {
 	cli: 'CLI',
 	nextcloud: 'Nextcloud',
 	google: 'Google',
-	github: 'GitHub'
-} as const satisfies Record<TriggerType, string>
+	github: 'GitHub',
+	asset: 'Asset cascade',
+	freshness: 'Freshness',
+	app: 'App',
+	ui: 'UI'
+	// `asset` / `freshness` / `app` / `ui` are job-attribution-only (JobTriggerKind,
+	// not TriggerType) — hence the union in the satisfies below.
+} as const satisfies Record<TriggerType | 'asset' | 'freshness' | 'app' | 'ui', string>
 
 /**
  * Converts a TriggerType to a CaptureTriggerKind when a mapping exists
@@ -158,6 +224,7 @@ export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTrigg
 		'kafka',
 		'nats',
 		'mqtt',
+		'amqp',
 		'sqs',
 		'gcp',
 		'azure',
@@ -189,6 +256,7 @@ export function updateTriggersCount(
 		kafka: 'kafka_count',
 		nats: 'nats_count',
 		mqtt: 'mqtt_count',
+		amqp: 'amqp_count',
 		sqs: 'sqs_count',
 		gcp: 'gcp_count',
 		azure: 'azure_count',
@@ -260,6 +328,8 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 			return 'nats'
 		case 'mqtt':
 			return 'mqtt'
+		case 'amqp':
+			return 'amqp'
 		case 'sqs':
 			return 'sqs'
 		case 'gcp':
@@ -349,6 +419,14 @@ export async function deployTriggers(
 			),
 		mqtt: (trigger: Trigger) =>
 			saveMqttTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		amqp: (trigger: Trigger) =>
+			saveAmqpTriggerFromCfg(
 				trigger.path ?? trigger.draftConfig?.path ?? '',
 				trigger.draftConfig ?? {},
 				!trigger.isDraft,
@@ -650,82 +728,5 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 	})
 }
 
-export type FlowWithDraftAndDraftTriggers = Flow & {
-	draft?: Flow & {
-		draft_triggers?: Trigger[]
-	}
-}
-
-export type NewScriptWithDraftAndDraftTriggers = NewScript & {
-	draft?: NewScript & { draft_triggers?: Trigger[] }
-	hash: string
-}
-
-// Get rid of deployed triggers from the saved flow in the case there is a match with a deployed trigger
-export function filterDraftTriggers(
-	savedValue: FlowWithDraftAndDraftTriggers | NewScriptWithDraftAndDraftTriggers,
-	triggersState: Triggers
-): FlowWithDraftAndDraftTriggers | NewScriptWithDraftAndDraftTriggers {
-	const deployedTriggers = triggersState.triggers.filter((t) => !t.draftConfig && !t.isDraft)
-
-	// Early return if no deployed triggers or no draft triggers to filter
-	if (deployedTriggers.length === 0 || !savedValue?.draft?.draft_triggers?.length) {
-		return savedValue
-	}
-
-	const deployedTriggerKeys = new Set(deployedTriggers.map((t) => `${t.path}:${t.type}`))
-
-	const originalSavedDraftTriggers = savedValue.draft.draft_triggers
-	const keptTriggers: Trigger[] = []
-	const removedTriggers: Trigger[] = []
-
-	// Single pass to separate kept vs removed triggers
-	for (const savedTrigger of originalSavedDraftTriggers) {
-		const triggerKey = `${savedTrigger.draftConfig?.path}:${savedTrigger.type}`
-		if (deployedTriggerKeys.has(triggerKey)) {
-			removedTriggers.push(savedTrigger)
-		} else {
-			keptTriggers.push(savedTrigger)
-		}
-	}
-
-	// Early return if nothing was filtered
-	if (removedTriggers.length === 0) {
-		return savedValue
-	}
-
-	// Update saved value
-	const newSavedValue = {
-		...savedValue,
-		draft: {
-			...savedValue.draft,
-			draft_triggers: keptTriggers.length > 0 ? keptTriggers : undefined
-		}
-	} as typeof savedValue
-
-	const removedTriggerKeys = new Set(removedTriggers.map((t) => `${t.draftConfig?.path}:${t.type}`))
-
-	// Remove filtered triggers from triggersState
-	triggersState.setTriggers(
-		triggersState.triggers.filter((trigger) => {
-			const triggerKey = `${trigger.draftConfig?.path}:${trigger.type}`
-			return !removedTriggerKeys.has(triggerKey)
-		})
-	)
-
-	return newSavedValue
-}
-
-export function getHandlerType(scriptPath: string): ErrorHandler {
-	const handlerMap = {
-		teams: '/workspace-or-schedule-error-handler-teams',
-		slack: '/workspace-or-schedule-error-handler-slack',
-		email: '/workspace-or-error-handler-email'
-	}
-	for (const [type, suffix] of Object.entries(handlerMap)) {
-		if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-			return type as ErrorHandler
-		}
-	}
-	return 'custom'
-}
+export type FlowWithDraftAndDraftTriggers = Flow
+export type NewScriptWithDraftAndDraftTriggers = NewScript & { hash?: string }

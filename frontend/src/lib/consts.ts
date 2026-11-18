@@ -10,6 +10,9 @@ export const DEFAULT_WEBHOOK_TYPE: 'async' | 'sync' = 'async'
 
 export const HOME_SHOW_HUB = true
 
+/** The width of Home's one column: the composer and the items list below it. */
+export const HOME_COLUMN_WIDTH = 'max-w-[1120px]'
+
 export const HOME_SHOW_CREATE_FLOW = true
 export const HOME_SEARCH_SHOW_FLOW = true
 
@@ -21,8 +24,6 @@ export const SIDEBAR_SHOW_SCHEDULES = true
 
 export const WORKSPACE_SHOW_SLACK_CMD = true
 export const WORKSPACE_SHOW_WEBHOOK_CLI_SYNC = true
-
-export const SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB = true
 
 export const SCRIPT_VIEW_SHOW_SCHEDULE = true
 export const SCRIPT_VIEW_SHOW_EXAMPLE_CURL = true
@@ -49,6 +50,11 @@ export const DEFAULT_TAGS_PER_WORKSPACE_SETTING = 'default_tags_per_workspace'
 export const DEFAULT_TAGS_WORKSPACES_SETTING = 'default_tags_workspaces'
 export const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING = 'fork_workspace_tag_append_fork_suffix'
 export const PREVIEW_TAGS_OVERRIDE_SETTING = 'preview_tags_override'
+export const DEPENDENCY_JOB_TAG_SETTING = 'dependency_job_tag'
+export const DEV_WORKSPACE_ISOLATION_SETTING = 'dev_workspace_isolation'
+export const DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING =
+	'dev_workspace_isolation_skip_non_dev_forks'
+export const DEV_WORKSPACE_TAG_SUFFIX_SETTING = 'dev_workspace_tag_suffix'
 
 export const WORKSPACE_FAIRNESS_ENABLED_SETTING = 'workspace_fairness_enabled'
 export const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING = 'workspace_fairness_max_percent'
@@ -180,14 +186,19 @@ export const BIGQUERY_TYPES = [
 ]
 
 export const SNOWFLAKE_TYPES = [
-	'varchar',
-	'binary',
-	'date',
-	'time',
-	'timestamp',
-	'int',
-	'float',
-	'boolean'
+	'VARCHAR',
+	'TEXT',
+	'BINARY',
+	'DATE',
+	'TIME',
+	'TIMESTAMP',
+	'TIMESTAMP_NTZ',
+	'TIMESTAMP_LTZ',
+	'TIMESTAMP_TZ',
+	'INT',
+	'NUMBER',
+	'FLOAT',
+	'BOOLEAN'
 ]
 
 export const MSSQL_TYPES = [

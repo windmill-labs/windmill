@@ -6,10 +6,12 @@
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { type ListableScript, ScriptService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { type Script, ScriptService } from '$lib/gen'
 	import { emptyString } from '$lib/utils'
 	import { Skeleton } from '$lib/components/common'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		filter?: string
@@ -18,15 +20,15 @@
 
 	let { filter = $bindable(''), children }: Props = $props()
 
-	let scripts: ListableScript[] | undefined = $state(undefined)
-	let filteredItems: (ListableScript & { marked?: string })[] = $state([])
+	let scripts: Script[] | undefined = $state(undefined)
+	let filteredItems: (Script & { marked?: string })[] = $state([])
 	let prefilteredItems = $derived(scripts ?? [])
 
 	const dispatch = createEventDispatcher()
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			perPage: 300,
 			withoutDescription: true
 		})

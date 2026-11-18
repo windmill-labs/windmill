@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
 	import { onDestroy, untrack } from 'svelte'
 	import { sendUserToast, sleep } from '$lib/utils'
@@ -13,10 +12,14 @@
 	import KafkaCapture from './kafka/KafkaCapture.svelte'
 	import NatsCapture from './nats/NatsCapture.svelte'
 	import MqttCapture from './mqtt/MqttCapture.svelte'
+	import AmqpCapture from './amqp/AmqpCapture.svelte'
 	import SqsCapture from './sqs/SqsCapture.svelte'
 	import GcpCapture from './gcp/GcpCapture.svelte'
 	import AzureCapture from './azure/AzureCapture.svelte'
 	import EmailCapture from './email/EmailCapture.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		isFlow: boolean
@@ -62,7 +65,7 @@
 					is_flow: isFlow,
 					trigger_config: args && Object.keys(args).length > 0 ? args : undefined
 				},
-				workspace: $workspaceStore!
+				workspace: $operatingWorkspace!
 			})
 			return true
 		} catch (error) {
@@ -78,14 +81,22 @@
 		if (captureType === 'azure' && args.azure_mode !== 'namespace_pull') {
 			return false
 		}
-		return ['mqtt', 'sqs', 'websocket', 'postgres', 'kafka', 'nats', 'gcp', 'azure'].includes(
-			captureType
-		)
+		return [
+			'mqtt',
+			'amqp',
+			'sqs',
+			'websocket',
+			'postgres',
+			'kafka',
+			'nats',
+			'gcp',
+			'azure'
+		].includes(captureType)
 	}
 
 	async function getCaptureConfigs() {
 		const captureConfigsList = await CaptureService.getCaptureConfigs({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			runnableKind: isFlow ? 'flow' : 'script',
 			path
 		})
@@ -114,7 +125,7 @@
 		while (captureActive) {
 			if (i % 3 === 0) {
 				await CaptureService.pingCaptureConfig({
-					workspace: $workspaceStore!,
+					workspace: $operatingWorkspace!,
 					triggerKind: captureType,
 					runnableKind: isFlow ? 'flow' : 'script',
 					path
@@ -289,6 +300,20 @@
 			/>
 		{:else if captureType === 'mqtt'}
 			<MqttCapture
+				{isValid}
+				{captureInfo}
+				{hasPreprocessor}
+				{isFlow}
+				{captureLoading}
+				{triggerDeployed}
+				on:applyArgs
+				on:updateSchema
+				on:addPreprocessor
+				on:captureToggle={handleCapture}
+				on:testWithArgs
+			/>
+		{:else if captureType === 'amqp'}
+			<AmqpCapture
 				{isValid}
 				{captureInfo}
 				{hasPreprocessor}

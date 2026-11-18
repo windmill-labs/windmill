@@ -319,6 +319,14 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
+    let resp = authed(client().post(format!("{base}/edit_webhook")))
+        .json(&json!({"webhook": "http://127.0.0.1/hook"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("ALLOW_PRIVATE_WEBHOOK_URLS"));
+
     // --- edit_auto_invite (EE-gated) ---
     let resp = authed(client().post(format!("{base}/edit_auto_invite")))
         .json(&json!({"operator": false, "invite_all": false, "auto_add": false}))
@@ -408,18 +416,6 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         resp.text().await?
     );
 
-    // --- edit_deploy_to (EE-gated) ---
-    let resp = authed(client().post(format!("{base}/edit_deploy_to")))
-        .json(&json!({"deploy_to": null}))
-        .send()
-        .await
-        .unwrap();
-    assert!(
-        resp.status() == 200 || resp.status() == 400,
-        "edit_deploy_to: unexpected status {}",
-        resp.status()
-    );
-
     // --- edit_large_file_storage_config ---
     let resp = authed(client().post(format!("{base}/edit_large_file_storage_config")))
         .json(&json!({"large_file_storage": null}))
@@ -456,6 +452,20 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         "edit_git_sync_config: unexpected status {}",
         resp.status()
     );
+
+    // --- git_sync_deploy_mode (response shape + default when no git-sync configured) ---
+    let resp = authed(client().get(format!("{base}/git_sync_deploy_mode")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "git_sync_deploy_mode: unexpected status"
+    );
+    let mode = resp.json::<serde_json::Value>().await?;
+    assert_eq!(mode["configured"], json!(false));
+    assert_eq!(mode["deploy_on_push"], json!(false));
 
     // --- update_operator_settings ---
     let resp = authed(client().post(format!("{base}/operator_settings")))
@@ -645,6 +655,20 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
             .await
             .unwrap();
         assert_eq!(resp.json::<bool>().await?, true);
+
+        // Regression: changing a fork's workspace id must preserve its parent
+        // linkage. Dropping it leaves a wm-fork- workspace with no parent — a
+        // "fork of nothing" that can no longer be compared or merged.
+        let parent: Option<String> =
+            sqlx::query_scalar("SELECT parent_workspace_id FROM workspace WHERE id = $1")
+                .bind("wm-fork-renamed")
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(
+            parent.as_deref(),
+            Some("new-test-ws"),
+            "renamed fork must keep its parent_workspace_id"
+        );
 
         // --- create_fork over an existing (active) workspace id: clear 400, not a raw SQL 500 ---
         let resp = authed(client().post(format!("{new_ws_base}/create_fork")))
@@ -873,6 +897,116 @@ async fn test_get_copilot_info_ignores_empty_instance_ai_row(
     Ok(())
 }
 
+/// A workspace with no provider of its own is served the instance config, but the
+/// `copilot_disabled` flag must still come from the workspace's own row.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_get_copilot_info_keeps_workspace_copilot_disabled_over_instance_fallback(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    sqlx::query("UPDATE workspace_settings SET ai_config = $1 WHERE workspace_id = $2")
+        .bind(json!({ "copilot_disabled": true }))
+        .bind("test-workspace")
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) \
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .bind("ai_config")
+    .bind(json!({
+        "providers": {
+            "openai": {
+                "resource_path": "u/test-user/openai_instance",
+                "models": ["gpt-4o-mini"]
+            }
+        }
+    }))
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().get(format!("{base}/get_copilot_info")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let settings = resp.json::<serde_json::Value>().await?;
+    assert_eq!(
+        settings["providers"]["openai"]["models"][0], "gpt-4o-mini",
+        "instance providers are still served"
+    );
+    assert_eq!(settings["copilot_disabled"], true);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_error_handler_instance_alerts_fallback(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let stored = || async {
+        sqlx::query_scalar!(
+            "SELECT error_handler_fallback_to_instance_alerts FROM workspace_settings WHERE workspace_id = 'test-workspace'"
+        )
+        .fetch_one(&db)
+        .await
+    };
+
+    let resp = authed(client().post(format!("{base}/edit_error_handler")))
+        .json(&json!({"path": null, "fallback_to_instance_alerts": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "enable: {}", resp.text().await?);
+    assert!(stored().await?);
+
+    // A client that predates the setting (the CLI pushing settings.yaml) omits the field and
+    // must not silently turn it back off.
+    let resp = authed(client().post(format!("{base}/edit_error_handler")))
+        .json(&json!({"path": null, "extra_args": null}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "omitted: {}", resp.text().await?);
+    assert!(stored().await?);
+
+    sqlx::query!(
+        "UPDATE workspace SET parent_workspace_id = 'test-workspace' WHERE id = 'test-workspace'"
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(client().post(format!("{base}/edit_error_handler")))
+        .json(&json!({"path": null, "fallback_to_instance_alerts": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "fork must be rejected");
+
+    // The settings page stops offering the option once the workspace is a fork, so its next save
+    // sends `false`: that must go through rather than lock the whole error handler behind a 400.
+    let resp = authed(client().post(format!("{base}/edit_error_handler")))
+        .json(&json!({"path": null, "fallback_to_instance_alerts": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "disable on fork: {}",
+        resp.text().await?
+    );
+    assert!(!stored().await?);
+
+    Ok(())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_get_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -888,5 +1022,343 @@ async fn test_get_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
     let imports = resp.json::<Vec<String>>().await?;
     assert!(imports.is_empty());
 
+    Ok(())
+}
+
+/// A dbt project names a warehouse and nothing else, so the workspace setting is
+/// the only place the connection is decided. Two things have to hold for that to
+/// work at all: the setting round-trips as the MAP the resolver reads (an
+/// envelope stored verbatim makes every warehouse name unresolvable), and the
+/// route that serves the name to a worker with no database stays job-scoped.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_dbt_warehouses(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{base}/workspaces/edit_dbt_warehouses")))
+        .json(&json!({
+            "dbt_warehouses": { "main": { "resource_path": "u/admin/wh", "target": "prod" } }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resp = authed(client().get(format!("{base}/workspaces/get_settings")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let settings = resp.json::<serde_json::Value>().await?;
+    assert_eq!(
+        settings["dbt_warehouses"],
+        json!({ "main": { "resource_path": "u/admin/wh", "target": "prod" } })
+    );
+
+    // A user token is not a job token: the warehouses a workspace configures are
+    // a running job's business, not a browsable list.
+    let resp = authed(client().get(format!("{base}/dbt/warehouse/main")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    Ok(())
+}
+
+/// A service account created over an orphaned `usr_to_group` row must start with
+/// exactly the memberships that were asked for.
+///
+/// `usr_to_group` has no FK to `usr`, so `leave_workspace` leaves group rows behind
+/// for a deleted username. Recreating that username used to fail outright on the
+/// duplicate `all` row; tolerating the duplicate alone would instead have handed the
+/// new account every stale membership, including privileged ones.
+///
+/// Gated on `private` because `create_service_account` is EE-only — the OSS shim
+/// (`windmill-api-workspaces/src/workspaces_oss.rs`) rejects the request outright.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_service_account_drops_orphaned_group_memberships(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    sqlx::query(
+        "INSERT INTO group_ (workspace_id, name, summary) VALUES
+         ('test-workspace', 'wm_deployers', 'deployers'),
+         ('test-workspace', 'secrets', 'privileged')",
+    )
+    .execute(&db)
+    .await?;
+
+    // Stale rows from a prior user of this username: no matching `usr` row exists.
+    sqlx::query(
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES
+         ('test-workspace', 'svc_acct', 'all'),
+         ('test-workspace', 'svc_acct', 'wm_deployers'),
+         ('test-workspace', 'svc_acct', 'secrets')",
+    )
+    .execute(&db)
+    .await?;
+
+    // Same username, different workspace, and very much alive — must not be touched.
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other', 'svc_acct')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO group_ (workspace_id, name, summary) VALUES
+         ('other-workspace', 'all', 'All users'),
+         ('other-workspace', 'secrets', 'privileged')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'other@windmill.dev', 'svc_acct', false, 'User')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES
+         ('other-workspace', 'svc_acct', 'all'),
+         ('other-workspace', 'svc_acct', 'secrets')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let resp = authed(client().post(format!("{base}/create_service_account")))
+        .json(&json!({"username": "svc_acct", "is_admin": false, "operator": true, "add_to_deployers": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "creation over an orphaned row failed: {}",
+        resp.text().await?
+    );
+
+    let groups: Vec<String> = sqlx::query_scalar(
+        "SELECT group_ FROM usr_to_group WHERE workspace_id = $1 AND usr = $2 ORDER BY group_",
+    )
+    .bind("test-workspace")
+    .bind("svc_acct")
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        groups,
+        vec!["all".to_string()],
+        "service account inherited stale memberships"
+    );
+
+    let other: Vec<String> = sqlx::query_scalar(
+        "SELECT group_ FROM usr_to_group WHERE workspace_id = $1 AND usr = $2 ORDER BY group_",
+    )
+    .bind("other-workspace")
+    .bind("svc_acct")
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        other,
+        vec!["all".to_string(), "secrets".to_string()],
+        "cleanup escaped the workspace it was scoped to"
+    );
+
+    Ok(())
+}
+
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_edit_auto_invite_preserves_instance_groups(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    sqlx::query(
+        r#"UPDATE workspace_settings
+           SET auto_invite = '{"instance_groups": ["eng"], "instance_groups_roles": {"eng": "developer"}}'
+           WHERE workspace_id = 'test-workspace'"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    // enable, then disable
+    for body in [
+        json!({"operator": false, "invite_all": true, "auto_add": false}),
+        json!({}),
+    ] {
+        let resp = authed(client().post(format!("{base}/edit_auto_invite")))
+            .json(&body)
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200, "{body}: {}", resp.text().await?);
+
+        let auto_invite: serde_json::Value = sqlx::query_scalar(
+            "SELECT auto_invite FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(auto_invite["instance_groups"], json!(["eng"]), "{body}");
+        assert_eq!(
+            auto_invite["instance_groups_roles"],
+            json!({"eng": "developer"}),
+            "{body}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Admin and operator are one role stored as two flags: granting one must clear the other, and a
+/// request asking for both is refused, on update and on add.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_admin_and_operator_are_exclusive(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/test-workspace");
+    let flags = async || -> anyhow::Result<(bool, bool)> {
+        Ok(sqlx::query_as(
+            "SELECT is_admin, operator FROM usr WHERE workspace_id = 'test-workspace' AND username = 'operator'",
+        )
+        .fetch_one(&db)
+        .await?)
+    };
+
+    let resp = authed(client().post(format!("{api}/users/update/operator")))
+        .json(&json!({"is_admin": true}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(flags().await?, (true, false));
+
+    let resp = authed(client().post(format!("{api}/users/update/operator")))
+        .json(&json!({"operator": true}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(flags().await?, (false, true));
+
+    let resp = authed(client().post(format!("{api}/users/update/operator")))
+        .json(&json!({"is_admin": true, "operator": true}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+    assert_eq!(flags().await?, (false, true));
+
+    let resp = authed(client().post(format!("{api}/workspaces/add_user")))
+        .json(&json!({"email": "both@windmill.dev", "is_admin": true, "operator": true}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
+    // Rows written before the rule can still carry both flags: the admin wins, and `whoami`
+    // says so, since the frontend hides every gated page from an operator.
+    sqlx::query(
+        "UPDATE usr SET is_admin = true, operator = true
+         WHERE workspace_id = 'test-workspace' AND username = 'operator'",
+    )
+    .execute(&db)
+    .await?;
+    let resp = client()
+        .get(format!("{api}/users/whoami"))
+        .header("Authorization", "Bearer OPERATOR_TOKEN_1")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let me: serde_json::Value = resp.json().await?;
+    assert_eq!(
+        (me["is_admin"].as_bool(), me["operator"].as_bool()),
+        (Some(true), Some(false))
+    );
+    let resp = client()
+        .post(format!("{api}/scripts/create"))
+        .header("Authorization", "Bearer OPERATOR_TOKEN_1")
+        .json(&json!({
+            "path": "u/operator/legacy_admin", "summary": "", "description": "",
+            "content": "export function main() {}", "language": "deno", "schema": {}
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_workspace_validates_chosen_username(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ('automate_username_creation', 'false') \
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let create = format!(
+        "http://localhost:{}/api/workspaces/create",
+        server.addr.port()
+    );
+
+    let resp = authed(client().post(&create))
+        .json(&json!({"id": "ws-hyphen", "name": "ws-hyphen", "username": "jean-luc"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
+    let resp = authed(client().post(&create))
+        .json(&json!({"id": "ws-ok", "name": "ws-ok", "username": "jean_luc"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn archiving_a_workspace_makes_its_public_apps_private(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions) VALUES
+             ('test-workspace', 'u/test-user/public', '', '{\"execution_mode\": \"anonymous\"}', '{}'),
+             ('test-workspace', 'u/test-user/members', '', '{\"execution_mode\": \"publisher\"}', '{}')",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/workspaces/archive"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let modes: Vec<(String, String)> = sqlx::query_as(
+        "SELECT path, policy->>'execution_mode' FROM app
+         WHERE workspace_id = 'test-workspace' ORDER BY path",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        modes,
+        [
+            ("u/test-user/members".to_string(), "publisher".to_string()),
+            ("u/test-user/public".to_string(), "publisher".to_string()),
+        ]
+    );
     Ok(())
 }

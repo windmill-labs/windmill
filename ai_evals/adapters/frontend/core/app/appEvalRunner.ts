@@ -38,6 +38,7 @@ export interface AppEvalResult {
   toolCallCount: number;
   toolsUsed: string[];
   tokenUsage: TokenUsage;
+  finalContextTokens: number | null;
 }
 
 export interface AppEvalOptions {
@@ -113,6 +114,7 @@ export async function runAppEval(
       toolCallCount: rawResult.toolCallsCount,
       toolsUsed: rawResult.toolsCalled,
       tokenUsage: rawResult.tokenUsage,
+      finalContextTokens: rawResult.finalContextTokens,
     };
   } finally {
     await cleanup();

@@ -2,6 +2,8 @@
 	import { type Job } from '$lib/gen'
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
 	import { forLater } from '$lib/forLater'
+	import { waitingRequest } from '../agentRequest'
+	import type { Snippet } from 'svelte'
 
 	interface Props {
 		job?: Job | undefined
@@ -11,6 +13,7 @@
 		textPosition?: 'top' | 'bottom'
 		// Prefer step ID over step index when both are available
 		showStepId?: boolean
+		errorAction?: Snippet
 	}
 
 	let {
@@ -19,7 +22,8 @@
 		class: className,
 		slim = false,
 		textPosition = 'top',
-		showStepId = false
+		showStepId = false,
+		errorAction
 	}: Props = $props()
 
 	let error: number | undefined = $state(undefined)
@@ -76,7 +80,13 @@
 
 		if (modules.length > maxDone) {
 			const nextModule = modules[maxDone]
-			if (nextModule.type === 'InProgress') {
+			if (nextModule.type === 'InProgress' && waitingRequest(nextModule)) {
+				// An agent waiting on a person reads like an approval step.
+				newIsWaitingForEvents = true
+				if (nextModule.id) {
+					newCurrentStepId = nextModule.id
+				}
+			} else if (nextModule.type === 'InProgress') {
 				newNextInProgress = true
 				// Get the step ID if available
 				if (nextModule.id) {
@@ -183,4 +193,5 @@
 	{isCanceled}
 	{isScheduled}
 	{isSkipped}
+	{errorAction}
 />

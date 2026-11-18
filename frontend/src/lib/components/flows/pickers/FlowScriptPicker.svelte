@@ -8,13 +8,13 @@
 	interface Props {
 		disabled?: boolean
 		label: string
-		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | undefined
+		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | 'pisandbox' | undefined
 		id?: string | undefined
 	}
 
 	let { disabled = false, label, lang = undefined, id = undefined }: Props = $props()
 
-	const enterpriseLangs = ['bigquery', 'snowflake', 'mssql', 'oracledb']
+	const enterpriseLangs = ['mssql', 'oracledb']
 </script>
 
 <Popover disablePopup={!enterpriseLangs.includes(lang || '') || !!$enterpriseLicense}>
@@ -32,9 +32,6 @@
 				<LanguageIcon {lang} />
 			{/if}
 			<span class="text-xs">{label}</span>
-			{#if lang === 'claudesandbox'}
-				<span class="text-primary !text-xs">(new)</span>
-			{/if}
 		</div>
 	</Button>
 	{#snippet text()}

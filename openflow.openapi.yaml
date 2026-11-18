@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.723.0
+  version: 1.876.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -37,7 +37,10 @@ components:
           description: JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')
         on_behalf_of_email:
           type: string
-          description: The flow will be run with the permissions of the user with this email.
+          description: Address of the account the flow runs on behalf of. Derived from on_behalf_of on read; accepted on write, where it is resolved to the account it names.
+        on_behalf_of:
+          type: string
+          description: 'The flow runs with the permissions of this identity: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it. Omit it when writing and it is resolved from that address instead.'
       required:
         - summary
         - value
@@ -72,6 +75,10 @@ components:
         concurrency_time_window_s:
           type: number
           description: Time window in seconds for concurrent_limit
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run of this flow does when its concurrency limit is reached. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed, like any failed step.
         debounce_delay_s:
           type: integer
           description: Delay in seconds to debounce flow executions
@@ -100,6 +107,15 @@ components:
         delete_after_secs:
           type: integer
           description: If set, delete the flow job's args, result and logs after this many seconds following job completion
+        timeout:
+          type: integer
+          description: >-
+            Wall-clock limit in seconds for the whole flow run, counted from its start and including
+            time spent sleeping or suspended at an approval. It also applies when the flow is called as
+            a subflow step, unless that step sets its own timeout, which replaces it. It is checked periodically, so
+            a run can go a few seconds past it. When it expires, the running steps are cancelled, the
+            failure module runs if there is one, and the flow ends cancelled with a timeout error. A
+            calling flow sees the subflow step fail with that error.
         flow_env:
           type: object
           description: "Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource)."
@@ -109,7 +125,10 @@ components:
           description: Execution priority (higher numbers run first)
         early_return:
           type: string
-          description: JavaScript expression to return early from the flow
+          description: >-
+            Id of the step whose result a sync webhook returns as soon as that step completes, while
+            the rest of the flow keeps running. When the step does not run, or fails while the flow
+            has a failure module, the flow's final result is returned instead.
         chat_input_enabled:
           type: boolean
           description: Whether this flow accepts chat-style input
@@ -142,7 +161,7 @@ components:
               description: Seconds to wait between retries
         exponential:
           type: object
-          description: Retry with exponential backoff (delay doubles each time)
+          description: "Retry with exponential backoff: the n-th retry waits multiplier × seconds^n"
           properties:
             attempts:
               type: integer
@@ -153,7 +172,7 @@ components:
             seconds:
               type: integer
               minimum: 1
-              description: Initial delay in seconds
+              description: Base of the exponential (seconds); the n-th retry waits multiplier × seconds^n, where n counts constant retries too
             random_factor:
               type: integer
               minimum: 0
@@ -200,11 +219,11 @@ components:
             - height
         color:
           type: string
-          description: Color of the note (e.g., "yellow", "#ffff00")
+          description: "Color of the note, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Any other value renders unstyled."
         type:
           type: string
           enum: [free, group]
-          description: Type of note - 'free' for standalone notes, 'group' for notes that group other nodes
+          description: Type of note - 'free' for standalone notes. 'group' notes are deprecated; segment a flow with FlowValue.groups instead.
         locked:
           type: boolean
           default: false
@@ -242,7 +261,7 @@ components:
           description: ID of the last flow module in this group (topological exit point)
         color:
           type: string
-          description: Color for the group in the flow editor
+          description: "Color for the group in the flow editor, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Omit it to let the editor pick one."
       required:
         - start_id
         - end_id
@@ -302,7 +321,7 @@ components:
           required:
             - expr
         sleep:
-          description: Delay before executing this step (in seconds or as expression)
+          description: Delay after this step completes, before the next step starts (in seconds or as expression)
           $ref: '#/components/schemas/InputTransform'
         cache_ttl:
           type: number
@@ -327,6 +346,9 @@ components:
               description: If true, return mock value instead of executing
             return_value:
               description: Value to return when mocked
+            preview_only:
+              type: boolean
+              description: If true, the mock applies only to runs started as a flow preview (from the editor, and every job under it, subflows included). Absent or false, it applies to every run.
         suspend:
           type: object
           description: Configuration for approval/resume steps that wait for user input
@@ -359,12 +381,26 @@ components:
             continue_on_disapprove_timeout:
               type: boolean
               description: If true, continue flow on timeout instead of canceling
+            skin:
+              type: string
+              enum: [detailed, minimal]
+              description: >-
+                How the approval request is presented, on the approval page and in Slack/Teams
+                approval messages. 'detailed' (used when unset) shows the flow details
+                (arguments, graph, approvers); 'minimal' shows only the request: the step
+                description, form and approve/reject actions
         priority:
           type: number
           description: Execution priority for this step (higher numbers run first)
         continue_on_error:
           type: boolean
           description: If true, flow continues even if this step fails
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of this step's jobs is restricted to (domain:action[:resource], e.g. oidc:write), on top of the flow's own restriction: a step can only narrow it. Applies to everything the step runs (loop and branch bodies, AI agent tools)."
         retry:
           description: Retry configuration if this step fails
           $ref: '#/components/schemas/Retry'
@@ -421,7 +457,7 @@ components:
 
     JavascriptTransform:
       type: object
-      description: JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value
+      description: JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside for loops, use 'flow_input.iter.value' for the current iteration value (in while loops it equals 'flow_input.iter.index')
       properties:
         expr:
           type: string
@@ -452,6 +488,7 @@ components:
       enum:
         - openai
         - azure_openai
+        - azure_foundry
         - anthropic
         - mistral
         - deepseek
@@ -461,6 +498,8 @@ components:
         - togetherai
         - customai
         - aws_bedrock
+        - typesafe
+        - cloudflare
 
     ProviderConfig:
       type: object
@@ -474,6 +513,9 @@ components:
         model:
           type: string
           description: Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')
+        reasoning_effort:
+          type: string
+          description: Provider-native reasoning effort token (e.g. 'low', 'high', 'none') for models that support extended thinking. Optional; unset leaves the provider default.
       required:
         - kind
         - resource
@@ -518,9 +560,30 @@ components:
       required:
         - kind
 
+    MemoryWindow:
+      type: object
+      description: |
+        Keeps the most recent messages of the memory named by the run's memory id (or the step's
+        `memory_id`). Without a memory id the agent runs without memory.
+      properties:
+        kind:
+          type: string
+          enum:
+            - window
+        context_length:
+          type: integer
+          description: Number of most recent messages to load and store. 0 turns memory off.
+      required:
+        - kind
+        - context_length
+
     MemoryAuto:
       type: object
-      description: Automatic context management
+      deprecated: true
+      description: |
+        Deprecated, still read as it was written: the run's memory id, else the `memory_id` here.
+        The step's own `memory_id` is not read while this kind is set; switch the kind to `window`
+        to use it. Without a `context_length`, or with 0, it is `off` and reads `previous_messages`.
       properties:
         kind:
           type: string
@@ -532,6 +595,25 @@ components:
         memory_id:
           type: string
           description: Identifier for persistent memory across agent invocations
+      required:
+        - kind
+
+    MemoryCompaction:
+      type: object
+      description: |
+        Keeps the whole memory named by the run's memory id (or the step's `memory_id`), replacing
+        its older part with a summary as the conversation approaches the model's context window.
+        Without a memory id the agent runs without memory, and compaction bounds the run's own loop.
+      properties:
+        kind:
+          type: string
+          enum:
+            - compaction
+        context_window:
+          type: integer
+          description: |
+            Overrides the context window looked up from the model, in tokens. Only a model
+            Windmill does not know needs one; those fall back to 128000.
       required:
         - kind
 
@@ -553,7 +635,8 @@ components:
 
     MemoryManual:
       type: object
-      description: Explicit message history
+      deprecated: true
+      description: Deprecated, still read as it was written. Move the step to `off` with `previous_messages` instead.
       properties:
         kind:
           type: string
@@ -568,15 +651,19 @@ components:
         - messages
 
     MemoryConfig:
-      description: Conversation memory configuration
+      description: Managed memory, stored by Windmill and replayed with each request. The memory is named by a memory id, see `memory_id`. While it is off, a step can supply its history in `previous_messages`.
       oneOf:
         - $ref: '#/components/schemas/MemoryOff'
+        - $ref: '#/components/schemas/MemoryWindow'
+        - $ref: '#/components/schemas/MemoryCompaction'
         - $ref: '#/components/schemas/MemoryAuto'
         - $ref: '#/components/schemas/MemoryManual'
       discriminator:
         propertyName: kind
         mapping:
           'off': '#/components/schemas/MemoryOff'
+          window: '#/components/schemas/MemoryWindow'
+          compaction: '#/components/schemas/MemoryCompaction'
           auto: '#/components/schemas/MemoryAuto'
           manual: '#/components/schemas/MemoryManual'
 
@@ -619,6 +706,7 @@ components:
         - $ref: '#/components/schemas/BranchAll'
         - $ref: '#/components/schemas/Identity'
         - $ref: '#/components/schemas/AiAgent'
+        - $ref: '#/components/schemas/AiDecision'
       discriminator:
         propertyName: type
         mapping:
@@ -631,6 +719,7 @@ components:
           branchall: '#/components/schemas/BranchAll'
           identity: '#/components/schemas/Identity'
           aiagent: '#/components/schemas/AiAgent'
+          aidecision: '#/components/schemas/AiDecision'
 
     RawScript:
       type: object
@@ -651,6 +740,7 @@ components:
           enum:
             - deno
             - bun
+            - bunnative
             - python3
             - go
             - bash
@@ -672,6 +762,10 @@ components:
             - ruby
             - rlang
             - duckdb
+            # NOT dbt: a dbt script runs the project carried as its module
+            # bundle, which an inline snippet has none of, and the worker rejects
+            # inline execution — advertising it here would let such a flow
+            # validate and then always fail at runtime.
             # for related places search: ADD_NEW_LANG
         path:
           type: string
@@ -692,6 +786,10 @@ components:
         concurrency_time_window_s:
           type: number
           description: Time window for concurrent_limit
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run of this step does when its concurrency limit is reached. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         custom_concurrency_key:
           type: string
           description: Custom key for grouping concurrent executions
@@ -719,6 +817,7 @@ components:
                   - ducklake
                   - datatable
                   - volume
+                  - dbt
               access_type:
                 type: string
                 nullable: true
@@ -813,6 +912,9 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
+        iteration_label:
+          description: Optional expression evaluated once per iteration into the label the run viewers show for it, e.g. 'flow_input.iter.value.name'. It can reference 'flow_input.iter' and 'results'. Purely informational, a failing expression leaves the iteration unlabelled and never fails it. Labels are capped at 100 characters
+          $ref: '#/components/schemas/InputTransform'
       required:
         - modules
         - iterator
@@ -821,11 +923,11 @@ components:
 
     WhileloopFlow:
       type: object
-      description: Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination
+      description: Executes nested modules repeatedly until stopped. The implicit iterator is the iteration counter, so 'flow_input.iter.value' equals 'flow_input.iter.index' (0, 1, 2, ...) and never carries state. To carry state across iterations, a step reads its own previous-iteration result via 'results.<its_own_id>' with a first-iteration fallback - the loop's stop_after_if must then be on that inner step (a plain single-step body with stop_after_if on the loop module does not resolve 'results' across iterations and never terminates); plain counters can instead be derived from 'flow_input.iter.index', which works in every configuration. stop_after_if is evaluated after each iteration - on the loop module 'result' is the last iteration's result
       properties:
         modules:
           type: array
-          description: Steps to execute in each iteration. Use stop_after_if to control when the loop ends
+          description: Steps to execute in each iteration
           items:
             $ref: '#/components/schemas/FlowModule'
         skip_failures:
@@ -843,6 +945,14 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
+        max_iterations:
+          type: integer
+          minimum: 1
+          description: Maximum number of iterations. Checked after each iteration; when reached and stop_after_if did not stop the loop, the loop fails with an error named 'LoopExhausted'
+        max_duration_secs:
+          type: integer
+          minimum: 1
+          description: Maximum wall-clock seconds since the first iteration started, checked after each iteration. A running iteration is not interrupted, so the loop can exceed the limit by up to one iteration; the timeout of the body's steps caps an iteration. When reached and stop_after_if did not stop the loop, the loop fails with an error named 'LoopExhausted'
       required:
         - modules
         - skip_failures
@@ -916,6 +1026,9 @@ components:
         parallel:
           type: boolean
           description: If true, all branches execute concurrently. If false, they execute sequentially
+        parallelism:
+          description: Maximum number of branches running at once when parallel=true. Can be static number or expression
+          $ref: '#/components/schemas/InputTransform'
       required:
         - branches
         - type
@@ -929,7 +1042,26 @@ components:
           description: Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')
         summary:
           type: string
-          description: Short description of what this tool does (shown to the AI)
+          description: "The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp, websearch or question tool it is a plain label. Put the human-readable explanation in 'description'."
+        description:
+          type: string
+          description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of this tool's jobs is restricted to, on top of the agent step's own restriction: a tool can only narrow it."
+        requires_approval:
+          type: boolean
+          description: "Flowmodule and mcp tools only. Each call waits for a person to approve or reject it from the flow's run page or chat, without the agent holding a worker. Calls in the same turn that do not require approval run right away. A rejected call, or one nobody answers within 30 minutes, is reported to the AI as not run."
+        background:
+          type: boolean
+          description: "Flowmodule tools only. The agent is answered as soon as the tool's job starts and keeps working; the job's result reaches it in a later message. If the agent finishes its answer first, it stops without holding a worker until the job is done, then continues with the result."
+        background_after_secs:
+          type: integer
+          minimum: 1
+          description: "Flowmodule tools only, with background unset. The agent waits up to this many seconds for the tool's job and gets its result as usual; a job still running then continues as a background one, its result reaching the agent in a later message."
         value:
           $ref: '#/components/schemas/ToolValue'
       required:
@@ -942,12 +1074,14 @@ components:
         - $ref: '#/components/schemas/FlowModuleTool'
         - $ref: '#/components/schemas/McpToolValue'
         - $ref: '#/components/schemas/WebsearchToolValue'
+        - $ref: '#/components/schemas/QuestionToolValue'
       discriminator:
         propertyName: tool_type
         mapping:
           flowmodule: '#/components/schemas/FlowModuleTool'
           mcp: '#/components/schemas/McpToolValue'
           websearch: '#/components/schemas/WebsearchToolValue'
+          question: '#/components/schemas/QuestionToolValue'
 
     FlowModuleTool:
       description: A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module
@@ -970,6 +1104,20 @@ components:
           type: string
           enum:
             - websearch
+      required:
+        - tool_type
+
+    QuestionToolValue:
+      type: object
+      description: "Built-in tool the AI calls as ask_question: the agent stops, releasing its worker, until someone answers from the flow's run page or chat or the question times out, then resumes with the answer as the tool result."
+      properties:
+        tool_type:
+          type: string
+          enum:
+            - question
+        timeout:
+          type: integer
+          description: Seconds to wait for an answer before the question is reported to the AI as timed out. Defaults to 1800.
       required:
         - tool_type
 
@@ -1017,7 +1165,10 @@ components:
             user_message:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
-              description: The user's prompt/message to the AI agent. Supports variable interpolation with flow.input syntax.
+              description: |
+                The user's prompt/message to the AI agent. Supports variable interpolation with
+                flow.input syntax. Required unless memory is off and `previous_messages` supplies
+                the prompt; image output always needs it.
             system_prompt:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1027,9 +1178,27 @@ components:
                 - $ref: '#/components/schemas/InputTransform'
               description: |
                 Boolean. If true, stream the AI response incrementally.
-                Streaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
+                Streaming events include: token_delta, reasoning_token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
             memory:
               $ref: '#/components/schemas/MemoryTransform'
+            memory_id:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                String. Names the memory this step reads and writes, overriding the memory id the run
+                was started with (the chat conversation, an app chat session or the `memory_id` run
+                parameter). Leave unset to use the run's memory id. A fixed value shares one memory
+                across every run; an expression such as `flow_input.customer_id` keeps one memory per
+                key. When it evaluates to an empty value the agent runs without memory. Read only
+                while `memory` is `window` or `compaction`: it is ignored when memory is off, and an
+                older `auto` or `manual` memory reads neither history input.
+            previous_messages:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Array of MemoryMessage. History supplied by the flow, sent between the system prompt
+                and the user message. Read only while `memory` is off or absent: managed memory
+                ignores it, and an older `auto` or `manual` memory reads neither history input.
             output_schema:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1044,6 +1213,18 @@ components:
                 Array of file references (images or PDFs) for the AI agent.
                 Format: Array<{ bucket: string, key: string }> - S3 object references
                 Example: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]
+            enabled_tools:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Array of strings naming which of the tools configured in `tools` the agent may call
+                this run. Leaving it unset carries every one of them; an empty array carries none.
+                A tool is named as the model is shown it. An entry the model is shown nothing of is
+                named by what identifies it instead: an MCP server by its resource path, carrying
+                every tool it exposes (which of them stays that entry's include_tools/exclude_tools),
+                and a websearch entry by the reserved name '__wm_web_search', whatever summary it carries
+                (no tool may take that name).
+                Example: ['get_user', 'u/admin/github_mcp', '__wm_web_search']
             max_completion_tokens:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1065,10 +1246,26 @@ components:
               description: |
                 Number. Limits how many times the agent can loop through reasoning and tool use.
                 Range: 1-1000.
-          required:
-            - provider
-            - user_message
-            - output_type
+            model:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                String. Only on a step linked to a saved agent (see `agent`): replaces the model
+                saved on the agent for this step's runs, on the agent's own provider resource. An
+                empty value keeps the saved model. Set it to an expression such as
+                `flow_input.model` to choose the model per run.
+            reasoning_effort:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                String. Only on a step linked to a saved agent (see `agent`): replaces the reasoning
+                effort saved on the agent for this step's runs, as a provider-native token (e.g.
+                'low', 'high', 'none'). An empty value sends no effort, so the model runs at its
+                default. Leave the input out to keep the saved effort, which holds only while the
+                step runs the saved model. A step that is not linked sets both inside `provider`.
+          # Only the flow-local inputs are always present: a step linked to an `ai_agent` resource
+          # (see `agent`) keeps just those and takes provider/output_type from the resource. Even
+          # `user_message` may be absent, when memory is off and `previous_messages` is the prompt.
         tools:
           type: array
           description: Array of tools the agent can use. The agent decides which tools to call based on the task
@@ -1085,11 +1282,87 @@ components:
           type: boolean
           default: false
           description: If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled.
+        agent:
+          type: string
+          description: |
+            Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
+            config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
+            that resource; the module's input_transforms then only carry the flow-local inputs
+            (user_message, user_attachments, enabled_tools and the history inputs memory_id and previous_messages)
+            and, optionally, the `model` and `reasoning_effort` overrides of what the agent saved.
+        tool_inputs:
+          type: object
+          description: |
+            Host-local wiring for an agent's tool inputs, keyed by tool id then input key. Binds the
+            referenced agent's tools to this flow's context (flow_input/results) without mutating the
+            shared resource; overlaid onto the tools' input_transforms at runtime — including when
+            `agent` is unset, since a step forked for editing keeps these overrides until it is saved
+            back or unlinked.
+          additionalProperties:
+            type: object
+            additionalProperties:
+              $ref: '#/components/schemas/InputTransform'
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
       required:
-        - tools
+        - type
+        - input_transforms
+
+    AiDecision:
+      type: object
+      description: |
+        AI decision step: one call to a decision model (TypeSafe's Jev, Cloudflare's
+        Jev-compatible Clef, or OpenAI's or Gemini's Decisions API) that answers typed questions about a
+        state with calibrated probabilities, instead of generating text.
+        Prefer it over an AI agent to classify, route, score or check something: it is fast,
+        cheap and its answers are structured. Its result is { output: { <question name>: answer },
+        model, usage }, so a later step reads e.g. results.<id>.output.intent.choice. To route on
+        the answers, follow it with a branchone whose branch exprs read
+        results.<id>.output.<question>.choice. Usable as an AI agent tool, where the calling agent
+        supplies the state.
+      properties:
+        input_transforms:
+          type: object
+          description: Input parameters for the decision mapped to their values
+          properties:
+            # A provider config whose kind is 'typesafe' (model 'jev-latest' unless pinned),
+            # 'cloudflare' (model 'clef' or 'clef-flash'), 'openai' (model 'gpt-6-luna') or
+            # 'googleai' (model 'gemini-decision-1').
+            provider:
+              $ref: '#/components/schemas/ProviderTransform'
+            state:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                What the questions are asked about: a string, an object or an array of strings.
+                An object with descriptive keys holding only what the questions need works best.
+                Example: { message: flow_input.message, plan: results.a.plan }
+            questions:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Object mapping each question name to { type, instructions, criteria }, where type is:
+                - 'choice': criteria maps each option to its description (up to 255); the answer
+                  has choice, probabilities and confidence
+                - 'score': criteria is an ordered array of 2 to 10 level descriptions; the answer
+                  has score, legend, probabilities and confidence
+                - 'noul': yes/no, criteria optionally { true, false } descriptions; the answer has
+                  noul, the probability of yes (0 to 1)
+                Example: { intent: { type: 'choice', instructions: 'What does the customer want?',
+                criteria: { refund: 'Money back', bug: 'Something is broken' } } }
+          required:
+            - provider
+            - state
+            - questions
+        type:
+          type: string
+          enum:
+            - aidecision
+        tag:
+          type: string
+          description: Worker group tag for execution routing. If not set, the step runs on the flow's tag (default `flow`)
+      required:
         - type
         - input_transforms
 
@@ -1139,6 +1412,20 @@ components:
               items:
                 type: string
                 format: uuid
+        continued_on_error:
+          type: array
+          description: On a root flow, the steps at any depth that failed and that the flow went past because of continue_on_error (at most 100).
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              job:
+                type: string
+                format: uuid
+            required:
+              - id
+              - job
       required:
         - step
         - modules
@@ -1184,6 +1471,12 @@ components:
           type: array
           items:
             type: boolean
+        flow_jobs_labels:
+          type: array
+          description: For a for-loop step whose iteration_label is set, each iteration's label, aligned with flow_jobs. An entry is null when its label evaluated to nothing
+          items:
+            type: string
+            nullable: true
         flow_jobs_duration:
           type: object
           properties:
@@ -1286,12 +1579,65 @@ components:
                 properties:
                   type:
                     type: string
+                    enum: [approval]
+                  call_id:
+                    type: string
+                  calls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        function_name:
+                          type: string
+                        arguments: {}
+                      required:
+                        - function_name
+                        - arguments
+                  expires_at:
+                    type: string
+                    format: date-time
+                required:
+                  - type
+                  - call_id
+                  - calls
+                  - expires_at
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [question]
+                  call_id:
+                    type: string
+                  question:
+                    type: string
+                  choices:
+                    type: array
+                    items:
+                      type: string
+                    description: answers the model proposes; a free-text answer is always possible
+                  multi_select:
+                    type: boolean
+                    description: whether several choices can be picked together
+                  expires_at:
+                    type: string
+                    format: date-time
+                required:
+                  - type
+                  - call_id
+                  - question
+                  - expires_at
+              - type: object
+                properties:
+                  type:
+                    type: string
                     enum: [message]
                 required:
                   - content
                   - type
         agent_actions_success:
           type: array
+          description: The outcome of each agent action, by position. null while a background tool call is still running.
           items:
             type: boolean
+            nullable: true
       required: [type]

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET scopes = $1\n           WHERE email = $2 AND token_prefix = $3\n             AND (label IS NULL OR label <> 'guest_session')\n           RETURNING token_prefix",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_prefix",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d17645b5001d7f8da1dc451c5d35ea3c9346271b8404863256071cfdf884036a"
+}

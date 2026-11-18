@@ -173,8 +173,14 @@ fn make_authed() -> windmill_api_auth::ApiAuthed {
         folders: vec![],
         scopes: None,
         username_override: None,
+        username_override_is_token_label: false,
+        is_session_token: false,
         token_prefix: None,
         read_only: false,
+        job_id: None,
+        credential_expiry: None,
+        mcp_client: None,
+        capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
     }
 }
 
@@ -200,7 +206,7 @@ async fn test_handler_queries_websocket(db: Pool<Postgres>) -> anyhow::Result<()
     assert_eq!(trigger.base.permissioned_as, "u/test-user");
 
     let triggers = handler
-        .list_triggers(&mut *conn, "test-workspace", None)
+        .list_triggers(&mut *conn, "test-workspace", None, None)
         .await?;
     assert!(triggers.iter().any(|t| t.base.path == "f/test/handler_ws"));
 

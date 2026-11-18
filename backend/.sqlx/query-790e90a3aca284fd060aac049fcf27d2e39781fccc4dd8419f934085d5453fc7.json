@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_experiment_case\n            (experiment_id, ordinal, case_id, input, expected, subject_version,\n             subject_draft_hash)\n         SELECT $1, ordinal, case_id, input, expected, subject_version, subject_draft_hash\n         FROM UNNEST($2::int[], $3::uuid[], $4::jsonb[], $5::jsonb[], $6::bigint[], $7::text[])\n              AS t(ordinal, case_id, input, expected, subject_version, subject_draft_hash)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4Array",
+        "UuidArray",
+        "JsonbArray",
+        "JsonbArray",
+        "Int8Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "790e90a3aca284fd060aac049fcf27d2e39781fccc4dd8419f934085d5453fc7"
+}

@@ -1,12 +1,19 @@
+use super::{
+    anthropic_model_rejects_sampling_params, force_claude_structured_output_tool,
+    REASONING_OFF_SENTINEL,
+};
 use crate::{
     ai_google::parse_data_url,
-    ai_providers::{AIPlatform, AIProvider},
+    ai_providers::{AIPlatform, AIProvider, DISABLE_ANTHROPIC_PROMPT_CACHING},
+    credentials::AnthropicFederation,
     image_handler::prepare_messages_for_api,
-    proxy::{add_user_to_body, ProxyBuildArgs, ProxyRequest},
+    proxy::{
+        add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
+    },
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{extract_text_content, should_use_structured_output_tool, AI_HTTP_HEADERS},
+    utils::{collect_system_prompt, extract_text_content, should_use_structured_output_tool},
 };
 use async_trait::async_trait;
 use http::Method;
@@ -92,6 +99,10 @@ pub enum AnthropicRequestContent {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    #[serde(rename = "thinking")]
+    Thinking { thinking: String, signature: String },
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking { data: String },
     #[serde(rename = "image")]
     Image { source: AnthropicBase64Source },
     #[serde(rename = "document")]
@@ -131,6 +142,63 @@ pub struct AnthropicMessage {
     pub content: Vec<AnthropicRequestContent>,
 }
 
+/// Thinking config for the Anthropic native API. `summarized` display matches
+/// the chat proxy path (renders a summarized thinking stream); the disable
+/// carries no display.
+#[derive(Serialize, Debug)]
+pub struct AnthropicThinking {
+    pub r#type: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display: Option<&'static str>,
+}
+
+impl AnthropicThinking {
+    fn adaptive() -> Self {
+        Self { r#type: "adaptive", display: Some("summarized") }
+    }
+
+    fn disabled() -> Self {
+        Self { r#type: "disabled", display: None }
+    }
+}
+
+/// Carries the reasoning effort token alongside adaptive thinking.
+#[derive(Serialize, Debug)]
+pub struct AnthropicOutputConfig {
+    pub effort: String,
+}
+
+/// Resolve the thinking config, effort and sampling params for a reasoning
+/// selection. Temperature is dropped both under adaptive thinking, which
+/// rejects it, and on the models that removed the sampling params outright.
+fn anthropic_thinking_config(
+    model: &str,
+    reasoning_effort: Option<&str>,
+    temperature: Option<f32>,
+) -> (
+    Option<AnthropicThinking>,
+    Option<AnthropicOutputConfig>,
+    Option<f32>,
+) {
+    let temperature = (!anthropic_model_rejects_sampling_params(model))
+        .then_some(temperature)
+        .flatten();
+    match reasoning_effort {
+        // The disable sentinel is not an effort token — Anthropic's vocabulary
+        // is low..max and rejects it. The disable carries no effort either:
+        // pairing it with xhigh or max is itself a 400 on Opus 5.
+        Some(effort) if effort == REASONING_OFF_SENTINEL => {
+            (Some(AnthropicThinking::disabled()), None, temperature)
+        }
+        Some(effort) => (
+            Some(AnthropicThinking::adaptive()),
+            Some(AnthropicOutputConfig { effort: effort.to_string() }),
+            None,
+        ),
+        None => (None, None, temperature),
+    }
+}
+
 /// Anthropic-specific request structure for standard API
 #[derive(Serialize)]
 pub struct AnthropicRequest<'a> {
@@ -144,6 +212,10 @@ pub struct AnthropicRequest<'a> {
     pub tool_choice: Option<AnthropicToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<AnthropicThinking>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<AnthropicOutputConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
     pub stream: bool,
@@ -166,6 +238,10 @@ pub struct AnthropicVertexRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<AnthropicThinking>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<AnthropicOutputConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
     pub stream: bool,
 }
@@ -177,7 +253,7 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
     for msg in messages {
         match msg.role.as_str() {
             "system" => {
-                // Skip - handled via args.system_prompt in build_text_request
+                // Lifted into the request's top-level `system` field by build_text_request
             }
             "user" => {
                 // Convert user messages
@@ -188,6 +264,25 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
             }
             "assistant" => {
                 let mut content: Vec<AnthropicRequestContent> = Vec::new();
+
+                // Replay the turn's thinking block first: when thinking is enabled,
+                // Claude requires the thinking block (with its unmodified signature)
+                // to precede tool_use in the assistant turn it was emitted in. It is
+                // round-tripped on the tool call's extra_content (see AnthropicExtraContent).
+                if let Some(reasoning) = msg
+                    .tool_calls
+                    .as_ref()
+                    .and_then(|tcs| {
+                        tcs.iter().find_map(|tc| {
+                            tc.extra_content
+                                .as_ref()
+                                .and_then(|ec| ec.anthropic.as_ref())
+                        })
+                    })
+                    .and_then(anthropic_reasoning_block_from_extra)
+                {
+                    content.push(reasoning);
+                }
 
                 // Add text content if present
                 if let Some(ref c) = msg.content {
@@ -244,6 +339,25 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
     }
 
     result
+}
+
+/// Rebuild an Anthropic thinking content block from the round-tripped
+/// [`AnthropicExtraContent`](crate::ai_types::AnthropicExtraContent). Returns
+/// None when there is no replayable block (thinking text without a signature is
+/// rejected by Anthropic, so it is dropped rather than sent).
+fn anthropic_reasoning_block_from_extra(
+    extra: &crate::ai_types::AnthropicExtraContent,
+) -> Option<AnthropicRequestContent> {
+    if let Some(data) = extra.redacted_thinking.as_deref() {
+        return Some(AnthropicRequestContent::RedactedThinking { data: data.to_string() });
+    }
+    match (extra.thinking.as_deref(), extra.signature.as_deref()) {
+        (Some(thinking), Some(signature)) => Some(AnthropicRequestContent::Thinking {
+            thinking: thinking.to_string(),
+            signature: signature.to_string(),
+        }),
+        _ => None,
+    }
 }
 
 /// Convert OpenAI content to Anthropic content blocks
@@ -369,16 +483,22 @@ pub struct AnthropicQueryBuilder {
     #[allow(dead_code)]
     provider_kind: AIProvider,
     platform: AIPlatform,
-    enable_1m_context: bool,
 }
 
 impl AnthropicQueryBuilder {
-    pub fn new(provider_kind: AIProvider, platform: AIPlatform, enable_1m_context: bool) -> Self {
-        Self { provider_kind, platform, enable_1m_context }
+    pub fn new(provider_kind: AIProvider, platform: AIPlatform) -> Self {
+        Self { provider_kind, platform }
     }
 
     fn is_vertex(&self) -> bool {
         self.platform == AIPlatform::GoogleVertexAi
+    }
+
+    /// Claude models hosted on Azure AI Foundry: the Anthropic Messages API is
+    /// served under the resource's `/anthropic/v1` path rather than at the
+    /// Anthropic public base URL.
+    fn is_azure_foundry(&self) -> bool {
+        matches!(self.provider_kind, AIProvider::AzureFoundry)
     }
 
     fn transform_proxy_body_for_vertex(body: &[u8]) -> Result<(String, Vec<u8>), Error> {
@@ -419,7 +539,6 @@ impl AnthropicQueryBuilder {
 
         let base_url = credentials.base_url.trim_end_matches('/');
         let is_vertex = self.is_vertex();
-        let is_anthropic_sdk = args.headers.get("X-Anthropic-SDK").is_some();
 
         let (url, body) = if is_vertex && *args.method != Method::GET {
             let (model, transformed_body) = Self::transform_proxy_body_for_vertex(&body)?;
@@ -427,11 +546,20 @@ impl AnthropicQueryBuilder {
                 format!("{}/{}:streamRawPredict", base_url, model),
                 transformed_body,
             )
-        } else if is_anthropic_sdk {
-            let truncated_base_url = base_url.trim_end_matches("/v1");
-            (format!("{}/{}", truncated_base_url, args.path), body)
+        } else if self.is_azure_foundry() {
+            // Claude on Foundry is served under the resource's /anthropic/v1 path,
+            // not the resource's /openai/v1 base. The Anthropic SDK sends the path
+            // as "v1/messages", so drop its leading "v1/" before re-appending.
+            let path = args.path.trim_start_matches("v1/");
+            (
+                AIProvider::build_azure_foundry_anthropic_url(base_url, path),
+                body,
+            )
         } else {
-            (format!("{}/{}", base_url, args.path), body)
+            (
+                AIProvider::build_anthropic_api_url(base_url, args.path),
+                body,
+            )
         };
 
         let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
@@ -456,38 +584,23 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        if is_anthropic_sdk && credentials.enable_1m_context {
-            headers.push((
-                "anthropic-beta".to_string(),
-                "context-1m-2025-08-07".to_string(),
-            ));
-        }
-
-        if let Some(api_key) = credentials.api_key.as_ref() {
-            headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
-            if !is_vertex {
-                headers.push(("X-API-Key".to_string(), api_key.clone()));
-            }
-        }
-
-        if let Some(access_token) = credentials.access_token.as_ref() {
-            headers.push((
-                "authorization".to_string(),
-                format!("Bearer {}", access_token),
-            ));
-        }
+        // One credential header, matching `get_auth_headers`: Vertex takes an OAuth
+        // bearer token, every other Messages endpoint takes x-api-key. Endpoints in
+        // front of Anthropic reject requests carrying both.
+        headers.extend(credential_header(
+            credentials,
+            if is_vertex {
+                "authorization"
+            } else {
+                "x-api-key"
+            },
+        ));
 
         if let Some(org_id) = credentials.organization_id.as_ref() {
             headers.push(("OpenAI-Organization".to_string(), org_id.clone()));
         }
 
-        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
-
-        for (header_name, header_value) in &credentials.custom_headers {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
+        headers.extend(common_outbound_headers(credentials));
 
         Ok(ProxyRequest { method: args.method.clone(), url, headers, body })
     }
@@ -523,19 +636,15 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        // Build system content from system_prompt, but None if system_prompt is empty string
-        let system = match args.system_prompt {
-            Some(s) if !s.is_empty() => Some(vec![AnthropicSystemContent {
+        let caching = !*DISABLE_ANTHROPIC_PROMPT_CACHING;
+
+        let system = collect_system_prompt(&prepared_messages, args.system_prompt).map(|text| {
+            vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
-                text: s.to_string(),
-                cache_control: if self.is_vertex() {
-                    None
-                } else {
-                    Some(CacheControl::ephemeral())
-                },
-            }]),
-            _ => None,
-        };
+                text,
+                cache_control: caching.then(CacheControl::ephemeral),
+            }]
+        });
 
         // Check if we need to force tool usage for structured output
         let has_output_properties = args
@@ -547,8 +656,10 @@ impl AnthropicQueryBuilder {
         let should_use_structured_output =
             should_use_structured_output_tool(&self.provider_kind, args.model);
 
-        // Force tool usage when structured output is needed
-        let tool_choice = if should_use_structured_output && has_output_properties {
+        let tool_choice = if should_use_structured_output
+            && has_output_properties
+            && force_claude_structured_output_tool(args.model, args.reasoning_effort)
+        {
             Some(AnthropicToolChoice::any())
         } else {
             None
@@ -558,7 +669,7 @@ impl AnthropicQueryBuilder {
         let max_tokens = Some(args.max_tokens.unwrap_or(64000));
 
         // Apply cache_control on the last custom tool
-        if !self.is_vertex() {
+        if caching {
             if let Some(ref mut tools_vec) = tools_option {
                 if let Some(AnthropicTool::Custom(ref mut custom)) = tools_vec.last_mut() {
                     custom.cache_control = Some(CacheControl::ephemeral());
@@ -567,7 +678,7 @@ impl AnthropicQueryBuilder {
         }
 
         // Apply cache_control on the last content block of the last message
-        if !self.is_vertex() {
+        if caching {
             if let Some(last_msg) = anthropic_messages.last_mut() {
                 if let Some(last_block) = last_msg.content.last_mut() {
                     match last_block {
@@ -583,6 +694,9 @@ impl AnthropicQueryBuilder {
             }
         }
 
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config(args.model, args.reasoning_effort, args.temperature);
+
         // Build request based on platform
         if self.is_vertex() {
             // For Vertex AI: no model field, anthropic_version in body
@@ -592,7 +706,9 @@ impl AnthropicQueryBuilder {
                 messages: anthropic_messages,
                 tools: tools_option,
                 tool_choice,
-                temperature: args.temperature,
+                temperature,
+                thinking,
+                output_config,
                 max_tokens,
                 stream: true,
             };
@@ -606,7 +722,9 @@ impl AnthropicQueryBuilder {
                 messages: anthropic_messages,
                 tools: tools_option,
                 tool_choice,
-                temperature: args.temperature,
+                temperature,
+                thinking,
+                output_config,
                 max_tokens,
                 stream: true,
             };
@@ -655,6 +773,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
 
         let AnthropicSSEParser {
             accumulated_content,
+            accumulated_reasoning,
             accumulated_tool_calls,
             events_str,
             annotations,
@@ -669,7 +788,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
         // Convert Anthropic usage to TokenUsage
         let usage = anthropic_usage.map(|u| {
             TokenUsage::from_input_output(u.input_tokens, u.output_tokens)
-                .with_cache(u.cache_read_input_tokens, u.cache_creation_input_tokens)
+                .with_cache_beside_input(u.cache_read_input_tokens, u.cache_creation_input_tokens)
         });
 
         Ok(ParsedResponse::Text {
@@ -678,6 +797,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
             } else {
                 Some(accumulated_content)
             },
+            reasoning: (!accumulated_reasoning.is_empty()).then_some(accumulated_reasoning),
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
             annotations,
@@ -696,8 +816,10 @@ impl QueryBuilder for AnthropicQueryBuilder {
                 base_url.trim_end_matches('/'),
                 model
             )
+        } else if self.is_azure_foundry() {
+            AIProvider::build_azure_foundry_anthropic_url(base_url, "messages")
         } else {
-            format!("{}/messages", base_url)
+            AIProvider::build_anthropic_api_url(base_url, "messages")
         }
     }
 
@@ -713,16 +835,175 @@ impl QueryBuilder for AnthropicQueryBuilder {
             vec![("Authorization", format!("Bearer {}", api_key))]
         } else {
             // Standard Anthropic API uses x-api-key and anthropic-version header
-            let mut headers = vec![
+            vec![
                 ("x-api-key", api_key.to_string()),
                 ("anthropic-version", ANTHROPIC_VERSION_STANDARD.to_string()),
-            ];
-            if self.enable_1m_context {
-                headers.push(("anthropic-beta", "context-1m-2025-08-07".to_string()));
-            }
-            headers
+            ]
         }
     }
+}
+
+pub const ANTHROPIC_API_BASE_URL: &str = "https://api.anthropic.com/v1";
+
+/// Audience of the OIDC token Windmill presents in an Anthropic token exchange,
+/// which a federation rule can pin with its `audience` matcher.
+pub const ANTHROPIC_OIDC_AUDIENCE: &str = "https://api.anthropic.com";
+
+/// Lifetime of that OIDC token. A federation issuer refuses a token that lives
+/// longer than its maximum (one hour by default), and Anthropic caps the access
+/// token at twice the assertion's remaining life, so 30 minutes still lets a rule
+/// mint its default one-hour token.
+pub const ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS: i64 = 1800;
+
+/// Exchange again this long before the access token expires, so a long streamed
+/// response that starts on a reused token cannot outlive it. Capped at half the
+/// token's lifetime: a rule may mint tokens for as little as a minute, and a
+/// margin longer than that would exchange again on every request.
+const FEDERATED_TOKEN_REFRESH_MARGIN: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// A short-lived Anthropic access token minted by a federated token exchange.
+#[derive(Clone, Debug)]
+pub struct FederatedAccessToken {
+    pub access_token: String,
+    refresh_at: std::time::SystemTime,
+}
+
+impl FederatedAccessToken {
+    fn new(access_token: String, lifetime: std::time::Duration) -> Self {
+        // Anthropic mints tokens for at most a day; the clamp keeps an out-of-range
+        // `expires_in` from overflowing the clock arithmetic.
+        let lifetime = lifetime.min(std::time::Duration::from_secs(86400));
+        let margin = FEDERATED_TOKEN_REFRESH_MARGIN.min(lifetime / 2);
+        Self { access_token, refresh_at: std::time::SystemTime::now() + lifetime - margin }
+    }
+
+    pub fn is_fresh(&self) -> bool {
+        std::time::SystemTime::now() < self.refresh_at
+    }
+}
+
+#[derive(Serialize)]
+struct FederatedTokenRequest<'a> {
+    grant_type: &'static str,
+    assertion: &'a str,
+    federation_rule_id: &'a str,
+    organization_id: &'a str,
+    service_account_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct FederatedTokenResponse {
+    access_token: String,
+    expires_in: u64,
+}
+
+/// Exchange an OIDC token for an Anthropic access token at `POST /v1/oauth/token`
+/// (RFC 7523 `jwt-bearer` grant). `client` must already be pinned to the
+/// validated address of `base_url`.
+pub async fn exchange_federated_token(
+    client: &reqwest::Client,
+    base_url: &str,
+    federation: &AnthropicFederation,
+    assertion: &str,
+) -> Result<FederatedAccessToken, Error> {
+    let exchanged = request_federated_token(client, base_url, federation, assertion).await;
+    windmill_common::feature_usage::log_feature_usage(
+        "anthropic_federation",
+        "token_exchange",
+        if exchanged.is_ok() { "ok" } else { "failed" },
+    );
+    exchanged
+}
+
+async fn request_federated_token(
+    client: &reqwest::Client,
+    base_url: &str,
+    federation: &AnthropicFederation,
+    assertion: &str,
+) -> Result<FederatedAccessToken, Error> {
+    let url = AIProvider::build_anthropic_api_url(base_url, "oauth/token");
+    let response = client
+        .post(url)
+        .header("anthropic-version", ANTHROPIC_VERSION_STANDARD)
+        .json(&FederatedTokenRequest {
+            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            assertion,
+            federation_rule_id: &federation.federation_rule_id,
+            organization_id: &federation.organization_id,
+            service_account_id: &federation.service_account_id,
+            workspace_id: federation.workspace_id.as_deref(),
+        })
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("Anthropic token exchange failed: {e}")))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        // Anthropic answers every denied assertion with the same opaque 401; the
+        // reason is only recorded in the Console's authentication history.
+        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
+            " The reason the exchange was denied is in the authentication history of the Claude Console's Workload identity page."
+        } else {
+            ""
+        };
+        return Err(Error::BadRequest(format!(
+            "Anthropic token exchange failed with status {status}: {body}.{hint}"
+        )));
+    }
+
+    let token = response
+        .json::<FederatedTokenResponse>()
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to parse the Anthropic token exchange response: {e}"
+            ))
+        })?;
+    Ok(FederatedAccessToken::new(
+        token.access_token,
+        std::time::Duration::from_secs(token.expires_in),
+    ))
+}
+
+/// The access token of a federated resource for a job, reusing `cached` while it
+/// is still fresh, so the agent loop exchanges once per job rather than per turn.
+/// Returns `None` for a resource that does not federate.
+pub async fn refresh_federated_access_token<'a>(
+    credentials: &crate::credentials::ProviderCredentials,
+    cached: &'a mut Option<FederatedAccessToken>,
+    client: &AuthedClient,
+) -> Result<Option<&'a str>, Error> {
+    let Some(federation) = credentials.anthropic_federation.as_ref() else {
+        return Ok(None);
+    };
+    if !cached.as_ref().is_some_and(FederatedAccessToken::is_fresh) {
+        // A worker holds no OIDC signing key, so it asks the API to mint the token for this job.
+        let assertion = client
+            .get_id_token_expiring_in(
+                ANTHROPIC_OIDC_AUDIENCE,
+                Some(ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS),
+            )
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Failed to get an OIDC token: {e}")))?;
+        let http_client = crate::utils::pinned_ai_client_for(&credentials.base_url).await?;
+        *cached = Some(
+            exchange_federated_token(&http_client, &credentials.base_url, federation, &assertion)
+                .await?,
+        );
+    }
+    Ok(cached.as_ref().map(|token| token.access_token.as_str()))
+}
+
+/// Headers authenticating a request with a federated access token, which Anthropic
+/// takes as a bearer token in place of `x-api-key`.
+pub fn federated_auth_headers(access_token: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("Authorization", format!("Bearer {access_token}")),
+        ("anthropic-version", ANTHROPIC_VERSION_STANDARD.to_string()),
+    ]
 }
 
 #[cfg(test)]
@@ -746,9 +1027,133 @@ mod tests {
             aws_access_key_id: None,
             aws_secret_access_key: None,
             aws_session_token: None,
+            oidc_role_arn: None,
+            anthropic_federation: None,
+            vertex_workload_identity: None,
             platform,
-            enable_1m_context: false,
             custom_headers: HashMap::new(),
+        }
+    }
+
+    const SYSTEM_PROMPT: &str = "You are a helpful assistant";
+
+    fn authed_client() -> AuthedClient {
+        AuthedClient::new(
+            "http://localhost:8000".to_string(),
+            "test-workspace".to_string(),
+            "token".to_string(),
+            None,
+        )
+    }
+
+    fn message(role: &str, text: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(text.to_string())),
+            ..Default::default()
+        }
+    }
+
+    async fn build_text_body_on(
+        platform: AIPlatform,
+        messages: &[OpenAIMessage],
+        system_prompt: Option<&str>,
+        tools: Option<&[ToolDef]>,
+    ) -> String {
+        let args = BuildRequestArgs {
+            messages,
+            tools,
+            model: "claude-sonnet-4",
+            temperature: None,
+            reasoning_effort: None,
+            max_tokens: None,
+            output_schema: None,
+            output_type: &OutputType::Text,
+            system_prompt,
+            user_message: "hello",
+            attachments: None,
+            has_websearch: false,
+            prompt_cache_key: None,
+            reasoning_summary: false,
+        };
+
+        AnthropicQueryBuilder::new(AIProvider::Anthropic, platform)
+            .build_request(&args, &authed_client(), "test-workspace")
+            .await
+            .unwrap()
+    }
+
+    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+        build_text_body_on(AIPlatform::Standard, messages, system_prompt, None).await
+    }
+
+    /// The worker prepends the system prompt as a system message *and* passes it as
+    /// `system_prompt`; the request must still carry it exactly once.
+    #[tokio::test]
+    async fn sends_system_prompt_only_in_system_field() {
+        let messages = vec![message("system", SYSTEM_PROMPT), message("user", "hi")];
+
+        let body = build_text_body(&messages, Some(SYSTEM_PROMPT)).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["system"][0]["text"], SYSTEM_PROMPT);
+        assert_eq!(body.matches(SYSTEM_PROMPT).count(), 1);
+
+        let sent = request["messages"].as_array().unwrap();
+        assert!(sent.iter().all(|message| message["role"] != "system"));
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["role"], "user");
+    }
+
+    /// Manual-memory conversations supply their own system messages without a
+    /// `system_prompt` arg: those must still reach the model.
+    #[tokio::test]
+    async fn lifts_manual_system_messages_into_system_field() {
+        let messages = vec![message("system", "be terse"), message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["system"][0]["text"], "be terse");
+        assert_eq!(request["messages"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn omits_system_without_a_system_prompt() {
+        let messages = vec![message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert!(request.get("system").is_none());
+    }
+
+    /// Vertex serves the same Messages API and honours `cache_control` breakpoints, so
+    /// its requests must carry the same three the standard platform gets.
+    #[tokio::test]
+    async fn sets_cache_breakpoints_on_every_platform() {
+        let messages = vec![message("system", SYSTEM_PROMPT), message("user", "hi")];
+        let tools = vec![ToolDef {
+            r#type: "function".to_string(),
+            function: ToolDefFunction {
+                name: "get_weather".to_string(),
+                description: None,
+                parameters: RawValue::from_string("{}".to_string()).unwrap(),
+            },
+        }];
+        let ephemeral = serde_json::json!({ "type": "ephemeral" });
+
+        for platform in [AIPlatform::Standard, AIPlatform::GoogleVertexAi] {
+            let body =
+                build_text_body_on(platform, &messages, Some(SYSTEM_PROMPT), Some(&tools)).await;
+            let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+            assert_eq!(request["system"][0]["cache_control"], ephemeral);
+            let sent_tools = request["tools"].as_array().unwrap();
+            assert_eq!(sent_tools.last().unwrap()["cache_control"], ephemeral);
+            let sent = request["messages"].as_array().unwrap();
+            let content = sent.last().unwrap()["content"].as_array().unwrap();
+            assert_eq!(content.last().unwrap()["cache_control"], ephemeral);
         }
     }
 
@@ -761,8 +1166,7 @@ mod tests {
     #[test]
     fn builds_standard_anthropic_proxy_request() {
         let credentials = credentials(AIPlatform::Standard);
-        let builder =
-            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard, false);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard);
         let method = Method::POST;
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
@@ -781,12 +1185,11 @@ mod tests {
         assert_eq!(request.method, Method::POST);
         assert_eq!(request.url, "https://api.anthropic.com/v1/messages");
         assert_eq!(request.body, body.to_vec());
-        assert!(has_header(
-            &request.headers,
-            "authorization",
-            "Bearer api-key"
-        ));
-        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("authorization")));
         assert!(has_header(
             &request.headers,
             "anthropic-version",
@@ -795,40 +1198,11 @@ mod tests {
     }
 
     #[test]
-    fn builds_anthropic_sdk_proxy_request_with_context_beta() {
-        let mut credentials = credentials(AIPlatform::Standard);
-        credentials.enable_1m_context = true;
-        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard, true);
-        let method = Method::POST;
-        let mut headers = HeaderMap::new();
-        headers.insert("X-Anthropic-SDK", HeaderValue::from_static("typescript"));
-        let body = br#"{"model":"claude-sonnet-4","messages":[]}"#;
-
-        let request = builder
-            .build_proxy_request(&ProxyBuildArgs {
-                method: &method,
-                path: "v1/messages",
-                headers: &headers,
-                body,
-                credentials: &credentials,
-            })
-            .unwrap();
-
-        assert_eq!(request.url, "https://api.anthropic.com/v1/messages");
-        assert!(has_header(
-            &request.headers,
-            "anthropic-beta",
-            "context-1m-2025-08-07"
-        ));
-    }
-
-    #[test]
     fn builds_vertex_anthropic_proxy_request() {
         let mut credentials = credentials(AIPlatform::GoogleVertexAi);
         credentials.base_url = "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/anthropic/models".to_string();
         credentials.user = Some("user-1".to_string());
-        let builder =
-            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi, false);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi);
         let method = Method::POST;
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
@@ -869,10 +1243,203 @@ mod tests {
     }
 
     #[test]
+    fn convert_messages_replays_thinking_block_before_tool_use() {
+        let tool_call = crate::ai_types::OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: crate::ai_types::OpenAIFunction {
+                name: "lookup".to_string(),
+                arguments: "{}".to_string(),
+            },
+            r#type: "function".to_string(),
+            extra_content: Some(crate::ai_types::ExtraContent {
+                anthropic: Some(crate::ai_types::AnthropicExtraContent {
+                    thinking: Some("let me think".to_string()),
+                    signature: Some("sig-abc".to_string()),
+                    redacted_thinking: None,
+                }),
+                ..Default::default()
+            }),
+        };
+        let assistant = OpenAIMessage {
+            role: "assistant".to_string(),
+            tool_calls: Some(vec![tool_call]),
+            ..Default::default()
+        };
+
+        let messages = convert_messages_to_anthropic(&[assistant]);
+        let content = &messages[0].content;
+        match &content[0] {
+            AnthropicRequestContent::Thinking { thinking, signature } => {
+                assert_eq!(thinking, "let me think");
+                assert_eq!(signature, "sig-abc");
+            }
+            other => panic!("expected thinking block first, got {:?}", other),
+        }
+        assert!(matches!(
+            &content[1],
+            AnthropicRequestContent::ToolUse { .. }
+        ));
+    }
+
+    #[test]
+    fn convert_messages_drops_thinking_without_signature() {
+        let tool_call = crate::ai_types::OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: crate::ai_types::OpenAIFunction {
+                name: "lookup".to_string(),
+                arguments: "{}".to_string(),
+            },
+            r#type: "function".to_string(),
+            extra_content: Some(crate::ai_types::ExtraContent {
+                anthropic: Some(crate::ai_types::AnthropicExtraContent {
+                    thinking: Some("unsigned".to_string()),
+                    signature: None,
+                    redacted_thinking: None,
+                }),
+                ..Default::default()
+            }),
+        };
+        let assistant = OpenAIMessage {
+            role: "assistant".to_string(),
+            tool_calls: Some(vec![tool_call]),
+            ..Default::default()
+        };
+
+        let messages = convert_messages_to_anthropic(&[assistant]);
+        // An unsigned thinking block can't be replayed, so only tool_use remains.
+        assert!(matches!(
+            messages[0].content[0],
+            AnthropicRequestContent::ToolUse { .. }
+        ));
+    }
+
+    #[test]
+    fn anthropic_request_serializes_adaptive_thinking_without_temperature() {
+        let request = AnthropicRequest {
+            model: "claude-opus-4-8",
+            system: None,
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            thinking: Some(AnthropicThinking::adaptive()),
+            output_config: Some(AnthropicOutputConfig { effort: "high".to_string() }),
+            max_tokens: Some(64000),
+            stream: true,
+        };
+
+        let body: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
+        assert_eq!(body["thinking"]["type"], "adaptive");
+        assert_eq!(body["thinking"]["display"], "summarized");
+        assert_eq!(body["output_config"]["effort"], "high");
+        // Sampling params are rejected alongside adaptive thinking.
+        assert!(body.get("temperature").is_none());
+    }
+
+    /// An agent step stores the chat's off sentinel verbatim as its
+    /// `reasoning_effort`, so the disable has to be translated here rather than
+    /// forwarded as an effort token Anthropic would reject.
+    #[test]
+    fn anthropic_thinking_config_translates_the_off_sentinel() {
+        let (thinking, output_config, _) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("disabled"));
+        assert!(output_config.is_none());
+
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("xhigh"), Some(0.5));
+        assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("adaptive"));
+        assert_eq!(output_config.map(|c| c.effort), Some("xhigh".to_string()));
+        // Adaptive thinking rejects sampling params on every model.
+        assert!(temperature.is_none());
+
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", None, Some(0.5));
+        assert!(thinking.is_none());
+        assert!(output_config.is_none());
+        assert_eq!(temperature, Some(0.5));
+    }
+
+    /// Live-verified: Opus 4.8 and the 5 family 400 with `temperature is
+    /// deprecated for this model` whatever the thinking mode, so the disable and
+    /// no-reasoning paths have to drop it too.
+    #[test]
+    fn anthropic_thinking_config_drops_sampling_params_on_models_that_reject_them() {
+        for model in [
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-opus-4-8",
+            "anthropic/claude-opus-4.7",
+            "claude-fable-5",
+        ] {
+            for effort in [Some("none"), None] {
+                let (_, _, temperature) = anthropic_thinking_config(model, effort, Some(0.5));
+                assert!(
+                    temperature.is_none(),
+                    "{model} must not carry temperature (effort {effort:?})"
+                );
+            }
+        }
+        // Sonnet 4.6 still accepts them, so an off selection keeps temperature.
+        let (_, _, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(temperature, Some(0.5));
+    }
+
+    #[test]
+    fn anthropic_request_serializes_the_off_sentinel_as_a_thinking_disable() {
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-opus-5", Some("none"), Some(0.5));
+        let request = AnthropicRequest {
+            model: "claude-opus-5",
+            system: None,
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            temperature,
+            thinking,
+            output_config,
+            max_tokens: Some(64000),
+            stream: true,
+        };
+
+        let body: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
+        assert_eq!(body["thinking"]["type"], "disabled");
+        // A disable paired with an effort is a 400 on Opus 5, and `display`
+        // only applies to a thinking mode that actually runs.
+        assert!(body["thinking"].get("display").is_none());
+        assert!(body.get("output_config").is_none());
+        assert!(body.get("temperature").is_none());
+    }
+
+    #[test]
+    fn anthropic_request_omits_thinking_when_reasoning_off() {
+        let request = AnthropicRequest {
+            model: "claude-opus-4-8",
+            system: None,
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            temperature: Some(0.5),
+            thinking: None,
+            output_config: None,
+            max_tokens: Some(64000),
+            stream: true,
+        };
+
+        let body: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("output_config").is_none());
+        assert_eq!(body["temperature"], 0.5);
+    }
+
+    #[test]
     fn rejects_vertex_proxy_request_without_model() {
         let credentials = credentials(AIPlatform::GoogleVertexAi);
-        let builder =
-            AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi, false);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::GoogleVertexAi);
         let method = Method::POST;
         let headers = HeaderMap::new();
 
@@ -887,5 +1454,69 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, Error::BadRequest(message) if message.contains("Missing 'model'")));
+    }
+
+    /// Endpoints that authenticate with a bearer token configure it as a resource
+    /// header; the built-in x-api-key must then step aside, since outgoing headers
+    /// are appended and both credentials would travel.
+    #[test]
+    fn resource_header_replaces_the_built_in_credential() {
+        let mut credentials = credentials(AIPlatform::Standard);
+        credentials.custom_headers = HashMap::from([(
+            "Authorization".to_string(),
+            "Bearer gateway-token".to_string(),
+        )]);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard);
+        let method = Method::POST;
+
+        let request = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "messages",
+                headers: &HeaderMap::new(),
+                body: br#"{"model":"claude-sonnet-4","messages":[]}"#,
+                credentials: &credentials,
+            })
+            .unwrap();
+
+        assert!(has_header(
+            &request.headers,
+            "Authorization",
+            "Bearer gateway-token"
+        ));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("x-api-key")));
+    }
+
+    #[test]
+    fn builds_azure_foundry_anthropic_proxy_request() {
+        // Foundry resource stored with a legacy /openai/v1 suffix; the Anthropic SDK
+        // sends the path as "v1/messages". Both must resolve to the resource's
+        // /anthropic/v1/messages surface.
+        let mut credentials = credentials(AIPlatform::Standard);
+        credentials.provider = AIProvider::AzureFoundry;
+        credentials.base_url = "https://wm-test-ai.services.ai.azure.com/openai/v1".to_string();
+        let builder = AnthropicQueryBuilder::new(AIProvider::AzureFoundry, AIPlatform::Standard);
+        let method = Method::POST;
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+
+        let request = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "v1/messages",
+                headers: &headers,
+                body: br#"{"model":"claude-sonnet-5","messages":[]}"#,
+                credentials: &credentials,
+            })
+            .unwrap();
+
+        assert_eq!(
+            request.url,
+            "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
+        );
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
     }
 }

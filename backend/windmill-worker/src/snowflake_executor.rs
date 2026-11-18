@@ -567,6 +567,8 @@ pub async fn do_snowflake(
                 })?;
             let json_text = crate::sql_s3_input::fetch_s3object_as_json_text(
                 client,
+                conn,
+                job.id,
                 &job.workspace_id,
                 &s3_obj,
             )
@@ -603,6 +605,24 @@ pub async fn do_snowflake(
     } else {
         return Err(Error::BadRequest("Missing database argument".to_string()));
     };
+
+    // Validate before it is interpolated into request URLs as the hostname
+    // (https://<account_identifier>.snowflakecomputing.com/...).
+    if database.account_identifier.is_empty()
+        || !database
+            .account_identifier
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    {
+        return Err(Error::BadRequest(format!(
+            "Invalid Snowflake account identifier '{}': only alphanumeric, '.', '-' and '_' allowed",
+            database
+                .account_identifier
+                .chars()
+                .take(64)
+                .collect::<String>()
+        )));
+    }
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
     let collection_strategy = if annotations.return_last_result {
@@ -699,8 +719,6 @@ pub async fn do_snowflake(
             true,
         )
     };
-
-    tracing::debug!("Snowflake token: {}", token);
 
     let mut body = serde_json::Map::new();
     if database.schema.is_some() {
@@ -837,7 +855,7 @@ fn convert_typ_val(arg_t: String, arg_v: Value) -> Value {
                 }
             })
         }
-        "binary" => {
+        "binary" | "varbinary" => {
             // convert base64 to hex as expected by snowflake
             let bytes = engine::general_purpose::STANDARD
                 .decode(arg_v.as_str().unwrap_or(""))
@@ -855,7 +873,8 @@ fn convert_typ_val(arg_t: String, arg_v: Value) -> Value {
             let mut v = arg_v;
 
             if !v.is_string() {
-                // if not string, convert to string for api request
+                // The SQL API has no ARRAY/VARIANT binding type: a list or object
+                // is bound as its JSON text, which the query reads with PARSE_JSON(?).
                 v = json!(v.to_string());
             }
 
@@ -915,5 +934,18 @@ fn parse_val(value: &Value, typ: &str) -> Value {
             "ERR: Could not parse {} argument with value {}",
             typ, str_value
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_arg_binds_as_json_text() {
+        assert_eq!(
+            convert_typ_val("varchar[]".to_string(), json!(["sales", "g/ops"])),
+            json!({ "type": "TEXT", "value": r#"["sales","g/ops"]"# })
+        );
     }
 }

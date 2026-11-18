@@ -2,8 +2,10 @@
 	import type { ComponentType } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { arrowTabNav } from '$lib/attachments/arrowTabNav'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import { ChevronRight } from 'lucide-svelte'
 
 	interface NavigationItem {
 		id: string
@@ -26,13 +28,27 @@
 		groups: NavigationGroup[]
 		selectedId: string
 		onNavigate: (id: string) => void
+		/** Renders each item as a link to this URL; the link navigates, so `onNavigate` is not called. */
+		itemHref?: (id: string) => string
+		/** Ends each entry with a chevron, for a list whose entries each open as a page of their own. */
+		drillIn?: boolean
 		class?: string
 	}
 
-	let { groups, selectedId, onNavigate, class: className = '' }: Props = $props()
+	let {
+		groups,
+		selectedId,
+		onNavigate,
+		itemHref,
+		drillIn = false,
+		class: className = ''
+	}: Props = $props()
 </script>
 
-<div class={twMerge('flex flex-col gap-6', className)}>
+<!-- Up/Down walks the items, wrapping at the ends. On the wrapper rather than on each
+     `<nav>` so the arrows cross group boundaries the way reading down the list does; the
+     Y axis also leaves Left/Right to the paginated dialogs this can sit inside. -->
+<div class={twMerge('flex flex-col gap-6', className)} {@attach arrowTabNav()}>
 	{#each groups as group (group.title)}
 		<div class="flex flex-col gap-1">
 			{#if group.title}
@@ -52,8 +68,9 @@
 							aiId={item.aiId}
 							aiDescription={item.aiDescription}
 							startIcon={item.icon ? { icon: item.icon } : undefined}
-							btnClasses={'!justify-start text-left !w-full'}
-							onClick={() => onNavigate(item.id)}
+							btnClasses="group/nav-item !justify-start text-left !w-full"
+							href={itemHref?.(item.id)}
+							onClick={itemHref ? undefined : () => onNavigate(item.id)}
 						>
 							<span class="truncate">{item.label}</span>
 							<div class="ml-auto flex items-center gap-1">
@@ -66,6 +83,14 @@
 									>
 										{item.count}
 									</span>
+								{/if}
+								{#if drillIn}
+									<!-- On the hovered or focused entry only; a touch screen cannot hover, so
+									     there it stays on every entry. -->
+									<ChevronRight
+										size={14}
+										class="text-tertiary shrink-0 opacity-0 group-hover/nav-item:opacity-100 group-focus-visible/nav-item:opacity-100 [@media(hover:none)]:opacity-100"
+									/>
 								{/if}
 							</div>
 						</Button>

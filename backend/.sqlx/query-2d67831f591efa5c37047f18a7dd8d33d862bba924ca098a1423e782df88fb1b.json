@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE volume SET generation = 2 WHERE workspace_id = 'test-workspace' AND name = 'test-vol'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2d67831f591efa5c37047f18a7dd8d33d862bba924ca098a1423e782df88fb1b"
+}

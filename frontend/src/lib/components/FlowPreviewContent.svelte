@@ -1,12 +1,12 @@
 <script lang="ts">
 	import {
+		ApiError,
 		type Job,
 		JobService,
 		type RestartedFrom,
 		type OpenFlow,
 		type ScriptLang
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
@@ -28,12 +28,14 @@
 		RefreshCw,
 		X
 	} from 'lucide-svelte'
-	import { sendUserToast, type StateStore } from '$lib/utils'
+	import { apiErrorMessage, DynamicInput, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
+	import type { Schema } from '$lib/common'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
@@ -41,8 +43,17 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import FlowRestartButton from './FlowRestartButton.svelte'
 	import { useNestedRestartState } from './useNestedRestartState.svelte'
-	import { createFlowRecording, setActiveRecording } from './recording/flowRecording.svelte'
-	import type { FlowRecording } from './recording/types'
+	import { buildFlowRecording, downloadRecordingJson } from './recording/runRecording'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -132,8 +143,12 @@
 		initialPathStore,
 		fakeInitialPath,
 		customUi,
-		executionCount
+		executionCount,
+		devTempScriptRefs,
+		opWorkspace
 	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
+	// Acting workspace when previewing inside an AI session; else the nav workspace.
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 	const dispatch = createEventDispatcher()
 
 	let renderCount: number = $state(0)
@@ -142,9 +157,11 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 	let flowProgressBar: FlowProgressBar | undefined = $state(undefined)
 
-	// Recording & replay
-	let flowRecording = createFlowRecording()
-	let lastRecording: FlowRecording | undefined = $state(undefined)
+	// Recording: nothing is captured live — once the run completes, its id is
+	// remembered and the recording is built from the completed jobs on download.
+	let lastRecordingJobId: string | undefined = $state(undefined)
+	let recordedFlow: OpenFlow | undefined = undefined
+	let downloadingRecording: boolean = $state(false)
 	let recordingMode: boolean = $state(false)
 
 	export function setRecordingMode(on: boolean) {
@@ -152,16 +169,6 @@
 	}
 
 	let loadingHistory = $state(false)
-
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flowStore.val.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
-	})
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
@@ -192,8 +199,28 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
-			args = await processSecretArgs(args, flowStore.val.schema as any)
-			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom, conversationId)
+			if (recordingMode) {
+				// Any completed run in recording mode becomes downloadable, so pair
+				// the flow as it is for *this* run — not a stale earlier capture.
+				// Deep-cloned: extractFlow('whole') returns the live store object,
+				// and edits made before download must not rewrite the run's definition.
+				recordedFlow = JSON.parse(JSON.stringify(newFlow))
+			}
+			args = await processSecretArgs(args, flowStore.val.schema as any, opWs)
+			newJobId = await runFlowPreview(
+				args,
+				newFlow,
+				$pathStore,
+				restartedFrom,
+				conversationId,
+				devTempScriptRefs?.(),
+				opWorkspace?.(),
+				previewOnBehalfOf(
+					operatingUser.current,
+					flowStore.val.on_behalf_of,
+					flowStore.val.on_behalf_of_email
+				)
+			)
 			jobId = newJobId
 			isRunning = true
 			if (inputSelected) {
@@ -202,9 +229,12 @@
 			}
 			onRunPreview?.(newJobId)
 		} catch (e) {
-			sendUserToast('Could not run preview', true, undefined, e.toString())
 			isRunning = false
 			jobId = undefined
+			// The chat follows the turn its conversation is still answering rather than
+			// reporting a failed run, so the refusal goes back to it.
+			if (conversationId && e instanceof ApiError && e.status === 409) throw e
+			sendUserToast('Could not run preview', true, undefined, apiErrorMessage(e))
 		}
 		schemaFormWithArgPicker?.refreshHistory()
 		return newJobId
@@ -244,8 +274,12 @@
 			previewArgs.val = input
 			inputSelected = type
 			preventEscape = true
-			jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
 		}
+		// Deselecting restores the args the same way selecting replaced them, so both branches
+		// owe the editor an overwrite — it holds a payload for the input being left behind.
+		jsonEditor?.setCode(
+			argsToJsonPayload(flowStore.val.schema as Schema | undefined, previewArgs.val)
+		)
 	}
 
 	export function refresh() {
@@ -253,49 +287,27 @@
 	}
 
 	async function recordAndTest() {
-		lastRecording = undefined
-		flowRecording.start($pathStore)
-		flowRecording.setFlow(extractFlow(previewMode))
-		setActiveRecording(flowRecording)
+		lastRecordingJobId = undefined
 		await runPreview(previewArgs.val, undefined)
 	}
 
-	function collectSubJobIds(flowStatus: Job['flow_status']): string[] {
-		if (!flowStatus) return []
-		const ids: string[] = []
-		for (const mod of flowStatus.modules ?? []) {
-			if (mod.job) ids.push(mod.job)
-			if (mod.flow_jobs) ids.push(...mod.flow_jobs)
-		}
-		if (flowStatus.failure_module?.job) ids.push(flowStatus.failure_module.job)
-		if (flowStatus.preprocessor_module?.job) ids.push(flowStatus.preprocessor_module.job)
-		return ids
-	}
-
-	async function recordSubJobs(completedJob: Job) {
-		const subJobIds = collectSubJobIds(completedJob.flow_status)
-		await Promise.all(
-			subJobIds.map(async (subId) => {
-				try {
-					const subJob = await JobService.getJob({
-						workspace: $workspaceStore!,
-						id: subId
-					})
-					flowRecording.addCompletedJob(subId, subJob)
-					// Recurse into nested flows (flow-within-flow)
-					if (subJob.flow_status) {
-						await recordSubJobs(subJob)
-					}
-				} catch (e) {
-					console.warn('[recording] failed to fetch sub-job', subId, e)
-				}
-			})
-		)
-	}
-
-	function downloadRecording() {
-		if (lastRecording) {
-			flowRecording.download(lastRecording)
+	async function downloadRecording() {
+		if (!lastRecordingJobId || downloadingRecording) return
+		downloadingRecording = true
+		try {
+			// A run started before recording mode was enabled captured no flow —
+			// fall back to the flow as it is now.
+			const recording = await buildFlowRecording(
+				opWs!,
+				lastRecordingJobId,
+				$pathStore,
+				recordedFlow ?? extractFlow(previewMode)
+			)
+			downloadRecordingJson(recording, `flow-recording-${$pathStore.replace(/\//g, '-')}`)
+		} catch (e: any) {
+			sendUserToast('Could not build the recording', true, undefined, e?.toString())
+		} finally {
+			downloadingRecording = false
 		}
 	}
 
@@ -316,30 +328,12 @@
 		scrollableDiv && render && untrack(() => onScrollableDivChange())
 	})
 
-	// During recording, watch sub-job SSE streams to capture incremental logs
-	$effect(() => {
-		// Only watch sub-jobs for the current job (jobId is set after runPreview starts)
-		if (flowRecording.active && job?.flow_status && job?.id === jobId) {
-			const modules = job.flow_status.modules ?? []
-			untrack(() => {
-				for (const mod of modules) {
-					if (mod.job) {
-						flowRecording.watchSubJob(mod.job, $workspaceStore!)
-					}
-				}
-				if (job?.flow_status?.failure_module?.job) {
-					flowRecording.watchSubJob(job.flow_status.failure_module.job, $workspaceStore!)
-				}
-			})
-		}
-	})
-
 	export async function cancelTest() {
 		isRunning = false
 		try {
 			jobId &&
 				(await JobService.cancelQueuedJob({
-					workspace: $workspaceStore ?? '',
+					workspace: opWs ?? '',
 					id: jobId,
 					requestBody: {}
 				}))
@@ -406,7 +400,7 @@
 					>
 						Cancel
 					</Button>
-					{#if flowRecording.active}
+					{#if recordingMode}
 						<span class="text-xs text-red-500 font-medium flex items-center gap-1">
 							<Circle size={8} fill="currentColor" /> Recording
 						</span>
@@ -461,12 +455,13 @@
 							{/if}
 						</Button>
 					{/if}
-					{#if lastRecording && recordingMode}
+					{#if lastRecordingJobId && recordingMode}
 						<Button
 							variant="subtle"
 							unifiedSize="sm"
 							title="Download recording"
 							on:click={downloadRecording}
+							loading={downloadingRecording}
 							startIcon={{ icon: Download }}
 						>
 							Download recording
@@ -485,18 +480,22 @@
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-row justify-center w-full mb-6">
 					<FlowChat
-						useStreaming={shouldUseStreaming}
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
-							await runPreview(
+							// Its own run's id, not `jobId`: several test chats can start a run at
+							// once, and `jobId` is whichever started last.
+							const started = await runPreview(
 								{ user_message: userMessage, ...(additionalInputs ?? {}) },
 								undefined,
 								conversationId
 							)
-							return jobId ?? ''
+							return started ?? ''
 						}}
-						hideSidebar={true}
+						conversationKind="test"
+						frame="boxed"
 						path={$pathStore}
+						identity={$initialPathStore || fakeInitialPath}
 						inputSchema={flowStore.val.schema}
+						flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}
@@ -506,6 +505,7 @@
 						runnableId={$initialPathStore}
 						stablePathForCaptures={$initialPathStore || fakeInitialPath}
 						runnableType={'FlowPath'}
+						workspace={opWs}
 						previewArgs={previewArgs.val}
 						on:openTriggers
 						on:select={(e) => {
@@ -528,8 +528,7 @@
 										rightTooltip: 'Fill args from JSON'
 									}}
 									lightMode
-									on:change={(e) => {
-										jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
+									on:change={() => {
 										refresh()
 									}}
 								/>
@@ -544,6 +543,10 @@
 											previewArgs.val = e.detail
 										}
 									}}
+									initialCode={argsToJsonPayload(
+										flowStore.val.schema as Schema | undefined,
+										previewArgs.val
+									)}
 									updateOnBlur={false}
 									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 								/>
@@ -554,20 +557,21 @@
 									<SchemaForm
 										noVariablePicker
 										compact
+										workspace={opWs}
 										schema={flowStore.val.schema}
 										bind:args={previewArgs.val}
 										on:change={() => {
 											savedArgs = $state.snapshot(previewArgs.val)
 										}}
 										bind:isValid
-										helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
-										flowStore.val.schema?.['x-windmill-dyn-select-lang']
-											? {
-													source: 'inline',
-													code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
-													lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
-												}
-											: undefined}
+										helperScript={DynamicInput.flowHelperScript(
+											flowStore.val.schema?.['x-windmill-dyn-select-code'] as string | undefined,
+											flowStore.val.schema?.['x-windmill-dyn-select-lang'] as
+												| ScriptLang
+												| undefined,
+											$initialPathStore,
+											!$roleCaps.code
+										)}
 									/>
 								</div>
 							{/key}
@@ -576,7 +580,13 @@
 				</div>
 			{/if}
 		{/if}
-		<div class="pt-4 flex flex-col border-t relative">
+		<!-- The rule divides the inputs form from its results. Chat mode has no form: the
+		     chat is its own panel, and a second line right under it reads as a stray edge. -->
+		<div
+			class="pt-4 flex flex-col relative {flowStore.val.value?.chat_input_enabled
+				? ''
+				: 'border-t'}"
+		>
 			{#if flowHasChanged()}
 				<div class="pb-2">
 					<div
@@ -624,7 +634,6 @@
 				<div class="w-full my-6">
 					<FlowExecutionStatus
 						{job}
-						workspaceId={$workspaceStore}
 						{isOwner}
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}
@@ -657,6 +666,7 @@
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
 					bind:flowState={flowStateStore.val}
+					workspaceId={opWs}
 					{jobId}
 					onDone={async ({ job: completedJob }) => {
 						isRunning = false
@@ -668,13 +678,8 @@
 								stepHistoryLoader?.resetInitial(mod.id)
 							}
 						}
-						if (flowRecording.active) {
-							lastRecording = flowRecording.stop()
-							setActiveRecording(undefined)
-							// Fetch sub-job data and add to recording (they load after the root completes)
-							await recordSubJobs(completedJob)
-							// Trigger reactivity update for lastRecording
-							lastRecording = lastRecording
+						if (recordingMode && completedJob?.id) {
+							lastRecordingJobId = completedJob.id
 						}
 						onJobDone?.()
 					}}

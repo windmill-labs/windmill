@@ -21,11 +21,18 @@ export type DrillLeaf<L> = {
 	/** Optional override for the fuzzy-search haystack. Defaults to
 	 * `label` (or `secondary` when label is empty). */
 	searchableText?: string
+	/** Category header this leaf renders under, in both the browse list and
+	 * search results (a `searchGroup` branch ancestor wins in search).
+	 * Consecutive leaves sharing a section share one header. */
+	section?: string
 	/** Marks this leaf as the user's current location — gets `aria-current`
 	 * and a styled, no-op click. */
 	current?: boolean
 	/** When true, leaf is rendered but disabled (greyed + no-op click). */
 	disabled?: boolean
+	/** A name in words rather than an identifier (a path, a file, a command), so it is set in
+	 *  the UI font instead of monospace. */
+	plainLabel?: boolean
 }
 
 /** Branch node — interior entry the user drills into. */
@@ -47,6 +54,9 @@ export type DrillBranch<L> = {
 	 * at `Workspace > Flows > f/demo > foo` groups under "Flows" (not
 	 * "f/demo"). */
 	searchGroup?: boolean
+	/** A name in words rather than an identifier (a path, a file, a command), so it is set in
+	 *  the UI font instead of monospace. */
+	plainLabel?: boolean
 }
 
 export type DrillNode<L> = DrillBranch<L> | DrillLeaf<L>

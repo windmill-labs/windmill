@@ -1,0 +1,261 @@
+<script lang="ts">
+	import { untrack } from 'svelte'
+	import { deepEqual } from 'fast-equals'
+	import type { InputTransform, ScriptLang } from '$lib/gen'
+	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import InputTransformsViewer from '$lib/components/InputTransformsViewer.svelte'
+	import { Button } from '$lib/components/common'
+	import { ChevronDown, ChevronRight, Wrench } from 'lucide-svelte'
+	import type { PickableProperties } from '../previousResults'
+	import {
+		agentToolToFlowModule,
+		isFlowModuleTool,
+		AI_AGENT_TOOL_AI_KEYS,
+		type AgentTool,
+		type FlowModuleTool
+	} from '../agentToolUtils'
+	import { flowLocalAgentSchema, toolInputOverrides } from '../agentResourceUtils'
+	import { loadSchemaFromModule } from '../flowInfers'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
+
+	let {
+		tools,
+		toolInputs = $bindable(),
+		pickableProperties = undefined,
+		extraLib = 'missing extraLib',
+		workspace = undefined
+	}: {
+		// Tools inherited from the linked agent resource (read-only structure).
+		tools: AgentTool[]
+		// Host-local wiring authored on the step, keyed by tool id then input key. Only the diff from
+		// the resource tool's own transforms is stored (see toolInputOverrides).
+		toolInputs: Record<string, Record<string, InputTransform>>
+		pickableProperties?: PickableProperties
+		extraLib?: string
+		workspace?: string
+	} = $props()
+
+	let flowTools = $derived(tools.filter(isFlowModuleTool))
+	const roleCaps = useRoleCapabilities()
+	// The server checks bindings only below `full` (`check_operator_can_build`).
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
+
+	/** Mirrors the backend's `InputTransform::is_completed`: an input the agent fills is hidden from
+	 *  the model, and the server refuses a builder's binding of it. */
+	function isSetByAgent(transform: InputTransform | undefined): boolean {
+		if (transform?.type === 'static') {
+			return transform.value !== undefined && transform.value !== null
+		}
+		return transform?.type === 'javascript' && !!transform.expr?.trim()
+	}
+
+	/** A builder binds only the inputs the agent leaves to the model. */
+	function shownSchema(tool: FlowModuleTool): any {
+		const schema = schemas[tool.id]
+		if (!composeOnlyFlows || !schema?.properties) return schema
+		const base = baseInputs(tool)
+		const keep = Object.keys(schema.properties).filter((k) => !isSetByAgent(base[k]))
+		return {
+			...schema,
+			properties: Object.fromEntries(keep.map((k) => [k, schema.properties[k]])),
+			required: (schema.required ?? []).filter((k: string) => keep.includes(k))
+		}
+	}
+
+	/** The inputs `shownSchema` hides, shown read-only so the tool code reads in context. */
+	function agentSetInputs(tool: FlowModuleTool): Record<string, InputTransform> {
+		if (!composeOnlyFlows) return {}
+		const base = baseInputs(tool)
+		return Object.fromEntries(
+			Object.keys(schemas[tool.id]?.properties ?? {})
+				.filter((k) => isSetByAgent(base[k]))
+				.map((k) => [k, base[k]])
+		)
+	}
+
+	function baseInputs(tool: FlowModuleTool): Record<string, InputTransform> {
+		return ((tool.value as { input_transforms?: Record<string, InputTransform> })
+			.input_transforms ?? {}) as Record<string, InputTransform>
+	}
+
+	// Tool input schemas, inferred from each tool's definition (rawscript content / script path).
+	let schemas = $state<Record<string, any>>({})
+	// Editable copies (resource base ∪ overrides), one per tool. The form mutates these proxies in
+	// place, so a plain function-bind getter returning a fresh merged object would lose edits — the
+	// mirror effect below diffs them back into the step's tool_inputs instead.
+	let localArgs = $state<Record<string, Record<string, InputTransform>>>({})
+	// Non-reactive bookkeeping distinguishing our own mirror-writes from external tool_inputs
+	// changes (undo/redo, session drafts), and detecting resource-tool changes under a stable id.
+	let lastPublished: Record<string, Record<string, InputTransform>> = {}
+	let defSnaps: Record<string, string> = {}
+
+	// Seed and resynchronize the editable copies. Tracks the step's tool_inputs and the resource
+	// tools so external changes re-seed the form; our own mirror-writes match lastPublished and are
+	// left alone (no re-seed while typing).
+	$effect(() => {
+		const ts = flowTools
+		const incomingAll = $state.snapshot(toolInputs ?? {}) as Record<
+			string,
+			Record<string, InputTransform>
+		>
+		const ws = workspace
+		untrack(() => {
+			for (const t of ts) {
+				const base = baseInputs(t)
+				// Fingerprint the whole tool definition + workspace, not just the transforms: the
+				// inferred schema also depends on script content/path/language and the workspace, so a
+				// definition change under a stable id must re-infer and re-seed.
+				const defSnap = JSON.stringify([t.value, ws])
+				const incoming = incomingAll[t.id] ?? {}
+				const defChanged = defSnaps[t.id] !== defSnap
+				const external =
+					lastPublished[t.id] === undefined || !deepEqual(incoming, lastPublished[t.id])
+				if (localArgs[t.id] === undefined || defChanged || external) {
+					localArgs[t.id] = { ...base, ...incoming }
+					lastPublished[t.id] = incoming
+					const reloadSchema = defChanged || schemas[t.id] === undefined
+					defSnaps[t.id] = defSnap
+					if (reloadSchema) {
+						// Publish only if this request is still for the current definition — a slower
+						// load for a superseded definition must not overwrite the newest schema.
+						loadSchemaFromModule(agentToolToFlowModule(t), ws)
+							.then(({ schema }) => {
+								if (defSnaps[t.id] === defSnap) {
+									// A nested agent that is itself linked takes its brain from its own resource;
+									// the runtime overlays only the flow-local inputs, so offering the rest here
+									// would collect overrides it silently drops.
+									const v = t.value as { type?: string; agent?: string } | undefined
+									schemas[t.id] =
+										v?.type === 'aiagent' && v.agent ? flowLocalAgentSchema(schema) : schema
+								}
+							})
+							.catch(() => {
+								if (defSnaps[t.id] === defSnap) {
+									schemas[t.id] = { properties: {} }
+								}
+							})
+					}
+				}
+			}
+		})
+	})
+
+	// Mirror edits into the step, storing only the diff from the resource tool. Seeding is a no-op
+	// (the seed's diff equals the saved overrides), so merely opening the step doesn't dirty the flow.
+	$effect(() => {
+		const snap = $state.snapshot(localArgs) as Record<string, Record<string, InputTransform>>
+		untrack(() => {
+			for (const t of flowTools) {
+				const cur = snap[t.id]
+				if (!cur) continue
+				const overrides = toolInputOverrides(cur, baseInputs(t))
+				if (!deepEqual(toolInputs?.[t.id] ?? {}, overrides)) {
+					lastPublished[t.id] = overrides
+					if (Object.keys(overrides).length === 0) {
+						// Fully reverted: drop the key rather than keep an empty {} that dirties the flow.
+						const rest = { ...toolInputs }
+						delete rest[t.id]
+						toolInputs = rest
+					} else {
+						toolInputs = { ...toolInputs, [t.id]: overrides }
+					}
+				}
+			}
+		})
+	})
+
+	function toolCode(tool: FlowModuleTool): { language?: ScriptLang; content?: string } | undefined {
+		const v = tool.value as { type?: string; language?: ScriptLang; content?: string }
+		return v.type === 'rawscript' && v.content ? v : undefined
+	}
+
+	/** How many of this tool's inputs this flow binds. `toolInputs` holds the diff from the
+	 *  resource, so its size is the count. */
+	function overrideCount(tool: FlowModuleTool): number {
+		return Object.keys(toolInputs?.[tool.id] ?? {}).length
+	}
+
+	// Which sections the reader opened or closed. Absent means the default below, so a tool that
+	// gains an override while untouched still opens on its own.
+	let toggled = $state<Record<string, boolean>>({})
+	/** Open where there is something to see: a tool this flow binds. The rest are the agent's own
+	 *  business, and a linked agent's roster is mostly that. */
+	function isOpen(tool: FlowModuleTool): boolean {
+		return toggled[tool.id] ?? overrideCount(tool) > 0
+	}
+</script>
+
+{#if flowTools.length > 0}
+	<div class="flex flex-col gap-2 px-2 pb-8 xl:px-4">
+		{#each flowTools as tool (tool.id)}
+			{@const code = toolCode(tool)}
+			{@const open = isOpen(tool)}
+			<div class="rounded-md border border-light">
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					aria-expanded={open}
+					onClick={() => (toggled[tool.id] = !open)}
+					wrapperClasses="w-full"
+					btnClasses="w-full !justify-start !text-left !px-3 !font-normal !text-xs !gap-1.5 !rounded-b-none {open
+						? 'border-b border-light'
+						: ''}"
+				>
+					{#if open}
+						<ChevronDown size={14} class="shrink-0 text-tertiary" />
+					{:else}
+						<ChevronRight size={14} class="shrink-0 text-tertiary" />
+					{/if}
+					<Wrench size={14} class="shrink-0 text-tertiary" />
+					<span class="font-medium">{tool.summary || tool.id}</span>
+					{#if tool.description}
+						<span class="truncate text-2xs text-tertiary" title={tool.description}
+							>{tool.description}</span
+						>
+					{/if}
+				</Button>
+				{#if !open}
+					<!-- collapsed: the agent's own inputs, nothing this flow has changed -->
+				{:else if schemas[tool.id] !== undefined && localArgs[tool.id] !== undefined}
+					<InputTransformSchemaForm
+						class="px-3 pt-1"
+						schema={shownSchema(tool)}
+						{pickableProperties}
+						{extraLib}
+						{workspace}
+						isAgentTool
+						allowedAiTransforms={(tool.value as { type?: string }).type === 'aiagent'
+							? AI_AGENT_TOOL_AI_KEYS
+							: undefined}
+						bind:args={
+							() => localArgs[tool.id],
+							(v) => {
+								localArgs[tool.id] = v
+							}
+						}
+					/>
+					{@const setInputs = agentSetInputs(tool)}
+					{#if Object.keys(setInputs).length > 0}
+						<div class="flex flex-col gap-1 px-3 pb-2">
+							<span class="text-xs font-semibold text-emphasis">Static inputs</span>
+							<InputTransformsViewer inputTransforms={setInputs} />
+						</div>
+					{/if}
+				{:else}
+					<div class="px-3 py-2 text-2xs text-tertiary">Loading inputs...</div>
+				{/if}
+				{#if open && code}
+					<details class="border-t border-light">
+						<summary class="cursor-pointer px-3 py-1.5 text-2xs font-medium text-tertiary">
+							Tool code (read-only)
+						</summary>
+						<div class="max-h-64 overflow-auto border-t border-light p-2 text-xs">
+							<HighlightCode language={code.language} code={code.content ?? ''} />
+						</div>
+					</details>
+				{/if}
+			</div>
+		{/each}
+	</div>
+{/if}

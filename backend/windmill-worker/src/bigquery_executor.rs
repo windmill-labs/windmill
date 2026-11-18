@@ -378,6 +378,19 @@ pub async fn do_bigquery(
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
+    // Validate before it is interpolated into request URLs as a path segment
+    // (https://bigquery.googleapis.com/.../projects/<project_id>/...).
+    if project_id.is_empty()
+        || !project_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':'))
+    {
+        return Err(Error::ExecutionErr(format!(
+            "Invalid BigQuery project id '{}': only alphanumeric, '.', '-', '_' and ':' allowed",
+            project_id.chars().take(64).collect::<String>()
+        )));
+    }
+
     let mut sig = parse_bigquery_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
@@ -399,15 +412,20 @@ pub async fn do_bigquery(
         let s3_obj: windmill_types::s3::S3Object = serde_json::from_value(raw).map_err(|e| {
             Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
         })?;
-        let json_text =
-            crate::sql_s3_input::fetch_s3object_as_json_text(client, &job.workspace_id, &s3_obj)
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Failed to fetch S3 object for arg `{}`: {e}",
-                        arg.name
-                    ))
-                })?;
+        let json_text = crate::sql_s3_input::fetch_s3object_as_json_text(
+            client,
+            conn,
+            job.id,
+            &job.workspace_id,
+            &s3_obj,
+        )
+        .await
+        .map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Failed to fetch S3 object for arg `{}`: {e}",
+                arg.name
+            ))
+        })?;
         bigquery_args.insert(arg.name.clone(), Value::String(json_text));
         arg.otyp = Some("string".to_string());
     }

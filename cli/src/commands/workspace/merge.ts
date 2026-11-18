@@ -2,7 +2,7 @@ import { GlobalOptions } from "../../types.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
-import { setClient } from "../../core/client.ts";
+import { markRequestsAsSyncOrigin, setClient } from "../../core/client.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { OpenAPI } from "../../../gen/core/OpenAPI.ts";
@@ -11,10 +11,12 @@ import {
   deleteItemInWorkspace,
   getOnBehalfOf,
   isTriggerOrScheduleKind,
+  parseDatatableMigrationDeployPath,
   type DeployKind,
   type DeployProvider,
   type TriggerDeployKind,
 } from "../../../windmill-utils-internal/src/deploy.ts";
+import { offerToRunNewMigrations } from "../datatable_migrations.ts";
 
 // ---------------------------------------------------------------------------
 // Provider adapter — wraps CLI's standalone API functions
@@ -85,6 +87,10 @@ const provider: DeployProvider = {
   createSchedule: wmill.createSchedule,
   updateSchedule: wmill.updateSchedule,
   deleteSchedule: wmill.deleteSchedule,
+  // Datatable migrations
+  listDatatableMigrations: wmill.listDatatableMigrations,
+  upsertDatatableMigration: wmill.upsertDatatableMigration,
+  deleteDatatableMigration: wmill.deleteDatatableMigration,
 };
 
 /**
@@ -528,8 +534,22 @@ async function mergeWorkspaces(
     direction === "to-parent" ? parentWorkspaceId : forkWorkspaceId;
 
   // 10. Deploy
+  // Updating the fork copies the parent's state in, so nothing it writes there —
+  // least of all a deletion — may be read as the fork's own decision. Merging the
+  // other way stays authored: someone chose those changes for the target.
+  if (direction === "to-fork") {
+    markRequestsAsSyncOrigin();
+  }
   let successCount = 0;
   let failCount = 0;
+  // Datatable migrations deployed (not deleted) into the target. Deploying a
+  // migration only upserts its definition — the target schema is unchanged until
+  // the migration is run — so offer to run them afterwards (like the push path).
+  const deployedMigrations: {
+    datatable: string;
+    timestamp: number;
+    name: string;
+  }[] = [];
 
   for (const diff of sorted) {
     const label = `${diff.kind}:${diff.path}`;
@@ -573,6 +593,12 @@ async function mergeWorkspaces(
     if (result.success) {
       log.info(colors.green(`  ✓ ${label}`));
       successCount++;
+      if (
+        !itemDeletedInSource &&
+        (diff.kind as DeployKind) === "datatable_migration"
+      ) {
+        deployedMigrations.push(parseDatatableMigrationDeployPath(diff.path));
+      }
     } else {
       log.info(colors.red(`  ✗ ${label}: ${result.error}`));
       failCount++;
@@ -605,6 +631,18 @@ async function mergeWorkspaces(
         `Deployed ${successCount} item(s), ${colors.red(String(failCount) + " failed")} from ${workspaceFrom} to ${workspaceTo}.`
       )
     );
+  }
+
+  // 13. Deployed migration definitions don't touch the target schema until run;
+  // offer to run them on the target now (interactive only, like the push path).
+  if (deployedMigrations.length > 0) {
+    try {
+      await offerToRunNewMigrations(workspaceTo, deployedMigrations, {
+        yes: opts.yes,
+      });
+    } catch (e) {
+      log.warn(colors.yellow(`Failed to run deployed migrations: ${e}`));
+    }
   }
 }
 

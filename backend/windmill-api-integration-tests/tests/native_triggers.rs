@@ -11,13 +11,24 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 
-use windmill_api_auth::ApiAuthed;
-use windmill_common::variables::{build_crypt, encrypt};
+use axum::http::StatusCode;
+use windmill_api_auth::{ApiAuthed, ScopePathFilter};
+use windmill_common::{
+    db::UserDB,
+    error::Error,
+    variables::{build_crypt, encrypt},
+};
 use windmill_native_triggers::{
-    decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
+    classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
     get_workspace_integration,
+    github::GitHub,
     google::{parse_stop_channel_params, should_renew_channel},
-    require_native_integration_use, store_native_trigger, store_workspace_integration,
+    grant_refused, http_error_status, list_native_triggers, list_usable_connections,
+    map_external_error, native_trigger_is_enabled,
+    nextcloud::NextCloud,
+    require_native_integration_use, resolve_usable_connection, set_native_trigger_enabled,
+    store_native_trigger, store_workspace_integration, update_native_trigger,
+    update_oauth_token_resource, External, ExternalReadFailure, HttpRequestError,
     NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
@@ -50,8 +61,14 @@ fn test_authed() -> ApiAuthed {
         folders: vec![],
         scopes: None,
         username_override: None,
+        username_override_is_token_label: false,
+        is_session_token: false,
         token_prefix: None,
         read_only: false,
+        job_id: None,
+        credential_expiry: None,
+        mcp_client: None,
+        capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
     }
 }
 
@@ -120,7 +137,6 @@ async fn setup_oauth_integration(
         "test-workspace",
         service_name,
         oauth_data,
-        Some(resource_path),
     )
     .await?;
     tx.commit().await?;
@@ -136,73 +152,125 @@ fn now_ms() -> i64 {
 }
 
 // ============================================================================
-// 1. Resource Path Change
+// 1. Several connections of one service
 // ============================================================================
 
+/// Each connection keeps its own tokens: a refresh written back for one, or disconnecting one,
+/// must not touch another. Providers that rotate refresh tokens invalidate the old one, so a
+/// refresh token copied onto the wrong account breaks that account's next refresh.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_resource_path_change(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let path_a = "u/test-user/native_gworkspace";
-    setup_oauth_integration(
+async fn test_connections_are_isolated(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let path_a = "u/test-user/native_nextcloud";
+    let path_b = "u/other-user/native_nextcloud";
+    let mut account_a = 0;
+    for (path, token) in [(path_a, "a"), (path_b, "b")] {
+        let account = setup_oauth_integration(
+            &db,
+            ServiceName::Nextcloud,
+            path,
+            &format!("access-{token}"),
+            &format!("refresh-{token}"),
+            None,
+        )
+        .await?;
+        if path == path_a {
+            account_a = account;
+        }
+    }
+
+    update_oauth_token_resource(
         &db,
-        ServiceName::Google,
-        path_a,
-        "token-a",
-        "refresh-a",
-        None,
-    )
-    .await?;
-
-    // Verify decrypt works at path A
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
-    assert_eq!(config.access_token, "token-a");
-
-    // Cleanup old path
-    let mut tx = db.begin().await?;
-    windmill_native_triggers::workspace_integrations::cleanup_oauth_resource(
-        &mut *tx,
         "test-workspace",
-        ServiceName::Google,
+        account_a,
+        "access-a2",
+        Some("refresh-a2"),
     )
     .await;
-    tx.commit().await?;
 
-    // Recreate at path B
-    let path_b = "u/test-user/native_gworkspace_v2";
-    setup_oauth_integration(
-        &db,
-        ServiceName::Google,
-        path_b,
-        "token-b",
-        "refresh-b",
-        None,
+    let a: OAuthConfig =
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_a)).await?;
+    let b: OAuthConfig =
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_b)).await?;
+    assert_eq!(
+        (a.access_token.as_str(), a.refresh_token.as_deref()),
+        ("access-a2", Some("refresh-a2"))
+    );
+    assert_eq!(
+        (b.access_token.as_str(), b.refresh_token.as_deref()),
+        ("access-b", Some("refresh-b"))
+    );
+
+    let mut tx = db.begin().await?;
+    windmill_native_triggers::workspace_integrations::cleanup_connection(
+        &mut *tx,
+        "test-workspace",
+        path_a,
     )
     .await?;
+    tx.commit().await?;
 
-    // Path A resources should be gone
-    let var_count: i64 = sqlx::query_scalar!(
-        "SELECT count(*) FROM variable WHERE workspace_id = 'test-workspace' AND path = $1",
-        path_a,
+    assert!(decrypt_oauth_data::<OAuthConfig>(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        Some(path_a)
     )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(0);
-    assert_eq!(var_count, 0, "variable at old path should be deleted");
+    .await
+    .is_err());
+    let b: OAuthConfig =
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_b)).await?;
+    assert_eq!(b.refresh_token.as_deref(), Some("refresh-b"));
 
-    let res_count: i64 = sqlx::query_scalar!(
-        "SELECT count(*) FROM resource WHERE workspace_id = 'test-workspace' AND path = $1",
-        path_a,
+    Ok(())
+}
+
+/// A member who cannot read the admin's connection may still use it once it is shared as the
+/// workspace connection.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_workspace_connection_usable_by_members(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let path = "u/test-user/native_nextcloud";
+    setup_oauth_integration(&db, ServiceName::Nextcloud, path, "a", "r", None).await?;
+    let member = ApiAuthed {
+        email: "test2@windmill.dev".to_string(),
+        username: "test-user-2".to_string(),
+        is_admin: false,
+        ..test_authed()
+    };
+    let usable_paths = || async {
+        let mut tx = UserDB::new(db.clone()).begin(&member).await?;
+        let connections =
+            list_usable_connections(&db, &mut tx, "test-workspace", ServiceName::Nextcloud).await?;
+        tx.commit().await?;
+        anyhow::Ok(
+            connections
+                .into_iter()
+                .map(|c| (c.path, c.workspace))
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    assert!(usable_paths().await?.is_empty());
+
+    sqlx::query(
+        "UPDATE workspace_integrations SET resource_path = $1
+         WHERE workspace_id = 'test-workspace' AND service_name = 'nextcloud'",
     )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(0);
-    assert_eq!(res_count, 0, "resource at old path should be deleted");
+    .bind(path)
+    .execute(&db)
+    .await?;
+    assert_eq!(usable_paths().await?, vec![(path.to_string(), true)]);
 
-    // Path B should work
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
-    assert_eq!(config.access_token, "token-b");
-    assert_eq!(config.refresh_token.as_deref(), Some("refresh-b"));
+    // Clients and specs that predate connections name none: they keep getting the shared
+    // account once the member also has their own.
+    let own = "u/test-user-2/native_nextcloud";
+    setup_oauth_integration(&db, ServiceName::Nextcloud, own, "b", "s", None).await?;
+    let mut tx = UserDB::new(db.clone()).begin(&member).await?;
+    let default =
+        resolve_usable_connection(&db, &mut tx, "test-workspace", ServiceName::Nextcloud, None)
+            .await?;
+    tx.commit().await?;
+    assert_eq!(usable_paths().await?.len(), 2);
+    assert_eq!(default, path);
 
     Ok(())
 }
@@ -224,8 +292,13 @@ async fn test_decrypt_workspace_level(db: Pool<Postgres>) -> anyhow::Result<()> 
     )
     .await?;
 
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
+    let config: OAuthConfig = decrypt_oauth_data(
+        &db,
+        "test-workspace",
+        ServiceName::Google,
+        Some(resource_path),
+    )
+    .await?;
 
     assert_eq!(config.access_token, "ws-access-token");
     assert_eq!(config.refresh_token.as_deref(), Some("ws-refresh-token"));
@@ -269,12 +342,74 @@ async fn test_decrypt_instance_level(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .await?;
 
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
+    let config: OAuthConfig = decrypt_oauth_data(
+        &db,
+        "test-workspace",
+        ServiceName::Google,
+        Some(resource_path),
+    )
+    .await?;
 
     assert_eq!(config.client_id, "instance-client-id");
     assert_eq!(config.client_secret, "instance-client-secret");
     assert_eq!(config.access_token, "inst-access-token");
+
+    Ok(())
+}
+
+/// A resource connected for runnables is a connection too: its account was issued by the instance
+/// connect client (`gworkspace`, not the trigger flow's `google`), and the workspace may have no
+/// OAuth app at all. Its stored scopes say what a trigger still lacks.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_connected_resource_is_a_connection(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let path = "u/test-user/my_google";
+    let account_id: i32 = sqlx::query_scalar(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, scopes)
+         VALUES ('test-workspace', 'gworkspace', now() + interval '1 hour', 'r',
+                 ARRAY['https://www.googleapis.com/auth/drive.readonly'])
+         RETURNING id",
+    )
+    .fetch_one(&db)
+    .await?;
+    let mc = build_crypt(&db, "test-workspace").await?;
+    sqlx::query(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, account, is_oauth)
+         VALUES ('test-workspace', $1, $2, true, '', $3, true)",
+    )
+    .bind(path)
+    .bind(encrypt(&mc, "resource-token"))
+    .bind(account_id)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)
+         VALUES ('test-workspace', $1, $2, 'gworkspace', '{}'::jsonb, 'test-user')",
+    )
+    .bind(path)
+    .bind(json!({ "token": format!("$var:{path}") }))
+    .execute(&db)
+    .await?;
+
+    let config: OAuthConfig =
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google, Some(path)).await?;
+    assert_eq!(config.access_token, "resource-token");
+    assert_eq!(config.account_id, Some(account_id));
+    assert!(!config.managed);
+
+    let mut tx = UserDB::new(db.clone()).begin(&test_authed()).await?;
+    let connections =
+        list_usable_connections(&db, &mut tx, "test-workspace", ServiceName::Google).await?;
+    tx.commit().await?;
+    let connection = connections.iter().find(|c| c.path == path).expect("listed");
+    assert_eq!(
+        connection.missing_scopes.as_deref(),
+        Some(
+            &[
+                "https://www.googleapis.com/auth/calendar.readonly".to_string(),
+                "https://www.googleapis.com/auth/calendar.events".to_string(),
+            ][..]
+        )
+    );
 
     Ok(())
 }
@@ -293,8 +428,13 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
 
     // Verify old tokens
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
+    let config: OAuthConfig = decrypt_oauth_data(
+        &db,
+        "test-workspace",
+        ServiceName::Google,
+        Some(resource_path),
+    )
+    .await?;
     assert_eq!(config.access_token, "old-access-token");
 
     // Simulate token refresh: update variable + account
@@ -317,8 +457,13 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
 
     // Verify new tokens
-    let config: OAuthConfig =
-        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google).await?;
+    let config: OAuthConfig = decrypt_oauth_data(
+        &db,
+        "test-workspace",
+        ServiceName::Google,
+        Some(resource_path),
+    )
+    .await?;
     assert_eq!(config.access_token, "new-access-token");
     assert_eq!(config.refresh_token.as_deref(), Some("new-refresh-token"));
 
@@ -329,24 +474,58 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
 // 3. Channel Expiration Renewal — should_renew_channel
 // ============================================================================
 
-#[test]
-fn test_require_native_integration_use_blocks_operators() {
-    // Regression: the integration *use* routes (calendar/drive/repo/event pickers)
-    // must reject read-only operators, who cannot create native triggers and so
-    // must not be able to drive the admin-configured integration's upstream API.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_require_native_integration_use_needs_code_and_manage_triggers(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    // The pickers drive the admin-connected account's upstream API: the default operator, which
+    // may manage triggers but not write code, must stay locked out of them.
+    windmill_common::roles::invalidate_all_roles_cache();
     let mut operator = test_authed();
+    operator.username = "operator".to_string();
     operator.is_admin = false;
     operator.is_operator = true;
-    assert!(require_native_integration_use(&operator).is_err());
+    operator.capabilities = None;
+    assert!(
+        require_native_integration_use(&db, "test-workspace", &operator)
+            .await
+            .is_err()
+    );
 
-    // A regular non-admin author (the population that configures triggers) is allowed.
-    let mut author = test_authed();
-    author.is_admin = false;
-    author.is_operator = false;
-    assert!(require_native_integration_use(&author).is_ok());
+    let set_override = |caps: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query(
+                "UPDATE workspace_settings SET role_overrides = jsonb_build_object('operator',
+                    jsonb_build_object('capabilities', $1::jsonb))
+                 WHERE workspace_id = 'test-workspace'",
+            )
+            .bind(caps)
+            .execute(&db)
+            .await
+            .unwrap();
+            windmill_common::roles::invalidate_all_roles_cache();
+        }
+    };
+    set_override(r#"{"code": true}"#).await;
+    assert!(
+        require_native_integration_use(&db, "test-workspace", &operator)
+            .await
+            .is_ok()
+    );
+    set_override(r#"{"code": true, "manage_triggers": false}"#).await;
+    assert!(
+        require_native_integration_use(&db, "test-workspace", &operator)
+            .await
+            .is_err()
+    );
 
-    // Admins are allowed.
-    assert!(require_native_integration_use(&test_authed()).is_ok());
+    assert!(
+        require_native_integration_use(&db, "test-workspace", &test_authed())
+            .await
+            .is_ok()
+    );
+    Ok(())
 }
 
 #[test]
@@ -444,6 +623,8 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
         &trigger_config,
         json!({"triggerType": "drive"}),
         None,
+        true,
+        "u/test-user/native_conn",
     )
     .await?;
 
@@ -454,12 +635,12 @@ async fn test_delete_integration_full_cascade(db: Pool<Postgres>) -> anyhow::Res
 
     // Step 2: Cleanup OAuth resources
     let mut tx = db.begin().await?;
-    windmill_native_triggers::workspace_integrations::cleanup_oauth_resource(
+    windmill_native_triggers::workspace_integrations::cleanup_service_connections(
         &mut *tx,
         "test-workspace",
         ServiceName::Google,
     )
-    .await;
+    .await?;
     tx.commit().await?;
 
     // Step 3: Delete workspace integration
@@ -534,17 +715,19 @@ async fn test_cleanup_preserves_triggers(db: Pool<Postgres>) -> anyhow::Result<(
         &trigger_config,
         json!({"triggerType": "drive"}),
         None,
+        true,
+        "u/test-user/native_conn",
     )
     .await?;
 
     // Cleanup OAuth only — should NOT remove the trigger
     let mut tx = db.begin().await?;
-    windmill_native_triggers::workspace_integrations::cleanup_oauth_resource(
+    windmill_native_triggers::workspace_integrations::cleanup_connection(
         &mut *tx,
         "test-workspace",
-        ServiceName::Google,
+        resource_path,
     )
-    .await;
+    .await?;
     tx.commit().await?;
 
     // OAuth resources gone
@@ -565,6 +748,147 @@ async fn test_cleanup_preserves_triggers(db: Pool<Postgres>) -> anyhow::Result<(
     .await?
     .unwrap_or(0);
     assert_eq!(trigger_count, 1, "trigger should survive OAuth cleanup");
+
+    Ok(())
+}
+
+// ============================================================================
+// 5. Runnable rename
+// ============================================================================
+
+/// A rename has to carry the trigger row onto the new path and report it as moved: listings only
+/// return rows whose runnable still exists, so one left behind on the old path disappears from the
+/// UI for good, and one not reported keeps a webhook aimed at the old path.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<()> {
+    insert_test_script(&db, "f/test/before").await?;
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-1",
+        &NativeTriggerConfig {
+            script_path: "f/test/before".to_string(),
+            is_flow: false,
+            webhook_token: "abcdefghij1234567890".to_string(),
+        },
+        json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
+        None,
+        true,
+        "u/test-user/native_conn",
+    )
+    .await?;
+    // An unrelated trigger already sitting on the target path must not be reported as moved.
+    insert_test_script(&db, "f/test/after").await?;
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-2",
+        &NativeTriggerConfig {
+            script_path: "f/test/after".to_string(),
+            is_flow: false,
+            webhook_token: "0987654321jihgfedcba".to_string(),
+        },
+        json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
+        None,
+        true,
+        "u/test-user/native_conn",
+    )
+    .await?;
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE script SET path = $1 WHERE workspace_id = 'test-workspace' AND path = $2",
+        "f/test/after",
+        "f/test/before",
+    )
+    .execute(&mut *tx)
+    .await?;
+    let moved = windmill_common::triggers::update_triggers_script_path(
+        &mut tx,
+        "f/test/after",
+        "f/test/before",
+        "test-workspace",
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+
+    assert_eq!(
+        moved
+            .iter()
+            .map(|t| (t.service_name.as_str(), t.external_id.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("nextcloud", "ext-1")]
+    );
+
+    let triggers = list_native_triggers(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        None,
+        None,
+        Some("f/test/after"),
+        Some(false),
+        ScopePathFilter::AllowAll,
+    )
+    .await?;
+    assert_eq!(
+        triggers.len(),
+        2,
+        "the moved trigger should be listed under the new path"
+    );
+
+    Ok(())
+}
+
+// ============================================================================
+// 6. Token scope filtering on list
+// ============================================================================
+
+/// A `native_triggers:read:f/test/*` token must only list triggers under `f/test/`, on the `/`
+/// boundary (`f/testx/` is out of scope).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_native_triggers_scope_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
+    for (i, path) in ["f/testx/out", "f/test/in"].into_iter().enumerate() {
+        insert_test_script(&db, path).await?;
+        store_native_trigger(
+            &db,
+            "test-workspace",
+            ServiceName::Nextcloud,
+            &format!("ext-{i}"),
+            &NativeTriggerConfig {
+                script_path: path.to_string(),
+                is_flow: false,
+                webhook_token: format!("abcdefghij123456789{i}"),
+            },
+            json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
+            None,
+            true,
+            "u/test-user/native_conn",
+        )
+        .await?;
+    }
+
+    let triggers = list_native_triggers(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        None,
+        None,
+        None,
+        None,
+        ScopePathFilter::Restricted { exact: vec![], prefix: vec!["f/test".to_string()] },
+    )
+    .await?;
+    assert_eq!(
+        triggers
+            .iter()
+            .map(|t| t.script_path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["f/test/in"]
+    );
 
     Ok(())
 }
@@ -621,4 +945,325 @@ fn test_parse_stop_channel_params_missing_resource_id() {
     let (channel_id, resource_id, _url) = parse_stop_channel_params(&config);
     assert!(channel_id.is_none());
     assert_eq!(resource_id, "");
+}
+
+// --- provider error reporting ---
+
+fn nextcloud_error(status: StatusCode, body: &str) -> Error {
+    NextCloud.external_api_error(HttpRequestError::ApiError { status, body: body.to_string() })
+}
+
+/// A rejection has to reach the user as the service's own sentence plus what to do about it,
+/// never as an internal error carrying the raw envelope.
+#[test]
+fn test_provider_rejection_is_readable_and_not_internal() {
+    let err = nextcloud_error(
+        StatusCode::FORBIDDEN,
+        r#"{"ocs":{"meta":{"status":"failure","statuscode":403,"message":"Logged in account must be an admin, a sub admin or gotten special right to access this setting"},"data":[]}}"#,
+    );
+
+    let message = map_external_error(err).to_string();
+    assert!(
+        message.contains("Logged in account must be an admin"),
+        "message={message}"
+    );
+    assert!(
+        !message.contains("\"ocs\""),
+        "the envelope should not reach the user: {message}"
+    );
+    assert!(
+        message.contains("the workspace's shared account"),
+        "the hint should say what to do: {message}"
+    );
+}
+
+/// Both the "trigger is gone on the service" path and the delete that tolerates an
+/// already-removed webhook branch on this status.
+#[test]
+fn test_provider_404_is_recognized() {
+    let err = nextcloud_error(StatusCode::NOT_FOUND, "{}");
+    assert_eq!(http_error_status(&err), Some(StatusCode::NOT_FOUND));
+    assert!(
+        matches!(map_external_error(err), Error::NotFound(_)),
+        "a missing external trigger must map to NotFound"
+    );
+    assert!(matches!(
+        classify_read_failure(nextcloud_error(StatusCode::NOT_FOUND, "{}")),
+        ExternalReadFailure::Missing
+    ));
+}
+
+/// Sending a user to reconnect their integration is only right when the token endpoint refused
+/// the grant; a busy or broken endpoint has them fix credentials that are fine.
+#[test]
+fn test_refresh_failures_blame_only_the_grant_they_refuse() {
+    let refused = |code: u16| grant_refused(Some(StatusCode::from_u16(code).unwrap()), "");
+    for code in [400, 401, 403] {
+        assert!(refused(code), "{code} refuses the grant");
+    }
+    for code in [404, 408, 429, 500, 503] {
+        assert!(!refused(code), "{code} says nothing about the grant");
+    }
+    assert!(!grant_refused(None, ""));
+
+    // GitHub answers `bad_refresh_token` with HTTP 200, so the body is the only tell.
+    let ok = Some(StatusCode::OK);
+    assert!(grant_refused(ok, r#"{"error":"bad_refresh_token"}"#));
+    assert!(grant_refused(ok, r#"{"error":"invalid_grant"}"#));
+    assert!(!grant_refused(
+        ok,
+        r#"{"access_token":"t","token_type":"bearer"}"#
+    ));
+}
+
+/// A service that is busy or broken has not refused anything, and callers react differently to
+/// the two. GitHub and Google spend a 403 on throttling, where advice about permissions sends
+/// the reader after a problem they do not have.
+#[test]
+fn test_transient_service_failures_are_not_refusals() {
+    for transient in [408, 429, 503] {
+        let err = nextcloud_error(StatusCode::from_u16(transient).unwrap(), "{}");
+        assert!(
+            matches!(map_external_error(err), Error::BadGateway(_)),
+            "{transient} should read as the service failing to serve, not refusing"
+        );
+    }
+
+    // GitHub words its throttle two ways, and neither is a permission problem.
+    for wording in [
+        "API rate limit exceeded for user ID 1.",
+        "You have exceeded a secondary rate limit.",
+        "You have triggered an abuse detection mechanism.",
+    ] {
+        let throttled = GitHub.external_api_error(HttpRequestError::ApiError {
+            status: StatusCode::FORBIDDEN,
+            body: format!(r#"{{"message":"{wording}"}}"#),
+        });
+        let throttled = map_external_error(throttled);
+        assert!(
+            matches!(throttled, Error::BadGateway(_)),
+            "a throttled 403 is the service failing to serve: {throttled:?}"
+        );
+        assert!(
+            !throttled.to_string().contains("admin rights"),
+            "a throttled 403 must not advise about permissions: {throttled}"
+        );
+    }
+
+    let refused = GitHub.external_api_error(HttpRequestError::ApiError {
+        status: StatusCode::FORBIDDEN,
+        body: r#"{"message":"Must have admin rights to Repository."}"#.to_string(),
+    });
+    assert!(
+        map_external_error(refused)
+            .to_string()
+            .contains("admin rights"),
+        "a real 403 keeps its guidance"
+    );
+}
+
+/// A service read degrades to the stored configuration, but only for the service's own
+/// failures: `External::get` also runs queries, and reporting one of those as the service's
+/// word would hide a Windmill outage behind a 200.
+#[test]
+fn test_only_service_failures_degrade_the_read() {
+    assert!(matches!(
+        classify_read_failure(nextcloud_error(StatusCode::FORBIDDEN, "{}")),
+        ExternalReadFailure::Unreadable(_)
+    ));
+    assert!(matches!(
+        classify_read_failure(Error::internal_err("connection pool timed out")),
+        ExternalReadFailure::Internal(_)
+    ));
+    let internal = Error::internal_err("connection pool timed out");
+    assert!(
+        matches!(map_external_error(internal), Error::InternalErrLoc { .. }),
+        "a non-provider error must pass through unmapped"
+    );
+}
+
+/// The pause switch a webhook delivery is gated on. A trigger arrives enabled, survives an
+/// unrelated edit, and an unknown one reads as enabled so a delivery Windmill cannot place is
+/// never silently dropped.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_native_trigger_enabled_toggle(db: Pool<Postgres>) -> anyhow::Result<()> {
+    insert_test_script(&db, "f/test/handler").await?;
+    let config = NativeTriggerConfig {
+        script_path: "f/test/handler".to_string(),
+        is_flow: false,
+        webhook_token: "abcdefghij1234567890".to_string(),
+    };
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-1",
+        &config,
+        json!({"event": "OCA\\Files\\Event\\LoadAdditionalScriptsEvent"}),
+        None,
+        true,
+        "u/test-user/native_conn",
+    )
+    .await?;
+
+    assert!(
+        native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-1").await?,
+        "a new trigger fires"
+    );
+
+    assert!(
+        set_native_trigger_enabled(
+            &db,
+            "test-workspace",
+            ServiceName::Nextcloud,
+            "ext-1",
+            false
+        )
+        .await?
+    );
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-1").await?
+    );
+
+    // Saving a configuration must not resume a trigger someone paused.
+    update_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-1",
+        &config,
+        None,
+        Some("edited"),
+    )
+    .await?;
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-1").await?,
+        "an edit leaves the pause in place"
+    );
+
+    // A recreate registers a fresh trigger and must be able to come up already paused, in one
+    // write, rather than being enabled for as long as it takes a second call to arrive.
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-2",
+        &config,
+        json!({}),
+        None,
+        false,
+        "u/test-user/native_conn",
+    )
+    .await?;
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-2").await?
+    );
+
+    // The conflict branch is a re-registration of a trigger that already exists, so it carries no
+    // opinion about the pause.
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-2",
+        &config,
+        json!({}),
+        None,
+        true,
+        "u/test-user/native_conn",
+    )
+    .await?;
+    assert!(
+        !native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "ext-2").await?,
+        "re-registering leaves the pause in place"
+    );
+
+    assert!(
+        !set_native_trigger_enabled(
+            &db,
+            "test-workspace",
+            ServiceName::Nextcloud,
+            "unknown",
+            true
+        )
+        .await?,
+        "nothing to toggle"
+    );
+    assert!(
+        native_trigger_is_enabled(&db, "test-workspace", ServiceName::Nextcloud, "unknown").await?,
+        "a trigger Windmill has no row for is not treated as paused"
+    );
+
+    Ok(())
+}
+
+/// Re-pointing a trigger replaces its webhook token, so the caller must be able to write the
+/// runnable it targets now, not only the one it is moved to.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_update_requires_writer_on_current_runnable(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let conn = "u/bob/native_nextcloud";
+    setup_oauth_integration(&db, ServiceName::Nextcloud, conn, "a", "r", None).await?;
+    let config = NativeTriggerConfig {
+        script_path: "u/alice/my_script".to_string(),
+        is_flow: false,
+        webhook_token: "abcdefghij1234567890".to_string(),
+    };
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-1",
+        &config,
+        json!({"event": "e"}),
+        None,
+        true,
+        conn,
+    )
+    .await?;
+
+    let bob = ApiAuthed {
+        email: "bob@windmill.dev".to_string(),
+        username: "bob".to_string(),
+        is_admin: false,
+        ..test_authed()
+    };
+    let app = axum::Router::new()
+        .nest(
+            "/w/{workspace_id}/native_triggers/nextcloud",
+            windmill_native_triggers::handler::service_routes(NextCloud),
+        )
+        .layer(axum::Extension(windmill_api_auth::OptJobAuthed {
+            job_id: None,
+            authed: bob,
+        }))
+        .layer(axum::Extension(UserDB::new(db.clone())))
+        .layer(axum::Extension(db.clone()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    tokio::spawn(async move { axum::serve(listener, app).await });
+
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://{addr}/w/test-workspace/native_triggers/nextcloud/update/ext-1"
+        ))
+        .json(&json!({
+            "script_path": "u/bob/my_script",
+            "is_flow": false,
+            "service_config": {"event": "e"},
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert!(
+        !status.is_success() && body.contains("u/alice/my_script"),
+        "{status}: {body}"
+    );
+
+    let path: String =
+        sqlx::query_scalar("SELECT script_path FROM native_trigger WHERE external_id = 'ext-1'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(path, "u/alice/my_script");
+    Ok(())
 }

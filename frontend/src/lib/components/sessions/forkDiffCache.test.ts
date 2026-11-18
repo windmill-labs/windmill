@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest'
 
-// Documents the cache-invalidation contract that ForkDiffDrawer.fetchComparison
-// relies on. The bug (cubic P2): per-item raw diffs (`loadedDiffs[key]`) and
-// per-item `summaries` are component-local $state that persist for the
-// drawer's lifetime. fetchComparison re-fetches the comparison on every
-// open(), but loadDiffFor short-circuits on `loadedDiffs[key]` — so an
-// edit-then-reopen would show fresh counts but the prior open's cached
-// expanded raw content. The fix clears both records at the top of
-// fetchComparison before the await. This test pins the contract from the
-// outside: nothing is allowed to read a stale per-item value across a
-// fetchComparison invocation.
+// Documents the cache-invalidation contract behind the session fork diff. The
+// bug (cubic P2): per-item raw diffs (`loadedDiffs[key]`) and per-item
+// `summaries` are component-local $state in WorkspaceDiffDrawer that persist for
+// the drawer's lifetime. The comparison is re-fetched on every open(), but
+// loadDiffFor short-circuits on `loadedDiffs[key]` — so an edit-then-reopen
+// would show fresh counts but the prior open's cached expanded raw content. The
+// fix clears both records on open() (and, for an in-place data-source swap like
+// the draft↔fork toggle, on a `resetKey` change). This test pins the contract
+// from the outside: nothing is allowed to read a stale per-item value across a
+// re-fetch.
 
 type LoadedDiff = { state: 'ready'; parentRaw: string; forkRaw: string }
 

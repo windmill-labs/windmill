@@ -9,6 +9,9 @@
 		noDate?: boolean
 		isRecent?: boolean
 		noSeconds?: boolean
+		/** Single-unit form ("2m", "3h", "5d") for rows too narrow for "2 mins ago". With
+		 * `noSeconds`, the first minute reads "1m" rather than counting seconds. */
+		compact?: boolean
 	}
 
 	let {
@@ -16,7 +19,8 @@
 		agoOnlyIfRecent = false,
 		noDate = false,
 		isRecent = $bindable(true),
-		noSeconds = false
+		noSeconds = false,
+		compact = false
 	}: Props = $props()
 
 	let computedTimeAgo: string | undefined = $state(undefined)
@@ -24,21 +28,60 @@
 	let interval
 
 	onMount(() => {
-		// Update every minute for noSeconds mode, every second for regular mode
-		const intervalMs = noSeconds ? 60000 : 1000
+		// compact and noSeconds schedule themselves below; they need no fixed rate.
+		if (compact || noSeconds) return
+
 		interval = setInterval(() => {
 			computeDate()
 			if (!isRecent) {
 				clearInterval(interval)
 				interval = undefined
 			}
-		}, intervalMs)
+		}, 1000)
 
 		// Add explicit cleanup
 		return () => {
 			interval && clearInterval(interval)
 		}
 	})
+
+	// Waking on the boundary of the unit on screen, rather than at a fixed rate: `2h` only
+	// changes on the hour, and a row that reads `5d` must not hold a 1s timer to find that
+	// out. Re-armed when `date` changes, so an item edited to now leaves its day-long wait.
+	// noSeconds rides the same schedule: its relative forms keep counting hours and days,
+	// so a fixed-rate timer that stops once the date is an hour old would freeze them.
+	$effect(() => {
+		if (!compact && !noSeconds) return
+		const at = date
+		// An absent or unparsable date has no boundary to wait for: the delay below would
+		// be NaN, which setTimeout runs immediately, and the tick would re-arm itself in
+		// a tight loop.
+		if (Number.isNaN(new Date(at).getTime())) return
+		let handle: ReturnType<typeof setTimeout> | undefined
+		const tick = () => {
+			computeDate()
+			handle = setTimeout(tick, nextUnitBoundaryMs(at))
+		}
+		handle = setTimeout(tick, nextUnitBoundaryMs(at))
+		return () => {
+			handle && clearTimeout(handle)
+		}
+	})
+
+	function nextUnitBoundaryMs(dateString: string): number {
+		const secs = secondsAgo(new Date(dateString))
+		const left =
+			secs < 60
+				? compact && noSeconds
+					? 60 - secs
+					: 1
+				: secs < 3600
+					? 60 - (secs % 60)
+					: secs < 86_400
+						? 3600 - (secs % 3600)
+						: 86_400 - (secs % 86_400)
+		return left * 1000
+	}
 
 	async function computeDate() {
 		computedTimeAgo = await displayDaysAgo(date)
@@ -79,6 +122,21 @@
 
 	async function displayDaysAgo(dateString: string): Promise<string> {
 		const date = new Date(dateString)
+
+		if (compact) {
+			// The s/m/h/d ladder the hand-rolled `ago()` helpers around the codebase use
+			// (PipelineEventLog, PipelineActivityPanel, IndexerMemorySettings): seconds stay
+			// meaningful right up to the minute mark.
+			const secs = secondsAgo(date)
+			if (secs < 60) return noSeconds ? '1m' : `${secs}s`
+			const mins = minutesAgo(date)
+			if (mins < 60) return `${mins}m`
+			const hours = hoursAgo(date)
+			if (hours < 24) return `${hours}h`
+			// Days all the way up, never an absolute date: callers read as "<slot> ago", and
+			// the hand-rolled ago() helpers this mirrors have no date fallback either.
+			return `${daysAgo(date)}d`
+		}
 
 		// New noSeconds mode
 		if (noSeconds) {

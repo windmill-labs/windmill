@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO macro_usage (workspace_id, consumer_path, macro_name)\n         SELECT $2, consumer_path, macro_name\n         FROM macro_usage WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "36fb69f46ccfb559cd5a25db5fb35bd5a777effb1e61f530f3c1868b407e74e4"
+}

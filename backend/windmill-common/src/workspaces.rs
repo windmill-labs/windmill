@@ -6,9 +6,13 @@ use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 
 use crate::{
+    datatable_roles::{ADMIN_DATATABLE_ROLE, CUSTOM_INSTANCE_USER},
+    db::Authable,
     error::{self, to_anyhow, Error, Result},
     get_database_url,
-    utils::get_custom_pg_instance_password,
+    roles::{caller_capabilities, AuthorLevel, RoleCapabilities},
+    secret_backend::{get_secret_value, resolves_externally},
+    utils::{get_custom_pg_instance_password, get_custom_pg_instance_replication_password},
     variables::{build_crypt, decrypt},
     PgDatabase, DB,
 };
@@ -59,7 +63,12 @@ pub struct ProtectionRuleset {
     pub rules: ProtectionRules,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
+    /// Role a member of the workspace gets in a fork of it, keyed by the role it holds here.
+    /// Unmapped roles carry over unchanged.
+    pub fork_role_mapping: ForkRoleMapping,
 }
+
+pub type ForkRoleMapping = sqlx::types::Json<std::collections::BTreeMap<String, String>>;
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -69,6 +78,9 @@ bitflags::bitflags! {
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
+        const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
+        const RESTRICT_GUEST_APP_DEPLOYMENT =       1 << 5;
+        const REQUIRE_ISOLATED_FORKS =              1 << 6;
     }
 }
 
@@ -80,6 +92,9 @@ pub enum ProtectionRuleKind {
     DisableWorkspaceForking,
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
+    RestrictPublicRunSharing,
+    RestrictGuestAppDeployment,
+    RequireIsolatedForks,
 }
 
 impl ProtectionRuleKind {
@@ -97,6 +112,13 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 ProtectionRules::RESTRICT_ANONYMOUS_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
+            }
+            ProtectionRuleKind::RestrictGuestAppDeployment => {
+                ProtectionRules::RESTRICT_GUEST_APP_DEPLOYMENT
+            }
+            ProtectionRuleKind::RequireIsolatedForks => ProtectionRules::REQUIRE_ISOLATED_FORKS,
         }
     }
 
@@ -112,6 +134,15 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 "Making an app publicly accessible without login (anonymous execution mode) is restricted in this workspace"
             }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                "Sharing a run publicly (readable without login) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictGuestAppDeployment => {
+                "Opening an app to guests (anyone who can sign in) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RequireIsolatedForks => {
+                "Forks of this workspace must isolate its data: no shared object storage or ducklake, and every data table cloned"
+            }
         }
     }
 }
@@ -123,6 +154,15 @@ impl From<&Vec<ProtectionRuleKind>> for ProtectionRules {
             r = r | rule.flag();
         }
         r
+    }
+}
+
+impl ProtectionRules {
+    /// The rules set, in declaration order.
+    pub fn kinds(self) -> Vec<ProtectionRuleKind> {
+        <ProtectionRuleKind as strum::IntoEnumIterator>::iter()
+            .filter(|k| self.contains(k.flag()))
+            .collect()
     }
 }
 
@@ -163,9 +203,23 @@ pub enum ObjectType {
     Settings,
     Key,
     WorkspaceDependencies,
+    DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28261/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30453/sync-script-to-git-repo-windmill";
+
+/// Hub script that applies a repository's state back into a workspace
+/// (the repo → Windmill / "pull" direction). Same script the UI runs from
+/// `PullWorkspaceModal` with `pull: true`. The hub resolves by numeric id and
+/// ignores the slug, so the slug is kept free of characters that would be
+/// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
+/// reverse proxies reject as double-encoding when the client re-encodes it).
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30451/git-sync-init-repository-windmill";
+
+/// Hub script that reviews a pull request with the workspace's AI (`ai_review_prs`): clones
+/// the base branch, fetches the pull request's head and runs `wmill review --json` from the
+/// `windmill-cli` it pins. The server posts what it returns.
+pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30452/git-sync-review-pull-request-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -178,7 +232,70 @@ pub const WM_FORK_PREFIX: &str = "wm-fork-";
 /// layer because the actual branch creation runs in a deferred git-sync worker job — without
 /// this check, the API returns 200 and the failure only surfaces later in the worker.
 pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
-    if !id.starts_with(WM_FORK_PREFIX) {
+    validate_workspace_branch_id(id, true)
+}
+
+/// Like [`validate_fork_workspace_id`] but does not require the `wm-fork-` prefix. Used for dev
+/// workspaces, whose id is an ordinary (prefix-less) workspace id but must still be git-branch-safe
+/// because it is interpolated into a `wm-fork/<original_branch>/<id>` branch name like any fork.
+pub fn validate_dev_workspace_id(id: &str) -> error::Result<()> {
+    validate_workspace_branch_id(id, false)
+}
+
+/// Split a fork git branch `wm-fork/<base_branch>/<suffix>` into `(base_branch, suffix)`.
+///
+/// Inverse of the CLI/hub-script `forkBranchName`. The suffix is a workspace id
+/// fragment and can't contain `/` (enforced by [`validate_fork_workspace_id`] /
+/// [`validate_dev_workspace_id`] at every fork/dev creation and attach path), while
+/// the base branch may (`release/v2`), so the split is on the last separator.
+/// Returns `None` for anything else.
+pub fn parse_fork_branch(branch: &str) -> Option<(&str, &str)> {
+    let rest = branch.strip_prefix("wm-fork/")?;
+    let idx = rest.rfind('/')?;
+    let (base, suffix) = (&rest[..idx], &rest[idx + 1..]);
+    if base.is_empty() || suffix.is_empty() {
+        return None;
+    }
+    Some((base, suffix))
+}
+
+/// Workspace ids that could own a fork branch with this suffix: a generated fork
+/// (`wm-fork-<suffix>`, whose branch strips the id prefix) or a dev workspace
+/// (prefix-less id used verbatim). Ordered generated-fork first so an ambiguous
+/// suffix resolves deterministically.
+pub fn fork_branch_workspace_id_candidates(suffix: &str) -> [String; 2] {
+    [format!("{WM_FORK_PREFIX}{suffix}"), suffix.to_string()]
+}
+
+/// Git branch a dev workspace syncs with: its environment label verbatim, as a
+/// first-class top-level branch (`dev`, `staging` — the classic env-branch
+/// layout), defaulting to `dev` when the label is unset. Throwaway forks use
+/// the namespaced `wm-fork/<base>/<suffix>` form instead.
+pub fn dev_workspace_branch(label: Option<&str>) -> String {
+    label.filter(|l| !l.is_empty()).unwrap_or("dev").to_string()
+}
+
+/// The `workspace.name` column is `character varying(50)`, so a name longer than 50 characters
+/// triggers a raw `value too long for type character varying(50)` SQL error on insert. Validate
+/// up front to return a clear message instead.
+pub fn validate_workspace_name(name: &str) -> error::Result<()> {
+    if name.chars().count() > 50 {
+        return Err(Error::BadRequest(format!(
+            "Workspace name is too long ({} chars). Maximum length is 50 characters.",
+            name.chars().count()
+        )));
+    }
+    Ok(())
+}
+
+fn validate_workspace_branch_id(id: &str, require_fork_prefix: bool) -> error::Result<()> {
+    if id.is_empty() {
+        return Err(Error::BadRequest(
+            "Workspace id cannot be empty".to_string(),
+        ));
+    }
+
+    if require_fork_prefix && !id.starts_with(WM_FORK_PREFIX) {
         return Err(Error::BadRequest(format!(
             "The id `{}` is invalid for a forked workspace. It should be prefixed by {}",
             id, WM_FORK_PREFIX
@@ -187,8 +304,9 @@ pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
 
     if id.len() > 50 {
         return Err(Error::BadRequest(format!(
-            "Fork workspace id `{}` is too long ({} chars). Maximum length is 50 characters (including the '{}' prefix).",
-            id, id.len(), WM_FORK_PREFIX
+            "Workspace id `{}` is too long ({} chars). Maximum length is 50 characters.",
+            id,
+            id.len()
         )));
     }
 
@@ -211,12 +329,13 @@ pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
     if id.contains("@{") {
         return reject("cannot contain '@{'");
     }
-    if id.contains("//") {
-        return reject("cannot contain '//'");
-    }
     for ch in id.chars() {
         match ch {
-            ':' | '~' | '^' | '?' | '*' | '[' | '\\' | ' ' => {
+            // '/' is git-legal in a branch but banned here: the id becomes the last
+            // component of `wm-fork/<base_branch>/<id>` and `parse_fork_branch` splits
+            // that branch on the last '/' (the base branch itself may contain '/'),
+            // so a slash in the id would make the fork unroutable for auto-sync.
+            ':' | '~' | '^' | '?' | '*' | '[' | '\\' | ' ' | '/' => {
                 return reject(&format!("contains forbidden character '{}'", ch));
             }
             c if c.is_ascii_control() || c == '\u{7f}' => {
@@ -225,19 +344,17 @@ pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
             _ => {}
         }
     }
-    // Each slash-separated component cannot start with '.' or end with '.lock'.
-    for component in id.split('/') {
-        if component.starts_with('.') {
-            return reject("a path component cannot start with '.'");
-        }
-        if component.ends_with(".lock") {
-            return reject("a path component cannot end with '.lock'");
-        }
+    if id.starts_with('.') {
+        return reject("cannot start with '.'");
     }
     Ok(())
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitRepositorySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_types_override: Option<Vec<ObjectType>>,
@@ -250,6 +367,38 @@ pub struct GitRepositorySettings {
     pub group_by_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
+    /// Configuration for automatically pulling changes from the git repository
+    /// back into the workspace (repo → Windmill direction). Absent means the
+    /// reverse direction is not automated (the historical behaviour).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_pull: Option<AutoPullSettings>,
+    /// Open a PR when a deploy pushes a `wm_deploy/**` branch of this promotion
+    /// repo (needs a credential the server holds — a GitHub App installation or
+    /// a checked GitLab token; runs from the deploy callback so it works without
+    /// inbound webhooks). Off by default so upgrades don't change behavior.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub promotion_open_prs: bool,
+    /// Parent-level: open a PR when a fork of this workspace deploys to its
+    /// `wm-fork/**` branch (needs a credential the server holds; the fork's
+    /// deploy callback reads this from the parent). Off by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fork_open_prs: bool,
+    /// Review every pull request against the tracked branch with the workspace's AI and post
+    /// the findings on it (`wmill review`, run by `GIT_SYNC_REVIEW_SCRIPT_PATH`). Arrives on
+    /// the pull request webhook, so it needs a credential the server holds. Parent-owned like
+    /// `fork_open_prs`; off by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ai_review_prs: bool,
+    /// Server-owned: the last failure opening a PR for a deploy branch of this
+    /// repo (e.g. the GitHub App installation hasn't approved the pull-request
+    /// permission). Written by the deploy completion hook, cleared on the next
+    /// successful PR; never accepted from clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_pr_error: Option<String>,
+    /// Server-owned: what the repo's credential says about its own expiry and
+    /// scopes. Written by the credential check, never accepted from clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<GitCredentialStatus>,
 }
 
 impl GitRepositorySettings {
@@ -259,29 +408,226 @@ impl GitRepositorySettings {
             .unwrap_or(LATEST_GIT_SYNC_SCRIPT_PATH)
     }
 
+    /// The path a deployment callback job is queued with.
+    pub fn callback_path(&self) -> String {
+        sync_callback_path(self.script_path.as_deref())
+    }
+
     pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
-        let path = self.effective_script_path();
-        // example: "hub/28102/sync-script-to-git-repo-windmill"
-        let current = path
-            .split("/") // -> ["hub" "28102" "sync-script-to-git-repo-windmill"]
-            .skip(1) // omit "hub"
-            .next() // get numeric id
-            .ok_or(Error::InternalErr(format!(
-                "cannot get script version id from: {}",
-                path
-            )))?
-            .parse()
-            .unwrap_or_else(|e| {
-                tracing::warn!("cannot get script version id from: {}. e: {e}", path);
-
-                u32::MAX
-            });
-
-        Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
+        Ok(sync_script_meets_min_version(
+            &self.callback_path(),
+            min_version,
+        ))
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+/// The path a git sync script (`None` for the latest one) is queued with: parsed when it
+/// parses. A setting that doesn't parse is kept as written, so its callback is still queued and
+/// fails visibly in the workspace's runs instead of the repository silently not syncing.
+pub fn sync_callback_path(script_path: Option<&str>) -> String {
+    let raw = script_path.unwrap_or(LATEST_GIT_SYNC_SCRIPT_PATH);
+    crate::runnable_ref::RunnableRef::from_path(raw, false)
+        .map_or_else(|_| raw.to_string(), |script| script.path().to_string())
+}
+
+/// Whether the git sync script queued at `path` (from [`sync_callback_path`]) is at least
+/// `min_version`. Never fails, so one repository's setting cannot stop the others' dispatch.
+pub fn sync_script_meets_min_version(path: &str, min_version: u32) -> bool {
+    // Reading the queued path makes `/hub/28102/…` hub 28102. Not `hub_id()`: a workspace path
+    // keeps its second segment as version (`f/28000/…`).
+    let current = path
+        .split('/')
+        .nth(1)
+        .and_then(|id| id.parse().ok())
+        .unwrap_or_else(|| {
+            tracing::warn!("cannot get script version id from: {}", path);
+
+            u32::MAX
+        });
+
+    current >= min_version // this works on assumption that all scripts in hub have sequential ids
+}
+
+/// How auto-pull triggers are delivered for a repository.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoPullMode {
+    /// Try to create a repo webhook; fall back to polling if the instance is not
+    /// reachable from GitHub or the app lacks the webhook permission.
+    #[default]
+    Auto,
+    /// Webhook delivery only (no polling fallback).
+    Webhook,
+    /// Polling only (`git ls-remote` on an interval).
+    Polling,
+}
+
+/// Host whose credential lifecycle Windmill can manage from the repo URL.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GitCredentialProvider {
+    Gitlab,
+}
+
+/// What the repo's own credential says about itself, refreshed by asking the
+/// host. Server-owned: written by the credential check, never accepted from a
+/// client.
+///
+/// Absent means the check has not run or the repo carries no credential we can
+/// introspect (a GitHub App repo mints tokens per call and has nothing to expire).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GitCredentialStatus {
+    pub provider: GitCredentialProvider,
+    /// Changes on every rotation, so it identifies the current token, not the
+    /// credential's whole history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_id: Option<i64>,
+    /// `None` is a non-expiring token, which only self-managed GitLab can issue
+    /// (and only for a service account). It means no warning and no rotation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<chrono::NaiveDate>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scopes: Vec<String>,
+    /// Whether *this workspace* renews the credential. That needs a scope which
+    /// permits it (`api` or `self_rotate`) and a credential this workspace holds:
+    /// a token carried in the repository URL is the operator's to manage, and one
+    /// resolved from an ancestor is the ancestor's, so neither is renewed here.
+    pub rotatable: bool,
+    /// Unix timestamp (seconds) of the last check.
+    pub checked_at: i64,
+    /// Why the last check or rotation failed, cleared by the next success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Outcome of the most recent auto-pull attempt, surfaced in the UI.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AutoPullStatus {
+    /// Commit sha the workspace was last synced to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synced_sha: Option<String>,
+    /// Unix timestamp (seconds) of the attempt.
+    pub at: i64,
+    /// Job id of the pull run, if one was enqueued.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<uuid::Uuid>,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Per-repository configuration for automatic repo → Windmill pull sync.
+///
+/// Stored inside `GitRepositorySettings` (workspace_settings.git_sync JSONB).
+/// Webhook fields are populated in phase 2; phase 1 exercises the polling path
+/// only, but the full shape is defined up front to avoid a second schema change.
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct AutoPullSettings {
+    /// Default so a server-written status-only blob (fork workspaces, which never
+    /// enable auto-pull themselves) parses even without the field.
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub mode: AutoPullMode,
+    /// Polling interval in seconds. Defaults to `DEFAULT_AUTO_PULL_POLL_INTERVAL_S`
+    /// when polling without an active webhook, relaxed once a webhook is live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll_interval_s: Option<u32>,
+    /// Parent-level: also pull each live fork of this workspace from its own
+    /// `wm-fork/<branch>/<id>` branch when that branch moves (webhook or poll),
+    /// the managed equivalent of the `push-on-merge-to-forks` GitHub Action.
+    /// Configured once on the parent; forks never enable auto-pull themselves.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sync_forks: bool,
+    /// GitHub repository webhook id (managed-app, phase 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_id: Option<i64>,
+    /// HMAC secret for the repo webhook, encrypted at rest (managed-app, phase 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_secret: Option<String>,
+    /// Receiver URL the live webhook was registered with. Compared against the
+    /// currently configured one to re-register the hook when the instance's
+    /// webhook base URL changes.
+    ///
+    /// `None` on hooks predating this field: the reconcile then asks GitHub where
+    /// that hook actually points and backfills this when it matches, replaces it
+    /// when it doesn't, and registers a fresh hook when GitHub reports it gone. Only
+    /// a failed lookup leaves the hook untouched, to be retried later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
+    /// Why the repo has no active webhook while one was requested (auto/webhook
+    /// mode): instance base URL unset, app missing the webhook permission, etc.
+    /// Surfaced in the UI as a "falling back to polling" warning; `None` when the
+    /// webhook is live or the repo is polling-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_error: Option<String>,
+    /// Last synced commit sha per tracked git ref (e.g. `refs/heads/main`).
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub last_synced_sha: std::collections::HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_pull_status: Option<AutoPullStatus>,
+    /// Email of the admin this repository's automatic pulls (its own and its forks')
+    /// apply changes as: whoever last saved the settings with auto pull on. Stamped
+    /// server-side, never taken from the client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled_by: Option<String>,
+}
+
+// Manual Debug so the HMAC `webhook_secret` (even encrypted) never lands in logs.
+impl std::fmt::Debug for AutoPullSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AutoPullSettings")
+            .field("enabled", &self.enabled)
+            .field("mode", &self.mode)
+            .field("poll_interval_s", &self.poll_interval_s)
+            .field("sync_forks", &self.sync_forks)
+            .field("enabled_by", &self.enabled_by)
+            .field("webhook_id", &self.webhook_id)
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .field("webhook_url", &self.webhook_url)
+            .field("webhook_error", &self.webhook_error)
+            .field("last_synced_sha", &self.last_synced_sha)
+            .field("last_pull_status", &self.last_pull_status)
+            .finish()
+    }
+}
+
+/// Default polling interval when a webhook is not active.
+pub const DEFAULT_AUTO_PULL_POLL_INTERVAL_S: u32 = 60;
+
+/// Relaxed polling interval used as a safety net while a webhook is active.
+pub const WEBHOOK_AUTO_PULL_POLL_INTERVAL_S: u32 = 600;
+
+impl AutoPullSettings {
+    /// Effective polling interval in seconds, honouring the explicit override and
+    /// relaxing to `WEBHOOK_AUTO_PULL_POLL_INTERVAL_S` when a webhook is live.
+    pub fn effective_poll_interval_s(&self) -> u32 {
+        self.poll_interval_s.unwrap_or_else(|| {
+            if self.webhook_id.is_some() {
+                WEBHOOK_AUTO_PULL_POLL_INTERVAL_S
+            } else {
+                DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+            }
+        })
+    }
+
+    /// Whether a freshly observed `(git_ref, head_sha)` warrants enqueuing a pull.
+    ///
+    /// A trigger (poll or webhook) is only a hint: we pull when auto-pull is
+    /// enabled and the observed head differs from the last sha we pulled for
+    /// that ref. Re-observing the same head (a redundant poll) is a no-op. A
+    /// commit our own deploy pushed is skipped only when it sits directly on the
+    /// synced head (`advance_synced_sha_past_own_push`); pushed on anything else,
+    /// it moves nothing here, so the pull picks up the commits under it.
+    pub fn should_pull(&self, git_ref: &str, head_sha: &str) -> bool {
+        self.enabled && self.last_synced_sha.get(git_ref).map(String::as_str) != Some(head_sha)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitSyncSettings {
     pub include_path: Vec<String>,
     pub include_type: Vec<ObjectType>,
@@ -316,8 +662,464 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "cloud")]
+lazy_static::lazy_static! {
+    // Maps a workspace id to its root (billing) ancestor. Value: (root_id, expiry_timestamp).
+    // Reparenting (attach/detach dev) is rare and self-heals via the 60s TTL, so a brief stale
+    // mapping only mis-attributes usage for <60s across other instances.
+    pub static ref BILLING_WORKSPACE_CACHE: Cache<String, (String, i64)> = Cache::new(5000);
+}
+
+/// Resolve the "billing" workspace for `w_id`: the root ancestor of the fork/dev chain (the
+/// workspace whose plan and usage a fork draws from). Returns `w_id` unchanged for a standalone
+/// workspace, an unknown id, or a (malformed) cyclic chain.
+///
+/// Unauthenticated metering helper: it only reads the parent chain and returns another workspace id,
+/// so callers must already be authorized for `w_id` (or run in trusted server-side code); `w_id` is
+/// expected to be a server-side id, not raw user input.
+#[cfg(feature = "cloud")]
+pub async fn get_billing_workspace_id(db: &crate::DB, w_id: &str) -> Result<String> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some((root, expiry)) = BILLING_WORKSPACE_CACHE.get(w_id) {
+        if expiry > now {
+            return Ok(root);
+        }
+    }
+
+    // The depth bound is a cycle-safety backstop kept well above the enforced `MAX_FORK_DEPTH`, so a
+    // truncated (root-not-found) result — which would fall back to `w_id` and mis-attribute billing —
+    // is unreachable for any real hierarchy; only a malformed cycle could hit it.
+    let root = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT id AS "id!" FROM chain WHERE parent_workspace_id IS NULL LIMIT 1
+        "#,
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving billing workspace for {w_id}: {e:#}")))?
+    .unwrap_or_else(|| w_id.to_string());
+
+    BILLING_WORKSPACE_CACHE.insert(w_id.to_string(), (root.clone(), now + 60));
+    Ok(root)
+}
+
+/// Invalidate the billing-workspace mapping for a workspace (call after reparenting it).
+#[cfg(feature = "cloud")]
+pub fn invalidate_billing_workspace_cache(w_id: &str) {
+    BILLING_WORKSPACE_CACHE.remove(w_id);
+}
+
+/// Invalidate the cached team-plan (premium/past-due) status for a workspace. `TEAM_PLAN_CACHE` has
+/// no TTL — it's only evicted by the premium-change NOTIFY — so call this when a workspace id is
+/// permanently deleted, otherwise a reused id could inherit the old workspace's premium status.
+#[cfg(feature = "cloud")]
+pub fn invalidate_team_plan_cache(w_id: &str) {
+    TEAM_PLAN_CACHE.remove(w_id);
+}
+
+/// Depth of `w_id` in its fork chain: 0 for a root (no parent), 1 for a direct fork, and so on. Walks
+/// the parent chain up to the root. The recursion bound is a cycle-safety backstop set well above the
+/// enforced `MAX_FORK_DEPTH`; a (malformed) cyclic chain saturates it and so reads as "too deep",
+/// which safely rejects rather than allows.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn fork_chain_depth(db: &crate::DB, w_id: &str) -> Result<i64> {
+    let depth = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT COALESCE(MAX(depth), 0)::bigint AS "depth!" FROM chain
+        "#,
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("computing fork depth for {w_id}: {e:#}")))?;
+    Ok(depth)
+}
+
+/// Height of the fork subtree rooted at `w_id`: 0 when it has no live child forks, 1 with direct
+/// children, and so on. Used so that attaching a candidate which already has its own child forks can't
+/// push the family past the depth limit.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn fork_subtree_height(db: &crate::DB, w_id: &str) -> Result<i64> {
+    // The `deleted` filter is applied in the outer aggregation (not the recursive step, matching
+    // count_workspace_forks) so a live descendant under a soft-deleted intermediate is still measured
+    // at its true depth rather than pruned — otherwise the height could be underestimated and let the
+    // resulting chain exceed the depth limit.
+    let height = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE tree.depth < 20
+            )
+            SELECT COALESCE(MAX(depth) FILTER (WHERE NOT deleted), 0)::bigint AS "height!" FROM tree
+        "#,
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("computing fork subtree height for {w_id}: {e:#}")))?;
+    Ok(height)
+}
+
+/// Parent id of `w_id` when `email` is the creator of that fork, `None` otherwise (including for a
+/// root workspace, which has no creator in this sense).
+///
+/// The creator is recorded as `workspace.owner`, but the `usr` row they get in the fork is copied
+/// from the parent — so a forker who is not an admin of the parent is not an admin of the fork they
+/// just created either, and cannot bring anyone in to work on it. Being the creator therefore grants
+/// a narrow membership right over the fork; the callers own the exact bounds of that grant (see
+/// `add_user` in `windmill-api-workspaces`).
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code). Takes any executor so that a
+/// caller can run it inside the transaction whose writes the grant authorizes.
+pub async fn fork_owned_by<'e, E: sqlx::Executor<'e, Database = sqlx::Postgres>>(
+    db: E,
+    w_id: &str,
+    email: &str,
+) -> Result<Option<String>> {
+    let parent = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace
+         WHERE id = $1 AND owner = $2 AND parent_workspace_id IS NOT NULL AND NOT deleted",
+        w_id,
+        email
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking fork ownership of {w_id}: {e:#}")))?;
+    Ok(parent.flatten())
+}
+
+/// Ids of every fork/dev workspace anywhere under `w_id` (excludes `w_id` itself), including live
+/// descendants beneath a soft-deleted intermediate. Used to invalidate per-workspace caches for a
+/// whole subtree after its ancestor is reparented.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn list_fork_descendants(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let ids = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE tree.depth < 20
+            )
+            SELECT id AS "id!" FROM tree WHERE id != $1
+        "#,
+        w_id
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("listing fork descendants of {w_id}: {e:#}")))?;
+    Ok(ids)
+}
+
+/// Count non-deleted fork/dev workspaces anywhere under `root` (excludes `root` itself).
+///
+/// Unauthenticated metering helper: it reads workspace hierarchy for any `root` id, so callers must
+/// already be authorized for that workspace (or run in trusted server-side code). `root` is expected
+/// to be a server-resolved id, never raw user input.
+#[cfg(feature = "cloud")]
+pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
+    // The `deleted` filter is on the outer SELECT (not the recursive step) so that a live sub-fork
+    // whose intermediate parent was soft-deleted is still counted rather than pruned with it. The
+    // depth bound is a cycle-safety backstop kept well above the enforced `MAX_FORK_DEPTH`, so
+    // descendants are never silently dropped from the cap count.
+    let count = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE tree AS (
+                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w
+                JOIN tree ON w.parent_workspace_id = tree.id
+                WHERE tree.depth < 20
+            )
+            SELECT COUNT(DISTINCT id) AS "count!" FROM tree WHERE id != $1 AND NOT deleted
+        "#,
+        root
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting forks of {root}: {e:#}")))?;
+    Ok(count)
+}
+
+/// The billable members of a workspace and the seats they add up to.
+#[derive(Clone, Debug, Serialize)]
+pub struct BillableSeats {
+    pub developers: i64,
+    pub operators: i64,
+    pub service_accounts: i64,
+    pub seats: i64,
+}
+
+/// Guests are free up to `FREE_GUESTS_PER_WINDOW` distinct emails over the trailing
+/// `GUEST_WINDOW_DAYS`. Past that, an Enterprise plan meters them, `GUESTS_PER_SEAT`
+/// guests to one seat, while every other plan and build stops admitting new emails.
+pub const GUEST_WINDOW_DAYS: i32 = 30;
+pub const FREE_GUESTS_PER_WINDOW: i64 = 100;
+pub const GUESTS_PER_SEAT: i64 = 4;
+
+/// Whether guests past the allowance are metered (Enterprise plan) rather than refused.
+/// A build without `enterprise` has no plan and is capped, like a Pro key.
+pub async fn guests_are_metered() -> bool {
+    #[cfg(feature = "enterprise")]
+    {
+        matches!(
+            crate::ee_oss::get_license_plan().await,
+            crate::ee_oss::LicensePlan::Enterprise
+        )
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        false
+    }
+}
+
+/// Seats the guests past the free allowance consume: `ceil(billable / GUESTS_PER_SEAT)`.
+pub fn guest_seats(distinct_guests: i64) -> i64 {
+    let billable = (distinct_guests - FREE_GUESTS_PER_WINDOW).max(0);
+    (billable + GUESTS_PER_SEAT - 1) / GUESTS_PER_SEAT
+}
+
+/// Distinct guest emails over the trailing window, today included.
+pub async fn guest_count_in_window<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+) -> Result<i64> {
+    sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT email) FROM guest_activity WHERE day > CURRENT_DATE - $1",
+    )
+    .bind(GUEST_WINDOW_DAYS)
+    .fetch_one(executor)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting guests: {e:#}")))
+}
+
+/// The instance's standing against the guest allowance, as every surface reports it.
+#[derive(Clone, Debug, Serialize)]
+pub struct GuestUsage {
+    /// Whether this deployment can admit guests at all ([`instance_supports_guests`]).
+    /// Off, every other field is moot and an app in `guest` mode admits members only.
+    pub available: bool,
+    /// Distinct guest emails over the trailing `window_days`.
+    pub guest_count: i64,
+    pub window_days: i32,
+    pub free_allowance: i64,
+    /// Enterprise plan: guests past the allowance take `guest_seats`. Otherwise no new
+    /// email is admitted past it.
+    pub metered: bool,
+    pub billable_guests: i64,
+    pub guest_seats: i64,
+}
+
+/// What a caller is told when it asks for guests on a deployment that cannot have them.
+pub const GUESTS_UNAVAILABLE_MESSAGE: &str =
+    "Guest access is not available on Windmill Cloud. It requires a self-hosted instance \
+     or a dedicated Windmill Cloud deployment.";
+
+/// Whether guests can exist on this deployment at all. They cannot on the shared cloud:
+/// a guest is an identity Windmill itself never vouched for, admitted on the say-so of
+/// whoever runs the instance, which is not a call a multi-tenant deployment can make for
+/// its tenants. Folded into every guest gate below, so an app policy left saying `guest`
+/// is inert rather than honored.
+pub fn instance_supports_guests() -> bool {
+    !*crate::worker::CLOUD_HOSTED
+}
+
+/// [`instance_supports_guests`] as an error, for the writes that would otherwise store a
+/// setting that can never take effect.
+pub fn require_guest_support() -> Result<()> {
+    if instance_supports_guests() {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(GUESTS_UNAVAILABLE_MESSAGE.to_string()))
+    }
+}
+
+pub async fn guest_usage(db: &crate::DB) -> Result<GuestUsage> {
+    let guest_count = guest_count_in_window(db).await?;
+    let metered = guests_are_metered().await;
+    let billable_guests = if metered {
+        (guest_count - FREE_GUESTS_PER_WINDOW).max(0)
+    } else {
+        0
+    };
+    Ok(GuestUsage {
+        available: instance_supports_guests(),
+        guest_count,
+        window_days: GUEST_WINDOW_DAYS,
+        free_allowance: FREE_GUESTS_PER_WINDOW,
+        metered,
+        billable_guests,
+        guest_seats: if metered { guest_seats(guest_count) } else { 0 },
+    })
+}
+
+/// Whether `email` may be admitted as a guest right now. Checked once, where a session
+/// is minted: a returning guest (already in the window) is always let back in, so the
+/// cap only ever refuses a stranger, and a metered instance refuses nobody.
+///
+/// Must run inside the transaction that then records the guest in `guest_activity`:
+/// it takes a transaction-scoped lock so concurrent strangers count each other, and the
+/// lock is what keeps the cap exact rather than approximate.
+pub async fn guest_admission(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    if guests_are_metered().await {
+        return Ok(());
+    }
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('guest_allowance'))")
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| Error::internal_err(format!("locking the guest allowance: {e:#}")))?;
+    let (in_window, count): (bool, i64) = sqlx::query_as(
+        "SELECT
+            EXISTS(SELECT 1 FROM guest_activity WHERE email = $1 AND day > CURRENT_DATE - $2),
+            (SELECT COUNT(DISTINCT email) FROM guest_activity WHERE day > CURRENT_DATE - $2)",
+    )
+    .bind(email)
+    .bind(GUEST_WINDOW_DAYS)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking the guest allowance: {e:#}")))?;
+    if in_window || count < FREE_GUESTS_PER_WINDOW {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(format!(
+        "This instance has reached its limit of {FREE_GUESTS_PER_WINDOW} guests over \
+         {GUEST_WINDOW_DAYS} days. Guest sign-in beyond that needs an Enterprise license."
+    )))
+}
+
+/// Whether a guest session for `email` in `w_id` still stands: the deployment admits
+/// guests, and the email still has no account. Read at the auth door on every guest
+/// request, so an account provisioned after the mint (or racing it) ends the session on
+/// its next request. Whether its app still admits guests is the on-behalf resolver's call.
+pub async fn guest_session_stands(db: &crate::DB, w_id: &str, email: &str) -> Result<bool> {
+    if !instance_supports_guests() {
+        return Ok(false);
+    }
+    let stands: Option<bool> = sqlx::query_scalar(
+        "SELECT NOT EXISTS(SELECT 1 FROM password WHERE email = $2)
+            AND NOT EXISTS(SELECT 1 FROM usr WHERE email = $2)
+         FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .bind(email)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("checking the guest session of {email}: {e:#}")))?;
+    Ok(stands.unwrap_or(false))
+}
+
+/// Whether the deployment admits guests and `app_path` is in `guest` execution mode.
+/// The single answer to "may a guest session be minted for this app", used by the mint
+/// itself and by the sign-in branch that decides whether to call it. A missing app or a
+/// policy with no stated mode reads as "no". The allowance is `guest_admission`.
+pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+    w_id: &str,
+    app_path: &str,
+) -> Result<bool> {
+    // The mint refuses a path it cannot scope, so discovery must not advertise one.
+    if !instance_supports_guests() || !crate::auth::is_scope_literal_path(app_path) {
+        return Ok(false);
+    }
+    let admits: Option<bool> = sqlx::query_scalar(
+        "SELECT COALESCE(policy->>'execution_mode' = 'guest', false)
+         FROM app WHERE workspace_id = $1 AND path = $2",
+    )
+    .bind(w_id)
+    .bind(app_path)
+    .fetch_optional(executor)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!("checking guest access to {w_id}/{app_path}: {e:#}"))
+    })?;
+    Ok(admits.unwrap_or(false))
+}
+
+/// Billable members of `w_id` and the seats they cost, as
+/// `ceil(authors + (non_authors + service_accounts)/2)`. A service account is half a seat whatever
+/// its role; a disabled member is not billed. A member is an author when its role writes or
+/// composes scripts, flows or apps (`crate::roles::AUTHOR_SEAT_SQL`).
+///
+/// The workspace is invoiced by a job outside this codebase that counts the same rows with its own
+/// SQL. The two must be changed together: this rule disagreeing with that one is what bills a
+/// workspace for seats the product never credits it for.
+///
+/// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats> {
+    let (developers, operators, service_accounts): (i64, i64, i64) = sqlx::query_as(&format!(
+        "SELECT
+            COUNT(*) FILTER (WHERE ({author}) AND NOT disabled AND NOT is_service_account),
+            COUNT(*) FILTER (WHERE NOT ({author}) AND NOT disabled AND NOT is_service_account),
+            COUNT(*) FILTER (WHERE is_service_account AND NOT disabled)
+        FROM usr t WHERE workspace_id = $1",
+        author = crate::roles::AUTHOR_SEAT_SQL
+    ))
+    .bind(w_id)
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("counting billable seats of {w_id}: {e:#}")))?;
+    Ok(BillableSeats {
+        developers,
+        operators,
+        service_accounts,
+        seats: ((developers as f64) + 0.5 * ((operators + service_accounts) as f64)).ceil() as i64,
+    })
+}
+
+/// Seats only, for the fork cap. See [`billable_seats`].
+#[cfg(feature = "cloud")]
+pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
+    Ok(billable_seats(db, w_id).await?.seats)
+}
+
+/// Whether a workspace may use what Windmill Cloud reserves for paid plans (public apps, HTML
+/// and redirect job responses). Resolved through the fork/dev root; always true off the cloud.
+/// Reads billing state on the unrestricted pool: callers must already have authorized the
+/// request for `w_id`.
+pub async fn paid_features_allowed(_db: &crate::DB, _w_id: &str) -> Result<bool> {
+    #[cfg(feature = "cloud")]
+    if *crate::worker::CLOUD_HOSTED {
+        return Ok(get_team_plan_status(_db, _w_id).await?.premium);
+    }
+    Ok(true)
+}
+
+#[cfg(feature = "cloud")]
 pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPlanStatus> {
-    let cached = TEAM_PLAN_CACHE.get(_w_id);
+    // A fork/dev workspace draws its plan from the root (billing) workspace. Resolve to the root and
+    // key the cache by it: the premium-change NOTIFY is keyed by the workspace whose premium row
+    // changed (the root), so keying by root keeps invalidation correct and lets forks share it.
+    let billing_w_id = get_billing_workspace_id(_db, _w_id).await?;
+    let cached = TEAM_PLAN_CACHE.get(&billing_w_id);
     if let Some(cached) = cached {
         return Ok(cached);
     }
@@ -336,7 +1138,7 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
                 WHERE
                     w.id = $1
             "#,
-            _w_id
+            billing_w_id
         )
         .fetch_optional(_db)
         .await
@@ -348,13 +1150,13 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
     )
     .notify(|err, dur| {
         tracing::error!(
-            "Failed to get team plan status for workspace {_w_id} (will retry in {dur:?}): {err:#}"
+            "Failed to get team plan status for workspace {billing_w_id} (will retry in {dur:?}): {err:#}"
         );
     })
     .await
     .map_err(|err| {
         Error::internal_err(format!(
-            "Failed to get team plan status for workspace {_w_id} after 10 retries: {err:#}"
+            "Failed to get team plan status for workspace {billing_w_id} after 10 retries: {err:#}"
         ))
     })?
     .unwrap_or_else(|| TeamPlanStatus {
@@ -363,7 +1165,7 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
         max_tolerated_executions: None,
     });
 
-    TEAM_PLAN_CACHE.insert(_w_id.to_string(), team_plan_info.clone());
+    TEAM_PLAN_CACHE.insert(billing_w_id, team_plan_info.clone());
 
     Ok(team_plan_info)
 }
@@ -397,7 +1199,8 @@ pub async fn get_protection_rules(
                 name,
                 rules as "rules: ProtectionRules",
                 bypass_groups,
-                bypass_users
+                bypass_users,
+                fork_role_mapping as "fork_role_mapping: ForkRoleMapping"
             FROM workspace_protection_rule
             WHERE workspace_id = $1
             ORDER BY name
@@ -421,6 +1224,222 @@ pub fn invalidate_protection_rules_cache(workspace_id: &str) {
     PROTECTION_RULES_CACHE.remove(workspace_id);
 }
 
+// Role rights. What a restricted caller may author or manage comes from its role; see
+// `crate::roles`. The gates below keep the operator vocabulary of the call sites that predate roles.
+
+/// What a caller may compose or author, per kind, at least at the `Compose` level.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct OperatorBuilderRights {
+    pub flows: bool,
+    pub apps: bool,
+}
+
+/// Which capability a gate needs. Naming a kind at each call site is what keeps the two rights
+/// from collapsing back into one: a gate that takes "either" authorizes an app write for a role
+/// that may only compose flows.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BuilderKind {
+    Flows,
+    Apps,
+}
+
+impl OperatorBuilderRights {
+    /// Whether either right is granted. Only for surfaces that are genuinely not per-kind, such
+    /// as listing drafts.
+    pub fn any(&self) -> bool {
+        self.flows || self.apps
+    }
+
+    pub fn has(&self, kind: BuilderKind) -> bool {
+        match kind {
+            BuilderKind::Flows => self.flows,
+            BuilderKind::Apps => self.apps,
+        }
+    }
+
+    pub fn from_capabilities(caps: &RoleCapabilities) -> Self {
+        Self { flows: caps.flows != AuthorLevel::None, apps: caps.apps != AuthorLevel::None }
+    }
+}
+
+/// Which withdrawable capability a gate needs.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ManageKind {
+    Schedules,
+    Triggers,
+}
+
+impl ManageKind {
+    /// Plural noun for the refusal message.
+    pub fn noun(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+
+    /// Prefixes the `/acls` audit action (`schedules.grant_acl`). Deliberately its own string
+    /// rather than `noun()`, which it happens to equal: audit actions are a stable key that rows
+    /// already on disk were written with, so rewording the message must not rename them.
+    pub fn audit_prefix(&self) -> &'static str {
+        match self {
+            ManageKind::Schedules => "schedules",
+            ManageKind::Triggers => "triggers",
+        }
+    }
+}
+
+/// What the caller may compose or author, per kind. Everything for an unrestricted caller.
+pub async fn operator_builder_rights<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+) -> Result<OperatorBuilderRights> {
+    Ok(OperatorBuilderRights::from_capabilities(
+        &caller_capabilities(db, workspace_id, authed).await?,
+    ))
+}
+
+/// Whether the caller may save a draft of `kind`: one they could deploy. A resource or variable
+/// always, since their routes do not gate roles; a flow or full-code app at the `Compose` level or
+/// above, a low-code app at `Full`, a schedule or trigger under the matching manage right, a
+/// script or data pipeline with `code`.
+pub async fn operator_can_draft<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+    kind: crate::user_drafts::UserDraftItemKind,
+) -> Result<bool> {
+    use crate::user_drafts::UserDraftItemKind;
+    if matches!(
+        kind,
+        UserDraftItemKind::Resource | UserDraftItemKind::Variable
+    ) {
+        return Ok(true);
+    }
+    let caps = caller_capabilities(db, workspace_id, authed).await?;
+    // Exhaustive on purpose: a new kind must pick the capability it needs, or every non-admin
+    // (unrestricted developers included) is refused its drafts.
+    Ok(match kind {
+        UserDraftItemKind::Flow => caps.flows != AuthorLevel::None,
+        UserDraftItemKind::RawApp => caps.apps != AuthorLevel::None,
+        UserDraftItemKind::Script | UserDraftItemKind::DataPipeline => caps.code,
+        UserDraftItemKind::App => caps.apps == AuthorLevel::Full,
+        UserDraftItemKind::Resource | UserDraftItemKind::Variable => true,
+        UserDraftItemKind::TriggerSchedule
+        | UserDraftItemKind::TriggerWebhook
+        | UserDraftItemKind::TriggerDefaultEmail
+        | UserDraftItemKind::TriggerEmail
+        | UserDraftItemKind::TriggerHttp
+        | UserDraftItemKind::TriggerWebsocket
+        | UserDraftItemKind::TriggerPostgres
+        | UserDraftItemKind::TriggerKafka
+        | UserDraftItemKind::TriggerNats
+        | UserDraftItemKind::TriggerMqtt
+        | UserDraftItemKind::TriggerAmqp
+        | UserDraftItemKind::TriggerSqs
+        | UserDraftItemKind::TriggerGcp
+        | UserDraftItemKind::TriggerAzure
+        | UserDraftItemKind::TriggerPoll
+        | UserDraftItemKind::TriggerCli
+        | UserDraftItemKind::TriggerNextcloud
+        | UserDraftItemKind::TriggerGoogle
+        | UserDraftItemKind::TriggerGithub => {
+            kind.manage_kind().is_some_and(|m| caps.has_manage(m))
+        }
+    })
+}
+
+/// Gate for a flow or app write. Refuses a caller whose role holds no right on `kind`, and returns
+/// the level it does hold: at `Compose` the caller MUST then run the composition-only checks, and
+/// only at `Full` may skip them. `action` completes "Your role cannot {action}".
+pub async fn check_operator_can_build<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+    kind: BuilderKind,
+    action: &str,
+) -> Result<AuthorLevel> {
+    let level = caller_capabilities(db, workspace_id, authed)
+        .await?
+        .level(kind);
+    if level == AuthorLevel::None {
+        return Err(Error::PermissionDenied(format!(
+            "Your role cannot {action} in this workspace"
+        )));
+    }
+    Ok(level)
+}
+
+/// Gate for a write that runs or stores code of the caller's own on a worker: scripts, previews,
+/// dependency jobs, dynamic selects. `action` completes "Your role cannot {action}".
+pub async fn check_role_can_code<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+    action: &str,
+) -> Result<()> {
+    if !caller_capabilities(db, workspace_id, authed).await?.code {
+        return Err(Error::PermissionDenied(format!(
+            "Your role cannot {action} in this workspace"
+        )));
+    }
+    Ok(())
+}
+
+/// Gate for starting a run on the caller's behalf. 403 rather than 401, which the frontend reads as
+/// a dead session.
+pub async fn check_role_can_run<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+) -> Result<()> {
+    if !caller_capabilities(db, workspace_id, authed).await?.run {
+        return Err(Error::PermissionDenied(
+            "Your role cannot run scripts, flows or AI agents in this workspace".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Whether a member holding role `role` in `workspace_id` consumes an operator (half) seat rather
+/// than an author seat: a role that composes counts as an author, there is no half-author.
+pub async fn consumes_operator_seat(
+    db: &DB,
+    workspace_id: &str,
+    is_admin: bool,
+    role: &str,
+) -> Result<bool> {
+    Ok(!is_admin
+        && !crate::roles::role_capabilities_by_name(db, workspace_id, role)
+            .await?
+            .is_author())
+}
+
+/// Gate for a write a role may perform unless its configuration withdraws it. Prefer layering
+/// `gate_operator_writes` on a whole router over calling this per handler; see
+/// `docs/operator-write-rights.md`. `workspace_id` MUST be the route's workspace.
+pub async fn check_operator_can_manage<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+    kind: ManageKind,
+) -> Result<()> {
+    if !caller_capabilities(db, workspace_id, authed)
+        .await?
+        .has_manage(kind)
+    {
+        // 403, not 401: the caller is authenticated and simply lacks the right. The frontend reads
+        // an uncaught 401 as a dead session and logs the user out, so `NotAuthorized` here would
+        // eject the user from the app instead of telling them why.
+        return Err(Error::PermissionDenied(format!(
+            "Your role cannot manage {} in this workspace",
+            kind.noun()
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleCheckResult {
     Allowed,
@@ -437,6 +1456,11 @@ pub enum RuleCheckResult {
 /// - User is not in bypass lists
 ///
 /// Returns `Err` if the rule is not found
+/// Reserved protection-rule name applied to a prod workspace paired with a dev workspace. It carries
+/// `DisableDirectDeployment` + `DisableWorkspaceForking` and is auto-managed by the dev-workspace
+/// feature (applied on pairing, removed on detach).
+pub const DEV_WORKSPACE_LOCK_RULE_NAME: &str = "dev_workspace_lock";
+
 pub async fn check_user_against_rule(
     workspace_id: &str,
     rule: &ProtectionRuleKind,
@@ -481,6 +1505,21 @@ pub async fn check_user_against_rule(
     Ok(RuleCheckResult::Allowed)
 }
 
+/// The roles members of `workspace_id` get in a fork of it, merged across its rulesets: where two
+/// rulesets map the same role, the first by name wins. Unmapped roles carry over unchanged.
+pub async fn fork_role_mapping(
+    workspace_id: &str,
+    db: &DB,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut mapping = std::collections::BTreeMap::new();
+    for ruleset in get_protection_rules(workspace_id, db).await?.iter() {
+        for (from, to) in ruleset.fork_role_mapping.iter() {
+            mapping.entry(from.clone()).or_insert_with(|| to.clone());
+        }
+    }
+    Ok(mapping)
+}
+
 /// Check all deploy-gating protection rules at once.
 ///
 /// Evaluates `DisableDirectDeployment` first (so its message wins when both
@@ -523,27 +1562,118 @@ impl Default for DataTableForkBehavior {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DataTable {
-    pub database: DataTableDatabase,
+    /// Set on a *terminal* entry — one that owns its database. Mutually exclusive with
+    /// [`DataTable::reference`]; [`validate_datatable_shape`] is the one place that enforces it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<DataTableDatabase>,
+    /// Set on a *pointer* entry — one that names another workspace's entry and owns nothing.
+    /// A keep-original fork gets one of these instead of a copy of the parent's entry, so there is
+    /// nothing local for a fork admin to widen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<DataTableReference>,
+    /// Set on a *clone* — a terminal entry whose database was copied from the entry this names. The
+    /// copy holds that entry's rows, so who may connect as which role stays that entry's decision:
+    /// the clone carries no `permissions` of its own and is governed like a pointer, while
+    /// connecting to its own database.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub governed_by: Option<DataTableReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from: Option<DataTableForkedFrom>,
+    /// Whether the SQL-migrations feature is opted in for this data table.
+    /// Absent on data tables created before the feature: treated as enabled only
+    /// when migrations already exist (see `datatable_migrations_enabled`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migrations_enabled: Option<bool>,
+    /// Who may connect as which role. Absent = unpermissioned: every caller connects as `admin`,
+    /// which is how data tables behaved before roles existed. Only meaningful on a terminal entry;
+    /// a pointer is governed by what it points at.
+    ///
+    /// Stripped from the `datatable` setting wherever it is read or written as a whole. It leaves
+    /// the instance only as the settings document's `datatable_permissions`, which `wmill sync`
+    /// carries only when the repo opts in: tenants are workspace-scoped names, and syncing them
+    /// makes repo write access a second door onto the access decision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<DataTablePermissions>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+/// A pointer at another workspace's data table entry.
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct DataTableReference {
+    pub workspace_id: String,
+    pub datatable: String,
+}
+
+/// The access decision for one data table: which role a caller gets, and who may ask for each.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct DataTablePermissions {
+    /// A role id from the instance catalog, `admin`, or
+    /// [`crate::datatable_roles::NO_DEFAULT_DATATABLE_ROLE`]. Absent = `admin`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_role: Option<String>,
+    /// Keyed by instance role id, plus the reserved `admin` key. A role absent from this map
+    /// cannot be used on this data table at all, whatever the instance catalog says.
+    #[serde(default)]
+    pub roles: std::collections::BTreeMap<String, DataTableRoleTenants>,
+}
+
+impl DataTablePermissions {
+    pub fn default_role(&self) -> &str {
+        self.default_role.as_deref().unwrap_or(ADMIN_DATATABLE_ROLE)
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct DataTableRoleTenants {
+    /// `u/<user>`, `g/<group>`, `f/<folder>`, or `*` for every member.
+    #[serde(default)]
+    pub tenants: Vec<String>,
+}
+
+/// Every member of the governing workspace.
+pub const DATATABLE_TENANT_WILDCARD: &str = "*";
+
+/// How deep a chain of pointer entries may go before it is called a loop. Data tables are not
+/// expected to chain at all — a fork points at its parent — so this only has to be generous
+/// enough to survive a fork of a fork.
+const DATATABLE_REFERENCE_MAX_DEPTH: usize = 20;
+
+/// Exactly one of `database` and `reference` must be set, and a clone's `governed_by` leaves no
+/// `permissions` beside it. Called wherever an entry is persisted, so nothing downstream has to
+/// handle an entry that is both or neither, or a clone with a decision of its own.
+pub fn validate_datatable_shape(name: &str, dt: &DataTable) -> Result<()> {
+    if dt.governed_by.is_some() && (dt.database.is_none() || dt.permissions.is_some()) {
+        return Err(Error::BadRequest(format!(
+            "Data table '{name}' is a clone, which owns a database and takes its roles from the \
+             data table it was cloned from"
+        )));
+    }
+    match (&dt.database, &dt.reference) {
+        (Some(_), None) | (None, Some(_)) => Ok(()),
+        (Some(_), Some(_)) => Err(Error::BadRequest(format!(
+            "Data table '{name}' both owns a database and points at another one"
+        ))),
+        (None, None) => Err(Error::BadRequest(format!(
+            "Data table '{name}' names neither a database nor another data table"
+        ))),
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DataTableForkedFrom {
     /// Schema snapshot at fork time
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DataTableDatabase {
     pub resource_type: DataTableCatalogResourceType,
     pub resource_path: String,
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 #[derive(AsRefStr)]
 #[strum(serialize_all = "lowercase")]
@@ -551,46 +1681,927 @@ pub enum DataTableCatalogResourceType {
     #[strum(serialize = "postgres")]
     Postgresql,
     Instance,
+    /// On the external instance cluster ([`crate::external_instance_pg`]). Enterprise Edition.
+    #[serde(rename = "external_instance")]
+    #[strum(serialize = "external_instance")]
+    ExternalInstance,
 }
 
+impl DataTableCatalogResourceType {
+    /// A database Windmill created and administers, on its own cluster or the external one, as
+    /// opposed to one a user brought as a resource.
+    pub fn is_windmill_managed(self) -> bool {
+        matches!(self, Self::Instance | Self::ExternalInstance)
+    }
+}
+
+/// Whether an operator turned Windmill's own Postgres off as a data table and Ducklake substrate.
+pub async fn instance_pg_disabled<'c>(executor: impl sqlx::PgExecutor<'c>) -> Result<bool> {
+    Ok(sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT value FROM global_settings WHERE name = $1",
+    )
+    .bind(crate::global_settings::INSTANCE_PG_DISABLED_SETTING)
+    .fetch_optional(executor)
+    .await?
+    .flatten()
+    .is_some_and(|v| v.as_bool().unwrap_or(false)))
+}
+
+/// Refuse a new use of Windmill's own Postgres as a data table or Ducklake substrate where an
+/// operator turned it off, and on the managed cloud, which never had it. Data tables already on
+/// it are refused at resolution instead ([`resolve_datatable_connection_unchecked`]).
+pub async fn ensure_instance_pg_available<'c>(executor: impl sqlx::PgExecutor<'c>) -> Result<()> {
+    if *crate::worker::CLOUD_HOSTED {
+        return Err(Error::BadRequest(
+            "Windmill's own database cannot back a data table or Ducklake catalog on Windmill Cloud"
+                .to_string(),
+        ));
+    }
+    if instance_pg_disabled(executor).await? {
+        return Err(Error::BadRequest(
+            "Windmill's own database is disabled as a data table and Ducklake substrate on this \
+             instance. Use the external instance cluster, or turn it back on in the instance \
+             settings."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Build a self-teaching error for an unresolved `datatable://<name>` reference.
+/// The raw "not found" gives the user no way forward — the datatable substrate has
+/// no auto-provisioning (unlike a DuckLake catalog), so the fix is always to create
+/// one in workspace settings. Surface the available names (to catch typos) and point
+/// at the settings page so the message is actionable wherever it bubbles up
+/// (pipeline `ATTACH`, schema fetch, postgres executor, ...).
+fn datatable_not_found_error(name: &str, datatables: Option<&serde_json::Value>) -> Error {
+    let available: Vec<&str> = datatables
+        .and_then(|d| d.as_object())
+        .map(|o| o.keys().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    let hint = if available.is_empty() {
+        "No data table is configured in this workspace yet.".to_string()
+    } else {
+        format!("Configured data tables: {}.", available.join(", "))
+    };
+
+    Error::NotFound(format!(
+        "Data table '{name}' not found. {hint} \
+         Create one in workspace settings under the \"Data tables\" tab \
+         (/workspace_settings?tab=windmill_data_tables) — the name \"main\" is the default \
+         used by `datatable://main`."
+    ))
+}
+
+/// Read one workspace's data table entry, without following a pointer.
+///
+/// Disclosure: this is the primitive [`resolve_governing_datatable`] calls on every path, so it is
+/// deliberately open to anything that has to resolve a data table, including for a workspace the
+/// caller does not belong to. What it returns is not: callers MUST NOT put `permissions` into a
+/// response, an export or a log — it names the governing workspace's users, groups and folders.
+pub async fn read_datatable_entry(db: &DB, w_id: &str, name: &str) -> Result<DataTable> {
+    let datatables = sqlx::query_scalar!(
+        r#"
+            SELECT ws.datatable->'datatables' AS datatables
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id,
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|err| Error::internal_err(format!("getting datatable {name}: {err}")))?;
+
+    let datatable = datatables
+        .as_ref()
+        .and_then(|d| d.get(name))
+        .filter(|v| !v.is_null())
+        .ok_or_else(|| datatable_not_found_error(name, datatables.as_ref()))?;
+    Ok(serde_json::from_value::<DataTable>(datatable.clone())?)
+}
+
+/// The terminal entry a reference chain lands on, and what governs it: the workspace and name of
+/// the entry that owns the database, the entry itself, and — for a clone — the entry its
+/// `governed_by` chain lands on. A terminal entry that is not a clone resolves to itself and
+/// governs itself.
+///
+/// Every decision downstream is taken on this, never on the entry the caller named. Which database
+/// to connect to comes from `workspace_id` / `name` / `datatable.database`; whose `permissions`
+/// apply (already in `datatable.permissions`), whose members tenants are evaluated against and who
+/// may administer it come from [`GoverningDatatable::governing_workspace_id`].
+///
+/// Authorization: resolving deliberately crosses into the governing workspace, so it answers for a
+/// workspace the caller may not belong to and checks nothing itself. It is the input to the
+/// checks, not one of them: callers MUST pass what it returns to
+/// [`can_use_datatable_role_in_governing_workspace`] or [`ensure_datatable_admin_access`] before
+/// acting on it, and MUST NOT return its `permissions` or workspace ids to a caller from
+/// elsewhere without gating on the answer.
+pub struct GoverningDatatable {
+    pub workspace_id: String,
+    pub name: String,
+    pub datatable: DataTable,
+    /// For a clone, the entry whose `permissions` govern it. `None` when the entry governs itself.
+    pub governor: Option<DataTableReference>,
+}
+
+/// Everything still using the Windmill-managed database `dbname`, one description per use: data
+/// table entries naming it, fork entries pointing at those, Ducklake catalogs on it, and fork
+/// Ducklake metadata schemas there that cleanup has not dropped yet. `exempt` is the one data table
+/// entry, `(workspace_id, name)`, the caller is about to stop using it through; pointers at that
+/// entry still count, since dropping the database would leave them resolving to nothing.
+///
+/// Authorization: reads every workspace's settings and checks nothing. Callers MUST only turn the
+/// answer into a refusal for someone allowed to administer `dbname`.
+pub async fn managed_database_uses(
+    conn: &mut sqlx::PgConnection,
+    kind: DataTableCatalogResourceType,
+    dbname: &str,
+    exempt: Option<(&str, &str)>,
+) -> Result<Vec<String>> {
+    match exempt {
+        Some((workspace_id, name)) => {
+            managed_database_uses_except(conn, kind, dbname, workspace_id, &[name]).await
+        }
+        None => managed_database_uses_except(conn, kind, dbname, "", &[]).await,
+    }
+}
+
+/// [`managed_database_uses`], exempting every entry of `workspace_id` in `names`: the data tables
+/// of a fork that share one copy stop using it together.
+pub async fn managed_database_uses_except(
+    conn: &mut sqlx::PgConnection,
+    kind: DataTableCatalogResourceType,
+    dbname: &str,
+    workspace_id: &str,
+    names: &[&str],
+) -> Result<Vec<String>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "WITH entries AS (
+             SELECT ws.workspace_id::text AS workspace_id, dt.key AS name, dt.value
+             FROM workspace_settings ws
+             CROSS JOIN LATERAL jsonb_each(
+                 CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                     THEN ws.datatable->'datatables' ELSE '{}'::jsonb END) dt
+         ), naming AS (
+             SELECT workspace_id, name FROM entries
+             WHERE value->'database'->>'resource_type' = $1
+               AND value->'database'->>'resource_path' = $2
+         )
+         SELECT format('data table ''%s'' in workspace ''%s''', name, workspace_id) FROM naming
+         WHERE NOT (workspace_id = $3 AND name = ANY($4))
+         UNION ALL
+         SELECT format('data table ''%s'' in workspace ''%s'', which points at the one in ''%s''',
+                       e.name, e.workspace_id, n.workspace_id)
+         FROM entries e JOIN naming n
+           ON e.value->'reference'->>'workspace_id' = n.workspace_id
+          AND e.value->'reference'->>'datatable' = n.name
+         UNION ALL
+         SELECT format('Ducklake ''%s'' in workspace ''%s''', dl.key, ws.workspace_id)
+         FROM workspace_settings ws
+         CROSS JOIN LATERAL jsonb_each(
+             CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                 THEN ws.ducklake->'ducklakes' ELSE '{}'::jsonb END) dl
+         WHERE dl.value->'catalog'->>'resource_type' = $1
+           AND dl.value->'catalog'->>'resource_path' = $2
+         UNION ALL
+         SELECT format('the Ducklake namespace of fork ''%s'', not cleaned up yet', workspace_id)
+         FROM fork_ducklake_namespace
+         WHERE catalog = $1 || ':' || $2 AND NOT schema_dropped
+         ORDER BY 1",
+    )
+    .bind(kind.as_ref())
+    .bind(dbname)
+    .bind(workspace_id)
+    .bind(names)
+    .fetch_all(&mut *conn)
+    .await?)
+}
+
+/// Held by fork cleanup of `w_id`'s data tables and by forking `w_id`, which can hand the new fork
+/// pointers at them, so a pointer cannot appear between cleanup's check and its drop.
+pub async fn lock_fork_datatables(conn: &mut sqlx::PgConnection, w_id: &str) -> Result<()> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork_datatables:' || $1))")
+        .bind(w_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+impl GoverningDatatable {
+    /// The Windmill-managed cluster whose data table roles this entry can use. `None` for a
+    /// resource-backed one: roles are logins Windmill creates, and it creates none on a host a
+    /// workspace admin chose.
+    pub fn role_cluster(&self) -> Option<crate::datatable_roles::DatatableRoleCluster> {
+        self.datatable
+            .database
+            .as_ref()
+            .and_then(|d| crate::datatable_roles::DatatableRoleCluster::of(d.resource_type))
+    }
+
+    /// The workspace whose admins administer the data table and whose members its tenants are.
+    pub fn governing_workspace_id(&self) -> &str {
+        self.governor
+            .as_ref()
+            .map_or(&self.workspace_id, |g| &g.workspace_id)
+    }
+}
+
+pub async fn resolve_governing_datatable(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<GoverningDatatable> {
+    let mut workspace_id = w_id.to_string();
+    let mut name = name.to_string();
+    let mut hops = 0;
+    // The clone a `governed_by` chain started from: it keeps its database, and takes the
+    // `permissions` of wherever the chain lands.
+    let mut clone: Option<(String, String, DataTable)> = None;
+    for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
+        let datatable = read_datatable_entry(db, &workspace_id, &name)
+            .await
+            .map_err(|e| {
+                if hops == 0 {
+                    e
+                } else {
+                    // A pointer outlives the workspace it names: deleting one only nulls the fork
+                    // lineage, it does not sweep the entries that pointed at it. Say which one is
+                    // gone rather than reporting a data table this workspace never had.
+                    if clone.is_some() {
+                        Error::NotFound(format!(
+                            "Data table '{name}' of workspace '{workspace_id}', which this clone \
+                             takes its roles from, no longer exists, so nobody is let into the copy."
+                        ))
+                    } else {
+                        Error::NotFound(format!(
+                            "Data table '{name}' of workspace '{workspace_id}' governs this one and \
+                             no longer exists. A superadmin can point this data table somewhere \
+                             else."
+                        ))
+                    }
+                }
+            })?;
+        hops += 1;
+        validate_datatable_shape(&name, &datatable)?;
+        let next = match (&datatable.reference, &datatable.governed_by) {
+            (Some(reference), _) => reference.clone(),
+            (None, Some(governed_by)) => {
+                let governed_by = governed_by.clone();
+                if clone.is_none() {
+                    clone = Some((workspace_id.clone(), name.clone(), datatable));
+                }
+                governed_by
+            }
+            (None, None) => {
+                return Ok(match clone {
+                    None => GoverningDatatable { workspace_id, name, datatable, governor: None },
+                    Some((clone_w_id, clone_name, mut clone_datatable)) => {
+                        clone_datatable.permissions = datatable.permissions;
+                        GoverningDatatable {
+                            workspace_id: clone_w_id,
+                            name: clone_name,
+                            datatable: clone_datatable,
+                            governor: Some(DataTableReference { workspace_id, datatable: name }),
+                        }
+                    }
+                });
+            }
+        };
+        workspace_id = next.workspace_id;
+        name = next.datatable;
+    }
+    Err(Error::BadRequest(format!(
+        "Data table '{name}' points at another data table through more than \
+         {DATATABLE_REFERENCE_MAX_DEPTH} hops; the chain is likely a loop"
+    )))
+}
+
+/// Every entry of a workspace resolved as [`resolve_governing_datatable`] resolves one, in stored
+/// order, reading the settings rows one pointer hop at a time rather than once per entry. An entry
+/// that does not resolve — malformed, a dangling pointer, a loop — is left out. Same authorization
+/// contract as the single resolution: it checks nothing.
+pub async fn resolve_workspace_governing_datatables(
+    db: &DB,
+    w_id: &str,
+) -> Result<Vec<(String, GoverningDatatable)>> {
+    type Entries =
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>;
+    async fn load(db: &DB, workspaces: &[String], entries: &mut Entries) -> Result<Vec<String>> {
+        let rows: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT ws.workspace_id, dt.key, dt.value FROM workspace_settings ws
+             CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt
+             WHERE ws.workspace_id = ANY($1)",
+        )
+        .bind(workspaces)
+        .fetch_all(db)
+        .await?;
+        for ws in workspaces {
+            entries.entry(ws.clone()).or_default();
+        }
+        let mut keys = Vec::with_capacity(rows.len());
+        for (ws, key, value) in rows {
+            keys.push(key.clone());
+            entries.entry(ws).or_default().insert(key, value);
+        }
+        Ok(keys)
+    }
+
+    let mut entries = Entries::new();
+    let listed = load(db, &[w_id.to_string()], &mut entries).await?;
+    // (index into `listed`, workspace, entry name, the clone the chain started from) still to be
+    // followed. A clone keeps its own database and takes the `permissions` of wherever its
+    // `governed_by` chain lands, as the single resolution does.
+    type Clone = Option<(String, String, DataTable)>;
+    let mut cursors: Vec<(usize, String, String, Clone)> = listed
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (i, w_id.to_string(), name.clone(), None))
+        .collect();
+    let mut resolved: Vec<(usize, GoverningDatatable)> = vec![];
+
+    for _ in 0..DATATABLE_REFERENCE_MAX_DEPTH {
+        let mut next = vec![];
+        for (i, ws, name, clone) in cursors.drain(..) {
+            let Some(value) = entries
+                .get(&ws)
+                .and_then(|m| m.get(&name))
+                .filter(|v| !v.is_null())
+            else {
+                continue;
+            };
+            let Ok(datatable) = serde_json::from_value::<DataTable>(value.clone()) else {
+                continue;
+            };
+            if validate_datatable_shape(&name, &datatable).is_err() {
+                continue;
+            }
+            match (&datatable.reference, &datatable.governed_by) {
+                (Some(reference), _) => next.push((
+                    i,
+                    reference.workspace_id.clone(),
+                    reference.datatable.clone(),
+                    clone,
+                )),
+                (None, Some(governed_by)) => {
+                    let (governor_ws, governor_name) = (
+                        governed_by.workspace_id.clone(),
+                        governed_by.datatable.clone(),
+                    );
+                    let clone = clone.or(Some((ws, name, datatable)));
+                    next.push((i, governor_ws, governor_name, clone));
+                }
+                (None, None) => resolved.push((
+                    i,
+                    match clone {
+                        None => {
+                            GoverningDatatable { workspace_id: ws, name, datatable, governor: None }
+                        }
+                        Some((clone_ws, clone_name, mut clone_datatable)) => {
+                            clone_datatable.permissions = datatable.permissions;
+                            GoverningDatatable {
+                                workspace_id: clone_ws,
+                                name: clone_name,
+                                datatable: clone_datatable,
+                                governor: Some(DataTableReference {
+                                    workspace_id: ws,
+                                    datatable: name,
+                                }),
+                            }
+                        }
+                    },
+                )),
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        let to_load: Vec<String> = next
+            .iter()
+            .map(|(_, ws, _, _)| ws.clone())
+            .filter(|ws| !entries.contains_key(ws))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if !to_load.is_empty() {
+            load(db, &to_load, &mut entries).await?;
+        }
+        cursors = next;
+    }
+
+    resolved.sort_by_key(|(i, _)| *i);
+    Ok(resolved
+        .into_iter()
+        .map(|(i, governing)| (listed[i].clone(), governing))
+        .collect())
+}
+
+/// Build the `admin` connection for a governing entry: `custom_instance_user` for an instance
+/// database, on Windmill's cluster or the external one; the user's own resource for a BYO-postgres
+/// one.
+async fn resolve_datatable_connection_unchecked(
+    db: &DB,
+    governing: &GoverningDatatable,
+    replication: bool,
+) -> Result<serde_json::Value> {
+    let database = governing
+        .datatable
+        .database
+        .as_ref()
+        .expect("a governing entry owns a database");
+    if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
+        let pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
+            db,
+            &database.resource_path,
+            replication,
+        )
+        .await?;
+        serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))
+    } else if database.resource_type == DataTableCatalogResourceType::Instance {
+        // Turning Windmill's database off takes the data tables on it out of use, not only new
+        // ones: every job, API call and trigger reaches a data table through here.
+        if instance_pg_disabled(db).await? {
+            return Err(Error::BadRequest(format!(
+                "data table {} is on Windmill's own database, which is disabled on this instance. \
+                 Move it to the external instance cluster or a Postgres resource, or turn Windmill's \
+                 database back on in the instance settings.",
+                governing.name
+            )));
+        }
+        let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+        pg_creds.dbname = database.resource_path.clone();
+        if replication {
+            pg_creds.user = Some("custom_instance_replication_user".to_string());
+            pg_creds.password = Some(get_custom_pg_instance_replication_password(&db).await?);
+        } else {
+            pg_creds.user = Some(CUSTOM_INSTANCE_USER.to_string());
+            pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+        }
+        serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))
+    } else {
+        // Name the data table too: the caller asked for one by name, and a bare
+        // "resource f/x/y does not exist" leaves them to work out which one points at it.
+        transform_json_unchecked(
+            &serde_json::Value::String(format!("$res:{}", database.resource_path)),
+            &governing.workspace_id,
+            db,
+        )
+        .await
+        .map_err(|e| match e {
+            Error::NotFound(m) => Error::NotFound(format!("data table {}: {m}", governing.name)),
+            e => e,
+        })
+    }
+}
+
+/// Resolve a data table to connection credentials **without authorizing anything**: always the
+/// `admin` connection.
+///
+/// Authorization: callers MUST have authorized access already. Anything that acts for a user or a
+/// job wants [`get_datatable_resource_from_db`] instead.
 pub async fn get_datatable_resource_from_db_unchecked(
     db: &DB,
     w_id: &str,
     name: &str,
 ) -> Result<serde_json::Value> {
-    let datatable = sqlx::query_scalar!(
-        r#"
-            SELECT ws.datatable->'datatables'->$2 AS config
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
-        &w_id,
-        name
-    )
-    .fetch_one(db)
-    .await
-    .map_err(|err| Error::internal_err(format!("getting datatable {name}: {err}")))?
-    .ok_or_else(|| Error::internal_err(format!("datatable {name} not found")))?;
-    let datatable = serde_json::from_value::<DataTable>(datatable)?;
-
-    let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
-    {
-        let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
-        pg_creds.dbname = datatable.database.resource_path.clone();
-        pg_creds.user = Some("custom_instance_user".to_string());
-        pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
-        serde_json::to_value(&pg_creds)
-            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
-    } else {
-        transform_json_unchecked(
-            &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
-            w_id,
-            db,
-        )
+    Ok(get_datatable_connection_and_kind_unchecked(db, w_id, name)
         .await?
+        .0)
+}
+
+/// As [`get_datatable_resource_from_db_unchecked`], also reporting the kind of database Windmill
+/// manages behind it, `None` for a user resource. One resolution answers both: a caller reading the
+/// kind separately can be handed one kind's connection and the other kind's checks by a save
+/// landing between the two, and the entry a pointer lands on is another workspace's to change.
+///
+/// Same authorization contract: the connection reaches every role.
+pub async fn get_datatable_connection_and_kind_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<(serde_json::Value, Option<DataTableCatalogResourceType>)> {
+    let governing = resolve_governing_datatable(db, w_id, name).await?;
+    let kind = governing
+        .datatable
+        .database
+        .as_ref()
+        .map(|d| d.resource_type)
+        .filter(|kind| kind.is_windmill_managed());
+    let connection = resolve_datatable_connection_unchecked(db, &governing, false).await?;
+    Ok((connection, kind))
+}
+
+/// Same as [`get_datatable_resource_from_db_unchecked`] but for postgres trigger
+/// connections: custom-instance datatables resolve to
+/// `custom_instance_replication_user` rather than `custom_instance_user`. BYO-postgres
+/// datatables resolve to the user's own resource unchanged; configuring it for
+/// replication there is the user's responsibility.
+///
+/// Authorization: a replication connection reads every row whatever the roles grant, so no role or
+/// admin check makes it safe. Callers MUST refuse a data table under roles outright — the Postgres
+/// trigger crate's `ensure_not_under_roles` — and turning roles on is refused while one streams.
+pub async fn get_datatable_replication_resource_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<serde_json::Value> {
+    let governing = resolve_governing_datatable(db, w_id, name).await?;
+    resolve_datatable_connection_unchecked(db, &governing, true).await
+}
+
+/// The identity a resolution is made for. `Unchecked` is for callers that authorized already;
+/// everything else is checked against the governing entry's tenants.
+pub enum DatatableAccess<'a> {
+    /// Reaches every role. For callers that already authorized, or that have no user at all.
+    Unchecked,
+    Authed(crate::db::AuthedRef<'a>),
+    /// A job's owner, without reading the job row — only fetched if the data table turns out to
+    /// be permissioned.
+    PermissionedAs {
+        permissioned_as: &'a str,
+        email: &'a str,
+        connect_as: DatatableConnectAs<'a>,
+    },
+    /// A job identified by id; its owner is read from `v2_job` and how it connects from
+    /// `job_perms`. For agent workers and anything else that authenticates as infrastructure
+    /// rather than as the job's user.
+    Job(uuid::Uuid),
+    /// No identity established. Unpermissioned data tables resolve as before; permissioned ones
+    /// are refused, so a caller predating this feature fails closed.
+    NoIdentity,
+}
+
+/// Whose roles a job's connection that names no role holds.
+#[derive(Clone, Copy, Debug)]
+pub enum DatatableConnectAs<'a> {
+    /// The job's own identity, `permissioned_as`.
+    Job,
+    /// The job's viewer, for a job whose `job_perms.viewer_data_access` is set. MUST be what
+    /// the server recorded in `job_perms.end_user_email`, never anything the job or its caller
+    /// can set; `None` when it recorded none, which refuses the connection.
+    Viewer(Option<&'a str>),
+}
+
+impl<'a> DatatableConnectAs<'a> {
+    pub fn from_job_perms(as_viewer: bool, end_user_email: Option<&'a str>) -> Self {
+        if as_viewer {
+            Self::Viewer(end_user_email)
+        } else {
+            Self::Job
+        }
+    }
+}
+
+/// Does one tenant list cover this identity? Admins of the governing workspace pass everything —
+/// they can edit the tenant lists anyway, so refusing them would only be theatre.
+pub fn can_use_datatable_role(
+    tenants: &DataTableRoleTenants,
+    authed: &crate::db::AuthedRef<'_>,
+) -> bool {
+    crate::datatable_roles_oss::can_use_datatable_role(tenants, authed)
+}
+
+/// Evaluate a tenant list **as a member of the governing workspace**, whoever is calling.
+///
+/// A caller reaching a data table through a pointer is a member of some other workspace, and being
+/// its admin means nothing here — that is the whole point of the pointer. They are looked up in
+/// the governing workspace by email and evaluated there, or refused when they are not a member.
+/// A `g/` or `f/` permissioned-as from a foreign workspace is refused outright: those names are
+/// defined per workspace and mean nothing outside the one that defined them.
+pub async fn can_use_datatable_role_in_governing_workspace(
+    db: &DB,
+    governing_w_id: &str,
+    w_id: &str,
+    tenants: &DataTableRoleTenants,
+    access: &DatatableAccess<'_>,
+) -> Result<bool> {
+    crate::datatable_roles_oss::can_use_datatable_role_in_governing_workspace(
+        db,
+        governing_w_id,
+        w_id,
+        tenants,
+        access,
+    )
+    .await
+}
+
+/// Resolve a data table to connection credentials for one identity.
+///
+/// This is the chokepoint: everything that opens a connection to a data table on someone's behalf
+/// goes through it. `role` is the role name the caller asked for — the `-- role` annotation, the
+/// `?role=` on a `datatable://` reference, or `None` for the data table's default.
+///
+/// The resolved role **logs in as itself**. Never `SET ROLE`: a script could `RESET ROLE` its way
+/// back to admin.
+///
+/// A default role other than `admin` is a floor rather than the whole connection: a resolution
+/// naming no role holds it when its identity may use it, plus the roles whose tenant lists name
+/// that identity, as one login that is a member of each. The identity is the job's own unless
+/// it connects as its viewer ([`DatatableConnectAs`]). With no role at all it is refused. Being
+/// an admin adds no role and `admin` is never among them, so nobody is handed the connection that
+/// owns the tables and bypasses row-level security. A named role is that role alone.
+pub async fn get_datatable_resource_from_db(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    role: Option<&str>,
+    access: DatatableAccess<'_>,
+) -> Result<serde_json::Value> {
+    let governing = resolve_governing_datatable(db, w_id, name).await?;
+    let db_resource = resolve_datatable_connection_unchecked(db, &governing, false).await?;
+    // Not under roles and asked for none, or for `admin` by name: the `admin` connection, as before
+    // roles existed, in every edition. Anything else is a role decision. Every migration names
+    // `admin` explicitly, so an edition without roles must not treat that as one.
+    if governing.datatable.permissions.is_none() && role.is_none_or(|r| r == ADMIN_DATATABLE_ROLE) {
+        return Ok(db_resource);
+    }
+    crate::datatable_roles_oss::resolve_datatable_role_connection(
+        db,
+        w_id,
+        name,
+        &governing,
+        db_resource,
+        role,
+        access,
+    )
+    .await
+}
+
+/// Would the chokepoint accept this identity connecting as this role? Answers without resolving
+/// credentials, for callers that want to refuse early and say which thing was refused.
+///
+/// Not the security boundary — [`get_datatable_resource_from_db`] re-checks when it actually opens
+/// the connection. This is what turns "permission denied for table x" into a message naming the
+/// migration and the role.
+pub async fn ensure_can_use_datatable_role(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    role: Option<&str>,
+    access: &DatatableAccess<'_>,
+    context: &str,
+) -> Result<()> {
+    crate::datatable_roles_oss::ensure_can_use_datatable_role(db, w_id, name, role, access, context)
+        .await
+}
+
+/// Gate the operations that see the whole database whatever the roles grant: a migration that
+/// declares no role, exports, and editing the permissions themselves. Not replication, which a
+/// data table under roles refuses whoever asks (see `ensure_not_under_roles`). Passing
+/// means the caller could have connected as `admin` anyway.
+pub async fn ensure_datatable_admin_access(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    access: &DatatableAccess<'_>,
+) -> Result<()> {
+    crate::datatable_roles_oss::ensure_datatable_admin_access(db, w_id, name, access).await
+}
+
+/// Rewrite the `permissions` of every data table entry of one workspace, in the caller's
+/// transaction. `change` reports whether it touched anything; the row is only written when
+/// something did.
+///
+/// Authorization: writes an access decision for any workspace named, with an arbitrary mutation,
+/// and checks nothing. It exists for the cascades below — the transaction that frees or renames a
+/// principal — so callers MUST be the operation that made the principal change, and MUST run in
+/// its transaction. Anything editing a decision on purpose belongs in the permissions endpoint,
+/// which is gated on the workspace that governs the data table.
+///
+/// The tenant lists name principals of this workspace, so anything that frees or renames one has
+/// to come through here in the same transaction that frees it — otherwise a `u/alice` reused by a
+/// later account silently inherits her access.
+pub async fn update_datatable_permissions_in_workspace<F>(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    change: F,
+) -> Result<()>
+where
+    F: Fn(&mut DataTablePermissions) -> bool,
+{
+    let Some(mut settings) = sqlx::query_scalar!(
+        "SELECT datatable FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten() else {
+        return Ok(());
     };
 
-    Ok(db_resource)
+    let Some(datatables) = settings
+        .get_mut("datatables")
+        .and_then(|d| d.as_object_mut())
+    else {
+        return Ok(());
+    };
+
+    let mut touched = false;
+    for entry in datatables.values_mut() {
+        let Some(permissions) = entry.get("permissions").filter(|p| !p.is_null()) else {
+            continue;
+        };
+        let Ok(mut permissions) =
+            serde_json::from_value::<DataTablePermissions>(permissions.clone())
+        else {
+            continue;
+        };
+        if change(&mut permissions) {
+            entry["permissions"] = serde_json::to_value(&permissions)
+                .map_err(|e| Error::internal_err(format!("serializing permissions: {e}")))?;
+            touched = true;
+        }
+    }
+
+    if touched {
+        sqlx::query!(
+            "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+            settings,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Drop a freed principal (`u/alice`, `g/analysts`, `f/finance`) from every tenant list of one
+/// workspace. Same contract as [`update_datatable_permissions_in_workspace`]: for the transaction
+/// that frees the principal, not for editing a decision.
+pub async fn remove_datatable_tenant_in_workspace(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    tenant: &str,
+) -> Result<()> {
+    update_datatable_permissions_in_workspace(tx, w_id, |permissions| {
+        let mut touched = false;
+        for role in permissions.roles.values_mut() {
+            let before = role.tenants.len();
+            role.tenants.retain(|t| t != tenant);
+            touched |= role.tenants.len() != before;
+        }
+        touched
+    })
+    .await
+}
+
+/// Follow a renamed principal through every tenant list of one workspace. Same contract as
+/// [`update_datatable_permissions_in_workspace`].
+pub async fn rename_datatable_tenant_in_workspace(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    old: &str,
+    new: &str,
+) -> Result<()> {
+    update_datatable_permissions_in_workspace(tx, w_id, |permissions| {
+        let mut touched = false;
+        for role in permissions.roles.values_mut() {
+            let mut role_touched = false;
+            for tenant in role.tenants.iter_mut() {
+                if tenant == old {
+                    *tenant = new.to_string();
+                    role_touched = true;
+                }
+            }
+            if role_touched {
+                // The rename can collide with a name already in the list, and the two need not be
+                // adjacent — `Vec::dedup` only collapses neighbours, so it would leave the pair.
+                let mut seen = std::collections::HashSet::new();
+                role.tenants.retain(|t| seen.insert(t.clone()));
+                touched = true;
+            }
+        }
+        touched
+    })
+    .await
+}
+
+/// Strip a deleted instance role from every workspace that had tenanted it, so nothing is left
+/// naming a role that no longer exists.
+///
+/// Authorization: reaches every workspace on the instance. Callers MUST be the superadmin path
+/// dropping the role from the cluster — it exists to follow that, not to edit tenants.
+///
+/// Takes that path's transaction rather than opening its own: run afterwards, a failure part-way
+/// leaves the catalog row already gone, so the retry answers `NotFound` while some workspaces
+/// still name a role nothing can connect as. In the transaction, the cluster drop, the catalog row
+/// and every tenant list commit together or not at all. A data table whose default role was the deleted one falls
+/// back to `admin` — the one role that is always present.
+pub async fn forget_datatable_role_everywhere(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    role_id: &str,
+) -> Result<()> {
+    crate::datatable_roles_oss::forget_datatable_role_everywhere(tx, role_id).await
+}
+
+/// Drop the `permissions` block from a `workspace_settings.datatable` value before it leaves the
+/// server.
+///
+/// Who may connect as which role is an access decision, not configuration, and its tenants name
+/// principals of one workspace — `g/analysts` in dev is a different group from `g/analysts` in
+/// prod. Shipping it would both mean nothing at the far end and turn a settings push into a way to
+/// widen access, so the decision stays where it was made. [`DataTable`] deserializes fine without
+/// it, and the settings-editing endpoint carries the stored block across untouched.
+pub fn strip_datatable_permissions(
+    datatable: Option<serde_json::Value>,
+) -> Option<serde_json::Value> {
+    let mut datatable = datatable?;
+    if let Some(entries) = datatable
+        .get_mut("datatables")
+        .and_then(|d| d.as_object_mut())
+    {
+        for entry in entries.values_mut() {
+            if let Some(entry) = entry.as_object_mut() {
+                entry.remove("permissions");
+            }
+        }
+    }
+    Some(datatable)
+}
+
+/// As [`parse_datatable_ref`], except that an entry whose stored name itself contains `?` — which
+/// names could before they were restricted — resolves by that exact name, without a role. It is
+/// looked up first, so `sales?role=x` never reaches a different entry than the one stored so.
+/// When `sales` is stored too, the reference means either one, and is refused rather than
+/// resolved to whichever is looked up first.
+///
+/// Authorization: checks nothing, and its answer reveals whether `w_id` stores that exact name.
+/// Callers MUST already act for `w_id` — a job of it, or a caller authenticated into it — and
+/// MUST still pass the name to [`get_datatable_resource_from_db`] or an admin-access check.
+pub async fn parse_datatable_ref_for(
+    db: &DB,
+    w_id: &str,
+    reference: &str,
+) -> Result<(String, Option<String>)> {
+    if reference.contains('?') {
+        let role_target = parse_datatable_ref(reference)
+            .ok()
+            .and_then(|(name, role)| role.map(|_| name));
+        let (exists, target_exists) = sqlx::query_as::<_, (Option<bool>, Option<bool>)>(
+            "SELECT (datatable->'datatables') ? $2, (datatable->'datatables') ? $3
+             FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .bind(reference)
+        .bind(role_target)
+        .fetch_optional(db)
+        .await?
+        .unwrap_or((None, None));
+        if exists.unwrap_or(false) {
+            if let (Some(name), Some(true)) = (role_target, target_exists) {
+                return Err(Error::BadRequest(format!(
+                    "Data table reference '{reference}' names both the data table '{reference}' \
+                     and a role on the data table '{name}'. Rename '{reference}' to use either."
+                )));
+            }
+            return Ok((reference.to_string(), None));
+        }
+    }
+    let (name, role) = parse_datatable_ref(reference)?;
+    Ok((name.to_string(), role.map(str::to_string)))
+}
+
+/// Split a `datatable://` reference into its name and the role its query string names.
+///
+/// A query string that does not parse is an error rather than an absent role. Falling back would
+/// resolve the reference to the data table's default role, so `?Role=analytics` or a mistyped
+/// `?role=` would quietly connect as something the caller did not ask for — the same trap as a
+/// malformed `-- role` annotation, and `role` is the only parameter a reference takes.
+pub fn parse_datatable_ref(reference: &str) -> Result<(&str, Option<&str>)> {
+    let (name, query) = reference.split_once('?').unwrap_or((reference, ""));
+    let mut role = None;
+    for param in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = param.split_once('=').unwrap_or((param, ""));
+        if !key.eq_ignore_ascii_case("role") {
+            return Err(Error::BadRequest(format!(
+                "Data table reference '{name}' carries an unknown parameter '{key}'. \
+                 The only one it takes is `?role=<name>`."
+            )));
+        }
+        if role.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Data table reference '{name}' names a role more than once."
+            )));
+        }
+        if value.is_empty() || !is_datatable_role_name(value) {
+            return Err(Error::BadRequest(format!(
+                "Data table reference '{name}' has a malformed role '{value}'. Write it as \
+                 `?role=<name>`, where <name> is letters, digits, '_' or '-'."
+            )));
+        }
+        role = Some(value);
+    }
+    Ok((name, role))
+}
+
+fn is_datatable_role_name(role: &str) -> bool {
+    !role.is_empty()
+        && role.len() <= 63
+        && role
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -599,6 +2610,97 @@ pub struct Ducklake {
     pub storage: DucklakeStorage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_args: Option<String>,
+    /// How this lake behaves when the workspace is a fork/dev workspace. Only meaningful in a
+    /// fork's own settings; stamped at fork creation from the user's per-lake choice. Absent =
+    /// `Isolated` — the safe default, so forks created before this field existed (and API
+    /// callers that omit it) never write the parent's lake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_behavior: Option<DucklakeForkBehavior>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maintenance: Option<DucklakeMaintenance>,
+}
+
+/// Per-lake fork data-environment choice, made at fork creation.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DucklakeForkBehavior {
+    /// Fork-scoped namespace + read-defer to the parent (default).
+    Isolated,
+    /// The fork reads AND WRITES the parent's lake directly — explicit opt-out of isolation
+    /// (e.g. a fork meant to run prod-equivalent backfills).
+    Shared,
+}
+
+/// Scheduled maintenance for a ducklake (enterprise): snapshot expiry,
+/// adjacent-file compaction and orphaned-file cleanup, run as a managed
+/// per-lake schedule. Not mirrored in `instance_config::Ducklake`:
+/// instance-level lakes have no workspace to schedule into.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DucklakeMaintenance {
+    pub enabled: bool,
+    /// Cron (v2/croner, seconds optional). None → daily at 03:00 UTC with a
+    /// deterministic per-(workspace, lake) minute offset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<String>,
+    /// Snapshot retention window in days (default 7). Snapshots older than
+    /// this are expired: time-travel reads (`AT (VERSION => n)`) older than
+    /// the window stop working. 0 keeps only the current snapshot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<u32>,
+    /// Merge adjacent small parquet files (default true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction: Option<bool>,
+    /// Delete orphaned files older than max(retention, 1 day) (default true).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orphan_cleanup: Option<bool>,
+}
+
+impl DucklakeMaintenance {
+    pub const DEFAULT_RETENTION_DAYS: u32 = 7;
+
+    pub fn retention_days(&self) -> u32 {
+        self.retention_days.unwrap_or(Self::DEFAULT_RETENTION_DAYS)
+    }
+    pub fn compaction(&self) -> bool {
+        self.compaction.unwrap_or(true)
+    }
+    pub fn orphan_cleanup(&self) -> bool {
+        self.orphan_cleanup.unwrap_or(true)
+    }
+}
+
+/// Reserved schedule path namespace for managed ducklake maintenance
+/// schedules. Must satisfy the `schedule.path` CHECK constraint
+/// (`^[ufg](\/[\w-]+){2,}$`), hence the `f/` prefix; the folder itself never
+/// exists. The schedule API rejects user mutations under this prefix and the
+/// list/export endpoints filter it out — the lifecycle is owned by the
+/// workspace ducklake settings.
+///
+/// Accepted limitation: a schedule that pre-dated this namespace under a real
+/// `ducklake_maintenance` folder keeps running (tick dispatch falls through
+/// to its script when its path's lake has no enabled maintenance config, and
+/// the settings sync only touches rows derived from config) but stays hidden
+/// from list/export and immutable via the schedule API until renamed out of
+/// the namespace. Judged unlikely enough to not warrant a discriminator
+/// column or a rename migration.
+pub const DUCKLAKE_MAINTENANCE_PATH_PREFIX: &str = "f/ducklake_maintenance/";
+
+pub fn ducklake_maintenance_schedule_path(lake: &str) -> String {
+    format!("{DUCKLAKE_MAINTENANCE_PATH_PREFIX}{lake}")
+}
+
+pub fn lake_from_ducklake_maintenance_path(path: &str) -> Option<&str> {
+    path.strip_prefix(DUCKLAKE_MAINTENANCE_PATH_PREFIX)
+}
+
+/// Lake names are interpolated into `ATTACH 'ducklake://<name>'`, generated
+/// maintenance SQL and the reserved schedule path (CHECK-constrained to
+/// `[\w-]+` segments), so they must stay to this charset.
+pub fn is_valid_ducklake_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -623,6 +2725,10 @@ pub enum DucklakeCatalogResourceType {
     Postgresql,
     Mysql,
     Instance,
+    /// On the external instance cluster ([`crate::external_instance_pg`]). Enterprise Edition.
+    #[serde(rename = "external_instance")]
+    #[strum(serialize = "external_instance")]
+    ExternalInstance,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -632,6 +2738,606 @@ pub struct DucklakeWithConnData {
     pub storage: DucklakeStorage,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_args: Option<String>,
+    /// Present when the resolved workspace is a fork/dev workspace. Carries the read-defer
+    /// context (ancestor namespaces + tables to expose as views over the direct parent). The
+    /// fork *write* redirect is folded into `storage.path`/`extra_args` above, so an agent
+    /// worker that predates this field still writes the fork namespace (it only misses the
+    /// defer views).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_defer: Option<DucklakeForkDefer>,
+}
+
+/// Read-defer context for a fork workspace's ducklake: which ancestor namespaces to attach
+/// read-only, and which tables to expose as views over the direct parent because the fork has
+/// not materialized them yet. `ancestors` is empty when defer is unavailable (an ancestor no
+/// longer defines the lake) — the fork namespace still isolates writes in that case.
+#[derive(Deserialize, Serialize)]
+pub struct DucklakeForkDefer {
+    /// Nearest-first (direct parent … root), each resolved from that workspace's own settings.
+    pub ancestors: Vec<DucklakeAncestorAttach>,
+    pub defer_tables: Vec<crate::materialization::ForkDeferTable>,
+    /// Views currently live in the fork namespace (read from the catalog's `ducklake_view` at
+    /// resolution time, lake-internal names). The worker's view→table transition (DROP VIEW
+    /// before a managed materialize) keys on THIS, not on recorded materialization status:
+    /// after a failed run the status can't distinguish a defer view from a real table, and
+    /// `DROP VIEW` against a table (or `CREATE TABLE` against a view) errors — either guess
+    /// would wedge the asset until manual repair.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fork_views: Vec<String>,
+}
+
+/// Connection data for one ancestor namespace of a fork's ducklake.
+#[derive(Deserialize, Serialize)]
+pub struct DucklakeAncestorAttach {
+    pub workspace_id: String,
+    /// DuckDB catalog alias this namespace must be attached under. Persisted defer-view SQL
+    /// references it, so it is a pure function of (lake name, ancestor workspace id) and every
+    /// session reading those views attaches the ancestor under this exact alias.
+    pub alias: String,
+    pub catalog: DucklakeCatalog,
+    pub catalog_resource: serde_json::Value,
+    pub storage: DucklakeStorage,
+    /// None = the lake's default metadata schema (the ancestor is a root/non-fork workspace).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_schema: Option<String>,
+    /// The ancestor config's own non-reserved ATTACH args (e.g. `ENCRYPTED true`), already
+    /// stripped of the fork-owned `METADATA_SCHEMA`/`DATA_PATH`/`OVERRIDE_DATA_PATH` — an
+    /// option-dependent lake would otherwise fail its read-only ancestor attach even though
+    /// the same lake attaches fine everywhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_args: Option<String>,
+}
+
+/// Prefix of fork-scoped ducklake metadata schemas. Cleanup refuses to drop any pg schema not
+/// carrying it, mirroring the `wm_fork_` guard on forked datatable databases.
+pub const FORK_DUCKLAKE_SCHEMA_PREFIX: &str = "wm_fork_";
+
+/// Bucket-root directory holding all fork namespaces' data files: each fork writes under
+/// `{FORK_DUCKLAKE_DATA_DIR}/<fork segment>/<lake path>` where the segment is
+/// [`fork_data_dir_segment`] (see [`fork_data_path`] for why it wraps the lake's path instead
+/// of nesting under it).
+pub const FORK_DUCKLAKE_DATA_DIR: &str = "__wm_forks";
+
+fn mangle_identifier(s: &str, max: usize) -> String {
+    s.chars()
+        .take(max)
+        .map(|c| {
+            let c = c.to_ascii_lowercase();
+            if c.is_ascii_alphanumeric() {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Deterministic, injective pg-schema name for a fork workspace's namespace of ONE lake:
+/// `wm_fork_<mangled wid (≤24)>_<mangled lake (≤16)>_<8-hex sha256>`, ≤58 chars (pg limit 63).
+/// Lake-scoped, not just workspace-scoped: two lakes of one workspace may share a catalog
+/// database, and a per-workspace schema would merge their namespaces in the fork (tables and
+/// snapshots colliding across `ducklake://a/…` and `ducklake://b/…`). The hash keeps distinct
+/// (workspace, lake) pairs distinct after mangling. The registry row records the computed name
+/// for cleanup, but ATTACH recomputes it — so this function must stay stable across releases
+/// or existing forks would silently lose their namespace.
+pub fn fork_ducklake_metadata_schema(w_id: &str, lake_name: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = hex::encode(&Sha256::digest(format!("{w_id}\0{lake_name}").as_bytes())[..4]);
+    format!(
+        "{FORK_DUCKLAKE_SCHEMA_PREFIX}{}_{}_{hash}",
+        mangle_identifier(w_id, 24),
+        mangle_identifier(lake_name, 16)
+    )
+}
+
+/// The `METADATA_SCHEMA '<x>'` value carried in a lake config's `extra_args`, if any — the
+/// schema the lake's OWN catalog namespace lives in (how one catalog database hosts several
+/// lakes). Ancestor read-only attaches must preserve it or they'd bind the wrong namespace.
+pub fn extract_metadata_schema_arg(extra_args: &str) -> Option<String> {
+    lazy_static::lazy_static! {
+        static ref MS: regex::Regex = regex::Regex::new(
+            r"(?i)\bMETADATA_SCHEMA\s*(?:'([^']*)'|([A-Za-z0-9_]+))"
+        )
+        .unwrap();
+    }
+    // Last occurrence wins, matching DuckDB's duplicate-option semantics.
+    MS.captures_iter(extra_args)
+        .last()
+        .and_then(|c| c.get(1).or_else(|| c.get(2)))
+        .map(|m| m.as_str().to_string())
+}
+
+/// Deterministic DuckDB attach alias for an ancestor namespace of a fork's lake. Persisted
+/// defer-view SQL references it (same stability requirement as
+/// [`fork_ducklake_metadata_schema`]).
+pub fn fork_ducklake_ancestor_alias(lake_name: &str, ancestor_w_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash =
+        hex::encode(&Sha256::digest(format!("{lake_name}\0{ancestor_w_id}").as_bytes())[..4]);
+    format!(
+        "__wm_dl_{}_{}_{hash}",
+        mangle_identifier(lake_name, 20),
+        mangle_identifier(ancestor_w_id, 20)
+    )
+}
+
+/// The byte length of the string literal or quoted identifier starting at byte `i` of `sql`
+/// ('…', "…", $tag$…$tag$, or E'…' with backslash escapes), if one starts there. An
+/// unterminated one runs to the end.
+pub fn sql_literal_len(sql: &str, i: usize) -> Option<usize> {
+    let rest = &sql[i..];
+    let after_ident = sql[..i]
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_alphanumeric() || c == '_');
+    match rest.as_bytes()[0] {
+        b'E' | b'e' if !after_ident && rest[1..].starts_with('\'') => {
+            let bytes = rest.as_bytes();
+            let mut j = 2;
+            while j < bytes.len() {
+                match bytes[j] {
+                    b'\\' => j += 2,
+                    b'\'' if bytes.get(j + 1) == Some(&b'\'') => j += 2,
+                    b'\'' => return Some(j + 1),
+                    _ => j += 1,
+                }
+            }
+            Some(rest.len())
+        }
+        q @ (b'\'' | b'"') => Some(rest[1..].find(q as char).map_or(rest.len(), |e| e + 2)),
+        b'$' => rest[1..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .filter(|&n| rest[1 + n..].starts_with('$'))
+            .map(|n| {
+                let delim = &rest[..n + 2];
+                rest[n + 2..]
+                    .find(delim)
+                    .map_or(rest.len(), |e| n + 2 + e + delim.len())
+            }),
+        _ => None,
+    }
+}
+
+/// Replaces each SQL comment outside string literals ([`sql_literal_len`]) with a space,
+/// following DuckDB: `--` runs to the end of the line and `/* */` nests. An unterminated block
+/// comment is kept as is, so the statement it ends up in fails to parse rather than silently
+/// losing what follows.
+pub fn strip_sql_comments(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < sql.len() {
+        let rest = &sql[i..];
+        if let Some(len) = sql_literal_len(sql, i) {
+            out.push_str(&rest[..len]);
+            i += len;
+        } else if rest.starts_with("--") {
+            i += rest.find('\n').unwrap_or(rest.len());
+            out.push(' ');
+        } else if rest.starts_with("/*") {
+            let (mut depth, mut j) = (1usize, 2);
+            while depth > 0 && j < rest.len() {
+                if rest[j..].starts_with("/*") {
+                    (depth, j) = (depth + 1, j + 2);
+                } else if rest[j..].starts_with("*/") {
+                    (depth, j) = (depth - 1, j + 2);
+                } else {
+                    j += rest[j..].chars().next().map_or(1, char::len_utf8);
+                }
+            }
+            if depth > 0 {
+                out.push_str(rest);
+                break;
+            }
+            out.push(' ');
+            i += j;
+        } else {
+            let c = rest.chars().next().unwrap();
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
+}
+
+/// Strip `METADATA_SCHEMA` / `DATA_PATH` / `OVERRIDE_DATA_PATH` tokens from ducklake ATTACH
+/// extra args. In a fork these options are injected by the fork resolution; a user- or
+/// settings-supplied duplicate silently wins (the worker keeps the last occurrence) and would
+/// escape the fork namespace back to the parent's, so they are removed rather than overridden.
+pub fn strip_fork_reserved_attach_args(extra_args: &str) -> String {
+    lazy_static::lazy_static! {
+        static ref RESERVED: regex::Regex = regex::Regex::new(
+            r"(?i)\b(METADATA_SCHEMA|DATA_PATH|OVERRIDE_DATA_PATH)\s*('[^']*'|[A-Za-z0-9_]+)"
+        )
+        .unwrap();
+    }
+    // Comments go first: the fork-owned options are appended after these args, and a trailing
+    // `-- …` would otherwise comment them out of the ATTACH.
+    RESERVED
+        .replace_all(&strip_sql_comments(extra_args), "")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+lazy_static::lazy_static! {
+    /// fork workspace id -> (ancestor chain nearest-first, expiry ts). Empty chain = not a fork.
+    /// `parent_workspace_id` only changes on dev-workspace attach/detach, so a short TTL is safe.
+    static ref FORK_ANCESTOR_CHAIN_CACHE: Cache<String, (Vec<String>, i64)> = Cache::new(5000);
+    /// fork workspace id -> (locations recently upserted into `fork_ducklake_namespace`,
+    /// expiry ts), so the registry write doesn't run on every job of a fork. Keyed by
+    /// workspace id so cleanup can drop a fork's whole entry: a same-id fork recreated within
+    /// the TTL must re-register, or its materializations would carry no registry row and leak
+    /// at ITS deletion. TTL'd as a second line of defense for cleanup paths that bypass
+    /// `cleanup_fork_ducklake_namespaces` (e.g. manual registry edits).
+    static ref FORK_DUCKLAKE_REGISTERED: Cache<String, (std::collections::HashSet<String>, i64)> =
+        Cache::new(5000);
+}
+
+/// Drop the "already registered" once-cache for a workspace. MUST be called whenever
+/// `fork_ducklake_namespace` rows for that workspace are deleted (namespace cleanup, workspace
+/// deletion): a surviving entry would make a same-id fork recreated within the TTL skip
+/// re-registration, orphaning its namespace at deletion time.
+pub fn invalidate_fork_ducklake_registration_cache(w_id: &str) {
+    FORK_DUCKLAKE_REGISTERED.remove(w_id);
+}
+
+/// Drop the cached ancestor chain for a workspace. MUST be called wherever
+/// `parent_workspace_id` lineage changes (fork creation, dev-workspace attach, reparenting
+/// rename, deletion): a cached EMPTY chain reads as "not a fork" and would bypass ducklake
+/// fork isolation for the TTL — the first jobs after a dev-workspace attach would write the
+/// shared lake.
+pub fn invalidate_fork_ancestor_chain_cache(w_id: &str) {
+    FORK_ANCESTOR_CHAIN_CACHE.remove(w_id);
+}
+
+/// Ancestors of `w_id`, nearest-first (direct parent … root). Empty for a non-fork workspace or
+/// an unknown id. The depth bound is a cycle-safety backstop, same convention as
+/// [`fork_chain_depth`].
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn fork_ancestor_chain(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some((chain, expiry)) = FORK_ANCESTOR_CHAIN_CACHE.get(w_id) {
+        if expiry > now {
+            return Ok(chain);
+        }
+    }
+    let chain = sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT id AS "id!" FROM chain WHERE depth > 0 ORDER BY depth
+        "#,
+        w_id
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving fork ancestors of {w_id}: {e:#}")))?;
+    FORK_ANCESTOR_CHAIN_CACHE.insert(w_id.to_string(), (chain.clone(), now + 60));
+    Ok(chain)
+}
+
+/// `w_id` followed by its fork ancestors, nearest-first: the id sequence to match a
+/// workspace-scoped rule against when the rule can extend to a fork subtree.
+///
+/// Reads lineage for any `w_id` with no authorization check, like [`fork_ancestor_chain`], so the
+/// caller must already be authorized for `w_id`: routes that take it from the path get that from
+/// `ApiAuthed`, but a caller-supplied id must be membership-checked first. Otherwise even using
+/// the chain only for a scoping decision discloses whether an arbitrary workspace descends from
+/// one the rule names.
+pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result<Vec<String>> {
+    let mut chain = Vec::with_capacity(4);
+    chain.push(w_id.to_string());
+    chain.extend(fork_ancestor_chain(db, w_id).await?);
+    Ok(chain)
+}
+
+/// The nearest fork ancestor of `w_id` holding a row at `path` in `table`, or `None` when no
+/// ancestor does (or `w_id` is not a fork). Fork creation clones trigger and schedule rows down
+/// the whole chain, so a row shares its upstream identifier (Kafka group, PG slot, cron) with
+/// every ancestor that still has one, not just the direct parent, which may have deleted its
+/// copy since.
+///
+/// Runs on the caller's connection so it sees the caller's transaction, and uncached: the
+/// answer depends on the target table, not only on lineage.
+///
+/// `table` is interpolated into SQL, hence `'static`: a trigger's `TABLE_NAME` or a literal,
+/// never caller input. Reads lineage for any `w_id` with no authorization check, like
+/// [`fork_ancestor_chain`], so the caller must already be authorized for `w_id`.
+pub async fn nearest_fork_ancestor_having(
+    conn: &mut sqlx::PgConnection,
+    table: &'static str,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<String>> {
+    sqlx::query_scalar(&format!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT chain.id FROM chain
+            JOIN {table} t ON t.workspace_id = chain.id AND t.path = $2
+            WHERE chain.depth > 0
+            ORDER BY chain.depth LIMIT 1
+        "#
+    ))
+    .bind(w_id)
+    .bind(path)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving fork ancestors of {w_id}: {e:#}")))
+}
+
+lazy_static::lazy_static! {
+    /// workspace id -> (root workspace id, expiry ts). Read once per job start, so correctness
+    /// rests on the invalidation rather than on the TTL: every mutation that can change the answer
+    /// sweeps the ids it touches through `windmill_queue::tags::invalidate_fork_parent_cache` and
+    /// broadcasts on `FORK_LINEAGE_CHANGE_CHANNEL`. A process that receives no broadcast — an agent
+    /// worker polls no notify events — has only the TTL, and takes the shorter one.
+    static ref ROOT_WORKSPACE_CACHE: Cache<String, (String, i64)> = Cache::new(5000);
+    /// workspace id -> ((dev or fork, dev lineage), expiry ts), swept with the cache above.
+    static ref DEV_LINEAGE_CACHE: Cache<String, ((bool, bool), i64)> = Cache::new(5000);
+}
+
+const ROOT_WORKSPACE_CACHE_TTL_S: i64 = 300;
+/// An agent worker consumes no `notify_event`, so no sweep ever reaches its cache and the TTL is
+/// the whole invalidation story there. Hold its entries for the same 60s the other lineage caches
+/// (`FORK_ANCESTOR_CHAIN_CACHE`, `BILLING_WORKSPACE_CACHE`) accept as their staleness bound,
+/// rather than the long TTL that only a broadcast-fed process has earned.
+const ROOT_WORKSPACE_AGENT_CACHE_TTL_S: i64 = 60;
+/// An id the walk finds nothing for is cached far more briefly than a resolved one: it becomes
+/// resolvable the moment its workspace row lands, and creating a workspace is not a lineage change,
+/// so no sweep would drop the entry.
+const ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S: i64 = 30;
+
+/// Drop the cached root workspace of one id. Called for every id whose lineage-derived caches are
+/// swept, so it needs no call site of its own — see
+/// `windmill_queue::tags::invalidate_fork_parent_cache`.
+pub fn invalidate_root_workspace_cache(w_id: &str) {
+    ROOT_WORKSPACE_CACHE.remove(w_id);
+    DEV_LINEAGE_CACHE.remove(w_id);
+}
+
+/// Drop every cached root workspace: the answer depends on the whole ancestor chain, so a mutation
+/// that reshapes the tree moves an unbounded set of descendants.
+pub fn clear_root_workspace_cache() {
+    ROOT_WORKSPACE_CACHE.clear();
+    DEV_LINEAGE_CACHE.clear();
+}
+
+/// Whether `w_id` has a parent or a generated fork id, and whether a dev workspace is on its
+/// ancestor chain: the inputs of `worker::is_isolated_workspace`, as `windmill_queue::tags` reads
+/// them, for callers outside that crate. `None` when the lookup failed, which is not cached.
+pub async fn dev_lineage(db: &crate::DB, w_id: &str) -> Option<(bool, bool)> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some((lineage, expiry)) = DEV_LINEAGE_CACHE.get(w_id) {
+        if expiry > now {
+            return Some(lineage);
+        }
+    }
+    let (has_parent, in_dev_lineage) = sqlx::query_as::<_, (Option<bool>, Option<bool>)>(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, is_dev_workspace, deleted, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, w.deleted, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT
+                (SELECT parent_workspace_id IS NOT NULL FROM chain WHERE depth = 0),
+                (SELECT bool_or(is_dev_workspace
+                                OR (parent_workspace_id IS NULL AND id LIKE 'wm-fork-%')
+                                OR (deleted AND parent_workspace_id IS NOT NULL))
+                 FROM chain)
+        "#,
+    )
+    .bind(w_id)
+    .fetch_one(db)
+    .await
+    .map_err(|e| tracing::warn!("failed to resolve the dev lineage of {w_id}: {e:#}"))
+    .ok()?;
+    let lineage = (
+        w_id.starts_with(WM_FORK_PREFIX) || has_parent == Some(true),
+        in_dev_lineage != Some(false),
+    );
+    DEV_LINEAGE_CACHE.insert(
+        w_id.to_string(),
+        (lineage, now + ROOT_WORKSPACE_CACHE_TTL_S),
+    );
+    Some(lineage)
+}
+
+/// Nearest ancestor-or-self of `w_id` that is an environment of its own: a root ("prod") workspace
+/// or a dev workspace. Equal to `w_id` for either of those, and to the standing workspace a
+/// throwaway fork was forked from otherwise. Exposed to jobs as `WM_ROOT_WORKSPACE`.
+///
+/// Falls back to `w_id` when the chain cannot be resolved (unknown id, broken or cyclic chain,
+/// failed lookup).
+///
+/// Not the same question as `get_billing_workspace_id`, which walks all the way to the parentless
+/// root: a fork under a dev workspace bills to prod but belongs to the dev environment.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn root_workspace_id(conn: &crate::worker::Connection, w_id: &str) -> String {
+    let now = chrono::Utc::now().timestamp();
+    let cached = ROOT_WORKSPACE_CACHE.get(w_id);
+    if let Some((root, expiry)) = &cached {
+        if *expiry > now {
+            return root.clone();
+        }
+    }
+
+    let (resolved, fresh_ttl) = match conn {
+        crate::worker::Connection::Sql(db) => (
+            lookup_root_workspace_id(db, w_id).await,
+            ROOT_WORKSPACE_CACHE_TTL_S,
+        ),
+        crate::worker::Connection::Http(client) => (
+            client
+                .get::<Option<String>>(&format!("/api/w/{w_id}/agent_workers/root_workspace"))
+                .await
+                .map_err(Error::from),
+            ROOT_WORKSPACE_AGENT_CACHE_TTL_S,
+        ),
+    };
+
+    let (root, ttl) = match resolved {
+        Ok(Some(root)) => (root, fresh_ttl),
+        Ok(None) => (w_id.to_string(), ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S),
+        // A failed lookup is NOT cached, for the reason `lookup_tag_workspace` gives: the fallback
+        // is indistinguishable from a legitimate answer, so pinning one failure would make every
+        // job in a fork report the fork as its own environment until the entry expired. The expired
+        // entry is still the last answer this process actually resolved, so prefer it to that
+        // fallback — an agent talking to a server too old to serve the route would otherwise
+        // demote every fork to itself for the whole rolling upgrade.
+        Err(e) => {
+            tracing::warn!("failed to resolve root workspace of {w_id}: {e:#}");
+            return cached
+                .map(|(root, _)| root)
+                .unwrap_or_else(|| w_id.to_string());
+        }
+    };
+    ROOT_WORKSPACE_CACHE.insert(w_id.to_string(), (root.clone(), now + ttl));
+    root
+}
+
+/// Uncached lookup behind [`root_workspace_id`]. `None` when the chain resolves to nothing: an
+/// unknown id, or a (malformed) cycle that saturates the depth bound — the same cycle-safety
+/// backstop convention as [`fork_ancestor_chain`].
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code). Answering for an arbitrary
+/// id discloses that the workspace exists and which environment it belongs to.
+pub async fn lookup_root_workspace_id(db: &crate::DB, w_id: &str) -> Result<Option<String>> {
+    sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, is_dev_workspace, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT id AS "id!" FROM chain
+            WHERE parent_workspace_id IS NULL OR is_dev_workspace
+            ORDER BY depth LIMIT 1
+        "#,
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving root workspace of {w_id}: {e:#}")))
+}
+
+/// Resolve which live descendant workspace (and its inherited repo entry) a git
+/// branch pushed to `parent_repo_path` — a git-sync repo on `parent_w_id`
+/// tracking `expected_base` — deploys to via parent-managed fork sync, or `None`
+/// if it routes to no fork. Shared by the auto-pull reconciler and deploy-mode
+/// detection so both agree on fork/dev routing.
+///
+/// Reads lineage/settings for arbitrary ids with no authz check (like
+/// [`fork_ancestor_chain`]); the caller must already be authorized for the
+/// workspace whose deploy path it is resolving.
+pub async fn resolve_fork_branch_target(
+    db: &DB,
+    parent_w_id: &str,
+    parent_repo_path: &str,
+    branch: &str,
+    expected_base: &str,
+) -> Result<Option<(String, GitRepositorySettings)>> {
+    // Only a live descendant of parent_w_id may receive the pull — a crafted
+    // branch name must not route into an unrelated workspace. Descendants (not
+    // just direct children) because a fork of a dev workspace also syncs through
+    // the root's webhook/poller: only the root can hold auto-pull config.
+    let fork_id: Option<String> = if let Some((base, suffix)) = parse_fork_branch(branch) {
+        // Throwaway-fork form derives from the tracked branch
+        // (`wm-fork/<tracked>/<id>`); a different base is not this repo's.
+        if base != expected_base {
+            return Ok(None);
+        }
+        let [generated_id, dev_id] = fork_branch_workspace_id_candidates(suffix);
+        sqlx::query_scalar!(
+            r#"WITH RECURSIVE descendants AS (
+                   SELECT id, 0 AS depth FROM workspace
+                   WHERE parent_workspace_id = $1 AND NOT deleted
+                   UNION ALL
+                   SELECT w.id, d.depth + 1 FROM workspace w
+                   JOIN descendants d ON w.parent_workspace_id = d.id
+                   WHERE NOT w.deleted AND d.depth < 10
+               )
+               SELECT id as "id!" FROM descendants WHERE (id = $2 OR id = $3)
+               ORDER BY (id = $2) DESC LIMIT 1"#,
+            parent_w_id,
+            generated_id,
+            dev_id,
+        )
+        .fetch_optional(db)
+        .await?
+    } else if branch != expected_base {
+        // Environment-label branch (`dev`, `staging`, ...) of a dev-workspace child.
+        // Direct children only: a dev nested under another dev is parent-managed
+        // by that dev, which holds no auto-pull config of its own, so no branch
+        // pushed to this repo routes to it. The tracked-branch guard keeps a
+        // label that collides with the tracked branch from double-routing (the
+        // parent's own pull already covers it).
+        sqlx::query_scalar!(
+            "SELECT id FROM workspace \
+             WHERE parent_workspace_id = $1 AND NOT deleted AND is_dev_workspace \
+               AND COALESCE(dev_workspace_label, 'dev') = $2",
+            parent_w_id,
+            branch,
+        )
+        .fetch_optional(db)
+        .await?
+    } else {
+        return Ok(None);
+    };
+    let Some(fork_id) = fork_id else {
+        return Ok(None);
+    };
+
+    // The fork inherited the repo entry at fork time; use its own copy.
+    let fork_repo = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &fork_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .and_then(|v| serde_json::from_value::<WorkspaceGitSyncSettings>(v).ok())
+    .and_then(|s| {
+        s.repositories
+            .into_iter()
+            .find(|r| r.git_repo_resource_path == parent_repo_path)
+    });
+    if fork_repo.is_none() {
+        tracing::warn!(
+            "git fork sync: fork {fork_id} has no git-sync repo {parent_repo_path}, not routing {branch}"
+        );
+    }
+    Ok(fork_repo.map(|r| (fork_id, r)))
 }
 
 pub async fn get_ducklake_from_db_unchecked(
@@ -639,6 +3345,29 @@ pub async fn get_ducklake_from_db_unchecked(
     w_id: &str,
     db: &DB,
 ) -> Result<DucklakeWithConnData> {
+    let (base, fork_behavior) = ducklake_conn_data(name, w_id, db).await?;
+    let chain = fork_ancestor_chain(db, w_id).await?;
+    // `Shared` is the explicit fork-creation opt-out of isolation: the fork reads and writes
+    // the parent's lake through its own (cloned) config, exactly like a non-fork workspace.
+    // An empty chain alone does NOT mean "not a fork": `parent_workspace_id` is ON DELETE SET
+    // NULL, so a `wm-fork-*` workspace can outlive its parent — its cloned config still points
+    // at the shared lake, so the prefix keeps it isolated (mirrors `workspace_is_fork`). No
+    // ancestors ⇒ no defer, write redirect only. Prefix-less dev workspaces can't be orphaned
+    // (deletion of their prod is blocked while attached).
+    if (chain.is_empty() && !w_id.starts_with(WM_FORK_PREFIX))
+        || fork_behavior == Some(DucklakeForkBehavior::Shared)
+    {
+        return Ok(base);
+    }
+    fork_scoped_ducklake(name, w_id, base, chain, db).await
+}
+
+/// Resolve one workspace's own config for lake `name` — no fork awareness.
+async fn ducklake_conn_data(
+    name: &str,
+    w_id: &str,
+    db: &DB,
+) -> Result<(DucklakeWithConnData, Option<DucklakeForkBehavior>)> {
     let ducklake = sqlx::query_scalar!(
         r#"
             SELECT ws.ducklake->'ducklakes'->$2 AS config
@@ -656,7 +3385,16 @@ pub async fn get_ducklake_from_db_unchecked(
     let ducklake = serde_json::from_value::<Ducklake>(ducklake)?;
 
     let catalog_resource =
-        if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
+        if ducklake.catalog.resource_type == DucklakeCatalogResourceType::ExternalInstance {
+            let pg_creds = crate::external_instance_pg::external_instance_connection_unchecked(
+                db,
+                &ducklake.catalog.resource_path,
+                false,
+            )
+            .await?;
+            serde_json::to_value(&pg_creds)
+                .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
+        } else if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
             let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
             pg_creds.dbname = ducklake.catalog.resource_path.clone();
             pg_creds.user = Some("custom_instance_user".to_string());
@@ -671,13 +3409,482 @@ pub async fn get_ducklake_from_db_unchecked(
             )
             .await?
         };
+    let fork_behavior = ducklake.fork_behavior;
     let ducklake = DucklakeWithConnData {
         catalog_resource,
         catalog: ducklake.catalog,
         storage: ducklake.storage,
         extra_args: ducklake.extra_args,
+        fork_defer: None,
     };
-    Ok(ducklake)
+    Ok((ducklake, fork_behavior))
+}
+
+/// The fork's directory segment under `__wm_forks/`: mangled + hashed into ONE path component
+/// (same recipe and stability requirement as [`fork_ducklake_metadata_schema`]). Fork/dev
+/// workspace ids are only git-branch-safe and may contain `/` (e.g. `wm-fork-a/b`) — used
+/// raw, such an id would nest inside the sibling `wm-fork-a`'s prefix and be swept by ITS
+/// cleanup. The hash keeps distinct ids distinct after mangling.
+pub fn fork_data_dir_segment(fork_w_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = hex::encode(&Sha256::digest(fork_w_id.as_bytes())[..4]);
+    format!("{}_{hash}", mangle_identifier(fork_w_id, 40))
+}
+
+/// The fork namespace's data path within the same bucket: a bucket-root
+/// `__wm_forks/<fork segment>/` prefix wrapping the lake's own path, NOT a sub-path under it —
+/// the parent lake's maintenance (snapshot expiry / `ducklake_delete_orphaned_files`) scans
+/// everything under the parent's DATA_PATH and would treat live fork files nested there as
+/// orphans and delete them.
+pub fn fork_data_path(base_path: &str, fork_w_id: &str) -> String {
+    let segment = fork_data_dir_segment(fork_w_id);
+    let base = base_path.trim_matches('/');
+    if base.is_empty() {
+        format!("{FORK_DUCKLAKE_DATA_DIR}/{segment}")
+    } else {
+        format!("{FORK_DUCKLAKE_DATA_DIR}/{segment}/{base}")
+    }
+}
+
+/// Redirect a fork workspace's lake to its fork-scoped namespace (same catalog DB, fork
+/// metadata schema + data sub-path) and assemble the read-defer context over its ancestors.
+async fn fork_scoped_ducklake(
+    name: &str,
+    w_id: &str,
+    mut base: DucklakeWithConnData,
+    chain: Vec<String>,
+    db: &DB,
+) -> Result<DucklakeWithConnData> {
+    if base.catalog.resource_type == DucklakeCatalogResourceType::Mysql {
+        return Err(Error::BadRequest(format!(
+            "ducklake {name}: mysql-catalog lakes are not supported in fork workspaces — \
+             running against the shared catalog would write the parent workspace's data"
+        )));
+    }
+    let metadata_schema = fork_ducklake_metadata_schema(w_id, name);
+    let fork_path = fork_data_path(&base.storage.path, w_id);
+    let catalog_identity = ducklake_catalog_identity(&base.catalog);
+    register_fork_ducklake_namespace(
+        db,
+        w_id,
+        name,
+        &metadata_schema,
+        &catalog_identity,
+        base.storage.storage.as_deref(),
+        &fork_path,
+    )
+    .await?;
+
+    // Ancestor namespaces, nearest-first, each from its own settings so a fork-side settings
+    // edit can't silently repoint what "parent" means. All-or-nothing: a broken link anywhere
+    // in the chain disables defer entirely (a defer view over a missing ancestor attach fails
+    // at bind time and would kill unrelated jobs), but write isolation still applies.
+    let mut ancestors = Vec::with_capacity(chain.len());
+    for (i, ancestor_id) in chain.iter().enumerate() {
+        match ducklake_conn_data(name, ancestor_id, db).await {
+            Ok((mut a, ancestor_behavior)) => {
+                // A fork ancestor lives in its own namespace UNLESS its lake is `Shared` —
+                // then it never redirected and its data sits at its config's default
+                // location, exactly like a root workspace. Chain position alone can't tell
+                // the two apart: an orphaned `wm-fork-*` ancestor (its own parent deleted,
+                // `parent_workspace_id` SET NULL) ends the chain like a root but its data
+                // lives in ITS fork namespace — key on the prefix too, as in resolution.
+                let is_isolated_fork = (i + 1 < chain.len()
+                    || ancestor_id.starts_with(WM_FORK_PREFIX))
+                    && ancestor_behavior != Some(DucklakeForkBehavior::Shared);
+                let metadata_schema = if is_isolated_fork {
+                    a.storage.path = fork_data_path(&a.storage.path, ancestor_id);
+                    Some(fork_ducklake_metadata_schema(ancestor_id, name))
+                } else {
+                    // Root / shared ancestors live in their config's OWN catalog namespace —
+                    // which may be a non-default schema when one catalog database hosts
+                    // several lakes (`extra_args METADATA_SCHEMA '…'`). Preserve it, or the
+                    // read-only attach would bind the wrong (or a nonexistent) lake.
+                    a.extra_args
+                        .as_deref()
+                        .and_then(extract_metadata_schema_arg)
+                };
+                let extra_args = a
+                    .extra_args
+                    .as_deref()
+                    .map(strip_fork_reserved_attach_args)
+                    .filter(|s| !s.is_empty());
+                ancestors.push(DucklakeAncestorAttach {
+                    workspace_id: ancestor_id.clone(),
+                    alias: fork_ducklake_ancestor_alias(name, ancestor_id),
+                    catalog: a.catalog,
+                    catalog_resource: a.catalog_resource,
+                    storage: a.storage,
+                    metadata_schema,
+                    extra_args,
+                });
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "fork {w_id}: ducklake {name} not resolvable in ancestor {ancestor_id} \
+                     ({e:#}); read-defer disabled, fork namespace still isolated"
+                );
+                ancestors.clear();
+                break;
+            }
+        }
+    }
+    // Drop fork ancestors whose namespace was never bootstrapped (e.g. a fresh intermediate
+    // fork that never attached this lake): their READ_ONLY attach would fail the whole job
+    // ("DuckLake does not exist" + creation disabled), and a nonexistent namespace can't own
+    // tables or be referenced by any persisted view. Checked against the fork's catalog DB —
+    // must happen BEFORE defer discovery so `ancestor_idx` values index the filtered list.
+    let (existing_schemas, fork_views, fork_tables) =
+        inspect_fork_catalog(&base, &metadata_schema, &ancestors, db).await?;
+    ancestors.retain(|a| {
+        a.metadata_schema
+            .as_ref()
+            .map_or(true, |s| existing_schemas.contains(s))
+    });
+    let defer_tables = if ancestors.is_empty() {
+        vec![]
+    } else {
+        // Discovery walks the WHOLE chain: a table only a grandparent materialized has no
+        // physical copy in the direct parent (it defers too), so its view must target the
+        // nearest ancestor that owns one.
+        let ancestor_ids: Vec<String> = ancestors.iter().map(|a| a.workspace_id.clone()).collect();
+        let mut tables =
+            crate::materialization::list_fork_defer_tables(db, &ancestor_ids, w_id, name).await?;
+        // Catalog truth beats recorded status: any table live in the fork namespace is
+        // fork-owned, whatever its materialized_partition row says (failed-after-commit,
+        // raw SQL) — a defer view over it would silently yield to it.
+        tables.retain(|t| !fork_tables.contains(&t.table));
+        tables
+    };
+
+    base.storage.path = fork_path;
+    base.extra_args = Some(match base.extra_args.take() {
+        Some(e) => {
+            let sanitized = strip_fork_reserved_attach_args(&e);
+            if sanitized.is_empty() {
+                format!("METADATA_SCHEMA '{metadata_schema}'")
+            } else {
+                format!("{sanitized}, METADATA_SCHEMA '{metadata_schema}'")
+            }
+        }
+        None => format!("METADATA_SCHEMA '{metadata_schema}'"),
+    });
+    base.fork_defer = Some(DucklakeForkDefer { ancestors, defer_tables, fork_views });
+    Ok(base)
+}
+
+/// One round trip to the fork's catalog DB for both namespace introspections: which fork
+/// ancestors' metadata schemas actually exist (a fresh intermediate fork may never have
+/// bootstrapped its namespace), and the views currently live in THIS fork's namespace
+/// (straight from DuckLake's `ducklake_view` metadata — missing metadata tables read as "no
+/// views", correct since nothing can exist there). Each ancestor's schema is checked in the
+/// ancestor's OWN catalog database — a fork whose catalog drifted away from an ancestor's
+/// must not misread that ancestor's (existing, elsewhere) namespace as missing. Ancestors
+/// whose catalog is unreachable read as missing — the safe direction: their defer is skipped
+/// (loud absent-table reads) rather than emitting a READ_ONLY attach that would fail every
+/// job in this fork.
+async fn inspect_fork_catalog(
+    base: &DucklakeWithConnData,
+    metadata_schema: &str,
+    ancestors: &[DucklakeAncestorAttach],
+    db: &DB,
+) -> Result<(
+    std::collections::HashSet<String>,
+    Vec<String>,
+    std::collections::HashSet<String>,
+)> {
+    // Ancestor fork-schemas grouped by which catalog database they live in.
+    let mut groups: std::collections::HashMap<String, (serde_json::Value, Vec<String>)> =
+        std::collections::HashMap::new();
+    for a in ancestors {
+        if let Some(ms) = &a.metadata_schema {
+            groups
+                .entry(ducklake_catalog_identity(&a.catalog))
+                .or_insert_with(|| (a.catalog_resource.clone(), vec![]))
+                .1
+                .push(ms.clone());
+        }
+    }
+
+    async fn query_schemas(
+        client: &tokio_postgres::Client,
+        schemas: Vec<String>,
+    ) -> std::result::Result<Vec<String>, tokio_postgres::Error> {
+        client
+            .query(
+                "SELECT schema_name::text FROM information_schema.schemata
+                 WHERE schema_name = ANY($1)",
+                &[&schemas],
+            )
+            .await
+            .map(|rows| rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
+
+    let mut existing_schemas: std::collections::HashSet<String> = Default::default();
+
+    // The fork's own catalog: same-catalog ancestor schemas + this fork's live views.
+    let pg: crate::PgDatabase =
+        serde_json::from_value(base.catalog_resource.clone()).map_err(|e| {
+            Error::internal_err(format!("ducklake catalog resource is not postgres: {e}"))
+        })?;
+    let (client, connection) = pg.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    let same_catalog = groups.remove(&ducklake_catalog_identity(&base.catalog));
+    let same_catalog_res = match same_catalog {
+        Some((_, schemas)) => query_schemas(&client, schemas).await.map(Some),
+        None => Ok(None),
+    };
+    // Identifier-quoted schema: the name is server-derived (mangled + hashed) but quote anyway.
+    let q = format!(
+        r#"SELECT CASE WHEN s.schema_name = 'main' THEN v.view_name
+                       ELSE s.schema_name || '.' || v.view_name END AS name
+           FROM "{ms}".ducklake_view v
+           JOIN "{ms}".ducklake_schema s ON s.schema_id = v.schema_id AND s.end_snapshot IS NULL
+           WHERE v.end_snapshot IS NULL"#,
+        ms = metadata_schema.replace('"', "\"\"")
+    );
+    let view_rows = client.query(&q, &[]).await;
+    // Live TABLES in the fork's namespace, same name shape as the views — the defer list is
+    // filtered against them: `CREATE VIEW IF NOT EXISTS` silently yields to an existing
+    // table, so emitting a defer view over one would leave reads on the fork table while
+    // claiming they defer (recorded status can't tell — a committed write whose data tests
+    // failed, or a table left by raw SQL, has no `materialized` row).
+    let qt = format!(
+        r#"SELECT CASE WHEN s.schema_name = 'main' THEN t.table_name
+                       ELSE s.schema_name || '.' || t.table_name END AS name
+           FROM "{ms}".ducklake_table t
+           JOIN "{ms}".ducklake_schema s ON s.schema_id = t.schema_id AND s.end_snapshot IS NULL
+           WHERE t.end_snapshot IS NULL"#,
+        ms = metadata_schema.replace('"', "\"\"")
+    );
+    let table_rows = client.query(&qt, &[]).await;
+    drop(client);
+    let _ = crate::shutdown_pg_connection(join_handle).await;
+
+    existing_schemas.extend(
+        same_catalog_res
+            .map_err(|e| {
+                Error::internal_err(format!("checking fork ducklake ancestor schemas: {e}"))
+            })?
+            .unwrap_or_default(),
+    );
+    let fork_views = match view_rows {
+        Ok(rows) => rows.iter().map(|r| r.get::<_, String>(0)).collect(),
+        // 42P01 undefined_table / 3F000 invalid_schema_name: namespace not bootstrapped yet.
+        Err(e)
+            if e.code().map_or(false, |c| {
+                c == &tokio_postgres::error::SqlState::UNDEFINED_TABLE
+                    || c == &tokio_postgres::error::SqlState::INVALID_SCHEMA_NAME
+            }) =>
+        {
+            vec![]
+        }
+        Err(e) => {
+            return Err(Error::internal_err(format!(
+                "listing fork ducklake views in {metadata_schema}: {e}"
+            )))
+        }
+    };
+    let fork_tables = match table_rows {
+        Ok(rows) => rows.iter().map(|r| r.get::<_, String>(0)).collect(),
+        Err(e)
+            if e.code().map_or(false, |c| {
+                c == &tokio_postgres::error::SqlState::UNDEFINED_TABLE
+                    || c == &tokio_postgres::error::SqlState::INVALID_SCHEMA_NAME
+            }) =>
+        {
+            Default::default()
+        }
+        Err(e) => {
+            return Err(Error::internal_err(format!(
+                "listing fork ducklake tables in {metadata_schema}: {e}"
+            )))
+        }
+    };
+
+    // Ancestors living in OTHER catalog databases (this fork's catalog drifted after forking):
+    // one connection per distinct catalog, best-effort — an unreachable ancestor catalog only
+    // disables that ancestor's defer.
+    for (identity, (resource, schemas)) in groups {
+        let checked = async {
+            let pg: crate::PgDatabase = serde_json::from_value(resource)
+                .map_err(|e| Error::internal_err(format!("not a postgres resource: {e}")))?;
+            let (client, connection) = pg.connect(Some(db)).await?;
+            let join_handle = tokio::spawn(async move { connection.await });
+            let res = query_schemas(&client, schemas).await;
+            drop(client);
+            let _ = crate::shutdown_pg_connection(join_handle).await;
+            res.map_err(|e| Error::internal_err(format!("{e}")))
+        }
+        .await;
+        match checked {
+            Ok(found) => existing_schemas.extend(found),
+            Err(e) => {
+                tracing::warn!(
+                    "fork ancestor catalog `{identity}` unreachable while checking ducklake \
+                     namespaces ({e:#}); its ancestors' defer is disabled for this resolution"
+                );
+            }
+        }
+    }
+    Ok((existing_schemas, fork_views, fork_tables))
+}
+
+/// Canonical identity of a lake's catalog database (`<resource_type>:<resource_path>`) — used
+/// for the cleanup registry and for grouping ancestors by which catalog their namespace lives
+/// in. Identifies the database *pointer*, not its (live-resolved) credentials.
+pub fn ducklake_catalog_identity(catalog: &DucklakeCatalog) -> String {
+    format!(
+        "{}:{}",
+        catalog.resource_type.as_ref(),
+        catalog.resource_path
+    )
+}
+
+/// Record that a fork attached this lake at this physical location, so fork deletion knows
+/// exactly which pg metadata schema and which storage prefixes to clean up. One row per
+/// (lake, storage, data path) EVER attached — if the fork's lake settings drift, later
+/// attaches add rows rather than replace them, so cleanup covers every prefix the fork wrote.
+/// The once-cache is keyed on the full location for the same reason. Re-registering an
+/// existing row resets its `schema_dropped` cleanup phase: attaching recreates the metadata
+/// schema, so a stale "already dropped" marker would make the eventual cleanup skip a live
+/// schema.
+async fn register_fork_ducklake_namespace(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    metadata_schema: &str,
+    catalog: &str,
+    storage: Option<&str>,
+    data_path: &str,
+) -> Result<()> {
+    // '' = default storage (the column is part of the PK, which cannot hold NULL).
+    let storage = storage.unwrap_or("");
+    // Resolve the logical storage name to its identity NOW: cleanup must delete from the
+    // storage that was active when the data was written, not whatever the name points at by
+    // deletion time. '' = unresolvable (no LFS configured — the write itself will fail at the
+    // proxy, so nothing lands anywhere).
+    let storage_ref = fork_storage_ref(db, w_id, storage)
+        .await
+        .unwrap_or_default();
+    let location = format!("{name}\0{catalog}\0{storage}\0{storage_ref}\0{data_path}");
+    let now = chrono::Utc::now().timestamp();
+    if FORK_DUCKLAKE_REGISTERED
+        .get(w_id)
+        .is_some_and(|(locations, exp)| exp > now && locations.contains(&location))
+    {
+        return Ok(());
+    }
+    let mut tx = db.begin().await?;
+    // A row naming an external database counts as a use of it. Written under the lock a drop takes,
+    // and only while the database is still registered, so a drop cannot slip in between the
+    // settings this attach resolved and the row that protects the database.
+    if let Some(dbname) = catalog.strip_prefix("external_instance:") {
+        crate::external_instance_pg::ensure_external_instance_database_registered(&mut tx, dbname)
+            .await?;
+    }
+    sqlx::query!(
+        "INSERT INTO fork_ducklake_namespace
+           (workspace_id, ducklake_name, metadata_schema, catalog, storage, storage_ref, data_path)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (workspace_id, ducklake_name, catalog, storage, storage_ref, data_path)
+         DO UPDATE SET schema_dropped = false",
+        w_id,
+        name,
+        metadata_schema,
+        catalog,
+        storage,
+        &storage_ref,
+        data_path,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("registering fork ducklake namespace: {e:#}")))?;
+    tx.commit().await?;
+    let mut locations = FORK_DUCKLAKE_REGISTERED
+        .get(w_id)
+        .filter(|(_, exp)| *exp > now)
+        .map(|(locations, _)| locations)
+        .unwrap_or_default();
+    locations.insert(location);
+    FORK_DUCKLAKE_REGISTERED.insert(w_id.to_string(), (locations, now + 60));
+    Ok(())
+}
+
+/// Canonical identity of a workspace storage (`<lfs type>:<resource path or root path>`) as
+/// configured RIGHT NOW — recorded in the fork namespace registry so cleanup targets the
+/// storage the data was actually written to. `storage` = '' for the primary storage, else a
+/// `secondary_storage` name. Returns None when no matching storage is configured.
+async fn fork_storage_ref(db: &DB, w_id: &str, storage: &str) -> Option<String> {
+    let lfs_json = sqlx::query_scalar!(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten()?;
+    let entry = if storage.is_empty() || storage == "_default_" {
+        lfs_json.clone()
+    } else {
+        lfs_json.get("secondary_storage")?.get(storage)?.clone()
+    };
+    lfs_entry_storage_ref(&entry)
+}
+
+/// The pure part of [`fork_storage_ref`]: one `LargeFileStorage` JSON entry → its canonical
+/// `<type>:<path>` descriptor. The `$res:` prefix on resource paths is normalized away (stored
+/// configs are inconsistent about it); cleanup re-adds it when resolving.
+pub fn lfs_entry_storage_ref(entry: &serde_json::Value) -> Option<String> {
+    let typ = entry.get("type")?.as_str()?;
+    let path_field = match typ {
+        "S3Storage" | "S3AwsOidc" => "s3_resource_path",
+        "AzureBlobStorage" | "AzureWorkloadIdentity" => "azure_blob_resource_path",
+        "GoogleCloudStorage" => "gcs_resource_path",
+        "FilesystemStorage" => "root_path",
+        _ => return None,
+    };
+    let path = entry.get(path_field)?.as_str()?;
+    let path = path.strip_prefix("$res:").unwrap_or(path);
+    Some(format!("{typ}:{path}"))
+}
+
+pub const FILESYSTEM_STORAGE_DEV_ONLY_MSG: &str =
+    "Filesystem storage is only available in development builds of Windmill: it points the \
+     workspace at a directory on the server's own disk rather than at a resource. Use an S3, \
+     Azure Blob or Google Cloud Storage backend instead.";
+
+/// A filesystem workspace storage names a directory on the server's own disk, so it hands whoever
+/// configures it — a workspace admin, or any member who can write a `filesystem` resource —
+/// whatever the server process can reach, and it only resolves when server and workers share that
+/// disk. It is there so local development can skip MinIO, hence debug builds only. Instance object
+/// storage on local disk is a separate, superadmin-only setting and stays allowed everywhere.
+pub fn filesystem_storage_allowed() -> bool {
+    cfg!(debug_assertions)
+}
+
+/// Guards every site that builds an `ObjectStoreResource::Filesystem`, so nothing downstream can
+/// reach a local-disk store: a stored config outlives the build that accepted it, and the resource
+/// route never passes through the workspace-storage settings at all.
+pub fn ensure_filesystem_storage_allowed() -> Result<()> {
+    if !filesystem_storage_allowed() {
+        return Err(Error::BadRequest(
+            FILESYSTEM_STORAGE_DEV_ONLY_MSG.to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Resolve a `$res:`/`$var:` reference tree to its concrete value (recursively, secrets
+/// decrypted). No permission checks — trusted server-side callers only; never echo the result
+/// to a user.
+pub async fn transform_json_value_unchecked(
+    value: &serde_json::Value,
+    w_id: &str,
+    db: &DB,
+) -> Result<serde_json::Value> {
+    transform_json_unchecked(value, w_id, db).await
 }
 
 // This does not check for any permission. Should never be displayed to a user.
@@ -705,30 +3912,41 @@ async fn transform_json_unchecked(
             serde_json::Value::Array(transformed_array)
         }
         serde_json::Value::String(s) if s.starts_with("$res:") => {
+            // A reference to something that was deleted is the common failure here, and
+            // `fetch_one` reports it as "no rows returned by a query that expected to
+            // return at least one row" -- which names neither what was missing nor where.
+            let path = &s[5..];
             let resource = sqlx::query_scalar!(
                 "SELECT value AS \"value!: _\" FROM resource WHERE workspace_id = $1 AND path = $2",
                 &w_id,
-                &s[5..]
+                path
             )
-            .fetch_one(db)
+            .fetch_optional(db)
             .await
-            .map_err(to_anyhow)?;
+            .map_err(to_anyhow)?
+            .ok_or_else(|| Error::NotFound(format!("resource {path} does not exist")))?;
             transform_json_unchecked(&resource, w_id, db).await?
         }
         serde_json::Value::String(s) if s.starts_with("$var:") => {
+            let path = &s[5..];
             let (value, is_secret): (String, bool) = sqlx::query_as(
-                "SELECT value, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
+                "SELECT value::text, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
             )
             .bind(&w_id)
-            .bind(&s[5..])
-            .fetch_one(db)
+            .bind(path)
+            .fetch_optional(db)
             .await
-            .map_err(to_anyhow)?;
+            .map_err(to_anyhow)?
+            .ok_or_else(|| Error::NotFound(format!("variable {path} does not exist")))?;
             let value = if is_secret {
-                let mc = build_crypt(&db, &w_id).await?;
-                decrypt(&mc, value).map_err(|e| {
-                    Error::internal_err(format!("Error decrypting variable {}: {}", &s, e))
-                })?
+                if resolves_externally(&value) {
+                    get_secret_value(db, w_id, &s[5..], &value).await?
+                } else {
+                    let mc = build_crypt(&db, &w_id).await?;
+                    decrypt(&mc, value).map_err(|e| {
+                        Error::internal_err(format!("Error decrypting variable {}: {}", &s, e))
+                    })?
+                }
             } else {
                 value
             };
@@ -744,6 +3962,181 @@ async fn transform_json_unchecked(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tenants(list: &[&str]) -> DataTableRoleTenants {
+        DataTableRoleTenants { tenants: list.iter().map(|t| t.to_string()).collect() }
+    }
+
+    #[test]
+    fn sync_script_version_is_the_second_segment_of_the_queued_path() {
+        let meets = |p, min| sync_script_meets_min_version(&sync_callback_path(p), min);
+        assert!(meets(None, 28956));
+        assert!(!meets(Some("hub/28102/sync"), 28103));
+        assert!(!meets(Some("/hub/28102/sync"), 28103));
+        assert!(meets(Some("/hub/28103/sync"), 28103));
+        assert!(!meets(Some("f/28000/sync"), 28103));
+        assert!(meets(Some("u/admin/sync"), 28103));
+        assert!(meets(Some("sync"), 28103));
+        assert!(meets(Some("//hub/28102/sync"), 28103));
+        assert_eq!(
+            sync_callback_path(Some("/hub/28102/sync")),
+            "hub/28102/sync"
+        );
+        assert_eq!(
+            sync_callback_path(Some("//hub/28102/sync")),
+            "//hub/28102/sync"
+        );
+    }
+
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    #[test]
+    fn a_tenant_list_covers_users_groups_folders_and_the_wildcard() {
+        let groups = vec!["analysts".to_string()];
+        let folders = vec![("finance".to_string(), true, false)];
+        let scopes = None;
+        let token_prefix = None;
+        let is_admin = false;
+        let is_operator = false;
+        let authed = crate::db::AuthedRef {
+            email: "alice@windmill.dev",
+            username: "alice",
+            is_admin: &is_admin,
+            is_operator: &is_operator,
+            groups: &groups,
+            folders: &folders,
+            scopes: &scopes,
+            token_prefix: &token_prefix,
+            capabilities: Some(crate::roles::RoleCapabilities::FULL),
+        };
+
+        assert!(can_use_datatable_role(&tenants(&["u/alice"]), &authed));
+        assert!(can_use_datatable_role(&tenants(&["g/analysts"]), &authed));
+        assert!(can_use_datatable_role(&tenants(&["f/finance"]), &authed));
+        assert!(can_use_datatable_role(&tenants(&["*"]), &authed));
+        assert!(!can_use_datatable_role(&tenants(&[]), &authed));
+        assert!(!can_use_datatable_role(
+            &tenants(&["u/bob", "g/ops"]),
+            &authed
+        ));
+        // A bare name is not a principal: only the three prefixes and the wildcard match.
+        assert!(!can_use_datatable_role(&tenants(&["alice"]), &authed));
+
+        // An admin of the governing workspace reaches every role: they can edit the lists anyway.
+        let is_admin = true;
+        let admin = crate::db::AuthedRef { is_admin: &is_admin, ..authed };
+        assert!(can_use_datatable_role(&tenants(&[]), &admin));
+    }
+
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    #[test]
+    fn without_the_enterprise_edition_no_tenant_list_covers_anyone() {
+        let groups = vec![];
+        let folders = vec![];
+        let scopes = None;
+        let token_prefix = None;
+        let is_admin = true;
+        let is_operator = false;
+        let admin = crate::db::AuthedRef {
+            email: "alice@windmill.dev",
+            username: "alice",
+            is_admin: &is_admin,
+            is_operator: &is_operator,
+            groups: &groups,
+            folders: &folders,
+            scopes: &scopes,
+            token_prefix: &token_prefix,
+            capabilities: Some(crate::roles::RoleCapabilities::FULL),
+        };
+        assert!(!can_use_datatable_role(&tenants(&["*"]), &admin));
+        assert!(!can_use_datatable_role(&tenants(&["u/alice"]), &admin));
+    }
+
+    #[test]
+    fn a_datatable_ref_splits_off_its_role() {
+        assert_eq!(parse_datatable_ref("sales").unwrap(), ("sales", None));
+        assert_eq!(
+            parse_datatable_ref("sales?role=analytics").unwrap(),
+            ("sales", Some("analytics"))
+        );
+        // The key matches case-insensitively, the way the `-- role` annotation does.
+        assert_eq!(
+            parse_datatable_ref("sales?Role=analytics").unwrap(),
+            ("sales", Some("analytics"))
+        );
+
+        // A query string that does not parse is refused rather than read as "no role": resolving
+        // it to the data table's default would connect as a login the caller never asked for.
+        for malformed in [
+            "sales?role=",
+            "sales?role=an;alytics",
+            "sales?x=1&role=analytics",
+            "sales?role=a&role=b",
+        ] {
+            assert!(
+                parse_datatable_ref(malformed).is_err(),
+                "silently ignored: {malformed}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_entry_owns_a_database_or_points_at_one_but_never_both() {
+        let terminal = DataTable {
+            database: Some(DataTableDatabase {
+                resource_type: DataTableCatalogResourceType::Instance,
+                resource_path: "dt_main".to_string(),
+            }),
+            reference: None,
+            governed_by: None,
+            forked_from: None,
+            migrations_enabled: None,
+            permissions: None,
+        };
+        assert!(validate_datatable_shape("main", &terminal).is_ok());
+
+        let pointer = DataTable {
+            database: None,
+            reference: Some(DataTableReference {
+                workspace_id: "prod".to_string(),
+                datatable: "main".to_string(),
+            }),
+            ..terminal.clone()
+        };
+        assert!(validate_datatable_shape("main", &pointer).is_ok());
+
+        let both = DataTable { database: terminal.database.clone(), ..pointer.clone() };
+        assert!(validate_datatable_shape("main", &both).is_err());
+
+        let neither = DataTable { database: None, reference: None, ..terminal.clone() };
+        assert!(validate_datatable_shape("main", &neither).is_err());
+    }
+
+    #[test]
+    fn test_parse_fork_branch() {
+        // Generated fork (`wm-fork-abc`) and dev workspace (`staging`) forms.
+        assert_eq!(parse_fork_branch("wm-fork/main/abc"), Some(("main", "abc")));
+        assert_eq!(
+            parse_fork_branch("wm-fork/main/staging"),
+            Some(("main", "staging"))
+        );
+        // Base branch may itself contain slashes; the suffix never does.
+        assert_eq!(
+            parse_fork_branch("wm-fork/release/v2/abc"),
+            Some(("release/v2", "abc"))
+        );
+        assert_eq!(parse_fork_branch("main"), None);
+        assert_eq!(parse_fork_branch("wm-fork/main"), None);
+        assert_eq!(parse_fork_branch("wm-fork/main/"), None);
+        assert_eq!(parse_fork_branch("wm-fork//abc"), None);
+        assert_eq!(parse_fork_branch("wm_deploy/main/abc"), None);
+    }
+
+    #[test]
+    fn test_fork_branch_workspace_id_candidates_prefers_generated_fork() {
+        let [first, second] = fork_branch_workspace_id_candidates("abc");
+        assert_eq!(first, "wm-fork-abc");
+        assert_eq!(second, "abc");
+    }
 
     #[test]
     fn test_validate_fork_workspace_id_accepts_valid() {
@@ -770,6 +4163,9 @@ mod tests {
             "wm-fork-test[allow",
             "wm-fork-test\\allow",
             "wm-fork-test\nallow",
+            // '/' is git-legal but banned: it would break the parse_fork_branch
+            // last-'/' split that routes auto-pull into the fork workspace.
+            "wm-fork-test/allow",
         ] {
             assert!(
                 validate_fork_workspace_id(bad).is_err(),
@@ -791,8 +4187,434 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_dev_workspace_id_accepts_prefixless_valid() {
+        // Dev workspaces use ordinary, prefix-less ids but must stay git-branch-safe.
+        validate_dev_workspace_id("dev").unwrap();
+        validate_dev_workspace_id("my-dev-workspace").unwrap();
+        validate_dev_workspace_id("staging.42").unwrap();
+        // The fork prefix is allowed but not required.
+        validate_dev_workspace_id("wm-fork-dev").unwrap();
+    }
+
+    #[test]
+    fn test_validate_dev_workspace_id_rejects_empty_and_git_unsafe() {
+        assert!(validate_dev_workspace_id("").is_err());
+        assert!(validate_dev_workspace_id("dev workspace").is_err());
+        assert!(validate_dev_workspace_id("dev..staging").is_err());
+        assert!(validate_dev_workspace_id("dev/.x").is_err());
+        assert!(validate_dev_workspace_id("dev.lock").is_err());
+    }
+
+    #[test]
+    fn test_validate_fork_workspace_id_rejects_empty() {
+        assert!(validate_fork_workspace_id("").is_err());
+    }
+
+    #[test]
     fn test_validate_fork_workspace_id_rejects_too_long() {
         let long_id = format!("wm-fork-{}", "a".repeat(43));
         assert!(validate_fork_workspace_id(&long_id).is_err());
+    }
+
+    fn auto_pull(enabled: bool, synced: &[(&str, &str)]) -> AutoPullSettings {
+        AutoPullSettings {
+            enabled,
+            mode: AutoPullMode::Auto,
+            poll_interval_s: None,
+            sync_forks: false,
+            webhook_id: None,
+            webhook_secret: None,
+            webhook_url: None,
+            webhook_error: None,
+            enabled_by: None,
+            last_synced_sha: synced
+                .iter()
+                .map(|(r, s)| (r.to_string(), s.to_string()))
+                .collect(),
+            last_pull_status: None,
+        }
+    }
+
+    #[test]
+    fn test_should_pull_on_new_or_changed_sha() {
+        let s = auto_pull(true, &[("refs/heads/main", "aaa")]);
+        // unchanged head → no pull
+        assert!(!s.should_pull("refs/heads/main", "aaa"));
+        // moved head → pull
+        assert!(s.should_pull("refs/heads/main", "bbb"));
+        // never-seen ref → pull
+        assert!(s.should_pull("refs/heads/dev", "ccc"));
+    }
+
+    #[test]
+    fn test_should_pull_respects_enabled_flag() {
+        let s = auto_pull(false, &[]);
+        assert!(!s.should_pull("refs/heads/main", "bbb"));
+    }
+
+    #[test]
+    fn test_effective_poll_interval() {
+        let mut s = auto_pull(true, &[]);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            DEFAULT_AUTO_PULL_POLL_INTERVAL_S
+        );
+        // explicit override wins
+        s.poll_interval_s = Some(15);
+        assert_eq!(s.effective_poll_interval_s(), 15);
+        // with a live webhook and no override, relax to the webhook interval
+        s.poll_interval_s = None;
+        s.webhook_id = Some(42);
+        assert_eq!(
+            s.effective_poll_interval_s(),
+            WEBHOOK_AUTO_PULL_POLL_INTERVAL_S
+        );
+    }
+
+    #[test]
+    fn test_fork_ducklake_metadata_schema_shape() {
+        let s = fork_ducklake_metadata_schema("wm-fork-my-feature-42", "main");
+        assert!(s.starts_with(FORK_DUCKLAKE_SCHEMA_PREFIX), "{s}");
+        assert!(s.len() <= 63, "pg schema name limit: {s}");
+        assert!(
+            s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+            "{s}"
+        );
+        // Deterministic (persisted view SQL / registry rows depend on it).
+        assert_eq!(
+            s,
+            fork_ducklake_metadata_schema("wm-fork-my-feature-42", "main")
+        );
+    }
+
+    #[test]
+    fn test_fork_ducklake_metadata_schema_injective_after_mangling() {
+        // `-` and `_` mangle to the same char; the hash suffix must keep them distinct.
+        let a = fork_ducklake_metadata_schema("wm-fork-a-b", "main");
+        let b = fork_ducklake_metadata_schema("wm-fork-a_b", "main");
+        assert_ne!(a, b);
+        // Lake-scoped: two lakes of one workspace may share a catalog database, so their fork
+        // namespaces must be distinct schemas.
+        assert_ne!(
+            fork_ducklake_metadata_schema("wm-fork-a-b", "lake_a"),
+            fork_ducklake_metadata_schema("wm-fork-a-b", "lake_b")
+        );
+        // Long ids truncate to the same mangled prefix; hash must still differ.
+        let long_a = fork_ducklake_metadata_schema(&format!("wm-fork-{}x", "a".repeat(40)), "main");
+        let long_b = fork_ducklake_metadata_schema(&format!("wm-fork-{}y", "a".repeat(40)), "main");
+        assert_ne!(long_a, long_b);
+        let long_lake =
+            fork_ducklake_metadata_schema(&format!("wm-fork-{}", "a".repeat(42)), &"l".repeat(40));
+        assert!(long_a.len() <= 63 && long_b.len() <= 63 && long_lake.len() <= 63);
+    }
+
+    #[test]
+    fn test_fork_ducklake_ancestor_alias_valid_identifier() {
+        let a = fork_ducklake_ancestor_alias("analytics", "wm-fork-dev-1");
+        assert!(a.starts_with("__wm_dl_"), "{a}");
+        assert!(
+            a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+            "{a}"
+        );
+        // Distinct per lake for the same ancestor (a script can attach several lakes).
+        assert_ne!(a, fork_ducklake_ancestor_alias("staging", "wm-fork-dev-1"));
+        assert_ne!(
+            a,
+            fork_ducklake_ancestor_alias("analytics", "wm-fork-dev-2")
+        );
+    }
+
+    #[test]
+    fn test_extract_metadata_schema_arg() {
+        assert_eq!(
+            extract_metadata_schema_arg("METADATA_SCHEMA 'lake_b_ns', ENCRYPTED true"),
+            Some("lake_b_ns".to_string())
+        );
+        assert_eq!(
+            extract_metadata_schema_arg("metadata_schema bare_ident"),
+            Some("bare_ident".to_string())
+        );
+        // Last occurrence wins (DuckDB duplicate-option semantics).
+        assert_eq!(
+            extract_metadata_schema_arg("METADATA_SCHEMA 'a', METADATA_SCHEMA 'b'"),
+            Some("b".to_string())
+        );
+        assert_eq!(extract_metadata_schema_arg("ENCRYPTED true"), None);
+    }
+
+    #[test]
+    fn test_fork_data_path_prefix_isolation() {
+        // New fork/dev ids can't contain `/` (it would break the parse_fork_branch
+        // last-'/' split), but ids created before that ban may still exist, so the
+        // data-path mangling must keep handling them: `wm-fork-a/b`'s prefix must
+        // NOT nest inside `wm-fork-a`'s, or deleting `wm-fork-a` would sweep the
+        // sibling's files via the object-store prefix listing.
+        assert!(validate_fork_workspace_id("wm-fork-a/b").is_err());
+        let a = fork_data_path("lake", "wm-fork-a");
+        let ab = fork_data_path("lake", "wm-fork-a/b");
+        assert!(
+            !format!("{ab}/").starts_with(&format!(
+                "{FORK_DUCKLAKE_DATA_DIR}/{}/",
+                fork_data_dir_segment("wm-fork-a")
+            )),
+            "{ab} nests under {a}'s cleanup prefix"
+        );
+        // Single path component: the segment itself contains no separator.
+        assert!(!fork_data_dir_segment("wm-fork-a/b").contains('/'));
+        // Injective after mangling (`/` and `_` both mangle to `_`).
+        assert_ne!(
+            fork_data_dir_segment("wm-fork-a/b"),
+            fork_data_dir_segment("wm-fork-a_b")
+        );
+        // Deterministic (registry rows + cleanup guard recompute it).
+        assert_eq!(a, fork_data_path("lake", "wm-fork-a"));
+        // Empty base path still yields a well-formed prefix.
+        assert_eq!(
+            fork_data_path("", "wm-fork-a"),
+            format!(
+                "{FORK_DUCKLAKE_DATA_DIR}/{}",
+                fork_data_dir_segment("wm-fork-a")
+            )
+        );
+    }
+
+    #[test]
+    fn test_lfs_entry_storage_ref() {
+        assert_eq!(
+            lfs_entry_storage_ref(&serde_json::json!({
+                "type": "S3Storage", "s3_resource_path": "$res:u/admin/minio"
+            })),
+            Some("S3Storage:u/admin/minio".to_string())
+        );
+        // The `$res:` prefix is optional in stored configs; normalized either way.
+        assert_eq!(
+            lfs_entry_storage_ref(&serde_json::json!({
+                "type": "AzureBlobStorage", "azure_blob_resource_path": "u/admin/az"
+            })),
+            Some("AzureBlobStorage:u/admin/az".to_string())
+        );
+        assert_eq!(
+            lfs_entry_storage_ref(&serde_json::json!({
+                "type": "FilesystemStorage", "root_path": "/data/lfs"
+            })),
+            Some("FilesystemStorage:/data/lfs".to_string())
+        );
+        assert_eq!(
+            lfs_entry_storage_ref(&serde_json::json!({"type": "SomethingNew"})),
+            None
+        );
+        assert_eq!(lfs_entry_storage_ref(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn test_strip_fork_reserved_attach_args() {
+        // Reserved options removed wherever they appear, others preserved.
+        assert_eq!(
+            strip_fork_reserved_attach_args("METADATA_SCHEMA 'main', ENCRYPTED true"),
+            "ENCRYPTED true"
+        );
+        assert_eq!(
+            strip_fork_reserved_attach_args(
+                "ENCRYPTED true, DATA_PATH 's3://b/prod', OVERRIDE_DATA_PATH FALSE"
+            ),
+            "ENCRYPTED true"
+        );
+        // Case-insensitive, and quoted values may contain commas/spaces.
+        assert_eq!(
+            strip_fork_reserved_attach_args("data_path 's3://b/x, y', SNAPSHOT_VERSION 3"),
+            "SNAPSHOT_VERSION 3"
+        );
+        assert_eq!(strip_fork_reserved_attach_args(""), "");
+        assert_eq!(
+            strip_fork_reserved_attach_args("METADATA_SCHEMA 'wm_fork_evil'"),
+            ""
+        );
+        // A trailing comment must not survive to comment out the fork options appended after.
+        assert_eq!(
+            strip_fork_reserved_attach_args("READ_ONLY false -- why, '/*'"),
+            "READ_ONLY false"
+        );
+        assert_eq!(
+            strip_sql_comments("a /* x /* y */ x */ b '--' $q$/*$q$ -- c\nd /* open"),
+            "a   b '--' $q$/*$q$  \nd /* open"
+        );
+        assert_eq!(
+            strip_sql_comments(r"x E'a\'/* k */\'b' /* d */ e'c''/*'"),
+            r"x E'a\'/* k */\'b'   e'c''/*'"
+        );
+    }
+
+    #[test]
+    fn test_datatable_not_found_error_no_datatables() {
+        let msg = datatable_not_found_error("main", None).to_string();
+        assert!(msg.contains("'main' not found"), "{msg}");
+        assert!(msg.contains("No data table is configured"), "{msg}");
+        // Always signposts the settings tab so the message is actionable.
+        assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
+    }
+
+    #[test]
+    fn test_datatable_not_found_error_lists_available() {
+        let configured = serde_json::json!({ "analytics": {}, "staging": {} });
+        let msg = datatable_not_found_error("main", Some(&configured)).to_string();
+        assert!(msg.contains("'main' not found"), "{msg}");
+        // Surface configured names to catch typos.
+        assert!(msg.contains("analytics"), "{msg}");
+        assert!(msg.contains("staging"), "{msg}");
+        assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
+    }
+
+    #[test]
+    fn test_dbt_warehouse_name_length_bound() {
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN)).is_ok());
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN + 1)).is_err());
+    }
+}
+
+/// Whether a workspace configures this warehouse, without resolving it.
+///
+/// For the one caller that needs the NAME and nothing else: a project bringing
+/// its own `profiles.yml` names a warehouse to say where its assets belong, and
+/// decrypting a connection it will never open to answer that would be waste.
+///
+/// NO AUTHORIZATION, like the resolver it delegates to: it reads workspace
+/// settings for whatever `w_id` it is given, so callers MUST already be scoped
+/// to that workspace.
+pub async fn dbt_warehouse_exists(db: &DB, w_id: &str, warehouse: &str) -> Result<()> {
+    dbt_warehouse_resource(db, w_id, warehouse)
+        .await
+        .map(|_| ())
+}
+
+/// The longest warehouse name a workspace may configure.
+///
+/// It is the first segment of every `dbt://<warehouse>/<schema>/<name>` key, and
+/// those land in `asset.path`, a VARCHAR(255). A name near that width would push
+/// ordinary relations past the column, and the ingest's own bound would then
+/// skip them — a graph quietly missing models. 64 leaves room for two 63-char
+/// identifiers, which is Postgres's own limit; warehouses that allow longer ones
+/// still rely on that ingest bound as the backstop.
+pub const MAX_DBT_WAREHOUSE_NAME_LEN: usize = 64;
+
+/// A warehouse name is a URL path segment for a worker with no database, so a
+/// name that could re-cut the path (or the query) is refused — at every place a
+/// name enters, not only where one is written, since a descriptor names one too.
+pub fn validate_dbt_warehouse_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is not a usable dbt warehouse name: use letters, digits, `_` and `-`"
+        )));
+    }
+    if name.chars().count() > MAX_DBT_WAREHOUSE_NAME_LEN {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is too long for a dbt warehouse name (max {MAX_DBT_WAREHOUSE_NAME_LEN}): it \
+             prefixes every asset path this warehouse's models are keyed on"
+        )));
+    }
+    Ok(())
+}
+
+/// A dbt warehouse's resolved connection: the value a `profiles.yml` is rendered
+/// from, and the target the workspace names for it.
+///
+/// Carries CREDENTIALS. dbt is unpermissioned by design (docs/dbt-runtime.md,
+/// Decision 24), so this is served to a running job rather than gated on the
+/// runner's access to the resource — but it must never reach a route a user can
+/// browse.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DbtWarehouseConnection {
+    pub value: serde_json::Value,
+    /// Omitted rather than null when absent, so the wire shape matches the
+    /// schema generated clients validate against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// What the value IS, which its shape cannot say: a `dbt_profile`'s value is a
+    /// `profiles.yml` output block and every other type's is a connection to translate,
+    /// and both are objects carrying a `type`. Defaulted so a worker still resolves
+    /// against a server predating the field — which serves no `dbt_profile` anyway.
+    #[serde(default)]
+    pub resource_type: String,
+}
+
+/// The resource type whose value is a `profiles.yml` output block, taken as it
+/// is rather than translated.
+pub const DBT_PROFILE_RESOURCE_TYPE: &str = "dbt_profile";
+
+/// The warehouse a dbt project runs against, by name — `main` when the
+/// descriptor names none.
+///
+/// NO AUTHORIZATION: reads workspace settings for whatever `w_id` it is given.
+/// Callers MUST already be scoped to that workspace — a running job, or a route
+/// that checked its token. What it returns is a POINTER; resolving it is a
+/// separate step, and dbt warehouses are unpermissioned there (Decision 24), so
+/// the pointer is not the last line of defence. A descriptor cannot name a
+/// resource at all, which is what makes the workspace the only place a
+/// warehouse is configured — and
+/// what lets asset identity key on the NAME (`dbt://main/analytics/orders`),
+/// one spelling every project on that warehouse shares.
+pub async fn dbt_warehouse_resource(
+    db: &DB,
+    w_id: &str,
+    warehouse: &str,
+) -> Result<(String, Option<String>)> {
+    let cfg = sqlx::query_scalar!(
+        "SELECT dbt_warehouses FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(serde_json::Value::Null);
+    let entry = cfg.get(warehouse).cloned().ok_or_else(|| {
+        let configured = cfg
+            .as_object()
+            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        Error::NotFound(if configured.is_empty() {
+            format!(
+                "no dbt warehouse is configured for this workspace — an admin adds one under \
+                 Settings → dbt, and a project reaches it by name (`{warehouse}` here)"
+            )
+        } else {
+            format!(
+                "dbt warehouse `{warehouse}` is not configured for this workspace (configured: \
+                 {})",
+                configured.join(", ")
+            )
+        })
+    })?;
+    let path = entry
+        .get("resource_path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "dbt warehouse `{warehouse}` names no resource_path"
+            ))
+        })?;
+    // Stored with or without the prefix, like the storage configs; the caller
+    // resolves a bare path.
+    let path = path.strip_prefix("$res:").unwrap_or(path).to_string();
+    let target = entry
+        .get("target")
+        .and_then(|t| t.as_str())
+        .map(|t| t.to_string());
+    Ok((path, target))
+}
+
+#[cfg(test)]
+mod guest_allowance_tests {
+    use super::*;
+
+    #[test]
+    fn guest_seats_round_up_past_the_allowance() {
+        assert_eq!(guest_seats(0), 0);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW), 0);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + 1), 1);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + GUESTS_PER_SEAT), 1);
+        assert_eq!(guest_seats(FREE_GUESTS_PER_WINDOW + GUESTS_PER_SEAT + 1), 2);
     }
 }

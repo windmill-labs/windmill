@@ -5,6 +5,7 @@
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 
@@ -48,7 +49,7 @@
 			await gitSyncContext.detectRepository(idx)
 		} catch (error: any) {
 			console.error('Detection failed:', error)
-			sendUserToast('Detection failed: ' + error.message, true)
+			sendUserToast('Detection failed: ' + apiErrorMessage(error), true)
 		}
 	}
 
@@ -72,7 +73,7 @@
 			sendUserToast('Git sync connection saved successfully')
 		} catch (error: any) {
 			console.error('Failed to save connection:', error)
-			sendUserToast('Failed to save connection: ' + error.message, true)
+			sendUserToast('Failed to save connection: ' + apiErrorMessage(error), true)
 		}
 	}
 </script>

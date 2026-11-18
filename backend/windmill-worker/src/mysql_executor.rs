@@ -242,15 +242,20 @@ pub async fn do_mysql(
         let s3_obj: windmill_types::s3::S3Object = serde_json::from_value(raw).map_err(|e| {
             Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
         })?;
-        let json_text =
-            crate::sql_s3_input::fetch_s3object_as_json_text(client, &job.workspace_id, &s3_obj)
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Failed to fetch S3 object for arg `{}`: {e}",
-                        arg.name
-                    ))
-                })?;
+        let json_text = crate::sql_s3_input::fetch_s3object_as_json_text(
+            client,
+            conn,
+            job.id,
+            &job.workspace_id,
+            &s3_obj,
+        )
+        .await
+        .map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Failed to fetch S3 object for arg `{}`: {e}",
+                arg.name
+            ))
+        })?;
         job_args.insert(arg.name.clone(), Value::String(json_text));
     }
 

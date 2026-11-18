@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow SET on_behalf_of = $1, on_behalf_of_email = $4 WHERE on_behalf_of = $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2a89648b28c40dfb9ebd4aa0b5ffa772d88c5cf97de840b5147deaeb95c98209"
+}

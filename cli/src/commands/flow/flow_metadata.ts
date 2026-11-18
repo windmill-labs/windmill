@@ -341,15 +341,26 @@ export async function generateFlowLockInternal(
       writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);
     });
 
+    // Overwrite `flow.yaml` with the new lockfile references
+    writeIfChanged(
+      process.cwd() + SEP + folder + SEP + "flow.yaml",
+      yamlStringify(flowValue as Record<string, any>, yamlOptions)
+    );
+
     // CLI versions between #8561 and the canonical-lock-name fix named lock
     // files after the content path minus only its last dot segment (e.g.
     // "x.inline_script.deno.lock"). The canonical name strips the full
-    // language extension ("x.inline_script.lock"), so remove the legacy file
-    // once its replacement has been written above.
+    // language extension ("x.inline_script.lock"), so remove the legacy file.
+    // Runs after the flow.yaml rewrite above so an interruption can't leave
+    // flow.yaml referencing an already-deleted legacy file.
     for (const s of inlineScripts) {
       if (s.is_lock) continue;
       const legacyRelPath = legacyLockPathForContent(s.path, s.language);
       if (!legacyRelPath) continue;
+      // A legacy name can coincide with another step's canonical file written
+      // in this run (e.g. deno step "x" vs a step whose summary is "x.deno") —
+      // never delete a path that is part of the current extraction.
+      if (inlineScripts.some((other) => other.path === legacyRelPath)) continue;
       const legacyAbsPath = process.cwd() + SEP + folder + SEP + legacyRelPath;
       if (existsSync(legacyAbsPath)) {
         try {
@@ -360,12 +371,6 @@ export async function generateFlowLockInternal(
         }
       }
     }
-
-    // Overwrite `flow.yaml` with the new lockfile references
-    writeIfChanged(
-      process.cwd() + SEP + folder + SEP + "flow.yaml",
-      yamlStringify(flowValue as Record<string, any>, yamlOptions)
-    );
   }
 
   // In tree mode, workspace deps are tracked via the tree — exclude from hash

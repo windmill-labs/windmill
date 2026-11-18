@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft_move (workspace_id, typ, old_path, new_path, email)\n             SELECT m.workspace_id, m.typ, m.old_path, $4, $5::text\n             FROM draft_move m\n             WHERE m.workspace_id = $1 AND m.typ::text = ANY($2::text[])\n               AND m.new_path = $3 AND m.email IS NULL\n               AND NOT EXISTS (\n                   SELECT 1 FROM draft_move o\n                   WHERE o.workspace_id = m.workspace_id AND o.typ = m.typ\n                     AND o.old_path = m.old_path AND o.email = $5::text\n               )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Text",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "232ff36c2d522383061cafbf9639698dbc44a18c0f016aae94a1705f06fd1e48"
+}

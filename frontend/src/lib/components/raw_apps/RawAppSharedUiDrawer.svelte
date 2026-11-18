@@ -1,11 +1,14 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	let opWs = $derived($operatingWorkspace)
 
 	let open = $state(false)
 	let files: Record<string, string> = $state({})
@@ -20,10 +23,10 @@
 	}
 
 	async function load() {
-		if (!$workspaceStore) return
+		if (!opWs) return
 		loading = true
 		try {
-			const res = (await WorkspaceService.getSharedUi({ workspace: $workspaceStore })) as any
+			const res = (await WorkspaceService.getSharedUi({ workspace: opWs })) as any
 			files = res.files ?? {}
 			version = res.version ?? 0
 			editedBy = res.edited_by ?? ''

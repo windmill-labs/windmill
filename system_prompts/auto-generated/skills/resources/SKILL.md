@@ -34,6 +34,13 @@ Example: `f/databases/postgres_prod.resource.json`
 - `value` - Object containing the resource configuration
 - `resource_type` - Name of the resource type (e.g., "postgresql", "slack")
 
+## Agents
+
+An agent, as the Agents page lists it, is a resource of type `ai_agent`. Its value holds the
+agent's provider, system prompt, tools and memory settings, and a flow step uses a saved agent by
+linking its path.
+Before writing one, use the `agents` skill.
+
 ## Variable References
 
 Reference variables in resource values:
@@ -52,6 +59,14 @@ Reference variables in resource values:
 - `$var:u/username/name` - User variable
 - `$var:f/folder/name` - Folder variable
 
+## Secrets
+
+Never put a secret (password, API key, token) inline in a resource value. Store it in a secret variable and reference that variable as `$var:<path>`.
+
+- `$var:<path>` is a reference, not a value: it resolves to the variable's value at run time. Never invent a value for a variable.
+- A resource that references a variable needs the variable to exist first, so create or deploy the variable before the resource.
+- A secret's plaintext never goes in a file of the repo: a `.variable.yaml` holding it would be committed. Ask the user to create the secret on the workspace instead, e.g. `wmill variable add '<value>' <path>` (a secret by default), then reference it by path.
+
 ## Resource References
 
 Reference other resources:
@@ -63,6 +78,41 @@ Reference other resources:
   }
 }
 ```
+
+## Passing a Resource or Variable as a Run Argument
+
+A script or flow argument typed as a resource (schema `format: resource-<type>`) is passed as
+the **bare string** `$res:<path>` — the whole argument value. Same for a variable, with
+`$var:<path>`. This applies everywhere job arguments are supplied: `wmill script run/preview`,
+`wmill flow run/preview`, the `runScriptByPath` / `runFlowByPath` API, a schedule's `args`, a
+trigger's configured static args.
+
+```json
+{
+  "db": "$res:f/databases/postgres_prod",
+  "api_token": "$var:g/all/api_token"
+}
+```
+
+The reference is resolved when the job runs, under the job's run-as identity — the caller for an
+ordinary run, but the configured principal for a schedule, a trigger, or a runnable set to run on
+behalf of someone else. The run fails if that identity cannot read the referenced resource or
+variable.
+
+**Never wrap it in an object.** The resolver only rewrites a JSON value that *is* a string
+starting with `$res:` / `$var:`; keys are never inspected. These are all wrong and are passed
+through to the script unchanged:
+
+```json
+{ "db": { "$res": "f/databases/postgres_prod" } }
+{ "db": { "resource": "f/databases/postgres_prod" } }
+{ "db": "f/databases/postgres_prod" }
+```
+
+The string may sit anywhere a string can — a top-level argument, a nested object field
+(`{ "gh_auth": { "token": "$var:g/all/gh_token" } }`), or an array element (array elements are
+walked only while nested at most two levels deep, and only for arrays of at most 1000 items).
+The prefix must be on the string itself.
 
 ## Common Resource Types
 
@@ -171,13 +221,23 @@ Reference other resources:
 }
 ```
 
+## When No Resource Type Fits
+
+The Windmill Hub publishes resource types for most services, and an instance gets them by syncing with the hub. When none fits the service:
+
+- If the instance is reported as not having synced the hub's types, mention that a superadmin can sync them: the hub most likely has one for the service. That holds for a type a hub script takes too: it is missing here until the sync, so say so before asking for a resource of it. Create one of your own only if the user still wants it, since after a sync the workspace would hold both.
+- Otherwise, or when the user prefers it to syncing, propose a custom resource type named `c_<name>` holding the service's connection fields (base URL, account or region identifiers, credentials), as in "Custom Resource Types" below, and ask the user before creating it: every resource of that type and every script taking one depends on its fields.
+- A plain variable instead of a resource is fine when the user asks for it; without that, default to the resource, its secret in a variable it references.
+
 ## Custom Resource Types
+
+A custom type's name starts with `c_`: the hub's types reach every instance under their plain names, so the prefix keeps a custom type from clashing with one synced later. Scripts and flows refer to the full name: `format: resource-c_custom_api`, `RT.CCustomApi` in TypeScript, a `c_custom_api` TypedDict in Python.
 
 Create custom resource types with JSON Schema:
 
 ```json
 {
-  "name": "custom_api",
+  "name": "c_custom_api",
   "schema": {
     "type": "object",
     "properties": {
@@ -191,7 +251,7 @@ Create custom resource types with JSON Schema:
 }
 ```
 
-Save as: `custom_api.resource-type.json`
+Save as: `c_custom_api.resource-type.json`
 
 ## OAuth Resources
 
@@ -242,7 +302,8 @@ wmill resource-type list --schema
 # Get specific resource type schema
 wmill resource-type get postgresql
 
-# Push resources to Windmill — deploys to the workspace and can be destructive to
-# remote state, so only run it when the user explicitly asks to deploy/publish/push
+# Deploy resources to the workspace — destructive to remote state, so only run when
+# the user explicitly asks to deploy/publish/push. Depending on how the repo is wired,
+# deploy via `git push` or `wmill sync push` (see the Deploying section in AGENTS.wmill.md).
 wmill sync push
 ```

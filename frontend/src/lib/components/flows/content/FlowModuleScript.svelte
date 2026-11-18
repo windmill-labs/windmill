@@ -18,9 +18,12 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { ScriptService, type ScriptLang } from '$lib/gen'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
-	import { workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
+	import type { FlowEditorContext } from '../types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		path: string
@@ -44,6 +47,9 @@
 		language = $bindable(undefined)
 	}: Props = $props()
 
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
+
 	let code: string | undefined = $state()
 	let previousCode: string | undefined = $state()
 	let lock: string | undefined = $state(undefined)
@@ -51,7 +57,7 @@
 	let notFound = $state(false)
 
 	function getCachedKey(path: string, hash: string | undefined) {
-		return `${$workspaceStore}-${path}-${hash ?? ''}`
+		return `${opWs}-${path}-${hash ?? ''}`
 	}
 	function getCachedValues(path: string, hash: string | undefined) {
 		const key = getCachedKey(path, hash)
@@ -64,12 +70,15 @@
 		notFound = cachedValues[key]?.notFound ?? false
 	}
 
-	getCachedValues(untrack(() => path), untrack(() => hash))
+	getCachedValues(
+		untrack(() => path),
+		untrack(() => hash)
+	)
 
 	async function loadPreviousCode(previousHash: string) {
 		try {
 			const previousScript = await ScriptService.getScriptByHash({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				hash: previousHash
 			})
 			previousCode = previousScript.content
@@ -93,8 +102,8 @@
 			const script = path.startsWith('hub/')
 				? await getScriptByPath(path!)
 				: hash
-				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
-				: await getScriptByPath(path!)
+					? await ScriptService.getScriptByHash({ workspace: opWs!, hash })
+					: await getScriptByPath(path!, opWs)
 			code = script.content
 
 			language = script.language
@@ -133,7 +142,7 @@
 		<div class="text-xs text-primary mb-4">tag: {tag}</div>
 	{/if}
 	{#if notFound}
-		<div class="text-red-400">script not found at {path} in workspace {$workspaceStore}</div>
+		<div class="text-red-400">script not found at {path} in workspace {opWs}</div>
 	{:else if showAllCode}
 		{#if showDiff}
 			{#key (previousCode ?? '') + (code ?? '')}

@@ -475,16 +475,23 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         resp.text().await?
     );
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "f/prodfolder/jobs/flow_admin_match",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("group-wm_deployers@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("g/wm_deployers"),
         "flow should resolve folder default to group email"
+    );
+    // The group email is synthetic and resolves back to nobody, so the group can
+    // only survive as the stored permissioned_as.
+    assert_eq!(
+        flow.on_behalf_of.as_deref(),
+        Some("g/wm_deployers"),
+        "flow should run as the group the folder rule names"
     );
 
     // 5b. Admin, reports/* rule (email directly as permissioned_as)
@@ -502,16 +509,16 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         resp.text().await?
     );
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "f/prodfolder/reports/weekly",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
-        "email rule should pass through as-is"
+        flow.on_behalf_of.as_deref(),
+        Some("u/original-user"),
+        "a rule naming an address stores the principal it names, which is what carries that          user's groups and folders"
     );
 
     // 5c. Non-matching flow path — no default
@@ -524,14 +531,14 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     .await?;
     assert_eq!(resp.status(), 201);
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "f/prodfolder/dev/flow_no_match",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email, None,
+        flow.on_behalf_of, None,
         "no folder default ⇒ no on_behalf_of_email written"
     );
 
@@ -545,14 +552,14 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     .await?;
     assert_eq!(resp.status(), 201);
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/test-user/outside_flow",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email, None,
+        flow.on_behalf_of, None,
         "paths outside folders are never touched"
     );
 
@@ -575,15 +582,15 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         resp.text().await?
     );
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "f/prodfolder/jobs/new_script",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("group-wm_deployers@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("g/wm_deployers"),
         "new script at matching path gets folder default"
     );
 
@@ -623,7 +630,7 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     );
     assert_eq!(
         policy["on_behalf_of_email"], "group-wm_deployers@windmill.dev",
-        "app policy.on_behalf_of_email gets folder default email"
+        "the stored address is derived from that principal"
     );
 
     // 7b. Admin, non-matching path — acting user
@@ -674,6 +681,17 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     // ========================================================================
 
     let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/prodfolder/stale/existing"))
+    .send()
+    .await?;
+    let status = resp.status();
+    let existing_hash = resp.text().await?;
+    assert_eq!(status, 201, "script before the stale rule: {existing_hash}");
+
+    let resp = authed(
         client().post(format!("{base}/folders/update/prodfolder")),
         "SECRET_TOKEN",
     )
@@ -711,6 +729,33 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         body.contains("u/ghost") && body.contains("does not exist"),
         "error should identify the stale user: {body}"
     );
+
+    // The default applies only to a first deploy, so it cannot fail a redeploy...
+    let mut redeploy = new_script("f/prodfolder/stale/existing");
+    redeploy["content"] = json!("export async function main() { return 43; }");
+    redeploy["parent_hash"] = json!(existing_hash);
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&redeploy)
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "stale rule must not block a redeploy: {}",
+        resp.text().await?
+    );
+    // ...while a first deploy it would apply to still reports it.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/prodfolder/stale/new_script"))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400, "stale rule should refuse a new script");
 
     // Non-matching paths in the same folder still work fine.
     let resp = authed(

@@ -20,19 +20,18 @@ use std::fmt::Debug;
 use anyhow::anyhow;
 use hmac::Mac;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
 use tower_cookies::{Cookie, Cookies};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::more_serde::maybe_number_opt;
 use windmill_common::oauth2::*;
-use windmill_common::utils::now_from_db;
 use windmill_common::BASE_URL;
 
 pub type DB = sqlx::Pool<sqlx::Postgres>;
 
 // Re-export oauth2 types that consumers need (also used internally)
 pub use oauth2::{
-    helpers, AccessToken, AuthType, Client as OClient, RefreshToken, Scope, State, Url,
+    helpers, AccessToken, AuthType, Client as OClient, ErrorField, ExecuteError,
+    PkceCodeVerifierS256, RefreshToken, Scope, State, Url,
 };
 
 // Re-export reqwest Client (version 0.12 compatible with async-oauth2)
@@ -52,7 +51,8 @@ lazy_static::lazy_static! {
     pub static ref OAUTH_CLIENTS: arc_swap::ArcSwap<AllClients> = arc_swap::ArcSwap::from_pointee(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),
-        slack: None
+        slack: None,
+        slack_signing_secret: None,
     });
 }
 
@@ -66,7 +66,19 @@ pub struct ClientWithScopes {
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub allowed_domains: Option<Vec<String>>,
     pub userinfo_url: Option<String>,
+    /// See [`OAuthConfig::connect_fields`].
+    pub connect_fields: Option<HashMap<String, String>>,
     pub grant_types: Vec<String>,
+    pub token_response_path: Option<String>,
+    /// Resolved token endpoint, exposed so the connect dialog can prefill and
+    /// persist it on client-credentials accounts.
+    pub token_url: String,
+    /// Whether the instance entry carries shared credentials (non-empty id +
+    /// secret). Providers without them are bring-your-own only — the connect
+    /// dialog lists them under "Others", not "Instance-configured".
+    pub has_shared_credentials: bool,
+    /// [`OAuthClient::pkce`] resolved; only the login flow reads it.
+    pub pkce: bool,
 }
 
 /// Map of OAuth client names to their configurations
@@ -80,10 +92,37 @@ pub struct OAuthConfig {
     #[serde(default = "empty_string")]
     pub token_url: String,
     pub userinfo_url: Option<String>,
+    /// Resource fields the connect callback fills from what the provider returns,
+    /// as field -> path (see [`connect_resource_fields`]). A path starts with its
+    /// source: `token.` (the raw token response, before `token_response_path`
+    /// unwraps it), `userinfo.` (`userinfo_url`'s response, fetched only when a
+    /// path needs it) or `callback.` (the callback URL's query params). The browser
+    /// relays `callback.` values, so they only prefill the user's own resource:
+    /// nothing server-side may trust them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connect_fields: Option<HashMap<String, String>>,
+    /// The registry JSON may also carry frontend-only keys for the connect
+    /// dialog, deliberately not modelled here: `scope_options`, a scope pick
+    /// list, `resource_fields`, the fields of the resource type the dialog
+    /// asks for once the token is in (Snowflake's database and warehouse),
+    /// `user_scopes`, Slack's user-token scopes, sent as `user_scope`, and
+    /// `user_scope_options`, the pick list offered alongside `user_scopes`.
     pub scopes: Option<Vec<String>>,
+    /// Default scopes for the client-credentials (2-legged) flow. These differ
+    /// from the authorization-code `scopes` for most providers (member/consent
+    /// scopes are invalid in a 2-legged token request), so CC never defaults to
+    /// `scopes`. Absent means no default scope — the caller supplies any
+    /// provider-specific scopes themselves.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cc_scopes: Option<Vec<String>>,
     pub extra_params: Option<HashMap<String, String>>,
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub req_body_auth: Option<bool>,
+    /// Key of a nested object holding the token when the response has none at
+    /// the top level: Slack v2 puts a user token (`user_scope`) under
+    /// `authed_user`, and a bot token, when one was asked for, at the top.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_response_path: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
     /// Optional URL overrides for the provider's sandbox environment. When
@@ -91,10 +130,12 @@ pub struct OAuthConfig {
     /// entry, `build_oauth_clients` registers a second client under that key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<OAuthSandboxOverride>,
-    /// Frontend-only metadata for per-instance OAuth providers (Snowflake,
-    /// ServiceNow, …) whose authorize/token URLs are derived from an
-    /// admin-entered instance name. Ignored by the backend, which only ever
-    /// sees the resulting concrete `connect_config`.
+    /// Metadata for per-instance OAuth providers (Snowflake, ServiceNow, Coupa,
+    /// …) whose authorize/token URLs carry an `{instance}` placeholder filled
+    /// from an instance name. The instance-settings UI uses it to build the
+    /// per-client `connect_config` for the authorization-code flow; the
+    /// client-credentials flow reads its `token_url`/`strip_suffix`/`label`
+    /// directly to host-pin the exchange.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connect_config_template: Option<ConnectConfigTemplate>,
 }
@@ -111,11 +152,13 @@ pub struct OAuthSandboxOverride {
     pub userinfo_url: Option<String>,
 }
 
-/// Frontend metadata for a per-instance OAuth provider. The instance-settings
-/// UI renders one generic instance-name input and substitutes `{instance}` into
+/// Metadata for a per-instance OAuth provider. The instance-settings UI renders
+/// one generic instance-name input and substitutes `{instance}` into
 /// `auth_url`/`token_url` to build the per-client `connect_config`. Adding a new
 /// per-instance provider needs only a registry entry carrying this template —
-/// no frontend code change. The backend never reads it.
+/// no frontend code change. The client-credentials flow additionally reads
+/// `token_url`, `strip_suffix`, and `label` from it server-side (see
+/// `resolve_cc_token_url_input`) to host-pin the token exchange.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConnectConfigTemplate {
     /// Properly-cased provider name for the settings dropdown (e.g. "ServiceNow");
@@ -126,10 +169,17 @@ pub struct ConnectConfigTemplate {
     pub placeholder: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub help_url: Option<String>,
-    pub auth_url: String,
+    /// Authorize endpoint (with `{instance}`). Absent for client-credentials-only
+    /// providers (e.g. Coupa) that have no browser sign-in flow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_url: Option<String>,
     pub token_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub req_body_auth: Option<bool>,
+    /// Scopes copied into the built `connect_config` (e.g. NetSuite's
+    /// `rest_webservices`). Templated providers default to no scopes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
     /// Key under `connect_config.extra_params` where the instance name is
     /// stored (defaults to `instance`). Snowflake uses `account_identifier` for
     /// backward compatibility with previously-saved configs.
@@ -201,6 +251,109 @@ pub fn resolve_registry_config(
     None
 }
 
+/// Check the instance `oauths` setting before it is written. Each problem names its
+/// entry. Without this, a bad entry is dropped when clients are built, or fails the
+/// parse of the whole map so that every provider disappears, and only a log line says so.
+/// Entries identical to the stored `previous` value are skipped: one saved before this
+/// check existed must not block a save that does not touch it.
+pub fn validate_oauths_setting(
+    value: &serde_json::Value,
+    previous: Option<&serde_json::Value>,
+    connect_configs_json: &str,
+) -> Result<(), String> {
+    if value.is_null() {
+        return Ok(());
+    }
+    let serde_json::Value::Object(entries) = value else {
+        return Err("the OAuth setting must be an object keyed by client name".to_string());
+    };
+    let registry = serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+        .map_err(|e| format!("parsing oauth_connect.json: {e}"))?;
+    let mut errors = vec![];
+    for (name, raw) in entries {
+        if previous.and_then(|p| p.get(name)) == Some(raw) {
+            continue;
+        }
+        if let Err(e) = validate_oauth_entry(name, raw, &registry) {
+            errors.push(format!("{name}: {e}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+fn validate_oauth_entry(
+    name: &str,
+    raw: &serde_json::Value,
+    registry: &HashMap<String, OAuthConfig>,
+) -> Result<(), String> {
+    let entry: OAuthClient = serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
+    for gt in &entry.grant_types {
+        if gt != "authorization_code" && gt != "client_credentials" {
+            return Err(format!("unknown grant type '{gt}'"));
+        }
+    }
+    for cfg in [&entry.connect_config, &entry.login_config]
+        .into_iter()
+        .flatten()
+    {
+        for url in [&cfg.auth_url, &cfg.token_url] {
+            if !url.is_empty() {
+                Url::parse(url).map_err(|e| format!("invalid URL '{url}': {e}"))?;
+            }
+        }
+    }
+    let registry_entry = resolve_registry_config(registry, name);
+    // The settings page builds a per-instance provider's URLs from the instance name it
+    // stores in extra_params, even an empty one, which leaves them on no host. An entry
+    // without that key had its URLs written out by hand.
+    if let Some(tmpl) = registry_entry
+        .as_ref()
+        .and_then(|r| r.connect_config_template.as_ref())
+    {
+        let key = tmpl.extra_params_key.as_deref().unwrap_or("instance");
+        let instance = entry
+            .connect_config
+            .as_ref()
+            .and_then(|c| c.extra_params.as_ref())
+            .and_then(|p| p.get(key));
+        let explicit_urls = entry
+            .connect_config
+            .as_ref()
+            .is_some_and(|c| !c.token_url.is_empty() && !c.token_url.contains('{'));
+        // Teams keeps its tenant at the top level and the backend builds its URLs from it.
+        let has_tenant = entry.tenant.as_deref().is_some_and(|t| !t.is_empty());
+        let missing = !has_tenant
+            && match instance {
+                Some(v) => v.is_empty(),
+                None => !explicit_urls,
+            };
+        if !entry.id.is_empty() && missing {
+            return Err(format!("{} is required", tmpl.label));
+        }
+    }
+    if !entry.grant_types.iter().any(|g| g == "client_credentials") {
+        return Ok(());
+    }
+    match registry_entry {
+        Some(reg) if !reg.grant_types.iter().any(|g| g == "client_credentials") => {
+            Err("this provider does not support the client credentials grant".to_string())
+        }
+        Some(_) => Ok(()),
+        None if entry
+            .connect_config
+            .as_ref()
+            .is_none_or(|c| c.token_url.is_empty()) =>
+        {
+            Err("client credentials needs a token URL".to_string())
+        }
+        None => Ok(()),
+    }
+}
+
 /// OAuth client credentials
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OAuthClient {
@@ -216,6 +369,32 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+    /// `Some(false)` keeps the id/secret out of client-credentials connections, so a
+    /// client-credentials grant only lets users bring their own. Absent means shared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_client_credentials: Option<bool>,
+    /// The Slack app's signing secret, which authenticates the requests Slack sends Windmill.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "windmill_common::utils::empty_as_none"
+    )]
+    pub signing_secret: Option<String>,
+    /// Send PKCE (S256) on this provider's SSO login. Unset means off, so an entry
+    /// saved before the field existed keeps its behaviour; the settings forms write
+    /// `true` when a provider is first set up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pkce: Option<bool>,
+}
+
+impl OAuthClient {
+    /// Every user with write access may connect as this entry's service account.
+    pub fn shares_client_credentials(&self) -> bool {
+        self.grant_types.iter().any(|g| g == "client_credentials")
+            && self.share_client_credentials != Some(false)
+            && !self.id.is_empty()
+            && !self.secret.is_empty()
+    }
 }
 
 impl std::fmt::Debug for OAuthClient {
@@ -229,6 +408,11 @@ impl std::fmt::Debug for OAuthClient {
             .field("login_config", &self.login_config)
             .field("tenant", &self.tenant)
             .field("grant_types", &self.grant_types)
+            .field("share_client_credentials", &self.share_client_credentials)
+            .field(
+                "signing_secret",
+                &self.signing_secret.as_ref().map(|_| "***"),
+            )
             .finish()
     }
 }
@@ -237,8 +421,12 @@ fn empty_string() -> String {
     "".to_string()
 }
 
+/// Placeholder authorize URL for providers that only support the
+/// client-credentials grant (the authorize endpoint is never used by it).
+pub const MISSING_AUTH_URL: &str = "https://missing-auth-url";
+
 fn empty_auth() -> String {
-    "https://missing-auth-url".to_string()
+    MISSING_AUTH_URL.to_string()
 }
 
 fn default_grant_types() -> Vec<String> {
@@ -246,11 +434,26 @@ fn default_grant_types() -> Vec<String> {
 }
 
 /// Container for all OAuth clients (login, connect, and slack)
-#[derive(Debug)]
 pub struct AllClients {
     pub logins: BasicClientsMap,
     pub connects: BasicClientsMap,
     pub slack: Option<OClient>,
+    /// The instance Slack app's signing secret, from its OAuth setting.
+    pub slack_signing_secret: Option<String>,
+}
+
+impl std::fmt::Debug for AllClients {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AllClients")
+            .field("logins", &self.logins)
+            .field("connects", &self.connects)
+            .field("slack", &self.slack)
+            .field(
+                "slack_signing_secret",
+                &self.slack_signing_secret.as_ref().map(|_| "***"),
+            )
+            .finish()
+    }
 }
 
 /// Slack token response from OAuth flow
@@ -289,6 +492,10 @@ pub struct SlackTeam {
 pub struct OAuthCallback {
     pub code: String,
     pub state: String,
+    /// The callback URL's other query params (QuickBooks' `realmId`), read by
+    /// `connect_fields` paths under `callback.`.
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 /// Build a basic OAuth client from configuration
@@ -348,77 +555,371 @@ pub async fn build_slack_client(
     Ok(client)
 }
 
-/// Build OAuth client for client credentials flow with resource-level credentials
+/// Build OAuth client for client credentials flow with resource-level credentials.
+///
+/// No instance-level entry is required: the provider endpoint config resolves
+/// from the instance `oauths` entry when one exists, else from the static
+/// registry, else is synthesized from the token URL override alone. Returns the
+/// built client together with the resolved [`OAuthConfig`] so callers can reuse
+/// its scopes / `extra_params_callback`.
 pub async fn build_client_credentials_oauth_client(
     db: &DB,
     client_name: &str,
     client_id: &str,
     client_secret: &str,
-    cc_token_url_override: Option<&str>,
+    resolved_token_url: Option<&str>,
     connect_configs_json: &str,
-) -> error::Result<(OClient, OAuthClient)> {
+) -> error::Result<(OClient, OAuthConfig)> {
     use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
 
     let oauths = load_value_from_global_settings(db, OAUTH_SETTING).await?;
-    let oauths = oauths.unwrap_or_default();
-    let oauth_config = oauths
-        .get(client_name)
-        .ok_or_else(|| error::Error::BadRequest("OAuth configuration not found".to_string()))?;
+    let instance_entry: Option<OAuthClient> = oauths
+        .as_ref()
+        .and_then(|o| o.get(client_name))
+        .and_then(|v| match serde_json::from_value(v.clone()) {
+            Ok(entry) => Some(entry),
+            Err(e) => {
+                tracing::warn!(
+                    client = %client_name,
+                    "Invalid instance OAuth entry, falling back to static registry: {e}"
+                );
+                None
+            }
+        });
 
-    let oauth_client_config: OAuthClient = serde_json::from_value(oauth_config.clone())
-        .map_err(|e| error::Error::BadRequest(format!("Invalid OAuth config: {}", e)))?;
-
-    let parse_static_configs = || {
-        serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json).map_err(|e| {
-            error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e))
-        })
+    let resolve_from_registry = |client_name: &str| -> error::Result<Option<OAuthConfig>> {
+        let static_configs =
+            serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json).map_err(
+                |e| error::Error::InternalErr(format!("Failed to parse oauth_connect.json: {}", e)),
+            )?;
+        Ok(resolve_registry_config(&static_configs, client_name))
     };
-    let resolve_from_registry = |client_name: &str| -> error::Result<OAuthConfig> {
-        let static_configs = parse_static_configs()?;
-        resolve_registry_config(&static_configs, client_name).ok_or_else(|| {
+
+    // A token URL alone is enough for client credentials: providers that only
+    // support this grant have no authorize endpoint to configure.
+    let instance_connect_config = instance_entry
+        .as_ref()
+        .and_then(|e| e.connect_config.clone())
+        .filter(|c| !c.token_url.is_empty())
+        .map(|mut c| {
+            if c.auth_url.is_empty() {
+                c.auth_url = empty_auth();
+            }
+            c
+        });
+
+    let from_instance = instance_connect_config.is_some();
+    let mut connect_config = match instance_connect_config {
+        Some(config) => config,
+        None => resolve_from_registry(client_name)?.ok_or_else(|| {
             error::Error::BadRequest(format!(
-                "OAuth configuration not found for '{}' in either global settings or static config",
+                "No token URL available for '{}': not found in instance OAuth settings or static \
+                 config",
                 client_name
             ))
-        })
+        })?,
     };
 
-    let mut connect_config = if let Some(ref config) = oauth_client_config.connect_config {
-        if !config.auth_url.is_empty() && !config.token_url.is_empty() {
-            config.clone()
-        } else {
-            resolve_from_registry(client_name)?
-        }
-    } else {
-        resolve_from_registry(client_name)?
-    };
-
-    if let Some(override_url) = cc_token_url_override {
-        connect_config.token_url = override_url.to_string();
+    // Registry providers default their client-credentials scopes from `cc_scopes`,
+    // never the authorization-code `scopes` (which several providers reject for a
+    // 2-legged token request). Instance-configured entries keep their admin-set
+    // scopes untouched.
+    if !from_instance {
+        connect_config.scopes = connect_config.cc_scopes.clone();
     }
 
+    let caller_supplied_creds = !client_id.is_empty() && !client_secret.is_empty();
+
+    // Apply the resolved concrete token URL. Instance-templated providers (e.g.
+    // Coupa) carry an empty or `{instance}`-templated token URL in their registry
+    // config; the resolved value (host-pinned for instance-name connections,
+    // persisted on the row for refresh) is what completes it. For bring-your-own
+    // connections this value may instead be a caller-supplied override — safe
+    // because only the caller's own credentials are ever sent to it.
+    if let Some(url) = resolved_token_url {
+        connect_config.token_url = url.to_string();
+    }
+    if connect_config.token_url.is_empty() {
+        return Err(error::Error::BadRequest(format!(
+            "No token URL configured for '{}'",
+            client_name
+        )));
+    }
+
+    // Fall back to the instance entry's own credentials when the caller supplies
+    // none: the shared instance-level client-credentials setup, where an admin
+    // configures one service-account client for everyone and the secret never
+    // leaves the server. Only entries that explicitly enable the
+    // client_credentials grant qualify, so an authorization-code-only client's
+    // secret is never reused for this flow.
+    let instance_cc_creds = instance_entry
+        .as_ref()
+        .filter(|e| e.shares_client_credentials());
+    // All-or-nothing: use the caller's credentials only when both id and secret
+    // are present, otherwise fall back entirely to the instance entry. Never mix
+    // a caller-supplied id with the admin secret (or vice versa).
+    let (resolved_client_id, resolved_client_secret) = if caller_supplied_creds {
+        (client_id.to_string(), client_secret.to_string())
+    } else {
+        instance_cc_creds
+            .map(|e| (e.id.clone(), e.secret.clone()))
+            .unwrap_or_default()
+    };
+
     let resource_oauth_client = OAuthClient {
-        id: client_id.to_string(),
-        secret: client_secret.to_string(),
-        allowed_domains: oauth_client_config.allowed_domains.clone(),
+        id: resolved_client_id,
+        secret: resolved_client_secret,
+        allowed_domains: instance_entry
+            .as_ref()
+            .and_then(|e| e.allowed_domains.clone()),
         connect_config: Some(connect_config.clone()),
-        login_config: oauth_client_config.login_config.clone(),
-        display_name: oauth_client_config.display_name.clone(),
-        grant_types: oauth_client_config.grant_types.clone(),
-        tenant: oauth_client_config.tenant.clone(),
+        login_config: instance_entry.as_ref().and_then(|e| e.login_config.clone()),
+        display_name: instance_entry.as_ref().and_then(|e| e.display_name.clone()),
+        grant_types: instance_entry
+            .as_ref()
+            .map(|e| e.grant_types.clone())
+            .unwrap_or_else(default_grant_types),
+        tenant: instance_entry.as_ref().and_then(|e| e.tenant.clone()),
+        share_client_credentials: None,
+        signing_secret: None,
+        pkce: None,
     };
 
     let base_url = (**BASE_URL.load()).clone();
     let (_, client) = build_basic_client(
         client_name.to_string(),
-        connect_config,
+        connect_config.clone(),
         resource_oauth_client,
         false,
         &base_url,
         None,
     )?;
 
-    Ok((client, oauth_client_config))
+    Ok((client, connect_config))
+}
+
+/// Shared instance-level client-credentials for `client_name`: the `(id, secret,
+/// token_url)` from its instance `oauths` entry, but only when that entry both
+/// declares the `client_credentials` grant and carries non-empty credentials.
+/// Lets the connect flow use one admin-configured service-account client instead
+/// of asking each user for their own.
+///
+/// # Authorization
+/// Returns the admin's shared service-account secret, so callers MUST first
+/// verify the caller's authorization to use it (workspace membership plus
+/// read-write access — operators and read-only tokens are excluded). This helper
+/// performs no authorization itself.
+pub async fn resolve_instance_cc_credentials(
+    db: &DB,
+    client_name: &str,
+) -> error::Result<Option<(String, String, Option<String>)>> {
+    use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
+
+    let oauths = load_value_from_global_settings(db, OAUTH_SETTING).await?;
+    let entry: Option<OAuthClient> = oauths
+        .as_ref()
+        .and_then(|o| o.get(client_name))
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    Ok(entry.and_then(|e| {
+        if e.shares_client_credentials() {
+            // Token URL from the entry's connect_config (built by instance settings
+            // from the connect_config_template), so the account row is
+            // self-contained for refresh.
+            let token_url = e
+                .connect_config
+                .as_ref()
+                .map(|c| c.token_url.clone())
+                .filter(|u| !u.is_empty());
+            Some((e.id, e.secret, token_url))
+        } else {
+            None
+        }
+    }))
+}
+
+/// Resolve the concrete client-credentials token URL for a bring-your-own
+/// connection. The caller never supplies a token URL: it always comes from the
+/// built-in registry, so the exchange host can never be redirected.
+///
+/// Supported only for registry providers. For one whose CC token URL carries an
+/// `{instance}` placeholder (Coupa, ServiceNow, …) — declared in its
+/// `connect_config_template` — the caller supplies only an instance name,
+/// validated as a bare hostname label and substituted into the fixed-host
+/// template. A fixed-host registry provider uses its registry token URL directly.
+/// A custom resource type (no registry entry) is rejected: there is no known host
+/// to send credentials to.
+pub fn resolve_cc_token_url_input(
+    connect_configs_json: &str,
+    client_name: &str,
+    caller_instance: Option<&str>,
+) -> error::Result<String> {
+    let Some(cfg) = serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+        .ok()
+        .and_then(|m| resolve_registry_config(&m, client_name))
+    else {
+        return Err(error::Error::BadRequest(format!(
+            "Client credentials with your own credentials are only supported for built-in OAuth \
+             providers, not '{client_name}'. Configure shared credentials on the instance OAuth \
+             entry instead."
+        )));
+    };
+
+    // Instance-templated providers carry the `{instance}` token URL (and its
+    // label/strip_suffix) in `connect_config_template`; fixed-host providers use
+    // the plain `token_url`.
+    let tmpl = cfg.connect_config_template.as_ref();
+    let template = tmpl
+        .map(|t| t.token_url.clone())
+        .filter(|u| !u.is_empty())
+        .or_else(|| Some(cfg.token_url.clone()).filter(|u| !u.is_empty()))
+        .ok_or_else(|| {
+            error::Error::BadRequest(format!("No token URL is configured for '{client_name}'"))
+        })?;
+
+    if !template.contains("{instance}") {
+        // Fixed-host registry provider: its registry token URL is authoritative.
+        return Ok(template);
+    }
+
+    // Structural host-pinning guard: only substitute when `{instance}` is the
+    // leftmost host label of a fixed-host template (`scheme://{instance}.fixed-host/…`).
+    // The hostname-label validation below keeps the value clean, but only this
+    // check guarantees the substituted value can never change the registrable
+    // domain — so a malformed template (e.g. `https://{instance}/token`) can't turn
+    // the caller's instance name into a full attacker-controlled host (SSRF /
+    // credential exfiltration). The template is a code-reviewed registry file, so a
+    // violation is a programming error.
+    let placeholder = "{instance}";
+    let idx = template.find(placeholder).unwrap();
+    let after = &template[idx + placeholder.len()..];
+    if !template[..idx].ends_with("://") || !after.starts_with('.') {
+        return Err(error::Error::InternalErr(format!(
+            "Invalid instance-templated token URL for '{client_name}': {{instance}} must be the \
+             leftmost host label (scheme://{{instance}}.fixed-host/…)"
+        )));
+    }
+
+    let raw = caller_instance
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            error::Error::BadRequest(format!(
+                "{} is required for {client_name}",
+                tmpl.map(|t| t.label.as_str()).unwrap_or("An instance name")
+            ))
+        })?;
+    // Strip an optional known host suffix so the user can paste a full host or a
+    // bare name, then accept only a hostname label — never any character that
+    // could move the host out of the template's domain.
+    let value = tmpl
+        .and_then(|t| t.strip_suffix.as_deref())
+        .and_then(|sfx| raw.strip_suffix(sfx))
+        .unwrap_or(raw)
+        .trim_end_matches('.');
+    let valid = !value.is_empty()
+        && !value.starts_with(['-', '.'])
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.');
+    if !valid {
+        return Err(error::Error::BadRequest(format!(
+            "invalid instance name '{raw}' for {client_name}"
+        )));
+    }
+    Ok(template.replace("{instance}", value))
+}
+
+/// Whether a built-in provider's client-credentials token URL is host-pinned via
+/// an `{instance}` template (e.g. servicenow, snowflake, coupa). Such providers
+/// only accept an instance name substituted into a fixed-host template, so a
+/// free-form caller token URL override must be rejected for them — otherwise the
+/// exchange host could be redirected, which is exactly what the template pins.
+/// Fixed-host registry providers and custom (non-registry) providers return
+/// `false`: an override is allowed there.
+pub fn is_instance_templated_cc(connect_configs_json: &str, client_name: &str) -> bool {
+    serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+        .ok()
+        .and_then(|m| resolve_registry_config(&m, client_name))
+        .map(|cfg| {
+            cfg.connect_config_template
+                .as_ref()
+                .map(|t| t.token_url.clone())
+                .filter(|u| !u.is_empty())
+                .unwrap_or(cfg.token_url)
+                .contains("{instance}")
+        })
+        .unwrap_or(false)
+}
+
+/// Resolve the concrete bring-your-own client-credentials token URL for any
+/// provider, never from a caller-supplied URL:
+/// - **Built-in registry providers** resolve from the registry via
+///   [`resolve_cc_token_url_input`] (host-pinned from the caller's instance name
+///   for instance-templated ones).
+/// - **Custom providers configured at the instance level** use the admin's
+///   `connect_config.token_url`. The caller has no instance template to fill, so
+///   an instance name is rejected.
+///
+/// This is the single entry point the connect/account-creation handlers should
+/// use so both resolve identically.
+pub async fn resolve_cc_token_url(
+    db: &DB,
+    client_name: &str,
+    caller_instance: Option<&str>,
+    connect_configs_json: &str,
+) -> error::Result<String> {
+    use windmill_common::global_settings::{load_value_from_global_settings, OAUTH_SETTING};
+
+    let supports_cc =
+        |grant_types: &[String]| grant_types.iter().any(|g| g == "client_credentials");
+
+    let registry_cfg = serde_json::from_str::<HashMap<String, OAuthConfig>>(connect_configs_json)
+        .ok()
+        .and_then(|m| resolve_registry_config(&m, client_name));
+    if let Some(cfg) = registry_cfg {
+        // Built-in provider: only honor it for client credentials if it actually
+        // declares that grant, so an authorization-code-only provider can't be
+        // driven through the CC API.
+        if !supports_cc(&cfg.grant_types) {
+            return Err(error::Error::BadRequest(format!(
+                "'{client_name}' is not enabled for the client_credentials grant"
+            )));
+        }
+        return resolve_cc_token_url_input(connect_configs_json, client_name, caller_instance);
+    }
+
+    // Custom (non-registry) provider: the token URL comes from the admin's
+    // instance connect_config (an admin-configured, trusted host), never the
+    // caller. The instance entry must also enable the client-credentials grant.
+    let entry: Option<OAuthClient> = load_value_from_global_settings(db, OAUTH_SETTING)
+        .await?
+        .as_ref()
+        .and_then(|o| o.get(client_name))
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+    let instance_token_url = entry
+        .as_ref()
+        .filter(|e| supports_cc(&e.grant_types))
+        .and_then(|e| e.connect_config.clone())
+        .map(|c| c.token_url)
+        .filter(|u| !u.is_empty());
+    match instance_token_url {
+        Some(_)
+            if caller_instance
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false) =>
+        {
+            Err(error::Error::BadRequest(format!(
+                "An instance name only applies to built-in instance-templated providers, not \
+                 '{client_name}'"
+            )))
+        }
+        Some(url) => Ok(url),
+        None => Err(error::Error::BadRequest(format!(
+            "Client credentials with your own credentials require '{client_name}' to be a built-in \
+             OAuth provider or an instance entry that enables the client_credentials grant"
+        ))),
+    }
 }
 
 /// Exchange authorization code for tokens
@@ -454,7 +955,26 @@ pub async fn exchange_code<T: DeserializeOwned>(
         .with_client(http_client)
         .execute::<T>()
         .await
-        .map_err(|e| error::Error::InternalErr(format!("{:?}", e)))
+        .map_err(|e| error::Error::InternalErr(token_error_message(&e)))
+}
+
+/// Message for a failed token request. Some providers (Zoho) answer an OAuth error with
+/// HTTP 200, which the client reports as an unparseable token response, not an error one.
+pub fn token_error_message(e: &ExecuteError) -> String {
+    match e {
+        ExecuteError::ErrorResponse { error, .. } => error.to_string(),
+        ExecuteError::BadResponse { status, body, .. } => {
+            serde_json::from_slice::<oauth2::ErrorResponse>(body)
+                .map(|r| r.to_string())
+                .unwrap_or_else(|_| {
+                    format!(
+                        "unexpected response ({status}): {}",
+                        String::from_utf8_lossy(body)
+                    )
+                })
+        }
+        e => format!("{e:?}"),
+    }
 }
 
 /// Internal token exchange implementation
@@ -462,9 +982,10 @@ pub async fn exchange_token(
     client: OClient,
     refresh_token: &str,
     grant_type: &str,
-    oauth_client_info: Option<&ClientWithScopes>,
+    extra_params_callback: Option<&HashMap<String, String>>,
     http_client: &reqwest::Client,
     scopes: Option<&[String]>,
+    token_response_path: Option<&str>,
 ) -> Result<TokenResponse, Error> {
     let token_json = match grant_type {
         "authorization_code" | "" => {
@@ -483,11 +1004,9 @@ pub async fn exchange_token(
         "client_credentials" => {
             let mut token_request = client.exchange_client_credentials();
 
-            if let Some(oauth_info) = oauth_client_info {
-                if let Some(extra_params) = oauth_info.extra_params_callback.as_ref() {
-                    for (key, value) in extra_params.iter() {
-                        token_request = token_request.param(key.clone(), value.clone());
-                    }
+            if let Some(extra_params) = extra_params_callback {
+                for (key, value) in extra_params.iter() {
+                    token_request = token_request.param(key.clone(), value.clone());
                 }
             }
 
@@ -505,12 +1024,66 @@ pub async fn exchange_token(
         }
     };
 
-    let token = serde_json::from_value::<TokenResponse>(token_json.clone()).map_err(|e| {
+    parse_token_response(token_json, token_response_path)
+}
+
+/// Deserialize a token endpoint response, reading the token from the object at
+/// `token_response_path` when the top level carries none.
+pub fn parse_token_response(
+    token_json: serde_json::Value,
+    token_response_path: Option<&str>,
+) -> Result<TokenResponse, Error> {
+    let token_json = match token_response_path.and_then(|p| token_json.get(p)) {
+        Some(nested) if token_json.get("access_token").is_none() => nested.clone(),
+        _ => token_json,
+    };
+    serde_json::from_value::<TokenResponse>(token_json.clone()).map_err(|e| {
         Error::BadConfig(format!(
             "Error deserializing response as a new token: {e}\nresponse:{token_json}"
         ))
-    })?;
-    Ok(token)
+    })
+}
+
+/// What the connect callback returns: the token, and the resource fields its
+/// `connect_fields` picked, which the connect dialog prefills.
+#[derive(Debug, Serialize)]
+pub struct ConnectCallbackResponse {
+    #[serde(flatten)]
+    pub token: TokenResponse,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub resource_fields: HashMap<String, serde_json::Value>,
+}
+
+/// Picks each field's value out of `sources` (`{token, userinfo, callback}`). A path
+/// is dot-separated keys, and a `key[k=v]` segment takes the element of array `key`
+/// whose `k` is `v` (`userinfo.accounts[is_default=true].base_uri`). Only the listed
+/// paths leave the server, and fields whose path misses are left out.
+pub fn connect_resource_fields(
+    sources: &serde_json::Value,
+    fields: &HashMap<String, String>,
+) -> HashMap<String, serde_json::Value> {
+    fn get<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+        path.split('.')
+            .try_fold(v, |v, seg| match seg.split_once('[') {
+                Some((key, filter)) => {
+                    let (k, want) = filter.strip_suffix(']')?.split_once('=')?;
+                    v.get(key)?.as_array()?.iter().find(|e| match e.get(k) {
+                        Some(serde_json::Value::String(s)) => s == want,
+                        Some(other) => other.to_string() == want,
+                        None => false,
+                    })
+                }
+                None => v.get(seg),
+            })
+    }
+    fields
+        .iter()
+        .filter_map(|(field, path)| {
+            get(sources, path)
+                .filter(|v| !v.is_null())
+                .map(|v| (field.clone(), v.clone()))
+        })
+        .collect()
 }
 
 /// Pre-fetched account fields needed for token refresh.
@@ -524,103 +1097,110 @@ pub struct OAuthAccountInfo {
     pub scopes: Option<Vec<String>>,
 }
 
-/// Refresh an OAuth token and update the `account` row.
-/// Fetches the account from DB, then delegates to `refresh_token_for_account`.
-///
-/// Returns the freshly minted access token. Persisting it to the secret variable
-/// backing the resource is the caller's responsibility (it must route through the
-/// configured secret backend — see `store_oauth_token_value` in `windmill-store`).
-pub async fn refresh_token<'c>(
-    mut tx: Transaction<'c, Postgres>,
-    w_id: &str,
-    id: i32,
-    db: &DB,
-    oauth_clients: &AllClients,
-    http_client: &reqwest::Client,
-    connect_configs_json: &str,
-) -> error::Result<String> {
-    let account = sqlx::query_as!(
-        OAuthAccountInfo,
-        "SELECT client, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, scopes FROM account WHERE workspace_id = $1 AND id = $2",
-        w_id,
-        id,
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    let account = windmill_common::utils::not_found_if_none(account, "Account", &id.to_string())?;
-
-    refresh_token_for_account(
-        tx,
-        w_id,
-        id,
-        db,
-        account,
-        oauth_clients,
-        http_client,
-        connect_configs_json,
-    )
-    .await
+/// A refresh the provider answered with a new access token.
+pub struct RefreshedToken {
+    pub access_token: String,
+    /// The rotated refresh token, when the provider issued one.
+    pub refresh_token: Option<String>,
+    pub expires_in: i64,
 }
 
-/// Refresh an OAuth token given pre-fetched account info (no additional SELECT).
+pub enum RefreshError {
+    /// The provider refused the exchange: recorded on the account as `refresh_error`.
+    Provider(String),
+    Other(Error),
+}
+
+impl From<Error> for RefreshError {
+    fn from(e: Error) -> Self {
+        RefreshError::Other(e)
+    }
+}
+
+/// Exchange an account's refresh token (or client credentials) with its provider.
 ///
-/// Exchanges the refresh token, updates the `account` row (`refresh_token`,
-/// `expires_at`, `refresh_error`) and returns the new access token. It does NOT
-/// persist the token to the secret variable — the caller must do that through the
-/// configured secret backend (`store_oauth_token_value`), otherwise an external
-/// secret backend would keep serving the stale connect-time token.
-pub async fn refresh_token_for_account<'c>(
-    mut tx: Transaction<'c, Postgres>,
+/// Holds no connection across the HTTP call and writes nothing: the caller records the
+/// outcome on the `account` row and persists the access token through the secret backend.
+pub async fn exchange_account_token(
+    db: &DB,
     w_id: &str,
     id: i32,
-    db: &DB,
-    account: OAuthAccountInfo,
+    account: &OAuthAccountInfo,
     oauth_clients: &AllClients,
     http_client: &reqwest::Client,
     connect_configs_json: &str,
-) -> error::Result<String> {
-    let oauth_client_info = oauth_clients
-        .connects
-        .get(&account.client)
-        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
-        .clone();
+) -> Result<RefreshedToken, RefreshError> {
+    // Instance-configured client: required for authorization_code (the refresh
+    // token exchange uses the instance app's credentials). For client_credentials
+    // it is resolved inside `build_client_credentials_oauth_client` instead.
+    let oauth_client_info = oauth_clients.connects.get(&account.client).cloned();
 
-    let mut client = if account.grant_type == "client_credentials" {
-        match (&account.cc_client_id, &account.cc_client_secret) {
-            (Some(client_id), Some(client_secret)) => {
-                let (client, _) = build_client_credentials_oauth_client(
-                    db,
-                    &account.client,
-                    client_id,
-                    client_secret,
-                    account.cc_token_url.as_deref(),
-                    connect_configs_json,
-                )
-                .await?;
-                client
-            }
-            _ => {
-                return Err(error::Error::BadRequest(
-                    "client_credentials flow requires cc_client_id and cc_client_secret to be stored in account".to_string()
-                ));
-            }
-        }
+    let is_client_credentials = account.grant_type == "client_credentials";
+
+    let (mut client, cc_config) = if is_client_credentials {
+        // Bring-your-own accounts store their own credentials (and resolved token
+        // URL) on the row. Shared instance accounts store none: passing empty
+        // credentials makes the builder re-resolve the admin's service-account
+        // credentials and token URL from the instance entry on every refresh, so a
+        // rotated or removed shared secret takes effect immediately (mirrors the
+        // authorization-code model, where the row never holds the app secret).
+        let (client_id, client_secret) = match (&account.cc_client_id, &account.cc_client_secret) {
+            (Some(id), Some(secret)) => (id.as_str(), secret.as_str()),
+            _ => ("", ""),
+        };
+        let (client, config) = build_client_credentials_oauth_client(
+            db,
+            &account.client,
+            client_id,
+            client_secret,
+            account.cc_token_url.as_deref(),
+            connect_configs_json,
+        )
+        .await?;
+        (client, Some(config))
     } else {
-        oauth_client_info.client.to_owned()
+        let info = oauth_client_info
+            .as_ref()
+            .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
+        (info.client.to_owned(), None)
     };
 
-    // Account-level scopes override instance-level scopes
+    // Account-level scopes (when stored) override these defaults. Client-credentials
+    // accounts default to the resolved CC config's scopes (`cc_scopes` for registry
+    // providers, the admin's instance scopes for custom ones) — never the instance
+    // client's authorization-code scopes, which are invalid in a 2-legged request.
+    // Authorization-code accounts default to the instance client's scopes.
+    let fallback_scopes = if is_client_credentials {
+        cc_config
+            .as_ref()
+            .and_then(|c| c.scopes.clone())
+            .unwrap_or_default()
+    } else {
+        oauth_client_info
+            .as_ref()
+            .map(|i| i.scopes.clone())
+            .unwrap_or_default()
+    };
     let effective_scopes = account
         .scopes
         .as_deref()
         .filter(|s| !s.is_empty())
-        .unwrap_or(&oauth_client_info.scopes);
+        .unwrap_or(&fallback_scopes);
 
-    if account.grant_type == "client_credentials" {
+    if is_client_credentials {
         for scope in effective_scopes.iter() {
             client.add_scope(scope);
         }
     }
+
+    let extra_params_callback = oauth_client_info
+        .as_ref()
+        .and_then(|i| i.extra_params_callback.clone())
+        .or_else(|| {
+            cc_config
+                .as_ref()
+                .and_then(|c| c.extra_params_callback.clone())
+        });
 
     tracing::info!(
         grant_type = %account.grant_type,
@@ -634,54 +1214,27 @@ pub async fn refresh_token_for_account<'c>(
         client,
         &account.refresh_token,
         &account.grant_type,
-        Some(&oauth_client_info),
+        extra_params_callback.as_ref(),
         http_client,
         Some(effective_scopes),
+        oauth_client_info
+            .as_ref()
+            .and_then(|i| i.token_response_path.as_deref())
+            .or_else(|| {
+                cc_config
+                    .as_ref()
+                    .and_then(|c| c.token_response_path.as_deref())
+            }),
     )
     .await;
 
-    if let Err(token_err) = token {
-        sqlx::query!(
-            "UPDATE account SET refresh_error = $1 WHERE workspace_id = $2 AND id = $3",
-            token_err.alt(),
-            w_id,
-            id,
-        )
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        return Err(error::Error::BadRequest(format!(
-            "Error refreshing token: {}",
-            token_err.alt()
-        )));
-    };
+    let token = token.map_err(|e| RefreshError::Provider(e.alt()))?;
 
-    let token = token.unwrap();
-
-    let expires_at = now_from_db(&mut *tx).await?
-        + chrono::Duration::try_seconds(
-            token
-                .expires_in
-                .ok_or_else(|| Error::InternalErr("expires_in expected and not found".to_string()))?
-                .try_into()
-                .unwrap(),
-        )
-        .unwrap_or_default();
-    sqlx::query!(
-        "UPDATE account SET refresh_token = $1, expires_at = $2, refresh_error = NULL WHERE workspace_id = $3 AND id = $4",
-        token
-            .refresh_token
-            .map(|x| x.to_string())
-            .unwrap_or(account.refresh_token),
-        expires_at,
-        w_id,
-        id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    let token_str = token.access_token.to_string();
+    let expires_in = token
+        .expires_in
+        .ok_or_else(|| Error::InternalErr("expires_in expected and not found".to_string()))?
+        .try_into()
+        .unwrap_or(i64::MAX);
 
     tracing::info!(
         grant_type = %account.grant_type,
@@ -691,7 +1244,11 @@ pub async fn refresh_token_for_account<'c>(
         "OAuth token refreshed successfully"
     );
 
-    Ok(token_str)
+    Ok(RefreshedToken {
+        access_token: token.access_token.to_string(),
+        refresh_token: token.refresh_token.map(|t| t.to_string()),
+        expires_in,
+    })
 }
 
 /// Generate OAuth redirect URL with CSRF protection
@@ -829,6 +1386,29 @@ mod tests {
     }
 
     #[test]
+    fn token_error_message_reads_an_error_sent_with_http_200() {
+        let body: &[u8] = br#"{"error":"invalid_client"}"#;
+        let e = ExecuteError::BadResponse {
+            status: reqwest::StatusCode::OK,
+            body: body.into(),
+            error: serde_json::from_slice::<TokenResponse>(body).unwrap_err(),
+        };
+        assert_eq!(token_error_message(&e), "invalid_client");
+    }
+
+    // Sage Intacct's token endpoint rejects HTTP Basic client authentication on the
+    // refresh_token grant (`invalid_client`), so its credentials must go in the form body.
+    #[test]
+    fn sage_intacct_registry_entry_uses_request_body_client_auth() {
+        let registry: HashMap<String, OAuthConfig> =
+            serde_json::from_str(include_str!("../../oauth_connect.json")).unwrap();
+        assert_eq!(
+            registry.get("sage_intacct").unwrap().req_body_auth,
+            Some(true)
+        );
+    }
+
+    #[test]
     fn canonical_provider_name_strips_sandbox_suffix() {
         assert_eq!(canonical_provider_name("docusign_sandbox"), "docusign");
         assert_eq!(canonical_provider_name("docusign"), "docusign");
@@ -840,15 +1420,83 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_parse_token_response_nested() {
+        let bot = serde_json::json!({
+            "ok": true,
+            "access_token": "xoxb-bot",
+            "authed_user": {"id": "U1"}
+        });
+        let token = parse_token_response(bot, Some("authed_user")).unwrap();
+        assert_eq!(&*token.access_token, "xoxb-bot");
+
+        let user = serde_json::json!({
+            "ok": true,
+            "authed_user": {"access_token": "xoxp-user", "refresh_token": "xoxe-1", "expires_in": 43200}
+        });
+        let token = parse_token_response(user, Some("authed_user")).unwrap();
+        assert_eq!(&*token.access_token, "xoxp-user");
+        assert_eq!(&*token.refresh_token.unwrap(), "xoxe-1");
+
+        let refresh =
+            serde_json::json!({"ok": true, "access_token": "xoxe.xoxp-new", "token_type": "user"});
+        let token = parse_token_response(refresh, Some("authed_user")).unwrap();
+        assert_eq!(&*token.access_token, "xoxe.xoxp-new");
+    }
+
+    #[test]
+    fn connect_fields_pick_from_each_source() {
+        let registry: HashMap<String, OAuthConfig> =
+            serde_json::from_str(include_str!("../../oauth_connect.json")).unwrap();
+        let fields = |p: &str| registry[p].connect_fields.clone().unwrap();
+
+        let docusign = serde_json::json!({"userinfo": {"accounts": [
+            {"account_id": "a1", "is_default": false, "base_uri": "https://na2.docusign.net"},
+            {"account_id": "a2", "is_default": true, "base_uri": "https://demo.docusign.net"}
+        ]}});
+        let got = connect_resource_fields(&docusign, &fields("docusign"));
+        assert_eq!(got["account_id"], "a2");
+        assert_eq!(got["base_uri"], "https://demo.docusign.net");
+        let no_account = serde_json::json!({"userinfo": {"accounts": []}});
+        assert!(connect_resource_fields(&no_account, &fields("docusign")).is_empty());
+
+        let salesforce = serde_json::json!({"token": {
+            "access_token": "t", "instance_url": "https://acme.my.salesforce.com", "id_token": "x"
+        }});
+        let want = HashMap::from([(
+            "instance_url".to_string(),
+            serde_json::json!("https://acme.my.salesforce.com"),
+        )]);
+        assert_eq!(
+            connect_resource_fields(&salesforce, &fields("salesforce")),
+            want
+        );
+        let sandbox = registry["salesforce"].as_sandbox().unwrap();
+        assert_eq!(
+            sandbox.connect_fields,
+            registry["salesforce"].connect_fields
+        );
+
+        let quickbooks = serde_json::json!({"callback": {"realmId": "9130"}});
+        let got = connect_resource_fields(&quickbooks, &fields("quickbooks"));
+        assert_eq!(
+            got,
+            HashMap::from([("realmId".to_string(), serde_json::json!("9130"))])
+        );
+    }
+
     fn sample_oauth_config(with_sandbox: bool) -> OAuthConfig {
         OAuthConfig {
             auth_url: "https://account.example.com/oauth/auth".to_string(),
             token_url: "https://account.example.com/oauth/token".to_string(),
             userinfo_url: Some("https://account.example.com/userinfo".to_string()),
+            connect_fields: None,
             scopes: Some(vec!["signature".to_string()]),
+            cc_scopes: None,
             extra_params: None,
             extra_params_callback: None,
             req_body_auth: None,
+            token_response_path: None,
             grant_types: default_grant_types(),
             sandbox: with_sandbox.then(|| OAuthSandboxOverride {
                 auth_url: Some("https://account-d.example.com/oauth/auth".to_string()),
@@ -926,5 +1574,198 @@ mod tests {
         // Parent exists but has no sandbox override.
         registry.insert("docusign".to_string(), sample_oauth_config(false));
         assert!(resolve_registry_config(&registry, "docusign_sandbox").is_none());
+    }
+
+    const CC_REGISTRY: &str = r#"{
+        "coupa": {
+            "grant_types": ["client_credentials"],
+            "connect_config_template": {
+                "label": "Coupa instance",
+                "placeholder": "x",
+                "token_url": "https://{instance}.coupahost.com/oauth2/token",
+                "strip_suffix": ".coupahost.com"
+            }
+        },
+        "servicenow": {
+            "grant_types": ["authorization_code", "client_credentials"],
+            "connect_config_template": {
+                "label": "ServiceNow instance",
+                "placeholder": "dev12345",
+                "auth_url": "https://{instance}.service-now.com/oauth_auth.do",
+                "token_url": "https://{instance}.service-now.com/oauth_token.do",
+                "strip_suffix": ".service-now.com"
+            }
+        },
+        "visma": {
+            "auth_url": "https://connect.visma.com/connect/authorize",
+            "token_url": "https://connect.visma.com/connect/token",
+            "grant_types": ["authorization_code", "client_credentials"]
+        },
+        "bad_host_tpl": {
+            "grant_types": ["client_credentials"],
+            "connect_config_template": {
+                "label": "x", "placeholder": "x",
+                "token_url": "https://{instance}/token"
+            }
+        },
+        "bad_mid_tpl": {
+            "grant_types": ["client_credentials"],
+            "connect_config_template": {
+                "label": "x", "placeholder": "x",
+                "token_url": "https://api.{instance}.evil.com/token"
+            }
+        }
+    }"#;
+
+    #[test]
+    fn cc_token_url_templated_substitutes_instance() {
+        let url = resolve_cc_token_url_input(CC_REGISTRY, "coupa", Some("acme")).unwrap();
+        assert_eq!(url, "https://acme.coupahost.com/oauth2/token");
+    }
+
+    #[test]
+    fn cc_token_url_templated_from_connect_config_template() {
+        // ServiceNow's CC token URL comes from its connect_config_template.
+        let url = resolve_cc_token_url_input(CC_REGISTRY, "servicenow", Some("dev99")).unwrap();
+        assert_eq!(url, "https://dev99.service-now.com/oauth_token.do");
+    }
+
+    #[test]
+    fn cc_token_url_strips_known_host_suffix() {
+        let url =
+            resolve_cc_token_url_input(CC_REGISTRY, "coupa", Some("acme.coupahost.com")).unwrap();
+        assert_eq!(url, "https://acme.coupahost.com/oauth2/token");
+    }
+
+    #[test]
+    fn cc_token_url_rejects_instance_that_escapes_the_host() {
+        // A '/' (or any non-hostname char) must not let the caller move the host
+        // out of the template's domain.
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "coupa", Some("evil.com/oauth")).is_err());
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "coupa", Some("a@b")).is_err());
+    }
+
+    #[test]
+    fn cc_token_url_requires_instance_when_templated() {
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "coupa", None).is_err());
+    }
+
+    #[test]
+    fn cc_token_url_fixed_host_uses_registry_url() {
+        let url = resolve_cc_token_url_input(CC_REGISTRY, "visma", None).unwrap();
+        assert_eq!(url, "https://connect.visma.com/connect/token");
+    }
+
+    #[test]
+    fn cc_token_url_rejects_custom_provider() {
+        // No registry entry: bring-your-own client credentials are not allowed.
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "my_custom_thing", Some("acme")).is_err());
+    }
+
+    #[test]
+    fn cc_token_url_rejects_template_not_in_subdomain_position() {
+        // `{instance}` must be the leftmost host label of a fixed-host template, so
+        // a malformed template can't let the instance value control the host.
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "bad_host_tpl", Some("evil.com")).is_err());
+        assert!(resolve_cc_token_url_input(CC_REGISTRY, "bad_mid_tpl", Some("evil")).is_err());
+    }
+
+    #[test]
+    fn instance_templated_cc_true_for_templated_providers() {
+        // Host-pinned via `{instance}`: a bring-your-own token URL override must be
+        // refused for these (only the instance-name path may set their URL).
+        assert!(is_instance_templated_cc(CC_REGISTRY, "coupa"));
+        assert!(is_instance_templated_cc(CC_REGISTRY, "servicenow"));
+    }
+
+    #[test]
+    fn instance_templated_cc_false_for_fixed_host_and_unknown() {
+        // Fixed-host registry provider and custom (non-registry) provider both allow
+        // an override, so neither is reported as instance-templated.
+        assert!(!is_instance_templated_cc(CC_REGISTRY, "visma"));
+        assert!(!is_instance_templated_cc(CC_REGISTRY, "my_custom_thing"));
+    }
+
+    #[test]
+    fn share_client_credentials_absent_means_shared() {
+        let entry = |extra: serde_json::Value| -> OAuthClient {
+            let mut v = serde_json::json!({ "id": "a", "secret": "b",
+                "grant_types": ["authorization_code", "client_credentials"] });
+            v.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            serde_json::from_value(v).unwrap()
+        };
+        assert!(entry(serde_json::json!({})).shares_client_credentials());
+        assert!(
+            !entry(serde_json::json!({ "share_client_credentials": false }))
+                .shares_client_credentials()
+        );
+        assert!(
+            !entry(serde_json::json!({ "grant_types": ["authorization_code"] }))
+                .shares_client_credentials()
+        );
+    }
+
+    #[test]
+    fn validate_oauths_setting_names_each_bad_entry() {
+        let registry = r#"{
+            "github": { "auth_url": "https://github.com/login/oauth/authorize",
+                        "token_url": "https://github.com/login/oauth/access_token" },
+            "coupa": { "grant_types": ["client_credentials"],
+                       "connect_config_template": { "label": "Coupa instance", "placeholder": "x",
+                           "token_url": "https://{instance}.coupahost.com/oauth2/token" } },
+            "ms_teams": { "connect_config_template": { "label": "Microsoft Entra tenant",
+                "placeholder": "x", "extra_params_key": "tenant",
+                "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token" } }
+        }"#;
+        let ok = |v: serde_json::Value| validate_oauths_setting(&v, None, registry);
+        assert!(ok(serde_json::Value::Null).is_ok());
+        assert!(ok(serde_json::json!({
+            "github": { "id": "a", "secret": "b" },
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                       "connect_config": { "token_url": "https://acme.coupahost.com/oauth2/token",
+                                           "extra_params": { "instance": "acme" } } },
+            "custom": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                        "connect_config": { "token_url": "https://idp.example.com/token" } },
+            "ms_teams": { "id": "a", "secret": "b", "tenant": "contoso" }
+        }))
+        .is_ok());
+        assert!(ok(serde_json::json!({
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                       "connect_config": { "token_url": "https://acme.coupahost.com/oauth2/token" } }
+        }))
+        .is_ok());
+        assert!(ok(serde_json::json!({
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                       "connect_config": { "token_url": "https://.coupahost.com/oauth2/token",
+                                           "extra_params": { "instance": "" } } }
+        }))
+        .unwrap_err()
+        .contains("Coupa instance is required"));
+
+        let err = ok(serde_json::json!({
+            "github": { "id": "a", "secret": "b", "grant_types": ["client_credentials"] },
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"] },
+            "custom": { "id": "a", "secret": "b", "grant_types": ["client_credentials"] },
+            "broken": { "id": 1 }
+        }))
+        .unwrap_err();
+        for name in [
+            "github:",
+            "coupa: Coupa instance is required",
+            "custom:",
+            "broken:",
+        ] {
+            assert!(err.contains(name), "{name} missing from: {err}");
+        }
+
+        // An unchanged bad entry, saved before the check existed, does not block the save.
+        let stored = serde_json::json!({ "broken": { "id": 1 } });
+        let next =
+            serde_json::json!({ "broken": { "id": 1 }, "github": { "id": "a", "secret": "b" } });
+        assert!(validate_oauths_setting(&next, Some(&stored), registry).is_ok());
+        let edited = serde_json::json!({ "broken": { "id": 2 } });
+        assert!(validate_oauths_setting(&edited, Some(&stored), registry).is_err());
     }
 }

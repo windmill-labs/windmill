@@ -3,12 +3,17 @@
 	import { ExternalLink, PanelRight } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { runToolDisplayAction } from './createdResourceActions.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import {
+		hasToolDisplayActionHandler,
+		runToolDisplayAction
+	} from './createdResourceActions.svelte'
 	import {
 		workspaceItemAction,
 		type WindmillItemKind,
 		type WorkspaceItemTargetKind
 	} from './workspaceItems.svelte'
+	import { safeHref } from '$lib/utils/safeHref'
 
 	type Props = {
 		href?: string
@@ -16,6 +21,7 @@
 		'data-wm-kind'?: WindmillItemKind
 		'data-wm-path'?: string
 		'data-wm-target-kind'?: WorkspaceItemTargetKind
+		'data-wm-raw-app'?: string
 		title?: string
 	}
 	let {
@@ -24,58 +30,91 @@
 		'data-wm-kind': wmKind,
 		'data-wm-path': wmPath,
 		'data-wm-target-kind': wmTargetKind,
+		'data-wm-raw-app': wmRawApp,
 		title
 	}: Props = $props()
 
-	const drawerAction = $derived(workspaceItemAction(wmKind, wmPath, wmTargetKind))
+	// The session tabs ride with the sessions page, so a surface can render this pill with nothing
+	// able to open one.
+	const available = $derived.by(() => {
+		const action = workspaceItemAction(wmKind, wmPath, wmTargetKind, wmRawApp === 'true')
+		return action && hasToolDisplayActionHandler(action.type) ? action : undefined
+	})
+	// Only the preview panel takes the plain click; any other action stays in the hover menu
+	// beside the outbound link.
+	const previewAction = $derived(available?.type === 'open_item_preview' ? available : undefined)
 
-	async function openDrawer(event?: Event) {
-		event?.preventDefault()
-		event?.stopPropagation()
-		if (drawerAction) {
-			await runToolDisplayAction(drawerAction)
-		}
+	const allowedHref = $derived(safeHref(href, window.location.href))
+
+	async function openAvailable() {
+		if (available) await runToolDisplayAction(available)
 	}
+
+	async function onclick(event: MouseEvent) {
+		// Modifier clicks still reach the tab from the pill itself, so leave them to the browser.
+		if (!previewAction || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+		event.preventDefault()
+		await runToolDisplayAction(previewAction)
+	}
+
+	const menuItemClass = 'w-full justify-start no-underline'
 </script>
 
-{#if href}
-	{#if wmKind}
-		<span class="group inline-flex items-baseline">
-			<a
-				{href}
-				target="_blank"
-				rel="noopener noreferrer"
-				title={title || wmPath || href}
-				class="inline-flex items-baseline gap-1 px-1 rounded hover:bg-surface-hover text-primary no-underline font-mono text-[0.9em] align-baseline"
-			>
-				<span class="inline-flex self-center shrink-0">
-					<RowIcon kind={wmKind} size={12} />
-				</span>
-				{@render children?.()}
-				<span
-					class="inline-flex self-center shrink-0 text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
-				>
-					<ExternalLink size={10} />
-				</span>
-			</a>
-			{#if drawerAction}
-				<Button
-					type="button"
-					size="xs3"
-					variant="subtle"
-					iconOnly
-					startIcon={{ icon: PanelRight }}
-					title="Open in drawer"
-					aria-label="Open {wmPath} in drawer"
-					wrapperClasses="ml-0.5 inline-flex self-center shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-					btnClasses="!w-auto !rounded !p-0.5 !text-tertiary"
-					onClick={openDrawer}
-				/>
-			{/if}
+{#snippet pill()}
+	<a
+		href={allowedHref}
+		target={previewAction ? undefined : '_blank'}
+		rel={previewAction ? undefined : 'noopener noreferrer'}
+		title={available ? undefined : title || `Open ${wmPath} in a new tab`}
+		{onclick}
+		class="inline-flex items-baseline gap-1 px-1 rounded hover:bg-surface-hover text-primary no-underline font-mono align-baseline"
+	>
+		<span class="inline-flex self-center shrink-0">
+			<RowIcon kind={wmKind!} size={12} />
 		</span>
+		{@render children?.()}
+	</a>
+{/snippet}
+
+{#if allowedHref}
+	{#if wmKind && available}
+		<!-- A Tooltip rather than Menu/Popover: those wrap their trigger in a <button>, which
+		     cannot hold the pill's <a>, and the pill must stay a real link for cmd/middle-click.
+		     The menu floats over the text, so opening it never reflows the sentence. -->
+		<Tooltip placement="top-start" openDelay={200} closeDelay={150} customBgClass="bg-surface p-1">
+			{@render pill()}
+			{#snippet text()}
+				<div class="flex flex-col min-w-36">
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: PanelRight }}
+						btnClasses={menuItemClass}
+						onClick={openAvailable}
+					>
+						{previewAction ? 'Open in panel' : 'Open in editor'}
+					</Button>
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						startIcon={{ icon: ExternalLink }}
+						btnClasses={menuItemClass}
+						href={allowedHref}
+						target="_blank"
+					>
+						Open in new tab
+					</Button>
+				</div>
+			{/snippet}
+		</Tooltip>
+	{:else if wmKind}
+		{@render pill()}
 	{:else}
-		<a {href} target="_blank" rel="noopener noreferrer" {title}>
+		<a href={allowedHref} target="_blank" rel="noopener noreferrer" {title}>
 			{@render children?.()}
 		</a>
 	{/if}
+{:else}
+	<!-- An empty or unsafe href still has text; drop only the link. -->
+	{@render children?.()}
 {/if}

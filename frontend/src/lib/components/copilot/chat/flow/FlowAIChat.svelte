@@ -2,8 +2,9 @@
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import { getContext, tick, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
-	import type { InputTransform } from '$lib/gen'
+	import { ApiError, type InputTransform } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
+	import { chatMemoryId } from '../global/core'
 	import { createInlineScriptSession } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { getAiChatManager } from '../aiChatManagerContext'
@@ -12,8 +13,15 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { ScriptLintResult } from '../shared'
-	import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
+	import {
+		applyFlowJsonUpdate,
+		isFlowSchemaChange,
+		updateRawScriptModuleContent
+	} from './helperUtils'
 	import { findModuleInFlow } from '$lib/components/flows/flowTree'
+	import { getEditorStoragePath } from '$lib/components/editorStoragePathContext'
+
+	const editorStoragePath = getEditorStoragePath()
 
 	let {
 		flowModuleSchemaMap,
@@ -23,8 +31,15 @@
 		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 	} = $props()
 
-	const { flowStore, flowStateStore, selectionManager, currentEditor, previewArgs } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		flowStore,
+		flowStateStore,
+		selectionManager,
+		currentEditor,
+		previewArgs,
+		opWorkspace,
+		customUi
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
@@ -102,7 +117,7 @@
 			}
 
 			inlineScriptSession.set(id, code)
-			const { input_transforms, schema } = await loadSchemaFromModule(module)
+			const { input_transforms, schema } = await loadSchemaFromModule(module, opWorkspace?.())
 			module.value.input_transforms = input_transforms
 			refreshStateStore(flowStore)
 
@@ -134,8 +149,10 @@
 			}
 			await acceptPendingFlowEditsIfEnabled()
 		},
+		canEditFlowInputs: () => customUi?.aiFlowInputs != false,
 		getFlowInputsSchema: async () => {
-			return flowStore.val.schema ?? {}
+			const s = flowStore.val.schema ?? {}
+			return { type: 'object', properties: {}, required: [], ...s }
 		},
 
 		updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => {
@@ -156,8 +173,12 @@
 		},
 
 		selectStep: (id) => {
-			selectionManager.selectId(id)
+			// The step's editor must actually be on screen for the user to see what the
+			// assistant is working on.
+			selectionManager.selectId(id, { openPanel: true })
 		},
+
+		getStoragePath: () => editorStoragePath?.(),
 
 		testFlow: async (args, conversationId) => {
 			// Set preview args if provided
@@ -165,7 +186,19 @@
 				previewArgs.val = args
 			}
 			// Call the UI test function which opens preview panel
-			return await onTestFlow?.(conversationId)
+			try {
+				return await onTestFlow?.(conversationId ?? chatMemoryId(flowStore.val.value))
+			} catch (e) {
+				// The flow chat is still answering in that conversation, and the server takes one
+				// turn at a time. Said plainly here: the raw refusal names a job the model has
+				// no use for.
+				if (e instanceof ApiError && e.status === 409) {
+					throw new Error(
+						'That chat is still answering an earlier message; wait for it to finish before testing again.'
+					)
+				}
+				throw e
+			}
 		},
 
 		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {
@@ -174,8 +207,9 @@
 				return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 			}
 
-			// Focus the module first
-			selectionManager.selectId(moduleId)
+			// Lint is read off the mounted editor, so the panel has to be open — with it
+			// closed the poll below would time out and report a clean script.
+			selectionManager.selectId(moduleId, { openPanel: true })
 
 			// Poll until editor exists
 			const maxWait = 3000
@@ -196,7 +230,20 @@
 			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		},
 
-		setFlowJson: async ({ modules, schema, preprocessorModule, failureModule, groups, notes }) => {
+		setFlowJson: async ({
+			modules,
+			schema,
+			preprocessorModule,
+			failureModule,
+			groups,
+			notes,
+			settings
+		}) => {
+			if (!flowHelpers.canEditFlowInputs() && isFlowSchemaChange(flowStore.val.schema, schema)) {
+				throw new Error(
+					'The flow inputs (schema) are locked in this editor and cannot be added, changed or removed. Keep the schema exactly as it is: give steps static values or reference only the existing flow_input fields.'
+				)
+			}
 			try {
 				if (
 					modules !== undefined ||
@@ -204,7 +251,8 @@
 					preprocessorModule !== undefined ||
 					failureModule !== undefined ||
 					groups !== undefined ||
-					notes !== undefined
+					notes !== undefined ||
+					settings !== undefined
 				) {
 					// Take snapshot of current flowStore and set as beforeFlow
 					if (!diffManager?.hasPendingChanges) {
@@ -220,7 +268,8 @@
 					preprocessorModule,
 					failureModule,
 					groups,
-					notes
+					notes,
+					settings
 				})
 
 				// Refresh the state store to update UI

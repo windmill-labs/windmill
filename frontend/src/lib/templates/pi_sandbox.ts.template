@@ -1,0 +1,74 @@
+// sandbox
+// volume: pi .pi
+
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { createModels } from "@earendil-works/pi-ai/models";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { AssistantEntry, createRegistry, Harness, watchEvents } from "@earendil-works/pi-durable";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { openNodeJsonlStorage } from "@earendil-works/pi-durable/storage/jsonl/node";
+import { CodingTools } from "@earendil-works/pi-durable/tools";
+
+export async function main(anthropic: RT.Anthropic, instructions?: string) {
+  // Any pi-ai provider works: import it from "@earendil-works/pi-ai/providers/<name>",
+  // set the API key env var it reads, and name it in `model` below.
+  process.env.ANTHROPIC_API_KEY = anthropic.apiKey;
+  const models = createModels();
+  models.setProvider(anthropicProvider());
+  const model = { provider: "anthropic", modelId: "claude-opus-5-5" };
+
+  // read, write, edit and bash, running in this job's sandbox
+  const registry = createRegistry();
+  registry.install(CodingTools);
+
+  const context = BACKGROUND_CONTEXT;
+
+  // The conversation is stored in the volume, so each run continues the previous one.
+  const harness = await Harness.open(
+    await openNodeJsonlStorage(".pi/session", context),
+    { models, registry, env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? process.cwd() }) },
+    context,
+  );
+
+  try {
+    const root = await harness.root(context);
+    await root.configure({ model, instructions: instructions ?? null }, context);
+
+    const isResume = (await root.viewState(context)).value.entries.length > 0;
+
+    // you can hardcode the prompt or pass it as input.
+    const prompt = !isResume ?
+      "What is the fastest OSS workflow engine?" :
+      "What did I ask you before?"
+
+    const events = await watchEvents(harness, root.id, context);
+    events.start(async (batch) => {
+      for (const event of batch) {
+        if (event.type === "tool_execution_start") {
+          console.log(`${event.toolName} ${JSON.stringify(event.args)}`);
+        }
+      }
+    });
+
+    const submission = await root.submit({ type: "input", content: prompt }, context);
+    const settled = await submission.wait(context);
+    if (settled.status !== "done" || settled.type !== "input") {
+      throw new Error(`Pi did not answer: ${JSON.stringify(settled)}`);
+    }
+
+    const answer = await root.commit((tx) => tx.entry(AssistantEntry, settled.answer), context);
+    const response = (answer?.model?.[0]?.content ?? [])
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("");
+
+    return {
+      is_resume: isResume,
+      prompt,
+      response,
+      usage: (await harness.usage(context)).models,
+    };
+  } finally {
+    await harness.close(context);
+  }
+}

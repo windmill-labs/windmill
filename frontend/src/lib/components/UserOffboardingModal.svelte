@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
-	import { classNames } from '$lib/utils'
+	import { apiErrorMessage, classNames } from '$lib/utils'
 	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { UserService, FolderService } from '$lib/gen'
 	import type { OffboardPreview } from '$lib/gen/types.gen'
@@ -43,6 +43,7 @@
 	let ownedCount = $derived(preview ? countPaths(preview.owned) : 0)
 	let onBehalfCount = $derived(preview ? countPaths(preview.executing_on_behalf) : 0)
 	let hasItems = $derived(ownedCount > 0 || onBehalfCount > 0)
+	let canReassignHere = $derived(hasItems && users.length > 0)
 
 	let reassignTo = $derived(
 		targetKind === 'user'
@@ -83,8 +84,13 @@
 			preview = previewResult
 			users = usernamesList.filter((u) => u !== username).map((u) => ({ label: u, value: u }))
 			folders = foldersList.map((f) => ({ label: f.name, value: f.name }))
+			// Reassignment needs another workspace user as target/operator; with none
+			// (sole-member workspace) it is impossible, so fall back to plain removal.
+			if (!reassignOnly && users.length === 0) {
+				doReassign = false
+			}
 		} catch (e) {
-			sendUserToast('Failed to load offboard preview', true)
+			sendUserToast(`Failed to load offboard preview: ${apiErrorMessage(e)}`, true)
 			onClose()
 		} finally {
 			loading = false
@@ -122,7 +128,7 @@
 				onComplete()
 			}
 		} catch (e) {
-			sendUserToast(`Offboarding failed: ${e}`, true)
+			sendUserToast(`Offboarding failed: ${apiErrorMessage(e)}`, true)
 		} finally {
 			submitting = false
 		}
@@ -173,33 +179,40 @@
 					{:else if preview}
 						<div class="mt-4 space-y-3">
 							{#if hasItems}
-								{#if !reassignOnly}
-									<Toggle
-										bind:checked={doReassign}
-										size="xs"
-										options={{ right: 'Reassign items before removing' }}
-									/>
-								{/if}
-
-								{#if doReassign}
-									<OffboardWorkspaceSection
-										{preview}
-										{username}
-										{deleteUser}
-										bind:targetKind
-										bind:selectedUser
-										bind:selectedFolder
-										bind:selectedOperator
-										{users}
-										{folders}
-									/>
+								{#if users.length === 0}
+									<p class="text-xs text-tertiary">
+										No other users in this workspace. Items will be left as-is.
+									</p>
 								{:else}
-									<Alert type="warning" title="Items will not be reassigned">
-										<p class="text-xs">
-											All items owned by {username} ({ownedCount} owned, {onBehalfCount} running on behalf)
-											will be left as-is. Triggers and runnables may stop working if the user is removed.
-										</p>
-									</Alert>
+									{#if !reassignOnly}
+										<Toggle
+											bind:checked={doReassign}
+											size="xs"
+											options={{ right: 'Reassign items before removing' }}
+										/>
+									{/if}
+
+									{#if doReassign}
+										<OffboardWorkspaceSection
+											{preview}
+											{username}
+											{deleteUser}
+											bind:targetKind
+											bind:selectedUser
+											bind:selectedFolder
+											bind:selectedOperator
+											{users}
+											{folders}
+										/>
+									{:else}
+										<Alert type="warning" title="Items will not be reassigned">
+											<p class="text-xs">
+												All items owned by {username} ({ownedCount} owned, {onBehalfCount} running on
+												behalf) will be left as-is. Triggers and runnables may stop working if the user
+												is removed.
+											</p>
+										</Alert>
+									{/if}
 								{/if}
 							{:else}
 								<p class="text-sm text-secondary">
@@ -214,7 +227,7 @@
 										different user/folder.</p
 									>
 									<ul class="text-xs list-disc list-inside max-h-32 overflow-y-auto">
-										{#each conflicts as conflict}
+										{#each conflicts as conflict, i (i)}
 											<li>{conflict}</li>
 										{/each}
 									</ul>
@@ -224,7 +237,7 @@
 					{/if}
 
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						{#if hasItems || deleteUser}
+						{#if deleteUser || canReassignHere}
 							<Button
 								disabled={submitting || !canSubmit}
 								onclick={submit}

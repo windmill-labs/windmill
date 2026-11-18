@@ -14,7 +14,6 @@
 	} from './lib'
 	import { untrack } from 'svelte'
 	import { ResourceService, WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import Tooltip2 from '../Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
@@ -23,6 +22,9 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { resource } from 'runed'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		assets,
@@ -61,12 +63,12 @@
 	})
 
 	let datatables = resource([], () =>
-		WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' }).then((d) =>
+		WorkspaceService.listDataTables({ workspace: $operatingWorkspace ?? '' }).then((d) =>
 			d.map((d) => d.name)
 		)
 	)
 	let ducklakes = resource([], () =>
-		WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+		WorkspaceService.listDucklakes({ workspace: $operatingWorkspace ?? '' })
 	)
 
 	$effect(() => {
@@ -88,7 +90,7 @@
 					let truncatedPath = asset.path.split('?table=')[0]
 					if (truncatedPath in resourceDataCache) continue
 					resourceDataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
-					ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+					ResourceService.getResource({ path: truncatedPath, workspace: $operatingWorkspace! })
 						.then((r) => (resourceDataCache[truncatedPath] = r.resource_type))
 						.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
 				}

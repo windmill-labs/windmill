@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE fork_ducklake_namespace SET schema_dropped = true\n                 WHERE workspace_id = $1 AND ducklake_name = $2 AND catalog = $3\n                   AND storage = $4 AND storage_ref = $5 AND data_path = $6",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cd492743a27a158c9f5ff1fdb50a48ebfed85ad8800e293945eadc874d7e42f3"
+}
