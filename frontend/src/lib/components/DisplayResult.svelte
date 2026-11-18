@@ -269,38 +269,21 @@
 
 	// A result over the backend's inline cap arrives as 'WINDMILL_TOO_BIG'. Ask the backend
 	// for the filename alone to tell a file result: `{ file: { content, filename } }` or
-	// `{ file, filename }`, the two shapes the 'file' kind renders. A root `filename` alone
-	// proves nothing, so the root shape also needs a string `file`, of which only the first
-	// bytes are read since it is the large value itself.
+	// `{ file, filename }`, the two shapes the 'file' kind renders. A root `filename` does not
+	// prove a root `file`, which is only read on click since it is the large value itself, so
+	// the JSON download stays offered next to the button.
 	let tooBigFilename: string | undefined = $state(undefined)
-	function resultAtUrl(apiPath: string, jsonPath: string): string {
-		return `${apiPath}${apiPath.includes('?') ? '&' : '?'}json_path=${jsonPath}`
-	}
 	async function fetchResultAt(apiPath: string, jsonPath: string): Promise<unknown> {
-		const r = await fetchViaClient(resultAtUrl(apiPath, jsonPath))
+		const r = await fetchViaClient(
+			`${apiPath}${apiPath.includes('?') ? '&' : '?'}json_path=${jsonPath}`
+		)
 		return r.ok ? r.json() : undefined
-	}
-	async function isStringAt(apiPath: string, jsonPath: string): Promise<boolean> {
-		const r = await fetchViaClient(resultAtUrl(apiPath, jsonPath))
-		const reader = r.ok ? r.body?.getReader() : undefined
-		if (!reader) return false
-		try {
-			const decoder = new TextDecoder()
-			while (true) {
-				const { done, value } = await reader.read()
-				if (done) return false
-				const head = decoder.decode(value, { stream: true }).trimStart()
-				if (head) return head.startsWith('"')
-			}
-		} finally {
-			reader.cancel().catch(() => {})
-		}
 	}
 	async function findTooBigFilename(apiPath: string): Promise<string | undefined> {
 		const nested = await fetchResultAt(apiPath, 'file.filename')
 		if (typeof nested === 'string') return nested
 		const root = await fetchResultAt(apiPath, 'filename')
-		return typeof root === 'string' && (await isStringAt(apiPath, 'file')) ? root : undefined
+		return typeof root === 'string' ? root : undefined
 	}
 	$effect(() => {
 		tooBigFilename = undefined
@@ -316,16 +299,26 @@
 		return () => (stale = true)
 	})
 	async function downloadTooBigFile(apiPath: string, name: string) {
-		// A blob, not a data: URL, which browsers cap well below a large file's size
-		let blob: Blob
+		let content: unknown
 		try {
-			const content = contentOrRootString((await fetchResultAt(apiPath, 'file')) as any)
-			if (typeof content !== 'string' || !content) throw new Error('no file content')
-			blob = new Blob([Uint8Array.from(atob(content), (c) => c.charCodeAt(0))])
+			content = contentOrRootString((await fetchResultAt(apiPath, 'file')) as any)
 		} catch (e) {
 			return sendUserToast(`Download failed: ${e}`, true)
 		}
-		downloadBlob(blob, name)
+		if (typeof content !== 'string' || !content) {
+			return sendUserToast(`This result has no file content to download as ${name}`, true)
+		}
+		let bin: string
+		try {
+			bin = atob(content)
+		} catch {
+			return sendUserToast(`The file content of this result is not valid base64`, true)
+		}
+		// Filled byte by byte: a per-character array is several times the file's size
+		const bytes = new Uint8Array(bin.length)
+		for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+		// A blob, not a data: URL, which browsers cap well below a large file's size
+		downloadBlob(new Blob([bytes]), name)
 	}
 
 	function checkIfS3(result: any, keys: string[]) {
