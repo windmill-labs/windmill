@@ -506,7 +506,7 @@ async fn eval_quickjs_inner(
         format!("__loadResults({})", serde_json::to_string(&step_ids)?)
     };
 
-    async_with!(context => |ctx| {
+    let result: anyhow::Result<Box<RawValue>> = async_with!(context => |ctx| {
         let globals = ctx.globals();
 
         // Set up context variables
@@ -626,7 +626,7 @@ async fn eval_quickjs_inner(
         let settled = match deadline {
             Some(deadline) => tokio::time::timeout_at(deadline.into(), settled)
                 .await
-                .map_err(|_| anyhow::anyhow!("The expression evaluation took too long to execute"))?,
+                .map_err(|_| anyhow::anyhow!("The expression evaluation `{expr}` took too long to execute"))?,
             None => settled.await,
         };
         let result: Value = settled.catch(&ctx).map_err(|e| map_quickjs_error(e, memory_limit, Some("QUICKJS_MEMORY_LIMIT_MB")))?;
@@ -636,7 +636,14 @@ async fn eval_quickjs_inner(
 
         Ok(unsafe_raw(json_str))
     })
-    .await
+    .await;
+    // Whatever the interrupt surfaced as, report it the way callers recognize (and retry) a timeout.
+    match result {
+        Err(_) if deadline.is_some_and(|d| std::time::Instant::now() >= d) => Err(anyhow::anyhow!(
+            "The expression evaluation `{expr}` took too long to execute"
+        )),
+        result => result,
+    }
 }
 
 #[cfg(feature = "quickjs")]
@@ -3138,7 +3145,8 @@ mod tests {
             Some(deadline),
         )
         .await;
-        assert!(err.is_err(), "an endless script must be interrupted");
+        let err = err.expect_err("an endless script must be interrupted").to_string();
+        assert!(err.contains("took too long"), "unexpected error: {err}");
     }
 
     #[tokio::test]
