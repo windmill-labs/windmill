@@ -17,6 +17,10 @@ pub struct FileEntry {
     pub size: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub md5: Option<String>,
+    /// The object's ETag when this content was last read or written. A store's ETag need not be
+    /// a content hash (Azure's never is), so only the same store's ETag can vouch for a copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e_tag: Option<String>,
 }
 
 pub fn compute_md5_hex(data: &[u8]) -> String {
@@ -31,14 +35,14 @@ pub fn compute_md5_hex(data: &[u8]) -> String {
     hex
 }
 
-/// Extract an MD5 hash from an S3 ETag, if it's a simple (non-multipart) ETag.
+/// The content MD5 an ETag carries, if it is one: S3's for a single-part upload. Multipart S3
+/// ETags (`<hex>-<parts>`) and Azure's (`0x8D…`) are opaque and must not be compared with a hash.
 pub fn etag_to_md5(e_tag: Option<&str>) -> Option<String> {
     let tag = e_tag?.trim_matches('"');
-    // Multipart ETags contain a '-' (e.g. "abc123-5"), skip those
-    if tag.contains('-') || tag.is_empty() {
+    if tag.len() != 32 || !tag.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    Some(tag.to_string())
+    Some(tag.to_ascii_lowercase())
 }
 
 lazy_static::lazy_static! {
