@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Check, Loader2, Send, Wrench } from 'lucide-svelte'
 	import type { AgentTurn } from '$lib/components/recording/types'
 
@@ -92,18 +93,24 @@
 	</div>
 
 	<div class="flex items-end gap-2">
-		<textarea
-			class="min-h-[60px] flex-1 rounded-md border bg-surface p-2 text-sm"
-			placeholder="Message the agent"
-			bind:value={draft}
-			disabled={pending !== undefined}
-			onkeydown={(e) => {
-				if (e.key === 'Enter' && !e.shiftKey) {
-					e.preventDefault()
-					send()
-				}
-			}}
-		></textarea>
+		<div class="flex-1">
+			<TextInput
+				underlyingInputEl="textarea"
+				bind:value={draft}
+				unifiedHeight={false}
+				class="min-h-[60px]"
+				inputProps={{
+					placeholder: 'Message the agent',
+					disabled: pending !== undefined,
+					onkeydown: (e) => {
+						if (e.key === 'Enter' && !e.shiftKey) {
+							e.preventDefault()
+							send()
+						}
+					}
+				}}
+			/>
+		</div>
 		<Button
 			variant="default"
 			startIcon={{ icon: Send }}

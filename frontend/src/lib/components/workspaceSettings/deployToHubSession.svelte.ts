@@ -9,6 +9,7 @@ import {
 	ScheduleService
 } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
+import { randomUUID } from '$lib/utils/uuid'
 import { sleep, emptySchema } from '$lib/utils'
 import {
 	buildProjectBundle,
@@ -1861,7 +1862,7 @@ export class DeployToHubSession {
 		this.agentPending = undefined
 		this.agentError = undefined
 		// A conversation of its own, so the demo never continues someone's real chat.
-		this.#agentMemoryId = crypto.randomUUID()
+		this.#agentMemoryId = randomUUID()
 	}
 
 	closeAgentRecord = () => {
@@ -2256,11 +2257,15 @@ export function useDeployToHubSession(args: {
 
 /** The answer and the tools called, read off an agent run's result (`{ output, messages }`).
  * A result of another shape is shown as it is rather than dropped. */
-function readAgentTurn(result: unknown): { answer: string; tool_calls: AgentToolCall[] } {
+export function readAgentTurn(result: unknown): { answer: string; tool_calls: AgentToolCall[] } {
 	const r = result as { output?: unknown; messages?: any[] } | null
 	const text = (v: unknown) =>
 		typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v, null, 2)
-	const messages = Array.isArray(r?.messages) ? r.messages : []
+	// With memory, the run returns the whole conversation: this turn starts after its own
+	// message, the last `user` one.
+	const all = Array.isArray(r?.messages) ? r.messages : []
+	const lastUser = all.map((m) => m?.role).lastIndexOf('user')
+	const messages = lastUser >= 0 ? all.slice(lastUser + 1) : all
 	const results = new Map<string, unknown>()
 	for (const m of messages) {
 		if (m?.role === 'tool' && typeof m.tool_call_id === 'string') {
