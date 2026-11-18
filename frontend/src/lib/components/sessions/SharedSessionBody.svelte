@@ -37,17 +37,19 @@
 				: Promise.resolve(false)
 	)
 	const inFork = $derived(!!editsWorkspace && editsWorkspace !== workspace)
-	const opensEdits = $derived(inFork ? forkMember.current === true : true)
+	// A deployed item opens only inside its workspace, so a public share's non-member reader gets
+	// it listed but locked, as for drafts.
+	const opensEdits = $derived(inFork ? forkMember.current === true : member)
 	const readsDrafts = $derived(inFork ? forkMember.current === true : member)
 	const draftsLockedReason = $derived.by(() => {
 		if (signInHref)
-			return `You are signed out, and only members of ${editsWorkspace ?? workspace} can open the author's drafts.`
+			return `You are signed out, and only members of ${editsWorkspace ?? workspace} can open the author's edits.`
 		if (inFork) {
 			return forkMember.current === false
 				? `Edited in the fork ${editsWorkspace}, which you are not a member of: only its members can open the author's edits.`
 				: undefined
 		}
-		return member ? undefined : `Only members of ${workspace} can open the author's drafts.`
+		return member ? undefined : `Only members of ${workspace} can open the author's edits.`
 	})
 </script>
 
