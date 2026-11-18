@@ -1129,12 +1129,10 @@
 						{#key s.agentTarget.key}
 							<div class="min-h-0 flex-1">
 								<AgentRecordSession
-									turns={s.agentTurns}
-									workspace={s.workspace}
-									pending={s.agentPending}
-									error={s.agentError}
+									path={s.agentTarget.path}
+									sent={s.agentRuns.length}
 									saving={s.agentSaving}
-									onsend={(m) => s.sendAgentMessage(m)}
+									onrun={s.runAgentTurn}
 									onsave={s.hubItemIds[s.agentTarget.key]
 										? async () => {
 												if (await s.saveAgentRecording()) agentRecordDrawer?.closeDrawer()

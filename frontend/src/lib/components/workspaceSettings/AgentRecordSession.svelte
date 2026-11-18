@@ -1,109 +1,71 @@
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { Check, Send } from 'lucide-svelte'
-	import type { AgentTurn } from '$lib/components/recording/types'
-	import AgentRecordingTranscript from '$lib/components/recording/AgentRecordingTranscript.svelte'
+	import { Button } from '$lib/components/common'
+	import { Check } from 'lucide-svelte'
+	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
+	import {
+		AGENT_CHAT_SCHEMA,
+		AGENT_STEP_ID,
+		agentChatPath
+	} from '$lib/components/flows/conversations/agentEditorChat'
+	import type { FlowModule } from '$lib/gen'
 
 	/**
-	 * Records the demo of a saved AI agent: a conversation, one run of the agent per message,
-	 * in a conversation of its own. What is saved is what the Hub page replays, so the
-	 * recorder sees the answers and the tools called before keeping it.
+	 * Records the demo of a saved AI agent in the agent's own chat: a new conversation, one run
+	 * per message. What is saved is read off those runs, and the Hub page draws it with the same
+	 * chat components, so what the recorder sees here is what a visitor reads.
 	 */
 	interface Props {
-		turns: AgentTurn[]
-		workspace: string
-		/** The message being answered, while a run is in flight. */
-		pending?: string
-		error?: string
+		/** The saved agent, by path. */
+		path: string
+		/** How many messages were sent, answered or not. */
+		sent: number
 		saving?: boolean
-		/** Resolves to whether the message was answered; it is given back to retype otherwise. */
-		onsend: (message: string) => Promise<boolean>
+		onrun: (
+			userMessage: string,
+			conversationId: string,
+			inputs?: Record<string, any>
+		) => Promise<string | undefined>
 		/** Absent until the bundle is on the Hub: there is nothing to attach a recording to. */
 		onsave?: () => void
 	}
 
-	let {
-		turns,
-		workspace,
-		pending = undefined,
-		error = undefined,
-		saving = false,
-		onsend,
-		onsave
-	}: Props = $props()
+	let { path, sent, saving = false, onrun, onsave }: Props = $props()
 
-	let draft = $state('')
-
-	async function send() {
-		const message = draft.trim()
-		if (!message || pending !== undefined || saving) return
-		draft = ''
-		const answered = await onsend(message)
-		// A turn that failed is not in the conversation: hand the message back.
-		if (!answered && !draft) draft = message
-	}
+	// The chat reads the agent's model through a step linked to it, as a flow's chat does.
+	const modules = $derived<FlowModule[]>([
+		{ id: AGENT_STEP_ID, value: { type: 'aiagent', agent: path, tools: [], input_transforms: {} } }
+	] as unknown as FlowModule[])
 </script>
 
 <div class="flex h-full min-h-0 flex-col gap-3">
-	<div class="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-md border bg-surface-secondary p-3">
-		{#if turns.length === 0 && pending === undefined}
-			<span class="text-xs text-hint">
-				Ask the agent what a visitor would ask it. Two or three messages that show what it does make
-				a good demo.
-			</span>
-		{/if}
-		<AgentRecordingTranscript {turns} {pending} {workspace} />
-		{#if error}
-			<Alert type="error" size="xs" title="The agent did not answer">{error}</Alert>
-		{/if}
-	</div>
-
-	<div class="flex items-end gap-2">
-		<div class="flex-1">
-			<TextInput
-				underlyingInputEl="textarea"
-				bind:value={draft}
-				unifiedHeight={false}
-				class="min-h-[60px]"
-				inputProps={{
-					placeholder: 'Message the agent',
-					disabled: pending !== undefined || saving,
-					onkeydown: (e) => {
-						if (e.key === 'Enter' && !e.shiftKey) {
-							e.preventDefault()
-							send()
-						}
-					}
-				}}
-			/>
-		</div>
-		<Button
-			variant="default"
-			startIcon={{ icon: Send }}
-			disabled={pending !== undefined || saving || !draft.trim()}
-			onclick={send}
-		>
-			Send
-		</Button>
+	<div class="flex min-h-0 flex-1 flex-col rounded-md border">
+		<FlowChat
+			onRunFlow={onrun}
+			path={agentChatPath(path)}
+			subject="agent"
+			frame="none"
+			hideSidebar
+			inputSchema={AGENT_CHAT_SCHEMA}
+			flowModules={modules}
+		/>
 	</div>
 
 	<div class="flex items-center justify-between gap-3">
 		<span class="text-xs text-secondary">
 			{#if !onsave}
 				Push the bundle to the Hub first to save a conversation.
-			{:else if turns.length === 0}
-				Nothing to save yet.
+			{:else if sent === 0}
+				Ask the agent what a visitor would ask it. Two or three messages make a good demo.
 			{:else}
-				{turns.length} message{turns.length === 1 ? '' : 's'} — saved as the demo on the agent's Hub
-				page.
+				The answered messages are saved as the demo on the agent's Hub page.
 			{/if}
 		</span>
 		<Button
 			variant="accent"
+			unifiedSize="md"
 			startIcon={{ icon: Check }}
 			loading={saving}
-			disabled={!onsave || turns.length === 0 || pending !== undefined || saving}
+			disabled={!onsave || sent === 0 || saving}
 			onclick={() => onsave?.()}
 		>
 			Save as recording

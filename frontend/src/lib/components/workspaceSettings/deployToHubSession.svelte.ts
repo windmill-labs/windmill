@@ -9,8 +9,6 @@ import {
 	ScheduleService
 } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import { randomUUID } from '$lib/utils/uuid'
-import { isSuspended } from '$lib/components/agentRequest'
 import { readAgentTurn } from '$lib/components/aiAgentResult'
 import { sleep, emptySchema } from '$lib/utils'
 import {
@@ -307,9 +305,7 @@ export class DeployToHubSession {
 		// Invalidate any in-flight pipeline cascade poll so it stops on the next
 		// tick instead of polling to the timeout against a discarded session.
 		this.#pipelineRunTok++
-		// The same for a conversation being recorded, whose run would go on spending.
 		this.#agentTok++
-		this.#cancelAgentRun()
 	}
 
 	load() {
@@ -1847,140 +1843,69 @@ export class DeployToHubSession {
 
 	// --- An agent's demo: a conversation, one run per message -----------------------
 
-	/** The agent being recorded, its conversation so far, and the turn in flight. */
+	/** The agent being recorded, and the runs its conversation has made so far. */
 	agentTarget = $state<DeployItem | undefined>(undefined)
-	agentTurns = $state<AgentTurn[]>([])
-	agentPending = $state<string | undefined>(undefined)
-	agentError = $state<string | undefined>(undefined)
+	agentRuns = $state<string[]>([])
 	agentSaving = $state(false)
-	#agentMemoryId = ''
 	#agentTok = 0
-	/** The run answering the message in flight, to cancel if nobody waits for it any more. */
-	#agentJobId: string | undefined = undefined
 
 	openAgentRecord(it: DeployItem) {
 		this.#agentTok++
-		this.#cancelAgentRun()
 		this.agentTarget = it
-		this.agentTurns = []
-		this.agentPending = undefined
-		this.agentError = undefined
-		// A conversation of its own, so the demo never continues someone's real chat. It is
-		// still a real one: it shows in the recorder's chats with this agent.
-		this.#agentMemoryId = randomUUID()
+		this.agentRuns = []
 	}
 
 	closeAgentRecord = () => {
 		this.#agentTok++
-		this.#cancelAgentRun()
 		this.agentTarget = undefined
-		this.agentPending = undefined
 	}
 
-	/** Stop the run in flight, if any: it calls real tools and spends real tokens. */
-	#cancelAgentRun() {
-		const id = this.#agentJobId
-		this.#agentJobId = undefined
-		if (!id) return
-		void JobService.cancelQueuedJob({
-			workspace: this.workspace,
-			id,
-			requestBody: { reason: 'The Hub recording it was answering was closed' }
-		}).catch(() => {})
-	}
-
-	/** Send one message: a run of the agent in the demo's conversation, waited for.
-	 * True when the turn was recorded; the caller keeps the message otherwise. */
-	sendAgentMessage = async (text: string): Promise<boolean> => {
+	/** One message of the recording, run as the agent's own chat runs one. The conversation is a
+	 * new one, so the demo never continues someone's real chat; it stays in the recorder's chats. */
+	runAgentTurn = async (
+		userMessage: string,
+		conversationId: string,
+		inputs?: Record<string, any>
+	): Promise<string | undefined> => {
 		const it = this.agentTarget
-		const message = text.trim()
-		if (!it || !message || this.agentPending !== undefined || this.agentSaving) return false
+		if (!it) return undefined
 		const tok = this.#agentTok
-		this.agentPending = message
-		this.agentError = undefined
-		try {
-			const jobId = await JobService.runAgent({
-				workspace: this.workspace,
-				path: it.path,
-				memoryId: this.#agentMemoryId,
-				requestBody: { user_message: message }
-			})
-			if (tok !== this.#agentTok) {
-				// Closed while the run was being created: nobody is waiting for it.
-				this.#agentJobId = jobId
-				this.#cancelAgentRun()
-				return false
-			}
-			this.#agentJobId = jobId
-			const started = Date.now()
-			const deadline = started + 15 * 60_000
-			let interval = 500
-			while (Date.now() < deadline) {
-				const r = await JobService.getCompletedJobResultMaybe({
-					workspace: this.workspace,
-					id: jobId
-				})
-				if (tok !== this.#agentTok) return false
-				if (r.completed) {
-					this.#agentJobId = undefined
-					if (!r.success) {
-						const failure = (r.result as any)?.error?.message ?? r.result
-						this.agentError = (
-							typeof failure === 'string' ? failure : JSON.stringify(failure)
-						).slice(0, 600)
-						return false
-					}
-					this.agentTurns = [
-						...this.agentTurns,
-						{
-							user_message: message,
-							...readAgentTurn(r.result),
-							duration_ms: Date.now() - started
-						}
-					]
-					return true
-				}
-				// An agent parked on an approval or a question waits for a person, for up to
-				// its own timeout: the recorder has no form for either, so say so and stop.
-				if (Date.now() - started > 3000) {
-					const job = await JobService.getJob({ workspace: this.workspace, id: jobId }).catch(
-						() => undefined
-					)
-					if (tok !== this.#agentTok) return false
-					if (job && isSuspended(job as any)) {
-						this.#cancelAgentRun()
-						this.agentError =
-							'The agent stopped to wait for an approval or an answer, which a recording cannot give. The run was cancelled: record a conversation that does not need one.'
-						return false
-					}
-				}
-				await sleep(interval)
-				if (tok !== this.#agentTok) return false
-				interval = Math.min(2000, interval * 1.5)
-			}
-			this.#cancelAgentRun()
-			this.agentError = 'The agent did not answer within 15 minutes. The run was cancelled.'
-			return false
-		} catch (e: any) {
-			if (tok === this.#agentTok) this.agentError = `Failed to run the agent: ${e?.message ?? e}`
-			return false
-		} finally {
-			if (tok === this.#agentTok) this.agentPending = undefined
-		}
+		const jobId = await JobService.runAgent({
+			workspace: this.workspace,
+			path: it.path,
+			memoryId: conversationId,
+			requestBody: { ...(inputs ?? {}), user_message: userMessage }
+		})
+		if (tok === this.#agentTok) this.agentRuns = [...this.agentRuns, jobId]
+		return jobId
 	}
 
-	/** Save the conversation as the agent's Hub recording: the messages, the tools called and
-	 * the answers. Not the runs themselves, which hold what the Hub must not: who ran them and
-	 * the agent as this workspace stores it. Returns true when this agent's recording was
-	 * saved and it is still the one open. */
+	/** Save the conversation as the agent's Hub recording: each answered message, the tools it
+	 * called and the answer, read off its run. Not the runs themselves, which name who ran them
+	 * and hold the agent as this workspace stores it. True when saved for the agent still open. */
 	async saveAgentRecording(): Promise<boolean> {
 		const it = this.agentTarget
-		if (!it || this.agentTurns.length === 0 || this.agentSaving || this.agentPending !== undefined)
-			return false
+		if (!it || this.agentRuns.length === 0 || this.agentSaving) return false
 		const tok = this.#agentTok
 		this.agentSaving = true
 		try {
-			const turns = [...this.agentTurns]
+			const turns: AgentTurn[] = []
+			for (const id of this.agentRuns) {
+				// A message still running, failed or cancelled is not part of the demo.
+				const job = await JobService.getCompletedJob({ workspace: this.workspace, id }).catch(
+					() => undefined
+				)
+				if (!job?.success) continue
+				turns.push({
+					user_message: String((job.args as any)?.user_message ?? ''),
+					...readAgentTurn(job.result),
+					duration_ms: job.duration_ms
+				})
+			}
+			if (turns.length === 0) {
+				sendUserToast('No answered message to save yet.', true)
+				return false
+			}
 			const recording: AgentRecording = {
 				version: 1,
 				type: 'agent',
