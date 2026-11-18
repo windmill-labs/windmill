@@ -4,6 +4,7 @@
 	import { copyToClipboard, download } from '$lib/utils'
 	import { artifactFilename, artifactMimeType, type ArtifactKind } from './artifactsDB'
 	import { printArtifact } from './printArtifact'
+	import { hasUntrustedImages } from '../untrustedImages'
 
 	interface Props {
 		name: string
@@ -15,6 +16,8 @@
 	}
 
 	let { name, kind, content, disabled = false, iconOnly = false }: Props = $props()
+
+	const untrustedImages = hasUntrustedImages()
 
 	let copied = $state(false)
 	async function copyRaw() {
@@ -47,7 +50,7 @@
 					{
 						label: 'Download as PDF',
 						icon: FileDown,
-						onClick: () => printArtifact(name, content),
+						onClick: () => printArtifact(name, content, { untrustedImages }),
 						disabled
 					}
 				]

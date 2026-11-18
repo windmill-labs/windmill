@@ -85,10 +85,13 @@
 		return undefined
 	}
 
-	const hasLockedDraft = $derived(edits.some((e) => e.draft && !opensDraft(e)))
+	const hasLockedRow = $derived(edits.some((e) => (e.draft ? !opensDraft(e) : !deployedHref(e))))
 
 	function rowTitle(edit: SharedSessionEdit): string {
-		if (!edit.draft) return deployedHref(edit) ? `Open ${edit.path}` : edit.path
+		if (!edit.draft) {
+			if (deployedHref(edit)) return `Open ${edit.path}`
+			return draftsLockedReason ? `${edit.path}: ${draftsLockedReason}` : edit.path
+		}
 		if (opensDraft(edit)) return `View ${author}'s draft of ${edit.path}`
 		return `${edit.path}: ${draftPrivateReason(edit) ?? draftsLockedReason ?? `only ${author} can open this draft`}`
 	}
@@ -155,7 +158,7 @@
 				triggerClass={`${TOKEN_TRIGGER_CLASS} ${token.class}`}
 				widthClass="w-96"
 				maxHeightClass="max-h-[min(9rem,50vh)]"
-				footer={draftsLockedReason && hasLockedDraft ? lockedNote : undefined}
+				footer={draftsLockedReason && hasLockedRow ? lockedNote : undefined}
 			>
 				{#snippet row(edit)}
 					<RowIcon kind={edit.kind as any} path={edit.path} size={14} />

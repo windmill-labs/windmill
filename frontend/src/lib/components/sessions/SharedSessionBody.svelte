@@ -44,7 +44,7 @@
 			return `You are signed out, and only members of ${editsWorkspace ?? workspace} can open the author's drafts.`
 		if (inFork) {
 			return forkMember.current === false
-				? `Edited in the fork ${editsWorkspace}, which you are not a member of: only its members can open the author's drafts.`
+				? `Edited in the fork ${editsWorkspace}, which you are not a member of: only its members can open the author's edits.`
 				: undefined
 		}
 		return member ? undefined : `Only members of ${workspace} can open the author's drafts.`

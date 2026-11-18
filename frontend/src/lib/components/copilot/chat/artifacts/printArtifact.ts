@@ -15,17 +15,25 @@ import ArtifactPrintBody from './ArtifactPrintBody.svelte'
 // stack a second print behind the first.
 let preparing = false
 
-export async function printArtifact(name: string, content: string): Promise<void> {
+export async function printArtifact(
+	name: string,
+	content: string,
+	{ untrustedImages = false }: { untrustedImages?: boolean } = {}
+): Promise<void> {
 	if (preparing) return
 	preparing = true
 	try {
-		await preparePrint(name, content)
+		await preparePrint(name, content, untrustedImages)
 	} finally {
 		preparing = false
 	}
 }
 
-async function preparePrint(name: string, content: string): Promise<void> {
+async function preparePrint(
+	name: string,
+	content: string,
+	untrustedImages: boolean
+): Promise<void> {
 	const iframe = document.createElement('iframe')
 	iframe.setAttribute('aria-hidden', 'true')
 	iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
@@ -72,7 +80,10 @@ async function preparePrint(name: string, content: string): Promise<void> {
 		new Promise((resolve) => setTimeout(resolve, 3000))
 	])
 
-	const component = mount(ArtifactPrintBody, { target: doc.body, props: { content } })
+	const component = mount(ArtifactPrintBody, {
+		target: doc.body,
+		props: { content, untrustedImages }
+	})
 	await tick()
 	await diagramsSettled(doc)
 	await imagesSettled(doc)
