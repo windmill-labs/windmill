@@ -314,19 +314,8 @@
 		options={{ right: bucket_config ? '' : 'set object store' }}
 		checked={Boolean(bucket_config)}
 		on:change={(e) => {
-			if (e.detail) {
-				bucket_config = {
-					type: 'S3',
-					bucket: '',
-					region: '',
-					access_key: '',
-					secret_key: '',
-					endpoint: '',
-					allow_http: true
-				}
-			} else {
-				bucket_config = undefined
-			}
+			bucketConfigByType = {}
+			bucket_config = e.detail ? defaultBucketConfig('S3') : undefined
 		}}
 	/>
 </div>
