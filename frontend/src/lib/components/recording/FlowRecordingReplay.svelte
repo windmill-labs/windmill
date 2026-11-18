@@ -1,18 +1,21 @@
 <script lang="ts">
-	import type { Job } from '$lib/gen'
+	import type { FlowModule, Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
-	import FlowViewer, { type TabValue } from '$lib/components/FlowViewer.svelte'
+	import type { TabValue } from '$lib/components/FlowViewer.svelte'
+	import FlowViewerInner from '$lib/components/FlowViewerInner.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
+	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
+	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import { setActiveReplay } from './replay.svelte'
 	import { synthesizeFlowReplay } from './replayStream'
 	import type { FlowRecording } from './types'
 	import { sendUserToast } from '$lib/toast'
-	import { Button } from '$lib/components/common'
+	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { InfoIcon, LogOut, Play, Square } from 'lucide-svelte'
+	import { InfoIcon, LogOut, Play, Square, X } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
 
 	type ReplayState = 'loaded' | 'playing'
@@ -44,6 +47,7 @@
 	let rootInitialJob: Job | undefined = $state(undefined)
 	let job: Job | undefined = $state(undefined)
 	let done = $derived((job as any)?.type === 'CompletedJob')
+	let stepDetail = $state<FlowModule | string | undefined>(undefined)
 
 	export function stop() {
 		setActiveReplay(undefined)
@@ -78,6 +82,7 @@
 			}
 			rootInitialJob = initialJob
 			job = undefined
+			stepDetail = undefined
 			replayState = 'playing'
 			selectedTab = 'ui'
 		} catch {
@@ -102,9 +107,10 @@
 		</div>
 	</div>
 {:else}
-	<div class="flex flex-col gap-4">
+	<HighlightTheme />
+	<div class="flex flex-col gap-2 h-full min-h-0">
 		{#if !hideControls}
-			<div class="flex items-center justify-between">
+			<div class="flex items-center justify-between shrink-0">
 				<div class="flex items-center gap-2">
 					<h2 class="text-lg font-semibold text-emphasis">
 						{replayState === 'playing' ? 'Replaying: ' : ''}{recording.flow_path}
@@ -136,19 +142,15 @@
 			</div>
 		{/if}
 
-		<FlowViewer
-			flow={recording?.flow}
-			noSummary
-			noInput
-			hideDefaultInputs
-			showStepHint={replayState === 'loaded'}
-			bind:selectedTab
-			{hideTabs}
-			initTab="ui"
-		>
-			{#snippet graphContent()}
-				{#if replayState === 'playing' && rootJobId}
-					<div class="flex flex-col gap-4">
+		<!-- A host passing hideTabs draws its own tabs and keeps them during a replay, so
+		     selectedTab must still switch away from the running graph. -->
+		<Tabs bind:selected={selectedTab as string} hideTabs={hideTabs || replayState === 'playing'}>
+			<Tab value="ui" label="Graph" />
+			<Tab value="raw" label="Raw" />
+			<Tab value="schema" label="Input Schema" />
+			{#snippet content()}
+				<TabContent value="ui" class="flex flex-col gap-2 flex-1 min-h-0 pt-2">
+					{#if replayState === 'playing' && rootJobId}
 						<FlowProgressBar {job} slim textPosition="bottom" showStepId />
 						{#if job}
 							<FlowExecutionStatus
@@ -164,17 +166,43 @@
 							bind:job
 							workspaceId={$workspaceStore}
 							wideResults
-							showLogsWithResult
-							hideFlowResult={!done}
+							hideFlowResult
+							fillHeight
+							hideRunTabs
+							closableDetails
 						/>
-					</div>
-				{:else if recording?.flow}
-					<div class="flow-root w-full pb-4">
-						<p class="text-2xs text-tertiary py-1">Click on a step to see its details</p>
-						<FlowGraphViewer hideDefaultInputs flow={recording?.flow} overflowAuto />
-					</div>
-				{/if}
+					{:else}
+						<div class="flex-1 min-h-0 relative">
+							<FlowGraphViewer
+								flow={recording.flow!}
+								hideDefaultInputs
+								minHeight={0}
+								fillAvailableHeight
+								capToAvailableHeight
+								bind:stepDetail
+							/>
+							{#if stepDetail !== undefined}
+								<div class="absolute top-2 right-2 z-10 bg-surface">
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										iconOnly
+										startIcon={{ icon: X }}
+										aria-label="Close details"
+										onclick={() => (stepDetail = undefined)}
+									/>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</TabContent>
+				<TabContent value="raw" class="flex-1 min-h-0 overflow-auto">
+					<FlowViewerInner flow={recording.flow!} />
+				</TabContent>
+				<TabContent value="schema" class="flex-1 min-h-0 overflow-auto pt-4">
+					<SchemaViewer schema={recording.flow?.schema} />
+				</TabContent>
 			{/snippet}
-		</FlowViewer>
+		</Tabs>
 	</div>
 {/if}

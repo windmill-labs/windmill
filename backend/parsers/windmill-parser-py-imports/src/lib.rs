@@ -13,9 +13,9 @@ use async_recursion::async_recursion;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 #[cfg(not(target_arch = "wasm32"))]
-use std::str::FromStr;
-#[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
+use std::str::FromStr;
 
 use mapping::{FULL_IMPORTS_MAP, SHORT_IMPORTS_MAP};
 #[cfg(not(target_arch = "wasm32"))]
@@ -23,11 +23,8 @@ use regex::Regex;
 #[cfg(target_arch = "wasm32")]
 use regex_lite::Regex;
 
-use rustpython_parser::{
-    ast::{Stmt, StmtImport, StmtImportFrom, Suite},
-    text_size::TextRange,
-    Parse,
-};
+use ruff_python_ast::{Stmt, StmtImport, StmtImportFrom};
+use ruff_python_parser::parse_module;
 #[cfg(not(target_arch = "wasm32"))]
 use sqlx::{Pool, Postgres};
 #[cfg(not(target_arch = "wasm32"))]
@@ -160,6 +157,7 @@ pub struct ImportPin {
 }
 
 pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImport>> {
+    let full_code = code;
     // Use regex to safely find the main function definition
     let mut code = DEF_MAIN_RE
         .split(code)
@@ -186,16 +184,22 @@ pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImp
     // This is needed because we've split off the real main function above
     let code_with_fake_main = format!("{}\n\ndef main(): pass", code);
 
-    let ast = Suite::parse(&code_with_fake_main, "main.py").map_err(|e| {
-        anyhow::anyhow!("Error parsing code for imports: {}", e.to_string())
-    })?;
+    let (code, ast) = match parse_module(&code_with_fake_main) {
+        Ok(parsed) => (code, parsed.into_suite()),
+        // The split lands on any line reading like the definition of `main`, one inside a
+        // string included: what precedes it is then not a module, while the whole file is.
+        Err(e) => match parse_module(full_code) {
+            Ok(parsed) => (full_code.to_string(), parsed.into_suite()),
+            Err(_) => anyhow::bail!("Error parsing code for imports: {}", e.to_string()),
+        },
+    };
     // Note: We're still using the original code for finding pins,
     // as the TextRange values from the parsed AST would be based on code_with_fake_main
     // but we want to match against the original code
-    let find_pin = |range: TextRange, key: String| {
+    let find_pin = |stmt_end: usize, key: String| {
         let hs = code
             .chars()
-            .skip(range.end().to_usize())
+            .skip(stmt_end)
             .take_while(|e| *e != '\n')
             .collect::<String>();
 
@@ -226,9 +230,9 @@ pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImp
     let mut nimports: Vec<NImport> = ast
         .into_iter()
         .filter_map(|x| match x {
-            Stmt::Import(StmtImport { names, range }) => names
+            Stmt::Import(StmtImport { names, range, .. }) => names
                 .get(0)
-                .and_then(|al| find_pin(range, al.name.to_string()))
+                .and_then(|al| find_pin(range.end().to_usize(), al.name.to_string()))
                 .or(Some(
                     names
                         .into_iter()
@@ -239,15 +243,11 @@ pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImp
                         .flatten()
                         .collect::<Vec<NImport>>(),
                 )),
-            Stmt::ImportFrom(StmtImportFrom { level: Some(i), module, .. }) if i.to_u32() > 0 => {
-                Some(process_import(
-                    module.map(|x| x.to_string()),
-                    path,
-                    i.to_usize(),
-                ))
-            }
+            Stmt::ImportFrom(StmtImportFrom { level, module, .. }) if level > 0 => Some(
+                process_import(module.map(|x| x.to_string()), path, level as usize),
+            ),
             Stmt::ImportFrom(StmtImportFrom { level: _, module, range, .. }) => find_pin(
-                range,
+                range.end().to_usize(),
                 module.clone().map(|x| x.to_string()).unwrap_or_default(),
             )
             .or(Some(process_import(module.map(|x| x.to_string()), path, 0))),
@@ -268,6 +268,33 @@ pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImp
     return Ok(nimports);
 }
 
+/// A runnable's Python modules as [`parse_python_imports`]' `module_sources`: content keyed
+/// by the path a relative import of each resolves to from `script_path` (`shared.py` next
+/// to `u/a/app/main` is `u/a/app/shared`).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn module_sources(
+    script_path: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> Option<HashMap<String, String>> {
+    let dir = script_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
+    let sources: HashMap<String, String> = modules?
+        .iter()
+        .filter_map(|(key, module)| {
+            let stem = key.strip_suffix(".py")?;
+            let path = if dir.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{dir}/{stem}")
+            };
+            Some((path, module.content.clone()))
+        })
+        .collect();
+    (!sources.is_empty()).then_some(sources)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn parse_python_imports(
     code: &str,
@@ -278,6 +305,10 @@ pub async fn parse_python_imports(
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     temp_script_refs: &Option<HashMap<String, String>>,
+    // Content of relative imports that ship with the importer rather than being deployed
+    // (its modules), keyed by the path a relative import resolves to. Wins over both
+    // `temp_script_refs` and the deployed script, as the module file does at run time.
+    module_sources: Option<&HashMap<String, String>>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
@@ -291,6 +322,7 @@ pub async fn parse_python_imports(
         locked_v,
         raw_workspace_dependencies_o,
         temp_script_refs,
+        module_sources,
     )
     .await?
     .into_values()
@@ -349,15 +381,19 @@ async fn parse_python_imports_inner(
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     temp_script_refs: &Option<HashMap<String, String>>,
+    module_sources: Option<&HashMap<String, String>>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     tracing::debug!("Parsing python imports for path: {}", path);
-    let PythonAnnotations { py310, py311, py312, py313, .. } = PythonAnnotations::parse(&code);
+    let PythonAnnotations { py310, py311, py312, py313, py314, py315, .. } =
+        PythonAnnotations::parse(&code);
     tracing::debug!(
-        "Found python annotations - py310: {}, py311: {}, py312: {}, py313: {}",
+        "Found python annotations - py310: {}, py311: {}, py312: {}, py313: {}, py314: {}, py315: {}",
         py310,
         py311,
         py312,
-        py313
+        py313,
+        py314,
+        py315
     );
 
     let mut push_version_specifiers = |perform, unparsed: String| -> error::Result<()> {
@@ -373,6 +409,8 @@ async fn parse_python_imports_inner(
     push_version_specifiers(py311, "==3.11.*".to_owned())?;
     push_version_specifiers(py312, "==3.12.*".to_owned())?;
     push_version_specifiers(py313, "==3.13.*".to_owned())?;
+    push_version_specifiers(py314, "==3.14.*".to_owned())?;
+    push_version_specifiers(py315, "==3.15.*".to_owned())?;
 
     for x in code.lines() {
         if x.starts_with("# py:") || x.starts_with("#py:") {
@@ -512,9 +550,16 @@ async fn parse_python_imports_inner(
     for n in nimports.into_iter() {
         let mut nested = match n {
             NImport::Relative(rpath) => {
-                // First try to get content from temp_script_refs cache if available
-                let code_from_cache = if let Some(hash) = temp_script_refs.as_ref().and_then(|dt| dt.get(&rpath)) {
-                    tracing::debug!("Found relative import '{}' in temp_script_refs with hash '{}'", rpath, hash);
+                let code_from_cache = if let Some(content) =
+                    module_sources.and_then(|m| m.get(&rpath))
+                {
+                    Some(content.clone())
+                } else if let Some(hash) = temp_script_refs.as_ref().and_then(|dt| dt.get(&rpath)) {
+                    tracing::debug!(
+                        "Found relative import '{}' in temp_script_refs with hash '{}'",
+                        rpath,
+                        hash
+                    );
                     match windmill_common::cache::raw_script_temp::load(hash.clone(), db).await {
                         Ok(content) => Some(content),
                         Err(e) => {
@@ -529,19 +574,17 @@ async fn parse_python_imports_inner(
                 // Use cached content if available, otherwise fall back to deployed script
                 let code = match code_from_cache {
                     Some(content) => content,
-                    None => {
-                        sqlx::query_scalar!(
-                            r#"
+                    None => sqlx::query_scalar!(
+                        r#"
                         SELECT content FROM script WHERE path = $1 AND workspace_id = $2
                         AND archived = false ORDER BY created_at DESC LIMIT 1
                         "#,
-                            &rpath,
-                            w_id
-                        )
-                        .fetch_optional(db)
-                        .await?
-                        .unwrap_or_else(|| "".to_string())
-                    }
+                        &rpath,
+                        w_id
+                    )
+                    .fetch_optional(db)
+                    .await?
+                    .unwrap_or_else(|| "".to_string()),
                 };
 
                 if already_visited.contains(&rpath) {
@@ -561,6 +604,7 @@ async fn parse_python_imports_inner(
                         locked_v,
                         raw_workspace_dependencies_o,
                         temp_script_refs,
+                        module_sources,
                     )
                     .await?
                     .into_values()

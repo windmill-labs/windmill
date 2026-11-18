@@ -1,5 +1,5 @@
 use serde::{
-    de::{self, MapAccess, Visitor},
+    de::{self, IgnoredAny, MapAccess, Visitor},
     Deserialize, Deserializer,
 };
 use serde_json::{value::RawValue, Value};
@@ -113,18 +113,35 @@ impl CompiledFilters {
         Ok(())
     }
 
-    /// Whether `text`, parsed as a JSON object, satisfies the filters.
-    pub fn matches(&self, text: &str) -> bool {
+    /// Whether `text`, parsed as a JSON object, satisfies the filters. Anything else is judged
+    /// as an object with no keys, which a `none_of` filter accepts. When that rejects it, JSON
+    /// that is not an object is a mismatch, and text that is not JSON an error the trigger's
+    /// `run_on_filter_error` setting decides on.
+    pub fn matches(&self, text: &str) -> std::result::Result<bool, String> {
         if self.filters.is_empty() {
-            return true;
+            return Ok(true);
         }
 
         let mut deserializer = serde_json::Deserializer::from_str(text);
-        let values =
-            Deserializer::deserialize_map(&mut deserializer, KeysVisitor { keys: &self.keys })
-                .unwrap_or_default();
+        let values = match Deserializer::deserialize_map(
+            &mut deserializer,
+            KeysVisitor { keys: &self.keys },
+        ) {
+            Ok(values) => values,
+            Err(_) if eval_all(&self.filters, self.use_or_logic, &HashMap::new()) => {
+                return Ok(true)
+            }
+            // A data error is raised on the first token (`[`, `"`, ...), before the rest is read:
+            // parse it all so a truncated array is not taken for valid JSON that is not an object.
+            Err(err) if err.is_data() => {
+                return serde_json::from_str::<IgnoredAny>(text)
+                    .map(|_| false)
+                    .map_err(|err| format!("payload is not valid JSON: {err}"))
+            }
+            Err(err) => return Err(format!("payload is not valid JSON: {err}")),
+        };
 
-        eval_all(&self.filters, self.use_or_logic, &values)
+        Ok(eval_all(&self.filters, self.use_or_logic, &values))
     }
 }
 
@@ -325,7 +342,9 @@ mod tests {
 
     fn matches(payload: &str, filters: serde_json::Value, use_or_logic: bool) -> bool {
         let filters: Vec<Filter> = serde_json::from_value(filters).unwrap();
-        CompiledFilters::new(filters, use_or_logic).matches(payload)
+        CompiledFilters::new(filters, use_or_logic)
+            .matches(payload)
+            .unwrap()
     }
 
     #[test]
@@ -388,7 +407,22 @@ mod tests {
     fn test_non_object_payload_never_matches() {
         let filters = json!([{"key": "a", "value": 1}]);
         assert!(!matches("[1, 2]", filters.clone(), false));
-        assert!(!matches("nope", filters, true));
+        assert!(!matches("\"nope\"", filters, true));
+    }
+
+    #[test]
+    fn test_non_json_payload_is_an_error_unless_accepted_without_keys() {
+        let compile = |filters: serde_json::Value| {
+            CompiledFilters::new(serde_json::from_value(filters).unwrap(), false)
+        };
+        let keyed = compile(json!([{"key": "a", "value": 1}]));
+        assert!(keyed.matches("not json").is_err());
+        assert!(keyed.matches(r#"{"a": 1, "b""#).is_err());
+        assert!(keyed.matches("[1,").is_err());
+        assert!(!keyed.matches("[1, 2]").unwrap());
+        let negated = compile(json!([{"none_of": [{"key": "a", "value": 1}]}]));
+        assert!(negated.matches("not json").unwrap());
+        assert!(negated.matches("[1, 2]").unwrap());
     }
 
     #[test]
@@ -592,9 +626,9 @@ mod tests {
             false,
             "u/admin/trigger",
         );
-        assert!(filters.matches(r#"{"event": "created", "b": 2}"#));
-        assert!(!filters.matches(r#"{"event": "created", "b": 3}"#));
-        assert!(!filters.matches(r#"{"event": "other", "a": 1}"#));
+        assert!(filters.matches(r#"{"event": "created", "b": 2}"#).unwrap());
+        assert!(!filters.matches(r#"{"event": "created", "b": 3}"#).unwrap());
+        assert!(!filters.matches(r#"{"event": "other", "a": 1}"#).unwrap());
     }
 
     #[test]

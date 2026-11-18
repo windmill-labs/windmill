@@ -3,7 +3,7 @@
 
 use sqlx::{Pool, Postgres};
 use windmill_common::workspaces::{
-    count_paid_seats, count_workspace_forks, fork_chain_depth, fork_subtree_height,
+    billable_seats, count_paid_seats, count_workspace_forks, fork_chain_depth, fork_subtree_height,
     get_billing_workspace_id, invalidate_billing_workspace_cache, list_fork_descendants,
 };
 
@@ -101,16 +101,68 @@ async fn billing_workspace_survives_cycles(db: Pool<Postgres>) {
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
     insert_ws(&db, "seat-root", None, false).await;
-    // 2 developers + 2 operators counted -> ceil(2 + 0.5*2) = 3.
     insert_member(&db, "seat-root", "dev1@w.dev", false, false, false).await;
     insert_member(&db, "seat-root", "dev2@w.dev", false, false, false).await;
     insert_member(&db, "seat-root", "op1@w.dev", true, false, false).await;
     insert_member(&db, "seat-root", "op2@w.dev", true, false, false).await;
-    // These must NOT count towards seats.
-    insert_member(&db, "seat-root", "disabled@w.dev", false, true, false).await;
+    // A service account is half a seat even with a developer role, counted apart from operators.
     insert_member(&db, "seat-root", "svc@w.dev", false, false, true).await;
+    // Not billed.
+    insert_member(&db, "seat-root", "disabled@w.dev", false, true, false).await;
+    insert_member(&db, "seat-root", "svc-disabled@w.dev", false, true, true).await;
 
-    assert_eq!(count_paid_seats(&db, "seat-root").await.unwrap(), 3);
+    // 2 developers + (2 operators + 1 service account)/2 -> ceil(3.5) = 4.
+    assert_eq!(count_paid_seats(&db, "seat-root").await.unwrap(), 4);
+    let breakdown = billable_seats(&db, "seat-root").await.unwrap();
+    assert_eq!(
+        (
+            breakdown.developers,
+            breakdown.operators,
+            breakdown.service_accounts,
+            breakdown.seats
+        ),
+        (2, 2, 1, 4)
+    );
+
+    sqlx::query(
+        "INSERT INTO role_seat (workspace_id, role, author) VALUES ('seat-root', 'operator', true)",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    windmill_common::roles::invalidate_all_roles_cache();
+    let breakdown = billable_seats(&db, "seat-root").await.unwrap();
+    assert_eq!(
+        (
+            breakdown.developers,
+            breakdown.operators,
+            breakdown.service_accounts,
+            breakdown.seats
+        ),
+        (4, 0, 1, 5),
+        "a role that composes bills its members as developers, service accounts stay half a seat"
+    );
+    sqlx::query("UPDATE role_seat SET author = false WHERE workspace_id = 'seat-root'")
+        .execute(&db)
+        .await
+        .unwrap();
+    windmill_common::roles::invalidate_all_roles_cache();
+    let breakdown = billable_seats(&db, "seat-root").await.unwrap();
+    assert_eq!(
+        (breakdown.developers, breakdown.operators, breakdown.seats),
+        (2, 2, 4),
+        "a workspace override that authors nothing bills its members at half a seat"
+    );
+
+    // An admin holds everything, so it is a full seat whatever role it keeps underneath.
+    sqlx::query(
+        "UPDATE usr SET is_admin = true WHERE workspace_id = 'seat-root' AND email = 'op1@w.dev'",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    let breakdown = billable_seats(&db, "seat-root").await.unwrap();
+    assert_eq!((breakdown.developers, breakdown.operators), (3, 1));
 
     insert_ws(&db, "seat-fork1", Some("seat-root"), false).await;
     insert_ws(&db, "seat-fork2", Some("seat-root"), false).await;

@@ -18,6 +18,7 @@ import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
 import { mergeWorkspaces } from "./merge.ts";
 import { connectSlack, disconnectSlack } from "./slack.ts";
+import { applySettings, getSettings } from "./settings.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -183,6 +184,47 @@ export async function setActiveWorkspace(
   await writeFile(file, workspaceName, "utf-8");
 }
 
+const CLOUD_REMOTE = "https://app.windmill.dev/";
+
+// Cliffy's list only previews the highlighted entry: Enter submits the typed
+// text (empty, so the default) unless Tab was pressed first.
+class PickableInput extends Input {
+  protected override getValue(): string {
+    const highlighted = this.suggestions[this.suggestionsIndex];
+    if (!this.inputValue && highlighted !== undefined) {
+      return highlighted.toString();
+    }
+    return super.getValue();
+  }
+}
+
+async function knownRemotes(
+  opts: GlobalOptions
+): Promise<{ suggestions: string[]; defaultRemote: string }> {
+  const remotes: string[] = [];
+  for (const w of await allWorkspaces(opts.configDir)) {
+    try {
+      const remote = new URL(w.remote).toString();
+      if (!remotes.includes(remote)) remotes.push(remote);
+    } catch {
+      // skip a malformed profile
+    }
+  }
+  const active = await getActiveWorkspace(opts);
+  let defaultRemote = CLOUD_REMOTE;
+  try {
+    if (active) defaultRemote = new URL(active.remote).toString();
+  } catch {
+    // keep the cloud default
+  }
+  const suggestions = [
+    defaultRemote,
+    ...remotes.filter((r) => r !== defaultRemote),
+  ];
+  if (!suggestions.includes(CLOUD_REMOTE)) suggestions.push(CLOUD_REMOTE);
+  return { suggestions, defaultRemote };
+}
+
 export async function add(
   opts: GlobalOptions & {
     create: boolean;
@@ -224,11 +266,14 @@ export async function add(
       remote = url.toString();
     } catch {
       // not a url
+      const { suggestions, defaultRemote } = await knownRemotes(opts);
       remote = new URL(
-        await Input.prompt({
+        await PickableInput.prompt({
           message: "Enter the Remote URL",
-          suggestions: ["https://app.windmill.dev/"],
-          default: "https://app.windmill.dev/",
+          suggestions,
+          list: suggestions.length > 1,
+          info: suggestions.length > 1,
+          default: defaultRemote,
         })
       ).toString();
     }
@@ -905,6 +950,22 @@ Arguments (omit both to be prompted interactively):
   .description(
     "Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push."
   )
-  .action(disconnectSlack as any);
+  .action(disconnectSlack as any)
+  .command("get-settings")
+  .description(
+    "Print the active workspace's settings in the layout of the settings.yaml that 'wmill sync' writes. Secrets show as __SENSITIVE_AND_UNCHANGED__ unless --encrypted. Admin only."
+  )
+  .option("--encrypted", "Write secrets encrypted with the workspace key, as 'wmill sync pull' does")
+  .option("--json", "Output as JSON")
+  .action(getSettings as any)
+  .command("apply-settings")
+  .description(
+    "Apply a settings document (YAML or JSON, in the layout of settings.yaml) to the active workspace. Only the settings the file states are changed, unless --replace; a setting set to null is cleared. A secret left as __SENSITIVE_AND_UNCHANGED__ keeps its value. Shows the changes and asks before applying. Admin only."
+  )
+  .arguments("<file:string>")
+  .option("--dry-run", "Only show the changes")
+  .option("--replace", "Also clear the settings the file omits, as 'wmill sync push' does")
+  .option("-y --yes", "Apply without asking")
+  .action(applySettings as any);
 
 export default command;

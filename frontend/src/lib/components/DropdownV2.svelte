@@ -99,7 +99,10 @@
 	} = createDropdownMenu({
 		portal: untrack(() => hostPortal()),
 		positioning: {
-			placement: untrack(() => placement)
+			placement: untrack(() => placement),
+			// Caps the menu at the room the viewport has left, so a list taller than that scrolls
+			// instead of flipping past the screen edge. A custom menu sizes itself.
+			fitViewport: untrack(() => !customMenu)
 		},
 		closeOnItemClick: untrack(() => closeOnItemClick),
 		loop: true,
@@ -132,19 +135,22 @@
 		})
 	})
 
-	export function close() {
+	export function close(afterClose?: () => void) {
 		open = false
+		if (afterClose) setTimeout(afterClose, 10)
 	}
 
-	async function computeItems(): Promise<Item[]> {
-		if (typeof items === 'function') {
-			const result = await items()
-			return Array.isArray(result) ? result.filter((item) => !item.hide) : []
-		} else {
-			return items.filter((item) => !item.hide)
-		}
+	function visible(result: Item[] | undefined): Item[] {
+		return Array.isArray(result) ? result.filter((item) => !item.hide) : []
+	}
+	function computeItems(): Item[] | Promise<Item[]> {
+		const result = typeof items === 'function' ? items() : items
+		return result instanceof Promise ? result.then(visible) : visible(result)
 	}
 	async function getMenuElements(): Promise<HTMLElement[]> {
+		// Runs on every pointerdown anywhere, for every mounted dropdown. Skip the
+		// whole-document query when the outside handler below cannot act anyway.
+		if (!usePointerDownOutside || !open) return []
 		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
 	}
 </script>
@@ -196,17 +202,17 @@
 	<div
 		use:melt={$menuEl}
 		data-menu
-		class="z-[6000] transition-all duration-100"
+		class="z-[6000] transition-all duration-100 flex flex-col"
 		transition:placementFly={{ duration: enableFlyTransition ? 100 : 0, placement }}
 	>
 		{#if customMenu}
 			{@render menu?.({ item, close, builders })}
 		{:else}
 			<div
-				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
-				style={`${customWidth ? `width: ${customWidth}px;` : ''} max-height: ${maxHeight || '50vh'};`}
+				class="bg-surface-tertiary dark:border w-56 min-h-0 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
+				style={`${customWidth ? `width: ${customWidth}px;` : ''} max-height: ${maxHeight || '80vh'};`}
 			>
-				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} {builders} />
+				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} {builders} {close} />
 			</div>
 		{/if}
 	</div>

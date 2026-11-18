@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { workspaceStore, userWorkspaces, usersWorkspaceStore, superadmin } from '$lib/stores'
 	import { WorkspaceService, type ProtectionRuleset } from '$lib/gen'
-	import { Badge, Button } from '$lib/components/common'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
+	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { goto } from '$app/navigation'
-	import { base } from '$lib/base'
+	import { isNewTabClick } from '$lib/navigation'
 	import {
 		findCanonicalDevWorkspace,
 		findWorkspaceAncestors,
@@ -17,7 +17,6 @@
 	import { getUserExt } from '$lib/user'
 	import {
 		DEV_WORKSPACE_LABELS,
-		devBadgeText,
 		devLabelKey,
 		devLabelNoun,
 		type DevWorkspaceLabelKey
@@ -29,7 +28,14 @@
 		isRuleUnconditionallyActiveInRulesets,
 		DEV_WORKSPACE_LOCK_RULE_NAME
 	} from '$lib/workspaceProtectionRules.svelte'
-	import { GitFork, ExternalLink, Check, Minus, Pen } from 'lucide-svelte'
+	import { GitFork, ExternalLink, Check, Minus, Pen, Server } from 'lucide-svelte'
+	import {
+		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
+		isIsolatedWorkspaceId,
+		loadDevWorkspaceTagSuffix,
+		withDevSuffix
+	} from '$lib/devWorkspaceTags'
 	import { resource } from 'runed'
 	import type { Snippet } from 'svelte'
 
@@ -41,6 +47,7 @@
 		deployTarget
 	}: { deployTarget?: Snippet } = $props()
 
+	loadDevWorkspaceTagSuffix()
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let isDev = $derived(currentWs?.is_dev_workspace ?? false)
 	let currentLabel = $derived(devLabelKey(currentWs?.dev_workspace_label))
@@ -237,20 +244,29 @@
 
 	// With a name, deep-links into that rule's drawer; without one, the rulesets list. Built from
 	// scratch rather than from the current query so no stale `?workspace=<dev>` survives a switch.
-	function rulesetsHref(name?: string): string {
+	function rulesetsHref(name?: string, workspace?: string): string {
 		const rule = name ? `&rule=${encodeURIComponent(name)}` : ''
-		return `${base}/workspace_settings?tab=rulesets${rule}`
+		const ws = workspace ? `&workspace=${encodeURIComponent(workspace)}` : ''
+		return `/workspace_settings?tab=rulesets${rule}${ws}`
 	}
 
-	function openRulesets(name?: string) {
-		goto(rulesetsHref(name))
-	}
+	type RulesetsLink = { href: (name?: string) => string; onclick?: (e?: Event) => void }
 
-	function openRulesetsInParent(name?: string) {
-		if (!parentId) return
-		switchWorkspace(parentId)
-		goto(rulesetsHref(name))
-	}
+	const ownRulesetsLink: RulesetsLink = { href: (name) => rulesetsHref(name) }
+
+	// The `?workspace=` param is what switches a new tab; this tab switches through the store,
+	// which also resets the protection rules state of the workspace it leaves.
+	let parentRulesetsLink: RulesetsLink | undefined = $derived.by(() => {
+		const id = parentId
+		if (!id || !canEditParentRules) return undefined
+		return {
+			href: (name) => rulesetsHref(name, id),
+			onclick: (e) => {
+				if (e instanceof MouseEvent && isNewTabClick(e)) return
+				switchWorkspace(id)
+			}
+		}
+	})
 
 	// Reparenting an ancestor below this workspace would close a parent<->child cycle, which the
 	// backend rejects: with a dev workspace allowed as prod, the family root is such an ancestor and
@@ -342,18 +358,18 @@
 </script>
 
 <!-- The locks are protection rules, so being paired does not imply them: a pairing that came from the
-     deploy_to migration rather than from an attach carries neither. `onOpen` navigates to the rules
+     deploy_to migration rather than from an attach carries neither. `open` links to the rules
      of the workspace this panel describes, which is not the active one on the dev side; it is
      undefined when the reader is not an admin there. The labels name that workspace in that case,
      so the button does not switch workspaces without saying so. -->
 {#snippet protectionsPanel(opts: {
 	title: string
 	rules: ReturnType<typeof useProtectionRules>
-	onOpen?: (name?: string) => void
+	open?: RulesetsLink
 	editLabel: string
 	manageLabel: string
 })}
-	{@const onOpen = opts.onOpen}
+	{@const open = opts.open}
 	{@const rules = opts.rules}
 	<div class="flex flex-col gap-1 rounded-md border bg-surface-secondary p-3">
 		<span class="text-xs font-semibold text-emphasis">{opts.title}</span>
@@ -390,12 +406,13 @@
 									<span class="text-2xs text-secondary">Applied by this pairing</span>
 								{/if}
 							</div>
-							{#if onOpen}
+							{#if open}
 								<Button
 									variant="subtle"
 									unifiedSize="2xs"
 									startIcon={{ icon: Pen }}
-									onclick={() => onOpen(ruleset.name)}
+									href={open.href(ruleset.name)}
+									onClick={open.onclick}
 								>
 									{opts.editLabel}
 								</Button>
@@ -405,9 +422,9 @@
 				</div>
 			{/if}
 		{/if}
-		{#if onOpen && rules.enforcingRulesets.length === 0}
+		{#if open && rules.enforcingRulesets.length === 0}
 			<div class="self-start mt-1">
-				<Button variant="subtle" unifiedSize="2xs" onclick={() => onOpen()}>
+				<Button variant="subtle" unifiedSize="2xs" href={open.href()} onClick={open.onclick}>
 					{opts.manageLabel}
 				</Button>
 			</div>
@@ -428,7 +445,7 @@
 			{@render protectionsPanel({
 				title: 'Protections in force on this workspace',
 				rules: ownRules,
-				onOpen: openRulesets,
+				open: ownRulesetsLink,
 				editLabel: 'Edit',
 				manageLabel: 'Manage in Rulesets'
 			})}
@@ -455,6 +472,15 @@
 			<p class="text-sm text-secondary">
 				Pair this workspace with a dev workspace: the same code with a different environment
 				(resource and variable values). Edits are made in the dev workspace and promoted here.
+			</p>
+			<p class="text-2xs text-secondary">
+				Attaching an existing workspace copies nothing: it keeps its own resources and variables.
+				Creating a new dev workspace copies this workspace's resources and variables, credentials
+				included; point them at staging before developers use it.
+				{#if $devWorkspaceTagSuffix}
+					Either way, its jobs then run on dev workers (tags suffixed with
+					<code>{$devWorkspaceTagSuffix}</code>).
+				{/if}
 			</p>
 			<div class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">Attach an existing workspace as dev</span>
@@ -520,7 +546,7 @@
 					/>
 				{/if}
 			</div>
-			<div class="flex gap-2">
+			<div class="flex flex-wrap gap-2">
 				<Button
 					variant="accent"
 					disabled={busy || !selectedDevId || !!candidateClash}
@@ -531,7 +557,7 @@
 				<Button
 					variant="default"
 					startIcon={{ icon: GitFork }}
-					onclick={() => goto(`${base}/user/fork_workspace?dev=true`)}
+					href="/user/fork_workspace?dev=true"
 				>
 					Create a new dev workspace
 				</Button>
@@ -540,11 +566,26 @@
 	{/if}
 {/snippet}
 
+{#snippet devWorkersNotice()}
+	{#if $devWorkspaceTagSuffix && isIsolatedWorkspaceId($workspaceStore, $userWorkspaces, $devWorkspaceSkipNonDevForks)}
+		<p class="text-2xs text-secondary max-w-2xl flex items-center gap-1.5">
+			<Server size={12} />
+			<span>
+				Jobs in this workspace run on dev workers (tags suffixed with
+				<code>{$devWorkspaceTagSuffix}</code>, e.g.
+				<code>{withDevSuffix('python3', $devWorkspaceTagSuffix)}</code>), set by the instance's dev
+				workspace isolation.
+			</span>
+		</p>
+	{/if}
+{/snippet}
+
 {#if isThrowawayFork}
 	<p class="text-sm text-secondary max-w-2xl">
 		Dev workspace pairing is not available on a throwaway fork. This workspace is a fork of
 		<b>{parentId}</b>.
 	</p>
+	<div class="mt-2">{@render devWorkersNotice()}</div>
 	{@render deployTarget?.()}
 {:else if isDev && parentId}
 	<div class="flex flex-col gap-3 max-w-2xl">
@@ -554,12 +595,17 @@
 			<b>{parentId}</b>. Promote changes from the home page banner or the Compare &amp; Deploy page.
 		</p>
 		<div class="text-2xs text-secondary">
-			Environment: <Badge color="indigo" small>{devBadgeText(currentLabel)}</Badge>
+			Environment: <DevWorkspaceBadge
+				label={currentLabel}
+				color={currentWs?.color}
+				fallbackColor="indigo"
+			/>
 			<span class="ml-1">
 				Set when the workspace is created or attached. Git sync deploys to the
 				<span class="font-mono">{currentLabel}</span> branch.
 			</span>
 		</div>
+		{@render devWorkersNotice()}
 	</div>
 	{@render deployTarget?.()}
 	<div class="flex flex-col gap-3 max-w-2xl mt-6">
@@ -569,7 +615,7 @@
 			{@render protectionsPanel({
 				title: `Protections in force on ${parentId}`,
 				rules: parentRules,
-				onOpen: canEditParentRules ? openRulesetsInParent : undefined,
+				open: parentRulesetsLink,
 				editLabel: `Edit in ${parentId}`,
 				manageLabel: `Manage in ${parentId}`
 			})}

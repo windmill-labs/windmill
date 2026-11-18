@@ -2,8 +2,20 @@ import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { UserDraft, normalizeDraftForCompare, type UserDraftItemKind } from '$lib/userDraft.svelte'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+import { onUserInput } from '$lib/userDraftEditGate'
 
 type Cfg = Record<string, any>
+
+/**
+ * Detach a config from whatever holds it. The draft cell is deeply reactive,
+ * so handing its object straight to `applyCfg` would make the form's own
+ * `$state` (a schedule's `args`, say) the very object the cell holds — every
+ * later keystroke would then mutate the draft in place behind the autosave's
+ * back.
+ */
+function snapshotCfg<V>(cfg: V): V {
+	return structuredClone($state.snapshot(cfg)) as V
+}
 
 /**
  * Whether `a` differs from `b` after `normalizeDraftForCompare` (JSON
@@ -35,8 +47,13 @@ export interface TriggerDraftSyncOptions {
 	/**
 	 * The deployed baseline the editor's dirty check compares against —
 	 * `originalConfig` for TriggerCrud editors, `initialConfig` for Schedule.
+	 * Must read `$state`: the baseline is cached, so a plain `let` set by a later
+	 * open stays stale and the "unsaved changes" banner never shows.
 	 */
 	deployed: () => Cfg | undefined
+	/** Subject autosaves to the auto-save toggle, as the full-page editors are. Only for an editor
+	 *  that shows the toggle and saves on Ctrl/Cmd+S: anywhere else an edit would park unseen. */
+	canBeDisabled?: boolean
 }
 
 export interface TriggerDraftSync {
@@ -49,8 +66,8 @@ export interface TriggerDraftSync {
 	 */
 	readonly hasDraft: boolean
 	/**
-	 * Whether a deployed baseline exists (banner can appear). Reactive, unlike
-	 * reading `deployed` directly (a plain `let`), so callers can reserve its slot.
+	 * Whether a deployed baseline exists (banner can appear), so callers can
+	 * reserve its slot.
 	 */
 	readonly hasBaseline: boolean
 	/** The deployed baseline the dirty check compares against. */
@@ -76,6 +93,13 @@ export interface TriggerDraftSync {
 	 * the form back to the now-stale draft.
 	 */
 	discard(path: string, fallback: Cfg | undefined): void
+	/**
+	 * Fold fields the editor wrote to the backend on its own (the enabled/mode
+	 * toggle) into the baseline, so they don't read as unsaved changes. Call it
+	 * in the same tick as the form write: a later call leaves the persist-effect
+	 * time to save the toggle as a draft.
+	 */
+	patchBaseline(patch: Cfg): void
 }
 
 /**
@@ -84,8 +108,10 @@ export interface TriggerDraftSync {
  * …)` (another tab, a programmatic write) propagate into the open editor.
  *
  * - **apply-effect**: reflects external `handle.draft` changes into the form.
+ * - **absorb-effect**: folds the form's own settling into the baseline until
+ *   the user's first input, so a schema that moved on is not a draft.
  * - **persist-effect**: writes form edits back through the handle, dropping
- *   the draft when the form is back at the deployed baseline.
+ *   the draft when the form is back at the baseline.
  *
  * Both effect bodies are `untrack`ed and gated by `cfgDiffers`
  * idempotence so they can't feed back into each other. Must be called once
@@ -95,22 +121,65 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 	const handles = UserDraft.useMany<Cfg>(() => {
 		const p = opts.path()
 		const ws = opts.workspace()
-		return p && ws ? [{ itemKind: opts.itemKind, path: p, workspace: ws }] : []
+		return p && ws
+			? [{ itemKind: opts.itemKind, path: p, workspace: ws, canBeDisabled: opts.canBeDisabled }]
+			: []
 	})
 	const handle = $derived(handles[0])
+
+	// Gated until the user puts something in (see `onUserInput`): the baseline
+	// absorbs whatever the form settles on and nothing persists, so an untouched
+	// trigger never reports unsaved changes. A drawer opened ON a restored draft
+	// absorbs nothing — that divergence is the user's own.
+	let settledBaseline: Cfg | undefined = $state(undefined)
+	let userEdited = $state(false)
+	let openedOnDraft = $state(false)
+	// These editors are mounted by the list page, not by the drawer, so input
+	// arriving while the drawer is still loading is the click that opened it
+	// (or anything else on the page behind) — never an edit to this form.
+	onUserInput(() => {
+		if (!opts.drawerLoading()) userEdited = true
+	})
+
+	/** The deployed config, plus whatever the form settled on by itself. */
+	const baseline = $derived(settledBaseline ?? opts.deployed())
+
+	$effect(() => {
+		// A reload re-opens the gate's window: the drawer is being pointed at a
+		// different trigger, or the same one re-read from the backend. The click
+		// that opened it landed before this, hence the reset of `userEdited`.
+		if (!opts.drawerLoading()) return
+		untrack(() => {
+			settledBaseline = undefined
+			userEdited = false
+			openedOnDraft = false
+		})
+	})
+
+	// absorb-effect: pre-edit form drift joins the baseline.
+	$effect(() => {
+		if (opts.drawerLoading() || userEdited || openedOnDraft) return
+		const cfg = opts.getCfg()
+		const deployed = opts.deployed()
+		if (cfg == null || deployed == null) return
+		// Snapshot before untracking: `getCfg` hands back the form's `$state`
+		// objects by reference, so only a deep read subscribes to the nested
+		// writes the form makes as it settles.
+		const settled = snapshotCfg(cfg)
+		untrack(() => {
+			if (cfgDiffers(settled, settledBaseline ?? deployed)) settledBaseline = settled
+		})
+	})
 
 	// Live "is there a local draft?" — the form diverges from the deployed
 	// baseline. Gated on `!drawerLoading` (the baseline isn't settled yet
 	// mid-load) and on a non-null baseline (a brand-new trigger has none, so
 	// "unsaved changes" / discard-to-deployed is meaningless there).
 	const hasDraft = $derived(
-		!opts.drawerLoading() &&
-			opts.deployed() != null &&
-			cfgDiffers(opts.getCfg() as Cfg, opts.deployed() as Cfg)
+		!opts.drawerLoading() && baseline != null && cfgDiffers(opts.getCfg() as Cfg, baseline as Cfg)
 	)
 
-	// Reactive "banner is possible" — depends on `drawerLoading()` so it
-	// re-evaluates (and re-reads the plain-`let` baseline) once the load settles.
+	// "Banner is possible" — false until the load settles.
 	const hasBaseline = $derived(!opts.drawerLoading() && opts.deployed() != null)
 
 	/** `auto: true` marks a discard from the reactive persist-effect (not an
@@ -131,7 +200,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 		if (opts.drawerLoading() || d == null) return
 		untrack(() => {
 			if (cfgDiffers(d, opts.getCfg() as Cfg)) {
-				void opts.applyCfg(d)
+				void opts.applyCfg(snapshotCfg(d))
 			}
 		})
 	})
@@ -148,30 +217,32 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			discardTimer = undefined
 			if (opts.drawerLoading()) return
 			const cfg = opts.getCfg()
-			const deployed = opts.deployed()
 			const h = handle
 			if (!h || cfg == null) return
-			if (!cfgDiffers(cfg, deployed) && cfgDiffers(h.draft, deployed)) {
-				discard(opts.path(), deployed, true)
+			if (!cfgDiffers(cfg, baseline) && cfgDiffers(h.draft, baseline)) {
+				discard(opts.path(), baseline, true)
 			}
 		}, 600)
 	}
 
 	// persist-effect: form edits → handle; drop the draft when back at the
-	// deployed baseline.
+	// baseline.
 	$effect(() => {
 		if (opts.drawerLoading() || !opts.path()) return
+		// Nothing persists before the user's first input — the form's own
+		// settling is not an edit, and gating here rather than relying on the
+		// absorb-effect having run first keeps the two effects order-independent.
+		if (!userEdited && !openedOnDraft) return
 		const cfg = opts.getCfg()
 		if (cfg == null) return
 		untrack(() => {
 			const h = handle
 			if (!h) return
-			const deployed = opts.deployed()
-			if (cfgDiffers(cfg, deployed)) {
+			if (cfgDiffers(cfg, baseline)) {
 				if (cfgDiffers(cfg, h.draft)) h.draft = cfg
-			} else if (cfgDiffers(h.draft, deployed)) {
-				// Only when a draft actually exists to drop: `h.draft` equals
-				// `deployed` right after a discard or the post-load seed.
+			} else if (cfgDiffers(h.draft, baseline)) {
+				// Only when a draft actually exists to drop: `h.draft` equals the
+				// baseline right after a discard or the post-load seed.
 				scheduleAutoDiscard()
 			}
 		})
@@ -202,7 +273,7 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			return hasBaseline
 		},
 		get deployed() {
-			return opts.deployed()
+			return baseline
 		},
 		get current() {
 			return opts.getCfg()
@@ -211,8 +282,14 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			const d = handle?.draft
 			if (cfgDiffers(d, opts.getCfg() as Cfg)) {
 				// Overlay the local autosave on the just-loaded backend config.
-				await opts.applyCfg(d)
+				await opts.applyCfg(snapshotCfg(d))
 			}
+			// The form is not rendered while the drawer loads, so anything that
+			// diverges from the deployed config right now is a draft restored onto
+			// it — by the overlay above, or by the editor from the backend before
+			// calling this — never the form settling. Absorbing that into the
+			// baseline would hide the user's own work behind a clean drawer.
+			openedOnDraft = cfgDiffers(opts.getCfg() as Cfg, opts.deployed())
 			// Adopt the post-load form state as the cell's baseline without
 			// POSTing, consuming the entry's one-shot first-write seed guard.
 			// Trigger drawers never write the cell programmatically on open, so
@@ -221,16 +298,30 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 			const p = opts.path()
 			const cfg = opts.getCfg()
 			if (ws && p && cfg != null) {
-				UserDraft.seed(opts.itemKind, p, structuredClone($state.snapshot(cfg)) as Cfg, {
+				UserDraft.seed(opts.itemKind, p, snapshotCfg(cfg) as Cfg, {
 					workspace: ws
 				})
 			}
 		},
 		async resetToDeployed(path: string) {
-			const deployedCfg = structuredClone($state.snapshot(opts.deployed())) as Cfg
+			const deployedCfg = snapshotCfg(opts.deployed()) as Cfg
 			discard(path, deployedCfg)
+			// Nothing of the user's is left in the form, so the gate closes again
+			// — otherwise the form settles on the schema's values a second time
+			// and the discarded draft comes straight back.
+			settledBaseline = undefined
+			userEdited = false
+			openedOnDraft = false
 			await opts.applyCfg(deployedCfg)
 		},
-		discard
+		discard,
+		patchBaseline(patch: Cfg) {
+			const deployed = opts.deployed()
+			if (deployed == null) return
+			// The deployed object too, so `resetToDeployed` restores the new value;
+			// `settledBaseline` because it shadows the deployed object.
+			Object.assign(deployed, patch)
+			settledBaseline = { ...snapshotCfg(settledBaseline ?? deployed), ...patch }
+		}
 	}
 }

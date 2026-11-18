@@ -58,7 +58,7 @@ export function usesOpenRouterPromptCaching(provider: AIProvider, model: string)
 // so it does not catch unrelated ids like Mistral's "open-mistral-*" or "optimus-*".
 export function requiresMaxCompletionTokens(model: string) {
 	const baseModel = parseModelId(model).base
-	return baseModel.startsWith('gpt-5') || /^o\d/.test(baseModel)
+	return Number(/^gpt-(\d)(?:[.-]|$)/.exec(baseModel)?.[1] ?? 0) >= 5 || /^o\d/.test(baseModel)
 }
 
 // Context windows of the models we know, most specific entry first — the first
@@ -66,9 +66,12 @@ export function requiresMaxCompletionTokens(model: string) {
 // ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
 // Conservative family fallbacks sit below the explicit entries; models not
 // listed at all resolve to undefined. Consumers that need a number regardless
-// (trim/compaction, the usage indicator) go through getModelContextWindow,
-// whose conservative 128K fallback keeps a limit enforced and is surfaced to
-// the user as an assumed window.
+// (trim/compaction, the usage indicator) go through
+// getEffectiveModelContextWindow, whose conservative 128K fallback keeps a
+// limit enforced and is surfaced to the user as an assumed window.
+//
+// Keep entries aligned with MODEL_CONTEXT_WINDOWS in
+// `backend/windmill-ai/src/model_context.rs`, used by AI agent compaction.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
@@ -84,6 +87,7 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['claude', 200_000],
 	// OpenAI — gpt-5 covers the base family (-mini / -nano) and the 5.1/5.2
 	// revisions, all 400K; 5.4/5.5 moved to 1M and 5.6 to 1.05M
+	['gpt-6', 1_050_000],
 	['gpt-5.6', 1_050_000],
 	['gpt-5.5', 1_000_000],
 	['gpt-5.4', 1_000_000],
@@ -96,10 +100,12 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['gemini-3.1', 1_000_000],
 	['gemini-3', 1_000_000],
 	['gemini-2.5', 1_000_000],
-	// DeepSeek — the V4 family (pro / flash) is 1M. The deepseek-chat /
-	// deepseek-reasoner aliases were retired 2026-07-24 but can still sit in a
-	// saved selection, so they keep resolving to the window they had.
+	// DeepSeek — the V4 family (pro / flash) is 1M; V4.1 Flash is served as
+	// `deepseek-flash`. The deepseek-chat / deepseek-reasoner aliases were retired
+	// 2026-07-24 but can still sit in a saved selection, so they keep resolving to
+	// the window they had.
 	['deepseek-v4', 1_000_000],
+	['deepseek-flash', 1_000_000],
 	['deepseek-chat', 1_000_000],
 	['deepseek-reasoner', 1_000_000],
 	['deepseek', 128_000],
@@ -115,6 +121,65 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['codestral', 32_000]
 ]
 
+// Output token budgets, matched like the context windows above so one row covers
+// every host of a model: native API, Azure AI Foundry, OpenRouter, Together, Bedrock.
+// A host rejects any request above its own limit, so each value is one every host of
+// the model accepts, not the vendor's maximum. Models not listed fall back in
+// `getModelMaxTokens`.
+const MODEL_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
+	// Anthropic — the Anthropic SDK refuses a non-streaming request whose max_tokens
+	// implies more than ~10 minutes, so these stay below the models' own maximum.
+	// Opus caps at 32K before 4.5.
+	['claude-opus-4.5', 64_000],
+	['claude-opus-4.6', 64_000],
+	['claude-opus-4.7', 64_000],
+	['claude-opus-4.8', 64_000],
+	['claude-opus-5', 64_000],
+	['claude-opus', 32_000],
+	['claude-sonnet', 64_000],
+	['claude-haiku', 64_000],
+	['claude-fable', 64_000],
+	['claude-mythos', 64_000],
+	// OpenAI
+	['gpt-6', 128_000],
+	['gpt-5', 128_000],
+	['gpt-4.1', 32_768],
+	['gpt-4o', 16_384],
+	['gpt-4-turbo', 4_096],
+	['gpt-3.5', 4_096],
+	['o1', 100_000],
+	['o3', 100_000],
+	['o4-mini', 100_000],
+	// Google
+	['gemini-3', 64_000],
+	['gemini-2.5', 64_000],
+	// Z.ai — open-weight, but listed here because z.ai's own API is reached only
+	// through Custom AI. GLM thinks by default and counts it toward max_tokens. No
+	// family row: older GLMs cap output lower (4.5V at 16K, GLM-4 at 4K).
+	['glm-5', 32_768],
+	['glm-4.7', 32_768],
+	['glm-4.6', 32_768]
+]
+
+// Open-weight models, which a self-hosted server (Custom AI) caps at whatever context
+// length its operator set, often below these: vLLM rejects a request whose prompt plus
+// max_tokens exceeds it. So these rows only apply to the providers that host them.
+const OPEN_WEIGHT_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
+	// gpt-oss reasons on every request. Bedrock documents 16K, where Groq takes 65536
+	['gpt-oss', 16_000],
+	// DeepSeek — thinks by default and counts the thinking toward max_tokens. 131072
+	// is DeepSeek's own default at the highest effort. R1 is capped by its OpenRouter
+	// host.
+	['deepseek-v4', 131_072],
+	['deepseek-flash', 131_072],
+	['deepseek-r1', 16_000],
+	// Mistral
+	['codestral', 16_384],
+	// Models named for thinking reason on every request, whether or not the chat sends
+	// an effort. Every one OpenRouter lists takes at least this much.
+	['thinking', 32_768]
+]
+
 // Version separators differ by route to the same model: Anthropic writes
 // `claude-opus-4-8`, OpenRouter writes `anthropic/claude-opus-4.8`. Collapsing
 // dots to dashes on both sides keeps one table entry covering every route —
@@ -123,26 +188,126 @@ function normalizeVersionSeparators(model: string): string {
 	return model.replace(/\./g, '-')
 }
 
-// An entry that ends on a version digit must not run into a longer version:
-// `gpt-4.1` collapses to `gpt-4-1`, which would otherwise claim the 128K
-// `gpt-4-1106-preview` as a 1M model. Suffixes that continue with a separator
-// (`claude-opus-4-8` in `...-4-8-v1`, `gpt-5` in `gpt-5-mini`) still match.
-// Family fallbacks ending on a letter get no such guard — a version welded
-// straight onto the name (`llama3.1`) is exactly what they exist to catch.
-const MODEL_CONTEXT_WINDOW_MATCHERS: [matcher: RegExp, contextWindow: number][] =
-	MODEL_CONTEXT_WINDOWS.map(([name, contextWindow]) => {
-		const pattern = normalizeVersionSeparators(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-		return [new RegExp(/\d$/.test(pattern) ? `${pattern}(?!\\d)` : pattern), contextWindow]
-	})
+/** Suffixes that name a route to a model rather than a different model. */
+const DECORATIVE_SUFFIXES = ['latest', 'preview', 'beta', 'stable']
 
-export function getKnownModelContextWindow(model: string): number | undefined {
-	const id = normalizeVersionSeparators(parseModelId(model).base)
-	return MODEL_CONTEXT_WINDOW_MATCHERS.find(([matcher]) => matcher.test(id))?.[1]
+/**
+ * Compile a most-specific-first `[name, value]` table into matchers against the
+ * bare model id. Shared with the pricing table so both resolve the same set of
+ * ids — a model whose window is known but whose price is not (or vice versa)
+ * should be a gap in one table, never a difference in matching.
+ *
+ * An entry that ends on a version digit must not run into a longer version:
+ * `gpt-4.1` collapses to `gpt-4-1`, which would otherwise claim
+ * `gpt-4-1106-preview`. Suffixes that continue with a separator
+ * (`claude-opus-4-8` in `...-4-8-v1`, `gpt-5` in `gpt-5-mini`) still match.
+ * Family fallbacks ending on a letter get no such guard — a version welded
+ * straight onto the name (`llama3.1`) is exactly what they exist to catch.
+ */
+export function buildModelMatchers<T>(
+	entries: [name: string, value: T][],
+	{ strictVariants = false }: { strictVariants?: boolean } = {}
+): [RegExp, T][] {
+	return entries.map(([name, value]) => {
+		const pattern = normalizeVersionSeparators(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+		const guards = [
+			// An entry ending on a version digit must not run into a longer version.
+			/\d$/.test(pattern) ? '(?!\\d)' : '',
+			// A named sub-model (`gpt-5-pro`, `gpt-5-mini`) is a different model with
+			// its own price, not another route to this one — so under strictVariants an
+			// entry does not match when a further *name* segment follows. What follows
+			// is only a decoration when it is a date (`-20251101`), Bedrock's `-v1`, or
+			// one of the alias words below, at the very end of the id
+			// (`claude-3-5-haiku-latest` is the same model as `claude-3-5-haiku`, and is
+			// a shipped default; `gpt-5-preview-pro` would be a different one again).
+			// Off by default: for a context window an inherited value is a safe
+			// approximation, for a price it is a wrong number.
+			// A further revision segment (`gpt-5` vs `gpt-5-4-mini`) is a different model
+			// too, and the entry-ends-on-a-digit guard above does not catch it once the
+			// separator is normalized. Only a short segment: a date is digits as well
+			// (`-20251101`) and stays a decoration.
+			strictVariants ? '(?!-\\d{1,3}(?:$|-))' : '',
+			strictVariants ? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])` : ''
+		].join('')
+		return [new RegExp(pattern + guards), value]
+	})
 }
 
-export function getModelContextWindow(model: string) {
-	// Trim/compaction logic needs a number; assume a conservative window when unknown.
-	return getKnownModelContextWindow(model) ?? 128000
+/**
+ * The `provider:model` key the workspace AI settings use for their per-model maps
+ * (`max_tokens_per_model`, `model_pricing`, `context_window_per_model`). A bare
+ * model id is not enough: the same id can be served by more than one provider at
+ * different rates.
+ *
+ * Matched exactly, unlike the fuzzy tables above. Those tables generalize across
+ * every route to one model on purpose; a per-model *setting* must not, or an
+ * admin could not give two variants of a family different values — and the key is
+ * built from the exact id the provider config lists, which is the same string the
+ * chat sends.
+ */
+export function modelKey(provider: AIProvider | string, model: string): string {
+	return `${provider}:${model}`
+}
+
+export function matchModel<T>(matchers: [RegExp, T][], model: string): T | undefined {
+	const id = normalizeVersionSeparators(parseModelId(model).base)
+	return matchers.find(([matcher]) => matcher.test(id))?.[1]
+}
+
+const MODEL_CONTEXT_WINDOW_MATCHERS = buildModelMatchers(MODEL_CONTEXT_WINDOWS)
+
+export function getKnownModelContextWindow(model: string): number | undefined {
+	return matchModel(MODEL_CONTEXT_WINDOW_MATCHERS, model)
+}
+
+const MODEL_MAX_OUTPUT_TOKEN_MATCHERS = buildModelMatchers(MODEL_MAX_OUTPUT_TOKENS)
+const OPEN_WEIGHT_MAX_OUTPUT_TOKEN_MATCHERS = buildModelMatchers(OPEN_WEIGHT_MAX_OUTPUT_TOKENS)
+
+export function getKnownModelMaxOutputTokens(
+	provider: AIProvider,
+	model: string
+): number | undefined {
+	return (
+		matchModel(MODEL_MAX_OUTPUT_TOKEN_MATCHERS, model) ??
+		(provider === 'customai' ? undefined : matchModel(OPEN_WEIGHT_MAX_OUTPUT_TOKEN_MATCHERS, model))
+	)
+}
+
+/** Trim/compaction logic needs a number; assume a conservative window when unknown. */
+export const ASSUMED_CONTEXT_WINDOW = 128000
+
+/**
+ * What the built-in table states for a model, assuming a conservative window for one
+ * it does not list. Table only, so it ignores the workspace's `context_window_per_model`
+ * — deciding how much context to send goes through `getEffectiveModelContextWindow`
+ * instead. Named for the table because a plain `getModelContextWindow` is the obvious
+ * thing to reach for, and reaching for it here would silently skip the override.
+ */
+export function getModelContextWindowFromTable(model: string) {
+	return getKnownModelContextWindow(model) ?? ASSUMED_CONTEXT_WINDOW
+}
+
+/**
+ * The context window stated for a model: the workspace's override
+ * (`context_window_per_model`, passed in so this module stays free of stores)
+ * when one is set, otherwise the built-in table. Undefined only when neither
+ * knows the model, which is when a consumer falls back to an assumed window.
+ */
+export function getConfiguredModelContextWindow(
+	provider: AIProvider,
+	model: string,
+	overrides: Record<string, number> | undefined
+): number | undefined {
+	return overrides?.[modelKey(provider, model)] ?? getKnownModelContextWindow(model)
+}
+
+/** The window to budget against: the override, then the table, then the assumption. */
+export function getEffectiveModelContextWindow(
+	provider: AIProvider,
+	model: string,
+	overrides: Record<string, number> | undefined
+): number {
+	return getConfiguredModelContextWindow(provider, model, overrides) ?? ASSUMED_CONTEXT_WINDOW
 }
 
 /**

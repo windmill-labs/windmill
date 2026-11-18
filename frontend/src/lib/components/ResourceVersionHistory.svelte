@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ResourceService, type ResourceVersion } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
@@ -12,6 +11,9 @@
 	import VersionListItem from './VersionListItem.svelte'
 	import { displayDate } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		path,
@@ -27,14 +29,18 @@
 		onRestore?: () => void
 	} = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	let versions = $state<ResourceVersion[] | undefined>(undefined)
 	// Which row is highlighted, updated on click. `loaded` is dropped the moment the selection
 	// moves and only reinstated once its own fetch lands, so the pane can never show one version's
 	// JSON under another version's highlight.
 	let selectedId = $state<number | undefined>(undefined)
-	let loaded = $state<{ id: number; value: string; missing: string[] } | undefined>(undefined)
+	// `id` addresses the version, `version` is what it is called: the id is unique across every
+	// resource, so it is no indication of how many times this one has been saved.
+	let loaded = $state<
+		{ id: number; version: number; value: string; missing: string[] } | undefined
+	>(undefined)
 	// Undefined until the newest version's value arrives, which is what "Diff with current" needs.
 	// Fetched without blocking the list, so an absent baseline disables the diff rather than
 	// holding up the drawer everyone else opened to read.
@@ -105,12 +111,21 @@
 	async function fetchVersion(id: number) {
 		const version = await ResourceService.getResourceVersion({
 			workspace: effectiveWorkspace,
-			version: id
+			id
 		})
-		return { id, value: pretty(version.value), missing: version.missing_references ?? [] }
+		return {
+			id,
+			version: version.version,
+			value: pretty(version.value),
+			missing: version.missing_references ?? []
+		}
 	}
 
-	async function selectVersion(id: number | undefined, generation = loadGeneration) {
+	async function selectVersion(
+		id: number | undefined,
+		number: number | undefined,
+		generation = loadGeneration
+	) {
 		selectedId = id
 		// Dropped up front rather than left in place while the new value is in flight: keeping it
 		// would highlight the clicked row while the pane still rendered the previous version, and
@@ -129,7 +144,7 @@
 		} catch (err) {
 			if (selectedId === id && generation === loadGeneration) {
 				selectedId = undefined
-				sendUserToast(`Could not load version ${id}`, true)
+				sendUserToast(`Could not load version ${number}`, true)
 			}
 		}
 	}
@@ -138,15 +153,15 @@
 		// loaded.id, never selectedId: restoring what the pane is showing. A selection whose value
 		// has not arrived leaves `loaded` undefined, so this writes nothing rather than restoring a
 		// version the user has not seen.
-		const id = loaded?.id
-		if (id === undefined) return
+		const target = loaded
+		if (target === undefined) return
 		restoring = true
 		try {
 			await ResourceService.restoreResourceVersion({
 				workspace: effectiveWorkspace,
-				version: id
+				id: target.id
 			})
-			sendUserToast(`Restored ${path} to version ${id}`)
+			sendUserToast(`Restored ${path} to version ${target.version}`)
 			onRestore?.()
 			await loadVersions()
 		} finally {
@@ -222,14 +237,14 @@
 				{#each versions as version, index (version.id)}
 					<VersionListItem
 						selected={selectedId === version.id}
-						onclick={() => selectVersion(version.id)}
+						onclick={() => selectVersion(version.id, version.version)}
 					>
 						<div class="flex flex-col gap-0.5 truncate">
 							<div class="text-xs font-medium flex items-center gap-1">
 								{#if index === 0}
 									<History size={12} />
 								{/if}
-								{index === 0 ? 'Current' : `Version ${version.id}`}
+								{index === 0 ? 'Current' : `Version ${version.version}`}
 							</div>
 							<div class="text-2xs text-tertiary">
 								{displayDate(version.created_at)}{version.created_by

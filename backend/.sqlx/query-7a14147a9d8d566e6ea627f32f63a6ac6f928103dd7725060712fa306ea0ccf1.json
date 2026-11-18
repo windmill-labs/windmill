@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                WITH holding AS (\n                    -- Holding a worker, by the same test the fairness refresh counts with: a\n                    -- live runtime ping, and not a flow job, which stays running between steps\n                    -- without a worker.\n                    SELECT DISTINCT q.workspace_id FROM v2_job_queue q\n                    JOIN v2_job j ON j.id = q.id\n                    JOIN v2_job_runtime r ON r.id = q.id\n                    WHERE q.tag = $1 AND q.running = true AND q.suspend_until IS NULL\n                      AND q.workspace_id = ANY($3::text[])\n                      AND r.ping > NOW() - interval '60 seconds'\n                      AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')\n                ), waiting AS (\n                    SELECT q.workspace_id, q.scheduled_for, h.workspace_id IS NOT NULL AS excluded\n                    FROM v2_job_queue q LEFT JOIN holding h USING (workspace_id)\n                    WHERE q.tag = $1\n                      AND q.scheduled_for <= NOW() - $2::interval\n                      AND q.running = false\n                )\n                SELECT COUNT(*) FILTER (WHERE NOT excluded) as count,\n                       COUNT(*) FILTER (WHERE excluded) as excluded_count,\n                       MIN(scheduled_for) FILTER (WHERE NOT excluded) as oldest_job,\n                       array_agg(DISTINCT workspace_id) FILTER (WHERE excluded) as excluded_workspaces\n                FROM waiting\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "excluded_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "oldest_job",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "excluded_workspaces",
+        "type_info": "VarcharArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Interval",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "7a14147a9d8d566e6ea627f32f63a6ac6f928103dd7725060712fa306ea0ccf1"
+}

@@ -5,11 +5,12 @@ use windmill_common::{
     agent_workers::{PingJobStatus, PingJobStatusResponse},
     cache,
     external_ip::UNKNOWN_IP,
+    worker_job_stats::job_stats_snapshot,
     worker::{
         get_memory, get_vcpus, get_windmill_memory_usage, get_worker_memory_usage,
-        insert_ping_query, update_job_ping_query, update_worker_ping_from_job_query,
-        update_worker_ping_main_loop_query, Connection, Ping, PingType, NATIVE_MODE_RESOLVED,
-        WORKER_CONFIG, WORKER_GROUP,
+        insert_ping_query, set_worker_draining_query, ReclaimedPing, update_job_ping_query,
+        update_worker_ping_from_job_query, update_worker_ping_main_loop_query, Connection, Ping,
+        PingType, NATIVE_MODE_RESOLVED, WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, DB,
 };
@@ -28,6 +29,7 @@ pub(crate) async fn update_worker_ping_full(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_tx: &KillpillSender,
     ip: Option<&str>,
+    last_job: Option<(Uuid, &str)>,
 ) {
     let wc = WORKER_CONFIG.load();
     let tags = wc.worker_tags.clone();
@@ -38,17 +40,26 @@ pub(crate) async fn update_worker_ping_full(
     let wm_memory_usage = get_windmill_memory_usage();
 
     let (vcpus, memory) = if read_cgroups {
-        (get_vcpus(), get_memory())
+        let memory = get_memory();
+        crate::resource_metrics::set_memory_limit(memory);
+        (get_vcpus(), memory)
     } else {
         (None, None)
     };
 
+    let occupancy = occupancy_metrics.update_occupancy_metrics();
+    crate::resource_metrics::record_worker_resources(
+        worker_name,
+        memory_usage,
+        wm_memory_usage,
+        Some(&occupancy),
+    );
     let OccupancyResult {
         occupancy_rate,
         occupancy_rate_15s,
         occupancy_rate_5m,
         occupancy_rate_30m,
-    } = occupancy_metrics.update_occupancy_metrics();
+    } = occupancy;
 
     let ping_start = std::time::Instant::now();
     if let Err(e) = (|| {
@@ -67,6 +78,7 @@ pub(crate) async fn update_worker_ping_full(
             occupancy_rate_30m,
             native_mode,
             ip,
+            last_job,
         )
     })
     .retry(
@@ -114,7 +126,9 @@ async fn update_worker_ping_full_inner(
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
     ip: Option<&str>,
+    last_job: Option<(Uuid, &str)>,
 ) -> anyhow::Result<()> {
+    let job_stats = job_stats_snapshot(worker_name);
     match conn {
         Connection::Sql(db) => {
             update_worker_ping_main_loop_query(
@@ -131,6 +145,8 @@ async fn update_worker_ping_full_inner(
                 occupancy_rate_30m,
                 native_mode,
                 ip,
+                last_job,
+                job_stats.as_ref(),
                 db,
             )
             .await?;
@@ -141,8 +157,8 @@ async fn update_worker_ping_full_inner(
                     UPDATE_PING_URL,
                     None,
                     &Ping {
-                        last_job_executed: None,
-                        last_job_workspace_id: None,
+                        last_job_executed: last_job.map(|(id, _)| id),
+                        last_job_workspace_id: last_job.map(|(_, w_id)| w_id.to_string()),
                         worker_instance: None,
                         ip: ip.map(str::to_string),
                         tags: Some(tags.to_vec()),
@@ -160,7 +176,9 @@ async fn update_worker_ping_full_inner(
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation: None,
                         native_mode: Some(native_mode),
+                        draining: None,
                         ping_type: PingType::MainLoop,
+                        job_stats,
                     },
                 )
                 .await?;
@@ -169,14 +187,15 @@ async fn update_worker_ping_full_inner(
     Ok(())
 }
 
-/// Registers the worker in `worker_ping` and returns the number of jobs already attributed
-/// to that worker name, which is 0 unless this process reclaims the row of an earlier one.
+/// Registers the worker in `worker_ping` and returns the job counters already attributed to
+/// that worker name, which are empty unless this process reclaims the row of an earlier one.
 pub async fn insert_ping(
     worker_instance: &str,
     worker_name: &str,
     ip: Option<&str>,
+    reset_draining: bool,
     db: &Connection,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<ReclaimedPing> {
     let (tags, dw, dws, native_mode) = {
         let wc = (**WORKER_CONFIG.load()).clone();
         (
@@ -220,6 +239,7 @@ pub async fn insert_ping(
                 memory,
                 job_isolation,
                 native_mode,
+                reset_draining.then_some(false),
                 db,
             )
             .await;
@@ -252,15 +272,17 @@ pub async fn insert_ping(
                         wm_memory_usage: get_windmill_memory_usage(),
                         job_isolation,
                         native_mode: Some(native_mode),
+                        draining: reset_draining.then_some(false),
                         ping_type: PingType::Initial,
+                        job_stats: None,
                     },
                 )
                 .await?;
         }
     }
     // The agent ping endpoint answers with nothing, so an agent worker always starts its
-    // counter from zero.
-    Ok(0)
+    // counters from zero.
+    Ok(ReclaimedPing::default())
 }
 
 pub async fn update_worker_ping_from_job(
@@ -310,7 +332,9 @@ pub async fn update_worker_ping_from_job(
                     &Ping {
                         last_job_executed: Some(job_id.clone()),
                         last_job_workspace_id: Some(w_id.to_string()),
+                        draining: None,
                         ping_type: PingType::Job,
+                        job_stats: None,
                         worker_instance: None,
                         ip: None,
                         tags: None,
@@ -336,6 +360,46 @@ pub async fn update_worker_ping_from_job(
         }
     }
     Ok(())
+}
+
+/// Publishes on the worker's ping row that it has received its killpill, so the job it is
+/// still running can find out and exit early.
+pub async fn mark_worker_draining(conn: &Connection, worker_name: &str) -> anyhow::Result<()> {
+    match conn {
+        Connection::Sql(db) => set_worker_draining_query(worker_name, db).await,
+        Connection::Http(client) => {
+            client
+                .post::<Ping, ()>(
+                    UPDATE_PING_URL,
+                    None,
+                    &Ping {
+                        last_job_executed: None,
+                        last_job_workspace_id: None,
+                        draining: None,
+                        ping_type: PingType::Draining,
+                        job_stats: None,
+                        worker_instance: None,
+                        ip: None,
+                        tags: None,
+                        dw: None,
+                        dws: None,
+                        version: None,
+                        vcpus: None,
+                        memory: None,
+                        memory_usage: None,
+                        wm_memory_usage: None,
+                        jobs_executed: None,
+                        occupancy_rate: None,
+                        occupancy_rate_15s: None,
+                        occupancy_rate_5m: None,
+                        occupancy_rate_30m: None,
+                        job_isolation: None,
+                        native_mode: None,
+                    },
+                )
+                .await
+        }
+    }
 }
 
 pub async fn ping_job_status(

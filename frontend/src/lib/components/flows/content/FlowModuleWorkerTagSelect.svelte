@@ -2,6 +2,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { workerTags, workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { WorkerService } from '$lib/gen'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 
@@ -25,7 +26,8 @@
 	// A fork-scoped session deploys to opWorkspace, not $workspaceStore. Keep a local
 	// tag list in that case so the gate reflects the fork without clobbering the
 	// shared, navigation-scoped `workerTags` cache.
-	let effectiveWorkspace = $derived(opWorkspace?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let effectiveWorkspace = $derived(opWorkspace?.() ?? $operatingWorkspace)
 	let usesLocal = $derived(
 		effectiveWorkspace != undefined && effectiveWorkspace !== $workspaceStore
 	)

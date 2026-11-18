@@ -7,10 +7,14 @@ edition.workspace = true
 [lib]
 name = "windmill_api_workers"
 path = "src/lib.rs"
+# src/ has no unit tests or doctests: remove both lines before adding one, or cargo test never runs it.
+test = false
+doctest = false
 
 [dependencies]
 windmill-api-auth.workspace = true
 windmill-common = { workspace = true, default-features = false }
+windmill-queue.workspace = true
 axum.workspace = true
 chrono.workspace = true
 serde.workspace = true

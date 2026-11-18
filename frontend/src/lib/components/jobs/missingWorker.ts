@@ -1,4 +1,5 @@
 import { JobService, WorkerService } from '$lib/gen'
+import { devTagNoWorkerHint, loadDevWorkspaceTagSuffix } from '$lib/devWorkspaceTags'
 
 /**
  * A queued job whose tag no running worker serves is never picked up: without
@@ -15,9 +16,10 @@ export class NoWorkerForTagError extends Error {
 	constructor(tag: string) {
 		super(
 			`No worker has been listening to the tag "${tag}" while this job waited, so it was never ` +
-				`picked up. It stays queued and will run once a worker with that tag comes online. ` +
-				`Add "${tag}" to the worker tags of one of your worker groups (Workers page), or run a ` +
-				`worker that serves it.`
+				`picked up. It stays queued and will run once a worker with that tag comes online.` +
+				(devTagNoWorkerHint(tag) ||
+					` Add "${tag}" to the worker tags of one of your worker groups (Workers page), or run ` +
+						`a worker that serves it.`)
 		)
 		this.name = 'NoWorkerForTagError'
 		this.tag = tag
@@ -28,8 +30,10 @@ export class NoWorkerForTagError extends Error {
 export function queuedWithoutWorkerMessage(tag: string): string {
 	return (
 		`No worker is listening to the tag "${tag}", so this operation is queued and will only run ` +
-		`once one is. Add "${tag}" to the worker tags of one of your worker groups (Workers page), ` +
-		`or run a worker that serves it.`
+		`once one is.` +
+		(devTagNoWorkerHint(tag) ||
+			` Add "${tag}" to the worker tags of one of your worker groups (Workers page), or run a ` +
+				`worker that serves it.`)
 	)
 }
 
@@ -68,7 +72,9 @@ export async function missingWorkerTagOfQueuedJob(
 	try {
 		const job = await JobService.getJob({ workspace, id: jobId, noCode: true, noLogs: true })
 		if (job.type !== 'QueuedJob' || job.running || !job.tag) return undefined
-		return (await hasWorkerForTag(workspace, job.tag)) ? undefined : job.tag
+		if (await hasWorkerForTag(workspace, job.tag)) return undefined
+		await loadDevWorkspaceTagSuffix()
+		return job.tag
 	} catch (err) {
 		console.warn('Could not determine whether a worker serves the job tag', err)
 		return undefined

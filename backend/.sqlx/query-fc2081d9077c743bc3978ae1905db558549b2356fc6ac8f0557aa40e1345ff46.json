@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.email IS NULL as \"legacy!\", COALESCE(u.username, p.username) as username\n           FROM draft d\n           LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email\n           LEFT JOIN password p ON p.email = d.email AND p.super_admin = true\n           WHERE d.workspace_id = $1 AND d.path = $2 AND d.typ::text = ANY($3::text[])\n             -- A row a move already brought here from the very path being renamed is this\n             -- rename's own draft, not an item in its way: the record says which owners\n             -- it moved (all of them for an item move, one for a draft-only move). Any\n             -- other row is a second item and still collides.\n             AND NOT EXISTS (\n                 SELECT 1 FROM draft_move m\n                 WHERE m.workspace_id = $1 AND m.typ::text = ANY($3::text[])\n                   AND m.old_path = $4 AND m.new_path = $2\n                   AND (m.email IS NULL OR m.email IS NOT DISTINCT FROM d.email)\n             )\n           ORDER BY 2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "legacy!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "fc2081d9077c743bc3978ae1905db558549b2356fc6ac8f0557aa40e1345ff46"
+}

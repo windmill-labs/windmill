@@ -1,20 +1,21 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
 	interface Props {
-		size?: number;
-		color?: string | undefined;
-		class?: string;
+		size?: number
+		color?: string | undefined
+		class?: string
 	}
 
-	let { size = 16, color = undefined, class: clazz = '' }: Props = $props();
-	
+	let { size = 16, color = undefined, class: clazz = '' }: Props = $props()
 </script>
 
+<!-- #375C93 / #27AAE1 per cncf/artwork. -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	width={size}
 	height={size}
-	viewBox="0 0 64 64"
-	class={clazz}
+	viewBox="-2.909 -2.909 69.818 69.818"
+	class={twMerge('text-[#375C93] dark:text-[#27AAE1]', clazz)}
 	fill={color ?? 'currentColor'}
 	stroke-width="0"
 >

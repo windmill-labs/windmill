@@ -33,6 +33,23 @@ pub const AZURE_OSSRDBMS_SCOPE: &str = "https://ossrdbms-aad.database.windows.ne
 /// login, so the mode having been intended at all leaves no trace.
 pub const WORKLOAD_IDENTITY_PASSWORD: &str = "ms_entraid";
 
+/// Host suffixes of Azure Database for PostgreSQL in the public, China and US Government
+/// clouds. Private endpoints resolve under the same names (`<server>.privatelink.…`).
+pub const AZURE_POSTGRES_HOST_SUFFIXES: &[&str] = &[
+    ".postgres.database.azure.com",
+    ".postgres.database.chinacloudapi.cn",
+    ".postgres.database.usgovcloudapi.net",
+];
+
+/// Whether `host` names an Azure Database for PostgreSQL server. Such a server never hands
+/// the token it is presented to its owner, so sending it one cannot leak the token.
+pub fn is_azure_postgres_host(host: &str) -> bool {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    AZURE_POSTGRES_HOST_SUFFIXES
+        .iter()
+        .any(|suffix| host.len() > suffix.len() && host.ends_with(suffix))
+}
+
 /// Renew an access token this long before it expires.
 const TOKEN_REFRESH_BUFFER: Duration = Duration::from_secs(5 * 60);
 
@@ -102,7 +119,7 @@ impl WorkloadIdentityConfig {
                 .filter(|v| !v.is_empty())
                 .ok_or_else(|| {
                     Error::BadConfig(format!(
-                        "Workload identity authentication requires the {} env var on the worker, \
+                        "Workload identity authentication requires the {} env var on the Windmill process connecting, \
                          injected by the Azure workload identity webhook",
                         env_var
                     ))
@@ -256,6 +273,28 @@ impl WorkloadIdentityConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The API server sends its Entra ID token only to hosts this accepts, so a lookalike
+    /// must not pass.
+    #[test]
+    fn test_is_azure_postgres_host() {
+        assert!(is_azure_postgres_host(
+            "myserver.postgres.database.azure.com"
+        ));
+        assert!(is_azure_postgres_host(
+            "MyServer.privatelink.postgres.database.azure.com."
+        ));
+        assert!(is_azure_postgres_host(
+            "s.postgres.database.usgovcloudapi.net"
+        ));
+        assert!(!is_azure_postgres_host("postgres.database.azure.com"));
+        assert!(!is_azure_postgres_host(".postgres.database.azure.com"));
+        assert!(!is_azure_postgres_host(
+            "s.postgres.database.azure.com.attacker.io"
+        ));
+        assert!(!is_azure_postgres_host("s-postgres.database.azure.com"));
+        assert!(!is_azure_postgres_host("127.0.0.1"));
+    }
 
     fn config(authority_host: &str) -> WorkloadIdentityConfig {
         WorkloadIdentityConfig {

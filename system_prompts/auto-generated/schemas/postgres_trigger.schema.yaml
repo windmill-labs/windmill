@@ -42,7 +42,9 @@ properties:
     description: Name of the PostgreSQL logical replication slot to use
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -61,7 +63,8 @@ properties:
             description: Seconds to wait between retries
       exponential:
         type: object
-        description: Retry with exponential backoff (delay doubles each time)
+        description: 'Retry with exponential backoff: the n-th retry waits multiplier
+          × seconds^n'
         properties:
           attempts:
             type: integer
@@ -72,7 +75,8 @@ properties:
           seconds:
             type: integer
             minimum: 1
-            description: Initial delay in seconds
+            description: Base of the exponential (seconds); the n-th retry waits multiplier
+              × seconds^n, where n counts constant retries too
           random_factor:
             type: integer
             minimum: 0

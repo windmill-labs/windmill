@@ -23,6 +23,20 @@ mod dedicated_worker_tests {
         WorkspacedPath { workspace_id: workspace.to_string(), path: path.to_string() }
     }
 
+    /// Waits on one listener for every job: the jobs may complete in any order, and a listener
+    /// opened after one completes never sees that notification.
+    async fn wait_for_all(
+        mut listener: impl futures::Stream<Item = uuid::Uuid> + Unpin,
+        jobs: &[uuid::Uuid],
+    ) {
+        use futures::StreamExt;
+        let mut pending: std::collections::HashSet<_> = jobs.iter().copied().collect();
+        while !pending.is_empty() {
+            let id = listener.next().await.expect("completed job listener ended");
+            pending.remove(&id);
+        }
+    }
+
     /// Assert that a completed job (or any descendant job) was executed
     /// by a dedicated worker process with the expected mode by checking job logs
     /// for the "dedicated worker {mode}:" prefix.
@@ -85,6 +99,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000001,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -122,6 +137,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000002,
+            job_token_scopes: None,
         })
         .arg("x", json!(7))
         .push(&db)
@@ -161,6 +177,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000003,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -205,6 +222,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(21))
         .push(&db)
@@ -247,6 +265,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -265,6 +284,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -274,10 +294,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                // Wait for both jobs to complete
-                listener.find(&uuid_a).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_b).await;
+                wait_for_all(listener, &[uuid_a, uuid_b]).await;
             },
             port,
             vec![
@@ -327,6 +344,7 @@ mod dedicated_worker_tests {
                     apply_preprocessor: false,
                     labels: None,
                     version: 3000000000000004,
+                    job_token_scopes: None,
                 })
                 .run_until_complete(&db, false, port)
                 .await
@@ -356,6 +374,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000005,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -391,6 +410,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000006,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -427,6 +447,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000007,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -465,6 +486,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000008,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -500,6 +522,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000009,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -511,6 +534,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000010,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -520,9 +544,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_a).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_b).await;
+                wait_for_all(listener, &[uuid_a, uuid_b]).await;
             },
             port,
             vec![
@@ -564,6 +586,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -622,6 +645,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(7))
         .push(&db)
@@ -634,6 +658,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000011,
+            job_token_scopes: None,
         })
         .arg("x", json!(7))
         .push(&db)
@@ -643,9 +668,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_standalone).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_flow).await;
+                wait_for_all(listener, &[uuid_standalone, uuid_flow]).await;
             },
             port,
             vec![
@@ -683,6 +706,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000012,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -742,6 +766,7 @@ mod dedicated_worker_tests {
                     apply_preprocessor: false,
                     labels: None,
                     version: 3000000000000013,
+                    job_token_scopes: None,
                 })
                 .run_until_complete(&db, false, port)
                 .await
@@ -777,6 +802,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -795,6 +821,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -804,9 +831,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_a).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_b).await;
+                wait_for_all(listener, &[uuid_a, uuid_b]).await;
             },
             port,
             vec![
@@ -818,7 +843,8 @@ mod dedicated_worker_tests {
 
         let job_a = completed_job(uuid_a, &db).await;
         let job_b = completed_job(uuid_b, &db).await;
-        assert_eq!(job_a.json_result().unwrap(), json!(105));
+        // helper(5) = 50, + 100
+        assert_eq!(job_a.json_result().unwrap(), json!(150));
         assert_eq!(job_b.json_result().unwrap(), json!(205));
         assert_ran_on_dedicated_worker(&db, uuid_a, "python3").await;
         assert_ran_on_dedicated_worker(&db, uuid_b, "python3").await;
@@ -848,6 +874,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -867,6 +894,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -876,9 +904,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_pre).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_other).await;
+                wait_for_all(listener, &[uuid_pre, uuid_other]).await;
             },
             port,
             vec![
@@ -926,6 +952,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000014,
+            job_token_scopes: None,
         })
         .arg("x", json!(20))
         .push(&db)
@@ -938,6 +965,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000014,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -947,9 +975,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_branch).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_default).await;
+                wait_for_all(listener, &[uuid_branch, uuid_default]).await;
             },
             port,
             vec![wp("test-workspace", "flow/f/system/dedicated_branch_flow")],
@@ -988,6 +1014,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -1038,6 +1065,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -1089,6 +1117,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -1142,6 +1171,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -1160,6 +1190,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -1169,9 +1200,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_pre).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_other).await;
+                wait_for_all(listener, &[uuid_pre, uuid_other]).await;
             },
             port,
             vec![
@@ -1222,6 +1251,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(7))
         .push(&db)
@@ -1240,6 +1270,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .workspace("test-workspace-2")
         .arg("x", json!(7))
@@ -1250,9 +1281,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_ws1).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_ws2).await;
+                wait_for_all(listener, &[uuid_ws1, uuid_ws2]).await;
             },
             port,
             vec![
@@ -1294,6 +1323,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -1338,6 +1368,7 @@ mod dedicated_worker_tests {
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -1375,6 +1406,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000015,
+            job_token_scopes: None,
         })
         .push(&db)
         .await;
@@ -1412,6 +1444,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000019,
+            job_token_scopes: None,
         })
         .push(&db)
         .await;
@@ -1451,6 +1484,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000016,
+            job_token_scopes: None,
         })
         .arg("x", json!(1))
         .push(&db)
@@ -1490,6 +1524,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000017,
+            job_token_scopes: None,
         })
         .arg("x", json!(5))
         .push(&db)
@@ -1529,6 +1564,7 @@ mod dedicated_worker_tests {
             apply_preprocessor: false,
             labels: None,
             version: 3000000000000018,
+            job_token_scopes: None,
         })
         .push(&db)
         .await;

@@ -1,8 +1,13 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TreeView from './TreeView.svelte'
-	import { groupItems, type ItemType } from './treeViewUtils'
+	import { countLeaves, groupItems, type ItemType, type UserItem } from './treeViewUtils'
 	import { Button } from '$lib/components/common'
+	import { Users } from 'lucide-svelte'
+	import TreeOwnerRow from './TreeOwnerRow.svelte'
+	import { inUnruledList, rowRule } from '../common/table/unruledList'
+	import { getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
+	import type { TreeOpenMemory } from './treeViewState.svelte'
 
 	interface Props {
 		collapseAll: boolean
@@ -29,7 +34,7 @@
 		// when it doesn't apply, in which case every owner is injected as before.
 		ownerCounts?: Record<string, number>
 		// The viewer's own username: their personal space is a fixture of the tree and
-		// stays even when empty, so they have somewhere to create into.
+		// stays even when empty, so they have somewhere to create into, unless `hideEmptySelf`.
 		selfUsername?: string
 		ownerLoad?: Record<
 			string,
@@ -38,6 +43,29 @@
 		onExpandOwner?: (owner: string, more?: boolean, opts?: { all?: boolean }) => void
 		onCollapseOwner?: (owner: string) => void
 		showEditButton?: boolean
+		/** Off where the tree is part of its host's list rather than a box of its own (Home). */
+		framed?: boolean
+		// Tuck every user space but `selfUsername`'s into one collapsible "Other users" row
+		// under it. Only for browsing: a search or filter must not hide its matches behind
+		// a closed row.
+		groupOtherUsers?: boolean
+		// See TreeView's `leaf`.
+		leaf?: Snippet<[ItemType, number]>
+		// See TreeView's `openMemory`.
+		openMemory?: Pick<TreeOpenMemory, 'isOpen' | 'setOpen'>
+		// See TreeView's `onManageFolder`.
+		onManageFolder?: (folderName: string) => void
+		// See TreeView's `ownerLead`.
+		ownerLead?: Snippet<[string]>
+		// See TreeView's `ownerDetail`.
+		ownerDetail?: Snippet<[string]>
+		// Inject folders `ownerCounts` calls empty, as "0 items". Off under a kind filter,
+		// where those counts are per kind and every folder lacking that kind would show.
+		keepEmptyFolders?: boolean
+		// Folders injected even when empty and `keepEmptyFolders` is off.
+		keptFolders?: string[]
+		// Drop `selfUsername`'s space too when it holds nothing, instead of keeping it as "0 items".
+		hideEmptySelf?: boolean
 	}
 
 	let {
@@ -57,8 +85,20 @@
 		ownerLoad,
 		onExpandOwner,
 		onCollapseOwner,
-		showEditButton = true
+		showEditButton = true,
+		framed = true,
+		groupOtherUsers = false,
+		leaf,
+		openMemory,
+		onManageFolder,
+		ownerLead,
+		ownerDetail,
+		keepEmptyFolders = false,
+		keptFolders,
+		hideEmptySelf = false
 	}: Props = $props()
+
+	const unruled = inUnruledList()
 
 	// How many root nodes render at once. A root node is a collapsed owner row that
 	// fetches nothing until expanded, so a large slice costs a row each and no request
@@ -82,6 +122,9 @@
 		allUsers
 		ownerCounts
 		selfUsername
+		keepEmptyFolders
+		keptFolders
+		hideEmptySelf
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
@@ -106,15 +149,21 @@
 						.filter((g) => 'folderName' in g)
 						.map((g) => (g as { folderName: string }).folderName)
 				)
-				// Once counts are in, an owner holding nothing the user can see is dropped
-				// rather than injected — a workspace's folder list is mostly noise in the
-				// tree otherwise. Pipeline folders are exempt: their entry is the pipeline
-				// itself, whose member scripts are folded out of the runnable count.
+				// Once counts are in, a user space holding nothing the user can see is dropped
+				// rather than injected — the member list is mostly noise in the tree otherwise.
+				// Empty folders are dropped too unless `keepEmptyFolders` or `keptFolders`. Pipeline folders are
+				// exempt: their entry is the pipeline, whose scripts the count folds out.
 				const isEmptyOwner = (prefix: string) => ownerCounts != undefined && !ownerCounts[prefix]
 				const missingFolders: { folderName: string; items: [] }[] = []
 				for (const folderName of [...(pipelineFolders ?? []), ...allFolders]) {
 					if (presentFolders.has(folderName)) continue
-					if (!pipelineFolders?.has(folderName) && isEmptyOwner(`f/${folderName}`)) continue
+					if (
+						!keepEmptyFolders &&
+						!pipelineFolders?.has(folderName) &&
+						!keptFolders?.includes(folderName) &&
+						isEmptyOwner(`f/${folderName}`)
+					)
+						continue
 					presentFolders.add(folderName)
 					missingFolders.push({ folderName, items: [] })
 				}
@@ -125,8 +174,9 @@
 				for (const username of allUsers) {
 					if (presentUsers.has(username)) continue
 					// Your own space is exempt from the drop: it's where you create, so it
-					// stays visible (as "0 items") when empty rather than disappearing.
-					if (username !== selfUsername && isEmptyOwner(`u/${username}`)) continue
+					// stays visible (as "0 items") when empty rather than disappearing, unless `hideEmptySelf`.
+					if ((hideEmptySelf || username !== selfUsername) && isEmptyOwner(`u/${username}`))
+						continue
 					presentUsers.add(username)
 					missingUsers.push({ username, items: [] })
 				}
@@ -138,6 +188,7 @@
 					const dir = groupDesc ? -1 : 1
 					const users = grouped.filter((g) => 'username' in g) as { username: string }[]
 					const folders = grouped.filter((g) => 'folderName' in g) as { folderName: string }[]
+					const leaves = grouped.filter((g) => !('username' in g) && !('folderName' in g))
 					users.push(...missingUsers)
 					folders.push(...missingFolders)
 					users.sort((a, b) => dir * a.username.localeCompare(b.username))
@@ -145,13 +196,69 @@
 					grouped.length = 0
 					grouped.push(
 						...(users as unknown as typeof grouped),
-						...(folders as unknown as typeof grouped)
+						...(folders as unknown as typeof grouped),
+						...leaves
 					)
 				}
 			}
 			groupedItems = grouped
 		})
 	})
+
+	type RootNode = ReturnType<typeof groupItems>[number]
+	// `loadRank` is what "expand all" caps its requests by (see TreeView's rootIndex).
+	type RootRow = { kind: 'node'; node: RootNode; loadRank: number } | { kind: 'otherUsers' }
+
+	const OTHER_USERS_OPEN_SETTING_NAME = 'homeTreeOtherUsersOpen'
+	let otherUsersOpen = $state(getLocalSetting(OTHER_USERS_OPEN_SETTING_NAME) == 'true')
+	function toggleOtherUsers() {
+		otherUsersOpen = !otherUsersOpen
+		storeLocalSetting(OTHER_USERS_OPEN_SETTING_NAME, otherUsersOpen ? 'true' : undefined)
+	}
+	// The group pages its rows separately from the root slice. Drawing from `nbDisplayed`
+	// instead, opening it would push folders past the slice and unmount them, dropping
+	// whatever they had expanded.
+	let nbOtherUsersDisplayed = $state(ROOT_PAGE)
+
+	function isOtherUser(node: RootNode): node is UserItem {
+		return 'username' in node && node.username !== selfUsername
+	}
+
+	let otherUsers: UserItem[] = $derived(
+		groupOtherUsers && selfUsername != undefined && Array.isArray(groupedItems)
+			? groupedItems.filter(isOtherUser)
+			: []
+	)
+	let otherUsersItemCount = $derived(
+		ownerCounts != undefined
+			? otherUsers.reduce(
+					(sum, u) => sum + Math.max(ownerCounts[`u/${u.username}`] ?? 0, countLeaves(u)),
+					0
+				)
+			: undefined
+	)
+
+	let rows: RootRow[] = $derived.by(() => {
+		if (!Array.isArray(groupedItems)) return []
+		if (otherUsers.length === 0) {
+			return groupedItems.map((node, i): RootRow => ({ kind: 'node', node, loadRank: i }))
+		}
+		// `groupItems` orders users before folders, so with the others taken out the viewer's
+		// own space is what leads.
+		const main = groupedItems.filter((g) => !isOtherUser(g))
+		const lead = main.filter((g) => 'username' in g)
+		const rest = main.filter((g) => !('username' in g))
+		return [
+			...lead.map((node, i): RootRow => ({ kind: 'node', node, loadRank: i })),
+			{ kind: 'otherUsers' },
+			...rest.map((node, i): RootRow => ({ kind: 'node', node, loadRank: lead.length + i }))
+		]
+	})
+	// Owner rows only, for the footer: the "Other users" row is neither a folder nor a user.
+	let ownerRowCount = $derived(rows.filter((r) => r.kind === 'node').length)
+	let shownOwnerRowCount = $derived(
+		rows.slice(0, nbDisplayed).filter((r) => r.kind === 'node').length
+	)
 
 	let footerEl: HTMLDivElement | undefined = $state()
 	// Reveal the next slice of root nodes as the footer comes into view. Only the
@@ -162,10 +269,9 @@
 		if (!el) return
 		const observer = new IntersectionObserver((entries) => {
 			if (!entries.some((e) => e.isIntersecting)) return
-			const grouped = groupedItems
-			if (!Array.isArray(grouped) || nbDisplayed >= grouped.length) return
+			if (nbDisplayed >= rows.length) return
 			if (nbDisplayed >= AUTO_REVEAL_LIMIT) return
-			nbDisplayed = Math.min(nbDisplayed + ROOT_PAGE, grouped.length)
+			nbDisplayed = Math.min(nbDisplayed + ROOT_PAGE, rows.length)
 			// Revealing more doesn't change whether the footer intersects, so no further
 			// callback would fire and scrolling would stall with rows left unrevealed.
 			// Re-observing re-delivers the current intersection after the rows render.
@@ -177,6 +283,34 @@
 	})
 </script>
 
+{#snippet ownerNode(node: RootNode, loadRank: number, indent: number)}
+	<TreeView
+		rootIndex={loadRank}
+		{indent}
+		{isSearching}
+		{collapseAll}
+		item={node}
+		{pipelineFolders}
+		{ownerCounts}
+		ancestorHasMore={hasMoreServer}
+		{ownerLoad}
+		{onExpandOwner}
+		{onCollapseOwner}
+		on:scriptChanged
+		on:flowChanged
+		on:appChanged
+		on:rawAppChanged
+		on:reload
+		{showCode}
+		{showEditButton}
+		{leaf}
+		{openMemory}
+		{onManageFolder}
+		{ownerLead}
+		{ownerDetail}
+	/>
+{/snippet}
+
 {#if groupedItems === 'loading'}
 	<div class="flex flex-row items-center justify-center">
 		<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-gray-100"
@@ -187,58 +321,90 @@
 		<div class="text-xs font-normal text-hint">No items</div>
 	</div>
 {:else}
-	<div class="border rounded-md bg-surface-tertiary">
-		{#each groupedItems.slice(0, nbDisplayed) as item, rootIndex ('folderName' in item ? `f__${item.folderName}` : 'username' in item ? `u__${item.username}` : `i__${item.type}__${item.path}`)}
-			{#if item}
-				<TreeView
-					{rootIndex}
-					{isSearching}
-					{collapseAll}
-					{item}
-					{pipelineFolders}
-					{ownerCounts}
-					ancestorHasMore={hasMoreServer}
-					{ownerLoad}
-					{onExpandOwner}
-					{onCollapseOwner}
-					on:scriptChanged
-					on:flowChanged
-					on:appChanged
-					on:rawAppChanged
-					on:reload
-					{showCode}
-					{showEditButton}
-				/>
-			{/if}
-		{/each}
-		{#if nbDisplayed < groupedItems.length || hasMoreServer}
-			<!-- Last row of the tree's own frame, not a caption under it: what is missing
-			     has to read as part of the list to be noticed at all. -->
-			<div
-				bind:this={footerEl}
-				class="px-4 py-3 flex flex-row items-center justify-between gap-4 bg-surface-secondary"
-			>
-				<span class="text-xs text-secondary">
-					{#if nbDisplayed < groupedItems.length}
-						Showing {nbDisplayed} of {groupedItems.length} folders and users
-					{:else}
-						<!-- Scoped to one owner: the tree groups the paged browse stream, so what
-						     is missing is items, not root nodes. -->
-						Not all items are loaded yet
+	<!-- Every row draws its own border-b, so the last one would double the frame's bottom border.
+	     Pulling the content 1px down puts that border under the frame, where overflow-hidden
+	     clips it, whichever row (collapsed owner, leaf, expanded subtree) ends the list. -->
+	<div class="{framed ? 'border rounded-md bg-surface-tertiary' : ''} overflow-hidden">
+		<div class="-mb-px">
+			{#each rows.slice(0, nbDisplayed) as row (row.kind === 'otherUsers' ? 'other_users' : 'folderName' in row.node ? `f__${row.node.folderName}` : 'username' in row.node ? `u__${row.node.username}` : `i__${row.node.type}__${row.node.path}`)}
+				{#if row.kind === 'otherUsers'}
+					<!-- Same shape as an owner row, so it reads as part of the tree. It only reveals
+				     the user rows under it: each still loads its own items when opened. -->
+					<TreeOwnerRow
+						icon={Users}
+						name="Other users"
+						opened={otherUsersOpen}
+						onToggle={toggleOtherUsers}
+						toggleLabel={otherUsersOpen ? 'Hide other users' : 'Show other users'}
+					>
+						{#snippet detail()}
+							({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
+								? ` · ${pluralize(otherUsersItemCount, 'item')}`
+								: ''})
+						{/snippet}
+					</TreeOwnerRow>
+					{#if otherUsersOpen}
+						<!-- Ranked after every root owner, so opening this row can't push folders out
+					     of what "expand all" auto-loads. -->
+						{#each otherUsers.slice(0, nbOtherUsersDisplayed) as user, i (user.username)}
+							{@render ownerNode(user, ownerRowCount + i, 1)}
+						{/each}
+						{#if nbOtherUsersDisplayed < otherUsers.length}
+							<div
+								class="pl-8 pr-4 py-2 {rowRule(
+									unruled
+								)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+							>
+								<span class="text-xs text-secondary">
+									Showing {nbOtherUsersDisplayed} of {otherUsers.length} users
+								</span>
+								<Button
+									unifiedSize="sm"
+									variant="subtle"
+									onClick={() =>
+										(nbOtherUsersDisplayed = Math.min(
+											nbOtherUsersDisplayed + ROOT_PAGE,
+											otherUsers.length
+										))}
+								>
+									Show more
+								</Button>
+							</div>
+						{/if}
 					{/if}
-				</span>
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					on:click={() => {
-						if (nbDisplayed < groupedItems.length)
-							nbDisplayed = Math.min(nbDisplayed + ROOT_PAGE, groupedItems.length)
-						else onLoadMore?.()
-					}}
+				{:else}
+					{@render ownerNode(row.node, row.loadRank, 0)}
+				{/if}
+			{/each}
+			{#if nbDisplayed < rows.length || hasMoreServer}
+				<!-- Last row of the tree's own frame, not a caption under it: what is missing
+			     has to read as part of the list to be noticed at all. -->
+				<div
+					bind:this={footerEl}
+					class="px-4 py-3 flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 				>
-					{nbDisplayed < groupedItems.length ? 'Show more' : 'Load more'}
-				</Button>
-			</div>
-		{/if}
+					<span class="text-xs text-secondary">
+						{#if nbDisplayed < rows.length}
+							Showing {shownOwnerRowCount} of {ownerRowCount} folders and users
+						{:else}
+							<!-- Scoped to one owner: the tree groups the paged browse stream, so what
+						     is missing is items, not root nodes. -->
+							Not all items are loaded yet
+						{/if}
+					</span>
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						on:click={() => {
+							if (nbDisplayed < rows.length)
+								nbDisplayed = Math.min(nbDisplayed + ROOT_PAGE, rows.length)
+							else onLoadMore?.()
+						}}
+					>
+						{nbDisplayed < rows.length ? 'Show more' : 'Load more'}
+					</Button>
+				</div>
+			{/if}
+		</div>
 	</div>
 {/if}

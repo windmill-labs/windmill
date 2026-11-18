@@ -1,7 +1,12 @@
 <script lang="ts" module>
 	import { z } from 'zod'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
+	import { useHostedPage } from '$lib/components/hostedPage'
 	import { formatDatePretty, parsePrettyDate, type IconType } from '$lib/utils'
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	// Its date-fns would otherwise load with every list page that has a searchbar.
+	const calendarModule = lazyModule(() => import('./common/InlineCalendarInput.svelte'))
 
 	export type FilterSchemaRec = Record<string, FilterSchema>
 	export type FilterSchema = (
@@ -9,6 +14,11 @@
 				type: 'string' | 'number' | 'boolean'
 				allowMultiple?: boolean
 				format?: 'json'
+				/** Boolean only: the value the filter holds while unset (defaults to false).
+				 *  Selecting a filter whose default is false sets it to true immediately rather
+				 *  than opening a true/false picker whose only useful choice is true. A default-true
+				 *  boolean still opens the picker, since choosing false is the meaningful action. */
+				default?: boolean
 		  }
 		| {
 				type: 'date'
@@ -66,6 +76,19 @@
 	}
 
 	/**
+	 * Whether typed text names a filter: every word of the query must occur in its label or
+	 * key, in any order, so "archive" and "archived only" both find "Only archived".
+	 */
+	export function filterMatchesQuery(key: string, filter: FilterSchema, query: string): boolean {
+		const words = query.replace(/\\(.)/g, '$1').toLowerCase().split(/\s+/).filter(Boolean)
+		const haystack = [filter.label, key, key.replaceAll('_', ' ')]
+			.filter(Boolean)
+			.join(' ')
+			.toLowerCase()
+		return words.every((w) => haystack.includes(w))
+	}
+
+	/**
 	 * Converts a FilterSchemaRec to a Zod schema for validation
 	 */
 	export function filterSchemaRecToZodSchema<T extends FilterSchemaRec>(
@@ -107,30 +130,69 @@
 	}
 
 	/**
-	 * Creates a URL-synced filter instance that automatically syncs with URL search parameters
+	 * Creates a URL-synced filter instance that automatically syncs with URL search parameters.
+	 *
+	 * `initial` supplies defaults for keys the URL doesn't carry (a route segment, a persisted
+	 * toggle); the returned `seed` re-applies them after a navigation has rewritten the query.
 	 */
 	export function useUrlSyncedFilterInstance<T extends FilterSchemaRec>(
-		schemaRec: T
-	): { val: Partial<FilterInstanceRec<T>> } {
+		schemaRec: T,
+		initial?: Partial<FilterInstanceRec<T>>
+	): {
+		val: Partial<FilterInstanceRec<T>>
+		seed: (values: Partial<FilterInstanceRec<T>>) => void
+	} {
 		// Build the Zod schema from the filter schema
 		const zodSchema = filterSchemaRecToZodSchema(schemaRec)
 
 		// Create URL-synced search params
 		const urlFilter = useSearchParams(zodSchema) as Record<string, unknown>
 
+		// A default has to arrive as a URL param: the URL→instance effect below drops whatever the
+		// URL lacks, so a value written to the instance is undone on the next sync. Going through
+		// urlFilter rather than straight to history keeps the search-param cells in step, so it
+		// does not matter whether a popstate follows.
+		const hosted = useHostedPage()
+		function seed(values: Partial<FilterInstanceRec<T>>) {
+			const sp = new URLSearchParams(hosted ? untrack(() => hosted.search) : window.location.search)
+			for (const [key, value] of Object.entries(values) as [string, unknown][]) {
+				if (value === undefined || value === null || sp.has(key)) continue
+				urlFilter[key] = value instanceof Date ? value.toISOString() : value
+			}
+		}
+		if (initial) seed(initial)
+
 		// Create the filter instance object
 		const filterInstance: { val: Partial<FilterInstanceRec<T>> } = $state({ val: {} })
 
-		// Sync URL params to filter instance on initialization and when URL changes
+		// Sync URL params to filter instance, reactively. Reading urlFilter[key] tracked
+		// means browser Back/Forward — which mutates useSearchParams' cells on popstate —
+		// flows into the instance (chips, kind toggle, results), not just the first render.
+		// The write happens untracked so it can't self-trigger, and the equality check plus
+		// the reverse effect's own guard keep the two directions from ping-ponging.
 		for (const key of Object.keys(schemaRec)) {
-			let urlValue = urlFilter[key]
-			if (schemaRec[key].type === 'date' && typeof urlValue === 'string') {
-				const d = new Date(urlValue)
-				urlValue = isNaN(d.getTime()) ? null : d
-			}
-			if (urlValue !== undefined && urlValue !== null) {
-				;(filterInstance.val as any)[key] = urlValue
-			}
+			$effect(() => {
+				let urlValue = urlFilter[key]
+				if (schemaRec[key].type === 'date' && typeof urlValue === 'string') {
+					const d = new Date(urlValue)
+					urlValue = isNaN(d.getTime()) ? null : d
+				}
+				untrack(() => {
+					const current = (filterInstance.val as any)[key]
+					const same =
+						urlValue instanceof Date && current instanceof Date
+							? urlValue.getTime() === current.getTime()
+							: current === (urlValue ?? undefined)
+					if (same) return
+					if (urlValue !== undefined && urlValue !== null) {
+						;(filterInstance.val as any)[key] = urlValue
+					} else if (current !== undefined) {
+						// Key dropped from the URL (Back to a state without it): clear it so a
+						// stale chip / filter doesn't linger against the navigated-to URL.
+						delete (filterInstance.val as any)[key]
+					}
+				})
+			})
 		}
 
 		// Sync filter instance changes back to URL params
@@ -150,7 +212,15 @@
 			})
 		}
 
-		return filterInstance
+		return {
+			get val() {
+				return filterInstance.val
+			},
+			set val(v: Partial<FilterInstanceRec<T>>) {
+				filterInstance.val = v
+			},
+			seed
+		}
 	}
 
 	function filterToText<F extends FilterSchema>(filter: FilterInstance<F>, schema: F): string {
@@ -250,11 +320,15 @@
 
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
-	import { inputBaseClass, inputBorderClass, inputSizeClasses } from './text_input/TextInput.svelte'
+	import {
+		inputBaseClass,
+		inputBorderClass,
+		inputLeadingClasses,
+		inputSizeClasses
+	} from './text_input/TextInput.svelte'
 	import { MinusIcon, SearchIcon } from 'lucide-svelte'
 	import { assignObjInPlace, clone } from '$lib/utils'
 	import GenericDropdown from './select/GenericDropdown.svelte'
-	import SimpleEditor from './SimpleEditor.svelte'
 	import TaggedTextInput from './TaggedTextInput.svelte'
 	import { DebouncedTempValue, useTransformedSyncedValue } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
@@ -262,10 +336,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import Badge from './common/badge/Badge.svelte'
-	import InlineCalendarInput, {
-		fromCalendarDate,
-		toCalendarDate
-	} from './common/InlineCalendarInput.svelte'
+	import { fromCalendarDate, toCalendarDate } from './common/calendarDate'
 	import { ButtonType } from './common'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
@@ -275,6 +346,25 @@
 		class?: string
 		placeholder?: string
 		autofocus?: boolean
+		// Applied as the id of the underlying editable, so a parent can focus it or recognise its
+		// key events by id (the searchbar is a contenteditable, not an <input>).
+		inputId?: string
+		// Free-text mode: while the input holds only free text (no specific filter tag is
+		// being edited and no non-default filter is set), suppress the suggestions dropdown
+		// so it behaves like a plain search box. This frees the arrow keys for the
+		// surrounding UI (e.g. a results list). The dropdown returns the moment a specific
+		// filter is present (e.g. `path: u/me/abc`).
+		hideDropdownOnFreeText?: boolean
+		// Notified whenever the dropdown's effective visibility changes
+		onDropdownVisibleChange?: (visible: boolean) => void
+		size?: 'sm' | 'md' | 'lg'
+		// On the right the icon gives way to the clear button once there is text; on the left
+		// it stays put.
+		searchIconPosition?: 'left' | 'right'
+		// Caps the suggestions dropdown, which otherwise matches the searchbar's width.
+		dropdownMaxWidth?: number
+		// Gap in px between the searchbar and the dropdown below it.
+		dropdownOffsetY?: number
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
@@ -284,7 +374,14 @@
 		presets: _presets = [],
 		class: className,
 		placeholder = 'Filter...',
-		autofocus
+		autofocus,
+		hideDropdownOnFreeText = false,
+		onDropdownVisibleChange,
+		inputId,
+		size = 'md',
+		searchIconPosition = 'right',
+		dropdownMaxWidth,
+		dropdownOffsetY = 0
 	}: Props<SchemaT> = $props()
 
 	let _value = new DebouncedTempValue(
@@ -298,6 +395,24 @@
 	let currentTag: keyof SchemaT | undefined = $state()
 	let currentTextSegment = $state({ text: '', start: 0, end: 0 })
 	let open = $state(false)
+
+	// A specific filter is in play when a tag is being edited or any non-free-text filter
+	// is set.
+	let hasSpecificFilter = $derived(
+		!!currentTag || Object.keys(value).some((k) => k !== '_default_')
+	)
+	// A plain search term is being typed (free text, no specific filter).
+	let hasFreeText = $derived(!!String(value['_default_'] ?? '').trim())
+	// Effective dropdown visibility. Free-text mode suppresses the dropdown ONLY while the
+	// user is typing a plain search term: it still opens when the input is empty (so the
+	// available filters stay discoverable) and whenever a specific filter is set or being
+	// edited. That leaves the arrow keys for the surrounding list only during free-text search.
+	let dropdownVisible = $derived(
+		open && (!hideDropdownOnFreeText || hasSpecificFilter || !hasFreeText)
+	)
+	$effect(() => {
+		onDropdownVisibleChange?.(dropdownVisible)
+	})
 	let inputElement: HTMLDivElement | undefined = $state()
 	let highlightedIndex = $state(0)
 	let taggedTextInput: TaggedTextInput | undefined = $state()
@@ -336,20 +451,23 @@
 			return Object.entries(schema)
 				.filter(([_, s]) => !s.hidden)
 				.filter(([k, _]) => !(k in value))
-				.filter(([k, filterSchema]) => {
-					if (!searchText) return true
-					const label = (filterSchema.label || k).toLowerCase()
-					const key = k.toLowerCase()
-					return label.includes(searchText) || key.includes(searchText)
-				})
+				.filter(([k, filterSchema]) => filterMatchesQuery(k, filterSchema, searchText))
 				.map(([key, filterSchema]) => ({
 					type: 'filter' as const,
 					key,
 					filterSchema,
 					onClick: () => {
-						// Replace the text segment with the new filter tag
 						const before = asText.val.slice(0, currentTextSegment.start)
 						const after = asText.val.slice(currentTextSegment.end)
+						if (schema[key].type === 'boolean' && schema[key].default !== true) {
+							// Set the only useful value and reparse to canonical text. The space is
+							// required: dropping the segment must not fuse the tags that flanked it.
+							asText.val = `${before} ${after}`
+							value[key] = true as any
+							asText.reparse()
+							return
+						}
+						// Replace the text segment with the new (empty) filter tag; the value picker opens.
 						asText.val =
 							`${before}${before && !before.endsWith(' ') ? ' ' : ''}${key}:\\\u00A0${after}`.trim() +
 							'\u00A0'
@@ -406,10 +524,41 @@
 						onClick: () => setValueForCurrentTag(false)
 					}
 				]
+			} else if (filter.type === 'string' && filter.format !== 'json') {
+				// A plain string filter has no fixed options, but any presets targeting this tag
+				// (`<tag>:<value>`) are exactly its useful values — surface them as suggestions so
+				// picking one is a click, matching the top-level preset row. Unescape the tagged
+				// syntax's `\ ` back to a real space for the stored value.
+				const prefix = `${String(currentTag)}:`
+				const suffix = String(value[currentTag!] ?? '')
+					.trim()
+					.toLowerCase()
+				return _presets
+					.filter((p) => p.value.startsWith(prefix) && !asText.val.includes(p.value))
+					.map((p) => {
+						const raw = p.value.slice(prefix.length).replace(/^\\ /, '').replace(/\\ /g, ' ')
+						return { name: p.name, raw }
+					})
+					.filter((p) => !suffix || p.raw.toLowerCase().includes(suffix))
+					.map((p) => ({
+						type: 'option' as const,
+						option: { value: p.raw, label: p.name },
+						onClick: () => appendOrSetValueForCurrentTag(p.raw),
+						onNegativeClick: undefined
+					}))
 			}
 		}
 		return []
 	})
+
+	// Free-text mode keeps the keyboard for the surrounding list, but a term that names a
+	// filter ("archive" → "Only archived") still lists the matching filters, click-only.
+	let freeTextFilterHint = $derived(
+		open &&
+			!dropdownVisible &&
+			currentTextSegment.text.trim().length >= 3 &&
+			menuItems.some((i) => i.type === 'filter')
+	)
 
 	// Reset highlighted index when menu items change
 	$effect(() => {
@@ -514,7 +663,15 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
-		if (!open) return
+		// In free-text mode the dropdown is hidden; let arrow/enter keys pass through to
+		// the surrounding UI (e.g. list navigation) rather than steering a hidden menu.
+		if (!dropdownVisible) {
+			// The hint sits over the list's first rows, so it gets out of the way once the list
+			// is being navigated; the next typed character brings it back.
+			if (freeTextFilterHint && ['Escape', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key))
+				open = false
+			return
+		}
 		if (e.key === 'Escape') {
 			open = false
 			return
@@ -585,7 +742,7 @@
 	class={twMerge(
 		'flex items-center rounded-md bg-surface-input overflow-clip',
 		inputBorderClass({ error: errors.length > 0, forceFocus: open }),
-		ButtonType.UnifiedHeightClasses.md,
+		ButtonType.UnifiedHeightClasses[size],
 		className
 	)}
 	onmousedown={(e) => {
@@ -599,8 +756,12 @@
 	}}
 	bind:this={inputElement}
 >
+	{#if searchIconPosition === 'left'}
+		<SearchIcon size={16} class="ml-2.5 shrink-0 text-hint" />
+	{/if}
 	<TaggedTextInput
 		bind:this={taggedTextInput}
+		id={inputId}
 		bind:value={asText.val}
 		{tags}
 		highlights={[
@@ -614,15 +775,44 @@
 		class={twMerge(
 			'overflow-x-auto !pr-24 bg-surface-input outline-none scrollbar-hidden text-nowrap flex-1 mr-2 mt-0.5',
 			inputBaseClass,
-			inputSizeClasses.md
+			inputSizeClasses[size],
+			// The editable's own 2px top margin is what centres the text at md height, where its box
+			// is shorter than the row. At sm the two are the same height, so that margin only pushes
+			// the text below centre: drop it and take the leading the shared table defines, which is
+			// the row's height less its padding.
+			size === 'sm' && twMerge('!mt-0', inputLeadingClasses.sm),
+			size === 'lg' && '!pt-[0.7rem]',
+			searchIconPosition === 'left' && '!pl-1.5'
 		)}
 		{placeholder}
-		onKeyDown={() => (open = true)}
+		onKeyDown={(e) => {
+			// A shortcut aimed elsewhere (Ctrl/Cmd+K for global search) must not open the dropdown: it
+			// is portaled above every modal, so it would cover the overlay the shortcut opens. AltGr
+			// reports Ctrl+Alt, so a character typed with it still opens; so do chords that edit the text.
+			if (['Control', 'Meta', 'Alt', 'Shift'].includes(e.key)) return
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				!e.altKey &&
+				!['v', 'x', 'z', 'y', 'backspace', 'delete'].includes(e.key.toLowerCase())
+			)
+				return
+			// In free-text mode the searchbar coexists with a list that owns Arrow/Enter, so opening
+			// the dropdown on a bare navigation key would steal them from an empty box. Typing, click,
+			// or an already-open dropdown still open/keep it. Other searchbars keep opening on any key.
+			if (
+				!hideDropdownOnFreeText ||
+				!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'Tab'].includes(
+					e.key
+				)
+			) {
+				open = true
+			}
+		}}
 		{autofocus}
 	/>
 	{#if asText.val}
 		<CloseButton small class="mr-1.5" onClick={() => (_value.current = {})} />
-	{:else}
+	{:else if searchIconPosition === 'right'}
 		<div class="mr-3">
 			<SearchIcon size={16} class="text-hint" />
 		</div>
@@ -630,24 +820,33 @@
 </div>
 
 <GenericDropdown
-	{open}
-	getInputRect={() => inputElement?.getBoundingClientRect() ?? new DOMRect()}
-	innerClass="!max-h-[30rem]"
+	open={dropdownVisible || freeTextFilterHint}
+	instantClose={hideDropdownOnFreeText}
+	getInputRect={() => {
+		const r = inputElement?.getBoundingClientRect() ?? new DOMRect()
+		const width = dropdownMaxWidth ? Math.min(r.width, dropdownMaxWidth) : r.width
+		return new DOMRect(r.x, r.y, width, r.height + dropdownOffsetY)
+	}}
+	innerClass="!max-h-[25rem]"
 	strictWidth
 >
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div class="py-1 p-2 overflow-y-auto" onmousedown={(e) => e.stopPropagation()}>
 		{#if !currentTag || !schema[currentTag]}
-			{#if presets.length}
-				<div class="text-xs px-2 my-2 font-bold">Presets</div>
+			{#if presets.length && !freeTextFilterHint}
+				<div class="text-2xs uppercase tracking-wide font-semibold text-secondary px-2 my-2">
+					Presets
+				</div>
 				<div class="mb-3 px-2 flex gap-2 flex-wrap max-h-24 overflow-y-auto">
 					{#each presets as preset}
 						{@render presetTag(preset)}
 					{/each}
 				</div>
 			{/if}
-			<div class="text-xs px-2 my-2 font-bold">Filters</div>
+			<div class="text-2xs uppercase tracking-wide font-semibold text-secondary px-2 my-2">
+				Filters
+			</div>
 			{#each menuItems as item, index}
 				{#if item.type === 'filter' && item.filterSchema}
 					{@render menuItem({
@@ -655,7 +854,7 @@
 						onClick: item.onClick,
 						label: item.filterSchema.label || item.key,
 						description: item.filterSchema.description,
-						highlighted: index === highlightedIndex
+						highlighted: index === highlightedIndex && !freeTextFilterHint
 					})}
 				{/if}
 			{/each}
@@ -700,53 +899,72 @@
 	{:else if filter.type === 'date'}
 		{@const filterMode = filter.mode}
 		<div class="p-3 mb-1">
-			{#if !filterMode || filterMode === 'single'}
-				<InlineCalendarInput
-					bind:value={
-						() => toCalendarDate(value[currentTag!]),
-						(v) => {
-							setValueForCurrentTag(fromCalendarDate(v))
-							taggedTextInput?.preventCursorMoveOnNextSync()
+			{#await calendarModule.load() then { default: InlineCalendarInput }}
+				{#if !filterMode || filterMode === 'single'}
+					<InlineCalendarInput
+						bind:value={
+							() => toCalendarDate(value[currentTag!]),
+							(v) => {
+								setValueForCurrentTag(fromCalendarDate(v))
+								taggedTextInput?.preventCursorMoveOnNextSync()
+							}
 						}
-					}
-				/>
-			{:else}
-				{@const curr = toCalendarDate(value[currentTag!])}
-				{@const obj =
-					filterMode === 'end'
-						? { start: toCalendarDate(value[filter.otherField as keyof SchemaT]), end: curr }
-						: { end: toCalendarDate(value[filter.otherField as keyof SchemaT]), start: curr }}
-				<InlineCalendarInput
-					mode="range"
-					onClickBehavior={`set-${filterMode}`}
-					infiniteRange
-					bind:value={
-						() => obj,
-						(v) => {
-							setValueForCurrentTag(fromCalendarDate(v[filterMode]))
-							taggedTextInput?.preventCursorMoveOnNextSync()
+					/>
+				{:else}
+					{@const curr = toCalendarDate(value[currentTag!])}
+					{@const obj =
+						filterMode === 'end'
+							? { start: toCalendarDate(value[filter.otherField as keyof SchemaT]), end: curr }
+							: { end: toCalendarDate(value[filter.otherField as keyof SchemaT]), start: curr }}
+					<InlineCalendarInput
+						mode="range"
+						onClickBehavior={`set-${filterMode}`}
+						infiniteRange
+						bind:value={
+							() => obj,
+							(v) => {
+								setValueForCurrentTag(fromCalendarDate(v[filterMode]))
+								taggedTextInput?.preventCursorMoveOnNextSync()
+							}
 						}
-					}
-				/>
-			{/if}
+					/>
+				{/if}
+			{/await}
 		</div>
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">
-			<SimpleEditor
-				autofocus={String(value[currentTag!] ?? '').length === 0}
-				lang="json"
-				autoHeight
-				small
-				bind:code={
-					() => String(value[currentTag!] ?? ''),
-					(v) => {
-						setValueForCurrentTag(v ?? '')
-						taggedTextInput?.preventCursorMoveOnNextSync()
+			<!-- Dynamic: monaco would otherwise load with every list page that has a searchbar. -->
+			{#await import('./SimpleEditor.svelte') then SimpleEditor}
+				<SimpleEditor.default
+					autofocus={String(value[currentTag!] ?? '').length === 0}
+					lang="json"
+					autoHeight
+					small
+					bind:code={
+						() => String(value[currentTag!] ?? ''),
+						(v) => {
+							setValueForCurrentTag(v ?? '')
+							taggedTextInput?.preventCursorMoveOnNextSync()
+						}
 					}
-				}
-				class="border border-border-light rounded min-h-[4rem]"
-			/>
+					class="border border-border-light rounded min-h-[4rem]"
+				/>
+			{/await}
 		</div>
+	{:else if filter.type === 'string'}
+		{#if menuItems.length}
+			<div class="max-h-60 overflow-y-auto">
+				{#each menuItems as item, index}
+					{#if item.type === 'option' && item.option}
+						{@render menuItem({
+							onClick: item.onClick,
+							label: item.option.label || item.option.value,
+							highlighted: index === highlightedIndex
+						})}
+					{/if}
+				{/each}
+			</div>
+		{/if}
 	{/if}
 {/snippet}
 
@@ -769,18 +987,18 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		class={twMerge(
-			'py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm flex items-center gap-3',
+			'py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-xs text-primary flex items-center gap-2',
 			highlighted && 'bg-surface-hover'
 		)}
 		onclick={onClick}
 	>
 		{#if Icon}
-			<Icon size={16} class="inline" />
+			<Icon size={14} class="inline shrink-0" />
 		{/if}
 		<div class="inline flex-1 relative min-w-0">
-			<div class="text-sm ellipsize">{label}</div>
+			<div class="ellipsize">{label}</div>
 			{#if description}
-				<div class="text-xs text-hint">{description}</div>
+				<div class="text-2xs text-hint">{description}</div>
 			{/if}
 		</div>
 		{#if onNegativeClick}

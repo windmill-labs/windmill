@@ -1,53 +1,67 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
+	import { HOME_COLUMN_WIDTH } from '$lib/consts'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
-	import CreateActionsMenu from '$lib/components/home/CreateActionsMenu.svelte'
 	import { getScriptByPath } from '$lib/scripts'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import HomeConnectDrawer from '$lib/components/home/HomeConnectDrawer.svelte'
-	import {
-		ExternalLink,
-		GitFork,
-		Globe2,
-		Loader2,
-		Code,
-		LayoutDashboard,
-		PlugZap
-	} from 'lucide-svelte'
+	import { ExternalLink, GitFork, Globe2, Loader2, Code, LayoutDashboard } from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
-	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
+	import RecentRunsPanel from '$lib/components/home/RecentRunsPanel.svelte'
+	import RecentRunsHeaderStatus from '$lib/components/home/RecentRunsHeaderStatus.svelte'
+	import {
+		allRunsHref,
+		itemHref,
+		totalLabel,
+		usePanelOpen,
+		useRecentRuns,
+		type RecentRunItem
+	} from '$lib/components/home/recentRuns.svelte'
+	import {
+		HOME_ACTION_FOLDS,
+		homeActionsCompact,
+		homeActionsGathered,
+		homeActionsVersion,
+		homeHeaderMenu
+	} from '$lib/components/home/homeHeaderMenu.svelte'
+	import { MediaQuery } from 'svelte/reactivity'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
-	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import WorkspaceDraftsBanner from '$lib/components/WorkspaceDraftsBanner.svelte'
-	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
-	import { onMount, setContext } from 'svelte'
-	import { tutorialsToDo } from '$lib/stores'
-	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
-	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
+	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
+	import { homeSnapshotShown, releaseHomeSnapshot, watchHomeForSnapshot } from '$lib/homeSnapshot'
+	import OperatorTour from '$lib/components/tutorials/OperatorTour.svelte'
+	import {
+		hasSeenOperatorTour,
+		TOUR_PARAM,
+		TOUR_PARAM_VALUE,
+		TOUR_START_DELAY_MS
+	} from '$lib/components/tutorials/operatorTour'
 
 	type Tab = 'hub' | 'workspace'
 
 	let tab = $state<Tab>('workspace')
 
-	let subtab: 'flow' | 'script' | 'app' = $state('script')
+	let subtab: 'flow' | 'script' | 'app' | 'agent' = $state('script')
 
 	const searchParams = useSearchParams(z.object({ search: z.string().nullable() }))
 	const getFilter = () => searchParams.search ?? ''
@@ -96,39 +110,102 @@
 		appViewer?.openDrawer?.()
 	}
 
-	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
-	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
-
-	// Provide workspaceTutorials to child components via a reactive wrapper
-	let workspaceTutorialsContext = $derived(workspaceTutorials)
-	setContext('workspaceTutorials', {
-		get value() {
-			return workspaceTutorialsContext
-		}
-	})
-
 	let showCreateButtons = $state(false)
 
+	let itemsList = $state<ItemsList>()
+	let runsFolder = $derived(itemsList?.folderFilter())
+	let showRuns = $derived(
+		tab == 'workspace' && itemsList != undefined && !itemsList.isWorkspaceEmpty()
+	)
+	const recentRuns = useRecentRuns(() => ({
+		workspace: $workspaceStore,
+		folder: runsFolder,
+		enabled: showRuns
+	}))
+	const runsPanelOpen = usePanelOpen()
+	// The side panel needs the room of a desktop window; narrower, only the header status shows.
+	const wide = new MediaQuery('min-width: 1024px')
+	let showRunsPanel = $derived(showRuns && wide.current && runsPanelOpen.val)
+	const runsMenuId = homeHeaderMenu.register(200, () => {
+		const data = recentRuns.current
+		if (!showRuns || showRunsPanel || !homeActionsGathered()) return []
+		return [
+			{
+				displayName: data ? totalLabel(data) : 'Recent runs',
+				description: data && data.failed_runs > 0 ? `${data.failed_runs} failed` : undefined,
+				href: allRunsHref(runsFolder)
+			}
+		]
+	})
+	onDestroy(() => homeHeaderMenu.release(runsMenuId))
+	// A run's item is shown in place in the list, among its folder's; one the list does not show
+	// opens instead.
+	async function revealRunItem(item: RecentRunItem) {
+		if (!(await itemsList?.revealItem(item.path, item.kind))) await goto(itemHref(item))
+	}
+
+	// A workspace switch keeps this page mounted and swaps its contents under the reader, which
+	// the mount animation below never covers. Replay it by hand instead of keying the page on the
+	// workspace: a remount would drop the list's own state and refetch what it is already loading.
+	let pageEl: HTMLDivElement | undefined = $state(undefined)
+	// Height of the composer's column, which stays at the top while the composer is open.
+	let pinnedHeight = $state(0)
+
+	const reducedMotion = useReducedMotion()
+	let animatedWorkspace = $workspaceStore
+	$effect(() => {
+		const ws = $workspaceStore
+		if (ws === animatedWorkspace) return
+		animatedWorkspace = ws
+		untrack(() => {
+			if (!pageEl || reducedMotion.val) return
+			pageEl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, easing: 'ease-out' })
+		})
+	})
+
+	// Replacing the snapshot `app.html` painted, the page is already on screen: no arrival to play.
+	const fromSnapshot = homeSnapshotShown()
 	onMount(() => {
-		// Check if there's a tutorial parameter in the URL
-		const tutorialParam = page.url.searchParams.get('tutorial')
-		if (tutorialParam === 'workspace-onboarding') {
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding')
-			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') {
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
-			}, 500)
-		} else if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
-			// Check if user hasn't completed or ignored the workspace onboarding tutorial
-			// Small delay to ensure page is fully loaded
-			setTimeout(() => {
-				workspaceTutorials?.runTutorialById('workspace-onboarding')
-			}, 500)
-		}
+		releaseHomeSnapshot()
+		return watchHomeForSnapshot(() => ({
+			workspace: $workspaceStore,
+			userWorkspace: $userStore?.workspace_id
+		}))
+	})
+
+	let operatorTour: OperatorTour | undefined = $state(undefined)
+
+	// Delayed so the tabs the first steps point at exist. `runTutorial` refuses while a tour is
+	// already running, which is the guard that matters — the tour ends by telling the operator
+	// to start it again from the menu, so a start has to be possible for the life of the page.
+	function startTour() {
+		setTimeout(() => operatorTour?.runTutorial(), TOUR_START_DELAY_MS)
+	}
+
+	// The sidebar entry asks by URL parameter so it works from any page an operator can be on.
+	// Read reactively rather than on mount: arriving from the menu while already on the home
+	// page is a parameter change, not a new page.
+	$effect(() => {
+		if (page.url.searchParams.get(TOUR_PARAM) !== TOUR_PARAM_VALUE) return
+		const user = $userStore
+		if (!user) return
+		untrack(() => {
+			const url = new URL(page.url)
+			url.searchParams.delete(TOUR_PARAM)
+			replaceState(url, page.state)
+			// Gated here too: the parameter is part of a URL anyone can type, and the tour
+			// describes a home page that only operators see.
+			if (!$roleCapabilities.code) startTour()
+		})
+	})
+
+	onMount(async () => {
+		// Operators get the tour once, and only when they have not been through it: they cannot
+		// create anything, so the home page is the whole product to them and it is worth naming
+		// its three tabs. Anyone who can build gets nothing — they have the create button.
+		if ($roleCapabilities.code || page.url.searchParams.has(TOUR_PARAM)) return
+		if (await hasSeenOperatorTour()) return
+		startTour()
 	})
 </script>
 
@@ -149,7 +226,7 @@
 				</div>
 			</Button>
 			<Button
-				href="{base}/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
+				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: GitFork }}
 				variant="accent"
 				size="xs"
@@ -186,7 +263,7 @@
 			</Button>
 
 			<Button
-				href="{base}/flows/add?hub={flowViewerFlow?.flow?.id}"
+				href="/flows/add?hub={flowViewerFlow?.flow?.id}"
 				startIcon={{ icon: GitFork }}
 				variant="accent"
 				size="xs"
@@ -228,7 +305,7 @@
 			</Button>
 
 			<Button
-				href="{base}/apps/add?hub={appViewerApp?.app?.id}"
+				href="/apps/add?hub={appViewerApp?.app?.id}"
 				startIcon={{ icon: GitFork }}
 				variant="accent"
 				disabled={appViewerApp == undefined}
@@ -266,139 +343,169 @@
 	</DrawerContent>
 </Drawer>
 
+{#snippet editRuleBadge()}
+	<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
+{/snippet}
+
+{#snippet runsStatus()}
+	{#if showRuns && !showRunsPanel && !homeActionsGathered()}
+		<RecentRunsHeaderStatus
+			compact={homeActionsCompact()}
+			runs={recentRuns}
+			folder={runsFolder}
+			onFocusItem={revealRunItem}
+			onShowPanel={wide.current ? () => (runsPanelOpen.val = true) : undefined}
+		/>
+	{/if}
+{/snippet}
+
+<!-- The layout has already painted the sidebar and the surface behind it, so only what is new to
+     this route fades in. It plays on every arrival at Home, not just the one off a workspace
+     hand-over: that is the arrival it is for, and a soft one costs nothing on the others. -->
 <div
-	class="flex flex-col w-full h-full overflow-y-auto items-center"
+	bind:this={pageEl}
+	class="{fromSnapshot
+		? ''
+		: 'wm-page-in'} group/home flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
+	style:--home-pinned="{pinnedHeight}px"
 >
+	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
+	     header with the workspace's own name rather than above the list. -->
+	<PageHeaderContent actions={editRuleBadge} />
+	<!-- After the home menu (order 100): the run status closes the bar. -->
+	<PageHeaderContent
+		actions={runsStatus}
+		actionsOrder={200}
+		actionFolds={HOME_ACTION_FOLDS}
+		actionsVersion={homeActionsVersion()}
+	/>
+
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full">
-		{#if $workspaceStore == 'admins'}
-			<div class="my-4"></div>
+	<div class="flex w-full justify-center {showRunsPanel ? 'max-w-[1520px]' : ''}">
+		<div class="flex flex-col items-center flex-1 min-w-0">
+			<!-- While the composer is open this column stays at the top and the lists scroll under it. Its
+	     parent holds the lists too, because a sticky element holds only inside its parent; its
+	     background covers what passes under it, and the items' search bar sticks below it
+	     (`--home-pinned`, ItemsList) rather than behind it. -->
+			<div
+				bind:clientHeight={pinnedHeight}
+				class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full pb-6 shrink-0 bg-surface group-has-[[data-composer-open]]/home:sticky group-has-[[data-composer-open]]/home:top-0 group-has-[[data-composer-open]]/home:z-20"
+			>
+				<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row;
+		     the composer itself is gated on the workspace inside the component, which owns its own
+		     vertical spacing because the hero and the bare connect row want different amounts of it. -->
+				<HomeAIChat />
 
-			<Alert title="Admins workspace">
-				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
-				Windmill instance, such as keeping resource types up to date.
-			</Alert>
-		{/if}
-		<div class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16">
-			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight">
-				Home
-			</h1>
-			<div class="ml-auto flex flex-row gap-2 items-center">
-				{#if !$userStore?.operator && HOME_SHOW_HUB}
-					<Button
-						variant="default"
-						unifiedSize="md"
-						startIcon={{ icon: Globe2 }}
-						endIcon={{ icon: ExternalLink }}
-						href={$hubBaseUrlStore}
-						target="_blank"
-						btnClasses="whitespace-nowrap"
-					>
-						Hub
-					</Button>
+				{#if $workspaceStore == 'admins'}
+					<Alert title="Admins workspace">
+						The Admins workspace is for admins only and contains scripts whose purpose is to manage
+						your Windmill instance, such as keeping resource types up to date.
+					</Alert>
+					<div class="my-4"></div>
 				{/if}
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: PlugZap }}
-					btnClasses="whitespace-nowrap"
-					onClick={() => homeConnectDrawer?.openDrawer?.()}
-				>
-					CLI / MCP
-				</Button>
-				{#if !$userStore?.operator && showCreateButtons}
-					<div class="ml-2">
-						<CreateActionsMenu />
+
+				{#if tab == 'hub'}
+					<div class="flex flex-col gap-y-16">
+						<div class="flex flex-col pb-8">
+							{#snippet toggleKinds()}
+								<ToggleButtonGroup
+									bind:selected={subtab}
+									onSelected={(v) => {
+										setQuery('kind', v, window.location.hash)
+									}}
+									noWFull
+								>
+									{#snippet children({ item })}
+										<ToggleButton value="script" label="Scripts" icon={Code} {item} />
+										<ToggleButton
+											value="flow"
+											label="Flows"
+											icon={FlowIcon}
+											selectedColor="#14b8a6"
+											{item}
+										/>
+										<ToggleButton
+											value="app"
+											label="Apps"
+											icon={LayoutDashboard}
+											selectedColor="#fb923c"
+											{item}
+										/>
+									{/snippet}
+								</ToggleButtonGroup>
+								<Button
+									startIcon={{ icon: ExternalLink }}
+									target="_blank"
+									href={$hubBaseUrlStore}
+									variant="default"
+								>
+									Hub
+								</Button>
+							{/snippet}
+
+							{#if subtab == 'script'}
+								<PickHubScript
+									syncQuery
+									bind:filter={getFilter, setFilter}
+									on:pick={(e) => viewCode(e.detail)}
+								>
+									{#snippet children()}
+										{@render toggleKinds?.()}
+									{/snippet}
+								</PickHubScript>
+							{:else if subtab == 'flow'}
+								<PickHubFlow
+									syncQuery
+									bind:filter={getFilter, setFilter}
+									on:pick={(e) => viewFlow(e.detail)}
+								>
+									{#snippet children()}
+										{@render toggleKinds?.()}
+									{/snippet}
+								</PickHubFlow>
+							{:else if subtab == 'app'}
+								<PickHubApp
+									syncQuery
+									bind:filter={getFilter, setFilter}
+									on:pick={(e) => viewApp(e.detail)}
+								>
+									{#snippet children()}
+										{@render toggleKinds?.()}
+									{/snippet}
+								</PickHubApp>
+							{/if}
+						</div>
 					</div>
 				{/if}
 			</div>
+
+			{#if tab == 'workspace'}
+				<ItemsList bind:this={itemsList} bind:subtab showEditButtons={showCreateButtons} />
+			{/if}
 		</div>
-
-		<TutorialBanner />
-
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
-
-		{#if tab == 'hub'}
-			<div class="flex flex-col gap-y-16">
-				<div class="flex flex-col pb-8">
-					{#snippet toggleKinds()}
-						<ToggleButtonGroup
-							bind:selected={subtab}
-							onSelected={(v) => {
-								setQuery('kind', v, window.location.hash)
-							}}
-							noWFull
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="script" label="Scripts" icon={Code} {item} />
-								<ToggleButton
-									value="flow"
-									label="Flows"
-									icon={FlowIcon}
-									selectedColor="#14b8a6"
-									{item}
-								/>
-								<ToggleButton
-									value="app"
-									label="Apps"
-									icon={LayoutDashboard}
-									selectedColor="#fb923c"
-									{item}
-								/>
-							{/snippet}
-						</ToggleButtonGroup>
-						<Button
-							startIcon={{ icon: ExternalLink }}
-							target="_blank"
-							href={$hubBaseUrlStore}
-							variant="default"
-						>
-							Hub
-						</Button>
-					{/snippet}
-
-					{#if subtab == 'script'}
-						<PickHubScript
-							syncQuery
-							bind:filter={getFilter, setFilter}
-							on:pick={(e) => viewCode(e.detail)}
-						>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubScript>
-					{:else if subtab == 'flow'}
-						<PickHubFlow
-							syncQuery
-							bind:filter={getFilter, setFilter}
-							on:pick={(e) => viewFlow(e.detail)}
-						>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubFlow>
-					{:else if subtab == 'app'}
-						<PickHubApp
-							syncQuery
-							bind:filter={getFilter, setFilter}
-							on:pick={(e) => viewApp(e.detail)}
-						>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubApp>
-					{/if}
-				</div>
-			</div>
+		{#if showRunsPanel}
+			<!-- Beside the composer and the items card, as one of the page's cards, and like them it
+		     loses its frame while the composer is open. The page scrolls, so it holds to the top
+		     and its list scrolls inside it. `data-works-with-composer`: a press in it leaves the
+		     composer open, as one in the items card does. -->
+			<aside
+				data-works-with-composer
+				class="sticky top-3 self-start shrink-0 w-[380px] max-[1180px]:w-[300px] -ml-2 mr-4 mt-3 mb-6 max-h-[calc(100dvh-48px-1.5rem)] flex flex-col bg-surface-tertiary border border-border-light rounded-lg px-5 pt-2 pb-3 group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:border-transparent"
+				aria-label="Recently run"
+			>
+				<RecentRunsPanel
+					runs={recentRuns}
+					folder={runsFolder}
+					onFocusItem={revealRunItem}
+					onCollapse={() => (runsPanelOpen.val = false)}
+				/>
+			</aside>
 		{/if}
 	</div>
-
-	{#if tab == 'workspace'}
-		<ItemsList bind:filter={getFilter, setFilter} bind:subtab showEditButtons={showCreateButtons} />
-	{/if}
 </div>
 
-<WorkspaceTutorials bind:this={workspaceTutorials} />
-<HomeConnectDrawer bind:this={homeConnectDrawer} />
+{#if !$roleCapabilities.code}
+	<OperatorTour bind:this={operatorTour} />
+{/if}

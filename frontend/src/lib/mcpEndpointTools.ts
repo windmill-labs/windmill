@@ -66,6 +66,46 @@ export const mcpEndpointTools: EndpointTool[] = [
         bodyFieldRenames: undefined
     },
     {
+        name: "getWorkspaceSettingsDocument",
+        description: "get the workspace settings document: The workspace's settings in the layout of the settings.yaml that `wmill sync` writes. Admin only",
+        instructions: "",
+        path: "/w/{workspace}/workspaces/settings_document",
+        method: "GET",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "applyWorkspaceSettingsDocument",
+        description: "apply a workspace settings document: Applies a settings document, each setting through the endpoint that owns it. Admin only",
+        instructions: "Send only the top-level keys to change, each whole as getWorkspaceSettingsDocument returns it: a key the document omits is left as it is, and a key set to null clears it. Keep `__SENSITIVE_AND_UNCHANGED__` for a secret you were not given. Call with dry_run true first, show the user the changes and apply only once they agree.",
+        path: "/w/{workspace}/workspaces/settings_document",
+        method: "POST",
+        pathParamsSchema: undefined,
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "document": {
+                        "type": "object",
+                        "description": "The settings to apply, in the layout of the document. A secret given as `__SENSITIVE_AND_UNCHANGED__` keeps its stored value; one prefixed with `$encrypted:` is decrypted with the workspace key."
+                },
+                "dry_run": {
+                        "description": "Only compute the changes, without applying them.",
+                        "type": "boolean"
+                }
+        },
+        "required": [
+                "document"
+        ],
+        "minProperties": 1
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
         name: "listDataMetrics",
         description: "list declared measures and dimensions on DuckLake tables: Call this before writing any aggregate query over a DuckLake table. A declared measure is the canonical definition of that number, and reproducing it yourself will silently disagree with it (a `revenue` measure typically excludes refunds or test rows). Filter by `table` for one table's declarations, or by `path_prefix` (e.g. `f/analytics`) for everything declared under a folder; omit both to browse the whole catalog. Results are keyset-paged: a full page may mean more remain, so continue with the `cursor_*` params rather than assuming a measure does not exist. Use each returned `expr` verbatim, and when a measure has a `filter` write it as `expr FILTER (WHERE filter)` so measures with different predicates can share one GROUP BY. If a number you need has no declared measure, write your own aggregate as usual. Results are limited to declarations whose producing script the caller can read",
         instructions: "",
@@ -153,7 +193,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "expires_at": {
                         "type": "string",
-                        "description": "The expiration date of the variable",
+                        "description": "When to garbage-collect the variable. Used for ephemeral secrets; the variable is deleted once this is reached. Not the value's expiry \u2014 see value_valid_until.\n",
+                        "format": "date-time"
+                },
+                "value_valid_until": {
+                        "type": "string",
+                        "description": "When the value stored in this variable stops working. Triggers the workspace's variable expiration handler ahead of it, by the handler's `notify_before_secs` (1 day by default); never causes the variable to be deleted.\n",
                         "format": "date-time"
                 },
                 "labels": {
@@ -171,7 +216,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "is_secret",
                 "description"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -240,6 +286,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The new description of the variable"
                 },
+                "value_valid_until": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "When the value stored in this variable stops working. Omit to leave it unchanged; send null to clear it. Changing it re-arms the workspace's variable expiration handler.\n",
+                        "format": "date-time"
+                },
                 "labels": {
                         "type": "array",
                         "items": {
@@ -253,7 +305,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The path to the variable (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -401,7 +454,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "path",
                 "value",
                 "resource_type"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -473,7 +527,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The path to the resource (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -564,6 +619,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "include_draft_only": {
                         "type": "boolean",
                         "description": "When true, append per-user draft resources whose path has\nno deployed resource. Synthesized rows carry\n`draft_only: true`.\n"
+                },
+                "starred_only": {
+                        "type": "boolean",
+                        "description": "Only the `ai_agent` resources the caller starred"
                 }
         },
         "required": []
@@ -683,8 +742,8 @@ export const mcpEndpointTools: EndpointTool[] = [
     },
     {
         name: "createScript",
-        description: "create script: Creates a new script when the path does not already exist.\nCreates a new version of an existing script when called with the same path and the current `parent_hash`",
-        instructions: "To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history.",
+        description: "create script: Creates a script at a path that does not already hold one",
+        instructions: "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on.",
         path: "/w/{workspace}/scripts/create",
         method: "POST",
         pathParamsSchema: undefined,
@@ -695,9 +754,6 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "path": {
                         "type": "string"
                 },
-                "parent_hash": {
-                        "type": "string"
-                },
                 "summary": {
                         "type": "string"
                 },
@@ -706,6 +762,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "content": {
                         "type": "string"
+                },
+                "schema": {
+                        "type": "object",
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts. For other languages, or code that does not parse, a new script gets none. A new version of an existing script also keeps what the previous version's schema says about each argument, or that whole schema when nothing can be inferred. A dbt script always takes its schema from its descriptor, whatever is sent."
                 },
                 "language": {
                         "type": "string",
@@ -727,10 +787,76 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "summary",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
+    },
+    {
+        name: "updateScript",
+        description: "update script: Deploys a new version of the script at `path`, which must already hold one.\nThe body's `path` is the destination: the same path leaves the script where it\nis, a different one moves it there and archives the old path",
+        instructions: "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on.",
+        path: "/w/{workspace}/scripts/update/{path}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+},
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "content": {
+                        "type": "string"
+                },
+                "schema": {
+                        "type": "object",
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts. For other languages, or code that does not parse, a new script gets none. A new version of an existing script also keeps what the previous version's schema says about each argument, or that whole schema when nothing can be inferred. A dbt script always takes its schema from its descriptor, whatever is sent."
+                },
+                "language": {
+                        "type": "string",
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
+                },
+                "kind": {
+                        "type": "string",
+                        "description": "Possible values: script, failure, trigger, command, approval, preprocessor"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
+                }
+        },
+        "required": [
+                "summary",
+                "content",
+                "language"
+        ],
+        "minProperties": 1
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: {
+        "path__body": "path"
+}
     },
     {
         name: "deleteScriptByHash",
@@ -822,7 +948,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "runScriptByPath",
         description: "run script by path",
-        instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected.",
+        instructions: "You should first use getScriptByPath to retrieve the script's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`.",
         path: "/w/{workspace}/jobs/run/p/{path}",
         method: "POST",
         pathParamsSchema: {
@@ -968,10 +1094,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "Detailed documentation for this flow"
                 },
                 "value": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "The flow structure containing modules and optional preprocessor/failure handlers"
                 },
                 "schema": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"
                 },
                 "path": {
                         "type": "string"
@@ -988,7 +1116,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "path"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -1023,10 +1152,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "Detailed documentation for this flow"
                 },
                 "value": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "The flow structure containing modules and optional preprocessor/failure handlers"
                 },
                 "schema": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"
                 },
                 "tag": {
                         "type": "string"
@@ -1043,7 +1174,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "summary",
                 "value"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -1207,13 +1339,15 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
+                                        "description": "Who may open the app, and who its runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Neither `anonymous`, which makes the app publicly executable, nor `guest`, which opens it to anyone the identity provider authenticates, is ever assumed. Widening an app to `guest` is gated by the `RestrictGuestAppDeployment` protection rule. Possible values: viewer, publisher, guest, anonymous"
                                 },
                                 "on_behalf_of": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity."
                                 },
                                 "on_behalf_of_email": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "Address of `on_behalf_of`, written through from it on every save and returned as stored. Optional; when absent it is derived from `on_behalf_of`. Sending it is optional too; it must name the same account as `on_behalf_of`, and a pair that disagrees is rejected."
                                 },
                                 "sandbox": {
                                         "type": "boolean",
@@ -1224,7 +1358,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                         "items": {
                                                 "type": "string"
                                         },
-                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read, flow_conversations:read, flow_conversations:write). Every such token can call whoami without consent, whether `users:read` is declared or not.\n"
                                 }
                         }
                 }
@@ -1234,7 +1368,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "summary",
                 "policy"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -1321,13 +1456,15 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
+                                        "description": "Who may open the app, and who its runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Neither `anonymous`, which makes the app publicly executable, nor `guest`, which opens it to anyone the identity provider authenticates, is ever assumed. Widening an app to `guest` is gated by the `RestrictGuestAppDeployment` protection rule. Possible values: viewer, publisher, guest, anonymous"
                                 },
                                 "on_behalf_of": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity."
                                 },
                                 "on_behalf_of_email": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "Address of `on_behalf_of`, written through from it on every save and returned as stored. Optional; when absent it is derived from `on_behalf_of`. Sending it is optional too; it must name the same account as `on_behalf_of`, and a pair that disagrees is rejected."
                                 },
                                 "sandbox": {
                                         "type": "boolean",
@@ -1338,7 +1475,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                         "items": {
                                                 "type": "string"
                                         },
-                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read, flow_conversations:read, flow_conversations:write). Every such token can call whoami without consent, whether `users:read` is declared or not.\n"
                                 }
                         }
                 },
@@ -1349,7 +1486,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": [
                 "value"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -1359,7 +1497,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "runFlowByPath",
         description: "run flow by path",
-        instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected.",
+        instructions: "You should first use getFlowByPath to retrieve the flow's schema and understand what arguments are expected. A resource argument (schema format `resource-<type>`) is the bare string `$res:<path>` as that whole argument value -- not a wrapper object, not a plain path. A variable is `$var:<path>`.",
         path: "/w/{workspace}/jobs/run/f/{path}",
         method: "POST",
         pathParamsSchema: {
@@ -1471,7 +1609,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "args",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -1725,7 +1864,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "resolved": {
                         "type": "boolean",
-                        "description": "filter on whether a failure has been marked as handled. true keeps only resolved failures, false hides them"
+                        "description": "filter on whether a failed or canceled run has been marked as handled. true keeps only resolved runs, false hides them"
                 },
                 "is_flow_step": {
                         "type": "boolean",
@@ -1944,7 +2083,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -1957,7 +2096,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                 "seconds": {
                                                         "type": "integer",
                                                         "minimum": 1,
-                                                        "description": "Initial delay in seconds"
+                                                        "description": "Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too"
                                                 },
                                                 "random_factor": {
                                                         "type": "integer",
@@ -2039,7 +2178,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "script_path",
                 "is_flow",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -2147,7 +2287,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -2160,7 +2300,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                                 "seconds": {
                                                         "type": "integer",
                                                         "minimum": 1,
-                                                        "description": "Initial delay in seconds"
+                                                        "description": "Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too"
                                                 },
                                                 "random_factor": {
                                                         "type": "integer",
@@ -2241,7 +2381,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "schedule",
                 "timezone",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined

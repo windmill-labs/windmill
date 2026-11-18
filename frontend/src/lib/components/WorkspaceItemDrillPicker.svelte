@@ -5,15 +5,12 @@ the workspace-specific public API (kinds, scope = `{ kind, dir? }`,
 currentItem, leaf/branch icons) so callers (BreadcrumbSegment, EditorHeader)
 don't need to know about the generic tree model underneath.
 
-Surfaces AI-created localStorage drafts (via `listGlobalDrafts`) as extra
-items alongside the backend-loaded list, so chat-scaffolded scripts/flows/
-apps that haven't been deployed yet are still navigable. Gated on
-`isGlobalAiEnabled()` — without sessions, the only UserDrafts present are
-standalone editor autosaves and surfacing those in the breadcrumb picker
-would be surprising.
+Surfaces the session's drafts (via `listGlobalDrafts`: backend draft rows
+overlaid with live editor cells) as extra items alongside the backend-loaded
+list, so drafts the listing does not show yet (unsaved cells, a rename typed
+in a live editor) are still navigable.
 -->
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { untrack } from 'svelte'
 	import {
@@ -29,8 +26,11 @@ would be surprising.
 		getGlobalDraftStoragePath,
 		listGlobalDrafts
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { resource } from 'runed'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Kind = WorkspaceItemKind
 	type ScopeKind = Kind | 'all'
@@ -51,14 +51,17 @@ would be surprising.
 		externalFilter?: string
 		autoFocus?: boolean
 		flush?: boolean
-		// Load items and drafts from this workspace instead of the navigation
-		// workspace. Set by session live editors, whose acting workspace can
-		// differ from $workspaceStore; falls back to $workspaceStore otherwise.
+		// Load items and drafts from this workspace; defaults to the operating workspace
+		// (see `useOperatingWorkspace`).
 		workspaceId?: string
+		/** Where picking an item navigates, for a host whose pick is a navigation; rows then
+		 * open in a new tab on middle and ⌘/Ctrl-click. Stamped with the picker's workspace. */
+		itemHref?: (item: WorkspaceItem) => string
 	}
 
 	let {
 		onPick,
+		itemHref,
 		kinds = ['flow', 'script', 'app'],
 		initialScope,
 		initialHighlight,
@@ -69,7 +72,7 @@ would be surprising.
 		workspaceId
 	}: Props = $props()
 
-	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
+	const effectiveWorkspace = $derived(workspaceId ?? $operatingWorkspace)
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
 
@@ -91,17 +94,13 @@ would be surprising.
 	// Chat tools and session editor previews write drafts through `UserDraft`
 	// (workspace-scoped, localStorage-backed). Merge those into the picker so
 	// users can navigate to in-flight items that haven't been deployed yet.
-	// Filter to kinds the picker actually displays. Gated on the sessions beta
-	// gate — without sessions, the only UserDrafts present are the standalone
-	// editors' autosaves and surfacing those in the breadcrumb picker would
-	// be surprising (they'd appear as navigable items that 404 on the backend
-	// draft fetch).
+	// Filter to kinds the picker actually displays.
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
 	// `listGlobalDrafts` is backend-backed (async); fetch once and derive the
 	// per-kind lists synchronously from the resolved snapshot.
 	const globalDraftsResource = resource(
-		() => ({ ws: effectiveWorkspace, enabled: isGlobalAiEnabled() }),
-		async ({ ws, enabled }) => (enabled && ws ? await listGlobalDrafts(ws) : [])
+		() => effectiveWorkspace,
+		async (ws) => (ws ? await listGlobalDrafts(ws) : [])
 	)
 	function aiDraftsForKind(k: Kind): WorkspaceItem[] {
 		const targetType = KIND_TO_DRAFT_TYPE[k]
@@ -180,4 +179,7 @@ would be surprising.
 		else if (kinds.length === 1) loader.ensureLoaded(kinds[0])
 	}}
 	onFilterChange={loader.onFilterChange}
+	leafHref={itemHref
+		? (leaf) => withWorkspaceParam(itemHref(leaf.data), effectiveWorkspace)
+		: undefined}
 />

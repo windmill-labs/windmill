@@ -21,16 +21,29 @@ fn assert_2xx(status: u16, body: &str, endpoint: &str) {
     );
 }
 
-/// Start a mock AI API that echoes back a valid chat completion response.
+/// Start a mock AI API answering a chat completion whose content is the request body it got.
 async fn start_mock_ai_api() -> u16 {
-    use axum::{routing::post, Json, Router};
+    use axum::{response::IntoResponse, routing::post, Json, Router};
 
-    let app = Router::new().fallback(post(|| async {
+    let app = Router::new().fallback(post(|body: String| async move {
+        let streams =
+            serde_json::from_str::<serde_json::Value>(&body).is_ok_and(|v| v["stream"] == true);
+        if streams {
+            // OpenAI Responses API events, which `/ai/complete` reads.
+            let delta = json!({"type": "response.output_text.delta", "delta": body});
+            let done = json!({"type": "response.completed", "response": {}});
+            return (
+                [("content-type", "text/event-stream")],
+                format!("data: {delta}\n\ndata: {done}\n\n"),
+            )
+                .into_response();
+        }
         Json(json!({
             "id": "chatcmpl-test",
             "object": "chat.completion",
-            "choices": [{"message": {"role": "assistant", "content": "hello"}}]
+            "choices": [{"message": {"role": "assistant", "content": body}}]
         }))
+        .into_response()
     }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -83,30 +96,72 @@ async fn test_ai_proxy_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
                 "resource_path": "f/ai/openai_config",
                 "models": ["gpt-4"]
             }
-        }
+        },
+        "default_model": {"provider": "openai", "model": "gpt-4/thinking"}
     }))
     .execute(&db)
     .await?;
 
-    // POST /w/{ws}/ai/proxy/chat/completions
-    let resp = authed(
-        client()
-            .post(format!(
-                "http://localhost:{port}/api/w/test-workspace/ai/proxy/chat/completions"
-            ))
-            .header("X-Provider", "openai")
-            .json(&json!({
-                "model": "gpt-4",
-                "messages": [{"role": "user", "content": "hi"}]
-            })),
-    )
-    .send()
+    let proxy = |body: &'static str| {
+        authed(
+            client()
+                .post(format!(
+                    "http://localhost:{port}/api/w/test-workspace/ai/proxy/chat/completions"
+                ))
+                .header("X-Provider", "openai")
+                .header("Content-Type", "application/json")
+                .body(body),
+        )
+        .send()
+    };
+    let complete = |body: serde_json::Value| {
+        authed(
+            client()
+                .post(format!(
+                    "http://localhost:{port}/api/w/test-workspace/ai/complete"
+                ))
+                .json(&body),
+        )
+        .send()
+    };
+
+    // An enabled model reaches upstream byte for byte.
+    let sent = r#"{ "messages": [{"role": "user", "content": "hi"}], "model": "gpt-4" }"#;
+    let resp = proxy(sent).await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "POST /ai/proxy/chat/completions");
+    let received: serde_json::Value = serde_json::from_str(&body)?;
+    assert_eq!(received["choices"][0]["message"]["content"], sent);
+
+    // The workspace's key is not spent on a model the admin has not enabled.
+    let resp =
+        proxy(r#"{"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}"#).await?;
+    assert_eq!(resp.status().as_u16(), 400, "proxy: {}", resp.text().await?);
+    let resp = complete(json!({
+        "system": "s",
+        "user": "hi",
+        "model": {"provider": "openai", "model": "gpt-4o"}
+    }))
     .await?;
-    assert_2xx(
+    assert_eq!(
         resp.status().as_u16(),
-        &resp.text().await?,
-        "POST /ai/proxy/chat/completions",
+        400,
+        "complete: {}",
+        resp.text().await?
     );
+
+    // A legacy `/thinking` default runs as the model without the suffix.
+    let resp = complete(json!({"system": "s", "user": "hi"})).await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_2xx(status, &body, "POST /ai/complete with the default model");
+    let text = serde_json::from_str::<serde_json::Value>(&body)?["text"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let upstream: serde_json::Value = serde_json::from_str(&text)?;
+    assert_eq!(upstream["model"], "gpt-4", "upstream got: {text}");
 
     Ok(())
 }
@@ -228,6 +283,80 @@ async fn test_ai_proxy_x_resource_path_enforces_rls(db: Pool<Postgres>) -> anyho
         resp.status().as_u16(),
         &resp.text().await?,
         "admin with X-Resource-Path on restricted resource",
+    );
+
+    Ok(())
+}
+
+/// An unsaved resource value sent in X-Resource-Value is what the upstream is called
+/// with, and a scoped token cannot use it to read a variable outside its scopes.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_ai_proxy_x_resource_value(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use axum::{http::HeaderMap, http::StatusCode, routing::post, Json, Router};
+
+    initialize_tracing().await;
+    std::env::set_var("ALLOW_PRIVATE_AI_BASE_URLS", "true");
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Only answers the key carried by the header, so another credential source fails.
+    let app = Router::new().fallback(post(|headers: HeaderMap| async move {
+        if headers.get("authorization").and_then(|v| v.to_str().ok()) == Some("Bearer sk-unsaved") {
+            Ok(Json(json!({
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "choices": [{"message": {"role": "assistant", "content": "hello"}}]
+            })))
+        } else {
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let base_url = format!("http://127.0.0.1:{}/v1", listener.local_addr()?.port());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) \
+         VALUES (encode(sha256('SCOPED_AI_TOKEN'::bytea), 'hex'), 'SCOPED_AI_', 'SCOPED_AI_TOKEN', \
+                 'test@windmill.dev', 'scoped', true, ARRAY['ai:write', 'resources:write'])",
+    )
+    .execute(&db)
+    .await?;
+
+    let send = |api_key: &'static str, token: &'static str| {
+        let value = json!({ "api_key": api_key, "base_url": base_url }).to_string();
+        let encoded: String = value.bytes().map(|b| format!("%{b:02X}")).collect();
+        authed_with(
+            client()
+                .post(format!(
+                    "http://localhost:{port}/api/w/test-workspace/ai/proxy/chat/completions"
+                ))
+                .header("X-Provider", "openai")
+                .header("X-Resource-Value", encoded)
+                .json(&json!({
+                    "model": "gpt-4",
+                    "messages": [{"role": "user", "content": "hi"}]
+                })),
+            token,
+        )
+        .send()
+    };
+
+    let resp = send("sk-unsaved", "SECRET_TOKEN").await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "X-Resource-Value with an unsaved resource",
+    );
+
+    let resp = send("sk-other", "SECRET_TOKEN").await?;
+    assert!(resp.status().as_u16() >= 400, "a different key must reach the upstream as is");
+
+    let resp = send("$var:u/test-user/secret", "SCOPED_AI_TOKEN").await?;
+    let body = resp.text().await?;
+    assert!(
+        body.contains("variables:read:u/test-user/secret"),
+        "a token without variables:read must not resolve a $var: reference, got: {body}"
     );
 
     Ok(())

@@ -10,10 +10,10 @@
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
-	import { stripBase, TRIGGER_PAGES, SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
+	import { barePath, TRIGGER_PAGES, SCHEDULES_PATH } from '$lib/components/sessions/previewPaths'
 	import { pageDrawerSessionSource } from '../sessions/pageDrawerSession'
 	import { page } from '$app/state'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import TriggerHistoryButton from './TriggerHistoryButton.svelte'
 
 	interface Props {
@@ -40,6 +40,7 @@
 		 * editor has to pass it: every other editor renders with a `trigger`,
 		 * whose `type` is the same value. */
 		triggerKind?: TriggerType
+		saveLabel?: string
 	}
 
 	let {
@@ -60,8 +61,11 @@
 		suspendedJobsModal,
 		disableSuspendedMode = false,
 		triggerPath,
-		triggerKind
+		triggerKind,
+		saveLabel = 'Save'
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
 
@@ -70,7 +74,7 @@
 	// when it renders in a script/flow editor's Triggers panel, which has the
 	// editor's own button. A trigger being created has no path to deep-link at.
 	const triggerPagePath = $derived.by(() => {
-		const route = stripBase(page.url.pathname)
+		const route = barePath(page.url.pathname)
 		if (route === SCHEDULES_PATH) return route
 		return Object.values(TRIGGER_PAGES).some((p) => p.path === route) ? route : undefined
 	})
@@ -79,7 +83,7 @@
 			? pageDrawerSessionSource(
 					triggerPagePath,
 					trigger?.isDraft ? undefined : triggerPath || trigger?.path,
-					$workspaceStore ?? undefined
+					wsId ?? undefined
 				)
 			: undefined
 	)
@@ -118,7 +122,7 @@
 			}}
 			loading={isLoading}
 		>
-			Save
+			{saveLabel}
 		</Button>
 	{/if}
 {:else}

@@ -19,7 +19,6 @@ On a workspace-leaf pick, emits a reference-only `WorkspaceScriptElement` /
 Content is materialized at message-prep time by `AIChatManager` — see PR #9216.
 -->
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { Database, Diff, FileText, Folder, Layers } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
@@ -40,11 +39,16 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	import type { AttachedFile, AttachedFolder } from './files/attachedFiles.svelte'
 	import {
 		ContextIconMap,
+		withFolderContextLeaves,
 		type ContextElement,
+		type WorkspaceAgentElement,
 		type WorkspaceAppElement,
 		type WorkspaceFlowElement,
 		type WorkspaceScriptElement
 	} from './context'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -97,15 +101,15 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	}
 
 	// Workspace state shared with WorkspaceItemDrillPicker via the loader.
-	// Flows and scripts everywhere; raw apps only in GLOBAL chat, where the
-	// raw-app tool surface lets the model act on the reference. Visual apps stay
+	// Flows and scripts everywhere; raw apps and agents only in GLOBAL chat, where
+	// its tools let the model act on the reference. Visual apps stay
 	// excluded — they're frontends, not code units (filtered out below, where the
 	// 'app' kind is narrowed to raw apps before tree-building).
 	const WORKSPACE_KINDS = $derived<WorkspaceItemKind[]>(
-		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app'] : ['flow', 'script']
+		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app', 'agent'] : ['flow', 'script']
 	)
 	const loader = useWorkspaceItemsLoader(
-		() => $workspaceStore,
+		() => $operatingWorkspace,
 		() => WORKSPACE_KINDS
 	)
 
@@ -264,12 +268,14 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 			if (diffs) branches.push(diffs)
 			if (modules) branches.push(modules)
 			if (dbs) branches.push(dbs)
-			const wsChildren = buildWorkspaceTree({
-				loaded: loadedForTree,
-				kinds: WORKSPACE_KINDS,
-				loadingKind: loader.loadingKind,
-				layout: 'flat'
-			}) as DrillNode<ChatLeafData>[]
+			const wsChildren: DrillNode<ChatLeafData>[] = withFolderContextLeaves(
+				buildWorkspaceTree({
+					loaded: loadedForTree,
+					kinds: WORKSPACE_KINDS,
+					loadingKind: loader.loadingKind,
+					layout: 'flat'
+				})
+			)
 			// Workspace-only (e.g. global chat with no diffs/modules/dbs): skip
 			// the redundant 'Workspace' row and surface its children at the root.
 			if (branches.length === 0) return wsChildren
@@ -323,7 +329,19 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 					deletable: true
 				}
 				onSelectWorkspaceItem(element)
+			} else if (d.kind === 'agent') {
+				const element: WorkspaceAgentElement & { deletable: boolean } = {
+					type: 'workspace_agent',
+					path: d.path,
+					title: d.path,
+					summary: d.summary,
+					deletable: true
+				}
+				onSelectWorkspaceItem(element)
 			}
+		} else if (d.type === 'workspace_folder') {
+			// A folder is a workspace reference like an item, never in availableContext.
+			onSelectWorkspaceItem?.(d)
 		} else {
 			// Runtime context element — added directly.
 			onSelect(d)

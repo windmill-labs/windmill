@@ -18,6 +18,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { untrack } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { Badge } from '$lib/components/common'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import type { DbType } from '$lib/components/dbTypes'
 
@@ -28,6 +29,42 @@
 		defaultValue: string | undefined
 		identity: ColumnIdentity
 		nullable: 'YES' | 'NO'
+	}
+
+	// Snowflake's information_schema reports canonical names (NUMBER, TEXT,
+	// TIMESTAMP_NTZ, ...), which the pinned parser wasm only knows by a few aliases.
+	function snowflakeParserAlias(typ: string): string {
+		switch (typ) {
+			case 'number':
+			case 'decimal':
+			case 'numeric':
+			case 'float4':
+			case 'float8':
+			case 'double':
+			case 'double precision':
+			case 'real':
+				return 'float'
+			case 'integer':
+			case 'bigint':
+			case 'smallint':
+			case 'tinyint':
+			case 'byteint':
+				return 'int'
+			case 'text':
+			case 'string':
+			case 'char':
+			case 'character':
+				return 'varchar'
+			case 'varbinary':
+				return 'binary'
+			case 'datetime':
+			case 'timestamp_ntz':
+			case 'timestamp_ltz':
+			case 'timestamp_tz':
+				return 'timestamp'
+			default:
+				return typ
+		}
 	}
 
 	function parseSQLArgs(field: string, dbType: DbType): string {
@@ -43,7 +80,7 @@
 				rawType = parse_bigquery(field)
 				break
 			case 'snowflake':
-				rawType = parse_snowflake(field)
+				rawType = parse_snowflake(snowflakeParserAlias(field.toLowerCase()))
 				break
 			case 'ms_sql_server':
 				rawType = parse_mssql(field)
@@ -97,11 +134,26 @@
 					schemaProperty.default = field.defaultValue
 				}
 			}
-			if (field.type === 'timestamp without time zone' || field.type === 'timestamp') {
+			const fieldType = dbType === 'snowflake' ? field.type.toLowerCase() : field.type
+			if (
+				fieldType === 'timestamp without time zone' ||
+				fieldType === 'timestamp' ||
+				fieldType === 'timestamp_ntz'
+			) {
 				schemaProperty.format = 'naive-date-time'
 			}
-			if (field.type === 'timestamp with time zone' || field.type === 'timestamptz') {
+			if (
+				fieldType === 'timestamp with time zone' ||
+				fieldType === 'timestamptz' ||
+				fieldType === 'timestamp_tz' ||
+				fieldType === 'timestamp_ltz'
+			) {
 				schemaProperty.format = 'date-time'
+			}
+			if (dbType === 'snowflake' && fieldType === 'date') {
+				schemaProperty.format = 'date'
+				// DateInput defaults to dd-MM-yyyy, which Snowflake's AUTO input format rejects
+				schemaProperty.dateFormat = 'yyyy-MM-dd'
 			}
 
 			properties[field.name] = schemaProperty
@@ -129,13 +181,16 @@
 		dbType?: DbType
 		columnDefs?: Array<ColumnDef & ColumnMetadata>
 		isInsertable?: boolean
+		/** Fields the last insert error points at, flagged next to their input. */
+		blamedFields?: string[]
 	}
 
 	let {
 		args = $bindable({}),
 		dbType = 'postgresql',
 		columnDefs = [],
-		isInsertable = $bindable(false)
+		isInsertable = $bindable(false),
+		blamedFields = []
 	}: Props = $props()
 
 	let fields = $derived(
@@ -185,6 +240,9 @@
 	<SchemaForm onlyMaskPassword {schema} bind:args>
 		{#snippet actions({ item })}
 			{@const disabled = fields?.[fields?.findIndex((f) => f.name === item.id)]?.nullable != 'YES'}
+			{#if blamedFields.includes(item.id)}
+				<Badge color="red" small>Check this value</Badge>
+			{/if}
 			{#if !disabled}
 				<Toggle
 					options={{ right: 'NULL' }}

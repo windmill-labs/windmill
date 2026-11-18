@@ -1,7 +1,6 @@
 import type { World } from '../../rx'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
-import { base } from '$lib/base'
 import { appNavigateSameWindow } from '../../utils'
 import { OpenAPI } from '$lib/gen/core/OpenAPI'
 
@@ -312,10 +311,10 @@ export async function eval_like(
 					params.append('s3', input.s3 ?? '')
 					if (input.storage) params.append('storage', input.storage)
 					params.append('token', OpenAPI.TOKEN)
-					const s3href = `${base}/api/w/${workspaceId}/apps_u/download_s3_file/${appPath}?${params.toString()}`
+					const s3href = `/api/w/${workspaceId}/apps_u/download_s3_file/${appPath}?${params.toString()}`
 					downloadFile(s3href, filename || input.s3)
 				} else {
-					const s3href = `${base}/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
+					const s3href = `/api/w/${workspaceId}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
 						input?.s3 ?? ''
 					)}${input?.storage ? `&storage=${input.storage}` : ''}`
 					downloadFile(s3href, filename || input.s3)

@@ -8,6 +8,7 @@
 	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 	import {
+		Bot,
 		Boxes,
 		Calendar,
 		Code2,
@@ -29,6 +30,7 @@
 			| 'app'
 			| 'raw_app'
 			| 'raw_app_file'
+			| 'agent'
 			| 'resource'
 			| 'variable'
 			| 'resource_type'
@@ -99,6 +101,8 @@
 		<FileIcon name={path ?? ''} {size} />
 	{:else if effectiveKind === 'script'}
 		<Code2 {size} class="text-blue-500" />
+	{:else if effectiveKind === 'agent'}
+		<Bot {size} class="text-violet-500" />
 	{:else if effectiveKind === 'variable'}
 		<DollarSign {size} class="text-gray-400" />
 	{:else if effectiveKind === 'resource'}
@@ -116,15 +120,15 @@
 	{:else if effectiveKind === 'postgres'}
 		<Database {size} class="text-gray-400" />
 	{:else if effectiveKind === 'kafka'}
-		<KafkaIcon {size} class="text-gray-400" />
+		<KafkaIcon {size} />
 	{:else if effectiveKind === 'nats'}
-		<NatsIcon {size} class="text-gray-400" />
+		<NatsIcon {size} />
 	{:else if effectiveKind === 'mqtt'}
-		<MqttIcon {size} class="text-gray-400" />
+		<MqttIcon {size} />
 	{:else if effectiveKind === 'amqp'}
-		<AmqpIcon {size} class="text-gray-400" />
+		<AmqpIcon {size} />
 	{:else if effectiveKind === 'sqs'}
-		<AwsIcon {size} class="text-gray-400" />
+		<AwsIcon {size} />
 	{:else if effectiveKind === 'gcp'}
 		<GoogleCloudIcon {size} />
 	{:else if effectiveKind === 'azure'}

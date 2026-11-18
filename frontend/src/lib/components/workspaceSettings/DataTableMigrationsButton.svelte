@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '../common'
+	import { Badge, Button } from '../common'
 	import Modal2 from '../common/modal/Modal2.svelte'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -26,7 +26,13 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
-	import { superadmin, userStore } from '$lib/stores'
+	import { superadmin } from '$lib/stores'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import { parseMigrationRole, withMigrationRole } from '../datatableMigrationRole'
+	import { scopesOverlap } from '../datatableMigrationSchemas'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		workspace,
@@ -52,9 +58,11 @@
 	let loadError = $state<string | undefined>(undefined)
 	let loading = $state(false)
 	let busy = $state(false)
+	// pg_dump can take a while, so the snapshot gets its own flag to spin its button.
+	let generatingInitial = $state(false)
 
 	// Only workspace admins and super admins can opt a data table in or out.
-	const canManage = $derived(!!$userStore?.is_admin || !!$superadmin)
+	const canManage = $derived(!!actingUser?.is_admin || !!$superadmin)
 
 	let newMigrationModal = $state<NewDataTableMigrationModal | undefined>(undefined)
 	let newMigrationOpen = $state(false)
@@ -67,10 +75,72 @@
 	let deleteOpen = $state(false)
 	let deleteTarget = $state<DatatableMigrationWithStatus | undefined>(undefined)
 
+	let addingDown = $state(false)
+	let downDraft = $state('')
+	let savingDown = $state(false)
+
 	function openView(m: DatatableMigrationWithStatus) {
 		viewMigration = m
 		viewTab = 'up'
+		addingDown = false
 		viewOpen = true
+	}
+
+	const DOWN_TEMPLATE = 'BEGIN;\n\n-- Add your down migration here\n\nEND;'
+
+	function startAddDownMigration() {
+		// Same transaction frame the new-migration modal starts from, so the down
+		// applies atomically. It rolls back as the role the up ran as.
+		const upRole = viewMigration ? parseMigrationRole(viewMigration.code_up) : undefined
+		downDraft = withMigrationRole(DOWN_TEMPLATE, upRole?.kind === 'role' ? upRole.role : undefined)
+		addingDown = true
+	}
+
+	// Saving the bare template would attach a down that reverts nothing, and a
+	// down can only be attached once — the upsert refuses to correct it later on a
+	// migration that has already run. So require an actual statement inside the
+	// transaction frame, not just comments.
+	function hasStatement(sql: string): boolean {
+		return (
+			sql
+				.replace(/--[^\n]*/g, '')
+				.replace(/\/\*[\s\S]*?\*\//g, '')
+				.replace(/\b(BEGIN|START\s+TRANSACTION|COMMIT|END)\b/gi, '')
+				.replace(/;/g, '')
+				.trim() !== ''
+		)
+	}
+
+	// Attach a down migration to one that has none. Only the down is sent back;
+	// the name and up SQL are echoed unchanged so the upsert doesn't count as a
+	// rewrite of a migration that may already be applied.
+	async function saveDownMigration() {
+		const m = viewMigration
+		if (!m) return
+		savingDown = true
+		try {
+			await WorkspaceService.upsertDatatableMigration({
+				workspace,
+				datatableName: datatable,
+				requestBody: {
+					timestamp: m.timestamp,
+					name: m.name,
+					code_up: m.code_up,
+					code_down: downDraft
+				}
+			})
+			sendUserToast('Down migration saved')
+			addingDown = false
+			// Show the saved down straight away: `loadMigrations` swallows its own
+			// errors, so re-reading the migration from the refreshed list could hand
+			// back the pre-save entry and bounce the tab to its empty state.
+			viewMigration = { ...m, code_down: downDraft }
+			await loadMigrations()
+		} catch (e: any) {
+			sendUserToast(`Failed to save down migration: ${e?.body ?? e?.message ?? e}`, true)
+		} finally {
+			savingDown = false
+		}
 	}
 
 	const confirmationModal = createAsyncConfirmationModal()
@@ -102,6 +172,10 @@
 	function openList() {
 		listOpen = true
 		loadMigrations()
+	}
+
+	export function open() {
+		openList()
 	}
 
 	// Open the list modal and the detail view for a specific migration. Used to
@@ -155,17 +229,56 @@
 		}
 	}
 
-	// Run a single migration. Warn first if earlier migrations haven't run, since
-	// this one might depend on them.
+	async function runForSchema(schema: string) {
+		busy = true
+		try {
+			const res = await WorkspaceService.runDatatableMigrations({
+				workspace,
+				datatableName: datatable,
+				schema
+			})
+			sendUserToast(
+				res.applied.length > 0
+					? `Applied ${res.applied.length} migration(s) on ${schema}`
+					: `No pending migrations on ${schema}`
+			)
+			await loadMigrations()
+			if (res.applied.length > 0) onSchemaChanged?.()
+		} catch (e: any) {
+			sendUserToast(`Failed to run migrations: ${e?.body ?? e?.message ?? e}`, true)
+		} finally {
+			busy = false
+		}
+	}
+
+	// The schemas that have pending migrations declaring them, each runnable on its own.
+	const pendingSchemas = $derived([
+		...new Set(migrations.filter((m) => m.status !== 'ran').flatMap((m) => m.schemas ?? []))
+	])
+
+	// What makes two migrations depend on each other, for the out-of-order warnings.
+	function overlap(a: DatatableMigrationWithStatus, b: DatatableMigrationWithStatus): string {
+		if (!b.schemas) return 'it applies to the whole database'
+		if (!a.schemas) return `"${a.name}" applies to the whole database`
+		return `both touch schema ${a.schemas.filter((s) => b.schemas?.includes(s)).join(', ')}`
+	}
+
+	// Run a single migration. Warn first if an earlier migration touching the same schemas hasn't
+	// run, since this one might depend on it.
 	async function runMigration(m: DatatableMigrationWithStatus) {
-		const earlierPending = migrations.filter(
-			(x) => x.timestamp < m.timestamp && x.status !== 'ran'
-		).length
-		if (earlierPending > 0) {
+		// `blocked_by` is only known when the applied versions could be read: when they could not,
+		// an earlier overlapping migration of unknown status may still be pending.
+		const blocker =
+			migrations.find((x) => x.timestamp === m.blocked_by) ??
+			migrations.find(
+				(x) =>
+					x.timestamp < m.timestamp && x.status === 'unknown' && scopesOverlap(x.schemas, m.schemas)
+			)
+		if (blocker) {
 			const confirmed = await confirmationModal.ask({
 				title: 'Run migration out of order',
 				confirmationText: 'Run anyway',
-				children: `${earlierPending} earlier migration(s) have not been run yet. "${m.name}" might depend on them. Run it anyway?`
+				children: `"${blocker.name}" ${blocker.status === 'unknown' ? 'may not have been run yet' : 'has not been run yet'} and ${overlap(m, blocker)}, so "${m.name}" might depend on it. Run it anyway?`
 			})
 			if (!confirmed) return
 		}
@@ -194,17 +307,15 @@
 		}
 	}
 
-	// Revert a single migration. Warn first if later migrations have run, since
-	// they might depend on this one.
+	// Revert a single migration. Warn first if a later migration touching the same schemas has
+	// run, since it might depend on this one.
 	async function revertMigration(m: DatatableMigrationWithStatus) {
-		const laterApplied = migrations.filter(
-			(x) => x.timestamp > m.timestamp && x.status === 'ran'
-		).length
-		if (laterApplied > 0) {
+		const blocker = migrations.find((x) => x.timestamp === m.blocked_by)
+		if (blocker) {
 			const confirmed = await confirmationModal.ask({
 				title: 'Revert migration out of order',
 				confirmationText: 'Revert anyway',
-				children: `${laterApplied} later migration(s) have already been run and might depend on "${m.name}". Reverting it may break them. Revert anyway?`
+				children: `"${blocker.name}" has already been run and ${overlap(m, blocker)}, so it might depend on "${m.name}". Reverting it may break it. Revert anyway?`
 			})
 			if (!confirmed) return
 		}
@@ -219,6 +330,7 @@
 		})
 		if (!confirmed) return
 		busy = true
+		generatingInitial = true
 		try {
 			await WorkspaceService.generateInitialDatatableMigration({
 				workspace,
@@ -230,6 +342,7 @@
 			sendUserToast(`Failed to generate initial migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
 			busy = false
+			generatingInitial = false
 		}
 	}
 
@@ -432,12 +545,13 @@
 			<div class="flex flex-col grow min-h-0 overflow-auto border rounded-md divide-y">
 				{#if migrations.length === 0}
 					<div class="flex flex-col items-center gap-3 p-6 text-sm text-tertiary">
-						<span>No migrations yet</span>
+						<span>{generatingInitial ? 'Snapshotting current schema…' : 'No migrations yet'}</span>
 						<Button
 							variant="subtle"
 							size="xs"
 							startIcon={{ icon: Camera }}
 							disabled={busy}
+							loading={generatingInitial}
 							on:click={generateInitial}
 						>
 							Generate initial migration
@@ -459,6 +573,21 @@
 								<span class="text-sm text-primary truncate">{m.name}</span>
 								<span class="text-xs text-hint">{m.timestamp}</span>
 							</button>
+							<div class="flex flex-wrap justify-end gap-1 shrink-0 max-w-48">
+								{#if m.schemas}
+									{#each m.schemas as s (s)}
+										<Badge small>{s}</Badge>
+									{/each}
+								{:else}
+									<Badge
+										small
+										color="yellow"
+										title="Declares no schemas: every later migration waits for it"
+									>
+										whole database
+									</Badge>
+								{/if}
+							</div>
 							<Button
 								variant="subtle"
 								size="xs"
@@ -503,10 +632,16 @@
 				>
 				<Button
 					variant="accent"
-					size="sm"
+					unifiedSize="sm"
 					startIcon={{ icon: Play }}
 					disabled={busy || !hasPending}
 					on:click={() => runUpTo(undefined)}
+					dropdownItems={pendingSchemas.length > 0
+						? pendingSchemas.map((s) => ({
+								label: `Run pending on ${s} only`,
+								onClick: () => runForSchema(s)
+							}))
+						: undefined}
 				>
 					Run all
 				</Button>
@@ -540,11 +675,47 @@
 					<TabContent value="up" class="h-80 border rounded-md overflow-hidden">
 						<SimpleEditor class="h-full" lang="sql" code={viewMigration?.code_up ?? ''} readOnly />
 					</TabContent>
-					<TabContent value="down" class="h-80 border rounded-md overflow-hidden">
+					<TabContent value="down" class="flex flex-col gap-2 h-80">
 						{#if viewMigration?.code_down}
-							<SimpleEditor class="h-full" lang="sql" code={viewMigration.code_down} readOnly />
+							<div class="grow min-h-0 border rounded-md overflow-hidden">
+								<SimpleEditor class="h-full" lang="sql" code={viewMigration.code_down} readOnly />
+							</div>
+						{:else if addingDown}
+							<div class="grow min-h-0 border rounded-md overflow-hidden">
+								<SimpleEditor class="h-full" lang="sql" bind:code={downDraft} leadingChangeSync />
+							</div>
+							<div class="flex justify-end gap-2">
+								<Button
+									variant="default"
+									unifiedSize="sm"
+									disabled={savingDown}
+									on:click={() => (addingDown = false)}
+								>
+									Cancel
+								</Button>
+								<Button
+									variant="accent"
+									unifiedSize="sm"
+									disabled={savingDown || !hasStatement(downDraft)}
+									on:click={saveDownMigration}
+								>
+									Save
+								</Button>
+							</div>
 						{:else}
-							<div class="p-6 text-center text-sm text-tertiary">No down migration</div>
+							<div
+								class="flex flex-col items-center justify-center gap-3 grow border rounded-md text-sm text-tertiary"
+							>
+								<span>No down migration</span>
+								<Button
+									variant="subtle"
+									unifiedSize="xs"
+									startIcon={{ icon: Plus }}
+									on:click={startAddDownMigration}
+								>
+									Add a down migration
+								</Button>
+							</div>
 						{/if}
 					</TabContent>
 				{/snippet}

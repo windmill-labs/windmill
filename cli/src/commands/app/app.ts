@@ -12,7 +12,11 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { getWmillYamlPath, mergeConfigWithConfigFile } from "../../core/conf.ts";
+import {
+  getWmillYamlPath,
+  mergeConfigWithConfigFile,
+  readEffectiveSyncBehavior,
+} from "../../core/conf.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
@@ -21,11 +25,16 @@ import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 
 export interface AppFile {
+  guests?: boolean;
   value: any;
   public?: boolean;
+  sandbox?: boolean;
+  frontend_api?: string[];
+  custom_path?: string;
   summary: string;
   policy: Policy;
   // Mirrors granular ACLs on the app path. Omitted from app.yaml when no
@@ -107,15 +116,192 @@ export function replaceInlineScripts(
   }
   return [];
 }
+/** `parent_version` is the editor's stale-draft base: a version id that changes on
+ * every deploy and means nothing in another workspace, so it is kept out of the
+ * tracked file and out of what a push deploys. */
+export function stripEditorState(app: any) {
+  if (app?.value && typeof app.value == "object") {
+    delete app.value.parent_version;
+  }
+}
+/** The backend requires admin for any update that carries `custom_path`, even
+ * an unchanged one, so a value read from a checkout must only be sent when it
+ * differs from the deployed one or a non-admin can no longer deploy the app. */
+export function changedCustomPath(
+  local: string | undefined,
+  deployed: { custom_path?: string } | undefined,
+): string | undefined {
+  return (local ?? "") === (deployed?.custom_path ?? "") ? undefined : local;
+}
+
+/** Applies a workspace's `<app>.<workspace>.custom_path.yaml`. An empty value
+ * clears the custom path; the app (low-code or raw) must already exist. */
+export async function pushAppCustomPath(
+  workspace: string,
+  remotePath: string,
+  localFile: { custom_path?: string } | undefined,
+): Promise<void> {
+  remotePath = remotePath.replaceAll(SEP, "/");
+  const deployed = await wmill.getAppByPath({ workspace, path: remotePath });
+  const customPath = changedCustomPath(localFile?.custom_path ?? "", deployed);
+  if (customPath === undefined) {
+    return;
+  }
+  log.info(colors.bold.yellow(`Setting custom path of app ${remotePath}...`));
+  await wmill.updateApp({
+    workspace,
+    path: remotePath,
+    requestBody: { custom_path: customPath, skip_draft_deletion: true },
+  });
+}
 export function isExecutionModeAnonymous(app: any) {
   return app?.["policy"]?.["execution_mode"] == "anonymous";
 }
+export function isExecutionModeGuest(app: any) {
+  return app?.["policy"]?.["execution_mode"] == "guest";
+}
+export type AppExecutionMode = "anonymous" | "guest" | "publisher" | "viewer";
+/** The access mode is the one policy field a tracked app keeps, as `public` (anonymous)
+ * or `guests` (guest); the rest of the policy is preserved from the deployed app on
+ * push (see `generatingPolicy`). */
+export function markAccessFromPolicy(app: any) {
+  if (isExecutionModeAnonymous(app)) {
+    app.public = true;
+  } else if (isExecutionModeGuest(app)) {
+    app.guests = true;
+  }
+}
+/** The mode the tracked file states, or `undefined` when it states none — the
+ * normal case, since a pull writes only the two open-access markers. `viewer`
+ * and `publisher` have no marker of their own, so a file can only name them
+ * through a policy block it was hand-written with. */
+function statedExecutionMode(app: any): AppExecutionMode | undefined {
+  if (app?.["public"] ?? isExecutionModeAnonymous(app)) {
+    return "anonymous";
+  }
+  if (app?.["guests"] ?? isExecutionModeGuest(app)) {
+    return "guest";
+  }
+  const mode = app?.["policy"]?.["execution_mode"];
+  return mode === "viewer" || mode === "publisher" ? mode : undefined;
+}
+
+/** The mode this push deploys under. A file that states one is authoritative, in
+ * both directions. Otherwise the two open-access markers are all it says, so
+ * their absence closes a deployed `anonymous`/`guest` app back down to
+ * `publisher` — while a deployed `viewer` is not a grant those markers revoke,
+ * so it carries over rather than widening to `publisher`. */
+export function executionModeForPush(
+  localApp: any,
+  deployedPolicy: Policy | undefined,
+): AppExecutionMode {
+  const stated = statedExecutionMode(localApp);
+  if (stated) {
+    return stated;
+  }
+  return deployedPolicy?.execution_mode === "viewer" ? "viewer" : "publisher";
+}
+/** Mirrors `FRONTEND_SDK_ALLOWED_SCOPES` in the backend's `apps.rs`, which stays
+ * the authority: this copy only fails a push before it bundles. */
+export const FRONTEND_API_SCOPES = [
+  "jobs:run",
+  "jobs:read",
+  "users:read",
+  "resources:read",
+  "variables:read",
+  "flow_conversations:read",
+  "flow_conversations:write",
+];
+
+export type AppIsolation = { sandbox: boolean; frontendApi: string[] };
+
+/** Write `sandbox` and `frontend_api` on a pulled app, only when they are on, so
+ * an app using neither keeps the file it had. Scopes of an unsandboxed app are
+ * inert and stay out: a file stating them without `sandbox` does not push. */
+export function markIsolationFromPolicy(app: any, rawApp: boolean) {
+  if (app?.["policy"]?.["sandbox"] !== true) {
+    return;
+  }
+  app.sandbox = true;
+  const scopes = app.policy.frontend_sdk_scopes;
+  if (rawApp && Array.isArray(scopes) && scopes.length > 0) {
+    app.frontend_api = scopes;
+  }
+}
+
+/** The isolation the tracked file states, or `undefined` when it has no `sandbox`
+ * key and the deployed policy carries over. A file that has the key states both
+ * fields: `sandbox: false` turns isolation off, and a missing `frontend_api`
+ * means no scopes. */
+export function statedIsolation(
+  localApp: any,
+  rawApp: boolean,
+): AppIsolation | undefined {
+  const sandbox = localApp?.["sandbox"];
+  const scopes = localApp?.["frontend_api"] ?? [];
+  if (sandbox !== undefined && typeof sandbox !== "boolean") {
+    throw new Error("'sandbox' must be true or false");
+  }
+  if (
+    !Array.isArray(scopes) ||
+    scopes.some((s: unknown) => typeof s !== "string")
+  ) {
+    throw new Error("'frontend_api' must be a list of scopes");
+  }
+  if (scopes.length > 0 && !rawApp) {
+    throw new Error("'frontend_api' is only available to full-code apps");
+  }
+  const seen = new Set<string>();
+  for (const scope of scopes) {
+    if (!FRONTEND_API_SCOPES.includes(scope)) {
+      throw new Error(
+        `Invalid frontend_api scope '${scope}'. Allowed scopes: ${FRONTEND_API_SCOPES.join(", ")}`,
+      );
+    }
+    if (seen.has(scope)) {
+      throw new Error(`Duplicate frontend_api scope '${scope}'`);
+    }
+    seen.add(scope);
+  }
+  if (scopes.length > 0 && sandbox !== true) {
+    throw new Error(
+      "'frontend_api' requires 'sandbox: true': an unsandboxed app gets no frontend API token",
+    );
+  }
+  return sandbox === undefined ? undefined : { sandbox, frontendApi: scopes };
+}
+
+/** Whether the deployed policy already has the stated isolation. The file's two
+ * keys are kept out of the superset comparison against the deployed app, which
+ * could not see a key the file dropped. */
+export function isolationUpToDate(
+  isolation: AppIsolation | undefined,
+  deployedPolicy: Policy | undefined,
+  rawApp: boolean,
+): boolean {
+  if (!isolation) {
+    return true;
+  }
+  if ((deployedPolicy?.sandbox === true) !== isolation.sandbox) {
+    return false;
+  }
+  if (!rawApp) {
+    return true;
+  }
+  const deployed = deployedPolicy?.frontend_sdk_scopes ?? [];
+  return (
+    deployed.length === isolation.frontendApi.length &&
+    deployed.every((s, i) => s === isolation.frontendApi[i])
+  );
+}
+
 export async function pushApp(
   workspace: string,
   remotePath: string,
   localPath: string,
   message?: string,
-  permissionedAsContext?: PermissionedAsContext
+  permissionedAsContext?: PermissionedAsContext,
+  customPathFromFile = true
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -133,16 +319,11 @@ export async function pushApp(
     //ignore
   }
 
-  let remoteOnBehalfOf: string | undefined;
-  let remoteOnBehalfOfEmail: string | undefined;
-  if (app?.policy) {
-    remoteOnBehalfOf = app.policy.on_behalf_of;
-    remoteOnBehalfOfEmail = app.policy.on_behalf_of_email;
-  }
+  // `app.policy` is cleared a few lines down, so capture it first: it is the
+  // base the regenerated policy is built on.
+  const deployedPolicy: Policy | undefined = app?.policy;
 
-  if (isExecutionModeAnonymous(app)) {
-    app.public = true;
-  }
+  markAccessFromPolicy(app);
   // console.log(app);
   if (app) {
     app.policy = undefined;
@@ -153,36 +334,43 @@ export async function pushApp(
   }
   const path = localPath + "app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
+  stripEditorState(localApp);
+  const isolation = statedIsolation(localApp, false);
 
   replaceInlineScripts(localApp.value, localPath, true);
+  // On create the backend applies folder defaults, so there is nothing to preserve.
+  const preserveFields = preserveOnBehalfOfFields(
+    remotePath,
+    deployedPolicy,
+    permissionedAsContext
+  );
   await generatingPolicy(
     localApp,
     remotePath,
-    localApp?.["public"] ??
-      localApp?.["policy"]?.["execution_mode"] == "anonymous"
+    executionModeForPush(localApp, deployedPolicy),
+    basePolicy(localApp, deployedPolicy, !!preserveFields.preserve_on_behalf_of),
+    isolation
   );
-
-  const preserveFields: { preserve_on_behalf_of?: boolean } = {};
-  if (permissionedAsContext?.userIsAdminOrDeployer) {
-    if (app) {
-      if (localApp.policy && remoteOnBehalfOf) {
-        (localApp.policy as any).on_behalf_of = remoteOnBehalfOf;
-        (localApp.policy as any).on_behalf_of_email = remoteOnBehalfOfEmail;
-        preserveFields.preserve_on_behalf_of = true;
-        log.info(`Preserving ${remoteOnBehalfOfEmail ?? remoteOnBehalfOf} as permissioned_as for app ${remotePath}`);
-      }
-    }
-    // On create: backend applies folder defaults
-  }
 
   // extra_perms goes through /acls/* — strip from the body so a perms-only
   // edit never bumps the app version (see applyExtraPermsDiff for details).
-  const { extra_perms: localPerms, ...localAppBody } = localApp as AppFile & {
+  const {
+    extra_perms: localPerms,
+    sandbox: _sandbox,
+    frontend_api: _frontendApi,
+    custom_path: localCustomPath,
+    ...localAppBody
+  } = localApp as AppFile & {
     extra_perms?: Record<string, boolean>;
   };
+  const customPath = customPathFromFile ? localCustomPath : undefined;
 
   if (app) {
-    if (isSuperset(localAppBody, app)) {
+    if (
+      isSuperset(localAppBody, app) &&
+      changedCustomPath(customPath, app) === undefined &&
+      isolationUpToDate(isolation, deployedPolicy, false)
+    ) {
       log.info(colors.green(`App ${remotePath} is up to date`));
     } else {
       log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
@@ -192,6 +380,7 @@ export async function pushApp(
         requestBody: {
           deployment_message: message,
           ...localAppBody,
+          custom_path: changedCustomPath(customPath, app),
           ...preserveFields,
           // Preserve any user draft at this path (see backend skip_draft_deletion).
           skip_draft_deletion: true,
@@ -207,6 +396,7 @@ export async function pushApp(
         path: remotePath,
         deployment_message: message,
         ...localAppBody,
+        ...(customPath ? { custom_path: customPath } : {}),
         ...preserveFields,
         // Preserve any user draft at this path (see backend skip_draft_deletion).
         skip_draft_deletion: true,
@@ -230,15 +420,85 @@ export async function pushApp(
 export async function generatingPolicy(
   app: any,
   path: string,
-  publicApp: boolean
+  executionMode: AppExecutionMode,
+  base: Policy | undefined,
+  isolation?: AppIsolation
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
-    app.policy = await windmillUtils.updatePolicy(app.value, undefined);
-    app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
+    app.policy = await windmillUtils.updatePolicy(app.value, base);
+    finalizeDerivedPolicy(app.policy, executionMode, isolation);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;
+  }
+}
+
+/** What the regenerated policy starts from: the deployed one, so a push keeps
+ * settings the tracked file doesn't record; on a first push, whatever the file
+ * states. The run identity rides along only when `claimsOnBehalfOf` — never
+ * from the file, never from a pusher who may not preserve one, since `wmill`
+ * is regularly pointed at servers older than the rewrite that would fix it. */
+export function basePolicy(
+  localApp: any,
+  deployedPolicy: Policy | undefined,
+  claimsOnBehalfOf: boolean
+): Policy | undefined {
+  const stated = deployedPolicy ?? (localApp?.policy as Policy | undefined);
+  if (!stated || claimsOnBehalfOf) {
+    return stated;
+  }
+  const base: Policy = { ...stated };
+  delete base.on_behalf_of;
+  delete base.on_behalf_of_email;
+  return base;
+}
+
+/** Claim the run-as identity the regenerated policy carries over from the
+ * deployed app. Only a deployed identity may be claimed, never one the tracked
+ * file states — a repo doesn't get to pick who an app runs as. Without the flag
+ * the backend rewrites `on_behalf_of` to whoever is pushing, and it only honors
+ * the flag for an admin or a `wm_deployers` member, so a caller who is neither
+ * doesn't get to claim it here either. */
+export function preserveOnBehalfOfFields(
+  remotePath: string,
+  deployedPolicy: Policy | undefined,
+  permissionedAsContext: PermissionedAsContext | undefined
+): { preserve_on_behalf_of?: boolean } {
+  const onBehalfOf = deployedPolicy?.on_behalf_of;
+  if (!permissionedAsContext?.userIsAdminOrDeployer || !onBehalfOf) {
+    return {};
+  }
+  log.info(
+    `Preserving ${deployedPolicy?.on_behalf_of_email ?? onBehalfOf} as permissioned_as for app ${remotePath}`
+  );
+  return { preserve_on_behalf_of: true };
+}
+
+/** The policy is written wholesale by the deploy, so the fields it does not
+ * derive from the tracked sources have to survive the trip. The policy builder
+ * has already recomputed what it can — the triggerables on both paths, plus the
+ * S3 rules on the low-code one, which `updateRawAppPolicy` has no equivalent of
+ * and so carries over. This sets the two left: the access mode, and the legacy
+ * `triggerables`, which still grant execution (the backend folds them into
+ * `triggerables_v2` at run time) and so are dropped rather than carried, or a
+ * deployed app would keep being able to run runnables this push removed. */
+export function finalizeDerivedPolicy(
+  policy: Policy,
+  executionMode: AppExecutionMode,
+  isolation?: AppIsolation,
+  rawApp: boolean = false
+) {
+  policy.triggerables = undefined;
+  policy.execution_mode = executionMode;
+  if (isolation) {
+    // `false` is sent rather than left out: the server reads an omitted value as
+    // "no opinion" and may sandbox the app anyway, hiding that the file was refused.
+    policy.sandbox = isolation.sandbox;
+    if (rawApp) {
+      policy.frontend_sdk_scopes =
+        isolation.frontendApi.length > 0 ? isolation.frontendApi : undefined;
+    }
   }
 }
 
@@ -410,10 +670,23 @@ async function push(
       absoluteFilePath,
       undefined,
       merged.defaultTs,
+      await buildPermissionedAsContext(
+        workspace.workspaceId,
+        await readEffectiveSyncBehavior(opts, workspace),
+      ),
     );
     log.info(colors.bold.underline.green("Raw app pushed"));
   } else {
-    await pushApp(workspace.workspaceId, remotePath, absoluteFilePath);
+    await pushApp(
+      workspace.workspaceId,
+      remotePath,
+      absoluteFilePath,
+      undefined,
+      await buildPermissionedAsContext(
+        workspace.workspaceId,
+        await readEffectiveSyncBehavior(opts, workspace),
+      ),
+    );
     log.info(colors.bold.underline.green("App pushed"));
   }
 }

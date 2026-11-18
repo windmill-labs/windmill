@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import StepSettingsBadges from './StepSettingsBadges.svelte'
@@ -14,6 +15,7 @@
 
 	import type { FlowModule, FlowModuleValue, RawScript, ScriptLang } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
+	import { nextMock } from '../flowMock'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
@@ -24,19 +26,25 @@
 	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
+	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import AgentResourceBar from './AgentResourceBar.svelte'
+	import AiAgentStepInputs from './AiAgentStepInputs.svelte'
 	import AgentToolBindings from './AgentToolBindings.svelte'
 	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
-	import { flowLocalAgentSchema } from '../agentResourceUtils'
+	import { linkedAgentStepSchema } from '../agentResourceUtils'
+	import { AI_AGENT_TOOL_AI_KEYS, AI_DECISION_TOOL_AI_KEYS } from '../agentToolUtils'
+	import { setAiDecisionStep } from '../aiDecisionBranching'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { type Job } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -44,7 +52,6 @@
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { refreshFlowStateStore } from '$lib/components/flows/flowStoreRefresh.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
@@ -68,8 +75,14 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Terminal } from 'lucide-svelte'
+	import { Bug, Hand, Hourglass, Terminal } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	const {
 		selectionManager,
@@ -82,10 +95,10 @@
 		customUi,
 		executionCount,
 		opWorkspace,
+		agentEditorHost,
 		workspaceScriptSettingsDrawer
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const selectedId = $derived(selectionManager.getSelectedId())
 	// The agent editor's save guard uses the `tools` array identity to tell "same step" from "step
 	// replaced mid-save", so a module carrying no `tools` must read as one stable array — but a
 	// distinct one per module value, or a wholesale edit that keeps the module id would look
@@ -101,7 +114,7 @@
 		return empty
 	}
 
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	interface Props {
 		flowModule: FlowModule
@@ -109,7 +122,7 @@
 		preprocessorModule?: boolean
 		parentModule?: FlowModule | undefined
 		previousModule: FlowModule | undefined
-		scriptKind?: 'script' | 'trigger' | 'approval'
+		scriptKind?: 'script' | 'trigger' | 'approval' | 'preprocessor'
 		scriptTemplate?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
 		noEditor: boolean
 		enableAi: boolean
@@ -117,7 +130,20 @@
 		forceTestTab?: boolean
 		highlightArg?: string
 		isAgentTool?: boolean
+		/** Offer only values that stand on their own: no connect button, no expression option, no
+		 *  prop picker column. For a tool of a saved agent, whose inputs are stored on the resource
+		 *  and so cannot name any one flow's `flow_input` or `results`. A flow binds those on the
+		 *  step instead, through `tool_inputs`. */
+		staticOnly?: boolean
+		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 		toolDescription?: string | undefined
+		/** The tool's `requires_approval` setting; only an agent tool has one. */
+		toolRequiresApproval?: boolean
+		/** The tool's `background` setting; only an agent tool has one. */
+		toolBackground?: boolean
+		/** The tool's `background_after_secs` setting; only an agent tool has one. */
+		toolBackgroundAfterSecs?: number
 		siblingToolNames?: string[]
 	}
 
@@ -135,9 +161,30 @@
 		forceTestTab = false,
 		highlightArg = undefined,
 		isAgentTool = false,
+		staticOnly = false,
+		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
+		toolRequiresApproval = $bindable(),
+		toolBackground = $bindable(),
+		toolBackgroundAfterSecs = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	const DEFAULT_BACKGROUND_AFTER_SECS = 30
+	type BackgroundMode = 'never' | 'after' | 'always'
+	let backgroundMode: BackgroundMode = $derived(
+		toolBackground ? 'always' : toolBackgroundAfterSecs != undefined ? 'after' : 'never'
+	)
+	function setBackgroundMode(mode: BackgroundMode) {
+		toolBackground = mode === 'always'
+		toolBackgroundAfterSecs = mode === 'after' ? DEFAULT_BACKGROUND_AFTER_SECS : undefined
+	}
+
+	setAiDecisionStep({
+		get id() {
+			return flowModule.value.type === 'aidecision' && !isAgentTool ? flowModule.id : undefined
+		}
+	})
 
 	// Key for the linked-agent tools store. Ancestry-qualified for a nested agent tool, whose id
 	// comes from a resource and is not flow-global — it could otherwise alias a top-level step and
@@ -146,6 +193,9 @@
 	let linkedToolsModuleId = $derived(
 		parentModule?.value?.type === 'aiagent' ? `${parentModule.id}/${flowModule.id}` : flowModule.id
 	)
+
+	// Which step's open agent fields to remember, and which the test form reads back.
+	let agentFieldsKey = $derived(`${$pathStore}:${linkedToolsModuleId}`)
 
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
@@ -171,6 +221,11 @@
 		shellcheck: false
 	})
 
+	// `scriptKind` only records how a step was created this session, so it is back to 'script' on
+	// any remount. Being a preprocessor is a property of the slot, and the editor bar's reset code
+	// and script library depend on it, so derive it rather than reading the stale state.
+	let editorScriptKind = $derived(preprocessorModule ? 'preprocessor' : scriptKind)
+
 	let selected = $state(untrack(() => preprocessorModule) ? 'test' : 'inputs')
 	let canShowChatTab = $derived(
 		!preprocessorModule &&
@@ -180,6 +235,14 @@
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
 	let runSettings: FlowRunSettings | undefined = $state()
 	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
+	// A tool row drills in by selecting that tool's graph node, and the graph draws tool nodes only
+	// for a step's own agent (`computeAIToolNodes`). An agent used as a tool has none, so its rows
+	// would offer a click that lands nowhere.
+	let onSelectToolInGraph = $derived(
+		isAgentTool
+			? undefined
+			: (toolId: string) => selectionManager.selectId(toolId, { openPanel: true })
+	)
 	let validCode = $state(true)
 	let width = $state(1200)
 	let testJob: Job | undefined = $state(undefined)
@@ -206,8 +269,11 @@
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false &&
+			!composeOnlyFlows &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
+	// Same rule as the graph node's Run button (FlowModuleSchemaItem).
+	let builderCannotTestStep = $derived(composeOnlyFlows && flowModule.value.type === 'script')
 	let workspaceScriptNoEditReason = $derived(
 		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
 			? undefined
@@ -259,13 +325,16 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
+		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter' && !builderCannotTestStep) {
 			event.preventDefault()
 			selected = 'test'
 			modulePreview?.runTestWithStepArgs()
 		}
 	}
-	let inputTransformSchemaForm: InputTransformSchemaForm | undefined = $state(undefined)
+	let inputTransformSchemaForm: { setArgs: (nargs: Record<string, any>) => void } | undefined =
+		$state(undefined)
+	// The linked agent's memory, which decides which history inputs the step offers.
+	let linkedAgentConfig: { memory: unknown; provider?: unknown } | undefined = $state(undefined)
 
 	let reloadError: string | undefined = $state(undefined)
 	async function reload(flowModule: FlowModule) {
@@ -281,7 +350,8 @@
 					flowModule.value.type == 'rawscript' ||
 					flowModule.value.type == 'script' ||
 					flowModule.value.type == 'flow' ||
-					flowModule.value.type == 'aiagent'
+					flowModule.value.type == 'aiagent' ||
+					flowModule.value.type == 'aidecision'
 				) {
 					if (!deepEqual(flowModule.value.input_transforms, input_transforms)) {
 						flowModule.value.input_transforms = input_transforms
@@ -333,7 +403,7 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
-		if (!flowStateStore?.val?.[selectedId]?.schema && flowModule) {
+		if (!flowStateStore?.val?.[flowModule.id]?.schema && flowModule) {
 			reload(flowModule)
 		}
 	}
@@ -364,7 +434,10 @@
 		if (model == undefined) return
 		diffMode = true
 
-		diffEditor?.showWithModelAndOriginal((savedModule?.value as RawScript).content ?? '', model)
+		diffEditor?.showWithModelAndOriginal(
+			(savedModule?.value as RawScript | undefined)?.content ?? '',
+			model
+		)
 		editor?.hide()
 	}
 
@@ -390,7 +463,7 @@
 	)
 
 	$effect.pre(() => {
-		selectedId && untrack(() => onSelectedIdChange())
+		flowModule.id && untrack(() => onSelectedIdChange())
 	})
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
@@ -482,7 +555,7 @@
 	}
 
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
-		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId],
+		() => flowGraphAssetsCtx?.val.sqlQueries[flowModule.id],
 		() => opWs
 	)
 
@@ -830,7 +903,11 @@
 						console.log('tagChange', e.detail)
 						if (flowModule.value.type == 'script') {
 							flowModule.value.tag_override = e.detail
-						} else if (flowModule.value.type == 'rawscript' || flowModule.value.type == 'aiagent') {
+						} else if (
+							flowModule.value.type == 'rawscript' ||
+							flowModule.value.type == 'aiagent' ||
+							flowModule.value.type == 'aidecision'
+						) {
 							flowModule.value.tag = e.detail
 						}
 					}}
@@ -838,7 +915,7 @@
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
-							selectedId,
+							flowModule.id,
 							flowStateStore.val[flowModule.id]?.schema,
 							$pathStore,
 							opWs
@@ -864,7 +941,7 @@
 							{websocketAlive}
 							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
 							compactHelpers={width < EDITOR_BAR_HELPERS_INLINE_THRESHOLD}
-							kind={scriptKind}
+							kind={editorScriptKind}
 							template={scriptTemplate}
 							args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {
 								acc[key] = obj.type === 'static' ? obj.value : undefined
@@ -932,13 +1009,11 @@
 														automaticLayout={true}
 														cmdEnterAction={async () => {
 															selected = 'test'
-															if (selectedId == flowModule.id) {
-																if (flowModule.value.type === 'rawscript' && editor) {
-																	flowModule.value.content = editor.getCode()
-																}
-																await reload(flowModule)
-																modulePreview?.runTestWithStepArgs()
+															if (flowModule.value.type === 'rawscript' && editor) {
+																flowModule.value.content = editor.getCode()
 															}
+															await reload(flowModule)
+															modulePreview?.runTestWithStepArgs()
 														}}
 														on:change={async (event) => {
 															const content = event.detail
@@ -995,13 +1070,11 @@
 												automaticLayout={true}
 												cmdEnterAction={async () => {
 													selected = 'test'
-													if (selectedId == flowModule.id) {
-														if (flowModule.value.type === 'rawscript' && editor) {
-															flowModule.value.content = editor.getCode()
-														}
-														await reload(flowModule)
-														modulePreview?.runTestWithStepArgs()
+													if (flowModule.value.type === 'rawscript' && editor) {
+														flowModule.value.content = editor.getCode()
 													}
+													await reload(flowModule)
+													modulePreview?.runTestWithStepArgs()
 												}}
 												on:change={async (event) => {
 													const content = event.detail
@@ -1088,16 +1161,44 @@
 										}}
 										wrapperClass="shrink-0"
 									>
+										<!-- A tool's inputs are arguments of the tool, not of a step in the flow;
+										     `tool_inputs` is what the rest of the codebase calls them. -->
 										{#if !preprocessorModule}
-											<Tab value="inputs" label="Step Input" />
+											<Tab value="inputs" label={isAgentTool ? 'Tool input' : 'Step Input'} />
 										{/if}
-										<Tab value="test" label="Test this step" />
+										{#if !builderCannotTestStep}
+											<Tab value="test" label={isAgentTool ? 'Test this tool' : 'Test this step'} />
+										{/if}
 										{#if canShowChatTab && flowModule.value.type === 'aiagent'}
 											<Tab
 												value="chat"
 												active={Boolean(flowModule.value.omit_output_from_conversation)}
 												label="Chat"
 											/>
+										{/if}
+										{#if isAgentTool}
+											<Tab value="tool_settings" label="Tool settings">
+												{#snippet extra()}
+													{#if toolRequiresApproval || backgroundMode !== 'never'}
+														<div class="flex flex-row items-center gap-1 text-secondary">
+															{#if toolRequiresApproval}
+																<Popover notClickable>
+																	<Hand size={12} />
+																	{#snippet text()}Require approval · On{/snippet}
+																</Popover>
+															{/if}
+															{#if backgroundMode !== 'never'}
+																<Popover notClickable>
+																	<Hourglass size={12} />
+																	{#snippet text()}Run in background · {backgroundMode === 'always'
+																			? 'Always'
+																			: `After ${toolBackgroundAfterSecs}s`}{/snippet}
+																</Popover>
+															{/if}
+														</div>
+													{/if}
+												{/snippet}
+											</Tab>
 										{/if}
 										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="advanced" label="Run settings">
@@ -1107,12 +1208,15 @@
 											</Tab>
 										{/if}
 									</Tabs>
-									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
+									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent' || flowModule.value.type == 'aidecision')}
 										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
+											<!-- `sidePane` under `staticOnly`: that column only opens on a connect,
+											     and there is no connect button to open it. -->
 											<PropPickerWrapper
 												pickableProperties={stepPropPicker.pickableProperties}
 												error={failureModule}
 												noPadding
+												sidePane={staticOnly}
 											>
 												{#if reloadError}
 													<div
@@ -1127,6 +1231,9 @@
 														moduleId={linkedToolsModuleId}
 														opWorkspace={opWs}
 														flowPath={$pathStore}
+														fromAgentEditor={agentEditorHost?.() != undefined}
+														bind:linkedAgent={linkedAgentConfig}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														bind:agent={
 															() =>
 																flowModule.value.type === 'aiagent'
@@ -1172,38 +1279,92 @@
 														}
 													/>
 												{/if}
-												<InputTransformSchemaForm
-													class="px-2 xl:px-4 pb-8"
-													bind:this={inputTransformSchemaForm}
-													pickableProperties={stepPropPicker.pickableProperties}
-													schema={agentLinked
-														? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
-														: (flowStateStore.val[selectedId]?.schema ?? {})}
-													previousModuleId={previousModule?.id}
-													bind:args={
-														() => {
-															// @ts-ignore
-															return flowModule?.value?.input_transforms
-														},
-														(v) => {
-															if (
-																typeof flowModule?.value === 'object' &&
-																flowModule?.value !== null
-															) {
+												{#if flowModule.value.type === 'aiagent'}
+													<AiAgentStepInputs
+														class="px-2 xl:px-4 pb-8"
+														bind:this={inputTransformSchemaForm}
+														pickableProperties={stepPropPicker.pickableProperties}
+														schema={agentLinked
+															? linkedAgentStepSchema(
+																	flowStateStore.val[flowModule.id]?.schema ?? {}
+																)
+															: (flowStateStore.val[flowModule.id]?.schema ?? {})}
+														previousModuleId={previousModule?.id}
+														bind:args={
+															() => {
 																// @ts-ignore
-																flowModule.value.input_transforms = v
+																return flowModule?.value?.input_transforms
+															},
+															(v) => {
+																if (
+																	typeof flowModule?.value === 'object' &&
+																	flowModule?.value !== null
+																) {
+																	// @ts-ignore
+																	flowModule.value.input_transforms = v
+																}
 															}
 														}
-													}
-													extraLib={stepPropPicker.extraLib}
-													{enableAi}
-													{isAgentTool}
-													allowedAiTransforms={isAgentTool && flowModule.value.type === 'aiagent'
-														? ['user_message']
-														: undefined}
-													helperScript={retrieveDynCodeAndLang(flowModule.value)}
-													chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
-												/>
+														extraLib={stepPropPicker.extraLib}
+														{enableAi}
+														{isAgentTool}
+														noConnect={staticOnly}
+														noJavascript={staticOnly}
+														allowedAiTransforms={isAgentTool ? AI_AGENT_TOOL_AI_KEYS : undefined}
+														helperScript={retrieveDynCodeAndLang(flowModule.value)}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
+														workspace={opWs}
+														visibilityKey={agentFieldsKey}
+														linkedAgent={agentLinked ? linkedAgentConfig : undefined}
+														{agentLinked}
+														tools={agentLinked
+															? getLinkedAgentTools(
+																	linkedToolsScope(opWs, $pathStore),
+																	linkedToolsModuleId
+																)
+															: (flowModule.value.tools ?? [])}
+														onSelectTool={onSelectToolInGraph}
+														onAddTool={flowModuleSchemaMap
+															? (detail) =>
+																	flowModuleSchemaMap?.addToolToAgent(flowModule.id, detail)
+															: undefined}
+													/>
+												{:else}
+													<InputTransformSchemaForm
+														class="px-2 xl:px-4 pb-8"
+														bind:this={inputTransformSchemaForm}
+														pickableProperties={stepPropPicker.pickableProperties}
+														schema={flowStateStore.val[flowModule.id]?.schema ?? {}}
+														previousModuleId={previousModule?.id}
+														bind:args={
+															() => {
+																// @ts-ignore
+																return flowModule?.value?.input_transforms
+															},
+															(v) => {
+																if (
+																	typeof flowModule?.value === 'object' &&
+																	flowModule?.value !== null
+																) {
+																	// @ts-ignore
+																	flowModule.value.input_transforms = v
+																}
+															}
+														}
+														extraLib={stepPropPicker.extraLib}
+														{enableAi}
+														{isAgentTool}
+														noConnect={staticOnly}
+														noJavascript={staticOnly}
+														allowedAiTransforms={isAgentTool &&
+														flowModule.value.type === 'aidecision'
+															? AI_DECISION_TOOL_AI_KEYS
+															: undefined}
+														helperScript={retrieveDynCodeAndLang(flowModule.value)}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
+														workspace={opWs}
+													/>
+												{/if}
 												{#if agentLinked}
 													<!-- Linked agent: the resource's tools with their inputs rebindable to this
 													flow; overrides persist on the step as tool_inputs (diff from the resource). -->
@@ -1232,7 +1393,7 @@
 												{/if}
 											</PropPickerWrapper>
 										</div>
-									{:else if visibleSelected === 'test'}
+									{:else if visibleSelected === 'test' && !builderCannotTestStep}
 										{#if debugMode && isDebuggableScript}
 											<div transition:slide={{ duration: 200 }}>
 												<DebugToolbar
@@ -1258,14 +1419,15 @@
 											mod={flowModule}
 											{noEditor}
 											schema={agentLinked
-												? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
-												: (flowStateStore.val[selectedId]?.schema ?? {})}
+												? linkedAgentStepSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
+												: (flowStateStore.val[flowModule.id]?.schema ?? {})}
 											bind:testJob
 											bind:testIsLoading
 											bind:scriptProgress
 											focusArg={highlightArg}
 											{onJobDone}
 											hideRunButton={debugMode && isDebuggableScript}
+											openFieldsKey={agentFieldsKey}
 										/>
 									{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
 										<div class="flex-1 overflow-auto p-4">
@@ -1284,6 +1446,66 @@
 												/>
 											</Section>
 										</div>
+									{:else if visibleSelected === 'tool_settings' && isAgentTool}
+										<div class="flex flex-1 flex-col gap-6 overflow-auto p-4">
+											<Section label="Approval">
+												<Toggle
+													size="xs"
+													textClass="text-xs font-normal text-primary"
+													disabled={noEditor}
+													bind:checked={
+														() => toolRequiresApproval ?? false, (v) => (toolRequiresApproval = v)
+													}
+													options={{
+														right: 'Require approval',
+														rightTooltip:
+															'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run. An agent used as a tool of another agent cannot wait, so it leaves such tools out.'
+													}}
+												/>
+											</Section>
+											<Section
+												label="Run in background"
+												tooltip="A call in the background answers the agent with its job id, and the agent keeps working. The result reaches it in a later message. If it finishes its answer first, it waits for the result without holding a worker."
+											>
+												<div class="flex flex-col gap-2">
+													<ToggleButtonGroup
+														disabled={noEditor}
+														selected={backgroundMode}
+														onSelected={setBackgroundMode}
+													>
+														{#snippet children({ item })}
+															<ToggleButton
+																value="never"
+																label="Never"
+																tooltip="The agent waits for the result."
+																{item}
+															/>
+															<ToggleButton
+																value="after"
+																label="After a delay"
+																tooltip="The agent waits for the result up to a delay, then the call continues in the background."
+																{item}
+															/>
+															<ToggleButton
+																value="always"
+																label="Always"
+																tooltip="The agent is answered as soon as the job starts."
+																{item}
+															/>
+														{/snippet}
+													</ToggleButtonGroup>
+													{#if backgroundMode === 'after'}
+														<SecondsInput
+															disabled={noEditor}
+															bind:seconds={
+																() => toolBackgroundAfterSecs ?? DEFAULT_BACKGROUND_AFTER_SECS,
+																(v) => (toolBackgroundAfterSecs = Math.max(1, v ?? 1))
+															}
+														/>
+													{/if}
+												</div>
+											</Section>
+										</div>
 									{:else if visibleSelected === 'advanced'}
 										<FlowRunSettings
 											bind:this={runSettings}
@@ -1292,7 +1514,7 @@
 											{isAgentTool}
 											{parentModule}
 											{previousModule}
-											{selectedId}
+											selectedId={flowModule.id}
 											{referencedConcurrentLimit}
 											referencedConcurrencyTimeWindowS={referencedScriptSettings.settings
 												?.concurrency_time_window_s}
@@ -1383,19 +1605,13 @@
 												? { type: 'inside', flow: parentLoop.type }
 												: undefined}
 											onUpdateMock={(detail) => {
-												flowModule.mock = detail
+												flowModule.mock = nextMock(flowModule.mock, detail)
 												flowModule = flowModule
-												refreshFlowStateStore(flowStore)
+												refreshStateStore(flowStore)
 											}}
 											{testJob}
 											{scriptProgress}
 											mod={flowModule}
-											linkedAgentTools={agentLinked
-												? getLinkedAgentTools(
-														linkedToolsScope(opWs, $pathStore),
-														linkedToolsModuleId
-													)
-												: undefined}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
@@ -1409,7 +1625,7 @@
 						</Splitpanes>
 					{/snippet}
 
-					{#if flowModule.value.type === 'aiagent' || (noEditor && flowModule.value.type !== 'flow')}
+					{#if flowModule.value.type === 'aiagent' || flowModule.value.type === 'aidecision' || (noEditor && flowModule.value.type !== 'flow')}
 						<!-- Top pane has no content to show (aiagent has no editor; rawscript/script
 						gate their content on !noEditor). Skip the Splitpanes wrapper entirely so
 						there's no orphan splitter. type === 'flow' still renders FlowPathViewer

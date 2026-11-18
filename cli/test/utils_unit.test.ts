@@ -272,6 +272,21 @@ describe("getTypeStrFromPath", () => {
     expect(getTypeStrFromPath("f/test/my_script.rs")).toBe("script");
   });
 
+  test("a shared lockfile is its own type, not a workspace dependency", () => {
+    // A repo-side artifact with no object on the server: classified as a
+    // workspace dependency, `sync push` would try to deploy it as one.
+    // Sync paths carry the platform separator, so these do too.
+    expect(getTypeStrFromPath(join("locks", "requirements.in.lock"))).toBe(
+      "shared_lock",
+    );
+    expect(getTypeStrFromPath(join("dependencies", "requirements.in"))).toBe(
+      "workspace_dependencies",
+    );
+    // `locks/` is an ordinary word: only the names Windmill writes are claimed,
+    // so a repo that already keeps its own lockfiles there keeps them.
+    expect(() => getTypeStrFromPath(join("locks", "vendor.lock"))).toThrow();
+  });
+
   test("detects metadata types by name suffix", () => {
     expect(getTypeStrFromPath("f/test/my_var.variable.yaml")).toBe("variable");
     expect(getTypeStrFromPath("f/test/my_res.resource.yaml")).toBe("resource");

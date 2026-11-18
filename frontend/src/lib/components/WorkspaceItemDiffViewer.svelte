@@ -24,7 +24,8 @@ doesn't reflow the parent.
 	import RawAppFileDiff from './raw_apps/RawAppFileDiff.svelte'
 	import type { RawAppFileItem } from './raw_apps/rawAppDiffUtils'
 	import { Loader2 } from 'lucide-svelte'
-	import { cleanValueProperties, orderedYamlStringify, replaceFalseWithUndefined } from '$lib/utils'
+	import { cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
+	import { orderedYamlStringify } from '$lib/utils/orderedYaml'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 
 	interface Props {

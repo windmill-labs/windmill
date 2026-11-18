@@ -8,8 +8,8 @@
 	import { onMount, createEventDispatcher, setContext, untrack } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
+	import { setTopmostSurface } from '$lib/components/common/overlayHost.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
-	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { getOverlayHost } from '../overlayHost.svelte'
 
@@ -22,11 +22,12 @@
 		shouldUsePortal?: boolean
 		offset?: number
 		preventEscape?: boolean
-		disableChatOffset?: boolean
 		class?: string | undefined
 		positionClass?: string | undefined
 		name?: string
 		children?: import('svelte').Snippet<[any]>
+		/** Asked before a click away or Escape closes it; resolving false keeps it open. */
+		confirmClose?: () => boolean | Promise<boolean>
 	}
 
 	let {
@@ -38,11 +39,11 @@
 		shouldUsePortal = true,
 		offset = 0,
 		preventEscape = false,
-		disableChatOffset = false,
 		class: clazz = '',
 		positionClass = undefined,
 		name = undefined,
-		children: children_render
+		children: children_render,
+		confirmClose
 	}: Props = $props()
 
 	if (open === undefined) {
@@ -50,6 +51,11 @@
 	}
 
 	let disposable: Disposable | undefined = $state(undefined)
+
+	// A drawer stacks like a dialog does, so content inside it gets the same answer about whether
+	// its keys are meant for it. Without this, a drawer opened over a dialog would inherit the
+	// dialog's answer — false, because the drawer itself is now on top — and go deaf.
+	setTopmostSurface(() => disposable?.isTopmost() ?? true)
 
 	let reducedMotion = useReducedMotion()
 	let duration = $derived(reducedMotion.val ? 0 : _duration)
@@ -126,8 +132,6 @@
 	)
 
 	let style = $derived(`--duration: ${duration}s; --size: ${size}; --min-size: ${floor};`)
-
-	const aiChatOpen = $derived(chatState.size > 0 && !host)
 </script>
 
 <!-- `contents` keeps the portal's wrapper from becoming a stray flex item of the
@@ -140,15 +144,15 @@
 		onOpen={() => dispatch('open')}
 		onClose={() => dispatch('close')}
 		{preventEscape}
+		{confirmClose}
 	>
 		{#snippet children({ handleClickAway, zIndex, isTop })}
 			<aside
 				class="drawer windmill-app windmill-drawer {name ? `windmill-drawer-${name}` : ''} {clazz ??
-					''} {posClass ?? ''} {aiChatOpen ? 'respect-global-chat' : ''}"
+					''} {posClass ?? ''}"
 				class:open
 				class:close={!open && timeout}
-				class:global-chat-open={aiChatOpen}
-				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatOpen && placement === 'right' && !disableChatOffset ? chatState.size : 0}% + 4px)`}
+				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: 4px`}
 			>
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -197,12 +201,6 @@
 		transition: opacity var(--duration) ease;
 	}
 
-	.drawer.respect-global-chat.global-chat-open > .overlay {
-		width: 100%;
-		right: var(--adjusted-offset);
-		left: auto;
-	}
-
 	.drawer.open > .overlay {
 		opacity: 1;
 	}
@@ -236,11 +234,6 @@
 		transform: translate(100%, 0);
 	}
 
-	.drawer.respect-global-chat.global-chat-open > .panel.right {
-		right: var(--adjusted-offset);
-		width: calc(100vw - var(--adjusted-offset));
-	}
-
 	.panel.top {
 		top: 0;
 		transform: translate(0, -100%);
@@ -265,5 +258,25 @@
 
 	.drawer.open > .panel {
 		transform: translate(0, 0);
+	}
+
+	/* A modal inset from every edge, so what is behind it shows around it. `size` does not
+	   apply: the inset alone sizes it. */
+	.panel.center {
+		inset: 2rem;
+		width: auto;
+		height: auto;
+		border-radius: 0.5rem;
+		overflow: hidden;
+		opacity: 0;
+		transform: scale(0.98);
+		transition:
+			opacity var(--duration) ease,
+			transform var(--duration) ease;
+	}
+
+	.drawer.open > .panel.center {
+		opacity: 1;
+		transform: scale(1);
 	}
 </style>

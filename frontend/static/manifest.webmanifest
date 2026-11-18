@@ -1,0 +1,22 @@
+{
+	"id": "/",
+	"name": "Windmill",
+	"short_name": "Windmill",
+	"description": "Scripts, flows and apps for internal tools, workflows and background jobs",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"background_color": "#fbfbfd",
+	"theme_color": "#fbfbfd",
+	"icons": [
+		{ "src": "/pwa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+		{ "src": "/pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+		{
+			"src": "/pwa-maskable-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
+		},
+		{ "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+	]
+}

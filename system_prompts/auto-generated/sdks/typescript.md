@@ -2,6 +2,17 @@
 
 Import: import * as wmill from 'windmill-client'
 
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it.
+
 To know who is running the script, read the contextual variables rather than calling the API:
 `process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
 the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
@@ -113,21 +124,23 @@ async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a flow asynchronously by its path
@@ -182,6 +195,14 @@ async setProgress(percent: number, jobId?: any): Promise<void>
  * @returns Optional clamped between 0 and 100 progress value
  */
 async getProgress(jobId?: any): Promise<number | null>
+
+/**
+ * Whether the worker running this job has received its shutdown signal.
+ * A draining worker waits for its current job to finish before exiting, so a
+ * long-running script can poll this and return early to let the worker be replaced.
+ * @param jobId? Job to check, defaults to the current job
+ */
+async workerIsDraining(jobId?: string): Promise<boolean>
 
 /**
  * Set a flow user state
@@ -292,31 +313,35 @@ async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined
 /**
  * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 objects
  */
-async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
+async signS3Objects(s3objects: S3Object[], { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object[]>
 
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 object
  */
-async signS3Object(s3object: S3Object): Promise<S3Object>
+async signS3Object(s3object: S3Object, { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object>
 
 /**
  * Generate a presigned public URL for an array of S3 objects.
  * If an S3 object is not signed yet, it will be signed first.
  * @param s3Objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns list of signed public URLs
  */
-async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string[]>
 
 /**
  * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
  * @param s3Object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed public URL
  */
-async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string>
 
 /**
  * Get URLs needed for resuming a flow after this step
@@ -438,6 +463,9 @@ async sleep(seconds: number): Promise<void>
  * `fn`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a `Date`
  * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, `fn` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -477,12 +505,16 @@ workflow<T>(fn: (...args: any[]) => Promise<T>): void
  * resume exactly this approval — route them through your own channel. Without a
  * key the steps are named `approval`, `approval_2`, ...
  * 
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details. `description` is
+ * shown above the form: a string, or a rich value such as `{ markdown: "..." }`.
+ * 
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
  * await step("notify", () => sendEmail(urls.resume, urls.cancel));
  * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; skin?: "detailed" | "minimal"; description?: string | object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
 
 /**
  * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
@@ -546,6 +578,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param opts.role - Connect as this data table role instead of the data table's default one.
+ *   Only meaningful on a data table under roles, and only for a role you are a tenant of.
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -555,8 +589,11 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
+ * @example
+ * // Read through a restricted role
+ * let sql = wmill.datatable("main", { role: "analytics" })
  */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
+datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries

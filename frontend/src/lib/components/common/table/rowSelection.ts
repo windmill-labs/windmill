@@ -1,3 +1,6 @@
+import { SquareCheckBig } from 'lucide-svelte'
+import type { Item } from '$lib/utils'
+
 /**
  * Wiring for a row whose kind icon doubles as a selection control: the icon
  * swaps to a checkbox on hover, and stays one while a selection is active.
@@ -13,4 +16,20 @@ export type RowSelection = {
 	 * toggles it instead of opening the item. */
 	active: boolean
 	onToggle: (e: MouseEvent | KeyboardEvent) => void
+}
+
+/**
+ * The row menu's way into a selection, for the rows that offer one. The icon
+ * checkbox is the fast path but only appears on hover; this is the one a user
+ * can find by looking.
+ */
+export function selectMenuItems(rowSelection: RowSelection | undefined): Item[] {
+	if (!rowSelection) return []
+	return [
+		{
+			displayName: rowSelection.selected ? 'Deselect' : 'Select',
+			icon: SquareCheckBig,
+			action: (e) => rowSelection.onToggle(e)
+		}
+	]
 }

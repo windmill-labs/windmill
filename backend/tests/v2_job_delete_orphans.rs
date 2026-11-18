@@ -37,7 +37,7 @@ async fn seed_side_rows(db: &Pool<Postgres>, ws: &str, job_id: Uuid) -> anyhow::
     .bind(ws)
     .execute(db)
     .await?;
-    // created_seq is assigned by a trigger; inserting a value is rejected.
+    // created_seq is an identity column; supplying a value is rejected.
     sqlx::query(
         "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
          VALUES ($1, 'assistant', 'hi', $2)",
@@ -121,6 +121,257 @@ async fn test_delete_jobs_removes_side_rows(db: Pool<Postgres>) -> anyhow::Resul
     Ok(())
 }
 
+/// (conversation rows, agent-memory rows) for one conversation.
+async fn conversation_and_memory_counts(
+    db: &Pool<Postgres>,
+    conversation_id: Uuid,
+) -> anyhow::Result<(i64, i64)> {
+    Ok((
+        count(
+            db,
+            "SELECT count(*) FROM flow_conversation WHERE id = $1",
+            conversation_id,
+        )
+        .await?,
+        count(
+            db,
+            "SELECT count(*) FROM ai_agent_memory WHERE conversation_id = $1",
+            conversation_id,
+        )
+        .await?,
+    ))
+}
+
+/// A conversation outlives the jobs behind its messages until the last one goes: only then
+/// are the row and the agent's memory for it left with nothing, and only then are they
+/// deleted. Both halves matter — the surviving half is what a single data-modifying CTE
+/// would break, since its emptiness check would read the snapshot from before the delete.
+#[sqlx::test(fixtures("base"))]
+async fn test_delete_jobs_removes_a_conversation_once_its_last_message_goes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let first_job = Uuid::new_v4();
+    let second_job = Uuid::new_v4();
+    insert_job(&db, WS, first_job).await?;
+    insert_job(&db, WS, second_job).await?;
+
+    let conv_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by)
+         VALUES ($1, $2, 'f/flow', 'test-user')",
+    )
+    .bind(conv_id)
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    for job_id in [first_job, second_job] {
+        sqlx::query(
+            "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
+             VALUES ($1, 'assistant', 'hi', $2)",
+        )
+        .bind(conv_id)
+        .bind(job_id)
+        .execute(&db)
+        .await?;
+    }
+    sqlx::query(
+        "INSERT INTO ai_agent_memory (workspace_id, conversation_id, step_id, messages)
+         VALUES ($1, $2, 'a', '[]'::jsonb)",
+    )
+    .bind(WS)
+    .bind(conv_id)
+    .execute(&db)
+    .await?;
+
+    let mut conn = db.acquire().await?;
+    windmill_common::jobs::delete_jobs(&mut conn, &[first_job]).await?;
+    drop(conn);
+    assert_eq!(
+        conversation_and_memory_counts(&db, conv_id).await?,
+        (1, 1),
+        "a conversation with a message left must survive, memory included"
+    );
+
+    let mut conn = db.acquire().await?;
+    windmill_common::jobs::delete_jobs(&mut conn, &[second_job]).await?;
+    drop(conn);
+    assert_eq!(
+        conversation_and_memory_counts(&db, conv_id).await?,
+        (0, 0),
+        "the last message going should take the conversation and its memory"
+    );
+    Ok(())
+}
+
+/// The agent step completes, and so expires, before the flow run that holds the question: its
+/// job going must leave the answer in place, and the run going must take the whole turn.
+#[sqlx::test(fixtures("base"))]
+async fn test_delete_jobs_removes_a_turn_with_its_flow_run(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let flow_job = Uuid::new_v4();
+    let step_job = Uuid::new_v4();
+    insert_job(&db, WS, flow_job).await?;
+    insert_job(&db, WS, step_job).await?;
+
+    let conv_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by)
+         VALUES ($1, $2, 'f/flow', 'test-user')",
+    )
+    .bind(conv_id)
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let mut tx = db.begin().await?;
+    for (job_id, message_type) in [
+        (
+            flow_job,
+            windmill_common::flow_conversations::MessageType::User,
+        ),
+        (
+            step_job,
+            windmill_common::flow_conversations::MessageType::Assistant,
+        ),
+    ] {
+        windmill_common::flow_conversations::add_message_to_conversation_tx(
+            &mut tx,
+            conv_id,
+            Some(job_id),
+            flow_job,
+            "hi",
+            message_type,
+            None,
+            true,
+            None,
+        )
+        .await?;
+    }
+    tx.commit().await?;
+
+    let messages = "SELECT count(*) FROM flow_conversation_message WHERE conversation_id = $1";
+    let mut conn = db.acquire().await?;
+    windmill_common::jobs::delete_jobs(&mut conn, &[step_job]).await?;
+    drop(conn);
+    assert_eq!(
+        count(&db, messages, conv_id).await?,
+        2,
+        "the step's job going must keep the turn"
+    );
+
+    let mut conn = db.acquire().await?;
+    windmill_common::jobs::delete_jobs(&mut conn, &[flow_job]).await?;
+    drop(conn);
+    assert_eq!(
+        count(&db, messages, conv_id).await?,
+        0,
+        "the run going must take the turn"
+    );
+    Ok(())
+}
+
+/// Turns that start while retention is collecting their conversation must land, not fail:
+/// the conversation lookup locks the row, so each turn waits for the collector's commit,
+/// finds the conversation gone, and creates it again — the first insert wins and the other
+/// reads its row. Without the lock a turn's message insert is what waits, on the parent
+/// row's key lock, and fails its FK check afterwards.
+#[sqlx::test(fixtures("base"))]
+async fn test_new_turns_wait_for_conversation_cleanup_and_recreate(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let old_job = Uuid::new_v4();
+    let new_jobs = [Uuid::new_v4(), Uuid::new_v4()];
+    insert_job(&db, WS, old_job).await?;
+    for job in new_jobs {
+        insert_job(&db, WS, job).await?;
+    }
+
+    let conv_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by)
+         VALUES ($1, $2, 'f/flow', 'test-user')",
+    )
+    .bind(conv_id)
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
+         VALUES ($1, 'user', 'hi', $2)",
+    )
+    .bind(conv_id)
+    .bind(old_job)
+    .execute(&db)
+    .await?;
+
+    // The collector holds the conversation row locked and deleted, uncommitted.
+    let mut cleanup = db.begin().await?;
+    windmill_common::jobs::delete_jobs(&mut *cleanup, &[old_job]).await?;
+
+    let turns: Vec<_> = new_jobs
+        .into_iter()
+        .map(|new_job| {
+            let db = db.clone();
+            tokio::spawn(async move {
+                let mut tx = db.begin().await?;
+                windmill_common::flow_conversations::get_or_create_conversation_with_id(
+                    &mut tx,
+                    WS,
+                    "f/flow",
+                    "test-user",
+                    false,
+                    "hi again",
+                    conv_id,
+                    false,
+                )
+                .await?;
+                windmill_common::flow_conversations::add_message_to_conversation_tx(
+                    &mut tx,
+                    conv_id,
+                    Some(new_job),
+                    new_job,
+                    "hi again",
+                    windmill_common::flow_conversations::MessageType::User,
+                    None,
+                    true,
+                    None,
+                )
+                .await?;
+                tx.commit().await?;
+                anyhow::Ok(())
+            })
+        })
+        .collect();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    cleanup.commit().await?;
+    for turn in turns {
+        turn.await??;
+    }
+
+    assert_eq!(
+        conversation_and_memory_counts(&db, conv_id).await?.0,
+        1,
+        "the turns must have created the conversation again, once"
+    );
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM flow_conversation_message WHERE conversation_id = $1",
+            conv_id,
+        )
+        .await?,
+        2,
+        "both turns' messages should be there"
+    );
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_clear_schedule_removes_side_rows(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -192,6 +443,74 @@ async fn test_workspace_delete_removes_side_rows(db: Pool<Postgres>) -> anyhow::
     Ok(())
 }
 
+/// The purge endpoint carries its own copy of the emptied-conversation rule, so it gets the
+/// same guard: the conversation and its memory go with the last message, and not before.
+#[sqlx::test(fixtures("base"))]
+async fn test_jobs_export_delete_removes_a_conversation_once_its_last_message_goes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let first_job = Uuid::new_v4();
+    let second_job = Uuid::new_v4();
+    insert_job(&db, WS, first_job).await?;
+    insert_job(&db, WS, second_job).await?;
+
+    let conv_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by)
+         VALUES ($1, $2, 'f/flow', 'test-user')",
+    )
+    .bind(conv_id)
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    for job_id in [first_job, second_job] {
+        sqlx::query(
+            "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
+             VALUES ($1, 'assistant', 'hi', $2)",
+        )
+        .bind(conv_id)
+        .bind(job_id)
+        .execute(&db)
+        .await?;
+    }
+    sqlx::query(
+        "INSERT INTO ai_agent_memory (workspace_id, conversation_id, step_id, messages)
+         VALUES ($1, $2, 'a', '[]'::jsonb)",
+    )
+    .bind(WS)
+    .bind(conv_id)
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let purge = |job_id: Uuid| async move {
+        reqwest::Client::new()
+            .post(format!("http://localhost:{port}/api/w/{WS}/jobs/delete"))
+            .header("Authorization", "Bearer SECRET_TOKEN")
+            .json(&[job_id])
+            .send()
+            .await
+    };
+
+    assert!(purge(first_job).await?.status().is_success());
+    assert_eq!(
+        conversation_and_memory_counts(&db, conv_id).await?,
+        (1, 1),
+        "a conversation with a message left must survive the purge endpoint too"
+    );
+
+    assert!(purge(second_job).await?.status().is_success());
+    assert_eq!(
+        conversation_and_memory_counts(&db, conv_id).await?,
+        (0, 0),
+        "the last message going should take the conversation and its memory"
+    );
+    Ok(())
+}
+
 /// The `/jobs/delete` purge endpoint must scope every side-table delete to the path
 /// workspace. A `test-workspace` admin passing a job id from another workspace must not be
 /// able to delete that workspace's job or side rows (the side tables no longer cascade, so
@@ -209,6 +528,16 @@ async fn test_jobs_export_delete_is_workspace_scoped(db: Pool<Postgres>) -> anyh
     let other_job = Uuid::new_v4();
     insert_job(&db, "ws-other", other_job).await?;
     seed_side_rows(&db, "ws-other", other_job).await?;
+    // A queued flow's per-job tables, which carry no workspace_id of their own.
+    for sql in [
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for) VALUES ($1, 'ws-other', now())",
+        "INSERT INTO v2_job_runtime (id) VALUES ($1)",
+        "INSERT INTO v2_job_status (id) VALUES ($1)",
+        "INSERT INTO resume_job (id, job, flow) VALUES (gen_random_uuid(), $1, $1)",
+        "INSERT INTO concurrency_key (key, job_id) VALUES ('k', $1)",
+    ] {
+        sqlx::query(sql).bind(other_job).execute(&db).await?;
+    }
 
     // A test-workspace admin calls the purge endpoint with the FOREIGN job id.
     let server = ApiServer::start(db.clone()).await?;
@@ -233,5 +562,20 @@ async fn test_jobs_export_delete_is_workspace_scoped(db: Pool<Postgres>) -> anyh
         (1, 1, 1, 1),
         "jobs_export purge crossed workspaces: dispatch_event={de} flow_conversation_message={fcm} zombie_job_counter={zombie} v2_job={job}"
     );
+    for table_col in [
+        "v2_job_queue WHERE id",
+        "v2_job_runtime WHERE id",
+        "v2_job_status WHERE id",
+        "resume_job WHERE job",
+        "concurrency_key WHERE job_id",
+    ] {
+        let n = count(
+            &db,
+            &format!("SELECT count(*) FROM {table_col} = $1"),
+            other_job,
+        )
+        .await?;
+        assert_eq!(n, 1, "jobs_export purge crossed workspaces: {table_col}");
+    }
     Ok(())
 }

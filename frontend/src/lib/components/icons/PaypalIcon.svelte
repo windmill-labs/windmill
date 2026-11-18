@@ -1,12 +1,33 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg {width} {height} viewBox="0 0 24 24" fill="#002991" xmlns="http://www.w3.org/2000/svg">
-<path d="M15.607 4.653H8.941L6.645 19.251H1.82L4.862 0h7.995c3.754 0 6.375 2.294 6.473 5.513-.648-.478-2.105-.86-3.722-.86m6.57 5.546c0 3.41-3.01 6.853-6.958 6.853h-2.493L11.595 24H6.74l1.845-11.538h3.592c4.208 0 7.346-3.634 7.153-6.949a5.24 5.24 0 0 1 2.848 4.686M9.653 5.546h6.408c.907 0 1.942.222 2.363.541-.195 2.741-2.655 5.483-6.441 5.483H8.714Z"/>
+<!-- #002991 / #60CDFF / #008CFF per PayPal's own paypal-mark-color_new.svg (site header logo on
+	paypal.com). The third fill is the deep/bright blue overlap: a two-colour or flat fill loses it. -->
+<svg
+	{width}
+	{height}
+	viewBox="1.186 0.955 49.091 49.091"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+	role="img"
+	aria-label="PayPal"
+>
+	<path
+		fill="#002991"
+		d="M38.914 13.35c0 5.574-5.144 12.15-12.927 12.15H18.49l-.368 2.322L16.373 39H7.056l5.605-36h15.095c5.083 0 9.082 2.833 10.555 6.77a9.687 9.687 0 0 1 .603 3.58z"
+	/>
+	<path
+		fill="#60CDFF"
+		d="M44.284 23.7A12.894 12.894 0 0 1 31.53 34.5h-5.206L24.157 48H14.89l1.483-9 1.75-11.178.367-2.322h7.497c7.773 0 12.927-6.576 12.927-12.15 3.825 1.974 6.055 5.963 5.37 10.35z"
+	/>
+	<path
+		fill="#008CFF"
+		d="M38.914 13.35C37.31 12.511 35.365 12 33.248 12h-12.64L18.49 25.5h7.497c7.773 0 12.927-6.576 12.927-12.15z"
+	/>
 </svg>

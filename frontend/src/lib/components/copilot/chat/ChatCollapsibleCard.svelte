@@ -1,18 +1,39 @@
 <script lang="ts">
 	import { ChevronRight } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { slide } from 'svelte/transition'
+	import { fade, slide } from 'svelte/transition'
 	import type { Snippet } from 'svelte'
+	import { HeldValue, LABEL_MIN_MS } from './heldValue.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
 	interface Props {
 		label: string
+		/** Set before the label and left unemphasised, so `labelClass` lifts the subject alone:
+		 * the part of the heading that is grammar stays quiet. A step lighter than the row's own
+		 * label weight, because a caller emphasising the label is also setting a proportional
+		 * typeface, whose medium reads heavier than the mono one at this size. */
+		labelPrefix?: string
+		/** Parts left out of the label, shown as `+N` after it and listed on hover. */
+		labelMore?: string[]
 		expanded: boolean
 		onToggle: () => void
+		/** Called once the body has finished opening, when its contents have their final position. */
+		onContentShown?: () => void
 		// A card with nothing to reveal keeps the header inert (no chevron, no
 		// hover affordance implying a toggle).
 		toggleable?: boolean
 		// Sweeps a highlight across the label while the row is in progress.
 		shimmer?: boolean
+		/** For a label rewritten at each stage of a running call, sometimes several times a
+		 * second: each label (with its shimmer) stays up at least 700 ms, one replaced sooner is
+		 * skipped, and the new one fades in. */
+		settleLabel?: boolean
+		/** The step in progress, shown under the header while collapsed. Held with the label, so
+		 * the two change together. */
+		liveLine?: string
+		// Ahead of the label, inside the toggle button: a status that reads as part of the
+		// row rather than as another control, leaving the chevron next to the label it opens.
+		headerLeft?: Snippet
 		// Pinned to the right of the header row, outside the toggle button.
 		headerRight?: Snippet
 		// Always-visible content between the header and the expandable body.
@@ -26,10 +47,16 @@
 
 	let {
 		label,
+		labelPrefix,
+		labelMore,
 		expanded,
 		onToggle,
+		onContentShown,
 		toggleable = true,
 		shimmer = false,
+		settleLabel = false,
+		liveLine,
+		headerLeft,
 		headerRight,
 		belowHeader,
 		children,
@@ -38,40 +65,80 @@
 		labelClass,
 		contentClass
 	}: Props = $props()
+
+	// The shimmer and live line are held with the label, in one value: held apart, a call settling
+	// right after its last status would show the running label, shimmer or line beside the
+	// settled others.
+	const held = new HeldValue(
+		() => ({ prefix: labelPrefix, label, more: labelMore, shimmer, liveLine }),
+		() => (settleLabel ? LABEL_MIN_MS : 0)
+	)
+	const shown = $derived(
+		settleLabel ? held.current : { prefix: labelPrefix, label, more: labelMore, shimmer, liveLine }
+	)
 </script>
 
 <div class={twMerge('font-mono text-xs', className)}>
 	{#snippet labelText(highlight: boolean)}
+		<!-- One line, cut with an ellipsis: a long name (a script summary) wrapping would push the
+		     status and chevron off the row's single line. -->
 		<span
 			class={twMerge(
-				'text-secondary font-medium text-2xs',
+				'text-secondary font-medium text-2xs truncate min-w-0',
 				labelClass,
 				highlight && 'text-emphasis'
 			)}
+			title={highlight ? undefined : `${shown.prefix ? `${shown.prefix} ` : ''}${shown.label}`}
 		>
-			{label}
+			{#if shown.prefix}<span class="font-normal text-secondary">{shown.prefix}</span
+				>&nbsp;{/if}{shown.label}
 		</span>
 	{/snippet}
 
 	{#snippet headerButton()}
 		<button
 			class={twMerge(
-				'min-w-0 py-0.5 my-0.5 rounded-md hover:bg-surface-hover transition-colors inline-flex items-center gap-2 text-left',
+				'min-w-0 max-w-full py-0.5 my-0.5 rounded-md hover:bg-surface-hover transition-colors inline-flex items-center gap-2 text-left',
 				headerClass
 			)}
 			onclick={onToggle}
 			disabled={!toggleable}
+			aria-expanded={toggleable ? expanded : undefined}
 		>
-			{#if shimmer}
-				<span class="shimmer inline-flex items-center min-w-0">
-					{@render labelText(false)}
-					<span class="shimmer-band inline-flex items-center min-w-0" aria-hidden="true">
-						{@render labelText(true)}
-					</span>
+			{@render headerLeft?.()}
+			<!-- A settled label fades in. The key sits outside the shimmer branch because a label
+			     change often comes with a shimmer change, and a transition inside a branch being
+			     swapped out does not play. In only: an outgoing copy would widen the row. Unsettled
+			     labels (an agent trace's ticking duration) keep one key and update in place. -->
+			{#key settleLabel ? `${shown.prefix ?? ''}\n${shown.label}` : ''}
+				<span
+					class="inline-flex items-center min-w-0"
+					in:fade={{ duration: settleLabel ? 400 : 0 }}
+				>
+					{#if shown.shimmer}
+						<span class="shimmer inline-flex items-center min-w-0">
+							{@render labelText(false)}
+							<span class="shimmer-band inline-flex items-center min-w-0" aria-hidden="true">
+								{@render labelText(true)}
+							</span>
+						</span>
+					{:else}
+						{@render labelText(false)}
+					{/if}
+					{#if shown.more?.length}
+						<Tooltip small placement="top" class="shrink-0 pl-1">
+							<span class="text-2xs font-medium text-tertiary">+{shown.more.length}</span>
+							{#snippet text()}
+								<div class="text-xs">
+									{#each shown.more ?? [] as part (part)}
+										<div>{part}</div>
+									{/each}
+								</div>
+							{/snippet}
+						</Tooltip>
+					{/if}
 				</span>
-			{:else}
-				{@render labelText(false)}
-			{/if}
+			{/key}
 			{#if toggleable}
 				<ChevronRight
 					class={twMerge(
@@ -92,11 +159,15 @@
 		{@render headerButton()}
 	{/if}
 
+	{#if shown.liveLine && !expanded}
+		<div class="pl-3 text-2xs text-tertiary truncate">{shown.liveLine}</div>
+	{/if}
 	{@render belowHeader?.()}
 
 	{#if expanded && children}
 		<div
 			transition:slide={{ duration: 150 }}
+			onintroend={onContentShown}
 			class={twMerge('border border-border-light rounded-md bg-surface p-3', contentClass)}
 		>
 			{@render children()}

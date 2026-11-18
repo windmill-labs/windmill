@@ -19,13 +19,20 @@
 	import FlowPanelChrome from './FlowPanelChrome.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore } from '$lib/stores'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 	import { getLatestHashForScript } from '$lib/scripts'
 	import { sendUserToast, type Item } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
-	import { getToolNameError } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
+	import { getToolNameError } from '$lib/components/flows/agentToolUtils'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import autosize from '$lib/autosize'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	interface Props {
 		flowModuleValue?: FlowModuleValue | undefined
@@ -58,13 +65,17 @@
 	let toolNameError = $derived(
 		isAgentTool ? getToolNameError(summary ?? '', undefined, siblingToolNames) : undefined
 	)
+	// An agent tool's summary is the function name the model is given, not free text, so the field
+	// asks for a name instead. That holds for every kind a tool can be, which is why the input
+	// below is one shared snippet rather than one per branch.
+	let summaryPlaceholder = $derived(isAgentTool ? 'Tool name' : 'Summary')
 
 	const dispatch = createEventDispatcher()
 	const customUi: FlowBuilderWhitelabelCustomUi | undefined = getContext('customUi')
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	const { scriptEditorDrawer, workspaceScriptSettingsDrawer } = flowEditorContext
 
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 	const scriptPath = $derived(flowModuleValue?.type === 'script' ? flowModuleValue.path : undefined)
 	const pinnedHash = $derived(flowModuleValue?.type === 'script' ? flowModuleValue.hash : undefined)
 	const isHub = $derived(scriptPath?.startsWith('hub/') ?? false)
@@ -80,13 +91,10 @@
 		})
 	})
 
-	function reportIssue() {
+	function reportIssueHref(): string {
 		const targetHubBaseUrl =
 			Number(hubVersionId) < PRIVATE_HUB_MIN_VERSION ? DEFAULT_HUB_BASE_URL : $hubBaseUrlStore
-		window.open(
-			`${targetHubBaseUrl}/from_version/${hubVersionId}?report_issue=${hubVersionId}`,
-			'_blank'
-		)
+		return `${targetHubBaseUrl}/from_version/${hubVersionId}?report_issue=${hubVersionId}`
 	}
 
 	// Every one of these acts on the referenced script rather than the step, so they share
@@ -94,7 +102,7 @@
 	const scriptItems: Item[] = $derived.by(() => {
 		if (flowModuleValue?.type !== 'script') return []
 		const items: Item[] = []
-		if (!isHub && customUi?.scriptEdit != false) {
+		if (!isHub && customUi?.scriptEdit != false && !composeOnlyFlows) {
 			items.push({
 				displayName: "Edit the script's code",
 				icon: Pen,
@@ -104,7 +112,16 @@
 					if (flowModuleValue?.type !== 'script') return
 					const hash =
 						flowModuleValue.hash ?? (await getLatestHashForScript(flowModuleValue.path, opWs))
-					$scriptEditorDrawer?.openDrawer(hash, () => {
+					// Same reason the settings item below is gated: the local-dev editors publish
+					// the context store but never render the drawer, so an unmounted one makes
+					// this a no-op — and a no-op must not be counted as an editor open.
+					const drawer = $scriptEditorDrawer
+					if (!drawer) return
+					logFeatureUsage('flow_step', 'script_edit', { key: 'opened' })
+					// The drawer only runs this callback once a new version is deployed, so it is
+					// what separates opening the editor from actually editing the script here.
+					drawer.openDrawer(hash, () => {
+						logFeatureUsage('flow_step', 'script_edit', { key: 'saved' })
 						dispatch('reload')
 						sendUserToast('Script has been updated')
 					})
@@ -129,7 +146,7 @@
 				})
 			}
 		}
-		if (customUi?.scriptFork != false) {
+		if (customUi?.scriptFork != false && !composeOnlyFlows) {
 			items.push({
 				displayName: 'Fork into an inline script',
 				icon: GitFork,
@@ -174,12 +191,21 @@
 				displayName: 'Report issue',
 				icon: Flag,
 				separatorTop: items.length > 0,
-				action: reportIssue
+				href: reportIssueHref(),
+				hrefTarget: '_blank'
 			})
 		}
 		return items
 	})
 </script>
+
+{#snippet summaryInput()}
+	<input
+		bind:value={summary}
+		placeholder={summaryPlaceholder}
+		class={twMerge('w-full grow', toolNameError && '!border-red-400')}
+	/>
+{/snippet}
 
 <div class="flex flex-col gap-1 px-4 py-2">
 	<div
@@ -200,7 +226,7 @@
 							code={flowModuleValue.content}
 							class="w-full"
 							elementProps={{
-								placeholder: isAgentTool ? 'Tool name' : 'Summary'
+								placeholder: summaryPlaceholder
 							}}
 							hideError={isAgentTool}
 							{siblingToolNames}
@@ -215,22 +241,18 @@
 							<DropdownV2 size="sm" placement="bottom-end" items={scriptItems} />
 						{/if}
 
-						<div class="flex min-w-[8rem] flex-1 flex-col">
-							<input
-								bind:value={summary}
-								placeholder={isAgentTool ? 'Tool name' : 'Summary'}
-								class={twMerge('w-full grow', toolNameError && '!border-red-400')}
-							/>
-							{#if toolNameError && !isAgentTool}
-								<p class="text-3xs text-red-400 leading-tight mt-0.5">{toolNameError}</p>
-							{/if}
+						<div class="flex min-w-[8rem] flex-1">
+							{@render summaryInput()}
 						</div>
 					{:else if flowModuleValue.type === 'flow'}
 						<Badge color="indigo" capitalize>flow</Badge>
-						<input bind:value={summary} placeholder="Summary" class="w-full grow" />
+						{@render summaryInput()}
 					{:else if flowModuleValue.type === 'aiagent'}
 						<Badge color="indigo">AI Agent</Badge>
-						<input bind:value={summary} placeholder="Summary" class="w-full grow" />
+						{@render summaryInput()}
+					{:else if flowModuleValue.type === 'aidecision'}
+						<Badge color="indigo">AI Decision</Badge>
+						{@render summaryInput()}
 					{/if}
 				</div>
 			</span>

@@ -11,6 +11,15 @@ authoring and the full run reference.
 
 Run the affected mode **before** your change and **after**, same model(s), same cases.
 
+## Where guidance goes
+
+What the model should know about Windmill itself (flow shapes, groups, data tables, app
+access, secrets…) belongs in `system_prompts/base/` or `system_prompts/languages/`, which also
+feed the CLI's skills — not in a `*/core.ts` prompt builder, where only this chat would see it.
+The builders add tool plumbing and runtime values only. Scope a sentence to one consumer with
+`<!-- chat-only -->` / `<!-- cli-only -->`, keep chat tool names out of the shared files, and
+rerun `python system_prompts/generate.py`. `system_prompts/README.md` has the mechanics.
+
 ## Measure the window first, and cumulative second
 
 Optimize **`finalContextTokens`** (window occupancy — what drives overflow and

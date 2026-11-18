@@ -6,16 +6,19 @@ use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use futures::future::try_join_all;
+use futures::StreamExt;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    git_sync_oss::{prepend_token_to_github_url, sanitize_git_url},
+    git_sync_oss::{sanitize_git_url, validate_git_repo_url},
     worker::{
-        is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
+        is_allowed_file_location, split_python_requirements, to_raw_value,
+        try_parse_locked_python_version_from_requirements, write_file,
         write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
     },
 };
@@ -35,10 +38,10 @@ use crate::{
         resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
         transform_json, validate_relative_path, OccupancyMetrics,
     },
-    handle_child::handle_child,
+    handle_child::{handle_child, run_future_with_polling_update_job_poller},
     is_sandboxing_enabled,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
-    DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_ANSIBLE_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV,
+    PyV, DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_ANSIBLE_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV,
     PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
@@ -247,6 +250,24 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
     }
 }
 
+/// Validate every user-controlled field of a `GitRepo` before it reaches `git`. The `url` goes
+/// through the transport allowlist (`validate_git_repo_url`); `branch` and `commit` are passed as
+/// positional/option arguments, so a leading `-` would let git parse them as options (argument
+/// injection). Called at each entry point that spawns `git` with these fields.
+fn validate_git_repo(repo: &GitRepo) -> error::Result<()> {
+    validate_git_repo_url(&repo.url)?;
+    for (field, value) in [("branch", &repo.branch), ("commit", &repo.commit)] {
+        if let Some(value) = value {
+            if value.trim_start().starts_with('-') {
+                return Err(error::Error::BadRequest(format!(
+                    "Invalid git repository `{field}`: must not start with '-'"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn clone_repo(
     repo: &GitRepo,
     job_dir: &str,
@@ -259,6 +280,7 @@ async fn clone_repo(
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
 ) -> error::Result<String> {
+    validate_git_repo(repo)?;
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
     let mut clone_cmd = Command::new(GIT_PATH.as_str());
@@ -387,6 +409,207 @@ pub fn create_empty_dir(path: &PathBuf) -> std::io::Result<()> {
     }
 }
 
+/// Lay down the tree of an app-backed repository, which git can't clone
+/// because its URL carries no credential.
+///
+/// The server holds the GitHub App installation token and answers with a
+/// tarball of one commit, so the worker never handles a GitHub credential.
+/// Going over HTTP rather than the database is also what lets agent workers
+/// use app-backed repos at all.
+async fn fetch_repo_archive(
+    client: &AuthedClient,
+    resource_path: &str,
+    git_ref: Option<&str>,
+    job: &MiniPulledJob,
+    job_dir: &str,
+    target_path: &str,
+    worker_name: &str,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> error::Result<()> {
+    let target_path = is_allowed_file_location(job_dir, target_path)?;
+    create_empty_dir(&target_path)?;
+
+    // Not in the job directory under a fixed name: `create_file_resources` has
+    // already written the run's own files there, from paths the playbook
+    // chooses, so a predictable name here could truncate one of them.
+    let archive_path = std::env::temp_dir().join(format!("wmill-repo-archive-{}.tar.gz", job.id));
+
+    let url = format!(
+        "{}/api/w/{}/github_app/repo_archive/{}",
+        client.base_internal_url, client.workspace, resource_path
+    );
+    let query = git_ref
+        .map(|r| vec![("ref", r.to_string())])
+        .unwrap_or_default();
+
+    let download_target = target_path.clone();
+    let download_archive = archive_path.clone();
+    let resource = resource_path.to_string();
+    let fetch = async move {
+        let response = client.get_streaming(&url, query).await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(error::Error::BadRequest(format!(
+                "Failed to download `{}` ({}): {}",
+                resource, status, body
+            )));
+        }
+
+        let commit = response
+            .headers()
+            .get("x-commit-sha")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Written out chunk by chunk: a repository is arbitrarily large, and
+        // holding one in the worker's memory would take every job on it down.
+        let mut file = tokio::fs::File::create(&download_archive).await?;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| anyhow!("Failed to read repository archive: {e}"))?;
+            file.write_all(&chunk).await?;
+        }
+        file.flush().await?;
+        drop(file);
+
+        // Dropping the join handle detaches the blocking task rather than
+        // stopping it, so the flag is what a cancelled job uses to reach the
+        // extraction loop. The guard sets it when this future is dropped.
+        let aborted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let _abort_on_drop = crate::common::AbortOnDrop(aborted.clone());
+        let unpack_archive = download_archive.clone();
+        tokio::task::spawn_blocking(move || {
+            unpack_repo_archive(&unpack_archive, &download_target, &aborted)
+        })
+        .await
+        .map_err(|e| anyhow!("Failed to extract repository archive: {e}"))??;
+
+        Ok(commit)
+    };
+
+    // Through the job poller, like the git clone paths: the download has no
+    // wall-clock bound of its own, so this is what makes a cancelled or
+    // timed-out run stop occupying the worker.
+    let commit = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        conn,
+        mem_peak,
+        canceled_by,
+        fetch,
+        worker_name,
+        &job.workspace_id,
+        &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
+    )
+    .await;
+
+    let _ = tokio::fs::remove_file(&archive_path).await;
+    let commit = commit?;
+
+    append_logs(
+        &job.id,
+        &job.workspace_id,
+        format!("Fetched {} at {}\n", resource_path, commit),
+        conn,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// Unpack a GitHub archive, whose entries all sit under one
+/// `{owner}-{repo}-{sha}` directory that gets dropped.
+///
+/// Entry paths must be plain relative ones, and no entry may be written at or
+/// underneath a symlink the archive created. Symlink *targets* are preserved
+/// verbatim, as a git checkout preserves them, so `docs/x -> ../README.md`
+/// survives; what would let one escape is a later entry descending through it,
+/// and that is what the refusal covers. Hard links are refused outright, since
+/// they resolve at unpack time and no git tree contains one.
+///
+/// `aborted` is polled per entry: a `spawn_blocking` task keeps running after
+/// its join handle is dropped, so cancelling the job has to reach the loop
+/// itself.
+fn unpack_repo_archive(
+    archive_path: &PathBuf,
+    target: &PathBuf,
+    aborted: &std::sync::atomic::AtomicBool,
+) -> error::Result<()> {
+    use std::collections::HashSet;
+    use std::path::Component;
+
+    let file = std::fs::File::open(archive_path)?;
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    let mut links: HashSet<PathBuf> = HashSet::new();
+
+    for entry in archive.entries()? {
+        if aborted.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(error::Error::ExecutionErr(
+                "Repository extraction cancelled".to_string(),
+            ));
+        }
+
+        let mut entry = entry?;
+        let path = entry.path()?.into_owned();
+
+        let mut components = path.components();
+        components.next();
+        let relative: PathBuf = components.collect();
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        if relative
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        {
+            return Err(error::Error::BadRequest(format!(
+                "Repository archive contains an unsafe path: {}",
+                path.display()
+            )));
+        }
+        // `ancestors` yields the path itself first, so this also refuses an
+        // entry that would overwrite a link and be followed through it.
+        if relative.ancestors().any(|a| links.contains(a)) {
+            return Err(error::Error::BadRequest(format!(
+                "Repository archive writes through a link: {}",
+                path.display()
+            )));
+        }
+        match entry.header().entry_type() {
+            // Unpacking a hard link creates it immediately, against a target
+            // resolved outside this loop's reach, so an escaping one needs no
+            // second entry to be useful. A git tree has no way to express one,
+            // so an archive carrying one did not come from a repository.
+            tar::EntryType::Link => {
+                return Err(error::Error::BadRequest(format!(
+                    "Repository archive contains a hard link: {}",
+                    path.display()
+                )))
+            }
+            tar::EntryType::Symlink => {
+                links.insert(relative.clone());
+            }
+            _ => {}
+        }
+
+        // A tar is not required to carry an entry for each directory, so the
+        // parent may not exist yet when its file arrives.
+        let dest = target.join(relative);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        entry.unpack(dest)?;
+    }
+
+    Ok(())
+}
+
 async fn clone_repo_without_history(
     repo: &GitRepo,
     full_commit: &str,
@@ -400,6 +623,7 @@ async fn clone_repo_without_history(
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
 ) -> error::Result<()> {
+    validate_git_repo(repo)?;
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
     create_empty_dir(&target_path)?;
@@ -541,6 +765,92 @@ async fn clone_repo_without_history(
 
     Ok(())
 }
+
+/// The Python `ansible-playbook` runs on. The script's Python dependencies are put on its
+/// `PYTHONPATH`, so they must be resolved and installed for this version: a wheel with a
+/// compiled extension built for any other one fails on import. `None` when it cannot be read,
+/// e.g. on a worker without ansible.
+pub async fn ansible_python_version() -> Option<PyV> {
+    static VERSION: tokio::sync::OnceCell<Option<PyV>> = tokio::sync::OnceCell::const_new();
+    VERSION
+        .get_or_init(|| async {
+            let version = read_ansible_python_version(ANSIBLE_PLAYBOOK_PATH.as_str()).await;
+            match &version {
+                Ok(v) => tracing::info!("ansible-playbook runs on python {}", **v),
+                Err(e) => tracing::warn!(
+                    "Could not determine the python version of {}, ansible python dependencies \
+                     use the default python version: {e}",
+                    *ANSIBLE_PLAYBOOK_PATH
+                ),
+            }
+            version.ok()
+        })
+        .await
+        .clone()
+}
+
+async fn read_ansible_python_version(playbook_path: &str) -> anyhow::Result<PyV> {
+    let script = tokio::fs::read(playbook_path).await?;
+    let interpreter = parse_shebang_interpreter(&script)
+        .ok_or_else(|| anyhow!("{playbook_path} has no python shebang"))?;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        Command::new(&interpreter[0])
+            .args(&interpreter[1..])
+            .args(["-c", "import sys; print('%d.%d' % sys.version_info[:2])"])
+            .stdin(Stdio::null())
+            .output(),
+    )
+    .await??;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "{} exited with {}: {}",
+            interpreter.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(PyV(version.parse::<pep440_rs::Version>().map_err(|e| {
+        anyhow!("unexpected python version {version:?}: {e}")
+    })?))
+}
+
+/// The python command a pip/uv entry-point script runs on, from its `#!` line with `env` (and
+/// its flags) resolved away. A venv path too long for a shebang gets a `#!/bin/sh` trampoline
+/// that names the interpreter on the next line instead.
+fn parse_shebang_interpreter(script: &[u8]) -> Option<Vec<String>> {
+    let mut lines = script.split(|b| *b == b'\n').map(std::str::from_utf8);
+    let line = lines.next()?.ok()?.strip_prefix("#!")?.trim();
+    if line == "/bin/sh" {
+        let path = lines
+            .next()?
+            .ok()?
+            .strip_prefix("'''exec' '")?
+            .split('\'')
+            .next()?;
+        return Some(vec![path.to_string()]);
+    }
+    let mut parts = line.split_whitespace().map(str::to_string).collect_vec();
+    if parts
+        .first()
+        .is_some_and(|p| p.rsplit('/').next() == Some("env"))
+    {
+        parts.remove(0);
+        while parts.first().is_some_and(|p| p.starts_with('-')) {
+            parts.remove(0);
+        }
+    }
+    parts
+        .first()
+        .is_some_and(|p| {
+            p.rsplit('/')
+                .next()
+                .is_some_and(|n| n.starts_with("python"))
+        })
+        .then_some(parts)
+}
+
 async fn handle_ansible_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -555,6 +865,7 @@ async fn handle_ansible_python_deps(
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Vec<String>> {
     create_dependencies_dir(job_dir).await;
+    let ansible_py = ansible_python_version().await;
 
     let mut additional_python_paths: Vec<String> = WORKER_CONFIG
         .load()
@@ -564,7 +875,34 @@ async fn handle_ansible_python_deps(
 
     let mut requirements;
     let requirements = match requirements_o {
-        Some(r) => r,
+        Some(r) => {
+            let locked =
+                try_parse_locked_python_version_from_requirements(&r.lines().collect_vec())
+                    .map(PyV::from)
+                    .unwrap_or_default();
+            if let Some(ansible_py) = ansible_py.as_ref() {
+                // A script without python dependencies still has a lock: the `# py:` line.
+                let pins_something = r.lines().any(|l| {
+                    let l = l.trim();
+                    !l.is_empty() && !l.starts_with('#') && !l.starts_with("--")
+                });
+                if pins_something && locked.release().get(..2) != ansible_py.release().get(..2) {
+                    append_logs(
+                        job_id,
+                        w_id,
+                        format!(
+                            "WARN: the python dependencies are locked for python {}, but \
+                             ansible-playbook runs on python {}, so their locked versions are \
+                             installed for it. Redeploy the script to lock them for it.\n",
+                            *locked, **ansible_py
+                        ),
+                        conn,
+                    )
+                    .await;
+                }
+            }
+            r
+        }
         None => {
             requirements = ansible_reqs
                 .map(|x| x.python_reqs.join("\n"))
@@ -580,7 +918,7 @@ async fn handle_ansible_python_deps(
                     worker_name,
                     w_id,
                     &mut Some(occupancy_metrics),
-                    PyVAlias::Py311.into(),
+                    ansible_py.clone().unwrap_or(PyVAlias::Py311.into()),
                     false,
                 )
                 .await
@@ -604,7 +942,7 @@ async fn handle_ansible_python_deps(
             job_dir,
             worker_dir,
             &mut Some(occupancy_metrics),
-            PyVAlias::default().into(),
+            ansible_py.unwrap_or_default(),
             None,
         )
         .await?;
@@ -926,6 +1264,7 @@ pub async fn get_git_repo_full_head_commit_hash(
     repo: &GitRepo,
     git_ssh_cmd: &str,
 ) -> anyhow::Result<String> {
+    validate_git_repo(repo)?;
     let mut git_cmd = Command::new(GIT_PATH.as_str());
 
     git_cmd
@@ -1492,26 +1831,14 @@ pub async fn handle_ansible_job(
                 ));
             };
 
-            let mut secret_url = git_repo_resource.get("url").and_then(|s| s.as_str()).map(|s| s.to_string())
+            let secret_url = git_repo_resource.get("url").and_then(|s| s.as_str()).map(|s| s.to_string())
                 .ok_or(anyhow!("Failed to get url from git repo resource, please check that the resource has the correct type (git_repository)"))?;
 
             #[cfg(feature = "enterprise")]
             let is_github_app = git_repo_resource.get("is_github_app").and_then(|s| s.as_bool())
                 .ok_or(anyhow!("Failed to get `is_github_app` field from git repo resource, please check that the resource has the correct type (git_repository)"))?;
-
-            #[cfg(feature = "enterprise")]
-            if is_github_app {
-                if let Connection::Sql(db) = conn {
-                    let token = windmill_common::git_sync_oss::get_github_app_token_internal(
-                        db,
-                        &client.token,
-                    )
-                    .await?;
-                    secret_url = prepend_token_to_github_url(&secret_url, &token)?;
-                } else {
-                    return Err(windmill_common::error::Error::BadRequest("Github App authentication is currently unavailable for agent workers. Contact the windmill team to request this feature".to_string()));
-                }
-            }
+            #[cfg(not(feature = "enterprise"))]
+            let is_github_app = false;
 
             let branch = Some(git_repo_resource.get("branch").and_then(|s| s.as_str()).map(|s| s.to_string())
                 .ok_or(anyhow!("Failed to get branch from git repo resource, please check that the resource has the correct type (git_repository)"))?).filter(|s| !s.is_empty());
@@ -1531,7 +1858,25 @@ pub async fn handle_ansible_job(
                 conn,
             )
             .await;
-            if let Some(commit) = interpolated_commit.as_ref() {
+            if is_github_app {
+                // An app-backed repo's URL carries no credential, so git can't
+                // authenticate against it. The server serves the commit's tree
+                // instead, which is all a playbook run reads.
+                fetch_repo_archive(
+                    &client,
+                    &delegated_git_repo.resource,
+                    interpolated_commit.as_deref().or(repo.branch.as_deref()),
+                    job,
+                    job_dir,
+                    &repo.target_path,
+                    worker_name,
+                    conn,
+                    mem_peak,
+                    canceled_by,
+                    occupancy_metrics,
+                )
+                .await?;
+            } else if let Some(commit) = interpolated_commit.as_ref() {
                 clone_repo_without_history(
                     &repo,
                     commit,
@@ -1868,7 +2213,7 @@ fi
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
-            .envs(PROXY_ENVS.clone())
+            .envs(crate::job_proxy_envs())
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
@@ -2109,6 +2454,164 @@ mod tests {
             .collect()
     }
 
+    fn no_abort() -> std::sync::atomic::AtomicBool {
+        std::sync::atomic::AtomicBool::new(false)
+    }
+
+    /// Build a gzipped tar whose entries are `(path, contents)`, laid out the
+    /// way GitHub does it: everything under one top-level directory.
+    fn tar_gz_with(dir: &std::path::Path, entries: &[(&str, &str)]) -> PathBuf {
+        let path = dir.join("archive.tar.gz");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::fast(),
+        ));
+        for (name, contents) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o644);
+            // The name is written into the header directly: `set_path` rejects
+            // `..`, and a hostile archive is precisely what this builds.
+            header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+            header.set_cksum();
+            builder.append(&header, contents.as_bytes()).unwrap();
+        }
+        builder.into_inner().unwrap().finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn unpack_strips_the_top_level_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = tar_gz_with(
+            dir.path(),
+            &[("acme-repo-abc123/playbooks/site.yml", "- hosts: all\n")],
+        );
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        unpack_repo_archive(&archive, &target, &no_abort()).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(target.join("playbooks/site.yml")).unwrap(),
+            "- hosts: all\n"
+        );
+    }
+
+    /// Append a symlink entry. The name and target are written into the header
+    /// directly because `set_path`/`set_link_name` reject `..`, which is what
+    /// these tests are made of.
+    fn append_symlink(builder: &mut tar::Builder<impl std::io::Write>, name: &str, link: &str) {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(0);
+        header.set_mode(0o777);
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+        header.as_old_mut().linkname[..link.len()].copy_from_slice(link.as_bytes());
+        header.set_cksum();
+        builder.append(&header, &[][..]).unwrap();
+    }
+
+    #[test]
+    fn unpack_refuses_to_write_through_a_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("archive.tar.gz");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::fast(),
+        ));
+        append_symlink(&mut builder, "acme-repo-abc123/escape", "../../../tmp");
+        // The link alone is harmless; descending through it is the escape.
+        let mut header = tar::Header::new_gnu();
+        header.set_size(5);
+        header.set_mode(0o644);
+        let name = b"acme-repo-abc123/escape/pwned";
+        header.as_old_mut().name[..name.len()].copy_from_slice(name);
+        header.set_cksum();
+        builder.append(&header, &b"pwned"[..]).unwrap();
+        builder.into_inner().unwrap().finish().unwrap();
+
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        assert!(unpack_repo_archive(&path, &target, &no_abort()).is_err());
+    }
+
+    #[test]
+    fn unpack_refuses_a_hard_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("archive.tar.gz");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::fast(),
+        ));
+        let mut header = tar::Header::new_gnu();
+        header.set_size(0);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Link);
+        let name = b"acme-repo-abc123/hard";
+        let link = b"../../../etc/passwd";
+        header.as_old_mut().name[..name.len()].copy_from_slice(name);
+        header.as_old_mut().linkname[..link.len()].copy_from_slice(link);
+        header.set_cksum();
+        builder.append(&header, &[][..]).unwrap();
+        builder.into_inner().unwrap().finish().unwrap();
+
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        assert!(unpack_repo_archive(&path, &target, &no_abort()).is_err());
+        assert!(!target.join("hard").exists());
+    }
+
+    #[test]
+    fn unpack_keeps_a_link_that_stays_in_the_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("archive.tar.gz");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::fast(),
+        ));
+        let mut header = tar::Header::new_gnu();
+        header.set_size(3);
+        header.set_mode(0o644);
+        let name = b"acme-repo-abc123/README.md";
+        header.as_old_mut().name[..name.len()].copy_from_slice(name);
+        header.set_cksum();
+        builder.append(&header, &b"hi\n"[..]).unwrap();
+        // Ordinary in a repository, and a git checkout keeps it as-is.
+        append_symlink(&mut builder, "acme-repo-abc123/docs/link", "../README.md");
+        builder.into_inner().unwrap().finish().unwrap();
+
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        unpack_repo_archive(&path, &target, &no_abort()).unwrap();
+        let link = target.join("docs").join("link");
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        // Windows stores a symlink's target verbatim and its object manager
+        // rejects the `/` in a POSIX one, so only here does the link resolve.
+        #[cfg(unix)]
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), "hi\n");
+    }
+
+    #[test]
+    fn unpack_refuses_to_write_outside_the_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = tar_gz_with(dir.path(), &[("acme-repo-abc123/../../escaped", "pwned")]);
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        assert!(unpack_repo_archive(&archive, &target, &no_abort()).is_err());
+        // The entry named a path two levels above the target; nothing there.
+        assert!(!dir.path().parent().unwrap().join("escaped").exists());
+        assert!(!dir.path().join("escaped").exists());
+    }
+
     #[test]
     fn test_interpolate_template_string() {
         let args = args_from_json(serde_json::json!({"playbook": "site.yml"}));
@@ -2231,6 +2734,25 @@ mod tests {
         // Defense-in-depth boundary: a poisoned entry must error before any config is written.
         assert!(create_ansible_cfg(Some(&reqs), job_dir, false, &Uuid::new_v4()).is_err());
         assert!(!dir.path().join("ansible.cfg").exists());
+    }
+
+    #[test]
+    fn test_parse_shebang_interpreter() {
+        let parse = |s: &str| parse_shebang_interpreter(s.as_bytes());
+        assert_eq!(
+            parse("#!/usr/local/uv/ansible/bin/python\nimport sys\n"),
+            Some(vec!["/usr/local/uv/ansible/bin/python".to_string()])
+        );
+        assert_eq!(
+            parse("#!/usr/bin/env -S python3.14 -E\n"),
+            Some(vec!["python3.14".to_string(), "-E".to_string()])
+        );
+        assert_eq!(
+            parse("#!/bin/sh\n'''exec' '/a long/venv/bin/python' \"$0\" \"$@\"\n' '''\n"),
+            Some(vec!["/a long/venv/bin/python".to_string()])
+        );
+        assert_eq!(parse("#!/bin/bash\necho hi\n"), None);
+        assert_eq!(parse("\x7fELF"), None);
     }
 
     #[test]

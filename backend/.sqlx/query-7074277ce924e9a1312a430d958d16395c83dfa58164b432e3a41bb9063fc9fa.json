@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM github_app_repo_approval WHERE workspace_id = $1 AND path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7074277ce924e9a1312a430d958d16395c83dfa58164b432e3a41bb9063fc9fa"
+}

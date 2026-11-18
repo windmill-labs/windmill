@@ -8,9 +8,10 @@
 	import { BROWSER } from 'esm-env'
 
 	import { buildWsUrl } from '$lib/wsUrl'
+	import { signLspRequest } from '$lib/components/debug/debugUtils'
 	import { sendUserToast } from '$lib/toast'
 
-	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, tick, untrack } from 'svelte'
 
 	// import libStdContent from '$lib/es6.d.ts.txt?raw'
 	// import domContent from '$lib/dom.d.ts.txt?raw'
@@ -26,7 +27,7 @@
 
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
-	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
+	import type { MessageTransports } from 'vscode-languageclient'
 
 	import { MonacoBinding } from 'y-monaco'
 	import {
@@ -42,7 +43,6 @@
 	import { editorConfig, registerWebviewPaste, updateOptions } from '$lib/editorUtils'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
-	import { workspaceStore } from '$lib/stores'
 	import DdlMigrationGuard from './DdlMigrationGuard.svelte'
 	import {
 		type Preview,
@@ -110,7 +110,7 @@
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
-	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager, type AIChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
@@ -119,6 +119,10 @@
 	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
 	import { MarkerSeverity } from 'monaco-editor'
 	import { resource, useDebounce, watch } from 'runed'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { registerPendingEditor } from './pendingEditorFlush'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -138,6 +142,9 @@
 		awareness?: any | undefined
 		folding?: boolean
 		args?: Record<string, any> | undefined
+		/** Schema to complete SQL against when the caller already holds it; otherwise it is
+		 * looked up from `args.database`. */
+		sqlSchema?: DBSchema | undefined
 		useWebsockets?: boolean
 		small?: boolean
 		scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'jsx' | 'json' | undefined
@@ -188,6 +195,7 @@
 		awareness = undefined,
 		folding = false,
 		args = undefined,
+		sqlSchema = undefined,
 		useWebsockets = true,
 		small = false,
 		scriptLang,
@@ -264,11 +272,22 @@
 	let disposeMethod: (() => void) | undefined
 	const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 	const dispatch = createEventDispatcher()
+	// Set by the sessions pane; undefined everywhere else. ⌘L targets it so the
+	// shortcut reaches the chat the user is actually looking at. Read directly
+	// rather than via getAiChatManager(), which collapses "no session" into the
+	// singleton — the distinction is what tells ⌘L whether a pane exists to open.
+	const sessionScopedChatManager = getContext<AIChatManager | undefined>('aiChatManager')
+	// Autocomplete in a session's editor follows the session's workspace, not the tab's.
+	const completionInfo = $derived(
+		sessionScopedChatManager ? sessionScopedChatManager.aiInfo : $copilotInfo
+	)
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
-	let dbSchema: DBSchema | undefined = $state(undefined)
+	let fetchedDbSchema: DBSchema | undefined = $state(undefined)
+	let dbSchema: DBSchema | undefined = $derived(sqlSchema ?? fetchedDbSchema)
 
 	let destroyed = false
+	let reloadSeq = 0
 	const uri = computeUri(
 		untrack(() => filePath),
 		untrack(() => scriptLang)
@@ -480,6 +499,14 @@
 		changeChainStart = undefined
 	}
 
+	// Same guards as the unmount flush below: only when a keystroke is actually pending.
+	const unregisterPending = registerPendingEditor({
+		flushPendingChanges: () => {
+			if (editor && timeoutModel !== undefined) flushPendingChanges()
+		}
+	})
+	onDestroy(unregisterPending)
+
 	export function append(code: string): void {
 		if (editor) {
 			const lineCount = editor.getModel()?.getLineCount() || 0
@@ -573,8 +600,6 @@
 			warnings
 		}
 	}
-
-	let command: IDisposable | undefined = undefined
 
 	let sqlTypeCompletor: IDisposable | undefined = $state(undefined)
 	let resultCollectionCompletor: IDisposable | undefined = $state(undefined)
@@ -678,7 +703,7 @@
 	// via a short-TTL cache — macros are late-bound, so mild staleness is fine.
 	async function addWorkspaceMacroCompletions() {
 		workspaceMacroCompletor?.dispose()
-		const workspace = $workspaceStore
+		const workspace = $operatingWorkspace
 		if (!workspace) return
 		let macros: Awaited<ReturnType<typeof listWorkspaceMacrosCached>> = []
 		try {
@@ -733,7 +758,7 @@
 			provideCompletionItems: async function (model, position) {
 				// Read the store per request, not at registration — the provider
 				// outlives a workspace switch.
-				const workspace = $workspaceStore
+				const workspace = $operatingWorkspace
 				if (!workspace) return { suggestions: [] }
 				const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
 				if (!/^\s*(\/\/|--|#)\s*(column|data_test|on|materialize)\b/.test(before)) {
@@ -769,19 +794,19 @@
 	async function updateSchema(newSchemaRes: string | undefined) {
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
-			dbSchema = $dbSchemas[resourcePath]
-			if (dbSchema === undefined) {
+			fetchedDbSchema = $dbSchemas[resourcePath]
+			if (fetchedDbSchema === undefined) {
 				$dbSchemas[resourcePath] = await getDbSchemas(
 					lang === 'graphql' ? 'graphql' : (scriptLang ?? ''),
 					resourcePath,
-					$workspaceStore,
+					$operatingWorkspace,
 					(e) => console.error(`error getting ${lang} (${scriptLang}) db schema`, e),
 					{ customTag }
 				)
 			}
-			dbSchema = $dbSchemas[resourcePath]
+			fetchedDbSchema = $dbSchemas[resourcePath]
 		} else {
-			dbSchema = undefined
+			fetchedDbSchema = undefined
 		}
 	}
 
@@ -816,6 +841,9 @@
 			sqlSchemaCompletor = languages.registerCompletionItemProvider('sql', {
 				triggerCharacters: ['.', ' ', '('],
 				provideCompletionItems: function (model, position) {
+					// Registered for the whole `sql` language: every other mounted SQL editor
+					// would otherwise add its own schema's suggestions to this one's.
+					if (model !== editor?.getModel()) return { suggestions: [] }
 					const textUntilPosition = model.getValueInRange({
 						startLineNumber: 1,
 						startColumn: 1,
@@ -993,7 +1021,11 @@
 		if (autocompletor) {
 			autocompletor.dispose()
 		}
-		autocompletor = new Autocompletor(editor, scriptLang, { workflowAsCode })
+		const session = sessionScopedChatManager
+		autocompletor = new Autocompletor(editor, scriptLang, {
+			workflowAsCode,
+			sessionTarget: session ? () => session.loadedSessionAiTarget : undefined
+		})
 	}
 
 	const outputChannel = {
@@ -1012,17 +1044,13 @@
 	}
 
 	export async function reloadWebsocket() {
+		// closeWebsockets() and the signing round-trip below are both async, so overlapping
+		// (re)connects can interleave. Claim a generation up front; after the awaits, only the
+		// latest proceeds, so a superseded call never opens a second set of language clients.
+		const thisReload = ++reloadSeq
 		await closeWebsockets()
 
-		if (
-			!useWebsockets ||
-			!(
-				(lang == 'typescript' && scriptLang === 'deno') ||
-				lang == 'python' ||
-				lang == 'go' ||
-				lang == 'shell'
-			)
-		) {
+		if (!useWebsockets || !(lang == 'python' || lang == 'go' || lang == 'shell')) {
 			return
 		}
 		console.log('reloadWebsocket')
@@ -1148,24 +1176,6 @@
 
 					lastWsAttempt = new Date()
 					nbWsAttempt = 0
-					if (name == 'deno') {
-						command && command.dispose()
-						command = undefined
-						try {
-							command = vscode.commands.registerCommand(
-								'deno.cache',
-								(uris: DocumentUri[] = []) => {
-									languageClient.sendRequest(new RequestType('deno/cache'), {
-										referrer: { uri },
-										uris: uris.map((uri) => ({ uri }))
-									})
-								}
-							)
-						} catch (err) {
-							console.warn(err)
-						}
-					}
-
 					websocketAlive[name] = true
 				}
 			} catch (err) {
@@ -1173,76 +1183,25 @@
 			}
 		}
 
-		const hostname = getHostname()
-
-		let encodedImportMap = ''
-
 		if (useWebsockets) {
-			if (lang == 'typescript' && scriptLang === 'deno') {
-				ata = undefined
-				let root = await genRoot(hostname)
-				const importMap = {
-					imports: {
-						'file:///': root + '/'
-					}
-				}
-				if (filePath && filePath.split('/').length > 2) {
-					let path_splitted = filePath.split('/')
-					for (let c = 0; c < path_splitted.length; c++) {
-						let key = 'file://./'
-						for (let i = 0; i < c; i++) {
-							key += '../'
-						}
-						let url = path_splitted.slice(0, -c - 1).join('/')
-						let ending = c == path_splitted.length - 1 ? '' : '/'
-						importMap['imports'][key] = `${root}/${url}${ending}`
-					}
-				}
-				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
+			// Signed afresh on every (re)connection: the windmill_extra gateway checks it at
+			// connect time and it expires within a minute. A connection without one is still
+			// attempted, for an extra image that does not require it.
+			let lspToken: string | undefined
+			try {
+				lspToken = await signLspRequest($operatingWorkspace ?? '')
+			} catch (err) {
+				console.warn('could not sign a language server session', err)
+			}
+			// After the signing round-trip, bail if the editor was destroyed (onDestroy tore the
+			// sockets and interval down) or a newer reload superseded this one.
+			if (destroyed || thisReload !== reloadSeq) return
+			const lspUrl = (path: string) =>
+				lspToken ? `${buildWsUrl(path)}?token=${encodeURIComponent(lspToken)}` : buildWsUrl(path)
+
+			if (lang === 'python') {
 				await connectToLanguageServer(
-					buildWsUrl('/ws/deno'),
-					'deno',
-					{
-						certificateStores: null,
-						enablePaths: [],
-						config: null,
-						importMap: encodedImportMap,
-						internalDebug: false,
-						lint: false,
-						path: null,
-						tlsCertificate: null,
-						unsafelyIgnoreCertificateErrors: null,
-						unstable: true,
-						enable: true,
-						codeLens: {
-							implementations: true,
-							references: true,
-							referencesAllFunction: false
-						},
-						suggest: {
-							autoImports: true,
-							completeFunctionCalls: false,
-							names: true,
-							paths: true,
-							imports: {
-								autoDiscover: true,
-								hosts: {
-									'https://deno.land': true
-								}
-							}
-						}
-					},
-					() => {
-						return [
-							{
-								enable: true
-							}
-						]
-					}
-				)
-			} else if (lang === 'python') {
-				await connectToLanguageServer(
-					buildWsUrl('/ws/pyright'),
+					lspUrl('/ws/pyright'),
 					'pyright',
 					{},
 					(params, token, next) => {
@@ -1276,14 +1235,14 @@
 				// below is the document URI rather than a directory containing it, so a ruff.toml
 				// on disk never applies unless named here (written by lsp/pyls_launcher.py).
 				connectToLanguageServer(
-					buildWsUrl('/ws/ruff'),
+					lspUrl('/ws/ruff'),
 					'ruff',
 					{ settings: { configuration: '/tmp/monaco/ruff.toml' } },
 					undefined
 				)
 			} else if (lang === 'go') {
 				connectToLanguageServer(
-					buildWsUrl('/ws/go'),
+					lspUrl('/ws/go'),
 					'go',
 					{
 						'build.allowImplicitNetworkAccess': true
@@ -1292,7 +1251,7 @@
 				)
 			} else if (lang === 'shell') {
 				connectToLanguageServer(
-					buildWsUrl('/ws/diagnostic'),
+					lspUrl('/ws/diagnostic'),
 					'shellcheck',
 					{
 						linters: {
@@ -1338,13 +1297,13 @@
 						(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
 					) {
 						if (
-							!websocketAlive.deno &&
 							!websocketAlive.pyright &&
 							!websocketAlive.go &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff &&
 							scriptLang != 'bun' &&
-							scriptLang != 'tsx'
+							scriptLang != 'tsx' &&
+							scriptLang != 'deno'
 						) {
 							console.log('reconnecting to language servers')
 							lastWsAttempt = new Date()
@@ -1379,9 +1338,6 @@
 	}
 
 	async function closeWebsockets() {
-		command && command.dispose()
-		command = undefined
-
 		console.debug(`disposing ${websockets.length} language clients and closing websockets`)
 		for (const x of languageClients) {
 			try {
@@ -1507,6 +1463,9 @@
 		} catch (e) {
 			console.log('error initializing services', e)
 		}
+		// Unmounted while the services loaded: the container is detached, and
+		// creating the editor on it throws.
+		if (destroyed || !divEl?.isConnected) return
 
 		// vscode.languages.registerDefinitionProvider('*', {
 		// 	provideDefinition(document, position, token) {
@@ -1695,16 +1654,18 @@
 					selection &&
 					(selection.startLineNumber !== selection.endLineNumber ||
 						selection.startColumn !== selection.endColumn)
+				// Only a session pane has a chat on screen to send the lines to.
+				const chat = sessionScopedChatManager
+				if (!chat) return
 				if (hasSelection && selectedLines) {
-					aiChatManager.addSelectedLinesToContext(
+					chat.addSelectedLinesToContext(
 						selectedLines,
 						selection.startLineNumber,
 						selection.endLineNumber,
 						moduleId
 					)
 				} else {
-					aiChatManager.toggleOpen()
-					aiChatManager.focusInput()
+					chat.focusInput()
 				}
 			})
 
@@ -1724,7 +1685,6 @@
 			})
 
 			if (
-				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
 				!websocketAlive.ruff &&
 				!websocketAlive.shellcheck &&
@@ -1766,9 +1726,9 @@
 	let customTsTypesData = resource([() => lang], async () => {
 		if (lang !== 'typescript') return undefined
 		let datatables = (
-			await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+			await WorkspaceService.listDataTables({ workspace: $operatingWorkspace ?? '' })
 		).map((d) => d.name)
-		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $operatingWorkspace ?? '' })
 		return { datatables, ducklakes }
 	})
 	function setTypescriptCustomTypes() {
@@ -1809,9 +1769,15 @@
 				scriptLang === 'bunnative' ||
 				scriptLang === 'nativets')
 		) {
-			const resourceTypes = await ResourceService.listResourceType({
-				workspace: $workspaceStore ?? ''
-			})
+			// The generated client resolves `undefined` for any response whose body it
+			// cannot read — `getResponseBody` swallows a parse failure and returns
+			// nothing, which `catchErrorCodes` passes through on a 2xx. Typing says
+			// otherwise, so without this the editor dies on mount rather than losing
+			// its resource-type autocomplete.
+			const resourceTypes =
+				(await ResourceService.listResourceType({
+					workspace: $operatingWorkspace ?? ''
+				})) ?? []
 
 			const namespace = formatResourceTypes(
 				resourceTypes,
@@ -2011,7 +1977,7 @@
 			$lspTokenStore = newToken
 			token = newToken
 		}
-		let root = hostname + '/api/scripts_u/tokened_raw/' + $workspaceStore + '/' + token
+		let root = hostname + '/api/scripts_u/tokened_raw/' + $operatingWorkspace + '/' + token
 		return root
 	}
 
@@ -2133,9 +2099,9 @@
 	})
 	$effect(() => {
 		const currentWorkflowAsCode = workflowAsCode
-		$copilotInfo.enabled &&
+		completionInfo?.enabled &&
 			$codeCompletionSessionEnabled &&
-			Autocompletor.isProviderModelSupported($copilotInfo.codeCompletionModel) &&
+			Autocompletor.isProviderModelSupported(completionInfo.codeCompletionModel) &&
 			initialized &&
 			editor &&
 			scriptLang &&
@@ -2145,7 +2111,7 @@
 		$copilotInfo.enabled && initialized && editor && untrack(() => editor && addChatHandler(editor))
 	})
 	$effect(() => {
-		;(!$codeCompletionSessionEnabled || !$copilotInfo.enabled) && autocompletor?.dispose()
+		;(!$codeCompletionSessionEnabled || !completionInfo?.enabled) && autocompletor?.dispose()
 	})
 	$effect(() => {
 		if (yContent && awareness && model && editor) {
@@ -2262,10 +2228,10 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <EditorTheme />
-{#if datatableForMigrations && $workspaceStore}
+{#if datatableForMigrations && $operatingWorkspace}
 	<DdlMigrationGuard
 		bind:this={ddlGuard}
-		workspace={$workspaceStore}
+		workspace={$operatingWorkspace}
 		datatable={datatableForMigrations}
 	/>
 {/if}

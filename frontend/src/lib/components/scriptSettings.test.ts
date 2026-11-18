@@ -16,7 +16,7 @@ describe('getActiveScriptSettingsBadges', () => {
 			priority: 50,
 			tag: 'gpu'
 		}).map((b) => b.key)
-		expect(keys).toEqual(['concurrency', 'cache', 'timeout', 'priority', 'tag'])
+		expect(keys).toEqual(['timeout', 'concurrency', 'cache', 'priority', 'tag'])
 	})
 
 	it('treats a zero/absent priority and non-positive debounce as inactive', () => {
@@ -25,6 +25,11 @@ describe('getActiveScriptSettingsBadges', () => {
 			debounce_delay_s: 0
 		}).map((b) => b.key)
 		expect(keys).toEqual([])
+	})
+
+	it('surfaces a negative priority as low priority', () => {
+		const keys = getActiveScriptSettingsBadges({ priority: -100 }).map((b) => b.key)
+		expect(keys).toEqual(['low_priority'])
 	})
 
 	it('treats non-positive concurrency limits, timeouts and cache ttl as inactive (legacy zero rows)', () => {

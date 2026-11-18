@@ -29,7 +29,10 @@ const REJECTED = [
 	'https://hooks.example.com?',
 	'https://hooks.example.com#',
 	'https://user:password@hooks.example.com',
-	'https://user@hooks.example.com'
+	'https://user@hooks.example.com',
+	'https://hooks.example.com/$(uname)',
+	'https://hooks.example.com/`uname`',
+	'https://hooks.example.com/a;b'
 ]
 
 describe('isValidWebhookBaseUrl', () => {
@@ -41,10 +44,13 @@ describe('isValidWebhookBaseUrl', () => {
 		expect(isValidWebhookBaseUrl(value)).toBe(false)
 	})
 
-	it.each([true, 42, {}, [], null] as unknown[])('rejects the non-string %j without throwing', (value) => {
-		// `Setting.isValid` is typed `any` and YAML mode can supply any JSON shape.
-		expect(isValidWebhookBaseUrl(value as never)).toBe(value === null)
-	})
+	it.each([true, 42, {}, [], null] as unknown[])(
+		'rejects the non-string %j without throwing',
+		(value) => {
+			// `Setting.isValid` is typed `any` and YAML mode can supply any JSON shape.
+			expect(isValidWebhookBaseUrl(value as never)).toBe(value === null)
+		}
+	)
 
 	it('treats unset and blank as valid, since the setting is optional', () => {
 		expect(isValidWebhookBaseUrl(undefined)).toBe(true)

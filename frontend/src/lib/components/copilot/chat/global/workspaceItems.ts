@@ -78,6 +78,7 @@ export type AppDraftValue = {
 	data?: any
 	policy?: Policy
 	custom_path?: string
+	labels?: string[]
 	// Fork base: the deployed app version this draft was started from, pinned at
 	// fork. The app analog of a script's parent_hash / a flow's version_id.
 	parent_version?: number
@@ -108,6 +109,7 @@ export type VariableDraftState = {
 	account?: number
 	is_oauth?: boolean
 	expires_at?: string
+	value_valid_until?: string
 }
 
 export type WorkspaceItem = {
@@ -139,6 +141,22 @@ export type WorkspaceItem = {
 	 * without it a reader cannot tell a secret from a plain variable, since the
 	 * value is always redacted. */
 	isSecret?: boolean
+	/** Apps only. True for a code app, false for one built in the drag-and-drop
+	 * editor. The two are edited by disjoint tool sets, so the distinction has to
+	 * reach the model before it picks one. */
+	rawApp?: boolean
+	/** Apps only. Who may open the app — read from a draft, who may open it once
+	 * that draft is deployed: `anonymous` is anyone with the URL and no login,
+	 * `guest` anyone the identity provider authenticates, the rest a workspace
+	 * member. A `guest` app whose instance or workspace admits
+	 * no guest says so here, since the mode is stored either way. Reported per
+	 * app, not in listings — a listing carrying it would make absence read as
+	 * proof of no exposure. */
+	executionMode?: string
+	/** Who a deployed item is shared with beyond its path owner, as `u/<user>` /
+	 * `g/<group>` → true for write, false for read-only. A draft has no permissions of
+	 * its own, so a draft read leaves it unset rather than reporting the item unshared. */
+	extraPerms?: Record<string, boolean>
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

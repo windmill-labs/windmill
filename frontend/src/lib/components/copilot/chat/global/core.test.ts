@@ -30,17 +30,21 @@ vi.mock('$lib/components/vscode', () => ({}))
 // drafts through DraftService (no in-tab cell in unit tests), so this Map is the
 // source of truth the write/read tools round-trip against. `vi.hoisted` makes it
 // available inside the hoisted `vi.mock` factory and the test body alike.
-const { backendDrafts, serverTimestamps, failingWrites, failingReads } = vi.hoisted(() => ({
-	backendDrafts: new Map<string, unknown>(),
-	// Per-row server timestamp, only set by tests that want to simulate a
-	// concurrent writer advancing the row; otherwise empty, so the conflict
-	// branch in `updateDraft` stays inert for every pre-existing test.
-	serverTimestamps: new Map<string, string>(),
-	// Keys whose `updateDraft` / draft reads throw a non-404 (network/5xx);
-	// only set by the error-handling tests, empty otherwise.
-	failingWrites: new Set<string>(),
-	failingReads: new Set<string>()
-}))
+const { backendDrafts, serverTimestamps, failingWrites, failingReads, whoamiByWorkspace } =
+	vi.hoisted(() => ({
+		backendDrafts: new Map<string, unknown>(),
+		// What `whoami` answers with, per workspace; a workspace absent from it throws, as
+		// the API does for a non-member. Empty outside the tests that seed it.
+		whoamiByWorkspace: new Map<string, Record<string, unknown>>(),
+		// Per-row server timestamp, only set by tests that want to simulate a
+		// concurrent writer advancing the row; otherwise empty, so the conflict
+		// branch in `updateDraft` stays inert for every pre-existing test.
+		serverTimestamps: new Map<string, string>(),
+		// Keys whose `updateDraft` / draft reads throw a non-404 (network/5xx);
+		// only set by the error-handling tests, empty otherwise.
+		failingWrites: new Set<string>(),
+		failingReads: new Set<string>()
+	}))
 
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
@@ -58,6 +62,12 @@ vi.mock('$lib/gen', async () => {
 
 	return {
 		...actual,
+		// The server's session tools, stubbed per test by `stubSessionTools`.
+		AiService: wrapService(actual.AiService, {
+			callAiSessionTool: vi.fn(async ({ name }: any) => {
+				throw new Error(`session tool ${name} not stubbed`)
+			})
+		}),
 		ScriptService: wrapService(actual.ScriptService, {
 			existsScriptByPath: vi.fn(async () => false),
 			createScript: vi.fn(async () => 'created'),
@@ -78,11 +88,43 @@ vi.mock('$lib/gen', async () => {
 			runScriptPreview: vi.fn(async () => 'job-script-preview'),
 			runFlowPreview: vi.fn(async () => 'job-flow-preview'),
 			runFlowByPath: vi.fn(async () => 'job-flow-by-path'),
+			runScriptByPath: vi.fn(async () => 'job-script-by-path'),
 			getJob: vi.fn(async () => ({
 				type: 'CompletedJob',
+				id: 'job-123',
+				job_kind: 'script',
+				script_path: 'f/team/runner',
 				success: true,
+				canceled: false,
+				args: { n: 3 },
 				result: { ok: true },
 				logs: 'test logs'
+			})),
+			getJobArgs: vi.fn(async () => ({ big: 'real args' })),
+			getCompletedJobResultMaybe: vi.fn(async () => ({ completed: true, result: { big: 'x' } })),
+			getFlowAllResults: vi.fn(async () => ({
+				entries: [
+					{
+						job_id: 'job-123',
+						label: 'Flow',
+						kind: 'script',
+						depth: 0,
+						sibling_index: 1,
+						sibling_count: 1,
+						status: 'success',
+						success: true
+					}
+				],
+				truncated: false,
+				scope_filtered: false
+			})),
+			// What every job wait polls first; unmocked it reaches the real client and the
+			// wait never returns. Answers completed, so one tick settles the job.
+			getJobUpdates: vi.fn(async () => ({
+				completed: true,
+				running: false,
+				new_logs: 'test logs',
+				log_offset: 'test logs'.length
 			})),
 			getJobLogs: vi.fn(async () => 'job log line 1\njob log line 2'),
 			listJobs: vi.fn(async () => [
@@ -187,6 +229,7 @@ vi.mock('$lib/gen', async () => {
 			listAzureTriggers: vi.fn(async () => [])
 		}),
 		AppService: wrapService(actual.AppService, {
+			executeComponent: vi.fn(async () => 'job-app-component'),
 			existsApp: vi.fn(async () => false),
 			createAppRaw: vi.fn(async () => 'created'),
 			updateAppRaw: vi.fn(async () => 'updated'),
@@ -196,6 +239,8 @@ vi.mock('$lib/gen', async () => {
 			getAppByVersion: vi.fn(async () => {
 				throw new Error('getAppByVersion mock not configured')
 			}),
+			// A row without an access mode, so a deploy keeps the drafted one.
+			getAppLiteByPath: vi.fn(async () => ({ policy: {} }) as any),
 			listApps: vi.fn(async () => [])
 		}),
 		ResourceService: wrapService(actual.ResourceService, {
@@ -204,8 +249,13 @@ vi.mock('$lib/gen', async () => {
 				throw new Error('getResource mock not configured')
 			}),
 			createResource: vi.fn(async () => 'created'),
+			createResourceType: vi.fn(async () => 'created'),
 			updateResource: vi.fn(async () => 'updated'),
-			deleteResource: vi.fn(async () => 'deleted')
+			deleteResource: vi.fn(async () => 'deleted'),
+			// A workspace with no skills, which is what makes `read_skill` refuse a path
+			// the model composed: the gate is membership in the listing.
+			listResource: vi.fn(async () => []),
+			getResourceValue: vi.fn(async () => ({ content: 'skill body' }))
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false),
@@ -215,8 +265,27 @@ vi.mock('$lib/gen', async () => {
 			createVariable: vi.fn(async () => 'created'),
 			updateVariable: vi.fn(async () => 'updated')
 		}),
-		FolderService: wrapService(actual.FolderService, {
-			createFolder: vi.fn(async () => 'created')
+		// Guests unavailable by default, as on the shared cloud.
+		WorkspaceService: wrapService(actual.WorkspaceService, {
+			getGuestUsage: vi.fn(async () => ({ available: false }))
+		}),
+		UserService: wrapService(actual.UserService, {
+			whoami: vi.fn(async ({ workspace }: any) => {
+				const user = whoamiByWorkspace.get(workspace)
+				if (!user) throw new Error(`not a member of ${workspace}`)
+				return user
+			}),
+			// `refreshSuperadmin` cancels the previous in-flight call, so this stands in for
+			// the CancelablePromise the real client returns.
+			globalWhoami: vi.fn(() => {
+				const pending: any = Promise.resolve({
+					email: 'devops@windmill.dev',
+					super_admin: false,
+					devops: true
+				})
+				pending.cancel = () => {}
+				return pending
+			})
 		}),
 		DraftService: wrapService(actual.DraftService, {
 			updateDraft: vi.fn(async ({ kind, path, requestBody }: any) => {
@@ -281,6 +350,12 @@ vi.mock('$lib/gen', async () => {
 	}
 })
 
+// Minting reaches the API and is covered in secretArgUtils.test.ts; what matters here is that a
+// run the posture answers goes through it and starts on what came back.
+vi.mock('$lib/components/secretArgUtils', () => ({
+	processSecretArgs: vi.fn(async (args: Record<string, any>) => args)
+}))
+
 vi.mock('./rawAppBundlerBridge', () => ({
 	bundleRawAppDraft: vi.fn(async () => ({
 		js: 'bundled js',
@@ -290,17 +365,21 @@ vi.mock('./rawAppBundlerBridge', () => ({
 
 vi.mock('$lib/infer', async () => ({
 	...(await vi.importActual<any>('$lib/infer')),
-	// Avoid the wasm parser in unit tests: the script deploy path infers the arg
-	// schema but tolerates failure, and these tests don't assert on the schema.
+	// Avoid the wasm parser in unit tests. A no-op passes the seeded schema through
+	// untouched, which is what lets the password-marking test pin how a schema is
+	// seeded in and carried out without pinning inference's own merge rules.
 	inferArgs: vi.fn(async () => {})
 }))
 
+import { inferArgs } from '$lib/infer'
+import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
 import {
 	buildOpenPageUrl,
 	globalTools,
 	globalToolsFor,
 	prepareGlobalSystemMessage,
+	resolveGlobalPromptIdentity,
 	getSessionContextPromptSection,
 	prepareGlobalUserMessage,
 	setDeployedInSessionHandler,
@@ -317,23 +396,25 @@ import {
 	deleteGlobalDraft,
 	listGlobalDrafts,
 	persistGlobalDraft,
-	readGlobalDraftValue,
 	saveGlobalAppDraft
 } from './userDraftAdapter'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
+import { applySessionToolEffects } from './backendSessionTools'
 import {
+	AiService,
 	AppService,
-	EmailTriggerService,
 	FlowService,
-	FolderService,
 	HttpTriggerService,
-	JobService,
 	ResourceService,
 	ScheduleService,
 	ScriptService,
-	VariableService
+	UserService,
+	VariableService,
+	WorkspaceService
 } from '$lib/gen'
-import { userStore } from '$lib/stores'
+import { superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
+import { processSecretArgs } from '$lib/components/secretArgUtils'
+import { clearWorkspaceRoleCache } from '$lib/user'
 import { get } from 'svelte/store'
 import type { Tool, ToolCallbacks } from '../shared'
 
@@ -350,9 +431,67 @@ function getBackendDraft<V = any>(kind: string, path: string, _opts?: unknown): 
 	return backendDrafts.get(`${kind}:${path}`) as V | undefined
 }
 
+// inferArgs is stubbed module-wide (no wasm parser here), so a test whose form is built by
+// inference has to say what the next call finds. Once, so a test that also calls write_script
+// — which infers to fill the draft's schema — queues this after that write, not before.
+function stubInferredProperties(properties: Record<string, any>): void {
+	vi.mocked(inferArgs).mockImplementationOnce(async (_lang, _code, schema) => {
+		schema.properties = properties
+		return null
+	})
+}
+
+type SessionToolCall = { name: string; args: any; context: any }
+
+/** Answers the server's session tools: a string is a successful call's text. */
+function stubSessionTools(answer: (call: SessionToolCall) => unknown): void {
+	vi.mocked(AiService.callAiSessionTool).mockImplementation((async ({ name, requestBody }: any) => {
+		const response = await answer({ name, args: requestBody.args, context: requestBody.context })
+		return typeof response === 'string'
+			? { text: response, is_error: false, effects: [] }
+			: response
+	}) as any)
+}
+
+/** A run tool whose prepare phase resolves to `prepared` and whose start answers `started`:
+ * a job id, or a whole response for a refused start. */
+function stubRun(prepared: Record<string, unknown> = {}, started: unknown = 'job-started'): void {
+	stubSessionTools(({ name, args, context }) =>
+		context.run?.phase === 'prepare'
+			? JSON.stringify({
+					target: { stub: name },
+					schema: null,
+					code: null,
+					lang: null,
+					summary: null,
+					runnable_kind: 'script',
+					start_message: `Running "${args.path}"...`,
+					conversational: false,
+					module: null,
+					...prepared
+				})
+			: started
+	)
+}
+
+/** The `run` context the start phase was sent, or undefined when no run started. */
+function startedRun(): { args: Record<string, any>; form_keys: string[] } | undefined {
+	const call = vi
+		.mocked(AiService.callAiSessionTool)
+		.mock.calls.find(([request]: any) => request.requestBody.context.run?.phase === 'start')
+	return (call?.[0] as any)?.requestBody.context.run
+}
+
+beforeEach(() => {
+	vi.mocked(AiService.callAiSessionTool).mockReset()
+})
+
 const toolCallbacks: ToolCallbacks = {
 	setToolStatus: vi.fn(),
-	removeToolStatus: vi.fn()
+	removeToolStatus: vi.fn(),
+	// Every host that can run a script mounts the form, so the default answers it with what it
+	// opened with. A test meaning to exercise a host without one overrides this with undefined.
+	requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
 }
 
 function getGlobalTool(name: string): Tool<{}> {
@@ -376,15 +515,6 @@ async function callGlobalTool(
 		toolCallbacks: callbacks,
 		toolId: `test-${name}`
 	})
-}
-
-function localStorageSnapshot(): string {
-	const values: string[] = []
-	for (let i = 0; i < localStorage.length; i++) {
-		const key = localStorage.key(i)
-		if (key) values.push(`${key}: ${localStorage.getItem(key)}`)
-	}
-	return values.join('\n')
 }
 
 async function withCompletedTestJob<T>(run: () => Promise<T>): Promise<T> {
@@ -419,6 +549,21 @@ describe('global AI tools', () => {
 		expect(result).not.toContain('Python Datatable API')
 	})
 
+	it('gives agent guidance only to a session that may also draft flows', async () => {
+		const resourcesOnly = await callGlobalTool(
+			'get_instructions',
+			{ subject: 'agent' },
+			toolCallbacks,
+			{ access: new Set(['write_resource_draft']) }
+		)
+		expect(resourcesOnly).not.toContain('Windmill agent authoring reference')
+		const builder = await callGlobalTool('get_instructions', { subject: 'agent' }, toolCallbacks, {
+			access: new Set(['write_resource_draft', 'write_flow_draft'])
+		})
+		expect(builder).toContain('Windmill agent authoring reference')
+		expect(builder).toContain('This user cannot write inline code')
+	})
+
 	it('returns only the requested language SDK for the datatable subject', async () => {
 		const ts = await callGlobalTool('get_instructions', { subject: 'datatable', language: 'bun' })
 		expect(ts).toContain('TypeScript Datatable API')
@@ -439,7 +584,7 @@ describe('global AI tools', () => {
 		expect(names).toContain('test_run_script')
 		expect(names).toContain('test_run_flow')
 		expect(names).toContain('test_run_step')
-		expect(names).toContain('get_job_logs')
+		expect(names).toContain('get_run')
 		expect(names).toContain('list_runs')
 	})
 
@@ -454,50 +599,6 @@ describe('global AI tools', () => {
 			group_id: expect.anything(),
 			topics: expect.anything()
 		})
-	})
-
-	// The rare schedule fields reach the draft through `advanced` instead of the tool
-	// definition, so the merge back into the persisted value is what has to hold.
-	it('folds advanced schedule options into the draft', async () => {
-		const advanced = JSON.parse(await callGlobalTool('get_schedule_schema', {}))
-		expect(Object.keys(advanced.properties)).toEqual(
-			expect.arrayContaining(['retry', 'paused_until', 'no_flow_overlap'])
-		)
-		expect(advanced.properties).not.toHaveProperty('schedule')
-
-		await callGlobalTool('write_schedule', {
-			path: 'f/schedules/adv',
-			schedule: '0 0 9 * * *',
-			timezone: 'UTC',
-			script_path: 'f/scripts/run',
-			is_flow: false,
-			args: {},
-			advanced: { no_flow_overlap: true, tag: 'nightly' }
-		})
-
-		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/adv', {
-			workspace: WORKSPACE
-		})
-		expect(draft).toMatchObject({ no_flow_overlap: true, tag: 'nightly' })
-		expect(draft).not.toHaveProperty('advanced')
-	})
-
-	// A duplicate inside `advanced` must not quietly outrank the named argument.
-	it('lets a real schedule argument win over the same key inside advanced', async () => {
-		await callGlobalTool('write_schedule', {
-			path: 'f/schedules/prec',
-			schedule: '0 0 9 * * *',
-			timezone: 'UTC',
-			script_path: 'f/scripts/run',
-			is_flow: false,
-			args: {},
-			advanced: { timezone: 'Europe/Paris', tag: 'nightly' }
-		})
-
-		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/prec', {
-			workspace: WORKSPACE
-		})
-		expect(draft).toMatchObject({ timezone: 'UTC', tag: 'nightly' })
 	})
 
 	// Every sub-field of `retry` is optional, so a guessed shape validates clean and
@@ -583,25 +684,6 @@ describe('global AI tools', () => {
 		expect(error).toMatch(/not schedule fields: not_a_field/)
 	})
 
-	// `args` is a real object-valued argument, not an advanced option: repeating it must
-	// not be reported as a dropped option just because the named one outranks the bag.
-	it('does not flag a duplicated object argument as dropped', async () => {
-		await callGlobalTool('write_schedule', {
-			path: 'f/schedules/dupargs',
-			schedule: '0 0 6 * * *',
-			timezone: 'UTC',
-			script_path: 'f/scripts/run',
-			is_flow: false,
-			args: { a: 1 },
-			advanced: { args: { b: 2 }, tag: 'nightly' }
-		})
-
-		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/dupargs', {
-			workspace: WORKSPACE
-		})
-		expect(draft).toMatchObject({ args: { a: 1 }, tag: 'nightly' })
-	})
-
 	it('rejects a trigger config that does not match the declared kind', async () => {
 		const error = await callGlobalTool('write_trigger', {
 			kind: 'kafka',
@@ -618,497 +700,6 @@ describe('global AI tools', () => {
 		// What the model actually receives is capped at MAX_TOOL_ERROR_LENGTH by
 		// formatToolError, so the recovery instruction has to survive that cap.
 		expect((error as Error).message.slice(0, 2000)).toContain('get_trigger_schema')
-	})
-
-	it('lists recent runs with compact summaries and forwarded filters', async () => {
-		const result = await callGlobalTool('list_runs', {
-			path: 'f/team/runner',
-			created_by: 'alice',
-			success: true,
-			limit: 10
-		})
-
-		expect(JobService.listJobs).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			scriptPathExact: 'f/team/runner',
-			createdBy: 'alice',
-			label: undefined,
-			success: true,
-			running: undefined,
-			perPage: 10
-		})
-
-		const runs = JSON.parse(result)
-		expect(runs).toHaveLength(2)
-		expect(runs[0]).toMatchObject({
-			id: 'completed-1',
-			status: 'success',
-			path: 'f/team/runner',
-			duration_ms: 1200
-		})
-		expect(runs[1]).toMatchObject({ id: 'queued-1', status: 'running' })
-		// Heavy / sensitive fields must not leak into the summary.
-		expect(result).not.toContain('verbose logs')
-		expect(result).not.toContain('do-not-leak')
-		// The result must be surfaced to the tool display, otherwise the details
-		// panel shows "No result yet" even though the call succeeded.
-		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
-			'test-list_runs',
-			expect.objectContaining({ result })
-		)
-	})
-
-	it('defaults list_runs to 30 results when no limit is given', async () => {
-		await callGlobalTool('list_runs', {})
-		expect(JobService.listJobs).toHaveBeenCalledWith(
-			expect.objectContaining({ workspace: WORKSPACE, perPage: 30 })
-		)
-	})
-
-	it('fetches job logs by id and always suppresses the backend ansi hint line', async () => {
-		const result = await callGlobalTool('get_job_logs', { id: 'job-123' })
-
-		expect(JobService.getJobLogs).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			id: 'job-123',
-			removeAnsiWarnings: true
-		})
-		expect(result).toBe('job log line 1\njob log line 2')
-		// The logs must be surfaced as the tool result so the details panel shows
-		// them rather than "No result yet".
-		expect(toolCallbacks.setToolStatus).toHaveBeenCalledWith(
-			'test-get_job_logs',
-			expect.objectContaining({ result: 'job log line 1\njob log line 2' })
-		)
-	})
-
-	it('reports when a job has no logs', async () => {
-		vi.mocked(JobService.getJobLogs).mockResolvedValueOnce('   ')
-
-		const result = await callGlobalTool('get_job_logs', { id: 'job-empty' })
-
-		expect(result).toBe('No logs available for this job.')
-	})
-
-	it('searches hub scripts without fetching script contents', async () => {
-		vi.mocked(ScriptService.queryHubScripts).mockResolvedValueOnce([
-			{
-				version_id: 7,
-				app: 'slack',
-				summary: 'Send Message'
-			}
-		] as any)
-
-		const raw = await callGlobalTool('search_hub_scripts', {
-			query: 'slack message'
-		})
-
-		expect(ScriptService.queryHubScripts).toHaveBeenCalledWith({
-			text: 'slack message',
-			kind: 'script'
-		})
-		expect(ScriptService.getHubScriptContentByPath).not.toHaveBeenCalled()
-		expect(JSON.parse(raw)).toEqual([
-			{
-				path: 'hub/7/slack/send_message',
-				summary: 'Send Message'
-			}
-		])
-	})
-
-	it('reads a hub script path through the hub endpoint, not the workspace one', async () => {
-		vi.mocked(ScriptService.getHubScriptByPath).mockResolvedValueOnce({
-			content: 'export async function main() {}',
-			language: 'bunnative',
-			summary: 'Send a message to discord using webhook',
-			schema: { type: 'object', properties: {} }
-		})
-
-		const raw = await callGlobalTool('read_workspace_item', {
-			type: 'script',
-			path: 'hub/28294/discord/send_a_message_to_discord_using_webhook'
-		})
-
-		expect(ScriptService.getHubScriptByPath).toHaveBeenCalledWith({
-			path: 'hub/28294/discord/send_a_message_to_discord_using_webhook'
-		})
-		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
-		expect(JSON.parse(raw)).toMatchObject({
-			language: 'bunnative',
-			value: 'export async function main() {}'
-		})
-	})
-
-	it('reads the deployed state, skipping chat and DB drafts, with version: deployed', async () => {
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/greet',
-			language: 'bun',
-			content: 'export async function main(renamed_input: string) {}'
-		})
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			hash: 1,
-			path: 'f/scripts/greet',
-			summary: 'Deployed greet',
-			content: 'export async function main(name: string) {}',
-			schema: { properties: { name: { type: 'string' } } },
-			language: 'bun',
-			kind: 'script',
-			draft: { content: 'export async function main(db_draft_input: string) {}' }
-		} as any)
-
-		const raw = await callGlobalTool('read_workspace_item', {
-			type: 'script',
-			path: 'f/scripts/greet',
-			version: 'deployed'
-		})
-		const item = JSON.parse(raw)
-
-		expect(ScriptService.getScriptByPath).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			path: 'f/scripts/greet',
-			getDraft: false
-		})
-		expect(item.isDraft).toBe(false)
-		expect(item.schema).toEqual({ properties: { name: { type: 'string' } } })
-		expect(raw).toContain('main(name: string)')
-		expect(raw).not.toContain('renamed_input')
-		expect(raw).not.toContain('db_draft_input')
-	})
-
-	it('redacts variable draft values when reading workspace items', async () => {
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			value: 'super-secret-token',
-			is_secret: true,
-			description: 'API key'
-		})
-
-		const raw = await callGlobalTool('read_workspace_item', {
-			type: 'variable',
-			path: 'f/secrets/api_key'
-		})
-		const item = JSON.parse(raw)
-
-		expect(raw).not.toContain('super-secret-token')
-		expect(localStorageSnapshot()).not.toContain('super-secret-token')
-		expect(item).toEqual({
-			type: 'variable',
-			path: 'f/secrets/api_key',
-			summary: 'API key',
-			isSecret: true,
-			isDraft: true
-		})
-	})
-
-	it('writes resource drafts in the editor UserDraft shape', async () => {
-		vi.mocked(ResourceService.existsResource).mockResolvedValueOnce(true)
-		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
-			path: 'f/resources/db',
-			description: 'existing database',
-			value: { host: 'old.example.com', port: 5432 },
-			resource_type: 'postgresql',
-			labels: ['prod'],
-			ws_specific: true,
-			edited_at: '2026-05-22T09:30:00Z'
-		} as any)
-
-		await callGlobalTool('write_resource', {
-			path: 'f/resources/db',
-			value: { host: 'new.example.com', port: 5432 },
-			resource_type: 'postgresql'
-		})
-
-		expect(getBackendDraft<any>('resource', 'f/resources/db', { workspace: WORKSPACE })).toEqual({
-			path: 'f/resources/db',
-			description: 'existing database',
-			args: { host: 'new.example.com', port: 5432 },
-			labels: ['prod'],
-			wsSpecific: true,
-			resource_type: 'postgresql'
-		})
-	})
-
-	it('writes variable drafts in the editor UserDraft shape', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true)
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'f/secrets/api_key',
-			value: undefined,
-			is_secret: true,
-			description: 'old description',
-			account: 123,
-			is_oauth: true,
-			expires_at: '2026-06-22T09:30:00Z',
-			labels: ['prod'],
-			ws_specific: true,
-			edited_at: '2026-05-22T09:30:00Z'
-		} as any)
-
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			value: 'new-secret-token',
-			is_secret: true,
-			description: 'new description'
-		})
-
-		expect(getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })).toEqual(
-			{
-				path: 'f/secrets/api_key',
-				variable: {
-					value: 'new-secret-token',
-					is_secret: true,
-					description: 'new description'
-				},
-				labels: ['prod'],
-				wsSpecific: true,
-				account: 123,
-				is_oauth: true,
-				expires_at: '2026-06-22T09:30:00Z'
-			}
-		)
-		expect(localStorageSnapshot()).not.toContain('new-secret-token')
-	})
-
-	// The draft row is the only place a staged secret lives (the draft endpoint encrypts it
-	// at rest). It must never reach localStorage on the way there.
-	it('deploys a secret variable draft from the draft itself', async () => {
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			value: 'new-secret-token',
-			is_secret: true,
-			description: 'new description'
-		})
-
-		expect(
-			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
-		).toMatchObject({
-			path: 'f/secrets/api_key',
-			variable: {
-				value: 'new-secret-token',
-				is_secret: true,
-				description: 'new description'
-			},
-			wsSpecific: false
-		})
-		expect(localStorageSnapshot()).not.toContain('new-secret-token')
-
-		await callGlobalTool('deploy_workspace_item', {
-			type: 'variable',
-			path: 'f/secrets/api_key'
-		})
-
-		expect(VariableService.createVariable).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: expect.objectContaining({
-				path: 'f/secrets/api_key',
-				value: 'new-secret-token',
-				is_secret: true,
-				description: 'new description',
-				ws_specific: false
-			})
-		})
-		expect(
-			getBackendDraft('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
-		).toBeUndefined()
-		expect(localStorageSnapshot()).not.toContain('new-secret-token')
-	})
-
-	// '' means "no value staged", so there is nothing to create the secret with.
-	it('does not create a secret variable draft that stages no value', async () => {
-		seedBackendDraft(
-			'variable',
-			'f/secrets/api_key',
-			{
-				path: 'f/secrets/api_key',
-				variable: {
-					value: '',
-					is_secret: true,
-					description: 'new description'
-				},
-				labels: undefined,
-				wsSpecific: false
-			},
-			{ workspace: WORKSPACE }
-		)
-
-		await expect(
-			callGlobalTool('deploy_workspace_item', {
-				type: 'variable',
-				path: 'f/secrets/api_key'
-			})
-		).rejects.toThrow('stages no value')
-		expect(VariableService.createVariable).not.toHaveBeenCalled()
-		expect(VariableService.updateVariable).not.toHaveBeenCalled()
-	})
-
-	// A secret's value is unreadable, so an edit that does not set one must leave it
-	// alone end to end: keep is_secret, and omit `value` from the update body rather
-	// than deploying a placeholder over the stored secret.
-	it('keeps an existing secret intact when a write only changes the description', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'f/secrets/api_key',
-			// decryptSecret=false never returns a secret's value
-			value: undefined,
-			is_secret: true,
-			description: 'old description',
-			labels: ['prod'],
-			ws_specific: false
-		} as any)
-
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			description: 'new description'
-		})
-
-		expect(
-			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
-		).toMatchObject({
-			variable: { value: '', is_secret: true, description: 'new description' }
-		})
-
-		const deployed = JSON.parse(
-			await callGlobalTool('deploy_workspace_item', {
-				type: 'variable',
-				path: 'f/secrets/api_key'
-			})
-		)
-
-		expect(VariableService.createVariable).not.toHaveBeenCalled()
-		const requestBody = vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody
-		expect(requestBody).toMatchObject({ is_secret: true, description: 'new description' })
-		expect(requestBody).not.toHaveProperty('value')
-		// Deploying without `value` must say so. A draft from a build that held secret values
-		// in memory looks identical to this one, so silence here would report a rotation that
-		// never happened.
-		expect(deployed.message).toContain('secret value was left unchanged')
-	})
-
-	// The drawer stages a secret in this same row as an `$encrypted:` marker (the draft
-	// endpoint encrypts at rest, the deploy endpoints decrypt). A metadata-only chat edit
-	// must leave it alone.
-	it('preserves an encrypted secret draft value through a metadata-only write', async () => {
-		seedBackendDraft(
-			'variable',
-			'f/secrets/api_key',
-			{
-				path: 'f/secrets/api_key',
-				variable: {
-					value: '$encrypted:Zm9vYmFy',
-					is_secret: true,
-					description: 'staged in the drawer'
-				},
-				labels: undefined,
-				wsSpecific: false
-			},
-			{ workspace: WORKSPACE }
-		)
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			description: 'described by the chat'
-		})
-
-		expect(
-			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
-		).toMatchObject({
-			variable: {
-				value: '$encrypted:Zm9vYmFy',
-				is_secret: true,
-				description: 'described by the chat'
-			}
-		})
-
-		await callGlobalTool('deploy_workspace_item', {
-			type: 'variable',
-			path: 'f/secrets/api_key'
-		})
-
-		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
-			value: '$encrypted:Zm9vYmFy',
-			is_secret: true,
-			description: 'described by the chat'
-		})
-	})
-
-	// An `$encrypted:` marker is only decryptable while the variable stays secret, so
-	// un-securing still needs a real plaintext value — carrying the marker over would
-	// store the marker itself as the variable's value.
-	it('refuses to un-secret a variable with an encrypted draft value and no new value', async () => {
-		seedBackendDraft(
-			'variable',
-			'f/secrets/api_key',
-			{
-				path: 'f/secrets/api_key',
-				variable: {
-					value: '$encrypted:Zm9vYmFy',
-					is_secret: true,
-					description: 'staged in the drawer'
-				},
-				labels: undefined,
-				wsSpecific: false
-			},
-			{ workspace: WORKSPACE }
-		)
-
-		await expect(
-			callGlobalTool('write_variable', {
-				path: 'f/secrets/api_key',
-				is_secret: false
-			})
-		).rejects.toThrow('without a value')
-	})
-
-	// Readable plaintext in a secret draft comes from the drawer's shared cell (stood in for
-	// by the draft store here, since only a Svelte context can hold a cell). It must survive
-	// a metadata-only chat edit — the drawer reads its own staged value back from there.
-	it('carries a locally staged plaintext secret through a metadata-only write', async () => {
-		seedBackendDraft(
-			'variable',
-			'f/secrets/api_key',
-			{
-				path: 'f/secrets/api_key',
-				variable: {
-					value: 'typed-in-the-drawer',
-					is_secret: true,
-					description: 'staged in the drawer'
-				},
-				labels: undefined,
-				wsSpecific: false
-			},
-			{ workspace: WORKSPACE }
-		)
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			description: 'described by the chat'
-		})
-
-		// Left in the shared draft (the endpoint encrypts it at rest), not moved into the
-		// chat's memory-only map.
-		expect(
-			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
-		).toMatchObject({
-			variable: {
-				value: 'typed-in-the-drawer',
-				is_secret: true,
-				description: 'described by the chat'
-			}
-		})
-		expect(localStorageSnapshot()).not.toContain('typed-in-the-drawer')
-
-		await callGlobalTool('deploy_workspace_item', {
-			type: 'variable',
-			path: 'f/secrets/api_key'
-		})
-
-		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
-			value: 'typed-in-the-drawer',
-			is_secret: true,
-			description: 'described by the chat'
-		})
 	})
 
 	// Deploying a drawer-staged secret with no chat write in between: the draft carries the
@@ -1142,193 +733,22 @@ describe('global AI tools', () => {
 		})
 	})
 
-	// Making a readable variable secret keeps its value, as the drawer's is_secret toggle
-	// does — the endpoint encrypts it at rest once is_secret is set.
-	it('carries the old value when making a readable variable secret', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'u/admin/config',
-			value: 'was-readable',
-			is_secret: false,
-			description: 'plain config',
-			ws_specific: false
-		} as any)
-
-		await callGlobalTool('write_variable', {
-			path: 'u/admin/config',
-			is_secret: true
-		})
-
-		expect(
-			getBackendDraft<any>('variable', 'u/admin/config', { workspace: WORKSPACE })
-		).toMatchObject({
-			variable: { value: 'was-readable', is_secret: true, description: 'plain config' }
-		})
-
-		await callGlobalTool('deploy_workspace_item', { type: 'variable', path: 'u/admin/config' })
-
-		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
-			value: 'was-readable',
-			is_secret: true
-		})
-	})
-
-	// One source of truth means no precedence rule to get wrong: whatever last landed in the
-	// shared row deploys, so a drawer edit after a chat write is not overwritten by a stale
-	// copy held elsewhere.
-	it('deploys the value most recently written to the draft', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'f/secrets/api_key',
-			value: undefined,
-			is_secret: true,
-			description: 'old description',
-			ws_specific: false
-		} as any)
-
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			value: 'chat-wrote-this-first'
-		})
-
-		// The drawer then types its own value into the same row.
-		const draft = getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
-		seedBackendDraft(
-			'variable',
-			'f/secrets/api_key',
-			{ ...draft, variable: { ...draft.variable, value: 'drawer-wrote-this-second' } },
-			{ workspace: WORKSPACE }
-		)
-
-		await callGlobalTool('deploy_workspace_item', {
-			type: 'variable',
-			path: 'f/secrets/api_key'
-		})
-
-		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
-			value: 'drawer-wrote-this-second'
-		})
-	})
-
-	// `get_variable` returns account/expires_at as explicit nulls. Carrying them into the
-	// draft adds `account: null` / `expires_at: null` to every diff the user reviews before
-	// deploying — noise that only shows up now that a metadata-only edit is possible.
-	it('does not add null account/expires_at when editing a variable that has neither', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'u/admin/plain_config',
-			value: 'readable',
-			is_secret: false,
-			description: 'old description',
-			account: null,
-			is_oauth: null,
-			expires_at: null,
-			ws_specific: false
-		} as any)
-
-		await callGlobalTool('write_variable', {
-			path: 'u/admin/plain_config',
-			description: 'new description'
-		})
-
-		// Serialize as the real POST does: `undefined` only disappears on the wire, while the
-		// in-memory draft store keeps the key.
-		const onTheWire = (value: unknown) => JSON.parse(JSON.stringify(value))
-
-		const draft = onTheWire(
-			getBackendDraft<any>('variable', 'u/admin/plain_config', { workspace: WORKSPACE })
-		)
-		expect(draft).not.toHaveProperty('account')
-		expect(draft).not.toHaveProperty('expires_at')
-		expect(draft).not.toHaveProperty('is_oauth')
-		expect(draft.variable).toMatchObject({ description: 'new description', value: 'readable' })
-
-		await callGlobalTool('deploy_workspace_item', {
-			type: 'variable',
-			path: 'u/admin/plain_config'
-		})
-
-		const requestBody = onTheWire(
-			vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody
-		)
-		expect(requestBody).not.toHaveProperty('account')
-		expect(requestBody).not.toHaveProperty('expires_at')
-	})
-
-	// '' is the draft's sentinel for "no value staged", so it cannot also mean "set the
-	// secret to empty" — accepting it would wipe the secret, which is the placeholder
-	// habit this schema change is meant to remove.
-	it('refuses an empty value for a secret variable', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true)
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'f/secrets/api_key',
-			value: undefined,
-			is_secret: true,
-			description: 'old description',
-			ws_specific: false
-		} as any)
-
-		await expect(
-			callGlobalTool('write_variable', { path: 'f/secrets/api_key', value: '' })
-		).rejects.toThrow('not a valid value for secret variable')
-		expect(
-			getBackendDraft('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
-		).toBeUndefined()
-	})
-
-	// `get_variable` refreshes and returns a LIVE token for an expired OAuth variable even
-	// under decryptSecret: false, so the carry path must leave OAuth variables alone
-	// rather than pinning a rotating value to a static one.
-	it('never carries the value of an oauth-managed variable', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'u/admin/gh_token',
-			value: 'live-refreshed-access-token',
-			is_secret: true,
-			is_oauth: true,
-			account: 7,
-			description: 'github oauth',
-			ws_specific: false
-		} as any)
-
-		await callGlobalTool('write_variable', {
-			path: 'u/admin/gh_token',
-			description: 'github oauth for the sync job'
-		})
-
-		const draft = getBackendDraft<any>('variable', 'u/admin/gh_token', { workspace: WORKSPACE })
-		expect(draft.variable.value).toBe('')
-
-		await callGlobalTool('deploy_workspace_item', { type: 'variable', path: 'u/admin/gh_token' })
-
-		const requestBody = vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody
-		expect(requestBody).not.toHaveProperty('value')
-		expect(JSON.stringify(requestBody)).not.toContain('live-refreshed-access-token')
-	})
-
 	// Same carry rule, but the variable is readable: '' still means "not staged" for an
 	// OAuth-managed value, so the deploy must omit it rather than blank the token.
 	it('never deploys an empty value for a non-secret oauth-managed variable', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+		seedBackendDraft('variable', 'u/admin/gh_token_readable', {
 			path: 'u/admin/gh_token_readable',
-			value: 'live-refreshed-access-token',
-			is_secret: false,
+			variable: {
+				path: 'u/admin/gh_token_readable',
+				value: '',
+				is_secret: false,
+				description: 'github oauth for the sync job'
+			},
 			is_oauth: true,
 			account: 7,
-			description: 'github oauth',
-			ws_specific: false
-		} as any)
-
-		await callGlobalTool('write_variable', {
-			path: 'u/admin/gh_token_readable',
-			description: 'github oauth for the sync job'
+			wsSpecific: false
 		})
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true)
 
 		await callGlobalTool('deploy_workspace_item', {
 			type: 'variable',
@@ -1340,64 +760,22 @@ describe('global AI tools', () => {
 		expect(requestBody).toMatchObject({ description: 'github oauth for the sync job' })
 	})
 
-	// The backend refuses an is_secret change with no value, and a variable holding '' stages
-	// nothing to send — so the tool has to ask for one instead of letting that error surface.
-	it('refuses to make an empty-valued variable secret without a value', async () => {
+	// The draft has no null, so a cleared expiry must deploy as an explicit one.
+	it('clears a variable value expiry through to the deploy body', async () => {
+		seedBackendDraft('variable', 'f/secrets/api_key', {
+			path: 'f/secrets/api_key',
+			variable: { path: 'f/secrets/api_key', value: 'tok', is_secret: false, description: 'd' },
+			wsSpecific: false
+		})
 		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true)
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'u/admin/blank',
-			value: '',
-			is_secret: false,
-			description: 'nothing yet',
-			ws_specific: false
-		} as any)
 
-		await expect(
-			callGlobalTool('write_variable', {
-				path: 'u/admin/blank',
-				is_secret: true
-			})
-		).rejects.toThrow('without a value')
+		await callGlobalTool('deploy_workspace_item', { type: 'variable', path: 'f/secrets/api_key' })
 
-		expect(getBackendDraft('variable', 'u/admin/blank', { workspace: WORKSPACE })).toBeUndefined()
-	})
-
-	// A draft accumulates: omitting `value` means "this write does not touch the value", so a
-	// value set earlier stays set. Abandoning it needs discard_local_draft.
-	it('keeps a rotation staged across a later metadata-only write', async () => {
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
-		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
-		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
-			path: 'f/secrets/api_key',
-			value: undefined,
-			is_secret: true,
-			description: 'old description',
-			ws_specific: false
-		} as any)
-
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			value: 'rotated-secret-99'
-		})
-		await callGlobalTool('write_variable', {
-			path: 'f/secrets/api_key',
-			description: 'also fix the description'
-		})
-
-		const deployed = JSON.parse(
-			await callGlobalTool('deploy_workspace_item', {
-				type: 'variable',
-				path: 'f/secrets/api_key'
+		expect(VariableService.updateVariable).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ value_valid_until: null })
 			})
 		)
-
-		expect(vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody).toMatchObject({
-			value: 'rotated-secret-99',
-			is_secret: true,
-			description: 'also fix the description'
-		})
-		// The value WAS deployed here, so the "left unchanged" note must stay away.
-		expect(deployed.message).not.toContain('left unchanged')
 	})
 
 	it('deploys every field of a script draft (not just content/summary)', async () => {
@@ -1572,363 +950,10 @@ describe('global AI tools', () => {
 		conflictSpy.mockRestore()
 	})
 
-	it('writes script drafts into UserDraft', async () => {
-		const content = 'export async function main() {\n\treturn "hello"\n}'
-
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/hello',
-			summary: 'Hello script',
-			language: 'bun',
-			content
-		})
-
-		expect(
-			getBackendDraft<any>('script', 'f/scripts/hello', { workspace: WORKSPACE })
-		).toMatchObject({
-			path: 'f/scripts/hello',
-			summary: 'Hello script',
-			language: 'bun',
-			content
-		})
-	})
-
-	it('applies path_prefix to drafts before enforcing the result limit', async () => {
-		await callGlobalTool('write_script', {
-			path: 'f/other/outside',
-			summary: 'Outside draft',
-			language: 'bun',
-			content: 'export async function main() { return "outside" }'
-		})
-		await callGlobalTool('write_script', {
-			path: 'f/matching/inside',
-			summary: 'Inside draft',
-			language: 'bun',
-			content: 'export async function main() { return "inside" }'
-		})
-
-		const raw = await callGlobalTool('list_workspace_items', {
-			types: ['script'],
-			path_prefix: 'f/matching/',
-			limit: 1
-		})
-
-		expect(JSON.parse(raw)).toEqual([
-			expect.objectContaining({
-				type: 'script',
-				path: 'f/matching/inside',
-				isDraft: true
-			})
-		])
-	})
-
-	it('forwards page to the list calls, capping page-1 drafts at limit per type', async () => {
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/draft_a',
-			language: 'bun',
-			content: 'export async function main() {}'
-		})
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/draft_b',
-			language: 'bun',
-			content: 'export async function main() {}'
-		})
-
-		const page1 = await callGlobalTool('list_workspace_items', {
-			types: ['script'],
-			limit: 1,
-			page: 1
-		})
-		const page2 = await callGlobalTool('list_workspace_items', {
-			types: ['script'],
-			limit: 1,
-			page: 2
-		})
-
-		expect(ScriptService.listScripts).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }))
-		// Bounded on page 1, no draft rows on later pages; the capped-out draft
-		// stays reachable through the query filter.
-		expect(JSON.parse(page1)).toHaveLength(1)
-		expect(JSON.parse(page2)).toEqual([])
-		const byQuery = await callGlobalTool('list_workspace_items', {
-			types: ['script'],
-			query: 'draft_b'
-		})
-		expect(JSON.parse(byQuery).map((i: any) => i.path)).toEqual(['f/scripts/draft_b'])
-	})
-
-	it('applies limit per item type so a full page of one type cannot hide another', async () => {
-		vi.mocked(ScriptService.listScripts).mockResolvedValueOnce([
-			{ path: 'f/scripts/s1', language: 'bun' },
-			{ path: 'f/scripts/s2', language: 'bun', draft_only: true }
-		] as any)
-		vi.mocked(FlowService.listFlows).mockResolvedValueOnce([{ path: 'f/flows/f1' }] as any)
-
-		const raw = await callGlobalTool('list_workspace_items', {
-			types: ['script', 'flow'],
-			limit: 2
-		})
-
-		const items = JSON.parse(raw)
-		expect(items.map((i: any) => i.path)).toEqual(['f/scripts/s1', 'f/scripts/s2', 'f/flows/f1'])
-		// Server-synthesized draft-only rows must read as drafts, not deployed items.
-		expect(items.map((i: any) => i.isDraft)).toEqual([false, true, false])
-	})
-
-	it('lists and edits the live script editor draft through its effective path', async () => {
-		seedBackendDraft(
-			'script',
-			'',
-			{
-				path: 'u/admin/amazed_script',
-				summary: 'Live script',
-				description: '',
-				content: 'export async function main(a: number, b: number) {\n\treturn a + b\n}',
-				schema: {},
-				is_template: false,
-				language: 'bun',
-				kind: 'script'
-			},
-			{ workspace: WORKSPACE }
-		)
-		UserDraft.setLiveEditorDraft({
-			workspace: WORKSPACE,
-			itemKind: 'script',
-			storagePath: '',
-			effectivePath: 'u/admin/amazed_script'
-		})
-
-		const listRaw = await callGlobalTool('list_workspace_items', { types: ['script'] })
-		expect(JSON.parse(listRaw)).toContainEqual(
-			expect.objectContaining({
-				type: 'script',
-				path: 'u/admin/amazed_script',
-				isDraft: true,
-				isLiveDraft: true
-			})
-		)
-
-		await callGlobalTool('edit_script', {
-			path: 'u/admin/amazed_script',
-			old_string: 'return a + b',
-			new_string: 'return a * b'
-		})
-
-		expect(getBackendDraft<any>('script', '', { workspace: WORKSPACE })).toMatchObject({
-			path: 'u/admin/amazed_script',
-			content: 'export async function main(a: number, b: number) {\n\treturn a * b\n}'
-		})
-		expect(
-			getBackendDraft('script', 'u/admin/amazed_script', { workspace: WORKSPACE })
-		).toBeUndefined()
-	})
-
-	it('lists and writes the live flow editor draft through its effective path', async () => {
-		seedBackendDraft(
-			'flow',
-			'',
-			{
-				path: '',
-				summary: 'Live flow',
-				value: { modules: [] },
-				schema: {},
-				edited_by: '',
-				edited_at: '',
-				archived: false,
-				extra_perms: {}
-			},
-			{ workspace: WORKSPACE }
-		)
-		UserDraft.setLiveEditorDraft({
-			workspace: WORKSPACE,
-			itemKind: 'flow',
-			storagePath: '',
-			effectivePath: 'u/admin/live_flow'
-		})
-
-		const listRaw = await callGlobalTool('list_workspace_items', { types: ['flow'] })
-		expect(JSON.parse(listRaw)).toContainEqual(
-			expect.objectContaining({
-				type: 'flow',
-				path: 'u/admin/live_flow',
-				isDraft: true,
-				isLiveDraft: true
-			})
-		)
-
-		await callGlobalTool('write_flow', {
-			path: 'u/admin/live_flow',
-			summary: 'Updated live flow',
-			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
-		})
-
-		expect(getBackendDraft<any>('flow', '', { workspace: WORKSPACE })).toMatchObject({
-			path: 'u/admin/live_flow',
-			summary: 'Updated live flow',
-			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
-		})
-		expect(getBackendDraft('flow', 'u/admin/live_flow', { workspace: WORKSPACE })).toBeUndefined()
-	})
-
-	it('writes the live raw app editor draft through its effective path', async () => {
-		seedBackendDraft(
-			'raw_app',
-			'',
-			{
-				summary: 'Live app',
-				files: { '/src/App.tsx': 'export default function App() { return null }' },
-				runnables: {},
-				data: { tables: [] }
-			},
-			{ workspace: WORKSPACE }
-		)
-		UserDraft.setLiveEditorDraft({
-			workspace: WORKSPACE,
-			itemKind: 'raw_app',
-			storagePath: '',
-			effectivePath: 'u/admin/live_app'
-		})
-
-		await callGlobalTool('write_app_file', {
-			path: 'u/admin/live_app',
-			file_path: '/src/New.tsx',
-			content: 'export default function New() { return null }'
-		})
-
-		expect(getBackendDraft<any>('raw_app', '', { workspace: WORKSPACE })).toMatchObject({
-			files: {
-				'/src/App.tsx': 'export default function App() { return null }',
-				'/src/New.tsx': 'export default function New() { return null }'
-			}
-		})
-		expect(getBackendDraft('raw_app', 'u/admin/live_app', { workspace: WORKSPACE })).toBeUndefined()
-	})
-
-	it('does not echo the app value back to the model on write', async () => {
-		const sentinel = 'SENTINEL_DO_NOT_ECHO_DEADBEEF'
-		seedBackendDraft(
-			'raw_app',
-			'',
-			{
-				summary: 'Echo check',
-				files: { '/src/App.tsx': `export default function App() { return '${sentinel}' }` },
-				runnables: {},
-				data: { tables: [] }
-			},
-			{ workspace: WORKSPACE }
-		)
-		UserDraft.setLiveEditorDraft({
-			workspace: WORKSPACE,
-			itemKind: 'raw_app',
-			storagePath: '',
-			effectivePath: 'u/admin/echo_app'
-		})
-
-		const raw = await callGlobalTool('write_app_file', {
-			path: 'u/admin/echo_app',
-			file_path: '/src/New.tsx',
-			content: 'export default function New() { return null }'
-		})
-
-		const parsed = JSON.parse(raw)
-		expect(parsed.success).toBe(true)
-		expect(parsed.item).toBeUndefined()
-		// Neither the pre-existing file body nor the just-written one is resent.
-		expect(raw).not.toContain(sentinel)
-		expect(raw).not.toContain('function New')
-	})
-
-	it('discards a draft without deleting the workspace item', async () => {
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/discard-me',
-			summary: 'Temporary draft',
-			language: 'bun',
-			content: 'export async function main() { return 1 }'
-		})
-
-		expect(
-			getBackendDraft('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
-		).toBeDefined()
-
-		const raw = await callGlobalTool('discard_local_draft', {
-			type: 'script',
-			path: 'f/scripts/discard-me'
-		})
-
-		expect(JSON.parse(raw)).toMatchObject({
-			success: true,
-			type: 'script',
-			path: 'f/scripts/discard-me'
-		})
-		expect(raw).toContain('The deployed workspace item was not changed')
-		expect(
-			getBackendDraft('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
-		).toBeUndefined()
-	})
-
-	// "Create a resource, then never mind": delete_workspace_item must reject a path
-	// that was never deployed, before the confirmation card — otherwise the user
-	// confirms a workspace mutation that 404s past the draft cleanup, leaving the
-	// draft they asked to be rid of.
-	it('rejects deleting a draft-only item and names discard_local_draft', async () => {
-		await callGlobalTool('write_resource', {
-			path: 'u/admin/never_mind_db',
-			value: { host: 'db.example.com', port: 5432 },
-			resource_type: 'postgresql'
-		})
-
-		const error = await getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
-			args: { type: 'resource', path: 'u/admin/never_mind_db' },
-			workspace: WORKSPACE,
-			helpers: {}
-		})
-
-		expect(error).toMatch(/only exists as a draft/)
-		expect(error).toMatch(/discard_local_draft/)
-		expect(ResourceService.deleteResource).not.toHaveBeenCalled()
-		expect(
-			getBackendDraft('resource', 'u/admin/never_mind_db', { workspace: WORKSPACE })
-		).toBeDefined()
-	})
-
-	it('lets delete_workspace_item through when the item is deployed', async () => {
-		vi.mocked(ResourceService.existsResource).mockResolvedValueOnce(true)
-
-		await expect(
-			getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
-				args: { type: 'resource', path: 'u/admin/deployed_db' },
-				workspace: WORKSPACE,
-				helpers: {}
-			})
-		).resolves.toBeUndefined()
-	})
-
-	// existsScriptByPath filters archived=false but deleteScriptByPath does not, so
-	// probing with it alone would make an archived script undeletable via the chat.
-	it('lets delete_workspace_item through for an archived script', async () => {
-		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(false)
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/archived_one',
-			content: 'export async function main() {}',
-			language: 'bun',
-			archived: true
-		} as any)
-
-		await expect(
-			getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
-				args: { type: 'script', path: 'f/scripts/archived_one' },
-				workspace: WORKSPACE,
-				helpers: {}
-			})
-		).resolves.toBeUndefined()
-	})
-
 	// Covers the conflict-on-save / override branch of `persistGlobalDraft`
 	// directly: a non-force save whose recorded baseline is older than the
 	// server row is rejected with `status:'conflict'`, and `override` (force)
-	// pushes our version through. NB: this targets persistGlobalDraft, not the
-	// write_* tools — those re-read the backend first (readGlobalDraftValue ->
-	// recordRemoteSync), which re-seeds the baseline and so can only surface a
-	// conflict when a live editor cell is mounted (not the case in unit tests).
+	// pushes our version through.
 	it('persistGlobalDraft surfaces a conflict on a stale baseline and override forces it', async () => {
 		const path = 'f/scripts/conflicted'
 		const key = `script:${path}`
@@ -1967,6 +992,32 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// A server tool's write carries the row timestamp it read, so a row another writer advanced
+	// since conflicts in the browser's own store instead of being overwritten.
+	it('applies a draft_write effect through the draft store, conflict included', async () => {
+		const path = 'f/scripts/effect'
+		const v1 = { path, summary: 'v1', content: 'export function main() {}', language: 'bun' }
+		seedBackendDraft('script', path, v1)
+		serverTimestamps.set(`script:${path}`, '2026-06-15T00:01:00Z')
+
+		const write = (force: boolean) =>
+			applySessionToolEffects(WORKSPACE, [
+				{
+					type: 'draft_write',
+					kind: 'script',
+					storage_path: path,
+					value: { ...v1, summary: 'v2' },
+					last_sync: '2026-06-15T00:00:00Z',
+					force
+				}
+			])
+
+		expect((await write(false)).writes[0].status).toBe('conflict')
+		expect(getBackendDraft<any>('script', path)).toMatchObject({ summary: 'v1' })
+		expect((await write(true)).writes[0].status).toBe('saved')
+		expect(getBackendDraft<any>('script', path)).toMatchObject({ summary: 'v2' })
+	})
+
 	// A backend save failure (network/5xx) is recorded in the syncer's failure
 	// map, not thrown — persistGlobalDraft must report 'error', never 'saved'.
 	it('persistGlobalDraft reports an error (not saved) when the backend save fails', async () => {
@@ -1984,14 +1035,6 @@ describe('global AI tools', () => {
 		if (res.status === 'error') expect(res.message).toBeTruthy()
 		// Nothing was persisted.
 		expect(getBackendDraft('script', path, { workspace: WORKSPACE })).toBeUndefined()
-	})
-
-	// A non-404 read failure must propagate, not collapse to "no draft" — else
-	// the write merge falls through to the deployed item, losing draft edits.
-	it('a non-404 backend read failure propagates instead of returning undefined', async () => {
-		const path = 'f/scripts/readfail'
-		failingReads.add(`script:${path}`)
-		await expect(readGlobalDraftValue(WORKSPACE, 'script', path)).rejects.toThrow()
 	})
 
 	// Raw-app writes go through saveGlobalAppDraft, which must carry the conflict
@@ -2027,47 +1070,17 @@ describe('global AI tools', () => {
 		await expect(deleteGlobalDraft(WORKSPACE, 'script', path)).rejects.toThrow()
 	})
 
-	// `override` is a tool-only conflict flag and must not leak into the persisted
-	// schedule draft value.
-	it('does not persist the tool-only override flag into a schedule draft', async () => {
-		await callGlobalTool('write_schedule', {
-			path: 'f/schedules/ov',
-			schedule: '0 0 9 * * *',
-			timezone: 'UTC',
-			script_path: 'f/scripts/run',
-			is_flow: false,
-			args: {},
-			override: true
-		})
-		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/ov', {
-			workspace: WORKSPACE
-		})
-		expect(draft).toBeTruthy()
-		expect(draft).not.toHaveProperty('override')
-	})
-
 	// Schedule drafts (like all drawer kinds) are private to their owner, so the
-	// cross-user draft route 404s on them. Reading them back must go through the
-	// own-draft route, else a freshly written schedule draft is listed but can
-	// never be read or deployed.
-	it('reads and deploys a schedule draft written by the chat', async () => {
-		await callGlobalTool('write_schedule', {
+	// cross-user draft route 404s on them. The deploy must read them through the
+	// own-draft route, else a draft is listed but can never be deployed.
+	it('deploys a schedule draft read through the own-draft route', async () => {
+		seedBackendDraft('trigger_schedule', 'u/admin/test_schedule_greet', {
 			path: 'u/admin/test_schedule_greet',
 			schedule: '0 0 9 * * *',
 			timezone: 'UTC',
 			script_path: 'f/scripts/greet',
 			is_flow: false,
 			args: {}
-		})
-
-		const readRaw = await callGlobalTool('read_workspace_item', {
-			type: 'schedule',
-			path: 'u/admin/test_schedule_greet'
-		})
-		expect(JSON.parse(readRaw)).toMatchObject({
-			type: 'schedule',
-			path: 'u/admin/test_schedule_greet',
-			isDraft: true
 		})
 
 		await callGlobalTool('deploy_workspace_item', {
@@ -2083,38 +1096,19 @@ describe('global AI tools', () => {
 			})
 		})
 		// The draft is consumed by the deploy.
-		expect(
-			getBackendDraft('trigger_schedule', 'u/admin/test_schedule_greet', {
-				workspace: WORKSPACE
-			})
-		).toBeUndefined()
+		expect(getBackendDraft('trigger_schedule', 'u/admin/test_schedule_greet')).toBeUndefined()
 	})
 
 	// Same private-owner read path as schedules, for the trigger drawer kinds.
-	it('reads and deploys a trigger draft written by the chat', async () => {
-		await callGlobalTool('write_trigger', {
-			kind: 'http',
-			config: {
-				path: 'u/admin/fresh_route',
-				script_path: 'f/scripts/handler',
-				is_flow: false,
-				route_path: 'api/fresh',
-				http_method: 'get',
-				authentication_method: 'none',
-				is_static_website: false
-			}
-		})
-
-		const readRaw = await callGlobalTool('read_workspace_item', {
-			type: 'trigger',
-			trigger_kind: 'http',
-			path: 'u/admin/fresh_route'
-		})
-		expect(JSON.parse(readRaw)).toMatchObject({
-			type: 'trigger',
-			triggerKind: 'http',
+	it('deploys a trigger draft read through the own-draft route', async () => {
+		seedBackendDraft('trigger_http', 'u/admin/fresh_route', {
 			path: 'u/admin/fresh_route',
-			isDraft: true
+			script_path: 'f/scripts/handler',
+			is_flow: false,
+			route_path: 'api/fresh',
+			http_method: 'get',
+			authentication_method: 'none',
+			is_static_website: false
 		})
 
 		await callGlobalTool('deploy_workspace_item', {
@@ -2130,128 +1124,16 @@ describe('global AI tools', () => {
 				script_path: 'f/scripts/handler'
 			})
 		})
-		expect(
-			getBackendDraft('trigger_http', 'u/admin/fresh_route', { workspace: WORKSPACE })
-		).toBeUndefined()
-	})
-
-	// Email is the kind an implicit "run when an email is received" request maps to;
-	// guards the full draft->read->deploy wiring for it end to end.
-	it('reads and deploys an email trigger draft written by the chat', async () => {
-		await callGlobalTool('write_trigger', {
-			kind: 'email',
-			config: {
-				path: 'u/admin/fresh_inbox',
-				script_path: 'f/scripts/handler',
-				is_flow: false,
-				local_part: 'support'
-			}
-		})
-
-		const readRaw = await callGlobalTool('read_workspace_item', {
-			type: 'trigger',
-			trigger_kind: 'email',
-			path: 'u/admin/fresh_inbox'
-		})
-		expect(JSON.parse(readRaw)).toMatchObject({
-			type: 'trigger',
-			triggerKind: 'email',
-			path: 'u/admin/fresh_inbox',
-			isDraft: true
-		})
-
-		await callGlobalTool('deploy_workspace_item', {
-			type: 'trigger',
-			trigger_kind: 'email',
-			path: 'u/admin/fresh_inbox'
-		})
-		expect(EmailTriggerService.createEmailTrigger).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: expect.objectContaining({
-				path: 'u/admin/fresh_inbox',
-				local_part: 'support',
-				script_path: 'f/scripts/handler',
-				// Omitted by the caller above; defaulted so the NOT NULL column is satisfied.
-				workspaced_local_part: false
-			})
-		})
-		expect(
-			getBackendDraft('trigger_email', 'u/admin/fresh_inbox', { workspace: WORKSPACE })
-		).toBeUndefined()
-	})
-
-	// Editing an existing email trigger whose workspaced_local_part is true while
-	// omitting the optional field must not reset it to false (that would change the
-	// receiving address). The default applies only to a genuinely new draft.
-	it('preserves workspaced_local_part when editing an existing email trigger', async () => {
-		vi.mocked(EmailTriggerService.existsEmailTrigger).mockResolvedValueOnce(true)
-		vi.mocked(EmailTriggerService.getEmailTrigger).mockResolvedValueOnce({
-			path: 'u/admin/ws_inbox',
-			script_path: 'f/scripts/handler',
-			local_part: 'support',
-			is_flow: false,
-			workspaced_local_part: true
-		} as any)
-
-		await callGlobalTool('write_trigger', {
-			kind: 'email',
-			config: {
-				path: 'u/admin/ws_inbox',
-				script_path: 'f/scripts/handler',
-				is_flow: false,
-				local_part: 'support'
-			}
-		})
-
-		const readRaw = await callGlobalTool('read_workspace_item', {
-			type: 'trigger',
-			trigger_kind: 'email',
-			path: 'u/admin/ws_inbox'
-		})
-		expect(JSON.parse(readRaw).value).toMatchObject({ workspaced_local_part: true })
-	})
-
-	// A trigger kind whose backend routes aren't compiled in (email without
-	// smtp+private, EE kinds on CE) 404s on list; that must not drop the whole listing.
-	it('skips unavailable trigger kinds when listing', async () => {
-		vi.mocked(HttpTriggerService.listHttpTriggers).mockResolvedValueOnce([
-			{ path: 'u/admin/live_route', script_path: 'f/scripts/handler', is_flow: false }
-		] as any)
-		vi.mocked(EmailTriggerService.listEmailTriggers).mockRejectedValueOnce(
-			Object.assign(new Error('not found'), { status: 404 })
-		)
-
-		const raw = await callGlobalTool('list_workspace_items', { types: ['trigger'] })
-		const paths = JSON.parse(raw).map((i: any) => i.path)
-		expect(paths).toContain('u/admin/live_route')
-	})
-
-	// Only a 404 means "route not compiled in". A real failure (auth, 5xx) must not
-	// be swallowed into a successful-but-incomplete listing.
-	it('propagates a non-404 trigger-list failure', async () => {
-		vi.mocked(HttpTriggerService.listHttpTriggers).mockRejectedValueOnce(
-			Object.assign(new Error('server error'), { status: 500 })
-		)
-		await expect(callGlobalTool('list_workspace_items', { types: ['trigger'] })).rejects.toThrow()
+		expect(getBackendDraft('trigger_http', 'u/admin/fresh_route')).toBeUndefined()
 	})
 
 	// Same private-owner read path as schedules, for the resource drawer kind.
-	it('reads and deploys a resource draft written by the chat', async () => {
-		await callGlobalTool('write_resource', {
-			path: 'u/admin/fresh_db',
-			value: { host: 'db.example.com', port: 5432 },
+	it('deploys a resource draft read through the own-draft route', async () => {
+		seedBackendDraft('resource', 'u/admin/fresh_db', {
+			args: { host: 'db.example.com', port: 5432 },
 			resource_type: 'postgresql',
-			description: 'fresh database'
-		})
-
-		const readRaw = await callGlobalTool('read_workspace_item', {
-			type: 'resource',
-			path: 'u/admin/fresh_db'
-		})
-		expect(JSON.parse(readRaw)).toMatchObject({
-			type: 'resource',
-			path: 'u/admin/fresh_db',
-			isDraft: true
+			description: 'fresh database',
+			wsSpecific: false
 		})
 
 		await callGlobalTool('deploy_workspace_item', {
@@ -2266,29 +1148,20 @@ describe('global AI tools', () => {
 				value: { host: 'db.example.com', port: 5432 }
 			})
 		})
-		expect(
-			getBackendDraft('resource', 'u/admin/fresh_db', { workspace: WORKSPACE })
-		).toBeUndefined()
+		expect(getBackendDraft('resource', 'u/admin/fresh_db')).toBeUndefined()
 	})
 
-	// Same private-owner read path as schedules, for the variable drawer kind. This pins the
-	// plain-value cycle; the secret cases are covered above.
-	it('reads and deploys a non-secret variable draft written by the chat', async () => {
-		await callGlobalTool('write_variable', {
+	// Same private-owner read path as schedules, for the variable drawer kind.
+	it('deploys a non-secret variable draft read through the own-draft route', async () => {
+		seedBackendDraft('variable', 'u/admin/fresh_config', {
 			path: 'u/admin/fresh_config',
-			value: 'plain-value',
-			is_secret: false,
-			description: 'fresh config'
-		})
-
-		const readRaw = await callGlobalTool('read_workspace_item', {
-			type: 'variable',
-			path: 'u/admin/fresh_config'
-		})
-		expect(JSON.parse(readRaw)).toMatchObject({
-			type: 'variable',
-			path: 'u/admin/fresh_config',
-			isDraft: true
+			variable: {
+				path: 'u/admin/fresh_config',
+				value: 'plain-value',
+				is_secret: false,
+				description: 'fresh config'
+			},
+			wsSpecific: false
 		})
 
 		await callGlobalTool('deploy_workspace_item', {
@@ -2304,49 +1177,7 @@ describe('global AI tools', () => {
 				description: 'fresh config'
 			})
 		})
-		expect(
-			getBackendDraft('variable', 'u/admin/fresh_config', { workspace: WORKSPACE })
-		).toBeUndefined()
-	})
-
-	it('requires trigger_kind when discarding a trigger draft', async () => {
-		await expect(
-			callGlobalTool('discard_local_draft', {
-				type: 'trigger',
-				path: 'f/routes/missing-kind'
-			})
-		).rejects.toThrow('trigger_kind is required')
-	})
-
-	it('preserves existing script metadata and seeds freshness on first script write', async () => {
-		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(true)
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/existing',
-			hash: 'deployed-hash',
-			summary: 'deployed summary',
-			description: 'deployed description',
-			content: 'old deployed content',
-			language: 'bun',
-			kind: 'script'
-		} as any)
-
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/existing',
-			summary: 'new summary',
-			language: 'bun',
-			content: 'new content'
-		})
-
-		expect(
-			getBackendDraft<any>('script', 'f/scripts/existing', { workspace: WORKSPACE })
-		).toMatchObject({
-			path: 'f/scripts/existing',
-			parent_hash: 'deployed-hash',
-			summary: 'new summary',
-			description: 'deployed description',
-			content: 'new content',
-			language: 'bun'
-		})
+		expect(getBackendDraft('variable', 'u/admin/fresh_config')).toBeUndefined()
 	})
 
 	describe('stale-draft deploy guard and rebase', () => {
@@ -2438,45 +1269,6 @@ describe('global AI tools', () => {
 			expect(ScriptService.createScript).toHaveBeenCalled()
 		})
 
-		it('rebase_draft discards the stale draft and surfaces the changes to replay', async () => {
-			seedStaleScriptDraft('f/scripts/stale', 'base-hash', 'base content\nmy added line\n')
-			mockDeployedScript('f/scripts/stale', 'new-hash', 'latest deployed content\n')
-			vi.mocked(ScriptService.getScriptByHash).mockResolvedValue({
-				hash: 'base-hash',
-				content: 'base content\n',
-				language: 'bun'
-			} as any)
-
-			const result = JSON.parse(
-				await callGlobalTool('rebase_draft', { type: 'script', path: 'f/scripts/stale' })
-			)
-			expect(result.success).toBe(true)
-			expect(result.latest_hash).toBe('new-hash')
-			// The diff surfaces the draft's own change over its fork base.
-			expect(result.your_changes).toContain('my added line')
-
-			// The stale draft is discarded (not reset), so a premature deploy fails
-			// cleanly rather than silently shipping the latest unchanged.
-			expect(getBackendDraft('script', 'f/scripts/stale', { workspace: WORKSPACE })).toBeUndefined()
-			await expect(
-				callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/stale' })
-			).rejects.toThrow(/No .*draft/)
-			expect(ScriptService.createScript).not.toHaveBeenCalled()
-
-			// Re-applying re-bases onto the current head; the deploy then passes.
-			await callGlobalTool('write_script', {
-				path: 'f/scripts/stale',
-				summary: 's',
-				language: 'bun',
-				content: 'latest deployed content\nmy added line\n'
-			})
-			const deploy = JSON.parse(
-				await callGlobalTool('deploy_workspace_item', { type: 'script', path: 'f/scripts/stale' })
-			)
-			expect(deploy.success).toBe(true)
-			expect(ScriptService.createScript).toHaveBeenCalled()
-		})
-
 		function seedStaleFlowDraft(path: string, versionId: number, modules: any[] = []) {
 			seedBackendDraft('flow', path, {
 				path,
@@ -2510,28 +1302,6 @@ describe('global AI tools', () => {
 			expect(FlowService.createFlow).not.toHaveBeenCalled()
 		})
 
-		it('rebase_draft discards the stale flow draft and surfaces the changes to replay', async () => {
-			seedStaleFlowDraft('f/flows/stale', 1, [{ id: 'a', value: { type: 'identity' } }])
-			mockDeployedFlow('f/flows/stale', 2)
-			vi.mocked(FlowService.getFlowVersion).mockResolvedValue({
-				value: { modules: [] }
-			} as any)
-
-			const result = JSON.parse(
-				await callGlobalTool('rebase_draft', { type: 'flow', path: 'f/flows/stale' })
-			)
-			expect(result.success).toBe(true)
-			expect(result.latest_version).toBe(2)
-			expect(result.your_changes).toContain('identity')
-
-			// The stale draft is discarded, so a premature deploy fails cleanly.
-			expect(getBackendDraft('flow', 'f/flows/stale', { workspace: WORKSPACE })).toBeUndefined()
-			await expect(
-				callGlobalTool('deploy_workspace_item', { type: 'flow', path: 'f/flows/stale' })
-			).rejects.toThrow(/No .*draft/)
-			expect(FlowService.updateFlow).not.toHaveBeenCalled()
-		})
-
 		function seedStaleAppDraft(path: string, parentVersion: number, file = 'old') {
 			seedBackendDraft('raw_app', path, {
 				summary: 'a',
@@ -2552,46 +1322,6 @@ describe('global AI tools', () => {
 				policy: { execution_mode: 'publisher' }
 			} as any)
 		}
-
-		it('grafts the fork-base version onto a new app draft and keeps it through the save whitelist', async () => {
-			// No draft yet: the first app edit projects the deployed app into a draft.
-			// This exercises the runtime path types can't catch — the graft in
-			// appSourceToDraftValue AND survival through normalizeAppDraftValue's whitelist.
-			mockDeployedApp('f/apps/fresh', 5)
-
-			await callGlobalTool('write_app_file', {
-				path: 'f/apps/fresh',
-				file_path: '/src/New.tsx',
-				content: 'export default function New() { return null }'
-			})
-
-			const draft = getBackendDraft<any>('raw_app', 'f/apps/fresh', { workspace: WORKSPACE })
-			expect(draft.parent_version).toBe(5)
-		})
-
-		it('keeps a draft-only app friendly draft_path through the save whitelist on chat edits', async () => {
-			// A renamed draft-only app parks its typed name in the draft's
-			// `draft_path`. A chat edit round-trips the value through
-			// normalizeAppDraftValue — dropping the field there would rename the
-			// app back to its `draft_<uuid>` storage key.
-			seedBackendDraft('raw_app', 'u/admin/draft_abc', {
-				summary: 'a',
-				files: { '/index.tsx': 'old' },
-				runnables: {},
-				data: { tables: [] },
-				draft_path: 'u/admin/my_pretty_app'
-			})
-
-			await callGlobalTool('write_app_file', {
-				path: 'u/admin/draft_abc',
-				file_path: '/index.tsx',
-				content: 'new'
-			})
-
-			const draft = getBackendDraft<any>('raw_app', 'u/admin/draft_abc', { workspace: WORKSPACE })
-			expect(draft.files['/index.tsx']).toBe('new')
-			expect(draft.draft_path).toBe('u/admin/my_pretty_app')
-		})
 
 		it('lists a live raw app staged rename as draftPath even when registered at the storage key', async () => {
 			// Flow/raw-app renames live in the value's `draft_path` while `path`
@@ -2635,789 +1365,6 @@ describe('global AI tools', () => {
 			expect(AppService.createAppRaw).not.toHaveBeenCalled()
 			expect(AppService.updateAppRaw).not.toHaveBeenCalled()
 		})
-
-		it('rebase_draft discards the stale app draft and surfaces the changes to replay', async () => {
-			seedStaleAppDraft('f/apps/stale', 1, 'my-change')
-			mockDeployedApp('f/apps/stale', 2, 'latest-deployed')
-			vi.mocked(AppService.getAppByVersion).mockResolvedValue({
-				value: { files: { '/index.tsx': 'base' }, runnables: {}, data: { tables: [] } }
-			} as any)
-
-			const result = JSON.parse(
-				await callGlobalTool('rebase_draft', { type: 'app', path: 'f/apps/stale' })
-			)
-			expect(result.success).toBe(true)
-			expect(result.latest_version).toBe(2)
-			expect(result.your_changes).toContain('my-change')
-
-			// The stale draft is discarded, so a premature deploy fails cleanly.
-			expect(getBackendDraft('raw_app', 'f/apps/stale', { workspace: WORKSPACE })).toBeUndefined()
-			await expect(
-				callGlobalTool('deploy_workspace_item', { type: 'app', path: 'f/apps/stale' })
-			).rejects.toThrow(/No .*draft/)
-			expect(AppService.updateAppRaw).not.toHaveBeenCalled()
-		})
-	})
-
-	it('preserves existing flow metadata and seeds freshness on first flow write', async () => {
-		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
-		vi.mocked(FlowService.getFlowLatestVersion).mockResolvedValueOnce({ id: 42 } as any)
-		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
-			path: 'f/flows/existing',
-			summary: 'deployed summary',
-			description: 'deployed description',
-			value: { modules: [], chat_input_enabled: true, same_worker: true },
-			schema: { properties: { deployed: { type: 'boolean' } } },
-			edited_by: 'admin',
-			edited_at: '2026-05-22T09:00:00Z',
-			archived: false,
-			extra_perms: {}
-		} as any)
-
-		await callGlobalTool('write_flow', {
-			path: 'f/flows/existing',
-			summary: 'new summary',
-			modules: JSON.stringify([{ id: 'step', value: { type: 'identity' } }])
-		})
-
-		expect(
-			getBackendDraft<any>('flow', 'f/flows/existing', { workspace: WORKSPACE })
-		).toMatchObject({
-			path: 'f/flows/existing',
-			summary: 'new summary',
-			description: 'deployed description',
-			value: {
-				modules: [{ id: 'step', value: { type: 'identity' } }],
-				chat_input_enabled: true,
-				same_worker: true
-			}
-		})
-	})
-
-	it('preserves editor schedule fields when writing over an existing schedule', async () => {
-		vi.mocked(ScheduleService.existsSchedule).mockResolvedValueOnce(true)
-		vi.mocked(ScheduleService.getSchedule).mockResolvedValueOnce({
-			path: 'f/schedules/nightly',
-			schedule: '0 0 0 * * *',
-			timezone: 'UTC',
-			enabled: true,
-			script_path: 'f/scripts/old',
-			is_flow: false,
-			args: {},
-			extra_perms: { 'u/viewer': true },
-			email: 'admin@windmill.dev',
-			permissioned_as: 'u/admin',
-			edited_by: 'admin',
-			edited_at: '2026-05-22T09:00:00Z',
-			summary: 'old summary',
-			description: 'keep this description',
-			no_flow_overlap: true,
-			cron_version: 'v2'
-		} as any)
-
-		await callGlobalTool('write_schedule', {
-			path: 'f/schedules/nightly',
-			schedule: '0 15 0 * * *',
-			timezone: 'Europe/Paris',
-			script_path: 'f/flows/new',
-			is_flow: true,
-			args: { limit: 5 }
-		})
-
-		expect(
-			getBackendDraft<any>('trigger_schedule', 'f/schedules/nightly', { workspace: WORKSPACE })
-		).toMatchObject({
-			path: 'f/schedules/nightly',
-			schedule: '0 15 0 * * *',
-			timezone: 'Europe/Paris',
-			script_path: 'f/flows/new',
-			is_flow: true,
-			args: { limit: 5 },
-			extra_perms: { 'u/viewer': true },
-			permissioned_as: 'u/admin',
-			summary: 'old summary',
-			description: 'keep this description',
-			no_flow_overlap: true
-		})
-		expect(
-			getBackendDraft<any>('trigger_schedule', 'f/schedules/nightly', { workspace: WORKSPACE })
-		).not.toMatchObject({
-			edited_by: expect.anything()
-		})
-	})
-
-	it('preserves editor trigger fields when writing over an existing trigger', async () => {
-		vi.mocked(HttpTriggerService.existsHttpTrigger).mockResolvedValueOnce(true)
-		vi.mocked(HttpTriggerService.getHttpTrigger).mockResolvedValueOnce({
-			path: 'f/routes/api',
-			script_path: 'f/scripts/old',
-			is_flow: false,
-			route_path: 'api/old',
-			http_method: 'post',
-			request_type: 'sync',
-			authentication_method: 'none',
-			is_static_website: false,
-			workspaced_route: false,
-			wrap_body: false,
-			raw_string: false,
-			mode: 'enabled',
-			extra_perms: { 'u/viewer': true },
-			workspace_id: WORKSPACE,
-			edited_by: 'admin',
-			edited_at: '2026-05-22T09:00:00Z',
-			permissioned_as: 'u/admin',
-			summary: 'old route',
-			description: 'keep route description'
-		} as any)
-
-		await callGlobalTool('write_trigger', {
-			kind: 'http',
-			config: {
-				path: 'f/routes/api',
-				script_path: 'f/flows/new',
-				is_flow: true,
-				route_path: 'api/new',
-				http_method: 'get',
-				authentication_method: 'windmill',
-				is_static_website: false
-			}
-		})
-
-		const draft = getBackendDraft<any>('trigger_http', 'f/routes/api', { workspace: WORKSPACE })
-		expect(draft).toMatchObject({
-			path: 'f/routes/api',
-			script_path: 'f/flows/new',
-			is_flow: true,
-			route_path: 'api/new',
-			http_method: 'get',
-			authentication_method: 'windmill',
-			extra_perms: { 'u/viewer': true },
-			permissioned_as: 'u/admin',
-			summary: 'old route',
-			description: 'keep route description'
-		})
-		expect(draft).not.toMatchObject({
-			workspace_id: expect.anything(),
-			edited_by: expect.anything()
-		})
-	})
-
-	it('seeds raw app draft metadata on first app write', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
-			path: 'f/apps/report',
-			summary: 'deployed app',
-			versions: [3, 4],
-			value: {
-				files: { '/src/App.tsx': 'deployed content' },
-				runnables: {
-					main: {
-						type: 'inline',
-						inlineScript: { language: 'bun', content: 'export async function main() {}' }
-					}
-				},
-				data: { tables: ['orders'], datatable: 'db', schema: 'public' }
-			},
-			policy: { execution_mode: 'publisher' },
-			custom_path: 'report'
-		} as any)
-
-		await callGlobalTool('write_app_file', {
-			path: 'f/apps/report',
-			file_path: '/src/New.tsx',
-			content: 'export default function New() { return null }'
-		})
-
-		const draft = getBackendDraft<any>('raw_app', 'f/apps/report', { workspace: WORKSPACE })
-		expect(draft).toMatchObject({
-			summary: 'deployed app',
-			files: {
-				'/src/App.tsx': 'deployed content',
-				'/src/New.tsx': 'export default function New() { return null }'
-			},
-			runnables: {
-				main: {
-					type: 'inline',
-					inlineScript: { language: 'bun', content: 'export async function main() {}' }
-				}
-			},
-			data: { tables: ['orders'], datatable: 'db', schema: 'public' },
-			policy: { execution_mode: 'publisher' },
-			custom_path: 'report'
-		})
-	})
-
-	it('summarizes local raw app drafts in read_workspace_item', async () => {
-		seedBackendDraft(
-			'raw_app',
-			'f/apps/local',
-			{
-				summary: 'local app',
-				files: { '/src/App.tsx': 'const frontendSecret = "do-not-dump"' },
-				runnables: {
-					main: {
-						type: 'inline',
-						inlineScript: {
-							language: 'bun',
-							content: 'const backendSecret = "do-not-dump"'
-						}
-					}
-				},
-				data: { tables: ['orders'] }
-			},
-			{ workspace: WORKSPACE }
-		)
-
-		const raw = await callGlobalTool('read_workspace_item', {
-			type: 'app',
-			path: 'f/apps/local'
-		})
-		const item = JSON.parse(raw)
-
-		expect(raw).not.toContain('frontendSecret')
-		expect(raw).not.toContain('backendSecret')
-		expect(item).toMatchObject({
-			type: 'app',
-			path: 'f/apps/local',
-			summary: 'local app',
-			isDraft: true,
-			value: {
-				frontend: [{ path: '/src/App.tsx', size: 'const frontendSecret = "do-not-dump"'.length }],
-				backend: [
-					expect.objectContaining({
-						key: 'main',
-						name: 'main',
-						type: 'inline',
-						language: 'bun',
-						contentSize: 'const backendSecret = "do-not-dump"'.length
-					})
-				],
-				data: { tables: ['orders'] }
-			}
-		})
-		expect(item.value.backend[0]).not.toHaveProperty('content')
-	})
-
-	it('summarizes backend raw apps from the same source as file reads', async () => {
-		const deployedApp = {
-			path: 'f/apps/report',
-			summary: 'deployed app',
-			versions: [5],
-			value: {
-				files: {
-					'/src/App.tsx': 'deployed content',
-					'/src/Helper.tsx': 'helper content'
-				},
-				runnables: {
-					main: {
-						type: 'inline',
-						inlineScript: {
-							language: 'bun',
-							content: 'export async function main() { return "deployed" }'
-						}
-					}
-				},
-				data: { tables: ['deployed'] }
-			}
-		}
-		vi.mocked(AppService.getAppByPath)
-			.mockResolvedValueOnce(deployedApp as any)
-			.mockResolvedValueOnce(deployedApp as any)
-
-		const raw = await callGlobalTool('read_workspace_item', {
-			type: 'app',
-			path: 'f/apps/report'
-		})
-		const item = JSON.parse(raw)
-
-		expect(item).toMatchObject({
-			type: 'app',
-			path: 'f/apps/report',
-			summary: 'deployed app',
-			value: {
-				frontend: [
-					{ path: '/src/App.tsx', size: 'deployed content'.length },
-					{ path: '/src/Helper.tsx', size: 'helper content'.length }
-				],
-				backend: [
-					expect.objectContaining({
-						key: 'main',
-						name: 'main',
-						type: 'inline',
-						language: 'bun',
-						contentSize: 'export async function main() { return "deployed" }'.length
-					})
-				],
-				data: { tables: ['deployed'] }
-			},
-			isDraft: false
-		})
-
-		await expect(
-			callGlobalTool('read_app_file', {
-				path: 'f/apps/report',
-				file_path: '/src/Helper.tsx'
-			})
-		).resolves.toBe('helper content')
-		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
-	})
-
-	it('reads raw app files without creating a draft', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
-			path: 'f/apps/report',
-			summary: 'deployed app',
-			versions: [5],
-			value: {
-				files: { '/src/App.tsx': 'deployed content' },
-				runnables: {},
-				data: { tables: [] }
-			}
-		} as any)
-
-		await expect(
-			callGlobalTool('read_app_file', {
-				path: 'f/apps/report',
-				file_path: '/src/App.tsx'
-			})
-		).resolves.toBe('deployed content')
-		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
-	})
-
-	const deployedAppWithFile = (filePath: string, content: string) =>
-		({
-			path: 'f/apps/report',
-			summary: 'deployed app',
-			versions: [5],
-			value: { files: { [filePath]: content }, runnables: {}, data: {} }
-		}) as any
-
-	it('truncates a large frontend file to a head slice with a paging annotation', async () => {
-		const lines = Array.from({ length: 2000 }, (_, i) => `line ${i + 1}`)
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
-			deployedAppWithFile('/big.tsx', lines.join('\n'))
-		)
-
-		const result = await callGlobalTool('read_app_file', {
-			path: 'f/apps/report',
-			file_path: '/big.tsx'
-		})
-
-		expect(result).toContain('lines 1-1500 of 2000.')
-		expect(result).toContain('offset=1501')
-		expect(result).toContain('line 1500')
-		expect(result).not.toContain('line 1501')
-	})
-
-	it('returns the requested window when offset and limit are given', async () => {
-		const lines = Array.from({ length: 2000 }, (_, i) => `line ${i + 1}`)
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
-			deployedAppWithFile('/big.tsx', lines.join('\n'))
-		)
-
-		const result = await callGlobalTool('read_app_file', {
-			path: 'f/apps/report',
-			file_path: '/big.tsx',
-			offset: 5,
-			limit: 3
-		})
-
-		expect(result).toContain('lines 5-7 of 2000.')
-		expect(result).toContain('line 5\nline 6\nline 7')
-		expect(result).not.toContain('line 4')
-		expect(result).not.toContain('line 8')
-	})
-
-	it('truncates at the character budget for files with very long lines', async () => {
-		const bigLine = 'x'.repeat(30_000)
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
-			deployedAppWithFile('/min.tsx', [bigLine, bigLine, bigLine].join('\n'))
-		)
-
-		const result = await callGlobalTool('read_app_file', {
-			path: 'f/apps/report',
-			file_path: '/min.tsx'
-		})
-
-		expect(result).toContain('lines 1-3 of 3, truncated to the first 50000 of 90002 chars.')
-		expect(result).toContain('the file is likely minified')
-		expect(result.split('\n\n')[1]).toHaveLength(50_000)
-	})
-
-	it('caps a single-line generated file at the character budget', async () => {
-		const bigLine = 'x'.repeat(60_000)
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
-			deployedAppWithFile('/generated.js', bigLine)
-		)
-
-		const result = await callGlobalTool('read_app_file', {
-			path: 'f/apps/report',
-			file_path: '/generated.js'
-		})
-
-		expect(result).toContain('lines 1-1 of 1, truncated to the first 50000 of 60000 chars.')
-		expect(result).toContain('re-read with a smaller limit')
-		expect(result.split('\n\n')[1]).toBe('x'.repeat(50_000))
-	})
-
-	it('reports an offset past the end of the file plainly', async () => {
-		const lines = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`)
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(
-			deployedAppWithFile('/small.tsx', lines.join('\n'))
-		)
-
-		await expect(
-			callGlobalTool('read_app_file', {
-				path: 'f/apps/report',
-				file_path: '/small.tsx',
-				offset: 50
-			})
-		).resolves.toBe('offset 50 is past the end of the file (10 lines).')
-	})
-
-	// Deterministic micro-benchmark: measures how much context the read_app_file cap
-	// saves over a realistic big-project read pattern, isolated from model
-	// nondeterminism. "Baseline" is the old behavior (whole file returned on every
-	// read); "actual" is the current line cap + char budget + paging. Asserting the
-	// ratio also guards against a future change silently weakening the savings.
-	it('micro-benchmark: the read cap cuts returned context for a realistic read pattern', async () => {
-		const bigContent = Array.from({ length: 5000 }, (_, i) => `const row${i} = ${i};`).join('\n')
-		const minified = 'a'.repeat(200_000) // single long line (e.g. a generated bundle)
-		const appValue = {
-			path: 'f/apps/report',
-			summary: 'big app',
-			versions: [5],
-			value: { files: { '/big.tsx': bigContent, '/min.js': minified }, runnables: {}, data: {} }
-		} as any
-		const fullSize: Record<string, number> = {
-			'/big.tsx': bigContent.length,
-			'/min.js': minified.length
-		}
-
-		// A plausible pass over a large app: read a big file head, page deeper into it,
-		// then hit a generated bundle (capped at the char budget). The old tool returned
-		// every file in full on every read.
-		const sequence = [
-			{ file_path: '/big.tsx' }, // 1. big file head (line cap)
-			{ file_path: '/big.tsx', offset: 1501 }, // 2. next line chunk
-			{ file_path: '/min.js' } // 3. minified bundle head (char budget)
-		]
-
-		let baselineChars = 0
-		let actualChars = 0
-		const perRead: number[] = []
-		for (const read of sequence) {
-			baselineChars += fullSize[read.file_path]
-			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(appValue)
-			const out = await callGlobalTool('read_app_file', { path: 'f/apps/report', ...read })
-			actualChars += out.length
-			perRead.push(out.length)
-		}
-
-		const reductionPct = Math.round((1 - actualChars / baselineChars) * 100)
-		// Surfaced when the suite runs so the benchmark is readable, not just asserted.
-		// eslint-disable-next-line no-console
-		console.log(
-			`[read_app_file micro-benchmark] baseline=${baselineChars} chars, actual=${actualChars} chars ` +
-				`(per-read ${perRead.join(', ')}), reduction=${reductionPct}%`
-		)
-
-		// Each capped read is far smaller than the whole file it came from:
-		expect(perRead[0]).toBeLessThan(fullSize['/big.tsx']) // head slice < whole file
-		expect(perRead[1]).toBeLessThan(fullSize['/big.tsx']) // a paged line chunk too
-		expect(perRead[2]).toBeLessThan(51_000) // ~50k char budget + a short annotation
-		// Overall: well under half the bytes the old tool would have returned.
-		expect(actualChars).toBeLessThan(baselineChars * 0.5)
-	})
-
-	// A multi-file app: the revenue helper is referenced in three frontend files
-	// and one inline backend runnable; a generated file also mentions it (and must
-	// be excluded). Mirrors the analytics_dashboard fixture's "symbol spread".
-	const searchAppValue = () =>
-		({
-			path: 'f/apps/report',
-			summary: 'search app',
-			versions: [5],
-			value: {
-				files: {
-					'/lib/aggregations.ts': 'export function computeRevenue(o) {\n  return o.unitPrice\n}\n',
-					'/components/SummaryPanel.tsx':
-						'import { computeRevenue } from "../lib/aggregations"\nconst total = computeRevenue(order)\n',
-					'/components/OrdersTable.tsx': 'const r = computeRevenue(row)\n// renders revenue\n',
-					'/styles.css': '.revenue { color: green }\n',
-					'/wmill.d.ts': 'declare function computeRevenue(o: any): number\n'
-				},
-				runnables: {
-					computeSummary: {
-						type: 'inline',
-						inlineScript: {
-							language: 'bun',
-							content: 'export async function main() {\n  return computeRevenue\n}\n'
-						}
-					}
-				},
-				data: {}
-			}
-		}) as any
-
-	it('greps across frontend files and inline runnables, returning file:line rows', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
-
-		const result = await callGlobalTool('search_app', {
-			path: 'f/apps/report',
-			query: 'computeRevenue'
-		})
-
-		// header counts every match across the (non-generated) files, without echoing the query
-		expect(result).toMatch(/\d+ match(?:es)? in \d+ files?/)
-		// frontend rows use read_app_file's leading-slash addressing
-		expect(result).toContain('/lib/aggregations.ts')
-		expect(result).toContain('1: export function computeRevenue(o) {')
-		expect(result).toContain('/components/SummaryPanel.tsx')
-		// inline runnable rows use the backend/<key>/main.<ext> addressing
-		expect(result).toContain('backend/computeSummary/main.ts')
-		// generated files are never searched
-		expect(result).not.toContain('/wmill.d.ts')
-	})
-
-	it('matches case-insensitively', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
-
-		const result = await callGlobalTool('search_app', {
-			path: 'f/apps/report',
-			query: 'COMPUTEREVENUE' // upper-case query still matches computeRevenue
-		})
-
-		expect(result).toContain('/lib/aggregations.ts')
-		expect(result).toContain('export function computeRevenue(o) {')
-	})
-
-	it('filters by a basename glob (matches nested files)', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
-
-		const result = await callGlobalTool('search_app', {
-			path: 'f/apps/report',
-			query: 'computeRevenue',
-			file_glob: '*.tsx'
-		})
-
-		expect(result).toContain('/components/SummaryPanel.tsx')
-		expect(result).toContain('/components/OrdersTable.tsx')
-		expect(result).not.toContain('/lib/aggregations.ts')
-		expect(result).not.toContain('backend/computeSummary/main.ts')
-	})
-
-	it('filters by a path glob (e.g. backend/**)', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
-
-		const result = await callGlobalTool('search_app', {
-			path: 'f/apps/report',
-			query: 'computeRevenue',
-			file_glob: 'backend/**'
-		})
-
-		expect(result).toContain('backend/computeSummary/main.ts')
-		expect(result).not.toContain('/lib/aggregations.ts')
-	})
-
-	it('reports zero matches with a hint instead of an empty result', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(searchAppValue())
-
-		const result = await callGlobalTool('search_app', {
-			path: 'f/apps/report',
-			query: 'nonexistent_symbol_xyz'
-		})
-
-		expect(result).toContain('No matches')
-		expect(result).toContain('Try a broader')
-	})
-
-	it('truncates very long matching lines to keep results sparse', async () => {
-		const longLine = `const x = "${'q'.repeat(5000)} computeRevenue"`
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
-			path: 'f/apps/report',
-			summary: 'app',
-			versions: [5],
-			value: { files: { '/min.js': longLine }, runnables: {}, data: {} }
-		} as any)
-
-		const result = await callGlobalTool('search_app', {
-			path: 'f/apps/report',
-			query: 'computeRevenue'
-		})
-
-		expect(result).toContain('[line truncated]')
-		expect(result.length).toBeLessThan(1000)
-	})
-
-	it('caps the number of match rows and says it truncated', async () => {
-		const manyLines = Array.from({ length: 500 }, (_, i) => `hit ${i}`).join('\n')
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
-			path: 'f/apps/report',
-			summary: 'app',
-			versions: [5],
-			value: { files: { '/big.tsx': manyLines }, runnables: {}, data: {} }
-		} as any)
-
-		const result = await callGlobalTool('search_app', {
-			path: 'f/apps/report',
-			query: 'hit',
-			max_matches: 50
-		})
-
-		expect(result).toContain('500 matches')
-		expect(result).toContain('showing the first 50')
-		// 50 capped match lines, each rendered with its fixed context window (deduped),
-		// so the body is bounded near max_matches and nowhere near the 500 total.
-		const rows = result.split('\n').filter((l) => /^\s+\d+: /.test(l)).length
-		expect(rows).toBeGreaterThanOrEqual(50)
-		expect(rows).toBeLessThan(60)
-	})
-
-	it('counts every file with a match, even matches past the render cap', async () => {
-		// The first (sorted) file exhausts max_matches; the later file's match falls
-		// past the cap but the symbol still lives there, so the header must count it.
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
-			path: 'f/apps/report',
-			summary: 'app',
-			versions: [5],
-			value: {
-				files: { '/a.tsx': 'hit\nhit\nhit\nhit\nhit', '/b.tsx': 'hit' },
-				runnables: {},
-				data: {}
-			}
-		} as any)
-
-		const result = await callGlobalTool('search_app', {
-			path: 'f/apps/report',
-			query: 'hit',
-			max_matches: 3
-		})
-
-		expect(result).toContain('6 matches in 2 files')
-		expect(result).toContain('showing the first 3')
-	})
-
-	// Deterministic micro-benchmark: how much context a single search_app call
-	// saves over locating a symbol by reading the candidate files whole. Baseline
-	// is the conservative "read only the files that actually contain the symbol"
-	// path (a model without search must read at least those in full); the real
-	// saving is larger because, lacking search, a model often reads non-matching
-	// files too. Isolated from model nondeterminism so it can gate regressions.
-	it('micro-benchmark: search_app locates a symbol far cheaper than reading files', async () => {
-		const fileBodies: Record<string, string> = {}
-		// 8 component files, 3 of which reference the symbol, each ~120 lines.
-		for (let f = 0; f < 8; f++) {
-			const lines = Array.from({ length: 120 }, (_, i) =>
-				f < 3 && i === 60 ? `  return computeRevenue(order${f})` : `  const v${i} = ${i} // padding`
-			)
-			fileBodies[`/components/File${f}.tsx`] = lines.join('\n')
-		}
-		const appValue = {
-			path: 'f/apps/report',
-			summary: 'big app',
-			versions: [5],
-			value: {
-				files: fileBodies,
-				runnables: {},
-				data: {}
-			}
-		} as any
-
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce(appValue)
-		const searchOut = await callGlobalTool('search_app', {
-			path: 'f/apps/report',
-			query: 'computeRevenue'
-		})
-
-		// Baseline: the bytes a model must pull to gather the same locations by
-		// reading each matching file in full.
-		const matchingFiles = Object.entries(fileBodies).filter(([, body]) =>
-			body.includes('computeRevenue')
-		)
-		const baselineChars = matchingFiles.reduce((sum, [, body]) => sum + body.length, 0)
-		const actualChars = searchOut.length
-		const reductionPct = Math.round((1 - actualChars / baselineChars) * 100)
-		// eslint-disable-next-line no-console
-		console.log(
-			`[search_app micro-benchmark] baseline=${baselineChars} chars (read ${matchingFiles.length} files whole), ` +
-				`actual=${actualChars} chars (one search), reduction=${reductionPct}%`
-		)
-
-		// The search surfaced exactly the 3 locations…
-		expect(matchingFiles.length).toBe(3)
-		expect((searchOut.match(/computeRevenue/g) ?? []).length).toBeGreaterThanOrEqual(3)
-		// …at a tiny fraction of reading those files whole.
-		expect(actualChars).toBeLessThan(baselineChars * 0.15)
-	})
-
-	it('does not persist a raw app draft when patch_app_file validation fails', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
-			path: 'f/apps/report',
-			summary: 'deployed app',
-			versions: [5],
-			value: {
-				files: { '/src/App.tsx': 'deployed content' },
-				runnables: {},
-				data: { tables: [] }
-			}
-		} as any)
-
-		await expect(
-			callGlobalTool('patch_app_file', {
-				path: 'f/apps/report',
-				file_path: '/src/App.tsx',
-				old_string: 'missing content',
-				new_string: 'replacement',
-				replace_all: false
-			})
-		).rejects.toThrow()
-		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
-	})
-
-	it('does not persist a raw app draft when delete_app_file validation fails', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
-			path: 'f/apps/report',
-			summary: 'deployed app',
-			versions: [5],
-			value: {
-				files: { '/src/App.tsx': 'deployed content' },
-				runnables: {},
-				data: { tables: [] }
-			}
-		} as any)
-
-		await expect(
-			callGlobalTool('delete_app_file', {
-				path: 'f/apps/report',
-				file_path: '/src/Missing.tsx'
-			})
-		).rejects.toThrow('Frontend file "/src/Missing.tsx" not found in app "f/apps/report".')
-		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
-	})
-
-	it('does not persist a raw app draft when delete_app_runnable validation fails', async () => {
-		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({
-			path: 'f/apps/report',
-			summary: 'deployed app',
-			versions: [5],
-			value: {
-				files: { '/src/App.tsx': 'deployed content' },
-				runnables: {
-					main: {
-						type: 'inline',
-						inlineScript: { language: 'bun', content: 'export async function main() {}' }
-					}
-				},
-				data: { tables: [] }
-			}
-		} as any)
-
-		await expect(
-			callGlobalTool('delete_app_runnable', {
-				path: 'f/apps/report',
-				key: 'missing'
-			})
-		).rejects.toThrow('Backend runnable "missing" not found in app "f/apps/report".')
-		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
 	it('deploys a new raw app draft by bundling files and creating a raw app', async () => {
@@ -3588,11 +1535,18 @@ describe('global AI tools', () => {
 		)
 
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+		// The deployed mode, read for the exposure note.
+		vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+			policy: { execution_mode: 'publisher' }
+		} as any)
 
 		await callGlobalTool('deploy_workspace_item', {
 			type: 'app',
 			path: 'f/apps/report'
 		})
+
+		// Who can open a deployed app is set from the Share dialog: the update states no mode, so
+		// the server keeps the deployed one rather than the drafted `anonymous`.
 
 		expect(AppService.updateAppRaw).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
@@ -3606,7 +1560,7 @@ describe('global AI tools', () => {
 						data: { tables: ['orders'] }
 					},
 					summary: 'Updated report',
-					policy: expect.objectContaining({ execution_mode: 'anonymous' }),
+					policy: expect.not.objectContaining({ execution_mode: expect.anything() }),
 					deployment_message: undefined
 				},
 				js: 'bundled js',
@@ -3615,6 +1569,72 @@ describe('global AI tools', () => {
 		})
 		expect(AppService.createAppRaw).not.toHaveBeenCalled()
 		expect(getBackendDraft('raw_app', 'f/apps/report', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	// Deploying is what makes an app's runnables reachable, so it is the one moment the
+	// exposure is both true and known.
+	it('discloses who can open an app after a deploy', async () => {
+		// The deployed app is in the mode its draft names, unless `deployedMode` says otherwise.
+		const deployApp = async (
+			path: string,
+			policy: Record<string, unknown>,
+			deployedMode = policy.execution_mode
+		) => {
+			vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
+			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+			vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+				policy: { execution_mode: deployedMode }
+			} as any)
+			seedBackendDraft(
+				'raw_app',
+				path,
+				{
+					summary: 'App',
+					files: { '/index.tsx': 'x' },
+					runnables: {},
+					data: { tables: [] },
+					policy
+				},
+				{ workspace: WORKSPACE }
+			)
+			return JSON.parse(await callGlobalTool('deploy_workspace_item', { type: 'app', path }))
+		}
+
+		const open = await deployApp('f/apps/open', {
+			execution_mode: 'anonymous',
+			on_behalf_of: 'u/alice'
+		})
+		expect(open.success).toBe(true)
+		expect(open.message).toContain('anyone with the URL, without logging in')
+		// The server decides what a deployed app runs as — it overwrites on_behalf_of for
+		// anyone outside the deployers group — so the note must not name an identity.
+		expect(open.message).not.toContain('u/alice')
+
+		// A deploy keeps the deployed app's mode, so the note follows the deployed row: a draft naming
+		// a wider mode discloses nothing, and one naming a narrower mode still discloses the wider one.
+		const kept = await deployApp('f/apps/kept', { execution_mode: 'anonymous' }, 'publisher')
+		expect(kept.success).toBe(true)
+		expect(kept.message).not.toContain('anyone with the URL')
+		const keptPublic = await deployApp(
+			'f/apps/kept_public',
+			{ execution_mode: 'publisher' },
+			'anonymous'
+		)
+		expect(keptPublic.message).toContain('anyone with the URL, without logging in')
+
+		// Guest is a real widening only where the deployment admits guests; stored on one
+		// that does not, it is inert and the note would announce an exposure that does not
+		// exist.
+		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
+			available: true
+		} as any)
+		const guestOn = await deployApp('f/apps/guest', { execution_mode: 'guest' })
+		expect(guestOn.success).toBe(true)
+		expect(guestOn.message).toContain('identity provider authenticates')
+
+		const unavailable = await deployApp('f/apps/guest_unavailable', { execution_mode: 'guest' })
+		expect(unavailable.success).toBe(true)
+		expect(unavailable.message).not.toContain('identity provider')
 	})
 
 	it('forwards preserve_on_behalf_of when the deployed policy carries an on_behalf_of', async () => {
@@ -3684,6 +1704,7 @@ describe('global AI tools', () => {
 			expect(onDeployed).toHaveBeenCalledWith({
 				sessionId: 'sess-123',
 				kind: 'raw_app',
+				storagePath: 'f/apps/report',
 				path: 'f/apps/report'
 			})
 		} finally {
@@ -3691,487 +1712,518 @@ describe('global AI tools', () => {
 		}
 	})
 
-	it('fills an empty rawscript module through set_flow_module_code', async () => {
-		await callGlobalTool('write_flow', {
-			path: 'f/flows/empty-module',
-			summary: 'Flow with empty module',
-			modules: JSON.stringify([
-				{
-					id: 'empty_step',
-					value: {
-						type: 'rawscript',
-						language: 'bun',
-						content: '',
-						input_transforms: {}
-					}
-				}
-			])
-		})
-
-		const code = 'export async function main() {\n\treturn 42\n}'
-
-		await expect(
-			callGlobalTool('set_flow_module_code', {
-				path: 'f/flows/empty-module',
-				module_id: 'empty_step',
-				code
-			})
-		).resolves.toContain('Updated flow')
-
-		await expect(
-			callGlobalTool('read_flow_module_code', {
-				path: 'f/flows/empty-module',
-				module_id: 'empty_step'
-			})
-		).resolves.toBe(code)
-	})
-
-	it('warns about every empty rawscript body (top-level, nested, preprocessor, failure) and skips populated ones', async () => {
-		const result = JSON.parse(
-			await callGlobalTool('write_flow', {
-				path: 'f/flows/empty-bodies',
-				modules: JSON.stringify([
-					{
-						id: 'empty_top',
-						value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
-					},
-					{
-						id: 'filled',
-						value: {
-							type: 'rawscript',
-							language: 'bun',
-							content: 'export async function main() { return 1 }',
-							input_transforms: {}
-						}
-					},
-					{
-						id: 'loop',
-						value: {
-							type: 'forloopflow',
-							iterator: { type: 'javascript', expr: 'results.filled' },
-							skip_failures: false,
-							modules: [
-								{
-									id: 'empty_nested',
-									value: {
-										type: 'rawscript',
-										language: 'bun',
-										content: '',
-										input_transforms: {}
-									}
-								}
-							]
-						}
-					}
-				]),
-				preprocessor_module: JSON.stringify({
-					id: 'preprocessor',
-					value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
-				}),
-				failure_module: JSON.stringify({
-					id: 'failure',
-					value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
-				})
-			})
-		)
-
-		expect(result.success).toBe(true)
-		expect(result.message).toContain('set_flow_module_code')
-		for (const id of ['empty_top', 'empty_nested', 'preprocessor', 'failure']) {
-			expect(result.message).toContain(`"${id}"`)
-		}
-		expect(result.message).not.toContain('"filled"')
-	})
-
-	it('does not append the empty-body warning when the flow was not saved', async () => {
-		const path = 'f/flows/write-fails'
-		failingWrites.add(`flow:${path}`)
-
-		const result = JSON.parse(
-			await callGlobalTool('write_flow', {
-				path,
-				modules: JSON.stringify([
-					{
-						id: 'empty_step',
-						value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
-					}
-				])
-			})
-		)
-
-		expect(result.success).toBe(false)
-		expect(JSON.stringify(result)).not.toContain('set_flow_module_code')
-	})
-
-	it('hints at inline-code escaping when the modules JSON fails to parse', async () => {
-		await expect(
-			callGlobalTool('write_flow', {
-				path: 'f/flows/bad-json',
-				modules: '[{"id":"a","value":{"type":"rawscript","content":"oops"}]'
-			})
-		).rejects.toThrow(/Invalid JSON for modules.*set_flow_module_code/s)
-	})
-
-	it('warns when patch_flow_json adds a rawscript module left as an inline_script placeholder', async () => {
-		const path = 'f/flows/patch-new-module'
-		await callGlobalTool('write_flow', {
-			path,
-			modules: JSON.stringify([
-				{
-					id: 'call_api',
-					value: {
-						type: 'rawscript',
-						language: 'bun',
-						content: 'export async function main() { return 1 }',
-						input_transforms: {}
-					}
-				}
-			])
-		})
-
-		// A structural patch that adds no module must not trigger the fill-code warning.
-		const benign = JSON.parse(
-			await callGlobalTool('patch_flow_json', {
-				path,
-				old_string: '"language":"bun"',
-				new_string: '"language":"deno"'
-			})
-		)
-		expect(benign.success).toBe(true)
-		expect(benign.message).not.toContain('set_flow_module_code')
-
-		// Adding a new rawscript module in the compact view carries the
-		// inline_script.<id> placeholder as its content; the result must flag it.
-		const result = JSON.parse(
-			await callGlobalTool('patch_flow_json', {
-				path,
-				old_string: '"input_transforms":{}}}]',
-				new_string:
-					'"input_transforms":{}}},{"id":"write_to_pg","value":{"type":"rawscript","language":"postgresql","content":"inline_script.write_to_pg","input_transforms":{}}}]'
-			})
-		)
-		expect(result.success).toBe(true)
-		expect(result.message).toContain('set_flow_module_code')
-		expect(result.message).toContain('"write_to_pg"')
-		expect(result.message).not.toContain('"call_api"')
-
-		// The placeholder is blanked, never persisted as literal content, and the
-		// existing module's body survives the patch round-trip.
-		await expect(
-			callGlobalTool('read_flow_module_code', { path, module_id: 'write_to_pg' })
-		).resolves.toBe('')
-		await expect(
-			callGlobalTool('read_flow_module_code', { path, module_id: 'call_api' })
-		).resolves.toBe('export async function main() { return 1 }')
-	})
-
-	it('rejects a patch whose inline_script placeholder references no module', async () => {
-		const path = 'f/flows/patch-bad-ref'
-		await callGlobalTool('write_flow', {
-			path,
-			modules: JSON.stringify([
-				{
-					id: 'call_api',
-					value: {
-						type: 'rawscript',
-						language: 'bun',
-						content: 'export async function main() { return 1 }',
-						input_transforms: {}
-					}
-				}
-			])
-		})
-
-		await expect(
-			callGlobalTool('patch_flow_json', {
-				path,
-				old_string: '"input_transforms":{}}}]',
-				new_string:
-					'"input_transforms":{}}},{"id":"write_to_pg","value":{"type":"rawscript","language":"postgresql","content":"inline_script.call_apy","input_transforms":{}}}]'
-			})
-		).rejects.toThrow(/Unresolved inline script reference/)
-
-		// The rejected patch must not have touched the draft.
-		await expect(
-			callGlobalTool('read_flow_module_code', { path, module_id: 'call_api' })
-		).resolves.toBe('export async function main() { return 1 }')
-	})
-
-	it('write_flow resolves placeholders to existing module bodies on overwrite', async () => {
-		const path = 'f/flows/overwrite-keep-bodies'
-		const code = 'export async function main() { return 1 }'
-		await callGlobalTool('write_flow', {
-			path,
-			modules: JSON.stringify([
-				{
-					id: 'call_api',
-					value: { type: 'rawscript', language: 'bun', content: code, input_transforms: {} }
-				}
-			])
-		})
-
-		const result = JSON.parse(
-			await callGlobalTool('write_flow', {
-				path,
-				summary: 'Reordered',
-				modules: JSON.stringify([
-					{
-						id: 'call_api',
-						value: {
-							type: 'rawscript',
-							language: 'bun',
-							content: 'inline_script.call_api',
-							input_transforms: {}
-						}
-					},
-					{
-						id: 'notify',
-						value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} }
-					}
-				])
-			})
-		)
-		expect(result.success).toBe(true)
-		expect(result.message).toContain('"notify"')
-		expect(result.message).not.toContain('"call_api"')
-
-		await expect(
-			callGlobalTool('read_flow_module_code', { path, module_id: 'call_api' })
-		).resolves.toBe(code)
-	})
-
-	it('writes flows with flow-mode arguments and reads compact flow value', async () => {
-		const writeResult = JSON.parse(
-			await callGlobalTool('write_flow', {
-				path: 'f/flows/with-schema-and-groups',
-				summary: 'Flow with schema and groups',
-				modules: JSON.stringify([
-					{
-						id: 'start',
-						summary: 'Start',
-						value: {
-							type: 'identity'
-						}
-					}
-				]),
-				schema: JSON.stringify({
-					type: 'object',
-					properties: {
-						name: { type: 'string' }
-					},
-					required: ['name']
-				}),
-				groups: JSON.stringify([{ summary: 'Main', start_id: 'start', end_id: 'start' }])
-			})
-		)
-
-		expect(writeResult.success).toBe(true)
-		// Write results must not echo the flow value back to the model.
-		expect(writeResult.item).toBeUndefined()
-
-		const raw = await callGlobalTool('read_workspace_item', {
-			type: 'flow',
-			path: 'f/flows/with-schema-and-groups'
-		})
-		const item = JSON.parse(raw)
-
-		expect(item.value).toMatchObject({
-			modules: [
-				{
-					id: 'start',
-					summary: 'Start',
-					value: { type: 'identity' }
-				}
-			],
+	// No parser emits `password`, so the stored schema is the only thing carrying it: a form
+	// rebuilt from the content alone unmarks the field, and then takes the secret as a plain
+	// literal into the job's args.
+	it('test_run_script keeps the password marking of the script it previews', async () => {
+		stubRun({
+			code: 'export async function main(token: string) { return 1 }',
+			lang: 'bun',
 			schema: {
 				type: 'object',
-				properties: {
-					name: { type: 'string' }
-				},
-				required: ['name']
-			},
-			preprocessor_module: null,
-			failure_module: null,
-			groups: [{ summary: 'Main', start_id: 'start', end_id: 'start' }]
+				properties: { token: { type: 'string', password: true } },
+				required: ['token']
+			}
 		})
-		expect(item.value.value).toBeUndefined()
+
+		let form: any
+		await callGlobalTool(
+			'test_run_script',
+			{ path: 'f/scripts/secretful' },
+			{
+				...toolCallbacks,
+				requestRunArgs: async (_toolId, opened) => {
+					form = opened
+					return undefined
+				}
+			}
+		)
+
+		expect(form?.schema?.properties).toMatchObject({ token: { password: true } })
 	})
 
-	it('writes and reads back free-floating flow notes', async () => {
-		const writeResult = JSON.parse(
-			await callGlobalTool('write_flow', {
-				path: 'f/flows/with-notes',
-				summary: 'Flow with notes',
-				modules: JSON.stringify([
-					{
-						id: 'start',
-						summary: 'Start',
-						value: { type: 'identity' }
+	// A test run meets the same card as a deployed one, so what previews is what the form
+	// submitted — not what the model proposed.
+	it('test_run_script previews the arguments the form submitted', async () => {
+		stubRun({
+			summary: 'Formed test script',
+			code: 'export async function main(name: string) {}',
+			lang: 'bun',
+			schema: { properties: { name: { type: 'string' } } }
+		})
+
+		let opened: Record<string, any> | undefined
+		let kind: string | undefined
+		let helperSource: { code?: string; lang?: string } | undefined
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_script',
+				{ path: 'f/scripts/formed-test', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						opened = form.args
+						kind = form.kind
+						helperSource = { code: form.code, lang: form.lang }
+						return { kind: 'args', args: { name: 'Grace' } }
 					}
-				]),
-				notes: JSON.stringify([
-					{ id: 'n1', type: 'free', text: 'What this flow does', color: 'blue' }
-				])
-			})
+				}
+			)
 		)
 
-		expect(writeResult.success).toBe(true)
-
-		const item = JSON.parse(
-			await callGlobalTool('read_workspace_item', {
-				type: 'flow',
-				path: 'f/flows/with-notes'
-			})
-		)
-
-		expect(item.value.notes).toHaveLength(1)
-		expect(item.value.notes[0]).toMatchObject({
-			id: 'n1',
-			type: 'free',
-			text: 'What this flow does',
-			color: 'blue'
+		expect(opened).toEqual({ name: 'Ada' })
+		// Drives the card's tense: a test says it tested, not that it ran.
+		expect(kind).toBe('test')
+		// The draft itself, so a dynselect field offers the options this code returns rather
+		// than the deployed version's — which is stale, or absent for a draft never deployed.
+		expect(helperSource).toEqual({
+			code: 'export async function main(name: string) {}',
+			lang: 'bun'
 		})
-		// Free notes with no explicit geometry get auto-placed/sized by validation.
-		expect(item.value.notes[0].position).toBeDefined()
-		expect(item.value.notes[0].size).toBeDefined()
+		expect(startedRun()?.args).toEqual({ name: 'Grace' })
 	})
 
-	it('test_run_script previews draft script content by path', async () => {
-		const content = 'export async function main(name: string) {\n\treturn `hello ${name}`\n}'
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/draft-test',
-			summary: 'Draft test script',
-			language: 'bun',
-			content
+	// The bypass posture answers a run form as it answers any other confirmation, for a
+	// deployed run as much as a test. The card must never render one first: a form nobody
+	// will fill in is attached already settled, so no field is ever mounted, and the schema
+	// it would have built them from never reaches the transcript.
+	it('mounts no field on either run form under yolo', async () => {
+		stubRun({
+			code: 'export async function main(name: string) {}',
+			lang: 'bun',
+			schema: { properties: { name: { type: 'string' } } }
+		})
+
+		const statuses: any[] = []
+		const requestRunArgs = vi.fn(async (_toolId: string, form: any) => ({
+			kind: 'args',
+			args: form.args
+		}))
+		const yolo = {
+			...toolCallbacks,
+			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+			shouldAutoAcceptToolConfirmations: () => true,
+			requestRunArgs
+		}
+
+		await withCompletedTestJob(() =>
+			callGlobalTool('test_run_script', { path: 'f/scripts/yolo', args: { name: 'Ada' } }, yolo)
+		)
+
+		const testForm = statuses.find((s) => s.runForm)?.runForm
+		expect(testForm.submitted).toBe(true)
+		// Nothing is left to render it, and a card carrying one persists it forever.
+		expect(testForm.schema).toBeUndefined()
+		// Told the form is already answered, or the loop parks on a card with no fields.
+		expect(requestRunArgs.mock.calls[0][2]).toEqual({ autoAccepted: true })
+		expect(startedRun()?.args).toEqual({ name: 'Ada' })
+
+		statuses.length = 0
+		vi.mocked(AiService.callAiSessionTool).mockClear()
+		await withCompletedTestJob(() =>
+			callGlobalTool('run_script', { path: 'f/scripts/yolo', args: { name: 'Ada' } }, yolo)
+		)
+
+		const deployedForm = statuses.find((s) => s.runForm)?.runForm
+		expect(deployedForm.submitted).toBe(true)
+		expect(deployedForm.schema).toBeUndefined()
+		expect(startedRun()?.args).toEqual({ name: 'Ada' })
+	})
+
+	// The posture is the user's standing answer to whether to ask, so a run it answers starts on
+	// the model's arguments as sent — no default filled in, no required field second-guessed.
+	// Predicting what a mounted field would hold starts runs the form itself would refuse; the
+	// schema's own defaults are the worker's job, from the code's signature.
+	it('sends the model arguments as proposed when the posture answers', async () => {
+		stubRun({
+			schema: {
+				properties: { name: { type: 'string' }, retries: { type: 'number', default: 3 } },
+				required: ['name', 'retries']
+			}
+		})
+		const statuses: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/defaulted', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+					shouldAutoAcceptToolConfirmations: () => true,
+					requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
+				}
+			)
+		)
+
+		expect(statuses.find((x) => x.runForm)?.runForm.submitted).toBe(true)
+		expect(startedRun()?.args).toEqual({ name: 'Ada' })
+	})
+
+	// A disabled field is declared as not the caller's to set, and the posture answering the
+	// form does not make the model one of the callers it is kept from.
+	it('holds a disabled default against the model when the posture answers', async () => {
+		stubRun({
+			schema: {
+				properties: {
+					name: { type: 'string' },
+					mode: { type: 'string', disabled: true, default: 'safe' }
+				}
+			}
 		})
 
 		const result = await withCompletedTestJob(() =>
-			callGlobalTool('test_run_script', {
-				path: 'f/scripts/draft-test',
-				args: { name: 'Ada' }
-			})
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/locked', args: { name: 'Ada', mode: 'destructive' } },
+				{
+					...toolCallbacks,
+					shouldAutoAcceptToolConfirmations: () => true,
+					requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
+				}
+			)
 		)
 
-		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: {
-				path: 'f/scripts/draft-test',
-				content,
-				args: { name: 'Ada' },
-				language: 'bun'
-			}
-		})
-		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
-		expect(result).toContain('Result (SUCCESS)')
-		expect(result).toContain('test logs')
+		expect(startedRun()?.args).toEqual({ name: 'Ada', mode: 'safe' })
+		// Or the next call proposes the same override again.
+		expect(result).toContain('disables mode')
 	})
 
-	it('test_run_script previews deployed script content when no draft exists', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			path: 'f/scripts/deployed-test',
-			summary: 'Deployed test script',
-			content: 'def main(name):\n    return name',
-			language: 'python3'
-		} as any)
+	// With no form there is no PasswordArgInput to turn a proposed secret into a reference, and
+	// a job's arguments are readable by everyone who can see its run. What starts the job must
+	// be what came back from the minting, never the proposal.
+	it('mints a proposed secret into a reference before starting a run the posture answers', async () => {
+		stubRun({
+			schema: { properties: { token: { type: 'string', password: true } }, required: ['token'] }
+		})
+		vi.mocked(processSecretArgs).mockImplementationOnce(async () => ({
+			token: '$var:u/ada/secret_arg/minted'
+		}))
 
 		await withCompletedTestJob(() =>
-			callGlobalTool('test_run_script', {
-				path: 'f/scripts/deployed-test',
-				args: { name: 'Grace' }
-			})
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/secret', args: { token: 'hunter2' } },
+				{
+					...toolCallbacks,
+					shouldAutoAcceptToolConfirmations: () => true,
+					requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
+				}
+			)
 		)
 
-		expect(ScriptService.getScriptByPath).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			path: 'f/scripts/deployed-test'
-		})
-		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: {
-				path: 'f/scripts/deployed-test',
-				content: 'def main(name):\n    return name',
-				args: { name: 'Grace' },
-				language: 'python3'
-			}
-		})
+		expect(processSecretArgs).toHaveBeenCalledWith(
+			{ token: 'hunter2' },
+			expect.anything(),
+			expect.anything()
+		)
+		expect(startedRun()?.args).toEqual({ token: '$var:u/ada/secret_arg/minted' })
 	})
 
-	it('test_run_flow previews draft flow content by path', async () => {
-		const modules = [{ id: 'start', value: { type: 'identity' } }]
-		await callGlobalTool('write_flow', {
-			path: 'f/flows/draft-test',
-			summary: 'Draft test flow',
-			modules: JSON.stringify(modules)
+	// The bypass is the user's standing answer, not a licence for the host to skip asking:
+	// a chat with nowhere to put a form still refuses the run under any other posture.
+	it('run_script refuses a host with no form unless the posture answers for it', async () => {
+		stubRun({
+			schema: { properties: { name: { type: 'string' } } }
+		})
+
+		const refused = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/noform', args: { name: 'Ada' } },
+			{ ...toolCallbacks, requestRunArgs: undefined }
+		)
+
+		expect(startedRun()).toBeUndefined()
+		expect(refused).toContain('cannot show a run form')
+	})
+
+	// A surface that confirmed the run is waiting for the job it was promised, and a refused
+	// start is the one end it cannot see for itself: the call is neither pending nor cancelled,
+	// and nothing else tells it to stop offering a Run that would never reach a job.
+	it('run_script says the form is over when the job is refused', async () => {
+		stubRun(
+			{ schema: { properties: { name: { type: 'string' } } } },
+			{ text: 'not permitted', is_error: true, effects: [] }
+		)
+		const markRunFormEnded = vi.fn()
+
+		await expect(
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/refused', args: { name: 'Ada' } },
+				{ ...toolCallbacks, markRunFormEnded }
+			)
+		).rejects.toThrow('not permitted')
+
+		expect(markRunFormEnded).toHaveBeenCalledWith(expect.any(String))
+	})
+
+	// A chat-enabled flow's deployed page is a conversation with no run form, so it is opened
+	// to look at and the card keeps the run. The card reads this off the form rather than
+	// fetching the flow again.
+	it('run_flow marks a chat-enabled flow as conversational on its form', async () => {
+		stubRun({
+			schema: { properties: { user_message: { type: 'string' } } },
+			runnable_kind: 'flow',
+			conversational: true
+		})
+
+		const statuses: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_flow',
+				{ path: 'f/flows/chat', args: { user_message: 'hi' } },
+				{ ...toolCallbacks, setToolStatus: (_id: string, s: any) => statuses.push(s) }
+			)
+		)
+
+		expect(statuses.find((s) => s.runForm)?.runForm?.conversational).toBe(true)
+	})
+
+	// A run confirmed on the item's own page answers with the job it started, so this tool
+	// never sees a submission: the card and the model would otherwise be left describing the
+	// proposal as what ran, which is wrong as soon as the reader edits a field.
+	it('run_script reports an adopted job with the arguments that page sent', async () => {
+		stubRun({
+			schema: { properties: { name: { type: 'string' } } }
+		})
+
+		const statuses: any[] = []
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/adopted', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_id: string, s: any) => statuses.push(s),
+					requestRunArgs: async () => ({
+						kind: 'job',
+						jobId: 'job-123',
+						args: { name: 'Grace' },
+						schema: { properties: { name: { type: 'string' } } }
+					})
+				}
+			)
+		)
+
+		// Started by the page, so this tool must not start one of its own.
+		expect(startedRun()).toBeUndefined()
+		expect(statuses.filter((s) => s.parameters).at(-1)?.parameters).toEqual({ name: 'Grace' })
+		expect(result).toContain('Grace')
+		expect(result).not.toContain('Ada')
+	})
+
+	// Redaction only visits the leaves the schema it is given declares, and the page runs the
+	// deployed version as it is now — which a deploy can have given an argument this call's
+	// schema never had. Redacting with ours would put the bytes in the persisted card and in
+	// the model's context.
+	it('run_script redacts an adopted job against the schema that page ran', async () => {
+		stubRun({
+			schema: { properties: { name: { type: 'string' } } }
+		})
+
+		const statuses: any[] = []
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/redeployed', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_id: string, s: any) => statuses.push(s),
+					requestRunArgs: async () => ({
+						kind: 'job',
+						jobId: 'job-123',
+						args: { name: 'Grace', attachment: 'QUJDREVG' },
+						// The deployed version the page loaded declares a file this call never saw.
+						schema: {
+							properties: {
+								name: { type: 'string' },
+								attachment: { type: 'string', contentEncoding: 'base64' }
+							}
+						}
+					})
+				}
+			)
+		)
+
+		const parameters = statuses.filter((s) => s.parameters).at(-1)?.parameters
+		expect(parameters?.name).toBe('Grace')
+		expect(parameters?.attachment).not.toBe('QUJDREVG')
+		expect(result).not.toContain('QUJDREVG')
+	})
+
+	// The posture answers wherever it is set, form or no form: what it answers is consent, and a
+	// host without one has nothing left to ask. A secret still becomes a reference first, which
+	// is the only thing the missing form would have done.
+	it('run_script runs on a formless host under yolo', async () => {
+		stubRun({
+			schema: {
+				properties: { token: { type: 'string', password: true } },
+				required: ['token']
+			}
+		})
+		vi.mocked(processSecretArgs).mockImplementationOnce(async () => ({
+			token: '$var:u/ada/secret_arg/minted'
+		}))
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/noform-secret', args: { token: 'hunter2' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: undefined,
+					shouldAutoAcceptToolConfirmations: () => true
+				}
+			)
+		)
+
+		expect(startedRun()?.args).toEqual({ token: '$var:u/ada/secret_arg/minted' })
+	})
+
+	// The transcript is re-cloned into IndexedDB on every save, and a form takes as much text
+	// as the user pastes. What the card stores is bounded; what the job runs is not.
+	it('run_script stores a marker for oversized arguments but runs them in full', async () => {
+		const huge = 'x'.repeat(120_000)
+		stubRun({
+			code: 'export async function main(blob: string) {}',
+			lang: 'bun',
+			schema: { properties: { blob: { type: 'string' } } }
+		})
+
+		const statuses: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/big', args: { blob: 'small' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+					// The user pastes into the field the model left small: the model's own
+					// proposal is bounded by what it can emit, this is not.
+					requestRunArgs: async () => ({ kind: 'args', args: { blob: huge } })
+				}
+			)
+		)
+
+		expect(startedRun()?.args).toEqual({ blob: huge })
+		const persisted = statuses.filter((s) => s.parameters !== undefined).at(-1)?.parameters
+		expect(persisted).toEqual({ reason: 'WINDMILL_TOO_BIG' })
+		expect(JSON.stringify(statuses)).not.toContain(huge)
+	})
+
+	// A dropped pass-through fails silently: the argument is accepted and ignored, and the
+	// run just waits out the default budget.
+	it('run_script detaches on background and on wait_seconds', async () => {
+		stubRun({
+			schema: { properties: { name: { type: 'string' } } }
+		})
+
+		// wait_seconds 0 detaches the same way, so one run of each pins both lines.
+		for (const detachArg of [{ background: true }, { wait_seconds: 0 }]) {
+			const onJobDetached = vi.fn()
+			await callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/slow', args: { name: 'Ada' }, ...detachArg },
+				{ ...toolCallbacks, onJobStarted: vi.fn(), onJobDetached }
+			)
+
+			expect(onJobDetached).toHaveBeenCalledWith('job-started')
+		}
+	})
+
+	// A schema with no fields still opens a form: an empty one is still the Run button, and
+	// that button is the whole confirmation this tool has. Skipping it because there is
+	// nothing to fill in starts the script with no confirmation at all.
+	it('test_run_script opens a form and starts no job when the schema declares no field', async () => {
+		stubRun({
+			code: 'export async function main() {}',
+			lang: 'bun',
+			schema: { properties: {} }
+		})
+
+		const cancelled = await callGlobalTool(
+			'test_run_script',
+			{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
+			{ ...toolCallbacks, requestRunArgs: async () => undefined }
+		)
+
+		expect(startedRun()).toBeUndefined()
+		expect(cancelled).toContain('The user cancelled the run form')
+
+		// A schema declaring nothing is a form with no field to hold this, and the card says
+		// as much — so answering it must not send an argument that was never on screen.
+		const answered = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_script',
+				{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
+				}
+			)
+		)
+
+		expect(startedRun()?.args).toEqual({})
+		expect(answered).toContain('does not declare force_delete')
+	})
+
+	// A host that answers the form without minting, as the eval harness does by returning the
+	// proposal verbatim: the job's arguments are readable by everyone who can see its run.
+	it('mints a secret the host handed back as a literal', async () => {
+		stubRun({
+			schema: { properties: { token: { type: 'string', password: true } } }
+		})
+		vi.mocked(processSecretArgs).mockImplementationOnce(async () => ({
+			token: '$var:u/ada/secret_arg/minted'
+		}))
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/host-literal', args: { token: 'hunter2' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
+				}
+			)
+		)
+
+		expect(startedRun()?.args).toEqual({ token: '$var:u/ada/secret_arg/minted' })
+	})
+
+	// The bypass has no form to have shown them either, so the rule holds there too.
+	it('drops an undeclared argument when the posture answers too', async () => {
+		stubRun({
+			schema: { properties: { name: { type: 'string' } } }
 		})
 
 		await withCompletedTestJob(() =>
-			callGlobalTool('test_run_flow', {
-				path: 'f/flows/draft-test',
-				args: { name: 'Ada' }
-			})
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/noargs-yolo', args: { name: 'Ada', force_delete: true } },
+				{
+					...toolCallbacks,
+					shouldAutoAcceptToolConfirmations: () => true,
+					requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
+				}
+			)
 		)
 
-		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
-		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: {
-				path: 'f/flows/draft-test',
-				value: { modules },
-				args: { name: 'Ada' }
-			}
-		})
+		expect(startedRun()?.args).toEqual({ name: 'Ada' })
 	})
 
-	it('test_run_flow previews deployed flow content when no draft exists', async () => {
-		const modules = [{ id: 'deployed_start', value: { type: 'identity' } }]
-		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
-			path: 'f/flows/deployed-test',
-			summary: 'Deployed test flow',
-			value: { modules },
-			schema: {}
-		} as any)
+	// The form offers the arguments the flow declares and no others, so a fixture flow that
+	// takes one has to say so — as a real flow does, since nothing else could render a field.
+	const FLOW_NAME_SCHEMA = { type: 'object', properties: { name: { type: 'string' } } }
 
-		await withCompletedTestJob(() =>
-			callGlobalTool('test_run_flow', {
-				path: 'f/flows/deployed-test',
-				args: { name: 'Grace' }
-			})
-		)
-
-		expect(FlowService.getFlowByPath).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			path: 'f/flows/deployed-test'
-		})
-		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: {
-				path: 'f/flows/deployed-test',
-				value: { modules },
-				args: { name: 'Grace' }
-			}
-		})
-	})
-
-	it('test_run_flow uses the live flow editor test hook when the active editor matches the path', async () => {
-		seedBackendDraft(
-			'flow',
-			'',
-			{
-				path: 'u/admin/live_flow',
-				summary: 'Live flow',
-				value: { modules: [{ id: 'live_step', value: { type: 'identity' } }] },
-				schema: {},
-				edited_by: '',
-				edited_at: '',
-				archived: false,
-				extra_perms: {}
-			},
-			{ workspace: WORKSPACE }
-		)
+	// The editor is driven by the key its draft is stored under, which reads and edits of the
+	// path resolve through too: a staged rename leaves that key where it was.
+	it('test_run_flow drives the live flow editor by its storage path', async () => {
+		stubRun({ schema: FLOW_NAME_SCHEMA, runnable_kind: 'flow' })
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/live_flow_storage',
 			effectivePath: 'u/admin/live_flow'
 		})
 		const testActiveFlow = vi.fn(async () => 'job-live-flow')
@@ -4183,37 +2235,32 @@ describe('global AI tools', () => {
 					path: 'u/admin/live_flow',
 					args: { name: 'Ada' }
 				},
-				toolCallbacks,
+				{
+					...toolCallbacks,
+					requestRunArgs: async () => ({ kind: 'args', args: { name: 'Grace' } })
+				},
 				{ testActiveFlow }
 			)
 		)
 
-		expect(testActiveFlow).toHaveBeenCalledWith({ name: 'Ada' })
-		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
-		expect(JobService.runFlowPreview).not.toHaveBeenCalled()
+		// What the form submitted, not what the model proposed: the editor runs the flow, but
+		// the arguments are the user's. The third argument is the chat-mode memory id,
+		// which only `test_run_flow`'s own `memory_id` supplies.
+		expect(testActiveFlow).toHaveBeenCalledWith(
+			'u/admin/live_flow_storage',
+			{ name: 'Grace' },
+			undefined
+		)
+		expect(startedRun()).toBeUndefined()
 		expect(result).toContain('Result (SUCCESS)')
 	})
 
 	it('test_run_flow falls back to preview when the live flow editor test hook returns undefined', async () => {
-		seedBackendDraft(
-			'flow',
-			'',
-			{
-				path: 'u/admin/live_flow_fallback',
-				summary: 'Live flow fallback',
-				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
-				schema: {},
-				edited_by: '',
-				edited_at: '',
-				archived: false,
-				extra_perms: {}
-			},
-			{ workspace: WORKSPACE }
-		)
+		stubRun({ schema: FLOW_NAME_SCHEMA, runnable_kind: 'flow' })
 		UserDraft.setLiveEditorDraft({
 			workspace: WORKSPACE,
 			itemKind: 'flow',
-			storagePath: '',
+			storagePath: 'u/admin/live_flow_fallback',
 			effectivePath: 'u/admin/live_flow_fallback'
 		})
 		const testActiveFlow = vi.fn(async () => undefined)
@@ -4230,172 +2277,655 @@ describe('global AI tools', () => {
 			)
 		)
 
-		expect(testActiveFlow).toHaveBeenCalledWith({ name: 'Ada' })
-		expect(FlowService.getFlowByPath).not.toHaveBeenCalled()
-		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: {
-				path: 'u/admin/live_flow_fallback',
-				value: { modules: [{ id: 'fallback_step', value: { type: 'identity' } }] },
-				args: { name: 'Ada' }
-			}
-		})
+		expect(testActiveFlow).toHaveBeenCalledWith(
+			'u/admin/live_flow_fallback',
+			{ name: 'Ada' },
+			undefined
+		)
+		expect(startedRun()?.args).toEqual({ name: 'Ada' })
 	})
 
-	it('test_run_step previews rawscript steps from the draft flow', async () => {
-		const content = 'export async function main(name: string) {\n\treturn name.toUpperCase()\n}'
-		await callGlobalTool('write_flow', {
-			path: 'f/flows/rawscript-step',
-			summary: 'Flow with rawscript',
-			modules: JSON.stringify([
-				{
-					id: 'format_name',
-					value: {
-						type: 'rawscript',
-						language: 'bun',
-						content,
-						input_transforms: {}
-					}
-				}
-			])
+	// A flow reaches its run form the way a script does: opened on the flow's own input schema,
+	// with the dynamic-option picker the schema carries, and the run takes what came back.
+	it('test_run_flow opens the form on the flow schema and runs what it submitted', async () => {
+		stubRun({
+			runnable_kind: 'flow',
+			schema: {
+				...FLOW_NAME_SCHEMA,
+				'x-windmill-dyn-select-code': 'export function names() { return ["Ada"] }',
+				'x-windmill-dyn-select-lang': 'bun'
+			}
 		})
 
+		let form: any
 		await withCompletedTestJob(() =>
-			callGlobalTool('test_run_step', {
-				path: 'f/flows/rawscript-step',
-				stepId: 'format_name',
-				args: { name: 'Ada' }
-			})
+			callGlobalTool(
+				'test_run_flow',
+				{ path: 'f/flows/formed-flow', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => {
+						form = f
+						return { kind: 'args', args: { name: 'Grace' } }
+					}
+				}
+			)
 		)
 
-		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: {
-				content,
-				language: 'bun',
-				args: { name: 'Ada' }
-			}
+		expect(form.args).toEqual({ name: 'Ada' })
+		expect(form.runnableKind).toBe('flow')
+		expect(form.schema?.properties).toEqual(FLOW_NAME_SCHEMA.properties)
+		// The flow's own dynselect script, which the schema carries rather than a step.
+		expect({ code: form.code, lang: form.lang }).toEqual({
+			code: 'export function names() { return ["Ada"] }',
+			lang: 'bun'
 		})
+		expect(startedRun()?.args).toEqual({ name: 'Grace' })
 	})
 
-	it('test_run_step prefers local script drafts for script steps', async () => {
-		const content = 'export async function main(name: string) {\n\treturn `draft ${name}`\n}'
-		await callGlobalTool('write_script', {
-			path: 'f/scripts/step-script',
-			summary: 'Step script',
-			language: 'bun',
-			content
+	// The form waits as long as the user does, so which editor is on screen is only known when
+	// they press Run — checking it when the card appeared would drive an editor they have since
+	// moved away from.
+	it('test_run_flow re-checks the editor on screen when the form is submitted', async () => {
+		stubRun({ schema: FLOW_NAME_SCHEMA, runnable_kind: 'flow' })
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/moved_flow',
+			effectivePath: 'u/admin/moved_flow'
 		})
-		await callGlobalTool('write_flow', {
-			path: 'f/flows/script-step',
-			summary: 'Flow with script step',
-			modules: JSON.stringify([
-				{
-					id: 'call_script',
-					value: {
-						type: 'script',
-						path: 'f/scripts/step-script',
-						input_transforms: {}
-					}
-				}
-			])
-		})
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
 
 		await withCompletedTestJob(() =>
-			callGlobalTool('test_run_step', {
-				path: 'f/flows/script-step',
-				stepId: 'call_script',
-				args: { name: 'Ada' }
-			})
+			callGlobalTool(
+				'test_run_flow',
+				{ path: 'u/admin/moved_flow', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						// The preview panel moves to another flow while the form sits open.
+						UserDraft.setLiveEditorDraft({
+							workspace: WORKSPACE,
+							itemKind: 'flow',
+							storagePath: 'u/admin/other_flow',
+							effectivePath: 'u/admin/other_flow'
+						})
+						return { kind: 'args', args: form.args }
+					}
+				},
+				{ testActiveFlow }
+			)
 		)
 
-		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
-		expect(JobService.runScriptPreview).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: {
-				path: 'f/scripts/step-script',
-				content,
-				language: 'bun',
-				args: { name: 'Ada' }
-			}
-		})
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(startedRun()?.args).toEqual({ name: 'Ada' })
 	})
 
-	it('test_run_step previews draft subflows for flow steps', async () => {
-		const nestedModules = [{ id: 'nested_start', value: { type: 'identity' } }]
-		await callGlobalTool('write_flow', {
-			path: 'f/flows/nested-draft',
-			summary: 'Nested draft flow',
-			modules: JSON.stringify(nestedModules)
+	// The flow may be open in a session tab that isn't the one on screen: driving its editor
+	// would paint the run into a tab the user is not looking at.
+	it('test_run_flow previews rather than driving an editor the user is not looking at', async () => {
+		stubRun({ schema: FLOW_NAME_SCHEMA, runnable_kind: 'flow' })
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/flow_on_screen',
+			effectivePath: 'u/admin/flow_on_screen'
 		})
-		await callGlobalTool('write_flow', {
-			path: 'f/flows/parent-flow',
-			summary: 'Parent flow',
-			modules: JSON.stringify([
-				{
-					id: 'call_flow',
-					value: {
-						type: 'flow',
-						path: 'f/flows/nested-draft',
-						input_transforms: {}
-					}
-				}
-			])
-		})
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
 
 		await withCompletedTestJob(() =>
-			callGlobalTool('test_run_step', {
-				path: 'f/flows/parent-flow',
-				stepId: 'call_flow',
-				args: { name: 'Ada' }
-			})
+			callGlobalTool(
+				'test_run_flow',
+				{ path: 'u/admin/background_flow', args: { name: 'Ada' } },
+				toolCallbacks,
+				{ testActiveFlow }
+			)
 		)
 
-		expect(JobService.runFlowByPath).not.toHaveBeenCalled()
-		expect(JobService.runFlowPreview).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: {
-				path: 'f/flows/nested-draft',
-				value: { modules: nestedModules },
-				args: { name: 'Ada' }
-			}
-		})
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(startedRun()?.args).toEqual({ name: 'Ada' })
 	})
 
-	it('test_run_step lists nested step ids when a step is not found', async () => {
-		await callGlobalTool('write_flow', {
-			path: 'f/flows/nested-step-error',
-			summary: 'Flow with nested step',
-			modules: JSON.stringify([
-				{
-					id: 'loop_step',
-					value: {
-						type: 'forloopflow',
-						iterator: { type: 'static', value: [1] },
-						skip_failures: false,
-						modules: [
-							{
-								id: 'nested_script_step',
-								value: {
-									type: 'rawscript',
-									language: 'bun',
-									content: 'export async function main() { return 1 }',
-									input_transforms: {}
-								}
-							}
-						]
-					}
-				}
-			])
+	// What separates a deployed run from a test run of the same flow: the editor open on that
+	// path is left alone — it holds the draft, so a deployed run painted into its graph would
+	// show steps that are not the ones running.
+	it('run_flow leaves the live editor alone', async () => {
+		stubRun({ schema: FLOW_NAME_SCHEMA, runnable_kind: 'flow' })
+		UserDraft.setLiveEditorDraft({
+			workspace: WORKSPACE,
+			itemKind: 'flow',
+			storagePath: 'u/admin/deployed_and_drafted',
+			effectivePath: 'u/admin/deployed_and_drafted'
 		})
+		const testActiveFlow = vi.fn(async () => 'job-live-flow')
 
-		await expect(
+		let form: any
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_flow',
+				{ path: 'u/admin/deployed_and_drafted', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => {
+						form = f
+						return { kind: 'args', args: { name: 'Grace' } }
+					}
+				},
+				{ testActiveFlow }
+			)
+		)
+
+		expect(form.runnableKind).toBe('flow')
+		expect(form.schema?.properties).toEqual(FLOW_NAME_SCHEMA.properties)
+		expect(testActiveFlow).not.toHaveBeenCalled()
+		expect(startedRun()?.args).toEqual({ name: 'Grace' })
+	})
+
+	it('test_run_step refuses a linked agent whose unsaved edit is in conflict', async () => {
+		await quickjsReady()
+		stubRun({
+			runnable_kind: 'flow',
+			module: { id: 'ask', value: { type: 'aiagent', agent: '$res:f/agents/support', tools: [] } }
+		})
+		const conflictSpy = vi
+			.spyOn(UserDraftDbSyncer, 'getConflict')
+			.mockReturnValue({ conflict: { serverTimestamp: '2026', localLastSync: null } } as any)
+
+		const raw = await withCompletedTestJob(() =>
 			callGlobalTool('test_run_step', {
-				path: 'f/flows/nested-step-error',
-				stepId: 'missing_nested_step',
+				path: 'f/flows/agent-step',
+				stepId: 'ask',
 				args: {}
+			}).catch((e) => String(e))
+		)
+
+		expect(raw).toMatch(/f\/agents\/support .*edited elsewhere/)
+		expect(startedRun()).toBeUndefined()
+		conflictSpy.mockRestore()
+	})
+
+	// An agent step has no job of its own, so it runs as a flow preview of itself alone, opened on
+	// the same rows and the same values as the flow editor's own step test. A setting the step
+	// leaves alone is not offered at all, so a mounted widget cannot invent a value for it: an
+	// `enabled_tools` the form synthesized empty would advertise none of the agent's tools.
+	it("test_run_step opens an aiagent step on the step's own configuration", async () => {
+		// Loaded outside the fake timers the run waits under, which its loader never sees fire.
+		await quickjsReady()
+		const providerValue = { kind: 'openai', resource: '$res:u/admin/openai', model: 'gpt-4o' }
+		let opened: RunFormDisplay | undefined
+		stubRun({
+			runnable_kind: 'flow',
+			module: {
+				id: 'ask',
+				value: {
+					type: 'aiagent',
+					tools: [
+						{
+							id: 'b',
+							summary: 'get_code',
+							value: {
+								tool_type: 'flowmodule',
+								type: 'rawscript',
+								language: 'bun',
+								content: 'export async function main() { return 1 }',
+								input_transforms: {}
+							}
+						}
+					],
+					input_transforms: {
+						provider: { type: 'static', value: providerValue },
+						user_message: { type: 'static', value: 'authored question' }
+					}
+				}
+			}
+		})
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_step',
+				{
+					path: 'f/flows/agent-step',
+					stepId: 'ask',
+					args: { user_message: 'What is the capital of France?' }
+				},
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						opened = form
+						return { kind: 'args', args: form.args }
+					}
+				}
+			)
+		)
+
+		// The step configures these two, so the form offers them, filled in with what the step
+		// holds — and the model's own message wins over the authored one.
+		expect(opened?.args).toMatchObject({
+			provider: providerValue,
+			user_message: 'What is the capital of France?'
+		})
+		// Those two plus the rows the editor always shows, and nothing else the step is silent
+		// about: `enabled_tools` above all, whose synthesized empty value would advertise no tools.
+		expect(Object.keys(opened?.schema?.properties ?? {})).toEqual([
+			'provider',
+			'user_message',
+			'system_prompt'
+		])
+
+		// Every row of the form runs from the flow input, the blank ones too.
+		expect(startedRun()).toEqual({
+			phase: 'start',
+			target: { stub: 'test_run_step' },
+			args: { provider: providerValue, user_message: 'What is the capital of France?' },
+			form_keys: ['provider', 'user_message', 'system_prompt']
+		})
+	})
+
+	// What the form submits is what runs, as in the editor's step test: a field cleared over the
+	// step's expression runs cleared rather than falling back to the expression, whether the
+	// mounted form sends it as the empty string or the bypass posture sends the form unchanged.
+	it.each([
+		{
+			answer: 'the mounted form',
+			// A field the form could not fill in comes back blank, never absent: text as the empty
+			// string, a list as `[]`.
+			callbacks: {
+				requestRunArgs: async (_toolId: string, form: any) => ({
+					kind: 'args' as const,
+					args: {
+						...form.args,
+						user_message: '',
+						enabled_tools: form.args.enabled_tools ?? []
+					}
+				})
+			}
+		},
+		{
+			answer: 'the bypass posture',
+			callbacks: {
+				shouldAutoAcceptToolConfirmations: () => true,
+				requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
+			}
+		}
+	])(
+		'test_run_step runs an aiagent field left blank by $answer as blank',
+		async ({ callbacks }) => {
+			stubRun({
+				runnable_kind: 'flow',
+				module: {
+					id: 'ask',
+					value: {
+						type: 'aiagent',
+						tools: [],
+						input_transforms: {
+							provider: {
+								type: 'static',
+								value: { kind: 'openai', resource: '$res:u/admin/openai', model: 'gpt-4o' }
+							},
+							user_message: { type: 'javascript', expr: 'results.first.question' },
+							enabled_tools: { type: 'javascript', expr: 'results.first.tools' }
+						}
+					}
+				}
 			})
-		).rejects.toThrow(/Available steps: loop_step, nested_script_step/)
+
+			await withCompletedTestJob(() =>
+				callGlobalTool(
+					'test_run_step',
+					{ path: 'f/flows/agent-expr', stepId: 'ask', args: {} },
+					{ ...toolCallbacks, ...callbacks }
+				)
+			)
+
+			// A form key runs from the flow input, so a blank one runs blank rather than falling
+			// back to the step's expression.
+			const run = startedRun()
+			expect(run?.form_keys).toContain('user_message')
+			expect(run?.args.enabled_tools).toEqual([])
+		}
+	)
+
+	// The memory picker resets a value whose kind it does not offer to its first option, so a
+	// step saved with a legacy kind would run with its history switched off. And a tool name typed
+	// by hand that matches none silently narrows the run, so the roster is offered as in the editor.
+	it("test_run_step offers an aiagent step the editor's choices", async () => {
+		let opened: RunFormDisplay | undefined
+		stubRun({
+			runnable_kind: 'flow',
+			module: {
+				id: 'ask',
+				value: {
+					type: 'aiagent',
+					tools: [
+						{
+							id: 'b',
+							summary: 'get_code',
+							value: {
+								tool_type: 'flowmodule',
+								type: 'rawscript',
+								language: 'bun',
+								content: 'export async function main() { return 1 }',
+								input_transforms: {}
+							}
+						}
+					],
+					input_transforms: {
+						provider: {
+							type: 'static',
+							value: { kind: 'openai', resource: '$res:u/admin/openai', model: 'gpt-4o' }
+						},
+						user_message: { type: 'static', value: 'hi' },
+						memory: { type: 'static', value: { kind: 'auto', context_length: 5 } },
+						enabled_tools: { type: 'static', value: ['get_code'] }
+					}
+				}
+			}
+		})
+
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_step',
+				{ path: 'f/flows/agent-legacy-memory', stepId: 'ask', args: {} },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						opened = form
+						return { kind: 'args', args: form.args }
+					}
+				}
+			)
+		)
+
+		const kinds = opened?.schema.properties.memory.oneOf.map(
+			(variant: any) => variant.properties.kind.enum[0]
+		)
+		expect(kinds).toContain('auto')
+		expect(opened?.schema.properties.enabled_tools.items.enum).toEqual(['get_code'])
+	})
+
+	// A step is fed by its input transforms, so its arguments are its own and the flow's
+	// schema describes a different set entirely. Opening the form on the flow's would offer
+	// fields this job ignores and drop the ones it takes.
+	it('test_run_step opens the form on the step, not on the flow', async () => {
+		const content = 'export async function main(name: string) {\n\treturn name.toUpperCase()\n}'
+		// The flow takes `customer`; the step takes `name`. Nothing links the two.
+		stubRun({
+			code: content,
+			lang: 'bun',
+			module: {
+				id: 'format_name',
+				value: { type: 'rawscript', language: 'bun', content, input_transforms: {} }
+			}
+		})
+
+		stubInferredProperties({ name: { type: 'string' } })
+		let form: any
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_step',
+				{
+					path: 'f/flows/step-form',
+					stepId: 'format_name',
+					args: { name: 'Ada', customer: 'acme' }
+				},
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => {
+						form = f
+						return { kind: 'args', args: { name: 'Grace' } }
+					}
+				}
+			)
+		)
+
+		expect(form.schema.properties).toEqual({ name: { type: 'string' } })
+		expect(form.runnableKind).toBe('script')
+		expect(form.summary).toBe('step "format_name"')
+		// `customer` is the flow's argument, so the step's form never offered it.
+		expect(form.args).toEqual({ name: 'Ada' })
+		expect(startedRun()?.args).toEqual({ name: 'Grace' })
+	})
+
+	// The entrypoint override is declared by no schema, so it is the server's to add after the
+	// form rather than proposed into it — anything that conforms arguments to a schema drops it.
+	// The form's fields are the preprocessor's own, not `main`'s.
+	it('test_run_step keeps the preprocessor entrypoint out of the form', async () => {
+		const content = 'export async function preprocessor(event: string) {\n\treturn event\n}'
+		stubRun({
+			code: content,
+			lang: 'bun',
+			module: {
+				id: 'preprocessor',
+				value: { type: 'rawscript', language: 'bun', content, input_transforms: {} }
+			}
+		})
+
+		vi.mocked(inferArgs).mockClear()
+		stubInferredProperties({ event: { type: 'string' } })
+		let form: any
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'test_run_step',
+				{ path: 'f/flows/preprocessed', stepId: 'preprocessor', args: { event: 'signup' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args })
+				}
+			)
+		)
+
+		// Inferred against the preprocessor entrypoint, not `main`.
+		expect(vi.mocked(inferArgs).mock.calls[0][3]).toBe('preprocessor')
+		expect(form.schema.properties).toEqual({ event: { type: 'string' } })
+		expect(form.args).toEqual({ event: 'signup' })
+		expect(startedRun()?.args).toEqual({ event: 'signup' })
+	})
+
+	// The form IS the consent, so a dismissed one must leave the script unrun.
+	it('run_script starts no job when the user cancels the form', async () => {
+		stubRun({
+			summary: 'Deployed',
+			schema: { properties: { name: { type: 'string' } } }
+		})
+
+		const result = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/deployed', args: { name: 'Ada' } },
+			{ ...toolCallbacks, requestRunArgs: async () => undefined }
+		)
+
+		expect(startedRun()).toBeUndefined()
+		expect(result).toContain('The user cancelled the run form')
+		expect(result).toContain('Do not call run_script again')
+	})
+
+	// job_args.test.ts owns what each step of the argument pipeline does; this owns that
+	// run_script still runs them. Delete a call from runThroughForm and every one of those
+	// unit tests still passes, so one call has to cross all of them here.
+	it('run_script puts the proposed arguments through the whole pipeline', async () => {
+		stubRun({
+			schema: {
+				properties: {
+					count: { type: 'number' },
+					ratio: { type: 'number' },
+					size: { type: 'number' },
+					token: { type: 'string', password: true },
+					locked: { type: 'string', default: 'fixed', disabled: true },
+					doc: { type: 'string', contentEncoding: 'base64' }
+				}
+			}
+		})
+
+		const bytes = 'QUJD'.repeat(1024)
+		const statuses: any[] = []
+		let shown: Record<string, any> | undefined
+		let cleared: string[] | undefined
+		let reset: string[] | undefined
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{
+					path: 'f/scripts/everything',
+					args: {
+						count: '7',
+						ratio: 'abc',
+						size: '$var:u/admin/batch_size',
+						token: 'hunter2',
+						locked: 'tampered',
+						doc: bytes,
+						force_delete: true
+					}
+				},
+				{
+					...toolCallbacks,
+					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+					requestRunArgs: async (_toolId, form) => {
+						shown = form.args
+						cleared = form.clearedKeys
+						reset = form.resetKeys
+						// What the user does with the form: attaches the file no model can produce,
+						// and names a variable for the secret it was not allowed to fill.
+						return {
+							kind: 'args',
+							args: { ...form.args, doc: bytes, token: '$var:u/ada/prod_api_key' }
+						}
+					}
+				}
+			)
+		)
+
+		// Coerced, cleared, left alone, reset, dropped and emptied of bytes — every rule reached
+		// through the tool rather than called directly. The proposed secret is not emptied: it is
+		// already in the model's own tool call in the same stored record, and PasswordArgInput
+		// mints whatever the field opens with before the job sees it.
+		expect(shown).toEqual({
+			count: 7,
+			size: '$var:u/admin/batch_size',
+			token: 'hunter2',
+			locked: 'fixed'
+		})
+		expect(cleared).toEqual(['ratio'])
+		expect(reset).toEqual(['locked'])
+
+		// The bytes belong in the job request and nowhere else: the card is persisted, and a
+		// file small enough to survive truncation would otherwise reach the model whole.
+		expect(startedRun()?.args).toEqual({
+			count: 7,
+			size: '$var:u/admin/batch_size',
+			locked: 'fixed',
+			doc: bytes,
+			token: '$var:u/ada/prod_api_key'
+		})
+		expect(result).toContain('does not declare force_delete')
+		expect(result).toContain('<file: 3 KB>')
+		// The bytes are the value; the reference is not, and the run page shows it for this
+		// same job.
+		expect(result).not.toContain(bytes)
+		expect(JSON.stringify(statuses)).not.toContain(bytes)
+		expect(result).toContain('$var:u/ada/prod_api_key')
+		expect(JSON.stringify(statuses)).toContain('$var:u/ada/prod_api_key')
+		// Named, or an emptied field reads as the user having deleted the value and the next
+		// call proposes the same bytes again.
+		for (const named of ['ratio', 'doc', 'locked']) expect(result).toContain(named)
+	})
+
+	// The form is its own confirmation, so it never reaches processToolCall's second gate.
+	// Plan mode can be switched on while it sits open, and the job must not start.
+	it('run_script starts no job when plan mode is entered while the form is open', async () => {
+		stubRun({
+			schema: { properties: {} }
+		})
+
+		let planning = false
+		const result = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/noargs', args: {} },
+			{
+				...toolCallbacks,
+				isPlanModeActive: () => planning,
+				requestRunArgs: async (_toolId, form) => {
+					planning = true
+					return { kind: 'args', args: form.args }
+				}
+			}
+		)
+
+		expect(startedRun()).toBeUndefined()
+		expect(result).toContain('plan mode is active')
+	})
+
+	// A form that reaches the screen mints a proposed secret on mount, which the gate after
+	// the user answers is too late to unmake — so plan mode arriving during the fetch counts.
+	it('run_script opens no form when plan mode is entered during the schema fetch', async () => {
+		let planning = false
+		stubRun({ schema: { properties: { token: { type: 'string', password: true } } } })
+		const prepare = vi.mocked(AiService.callAiSessionTool).getMockImplementation()!
+		vi.mocked(AiService.callAiSessionTool).mockImplementationOnce(((request: any) => {
+			planning = true
+			return prepare(request)
+		}) as any)
+
+		let formOpened = false
+		const result = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/pw', args: { token: 'hunter2' } },
+			{
+				...toolCallbacks,
+				isPlanModeActive: () => planning,
+				requestRunArgs: async (_toolId, form) => {
+					formOpened = true
+					return { kind: 'args', args: form.args }
+				}
+			}
+		)
+
+		expect(formOpened).toBe(false)
+		expect(startedRun()).toBeUndefined()
+		expect(result).toContain('plan mode is active')
+	})
+
+	it('run_script runs the arguments the user submitted, not the ones proposed', async () => {
+		stubRun({
+			schema: { properties: { name: { type: 'string' } } }
+		})
+
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async () => ({ kind: 'args', args: { name: 'Grace' } })
+				}
+			)
+		)
+
+		expect(startedRun()?.args).toEqual({ name: 'Grace' })
+		// The model must not assume its proposal is what ran.
+		expect(result).toContain('Ran with arguments: {"name":"Grace"}')
+	})
+
+	// The arguments are already in the call this result answers, and every way the form's
+	// own differ from the proposed ones has its own clause — so an untouched form has
+	// nothing to name, and naming it anyway pays for the copy on every later iteration.
+	it('run_script names the arguments only when the user changed them', async () => {
+		stubRun({
+			schema: { properties: { name: { type: 'string' } } }
+		})
+
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
+				}
+			)
+		)
+
+		expect(result).not.toContain('Ran with arguments')
+		expect(result).toContain('unedited')
 	})
 
 	it('asks the user a question and returns the selected answer', async () => {
@@ -4554,6 +3084,42 @@ describe('folder tools', () => {
 		userStore.set(undefined)
 	})
 
+	it('refuses a flow step the openflow schema rejects, which the server lets through', async () => {
+		stubSessionTools(() => ({
+			text: JSON.stringify({ success: true, message: 'Created flow "f/x/flow" as a draft' }),
+			is_error: false,
+			effects: [
+				{
+					type: 'draft_write',
+					kind: 'flow',
+					storage_path: 'f/x/flow',
+					value: {
+						path: 'f/x/flow',
+						value: {
+							modules: [
+								{
+									id: 'a',
+									value: {
+										type: 'rawscript',
+										language: 'bun',
+										content: 'export function main(x) { return x }',
+										input_transforms: { x: { type: 'javascript', value: 'results.b' } }
+									}
+								}
+							]
+						}
+					},
+					force: false
+				}
+			]
+		}))
+
+		await expect(
+			callGlobalTool('write_flow', { path: 'f/x/flow', summary: 's', modules: '[]' })
+		).rejects.toThrow(/Module "a" -> value\.input_transforms\.x\.expr/)
+		expect(getBackendDraft('flow', 'f/x/flow', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
 	it('create_folder requires confirmation', () => {
 		const tool = getGlobalTool('create_folder')
 		expect(tool.requiresConfirmation).toBe(true)
@@ -4561,33 +3127,26 @@ describe('folder tools', () => {
 	})
 
 	it('create_folder creates the folder and reflects it in the path context', async () => {
-		userStore.set({ username: 'bob', is_admin: false, folders: ['existing'] } as any)
-		const raw = await callGlobalTool('create_folder', { name: 'analytics', summary: 'team data' })
+		// `workspace_id` is what makes the ambient store the identity for WORKSPACE — the
+		// tool credits the workspace it created the folder in, not whoever is browsing.
+		userStore.set({
+			username: 'bob',
+			workspace_id: WORKSPACE,
+			is_admin: false,
+			folders: ['existing']
+		} as any)
+		stubSessionTools(() => JSON.stringify({ success: true, message: 'Created folder f/analytics' }))
+		await callGlobalTool('create_folder', { name: 'analytics', summary: 'team data' })
 
-		expect(vi.mocked(FolderService.createFolder)).toHaveBeenCalledWith({
-			workspace: WORKSPACE,
-			requestBody: { name: 'analytics', summary: 'team data' }
-		})
-		const parsed = JSON.parse(raw)
-		expect(parsed.success).toBe(true)
-		expect(parsed.message).toContain('f/analytics')
 		expect((get(userStore) as any)?.folders).toContain('analytics')
 	})
 
 	it('create_folder rejects an invalid name without calling the API', async () => {
 		const raw = await callGlobalTool('create_folder', { name: 'bad name!' })
-		expect(vi.mocked(FolderService.createFolder)).not.toHaveBeenCalled()
+		expect(AiService.callAiSessionTool).not.toHaveBeenCalled()
 		const parsed = JSON.parse(raw)
 		expect(parsed.success).toBe(false)
 		expect(parsed.error).toContain('alphanumeric')
-	})
-
-	it('create_folder surfaces a backend error (e.g. name conflict)', async () => {
-		vi.mocked(FolderService.createFolder).mockRejectedValueOnce(new Error('Folder already exists'))
-		const raw = await callGlobalTool('create_folder', { name: 'taken' })
-		const parsed = JSON.parse(raw)
-		expect(parsed.success).toBe(false)
-		expect(parsed.error).toContain('Folder already exists')
 	})
 })
 
@@ -4781,7 +3340,7 @@ describe('prepareGlobalSystemMessage', () => {
 			})
 			expect(content).toContain('As a workspace admin you can write to any existing folder.')
 			expect(content).toContain(
-				'Folders here include `f/marketing`, `f/data_engineering` (you can also write to others not listed).'
+				'Folders here include `f/marketing`, `f/data_engineering` (you can also write to others not listed; list_workspace_items with type "folder" lists them all).'
 			)
 			expect(content).toContain(
 				'If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.'
@@ -4794,6 +3353,14 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(content).toContain(
 				'- As a workspace admin you can write to any existing folder. If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.'
 			)
+			expect(content).not.toContain('Folders here include')
+		})
+
+		// Admin guidance asserts nothing about the folder list, so unknown ACLs must not
+		// silence it the way they silence the non-admin bullets.
+		it('keeps the admin guidance when the folder sets are unknown', () => {
+			const content = guidanceOf({ username: 'admin', is_admin: true })
+			expect(content).toContain('As a workspace admin you can write to any existing folder.')
 			expect(content).not.toContain('Folders here include')
 		})
 
@@ -4915,7 +3482,7 @@ describe('prepareGlobalSystemMessage', () => {
 		it('dispatches to the registered handler with the session id and default limit of 20', async () => {
 			const callbacks: ToolCallbacks = { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
 			const handler = vi.fn(() => ({
-				aiResult: 'runs output. Next step: call get_job_logs.',
+				aiResult: 'runs output. Next step: call get_run.',
 				uiMessage: 'Listed 1 app run',
 				toolResult:
 					'[{"job_id":"job-1","component":"backend.1","status":"completed","created_at":1718000000000,"started_at":1718000000000,"duration_ms":1000}]'
@@ -4924,7 +3491,7 @@ describe('prepareGlobalSystemMessage', () => {
 			const result = await callGlobalTool('list_app_runs', {}, callbacks, {
 				sessionId: 'sess-runs'
 			})
-			expect(result).toBe('runs output. Next step: call get_job_logs.')
+			expect(result).toBe('runs output. Next step: call get_run.')
 			expect(handler).toHaveBeenCalledWith({ sessionId: 'sess-runs', limit: 20 })
 			expect(callbacks.setToolStatus).toHaveBeenLastCalledWith('test-list_app_runs', {
 				content: 'Listed 1 app run',
@@ -5037,6 +3604,8 @@ describe('session-only preview tools gating', () => {
 		expect(names).not.toContain('list_app_runs')
 		expect(names).not.toContain('search_dom')
 		expect(names).not.toContain('read_dom')
+		// Not withheld: without it the side panel has no route to a deployed run at all.
+		expect(names).toContain('run_script')
 		// other tools are still present
 		expect(names).toContain('write_script')
 	})
@@ -5049,6 +3618,7 @@ describe('session-only preview tools gating', () => {
 		expect(names).toContain('list_app_runs')
 		expect(names).toContain('search_dom')
 		expect(names).toContain('read_dom')
+		expect(names).toContain('run_script')
 		// The session set is the full globalTools minus capability-gated tools:
 		// this environment is not Chromium, so take_screenshot is withheld (DOM
 		// capture is only faithful on Blink). search_dom / read_dom are not gated.
@@ -5322,10 +3892,20 @@ describe('prepareGlobalUserMessage', () => {
 				path: 'f/apps/dashboard',
 				title: 'f/apps/dashboard',
 				summary: 'Dashboard raw app'
+			},
+			{
+				type: 'workspace_agent',
+				path: 'f/agents/triage',
+				title: 'f/agents/triage',
+				summary: 'Triage agent'
 			}
 		])
 
 		expect(message.content).toContain('## SELECTED CONTEXT')
+		expect(message.content).toContain(
+			'- type: agent, path: f/agents/triage (an `ai_agent` resource)'
+		)
+		expect(message.content).not.toContain('Triage agent')
 		expect(message.content).toContain('- type: script, path: f/scripts/report')
 		expect(message.content).toContain('- type: flow, path: f/flows/reporting')
 		expect(message.content).toContain('- type: raw_app, path: f/apps/dashboard')
@@ -5481,35 +4061,202 @@ describe('buildOpenPageUrl runs filters', () => {
 	})
 })
 
-describe('buildOpenPageUrl compare selection', () => {
-	const itemsOf = (url: string) => new URL(url, 'http://x').searchParams.get('items')
+describe('buildOpenPageUrl compare', () => {
+	// Without an explicit mode the page auto-picks, which is the draft view outside a fork.
+	it('always opens the fork comparison', () => {
+		const params = new URL(
+			buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws' }),
+			'http://x'
+		).searchParams
+		expect(params.get('mode')).toBe('fork')
+	})
+})
 
-	it('explicit items win over the chat mask', () => {
-		const url = buildOpenPageUrl(
-			'compare',
-			{ page: 'compare', items: ['script:f/a/b'] },
-			{ workspaceId: 'ws', chatItems: ['flow:f/c/d'] }
-		)
-		expect(itemsOf(url)).toBe('script:f/a/b')
+describe('open_page workspace gating', () => {
+	const NAV = 'nav_ws'
+	const SESSION = 'session_ws'
+	// A workspace the user belongs to but whose `whoami` never answers.
+	const FLAKY = 'flaky_ws'
+	const openPage = () => getGlobalTool('open_page')
+	let def = openPage().def
+	const pageSchema = () => (def.function.parameters as any)?.properties?.page ?? {}
+	const advertisedPages = () => (pageSchema().enum ?? []) as string[]
+
+	beforeEach(() => {
+		// Admin of the workspace being browsed, plain member of the one a session operates on.
+		userStore.set({ username: 'bob', workspace_id: NAV, is_admin: true } as any)
+		usersWorkspaceStore.set({ workspaces: [{ id: NAV }, { id: SESSION }, { id: FLAKY }] } as any)
+		// A non-membership is only pronounced once both of these have resolved.
+		superadmin.set(false)
+		whoamiByWorkspace.set(SESSION, {
+			username: 'bob',
+			email: 'bob@windmill.dev',
+			is_admin: false,
+			operator: false,
+			groups: []
+		})
 	})
 
-	it('omitted items fall back to the chat-modified mask', () => {
-		const url = buildOpenPageUrl(
-			'compare',
-			{ page: 'compare' },
-			{ workspaceId: 'ws', chatItems: ['flow:f/c/d', 'script:f/a/b'] }
-		)
-		expect(itemsOf(url)).toBe('flow:f/c/d,script:f/a/b')
+	afterEach(() => {
+		userStore.set(undefined)
+		usersWorkspaceStore.set(undefined)
+		superadmin.set(undefined)
+		whoamiByWorkspace.clear()
+		clearWorkspaceRoleCache()
 	})
 
-	it('an empty or absent mask yields no items param (page select-all default)', () => {
-		expect(
-			itemsOf(
-				buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws', chatItems: [] })
-			)
-		).toBeNull()
-		expect(
-			itemsOf(buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws' }))
-		).toBeNull()
+	// Every chat shares this tool object, so a schema written back to it would reach the
+	// other chats' requests.
+	it("never writes a chat's schema back to the shared tool", async () => {
+		const shared = openPage().def
+		const snapshot = structuredClone(shared)
+		def = await openPage().schemaFor!({ operatingWorkspace: SESSION })
+		expect(def).not.toBe(shared)
+		expect(openPage().def).toBe(shared)
+		expect(shared).toEqual(snapshot)
+	})
+
+	// Reading the ambient `userStore` instead offers a session the pages of the workspace
+	// the user happens to be browsing.
+	it('gates on the operating workspace, not the one userStore describes', async () => {
+		def = await openPage().schemaFor!({ operatingWorkspace: NAV })
+		expect(advertisedPages()).toContain('workspace_settings')
+
+		def = await openPage().schemaFor!({ operatingWorkspace: SESSION })
+		expect(advertisedPages()).toContain('runs')
+		expect(advertisedPages()).not.toContain('workspace_settings')
+		await expect(
+			callGlobalTool('open_page', { page: 'workspace_settings' }, toolCallbacks, {
+				operatingWorkspace: SESSION
+			})
+		).resolves.toContain("don't have access")
+	})
+
+	// Falling back to a fixed page set instead offers pages the sidebar may well hide —
+	// an operator's, most of all, whose reachable set is a fraction of the default one.
+	// Neither layer may read as a denial: the role was never established, and the model
+	// sees the schema before it can ever reach the handler's message.
+	it('advertises nothing and blames no denial when the role lookup fails', async () => {
+		def = await openPage().schemaFor!({ operatingWorkspace: FLAKY })
+		expect(advertisedPages()).toEqual([])
+		expect(pageSchema().description).toContain("couldn't be checked")
+		const refusal = await callGlobalTool('open_page', { page: 'runs' }, toolCallbacks, {
+			operatingWorkspace: FLAKY
+		})
+		expect(refusal).toContain("Couldn't check your permissions")
+		expect(refusal).not.toContain("don't have access")
+	})
+
+	// A workspace absent from `userWorkspaces` is settled, not unknown: inviting a retry
+	// would be false, and asking `whoami` at all only earns a 401 on every iteration.
+	it('reports a plain denial for a workspace the user is not a member of', async () => {
+		def = await openPage().schemaFor!({ operatingWorkspace: 'unreachable_ws' })
+		expect(advertisedPages()).toEqual([])
+		expect(pageSchema().description).not.toContain("couldn't be checked")
+		const refusal = await callGlobalTool('open_page', { page: 'runs' }, toolCallbacks, {
+			operatingWorkspace: 'unreachable_ws'
+		})
+		expect(refusal).toContain("don't have access")
+		expect(UserService.whoami).not.toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: 'unreachable_ws' })
+		)
+	})
+
+	// An unloaded list is indistinguishable from an empty one, and the layout may never
+	// finish loading it, so reading it as settled would deny the workspace permanently.
+	it('asks whoami while the workspace list is still unresolved', async () => {
+		usersWorkspaceStore.set(undefined)
+
+		def = await openPage().schemaFor!({ operatingWorkspace: SESSION })
+
+		expect(UserService.whoami).toHaveBeenCalledWith(expect.objectContaining({ workspace: SESSION }))
+		expect(advertisedPages()).not.toEqual([])
+	})
+})
+
+describe('global prompt identity', () => {
+	const NAV = 'nav_ws'
+	const SESSION = 'session_ws'
+
+	beforeEach(() => {
+		// Browsing NAV as `alice` with a folder of her own; the session operates on
+		// SESSION, where she is a different user with different folders.
+		userStore.set({
+			username: 'alice',
+			workspace_id: NAV,
+			is_admin: false,
+			folders: ['alice_stuff'],
+			folders_read: ['alice_stuff']
+		} as any)
+		usersWorkspaceStore.set({
+			workspaces: [
+				{ id: NAV, username: 'alice' },
+				{ id: SESSION, username: 'a_smith' }
+			]
+		} as any)
+		superadmin.set(false)
+		whoamiByWorkspace.set(SESSION, {
+			username: 'a_smith',
+			email: 'alice@windmill.dev',
+			is_admin: false,
+			operator: false,
+			groups: [],
+			folders: ['team_etl'],
+			folders_read: ['team_etl', 'readonly_reports']
+		})
+	})
+
+	afterEach(() => {
+		userStore.set(undefined)
+		usersWorkspaceStore.set(undefined)
+		superadmin.set(undefined)
+		whoamiByWorkspace.clear()
+		clearWorkspaceRoleCache()
+	})
+
+	// Reading the ambient store instead tells the model to write to `u/alice/...` and
+	// offers `f/alice_stuff`, neither of which exists in the workspace it writes to.
+	it('describes the operating workspace, not the one being browsed', async () => {
+		const identity = await resolveGlobalPromptIdentity(SESSION)
+		const content = prepareGlobalSystemMessage(undefined, { user: identity }).content as string
+
+		expect(content).toContain('workspace username is "a_smith"')
+		expect(content).toContain('`f/team_etl`')
+		expect(content).toContain('You can see but NOT write to: `f/readonly_reports`')
+		expect(content).not.toContain('alice_stuff')
+		expect(content).not.toContain('u/alice/')
+	})
+
+	// The username cannot be dropped the way the folder sets can — it renders into
+	// `u/<username>/...`, and an empty one yields `u//`.
+	it('keeps the username but drops folder guidance when the role cannot be resolved', async () => {
+		whoamiByWorkspace.delete(SESSION)
+		const identity = await resolveGlobalPromptIdentity(SESSION)
+		const content = prepareGlobalSystemMessage(undefined, { user: identity }).content as string
+
+		expect(identity).toEqual({ username: 'a_smith' })
+		expect(content).toContain('workspace username is "a_smith"')
+		expect(content).not.toContain('u//')
+		expect(content).not.toContain('Folders you can write to')
+		// Unknown ACLs must not be rendered as known-empty ones: this bullet is the
+		// no-writable-folders claim, and it is false in a workspace we never resolved.
+		expect(content).not.toContain('You have no shared folders you can write to')
+		expect(content).not.toContain('alice_stuff')
+	})
+
+	it('credits a created folder to the workspace it was created in', async () => {
+		stubSessionTools(() => JSON.stringify({ success: true, message: 'Created folder f/analytics' }))
+		await getGlobalTool('create_folder').fn({
+			args: { name: 'analytics' },
+			workspace: SESSION,
+			helpers: {},
+			toolCallbacks,
+			toolId: 'test-create-folder-cross-workspace'
+		})
+
+		expect(await resolveGlobalPromptIdentity(SESSION)).toMatchObject({
+			folders: ['team_etl', 'analytics']
+		})
+		expect(get(userStore)?.folders).toEqual(['alice_stuff'])
 	})
 })

@@ -18,7 +18,7 @@ export async function getJsonSchemaFromResource(path: string, workspace: string)
 			path,
 			workspace
 		})
-		if (!resourceValue || !resourceValue == null) {
+		if (!resourceValue) {
 			console.warn(`JSON schema resource ${path} not found`)
 			return null
 		}

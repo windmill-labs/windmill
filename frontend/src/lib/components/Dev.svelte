@@ -1,9 +1,10 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import { Button } from '$lib/components/common'
-	import { WindmillIcon } from '$lib/components/icons'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
 	import {
 		type CompletedJob,
@@ -33,6 +34,7 @@
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from './flows/content/FlowEditorPanel.svelte'
+	import AgentEditorModal from './flows/content/AgentEditorModal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { findModuleInFlow } from './flows/flowDiff'
 	import { writable } from 'svelte/store'
@@ -161,7 +163,6 @@
 	let args: Record<string, any> = $state({})
 	let isValid: boolean = $state(true)
 	let jsonView: boolean = $state(false)
-	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 
 	// Test
@@ -710,7 +711,6 @@
 		currentEditor: writable(undefined),
 		modulesTestStates,
 		outputPickerOpenFns,
-		preserveOnBehalfOf: writable(false),
 		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
 		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined),
 		devTempScriptRefs: () => flowTempScriptRefs
@@ -985,7 +985,7 @@
 				{#if $userStore}
 					{$userStore?.username} on {$workspaceStore}
 				{:else}
-					<span class="text-red-600">Unable to login on {$workspaceStore}</span>
+					<span class="text-red-600">Unable to log in on {$workspaceStore}</span>
 				{/if}
 			</div>
 			<div class="max-w-3xl mx-auto pt-8">
@@ -1082,7 +1082,7 @@
 				{#if $userStore != undefined}
 					As {$userStore?.username} in {$workspaceStore}
 				{:else}
-					<span class="text-red-600">Unable to login</span>
+					<span class="text-red-600">Unable to log in</span>
 				{/if}
 			</div>
 
@@ -1171,20 +1171,17 @@
 									rightTooltip: 'Fill args from JSON'
 								}}
 								lightMode
-								on:change={() => {
-									jsonEditor?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-								}}
 							/>
 						</div>
 						{#if jsonView}
 							<div class="py-2" style="height: {Math.max(schemaHeight, 300)}px">
 								<JsonInputs
-									bind:this={jsonEditor}
 									on:select={(e) => {
 										if (e.detail) {
 											args = e.detail
 										}
 									}}
+									initialCode={argsToJsonPayload(schema, args)}
 									updateOnBlur={false}
 									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 								/>
@@ -1220,7 +1217,7 @@
 					{#if $userStore}
 						As {$userStore?.username} in {$workspaceStore}
 					{:else}
-						<span class="text-red-600">Unable to login on {$workspaceStore}</span>
+						<span class="text-red-600">Unable to log in on {$workspaceStore}</span>
 					{/if}
 				</div>
 
@@ -1247,7 +1244,6 @@
 								<FlowModuleSchemaMap
 									bind:this={flowModuleSchemaMap}
 									disableAi
-									disableTutorials
 									smallErrorHandler={true}
 									disableStaticInputs
 									localModuleStates={showJobStatus ? localModuleStates : {}}
@@ -1313,5 +1309,8 @@
 				</Splitpanes>
 			</div>
 		</div>
+		<!-- Outside the panel, which is keyed on the selection: the dialog stays on the step it was
+		opened for while the graph is used behind it. -->
+		<AgentEditorModal enableAi owns={() => true} />
 	{/if}
 </main>

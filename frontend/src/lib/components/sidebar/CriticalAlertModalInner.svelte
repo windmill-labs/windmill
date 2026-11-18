@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { preventDefault } from 'svelte/legacy'
+	import { isNewTabClick } from '$lib/navigation'
+	import { superadminSettingsHref } from './settings'
 
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
@@ -147,7 +148,14 @@
 		<div class="w-full">
 			<Alert title="No critical alert channels are set up" type="warning" size="xs">
 				Go to the
-				<a href="/#superadmin-settings" onclick={preventDefault(goToCoreTab)}>Instance settings</a>
+				<a
+					href="/{superadminSettingsHref('general')}"
+					onclick={(e) => {
+						if (isNewTabClick(e)) return
+						e.preventDefault()
+						goToCoreTab()
+					}}>Instance settings</a
+				>
 				page to configure critical alert channels.
 			</Alert>
 		</div>

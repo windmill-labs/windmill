@@ -30,7 +30,14 @@
 	import { withHighlightStyles, type RawAppInteractionKind } from './rawAppSnapshot'
 	import type { RawAppRecording } from './types'
 
-	let { recording }: { recording: RawAppRecording } = $props()
+	let {
+		recording,
+		hideTitle = false
+	}: {
+		recording: RawAppRecording
+		/** Drop the app path and its details, for a host that shows its own title. */
+		hideTitle?: boolean
+	} = $props()
 
 	/** 0 = the app as it was when recording started; 1..n = after step n-1 fired. */
 	let stepIndex = $state(0)
@@ -72,7 +79,14 @@
 	let frameWidth = $derived(size(recording.viewport?.width, 1280))
 	let frameHeight = $derived(size(recording.viewport?.height, 800))
 
-	let scale = $derived(paneWidth ? Math.min(1, paneWidth / frameWidth) : 1)
+	// Below this zoom a snapshot from a wide screen is unreadable, so it lays out narrower
+	// than recorded instead, reflowing as the app would on a smaller window.
+	const MIN_SCALE = 0.6
+	let paneHeight = $state(0)
+	let layoutWidth = $derived(paneWidth ? Math.min(frameWidth, paneWidth / MIN_SCALE) : frameWidth)
+	let scale = $derived(paneWidth ? Math.min(1, paneWidth / layoutWidth) : 1)
+	// Filling the pane leaves the snapshot's own scrollbar as the only one.
+	let layoutHeight = $derived(paneHeight ? paneHeight / scale : frameHeight)
 
 	/** Left offset (%) of each step's checkpoint on the timeline: its recorded
 	 * time, then a spreading pass so bursts of fast interactions stay clickable. */
@@ -168,24 +182,28 @@
 <div class="flex flex-col h-full min-h-0 gap-2">
 	<div class="flex items-center justify-between gap-2 shrink-0">
 		<div class="flex items-center gap-2 min-w-0">
-			<h2 class="text-lg font-semibold text-emphasis truncate">
-				{recording.app_path || 'Untitled app'}
-			</h2>
-			<span class="text-xs text-secondary px-2 py-0.5 bg-surface-secondary rounded shrink-0">
-				{steps.length} step{steps.length === 1 ? '' : 's'}
-			</span>
-			<Tooltip placement="bottom">
-				<InfoIcon size={16} class="text-tertiary" />
-				{#snippet text()}
-					<span class="text-2xs">
-						{recording.workspace ? `${recording.workspace} · ` : ''}Recorded {new Date(
-							recording.recorded_at
-						).toLocaleString()} ·
-						{fmtTime(recording.total_duration_ms)} ·
-						{recording.viewport?.width}×{recording.viewport?.height}
-					</span>
-				{/snippet}
-			</Tooltip>
+			{#if !hideTitle}
+				<h2 class="text-lg font-semibold text-emphasis truncate">
+					{recording.app_path || 'Untitled app'}
+				</h2>
+			{/if}
+			{#if !hideTitle}
+				<span class="text-xs text-secondary px-2 py-0.5 bg-surface-secondary rounded shrink-0">
+					{steps.length} step{steps.length === 1 ? '' : 's'}
+				</span>
+				<Tooltip placement="bottom">
+					<InfoIcon size={16} class="text-tertiary" />
+					{#snippet text()}
+						<span class="text-2xs">
+							{recording.workspace ? `${recording.workspace} · ` : ''}Recorded {new Date(
+								recording.recorded_at
+							).toLocaleString()} ·
+							{fmtTime(recording.total_duration_ms)} ·
+							{recording.viewport?.width}×{recording.viewport?.height}
+						</span>
+					{/snippet}
+				</Tooltip>
+			{/if}
 			{#if recording.truncated}
 				<span class="flex items-center gap-1 text-2xs text-yellow-600 dark:text-yellow-400">
 					<TriangleAlert size={14} /> recording truncated
@@ -326,22 +344,22 @@
 		</div>
 
 		<div
-			class="flex-1 min-w-0 overflow-auto border rounded-md bg-surface"
+			class="flex-1 min-w-0 overflow-hidden border rounded-md bg-surface"
 			bind:clientWidth={paneWidth}
+			bind:clientHeight={paneHeight}
 		>
 			{#if srcdoc !== undefined}
 				<!-- A recording is untrusted markup, and `?src=` loads one from any URL,
 				     so the snapshot renders under the empty sandbox: no scripting, and an
 				     opaque origin that can't reach the viewer's Windmill session. -->
-				<!-- The wrapper carries the scaled-down box; the iframe keeps the recorded
-				     viewport size so the app lays out exactly as it did. -->
-				<div style="width: {frameWidth * scale}px; height: {frameHeight * scale}px;">
+				<!-- The wrapper carries the scaled-down box the iframe's layout size maps to. -->
+				<div style="width: {layoutWidth * scale}px; height: {layoutHeight * scale}px;">
 					<iframe
 						title="app-snapshot"
 						{srcdoc}
 						sandbox=""
 						class="bg-white border-none block"
-						style="width: {frameWidth}px; height: {frameHeight}px; transform: scale({scale}); transform-origin: top left;"
+						style="width: {layoutWidth}px; height: {layoutHeight}px; transform: scale({scale}); transform-origin: top left;"
 					></iframe>
 				</div>
 			{:else}

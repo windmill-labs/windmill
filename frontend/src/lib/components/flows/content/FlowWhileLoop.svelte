@@ -12,6 +12,10 @@
 	import StepSettingsBadges from './StepSettingsBadges.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import Label from '$lib/components/Label.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { SecondsInput } from '$lib/components/common'
+	import { slideDynamic } from '$lib/transitions'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -33,6 +37,13 @@
 	let previewIterationArgs = $derived(flowStateStore.val[mod.id]?.previewArgs ?? {})
 
 	let selectedTab = $state('loop')
+	// Keeps "Limit iterations" open while its field is emptied mid-edit; the model holds no
+	// limit meanwhile, and leaving the field empty turns the limit off.
+	let iterationsFieldEmpty = $state(false)
+	let isIterationsLimited = $derived(
+		(mod.value.type === 'whileloopflow' && mod.value.max_iterations !== undefined) ||
+			iterationsFieldEmpty
+	)
 
 	useUiIntent(`whileloopflow-${mod.id}`, {
 		openTab: async (tab) => {
@@ -103,13 +114,80 @@
 						>
 							Add steps inside the while loop but have one of them use early stop/break in their Run
 							settings (or do it at the loop level that will watch the last step) to break out of
-							the while loop (otherwise it will loop forever and you will have to cancel the flow
-							manually).
+							the while loop. Without a break or a limit below, it loops until you cancel the flow.
 						</Alert>
 					{/if}
 
 					<section class="flex flex-col gap-6">
 						<FlowModuleEarlyStop blocks="stop-after" bind:flowModule={mod} />
+
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								textClass="text-xs font-normal text-primary"
+								checked={isIterationsLimited}
+								on:change={({ detail }) => {
+									iterationsFieldEmpty = false
+									;(mod.value as WhileloopFlow).max_iterations = detail ? 10 : undefined
+								}}
+								options={{
+									right: 'Limit iterations',
+									rightTooltip:
+										'Checked after each iteration. When the limit is reached and the break condition did not stop the loop, the loop fails with an error named LoopExhausted, handled like any step failure (retries, error handler, or Continue on error then a branch on the error).'
+								}}
+							/>
+							{#if isIterationsLimited}
+								<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
+									<Label label="Maximum iterations">
+										<TextInput
+											class="w-24"
+											bind:value={
+												() => (mod.value as WhileloopFlow).max_iterations,
+												(v) => {
+													const n = Math.floor(Number(v))
+													iterationsFieldEmpty = !(n >= 1)
+													;(mod.value as WhileloopFlow).max_iterations = n >= 1 ? n : undefined
+												}
+											}
+											inputProps={{
+												type: 'number',
+												min: 1,
+												onblur: () => (iterationsFieldEmpty = false)
+											}}
+										/>
+									</Label>
+								</div>
+							{/if}
+						</div>
+
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								textClass="text-xs font-normal text-primary"
+								checked={mod.value.max_duration_secs !== undefined}
+								on:change={({ detail }) => {
+									;(mod.value as WhileloopFlow).max_duration_secs = detail ? 600 : undefined
+								}}
+								options={{
+									right: 'Limit duration',
+									rightTooltip:
+										'Checked after each iteration, so the loop can run up to one iteration past the limit. Set a timeout on the steps inside to cap an iteration. When the limit is reached before the break condition, the loop fails with LoopExhausted, handled like any step failure.'
+								}}
+							/>
+							{#if mod.value.max_duration_secs !== undefined}
+								<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
+									<Label label="Maximum duration">
+										<SecondsInput
+											bind:seconds={
+												() => (mod.value as WhileloopFlow).max_duration_secs,
+												(v) =>
+													((mod.value as WhileloopFlow).max_duration_secs = Math.max(1, v ?? 1))
+											}
+										/>
+									</Label>
+								</div>
+							{/if}
+						</div>
 
 						<Toggle
 							size="xs"

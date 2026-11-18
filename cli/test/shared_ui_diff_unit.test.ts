@@ -5,18 +5,39 @@
  * (including no local folder) when the apply would be a no-op.
  */
 
-import { expect, test, describe, beforeEach, afterEach, mock } from "bun:test";
+import { expect, test, describe, beforeEach, afterEach } from "bun:test";
+import { mockServices } from "./mock_services.ts";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
 let remoteFiles: Record<string, string> = {};
+let remoteUnreadable = false;
+let pushedFiles: Record<string, string> | undefined;
+let deployedApps: Record<string, { value: Record<string, unknown> }> = {};
 
-mock.module("../gen/services.gen.ts", () => ({
-  getSharedUi: async (_args: { workspace: string }) => ({ files: remoteFiles }),
-}));
+mockServices({
+  getSharedUi: async (_args: { workspace: string }) => {
+    if (remoteUnreadable) throw new Error("shared UI store unreadable");
+    return { files: remoteFiles };
+  },
+  updateSharedUi: async (args: {
+    workspace: string;
+    requestBody: { files: Record<string, string> };
+  }) => {
+    pushedFiles = args.requestBody.files;
+  },
+  getAppByPath: async (args: { workspace: string; path: string }) => {
+    const app = deployedApps[args.path];
+    if (!app) throw Object.assign(new Error("not found"), { status: 404 });
+    return app;
+  },
+});
 
-const { diffSharedUi } = await import("../src/commands/shared_ui.ts");
+const { diffSharedUi, pushSharedUi, rawAppsStaleOnSharedUi, sharedUiHash } =
+  await import(
+  "../src/commands/shared_ui.ts"
+);
 
 describe("diffSharedUi", () => {
   const ws = "test-workspace";
@@ -25,6 +46,8 @@ describe("diffSharedUi", () => {
 
   beforeEach(() => {
     remoteFiles = {};
+    remoteUnreadable = false;
+    pushedFiles = undefined;
     prevCwd = process.cwd();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wm-shared-ui-"));
     process.chdir(tmpDir);
@@ -88,5 +111,90 @@ describe("diffSharedUi", () => {
     remoteFiles = { "theme.json": "{}" };
     const changes = await diffSharedUi(ws);
     expect(changes).toEqual([]);
+  });
+
+  test("emits nothing under keepDeleted when the remote store is unreadable", async () => {
+    // pushSharedUi skips the push rather than clearing a store it can't read,
+    // so the preview must show that same nothing.
+    remoteUnreadable = true;
+    writeUi("theme.json", "{}");
+    expect(await diffSharedUi(ws, true)).toEqual([]);
+  });
+});
+
+describe("pushSharedUi with keepDeleted", () => {
+  const ws = "test-workspace";
+  let tmpDir: string;
+  let prevCwd: string;
+
+  beforeEach(() => {
+    remoteFiles = {};
+    remoteUnreadable = false;
+    pushedFiles = undefined;
+    prevCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wm-shared-ui-push-"));
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("carries remote-only files, including ui/__proto__, into the pushed map", async () => {
+    // JSON.parse, not a literal: `{__proto__: …}` sets the prototype instead of
+    // creating the own property the API response really has.
+    remoteFiles = JSON.parse('{"__proto__":"keep me","extra.json":"1"}');
+    fs.mkdirSync(path.join(tmpDir, "ui"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "ui", "theme.json"), "{}", "utf-8");
+
+    expect(await pushSharedUi(ws, true)).toBe(true);
+    // The store is written whole, so anything missing here is deleted.
+    expect(pushedFiles!["extra.json"]).toEqual("1");
+    expect(Object.getOwnPropertyDescriptor(pushedFiles!, "__proto__")?.value)
+      .toEqual("keep me");
+  });
+});
+
+describe("rawAppsStaleOnSharedUi", () => {
+  let tmpDir: string;
+  let prevCwd: string;
+
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wm-shared-ui-apps-"));
+    process.chdir(tmpDir);
+    fs.mkdirSync(path.join(tmpDir, "ui"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "ui", "button.ts"), "v2", "utf-8");
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const app = (name: string, index: string) => ({
+    [path.join("f", `${name}.raw_app`, "raw_app.yaml")]: "summary: x",
+    [path.join("f", `${name}.raw_app`, "index.tsx")]: index,
+  });
+
+  test("queues an app importing ui/ only when its bundle was built from other ui/ content", async () => {
+    const hash = await sharedUiHash();
+    deployedApps = {
+      "f/stale": { value: { shared_ui_hash: "old" } },
+      "f/fresh": { value: { shared_ui_hash: hash } },
+      "f/plain": { value: {} },
+      "f/css": { value: {} },
+    };
+    const localMap = {
+      ...app("stale", `import { B } from "/ui/button"`),
+      ...app("fresh", `import { B } from "/ui/button"`),
+      ...app("plain", `import x from "./x"`),
+      ...app("css", `@import url(/ui/theme.css);`),
+    };
+    expect(await rawAppsStaleOnSharedUi("ws", localMap, new Set())).toEqual([
+      path.join("f", "stale.raw_app", "raw_app.yaml"),
+      path.join("f", "css.raw_app", "raw_app.yaml"),
+    ]);
   });
 });

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import {
+		ApiError,
 		type Job,
 		JobService,
 		type RestartedFrom,
 		type OpenFlow,
 		type ScriptLang
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
@@ -28,12 +28,14 @@
 		RefreshCw,
 		X
 	} from 'lucide-svelte'
-	import { sendUserToast, type StateStore } from '$lib/utils'
+	import { apiErrorMessage, DynamicInput, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
+	import type { Schema } from '$lib/common'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
@@ -42,6 +44,16 @@
 	import FlowRestartButton from './FlowRestartButton.svelte'
 	import { useNestedRestartState } from './useNestedRestartState.svelte'
 	import { buildFlowRecording, downloadRecordingJson } from './recording/runRecording'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -136,7 +148,7 @@
 		opWorkspace
 	} = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 	// Acting workspace when previewing inside an AI session; else the nav workspace.
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 	const dispatch = createEventDispatcher()
 
 	let renderCount: number = $state(0)
@@ -157,16 +169,6 @@
 	}
 
 	let loadingHistory = $state(false)
-
-	let shouldUseStreaming = $derived.by(() => {
-		const modules = flowStore.val.value?.modules
-		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
-		return (
-			lastModule?.value?.type === 'aiagent' &&
-			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
-			lastModule?.value?.input_transforms?.streaming?.value === true
-		)
-	})
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
 		if (previewMode === 'whole') {
@@ -212,7 +214,12 @@
 				restartedFrom,
 				conversationId,
 				devTempScriptRefs?.(),
-				opWorkspace?.()
+				opWorkspace?.(),
+				previewOnBehalfOf(
+					operatingUser.current,
+					flowStore.val.on_behalf_of,
+					flowStore.val.on_behalf_of_email
+				)
 			)
 			jobId = newJobId
 			isRunning = true
@@ -222,9 +229,12 @@
 			}
 			onRunPreview?.(newJobId)
 		} catch (e) {
-			sendUserToast('Could not run preview', true, undefined, e.toString())
 			isRunning = false
 			jobId = undefined
+			// The chat follows the turn its conversation is still answering rather than
+			// reporting a failed run, so the refusal goes back to it.
+			if (conversationId && e instanceof ApiError && e.status === 409) throw e
+			sendUserToast('Could not run preview', true, undefined, apiErrorMessage(e))
 		}
 		schemaFormWithArgPicker?.refreshHistory()
 		return newJobId
@@ -264,8 +274,12 @@
 			previewArgs.val = input
 			inputSelected = type
 			preventEscape = true
-			jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
 		}
+		// Deselecting restores the args the same way selecting replaced them, so both branches
+		// owe the editor an overwrite — it holds a payload for the input being left behind.
+		jsonEditor?.setCode(
+			argsToJsonPayload(flowStore.val.schema as Schema | undefined, previewArgs.val)
+		)
 	}
 
 	export function refresh() {
@@ -466,18 +480,22 @@
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-row justify-center w-full mb-6">
 					<FlowChat
-						useStreaming={shouldUseStreaming}
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
-							await runPreview(
+							// Its own run's id, not `jobId`: several test chats can start a run at
+							// once, and `jobId` is whichever started last.
+							const started = await runPreview(
 								{ user_message: userMessage, ...(additionalInputs ?? {}) },
 								undefined,
 								conversationId
 							)
-							return jobId ?? ''
+							return started ?? ''
 						}}
-						hideSidebar={true}
+						conversationKind="test"
+						frame="boxed"
 						path={$pathStore}
+						identity={$initialPathStore || fakeInitialPath}
 						inputSchema={flowStore.val.schema}
+						flowModules={flowStore.val.value?.modules}
 					/>
 				</div>
 			{:else}
@@ -510,8 +528,7 @@
 										rightTooltip: 'Fill args from JSON'
 									}}
 									lightMode
-									on:change={(e) => {
-										jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
+									on:change={() => {
 										refresh()
 									}}
 								/>
@@ -526,6 +543,10 @@
 											previewArgs.val = e.detail
 										}
 									}}
+									initialCode={argsToJsonPayload(
+										flowStore.val.schema as Schema | undefined,
+										previewArgs.val
+									)}
 									updateOnBlur={false}
 									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 								/>
@@ -543,14 +564,14 @@
 											savedArgs = $state.snapshot(previewArgs.val)
 										}}
 										bind:isValid
-										helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
-										flowStore.val.schema?.['x-windmill-dyn-select-lang']
-											? {
-													source: 'inline',
-													code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
-													lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
-												}
-											: undefined}
+										helperScript={DynamicInput.flowHelperScript(
+											flowStore.val.schema?.['x-windmill-dyn-select-code'] as string | undefined,
+											flowStore.val.schema?.['x-windmill-dyn-select-lang'] as
+												| ScriptLang
+												| undefined,
+											$initialPathStore,
+											!$roleCaps.code
+										)}
 									/>
 								</div>
 							{/key}
@@ -559,7 +580,13 @@
 				</div>
 			{/if}
 		{/if}
-		<div class="pt-4 flex flex-col border-t relative">
+		<!-- The rule divides the inputs form from its results. Chat mode has no form: the
+		     chat is its own panel, and a second line right under it reads as a stray edge. -->
+		<div
+			class="pt-4 flex flex-col relative {flowStore.val.value?.chat_input_enabled
+				? ''
+				: 'border-t'}"
+		>
 			{#if flowHasChanged()}
 				<div class="pb-2">
 					<div

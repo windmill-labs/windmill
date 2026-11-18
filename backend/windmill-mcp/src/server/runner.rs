@@ -6,33 +6,39 @@
 use crate::common::schema::extract_resource_types_from_schema;
 use crate::common::scope::parse_mcp_scopes;
 use crate::common::transform::{
-    extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, parse_tool_prefix,
-    reverse_transform, reverse_transform_key,
+    assign_tool_names, extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed,
+    is_encoded_tool_name, parse_tool_prefix, reverse_transform, reverse_transform_key,
+    short_name_last_segments,
 };
-use crate::common::types::{McpToken, MultiWorkspaceMcp, ResourceInfo, ToolableItem, WorkspaceId};
-use crate::server::backend::{McpAuth, McpBackend, PathFilter};
+use crate::common::types::{
+    McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
+    WorkspaceId,
+};
+use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter, RunOutcome};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
+use crate::server::list_changes::ListChanges;
 use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
-    Implementation, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-    ServerCapabilities, ServerInfo,
+    Implementation, InitializeRequestParams, InitializeResult, ListPromptsResult,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
+    ProtocolVersion, ServerCapabilities, ServerInfo, SubscriptionFilter,
 };
-use rmcp::service::{RequestContext, RoleServer};
+use rmcp::service::{RequestContext, RoleServer, SubscriptionContext};
 use rmcp::ErrorData;
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 /// Protocol revisions this server is willing to speak. `2026-07-28` is served
 /// statelessly with per-request metadata; the older revisions keep the
 /// `initialize` handshake, so both eras are answered on the same endpoint.
-const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
+pub(super) const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
     ProtocolVersion::V_2024_11_05,
     ProtocolVersion::V_2025_03_26,
     ProtocolVersion::V_2025_06_18,
@@ -44,14 +50,20 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
 /// leaves them unset, and a strict client rejects the response without them.
 ///
 /// Zero because nothing here is cacheable: the listing is rebuilt from the
-/// workspace's scripts and flows, which change at any time, and this server
-/// advertises no `listChanged` capability, so a client that cached a stale list
-/// would have no way to learn it had gone stale.
-const LIST_TTL_MS: u64 = 0;
+/// workspace's scripts and flows, which change at any time, and `listChanged`
+/// covers only some of what the listing depends on (not resources, favorites or
+/// permissions), lags by up to a poll interval, and reaches only clients that hold a
+/// `subscriptions/listen` stream.
+pub(super) const LIST_TTL_MS: u64 = 0;
+
 /// Every listing is filtered by the caller's token scopes and workspace
 /// membership, so no two callers necessarily see the same tools — a shared
 /// cache entry would leak one token's view to another.
-const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
+pub(super) const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
+
+/// How long a `subscriptions/listen` stream waits after a change before notifying,
+/// collecting the rest of the burst into the same notification.
+const LIST_CHANGE_COALESCE: std::time::Duration = std::time::Duration::from_millis(500);
 
 // Re-export from http crate for extracting request parts
 use http::request::Parts as HttpParts;
@@ -59,9 +71,9 @@ use http::request::Parts as HttpParts;
 /// Maximum size in bytes for tool result text content.
 /// Anthropic enforces a 25,000 token limit per tool result.
 /// At ~3.5 bytes/token, 87,500 bytes is a safe upper bound.
-const MAX_TOOL_RESULT_BYTES: usize = 87_500;
+pub const MAX_TOOL_RESULT_BYTES: usize = 87_500;
 
-fn truncate_tool_result(text: String) -> String {
+pub(super) fn truncate_tool_result(text: String) -> String {
     if text.len() <= MAX_TOOL_RESULT_BYTES {
         return text;
     }
@@ -75,23 +87,73 @@ fn truncate_tool_result(text: String) -> String {
     truncated
 }
 
+const MAX_PARTIAL_RESULT_BYTES: usize = 2_000;
+
+/// A failed run as a tool execution error: the error's name and message, the run to open, and a
+/// short excerpt of whatever else the result holds. The stack trace is left to the run's page.
+fn failed_run_result(
+    tool_type: &str,
+    job_id: &str,
+    run_url: &str,
+    mut result: Value,
+) -> CallToolResult {
+    let mut headline = None;
+    if let Some(obj) = result.as_object_mut() {
+        if let Some(Value::Object(error)) = obj.get_mut("error") {
+            let name = error.remove("name");
+            let message = error.remove("message");
+            error.remove("stack");
+            if error.get("job_id").and_then(Value::as_str) == Some(job_id) {
+                error.remove("job_id");
+            }
+            let [name, message] = [&name, &message].map(|v| v.as_ref().and_then(Value::as_str));
+            headline = match (name, message) {
+                (Some(n), Some(m)) => Some(format!("{n}: {m}")),
+                (n, m) => n.or(m).map(str::to_string),
+            };
+            if error.is_empty() {
+                obj.remove("error");
+            }
+        }
+    }
+    // The run id comes first so that truncating a huge message never cuts it off.
+    let mut text = format!("The {tool_type} failed. Run id: {job_id} ({run_url})");
+    if let Some(h) = headline {
+        text.push_str(&format!("\n{h}"));
+    }
+    if !matches!(&result, Value::Object(o) if o.is_empty()) && !result.is_null() {
+        let mut rest = result.to_string();
+        if rest.len() > MAX_PARTIAL_RESULT_BYTES {
+            let mut end = MAX_PARTIAL_RESULT_BYTES;
+            while !rest.is_char_boundary(end) {
+                end -= 1;
+            }
+            rest.truncate(end);
+            rest.push_str("… [truncated, the full result is on the run]");
+        }
+        text.push_str(&format!("\nPartial result: {rest}"));
+    }
+    CallToolResult::error(vec![ContentBlock::text(truncate_tool_result(text))])
+}
+
 /// MCP Server Runner - generic over the backend implementation
 ///
 /// This struct implements the MCP ServerHandler trait and uses a McpBackend
 /// to perform the actual operations (database queries, job execution, etc.)
 pub struct Runner<B: McpBackend> {
     backend: Arc<B>,
+    list_changes: Arc<ListChanges>,
 }
 
 impl<B: McpBackend> Clone for Runner<B> {
     fn clone(&self) -> Self {
-        Self { backend: self.backend.clone() }
+        Self { backend: self.backend.clone(), list_changes: self.list_changes.clone() }
     }
 }
 
 /// Whether the request targets one bound workspace or spans every workspace the
 /// token can access.
-enum McpMode {
+pub(super) enum McpMode {
     /// A single workspace, resolved from the URL path or the token's bound
     /// workspace. Tools operate against this workspace implicitly.
     Single(String),
@@ -101,16 +163,26 @@ enum McpMode {
     Multi(String),
 }
 
+/// Everything a request carries besides its MCP payload.
+pub(super) struct McpContext<A> {
+    pub(super) auth: A,
+    pub(super) mode: McpMode,
+    pub(super) headers: http::HeaderMap,
+    /// See `McpScopeConfig::no_endpoints`.
+    pub(super) no_endpoints: bool,
+}
+
 impl<B: McpBackend> Runner<B> {
     /// Create a new Runner with the given backend
     pub fn new(backend: B) -> Self {
-        Self { backend: Arc::new(backend) }
+        Self { backend: Arc::new(backend), list_changes: Arc::default() }
     }
 
-    /// Extract authentication and the workspace mode from request context
-    fn extract_context(
+    /// Extract authentication, the workspace mode and the HTTP request itself
+    /// from the request context
+    pub(super) fn extract_context(
         context: &RequestContext<RoleServer>,
-    ) -> Result<(B::Auth, McpMode), ErrorData> {
+    ) -> Result<McpContext<B::Auth>, ErrorData> {
         let http_parts = context.extensions.get::<HttpParts>().ok_or_else(|| {
             tracing::error!("http::request::Parts not found");
             ErrorData::internal_error("http::request::Parts not found", None)
@@ -145,11 +217,29 @@ impl<B: McpBackend> Runner<B> {
                     ErrorData::internal_error("WorkspaceId not found", None)
                 })
                 .map(|w_id| w_id.0.clone())?;
+            // A token without a bound workspace reaches a workspace's own URL too.
+            let scope_config = parse_mcp_scopes(auth.scopes().unwrap_or(&[]))
+                .map_err(|e| ErrorData::internal_error(e, None))?;
+            if !scope_config.allows_workspace(&workspace_id) {
+                return Err(workspace_not_granted(&workspace_id));
+            }
             McpMode::Single(workspace_id)
         };
 
-        Ok((auth.clone(), mode))
+        Ok(McpContext {
+            auth: auth.clone(),
+            mode,
+            headers: http_parts.headers.clone(),
+            no_endpoints: http_parts.extensions.get::<NoEndpointTools>().is_some(),
+        })
     }
+}
+
+pub(super) fn workspace_not_granted(workspace_id: &str) -> ErrorData {
+    ErrorData::invalid_params(
+        format!("This token was not granted workspace '{workspace_id}'"),
+        None,
+    )
 }
 
 /// How an endpoint tool interacts with the token's `mcp:scripts:` / `mcp:flows:`
@@ -165,11 +255,32 @@ enum EndpointPathPolicy {
     /// Reads/writes the script/flow named by the listed path arguments. The
     /// endpoint scope grants the capability; when the token also carries path
     /// patterns for `kind`, every listed argument must match them.
-    PathArgs { kind: &'static str, fields: &'static [&'static str] },
+    ///
+    /// `optional_fields` is for a destination path the tool lets the caller omit, where
+    /// absent means "leave it where it is": requiring it would refuse every call that
+    /// does not move anything. Absent or empty, it is filled in from the argument it
+    /// pairs with before the request is built, so the item stays where it is without
+    /// the endpoint having to accept a body that omits its own path. Names are the ones
+    /// the tool exposes, so a body path colliding with the URL's is `path__body` — the
+    /// URL path keeps the plain name (see `generate_mcp_tools.py`).
+    PathArgs {
+        kind: &'static str,
+        fields: &'static [&'static str],
+        /// `(destination, source)` pairs: a destination path the tool lets the caller
+        /// omit, and the argument it means when omitted.
+        optional_fields: &'static [(&'static str, &'static str)],
+    },
     /// Affects scripts without taking a checkable path (delete-by-hash) or
     /// executes arbitrary code (preview). Unavailable to path-confined tokens —
     /// allowing these would bypass the path patterns entirely.
     Unconfinable(&'static str),
+}
+
+/// Whether `endpoint_path_policy` confines this tool's paths. Public so the crate that
+/// owns the generated endpoint catalogue can assert every path-addressed script/flow
+/// tool is covered: one that is not falls through to no confinement at all.
+pub fn has_endpoint_path_policy(endpoint_name: &str) -> bool {
+    endpoint_path_policy(endpoint_name).is_some()
 }
 
 fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
@@ -178,17 +289,43 @@ fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
         "runScriptByPath" => Some(RunByPath("script")),
         "runFlowByPath" => Some(RunByPath("flow")),
         "getScriptByPath" | "deleteScriptByPath" | "createScript" => {
-            Some(PathArgs { kind: "script", fields: &["path"] })
+            Some(PathArgs { kind: "script", fields: &["path"], optional_fields: &[] })
         }
         "getFlowByPath" | "deleteFlowByPath" | "createFlow" => {
-            Some(PathArgs { kind: "flow", fields: &["path"] })
+            Some(PathArgs { kind: "flow", fields: &["path"], optional_fields: &[] })
         }
-        // updateFlow addresses the flow via the URL path and can move it to the
-        // path given in the body — both must stay within scope.
-        "updateFlow" => Some(PathArgs { kind: "flow", fields: &["path__path", "path__body"] }),
+        // These address the item via the URL path and can move it to the path given
+        // in the body — both must stay within scope, and the body one only binds
+        // when supplied, since omitting it is how a caller updates in place.
+        "updateScript" => Some(PathArgs {
+            kind: "script",
+            fields: &["path"],
+            optional_fields: &[("path__body", "path")],
+        }),
+        "updateFlow" => Some(PathArgs {
+            kind: "flow",
+            fields: &["path"],
+            optional_fields: &[("path__body", "path")],
+        }),
         "deleteScriptByHash" | "runScriptPreviewAndWaitResult" => Some(Unconfinable("script")),
         _ => None,
     }
+}
+
+/// Endpoint tools that change which scripts/flows a workspace exposes, or their
+/// schemas. The process serving the call polls the workspace right away rather than
+/// at its next interval, so a client that just deployed a script can call it.
+fn changes_runnable_list(endpoint_name: &str) -> bool {
+    matches!(
+        endpoint_name,
+        "createScript"
+            | "updateScript"
+            | "deleteScriptByPath"
+            | "deleteScriptByHash"
+            | "createFlow"
+            | "updateFlow"
+            | "deleteFlowByPath"
+    )
 }
 
 /// Whether the token restricts `kind` ("script"/"flow") to specific paths. A
@@ -234,6 +371,9 @@ fn endpoint_tool_in_scope(
     scope_config: &crate::common::scope::McpScopeConfig,
     endpoint_tool: &EndpointTool,
 ) -> bool {
+    if scope_config.no_endpoints {
+        return false;
+    }
     let endpoint_allowed =
         !scope_config.granular || scope_config.is_allowed("endpoint", &endpoint_tool.name);
     match endpoint_path_policy(&endpoint_tool.name) {
@@ -257,9 +397,46 @@ fn endpoint_tool_in_scope(
 fn authorize_endpoint_call(
     scope_config: &crate::common::scope::McpScopeConfig,
     endpoint_tool: &EndpointTool,
-    args: &Value,
+    args: &mut Value,
     read_only: bool,
 ) -> Result<(), ErrorData> {
+    if scope_config.no_endpoints {
+        return Err(ErrorData::invalid_params(
+            format!(
+                "Tool '{}' is not available to this token",
+                endpoint_tool.name
+            ),
+            None,
+        ));
+    }
+    // A destination the caller omitted, or left empty because it had to fill in every
+    // argument, means "leave the item where it is". Resolved to the path the item is
+    // already at, so the endpoint receives a body naming its own path rather than one
+    // that omits it, and so `update_flow` cannot read the empty string as the empty
+    // path and move the flow there. The confinement below then sees a destination
+    // equal to the source, which it already has to allow.
+    if let Some(EndpointPathPolicy::PathArgs { optional_fields, .. }) =
+        endpoint_path_policy(&endpoint_tool.name)
+    {
+        for (destination, source) in optional_fields {
+            let unset = args
+                .get(destination)
+                .is_none_or(|v| !v.as_str().is_some_and(|s| !s.is_empty()));
+            let Some(current) = args
+                .get(source)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            if unset {
+                if let Some(obj) = args.as_object_mut() {
+                    obj.insert(destination.to_string(), Value::String(current));
+                }
+            }
+        }
+    }
+
     match endpoint_path_policy(&endpoint_tool.name) {
         Some(EndpointPathPolicy::RunByPath(kind)) => {
             let path = require_path_arg(endpoint_tool, args, "path")?;
@@ -284,11 +461,19 @@ fn authorize_endpoint_call(
                 ));
             }
             match policy {
-                Some(EndpointPathPolicy::PathArgs { kind, fields })
+                Some(EndpointPathPolicy::PathArgs { kind, fields, optional_fields })
                     if path_confined(scope_config, kind) =>
                 {
-                    for field in fields {
-                        let path = require_path_arg(endpoint_tool, args, field)?;
+                    // Filled in above when omitted, so each one names a real path.
+                    let supplied = optional_fields
+                        .iter()
+                        .filter_map(|(field, _)| args.get(field).and_then(|v| v.as_str()).map(Ok));
+                    for path in fields
+                        .iter()
+                        .map(|field| require_path_arg(endpoint_tool, args, field))
+                        .chain(supplied)
+                    {
+                        let path = path?;
                         if !scope_config.is_allowed(kind, path) {
                             return Err(ErrorData::internal_error(
                                 format!("Access denied: {} '{}' not in token scope", kind, path),
@@ -324,6 +509,18 @@ fn authorize_endpoint_call(
     Ok(())
 }
 
+/// Map the model's argument keys back to the runnable's original parameter names.
+fn transform_call_args(args: Value, item_schema: &Option<SchemaType>) -> Value {
+    let Value::Object(map) = args else {
+        return args;
+    };
+    let mut args_hash = HashMap::new();
+    for (k, v) in map {
+        args_hash.insert(reverse_transform_key(&k, item_schema), v);
+    }
+    Value::Object(args_hash.into_iter().collect())
+}
+
 fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
     candidates
         .into_iter()
@@ -339,12 +536,17 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             .with_title("Windmill")
             .with_website_url("https://windmill.dev");
 
-        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(server_info)
-            .with_instructions(
-                "This server provides a list of scripts and flows the user can run on Windmill. \
+        InitializeResult::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_tool_list_changed()
+                .build(),
+        )
+        .with_server_info(server_info)
+        .with_instructions(
+            "This server provides a list of scripts and flows the user can run on Windmill. \
                  Each flow and script is a tool callable with their respective arguments.",
-            )
+        )
     }
 
     /// Pinned rather than left to rmcp's default (every version the SDK knows), so a
@@ -355,19 +557,99 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         Cow::Borrowed(SUPPORTED_PROTOCOL_VERSIONS)
     }
 
+    /// Only clients below `2026-07-28` send `initialize`, and those receive server
+    /// notifications on a session's standalone stream. The transport is sessionless, so
+    /// there is none: `listChanged` is withheld from them rather than promised and
+    /// never delivered. `2026-07-28` clients learn it from `server/discover` and
+    /// receive it on `subscriptions/listen` (see `listen`).
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        let mut info = self.get_info();
+        if let Some(tools) = info.capabilities.tools.as_mut() {
+            tools.list_changed = None;
+        }
+        if SUPPORTED_PROTOCOL_VERSIONS.contains(&request.protocol_version) {
+            info.protocol_version = request.protocol_version;
+        }
+        Ok(info)
+    }
+
+    /// `None` for a request that asks for nothing this server sends, so the client is
+    /// told the subscription is unsupported rather than acked with an empty filter.
+    fn accepted_subscription_filter(
+        &self,
+        requested: &SubscriptionFilter,
+    ) -> Option<SubscriptionFilter> {
+        (requested.tools_list_changed == Some(true))
+            .then(|| SubscriptionFilter::builder().tools_list_changed().build())
+    }
+
+    async fn listen(&self, subscription: SubscriptionContext) -> Result<(), ErrorData> {
+        let McpContext { auth, mode, .. } = Self::extract_context(subscription.request_context())?;
+        // Multi-workspace mode and read-only tokens list no scripts or flows, so their
+        // tool list never changes.
+        let workspace_id = match mode {
+            McpMode::Single(workspace_id) if !auth.read_only() => workspace_id,
+            _ => {
+                subscription.cancelled().await;
+                return Ok(());
+            }
+        };
+
+        let mut changes = self.list_changes.subscribe(&self.backend, &workspace_id);
+        // Every stream opens with one notification: a change the watcher recorded between
+        // this client's `tools/list` and this subscription is never broadcast again.
+        let mut opening = true;
+        loop {
+            if !std::mem::take(&mut opening) {
+                tokio::select! {
+                    _ = subscription.cancelled() => return Ok(()),
+                    change = changes.recv() => match change {
+                        Ok(()) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                    },
+                }
+            }
+            // A client creating several scripts in a row: collapse the burst into one
+            // notification, so it re-lists once.
+            tokio::select! {
+                _ = subscription.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(LIST_CHANGE_COALESCE) => {}
+            }
+            while !matches!(
+                changes.try_recv(),
+                Err(broadcast::error::TryRecvError::Empty | broadcast::error::TryRecvError::Closed)
+            ) {}
+            if subscription
+                .sink()
+                .notify_tool_list_changed()
+                .await
+                .is_err()
+            {
+                return Ok(());
+            }
+        }
+    }
+
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let (auth, mode) = Self::extract_context(&context)?;
+        let McpContext { auth, mode, no_endpoints, .. } = Self::extract_context(&context)?;
 
         // Parse MCP scopes to determine what to expose
         let scopes = auth.scopes().unwrap_or(&[]);
-        let scope_config =
+        let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
+        scope_config.no_endpoints |= no_endpoints;
 
-        let read_only = auth.read_only();
+        // v1 has no read-and-run access: such a token reads only.
+        let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         match mode {
             McpMode::Single(workspace_id) => {
@@ -388,33 +670,49 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let (auth, mode) = Self::extract_context(&context)?;
+        let McpContext { auth, mode, headers, no_endpoints } = Self::extract_context(&context)?;
 
         // Parse MCP scopes for authorization
         let scopes = auth.scopes().unwrap_or(&[]);
-        let scope_config =
+        let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
-        let read_only = auth.read_only();
+        scope_config.no_endpoints |= no_endpoints;
+        let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
+        let mcp_request = McpRequest { headers: &headers, tool_name: request.name.as_ref() };
 
         // Every tool here runs to completion in one round trip: none of them ask the
         // client for input, so the MRTR variants of `CallToolResponse` are never built.
         let result = match mode {
             McpMode::Single(workspace_id) => {
-                self.call_tool_single(
+                let result = self
+                    .call_tool_single(
+                        &auth,
+                        &workspace_id,
+                        &scope_config,
+                        read_only,
+                        request.name.clone(),
+                        args,
+                        &mcp_request,
+                    )
+                    .await;
+                let refusal = result.as_ref().err().map(|e| e.message.as_ref());
+                self.backend
+                    .after_tool_call(&auth, &workspace_id, &request.name, refusal)
+                    .await;
+                result
+            }
+            McpMode::Multi(token) => {
+                self.call_tool_multi(
                     &auth,
-                    &workspace_id,
+                    &token,
                     &scope_config,
                     read_only,
-                    request.name,
+                    request.name.clone(),
                     args,
                 )
                 .await
-            }
-            McpMode::Multi(token) => {
-                self.call_tool_multi(&auth, &token, &scope_config, read_only, request.name, args)
-                    .await
             }
         }?;
         Ok(result.into())
@@ -452,6 +750,51 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 }
 
 impl<B: McpBackend> Runner<B> {
+    /// Name every script and flow the token can see under the given path filters, as
+    /// `(item_type, path, tool_name)`. Listing and calling must both go through here
+    /// so that a listed name resolves to the item it was listed for.
+    async fn name_runnables(
+        &self,
+        auth: &B::Auth,
+        workspace_id: &str,
+        scope_config: &crate::common::scope::McpScopeConfig,
+        script_filter: Option<PathFilter<'_>>,
+        flow_filter: Option<PathFilter<'_>>,
+    ) -> Result<Vec<(&'static str, String, String)>, ErrorData> {
+        let favorites_only = scope_config.favorites;
+        let (scripts, flows) = tokio::try_join!(
+            self.backend.list_runnable_paths(
+                auth,
+                workspace_id,
+                "script",
+                favorites_only,
+                script_filter
+            ),
+            self.backend.list_runnable_paths(
+                auth,
+                workspace_id,
+                "flow",
+                favorites_only,
+                flow_filter
+            ),
+        )?;
+        let items: Vec<(&'static str, String)> = scripts
+            .into_iter()
+            .map(|p| ("script", p))
+            .chain(flows.into_iter().map(|p| ("flow", p)))
+            .filter(|(t, p)| !scope_config.granular || scope_config.is_allowed(t, p))
+            .collect();
+        let endpoint_tools = self.backend.all_endpoint_tools();
+        let reserved: HashSet<&str> = endpoint_tools.iter().map(|t| t.name.as_ref()).collect();
+        let pairs: Vec<(&str, &str)> = items.iter().map(|(t, p)| (*t, p.as_str())).collect();
+        let names = assign_tool_names(&pairs, &reserved);
+        Ok(items
+            .into_iter()
+            .zip(names)
+            .map(|((t, p), n)| (t, p, n))
+            .collect())
+    }
+
     /// List tools for a single, bound workspace (URL-path or token-bound).
     async fn list_tools_single(
         &self,
@@ -464,10 +807,10 @@ impl<B: McpBackend> Runner<B> {
 
         let mut tools = Vec::new();
 
-        // Read-only tokens cannot run scripts/flows/hub-scripts (running is a
-        // mutating action), so skip the script/flow/hub/resource fetches
-        // entirely — they would only be discarded below.
-        if !read_only {
+        // Read-only tokens and roles without the run capability cannot run
+        // scripts/flows/hub-scripts, so skip the script/flow/hub/resource fetches.
+        let can_run = !read_only && self.backend.can_run(auth, workspace_id).await?;
+        if can_run {
             // For granular tokens, push the scope patterns into the SQL query so
             // in-scope items survive the fetch cap (see `PathFilter`). The Rust
             // filter below still runs as a defense-in-depth check. Non-granular
@@ -480,11 +823,12 @@ impl<B: McpBackend> Runner<B> {
                 .granular
                 .then(|| PathFilter::Patterns(scope_config.flows.as_slice()));
 
-            let (scripts, flows, resource_types, hub_scripts) = tokio::try_join!(
+            let (scripts, flows, named, resource_types, hub_scripts) = tokio::try_join!(
                 self.backend
                     .list_scripts(auth, workspace_id, favorites_only, script_filter),
                 self.backend
                     .list_flows(auth, workspace_id, favorites_only, flow_filter),
+                self.name_runnables(auth, workspace_id, scope_config, script_filter, flow_filter),
                 self.backend.list_resource_types(auth, workspace_id),
                 async {
                     if let Some(ref apps) = scope_config.hub_apps {
@@ -540,9 +884,22 @@ impl<B: McpBackend> Runner<B> {
             let resources_cache: HashMap<String, Vec<ResourceInfo>> =
                 resource_results.into_iter().collect();
 
+            let names: HashMap<(&str, &str), &str> = named
+                .iter()
+                .map(|(t, p, n)| ((*t, p.as_str()), n.as_str()))
+                .collect();
+            // An item created between the two queries has no short name yet.
+            let name_of = |item: &dyn ToolableItem| {
+                names
+                    .get(&(item.item_type(), item.get_full_path()))
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| item.get_transformed_path())
+            };
+
             for script in &filtered_scripts {
                 tools.push(create_tool_from_item(
                     script,
+                    name_of(script),
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
@@ -552,6 +909,7 @@ impl<B: McpBackend> Runner<B> {
             for flow in &filtered_flows {
                 tools.push(create_tool_from_item(
                     flow,
+                    name_of(flow),
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
@@ -561,6 +919,7 @@ impl<B: McpBackend> Runner<B> {
             for hub_script in &hub_scripts {
                 tools.push(create_tool_from_item(
                     hub_script,
+                    hub_script.get_transformed_path(),
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
@@ -568,16 +927,23 @@ impl<B: McpBackend> Runner<B> {
             }
         }
 
-        // Add endpoint tools from the generated MCP tools, filtered by scope.
-        // Uses the same run-by-path-aware gate as multi-workspace mode so a
-        // granular token only sees runScriptByPath / runFlowByPath when it can
-        // actually run scripts / flows.
+        // Add endpoint tools from the generated MCP tools, filtered by scope with
+        // the same run-by-path-aware gate as multi-workspace mode. The run endpoints
+        // are also left out for a role the jobs router's run gate would refuse.
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
             if !endpoint_tool_in_scope(scope_config, &endpoint_tool) {
                 continue;
             }
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
+                continue;
+            }
+            if !can_run
+                && matches!(
+                    endpoint_tool.name.as_ref(),
+                    "runScriptByPath" | "runFlowByPath" | "runScriptPreviewAndWaitResult"
+                )
+            {
                 continue;
             }
 
@@ -598,6 +964,7 @@ impl<B: McpBackend> Runner<B> {
         read_only: bool,
         name: std::borrow::Cow<'static, str>,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> Result<CallToolResult, ErrorData> {
         // Check if this is an endpoint tool
         let endpoint_tools = self.backend.all_endpoint_tools();
@@ -605,14 +972,19 @@ impl<B: McpBackend> Runner<B> {
             if endpoint_tool.name.as_ref() == name.as_ref() {
                 // Authorize against the token's MCP scopes and read-only flag,
                 // including the run-by-path path check (shared with multi mode).
-                authorize_endpoint_call(scope_config, endpoint_tool, &args, read_only)?;
+                let mut args = args;
+                authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
-                // This is an endpoint tool, call via backend
+                // This is an endpoint tool, call via backend. The backend's own error
+                // code is kept: a client that retries an internal error would loop on
+                // arguments the endpoint rejected.
                 let result = self
                     .backend
                     .call_endpoint(auth, workspace_id, endpoint_tool, args)
-                    .await
-                    .map_err(|e| ErrorData::internal_error(e.message, None))?;
+                    .await?;
+                if changes_runnable_list(&endpoint_tool.name) {
+                    self.list_changes.poll_now(workspace_id);
+                }
 
                 return Ok(CallToolResult::success(vec![ContentBlock::text(
                     truncate_tool_result(
@@ -635,49 +1007,91 @@ impl<B: McpBackend> Runner<B> {
         }
 
         // Resolve the tool name to (type, path, is_hub)
-        let (type_str, is_hub, is_hashed) = parse_tool_prefix(name.as_ref()).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
-        })?;
-
-        let (tool_type, path, is_hub) = if !is_hashed {
-            reverse_transform(name.as_ref()).map_err(|e| {
-                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
-            })?
-        } else if is_hub {
-            let version_id = extract_hub_version_id_from_hashed(name.as_ref()).map_err(|e| {
-                ErrorData::internal_error(format!("Failed to extract hub version_id: {}", e), None)
-            })?;
-            (type_str, version_id, true)
-        } else {
-            let path_prefix = extract_path_prefix_from_hashed(name.as_ref());
-            let path_filter = path_prefix.as_deref().map(PathFilter::Prefix);
-            let favorites_only = scope_config.favorites;
-            let matched_path = if type_str == "script" {
-                find_matching_path(
-                    self.backend
-                        .list_scripts(auth, workspace_id, favorites_only, path_filter)
-                        .await
-                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
-                    name.as_ref(),
-                )
-            } else {
-                find_matching_path(
-                    self.backend
-                        .list_flows(auth, workspace_id, favorites_only, path_filter)
-                        .await
-                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
-                    name.as_ref(),
-                )
+        let (tool_type, path, is_hub) = if !is_encoded_tool_name(name.as_ref()) {
+            let segments = short_name_last_segments(name.as_ref());
+            let filter = Some(PathFilter::LastSegment(segments.as_slice()));
+            let named = self
+                .name_runnables(auth, workspace_id, scope_config, filter, filter)
+                .await?;
+            let Some((tool_type, path, _)) = named.into_iter().find(|(_, _, n)| n == name.as_ref())
+            else {
+                // Says which side refused: the token's selection, or the user's own rights.
+                let message = if scope_config.granular
+                    && self
+                        .name_runnables(
+                            auth,
+                            workspace_id,
+                            &crate::common::scope::McpScopeConfig {
+                                scripts: vec!["*".to_string()],
+                                flows: vec!["*".to_string()],
+                                ..Default::default()
+                            },
+                            filter,
+                            filter,
+                        )
+                        .await?
+                        .iter()
+                        .any(|(_, _, n)| n == name.as_ref())
+                {
+                    format!("Access denied: tool '{name}' is outside this token's selection")
+                } else {
+                    format!("No tool named '{name}' is available to this user")
+                };
+                return Err(ErrorData::internal_error(message, None));
             };
-
-            let matched_path = matched_path.ok_or_else(|| {
-                ErrorData::internal_error(
-                    format!("No {} found matching hashed tool name '{}'", type_str, name),
-                    None,
-                )
+            (tool_type, path, false)
+        } else {
+            // The `s-`/`f-`/`hs-` encoding: what hub scripts and items whose short
+            // names all collide are listed under, and what clients listed before short
+            // names existed still call.
+            let (type_str, is_hub, is_hashed) = parse_tool_prefix(name.as_ref()).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
             })?;
 
-            (type_str, matched_path, false)
+            if !is_hashed {
+                reverse_transform(name.as_ref()).map_err(|e| {
+                    ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
+                })?
+            } else if is_hub {
+                let version_id =
+                    extract_hub_version_id_from_hashed(name.as_ref()).map_err(|e| {
+                        ErrorData::internal_error(
+                            format!("Failed to extract hub version_id: {}", e),
+                            None,
+                        )
+                    })?;
+                (type_str, version_id, true)
+            } else {
+                let path_prefix = extract_path_prefix_from_hashed(name.as_ref());
+                let path_filter = path_prefix.as_deref().map(PathFilter::Prefix);
+                let favorites_only = scope_config.favorites;
+                let matched_path = if type_str == "script" {
+                    find_matching_path(
+                        self.backend
+                            .list_scripts(auth, workspace_id, favorites_only, path_filter)
+                            .await
+                            .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                        name.as_ref(),
+                    )
+                } else {
+                    find_matching_path(
+                        self.backend
+                            .list_flows(auth, workspace_id, favorites_only, path_filter)
+                            .await
+                            .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                        name.as_ref(),
+                    )
+                };
+
+                let matched_path = matched_path.ok_or_else(|| {
+                    ErrorData::internal_error(
+                        format!("No {} found matching hashed tool name '{}'", type_str, name),
+                        None,
+                    )
+                })?;
+
+                (type_str, matched_path, false)
+            }
         };
 
         // Validate script/flow scope
@@ -708,17 +1122,7 @@ impl<B: McpBackend> Runner<B> {
                 .map_err(|e| ErrorData::internal_error(e.message, None))?
         };
 
-        // Transform arguments back to original key names
-        let transformed_args = if let Value::Object(map) = args {
-            let mut args_hash = HashMap::new();
-            for (k, v) in map {
-                let original_key = reverse_transform_key(&k, &item_schema);
-                args_hash.insert(original_key, v);
-            }
-            Value::Object(args_hash.into_iter().collect())
-        } else {
-            args
-        };
+        let transformed_args = transform_call_args(args, &item_schema);
 
         let script_or_flow_path = if is_hub {
             format!("hub/{}", path)
@@ -729,20 +1133,37 @@ impl<B: McpBackend> Runner<B> {
         // Execute script or flow
         let result = if tool_type == "script" {
             self.backend
-                .run_script(auth, workspace_id, &script_or_flow_path, transformed_args)
+                .run_script(
+                    auth,
+                    workspace_id,
+                    &script_or_flow_path,
+                    transformed_args,
+                    request,
+                )
                 .await
         } else {
             self.backend
-                .run_flow(auth, workspace_id, &script_or_flow_path, transformed_args)
+                .run_flow(
+                    auth,
+                    workspace_id,
+                    &script_or_flow_path,
+                    transformed_args,
+                    request,
+                )
                 .await
         };
 
         match result {
-            Ok(value) => Ok(CallToolResult::success(vec![ContentBlock::text(
-                truncate_tool_result(
-                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
-                ),
-            )])),
+            Ok(RunOutcome::Success(value)) => {
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    truncate_tool_result(
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
+                    ),
+                )]))
+            }
+            Ok(RunOutcome::Failed { job_id, run_url, result }) => {
+                Ok(failed_run_result(tool_type, &job_id, &run_url, result))
+            }
             Err(e) => Err(ErrorData::internal_error(
                 format!("Failed to run {}: {}", tool_type, e.message),
                 None,
@@ -787,14 +1208,15 @@ impl<B: McpBackend> Runner<B> {
         scope_config: &crate::common::scope::McpScopeConfig,
         read_only: bool,
         name: std::borrow::Cow<'static, str>,
-        args: Value,
+        mut args: Value,
     ) -> Result<CallToolResult, ErrorData> {
         if name.as_ref() == "list_workspaces" {
-            let workspaces = self
+            let mut workspaces = self
                 .backend
                 .list_accessible_workspaces(base_auth)
                 .await
                 .map_err(|e| ErrorData::internal_error(e.message, None))?;
+            workspaces.retain(|w| scope_config.allows_workspace(&w.id));
             return Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::to_string_pretty(&workspaces).unwrap_or_else(|_| "[]".to_string()),
             )]));
@@ -822,7 +1244,7 @@ impl<B: McpBackend> Runner<B> {
         // checked against the script/flow scope for that path — the endpoint
         // scope alone would let a granular token run items outside its allowed
         // paths.
-        authorize_endpoint_call(scope_config, endpoint_tool, &args, read_only)?;
+        authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
         // Workspace-scoped endpoints need an explicit target workspace and a
         // per-workspace auth; global endpoints (e.g. docs) use the base identity.
@@ -842,6 +1264,9 @@ impl<B: McpBackend> Runner<B> {
                     )
                 })?
                 .to_string();
+            if !scope_config.allows_workspace(&workspace_id) {
+                return Err(workspace_not_granted(&workspace_id));
+            }
 
             let resolved = self
                 .backend
@@ -865,8 +1290,10 @@ impl<B: McpBackend> Runner<B> {
         let result = self
             .backend
             .call_endpoint(&resolved_auth, &workspace_id, endpoint_tool, args)
-            .await
-            .map_err(|e| ErrorData::internal_error(e.message, None))?;
+            .await?;
+        if changes_runnable_list(&endpoint_tool.name) {
+            self.list_changes.poll_now(&workspace_id);
+        }
 
         Ok(CallToolResult::success(vec![ContentBlock::text(
             truncate_tool_result(
@@ -915,20 +1342,26 @@ mod tests {
         ]);
         let tool = ep("runScriptByPath", "POST");
 
-        assert!(
-            authorize_endpoint_call(&config, &tool, &json!({"path": "f/team/deploy"}), false)
-                .is_ok()
-        );
-        assert!(
-            authorize_endpoint_call(&config, &tool, &json!({"path": "f/secret/admin"}), false)
-                .is_err()
-        );
+        assert!(authorize_endpoint_call(
+            &config,
+            &tool,
+            &mut json!({"path": "f/team/deploy"}),
+            false
+        )
+        .is_ok());
+        assert!(authorize_endpoint_call(
+            &config,
+            &tool,
+            &mut json!({"path": "f/secret/admin"}),
+            false
+        )
+        .is_err());
     }
 
     #[test]
     fn run_by_path_call_requires_path_arg() {
         let tool = ep("runFlowByPath", "POST");
-        assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &json!({}), false).is_err());
+        assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &mut json!({}), false).is_err());
     }
 
     #[test]
@@ -938,14 +1371,14 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &ep("runFlowByPath", "POST"),
-            &json!({"path": "f/team/x"}),
+            &mut json!({"path": "f/team/x"}),
             false
         )
         .is_ok());
         assert!(authorize_endpoint_call(
             &config,
             &ep("runScriptByPath", "POST"),
-            &json!({"path": "f/team/x"}),
+            &mut json!({"path": "f/team/x"}),
             false
         )
         .is_err());
@@ -957,7 +1390,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &cfg(&["mcp:endpoints:getVariable"]),
             &get_var,
-            &json!({"path": "u/a/b"}),
+            &mut json!({"path": "u/a/b"}),
             false
         )
         .is_ok());
@@ -965,12 +1398,25 @@ mod tests {
         assert!(authorize_endpoint_call(
             &cfg(&["mcp:scripts:f/team/*"]),
             &get_var,
-            &json!({"path": "u/a/b"}),
+            &mut json!({"path": "u/a/b"}),
             false
         )
         .is_err());
         // mcp:all (non-granular) allows any endpoint.
-        assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &get_var, &json!({}), false).is_ok());
+        assert!(
+            authorize_endpoint_call(&cfg(&["mcp:all"]), &get_var, &mut json!({}), false).is_ok()
+        );
+    }
+
+    #[test]
+    fn a_selection_without_endpoints_gets_none() {
+        // The scope withholds them on every URL, as the server does on `/api/mcp`.
+        let selection = cfg(&["mcp:favorites", "mcp:endpoints:*", "mcp:runnables_as_tools"]);
+        assert!(!endpoint_tool_in_scope(&selection, &ep("listJobs", "GET")));
+        assert!(
+            authorize_endpoint_call(&selection, &ep("listJobs", "GET"), &mut json!({}), false)
+                .is_err()
+        );
     }
 
     #[test]
@@ -979,14 +1425,14 @@ mod tests {
         assert!(authorize_endpoint_call(
             &cfg(&["mcp:all"]),
             &ep("createResource", "POST"),
-            &json!({}),
+            &mut json!({}),
             true
         )
         .is_err());
         assert!(authorize_endpoint_call(
             &cfg(&["mcp:all"]),
             &ep("getVariable", "GET"),
-            &json!({"path": "u/a/b"}),
+            &mut json!({"path": "u/a/b"}),
             true
         )
         .is_ok());
@@ -1027,30 +1473,30 @@ mod tests {
         for name in ["getScriptByPath", "deleteScriptByPath", "createScript"] {
             let tool = ep(name, "POST");
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({"path": "f/team/x"}), false)
+                authorize_endpoint_call(&config, &tool, &mut json!({"path": "f/team/x"}), false)
                     .is_ok(),
                 "{name} should allow in-scope path"
             );
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({"path": "f/secret/x"}), false)
+                authorize_endpoint_call(&config, &tool, &mut json!({"path": "f/secret/x"}), false)
                     .is_err(),
                 "{name} should deny out-of-scope path"
             );
             // Confinement can't be verified without the path argument.
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({}), false).is_err(),
+                authorize_endpoint_call(&config, &tool, &mut json!({}), false).is_err(),
                 "{name} should require the path argument when confined"
             );
         }
         for name in ["getFlowByPath", "deleteFlowByPath", "createFlow"] {
             let tool = ep(name, "POST");
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({"path": "f/team/x"}), false)
+                authorize_endpoint_call(&config, &tool, &mut json!({"path": "f/team/x"}), false)
                     .is_ok(),
                 "{name} should allow in-scope path"
             );
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({"path": "f/secret/x"}), false)
+                authorize_endpoint_call(&config, &tool, &mut json!({"path": "f/secret/x"}), false)
                     .is_err(),
                 "{name} should deny out-of-scope path"
             );
@@ -1066,7 +1512,7 @@ mod tests {
             assert!(authorize_endpoint_call(
                 &config,
                 &ep(name, "POST"),
-                &json!({"path": "f/anywhere/x"}),
+                &mut json!({"path": "f/anywhere/x"}),
                 false
             )
             .is_ok());
@@ -1076,7 +1522,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &star,
             &ep("createScript", "POST"),
-            &json!({"path": "f/anywhere/x"}),
+            &mut json!({"path": "f/anywhere/x"}),
             false
         )
         .is_ok());
@@ -1091,7 +1537,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &tool,
-            &json!({"path__path": "f/team/a", "path__body": "f/team/b"}),
+            &mut json!({"path": "f/team/a", "path__body": "f/team/b"}),
             false
         )
         .is_ok());
@@ -1099,7 +1545,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &tool,
-            &json!({"path__path": "f/team/a", "path__body": "f/secret/a"}),
+            &mut json!({"path": "f/team/a", "path__body": "f/secret/a"}),
             false
         )
         .is_err());
@@ -1107,10 +1553,85 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &tool,
-            &json!({"path__path": "f/secret/a", "path__body": "f/team/a"}),
+            &mut json!({"path": "f/secret/a", "path__body": "f/team/a"}),
             false
         )
         .is_err());
+    }
+
+    // updateScript has updateFlow's shape, and the destination it can move a script
+    // to is optional: omitting it updates in place, so requiring it would refuse
+    // every call that moves nothing.
+    #[test]
+    fn update_script_confines_target_and_optional_destination() {
+        let config = cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]);
+        let tool = ep("updateScript", "POST");
+        for mut args in [
+            json!({"path": "f/team/a"}),
+            json!({"path": "f/team/a", "path__body": "f/team/b"}),
+            // Empty destination reads as absent, the same way the handler reads it.
+            json!({"path": "f/team/a", "path__body": ""}),
+        ] {
+            assert!(
+                authorize_endpoint_call(&config, &tool, &mut args, false).is_ok(),
+                "in-scope update should be allowed: {args}"
+            );
+        }
+        for mut args in [
+            // Deploying over a script outside the allowed folder.
+            json!({"path": "f/secret/a"}),
+            // Moving one out of it.
+            json!({"path": "f/team/a", "path__body": "f/secret/a"}),
+        ] {
+            assert!(
+                authorize_endpoint_call(&config, &tool, &mut args, false).is_err(),
+                "out-of-scope update should be denied: {args}"
+            );
+        }
+    }
+
+    /// A destination the caller omitted, or left empty because it had to fill in every
+    /// argument, is filled in with the path the item is already at. The endpoint then
+    /// never receives a body that omits its own path, and `update_flow` never receives
+    /// the empty string, which it would read as the empty path and move the flow there.
+    #[test]
+    fn an_unset_optional_destination_becomes_the_current_path() {
+        for tool in ["updateScript", "updateFlow"] {
+            let kind_scope = if tool == "updateScript" {
+                "mcp:scripts:f/team/*"
+            } else {
+                "mcp:flows:f/team/*"
+            };
+            for mut args in [
+                json!({"path": "f/team/a", "summary": "s"}),
+                json!({"path": "f/team/a", "path__body": "", "summary": "s"}),
+                json!({"path": "f/team/a", "path__body": null, "summary": "s"}),
+            ] {
+                authorize_endpoint_call(
+                    &cfg(&[kind_scope, "mcp:endpoints:*"]),
+                    &ep(tool, "POST"),
+                    &mut args,
+                    false,
+                )
+                .unwrap_or_else(|e| panic!("{tool} should allow an unset destination: {e:?}"));
+                assert_eq!(
+                    args,
+                    json!({"path": "f/team/a", "path__body": "f/team/a", "summary": "s"}),
+                    "{tool} should fill the destination in with the current path"
+                );
+            }
+        }
+
+        // A destination that names somewhere else is left for the confinement to check.
+        let mut args = json!({"path": "f/team/a", "path__body": "f/team/b"});
+        authorize_endpoint_call(
+            &cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]),
+            &ep("updateScript", "POST"),
+            &mut args,
+            false,
+        )
+        .unwrap();
+        assert_eq!(args["path__body"], "f/team/b");
     }
 
     // Tools that can't be path-checked (delete-by-hash) or execute arbitrary
@@ -1121,14 +1642,19 @@ mod tests {
         let confined = cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]);
         for name in ["deleteScriptByHash", "runScriptPreviewAndWaitResult"] {
             let tool = ep(name, "POST");
-            assert!(authorize_endpoint_call(&confined, &tool, &json!({}), false).is_err());
+            assert!(authorize_endpoint_call(&confined, &tool, &mut json!({}), false).is_err());
             assert!(!endpoint_tool_in_scope(&confined, &tool));
             // Without script path patterns the tools stay available.
+            assert!(authorize_endpoint_call(
+                &cfg(&["mcp:endpoints:*"]),
+                &tool,
+                &mut json!({}),
+                false
+            )
+            .is_ok());
             assert!(
-                authorize_endpoint_call(&cfg(&["mcp:endpoints:*"]), &tool, &json!({}), false)
-                    .is_ok()
+                authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &mut json!({}), false).is_ok()
             );
-            assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &json!({}), false).is_ok());
             assert!(endpoint_tool_in_scope(&cfg(&["mcp:endpoints:*"]), &tool));
         }
         // Flow-only confinement doesn't affect script-kind unconfinable tools.
@@ -1136,9 +1662,33 @@ mod tests {
         assert!(authorize_endpoint_call(
             &flow_confined,
             &ep("deleteScriptByHash", "POST"),
-            &json!({}),
+            &mut json!({}),
             false
         )
         .is_ok());
+    }
+
+    #[test]
+    fn failed_run_is_a_tool_error_without_the_stack() {
+        let result = json!({ "error": {
+            "name": "Error",
+            "message": "boom",
+            "stack": "Error: boom\n    at main (/tmp/main.ts:2:9)",
+            "step_id": "a",
+            "job_id": "0192-id",
+        }});
+        let res = failed_run_result("script", "0192-id", "http://wm/run/0192-id", result);
+        assert_eq!(res.is_error, Some(true));
+        let text = res.content[0].as_text().unwrap().text.clone();
+        assert!(text.contains("Error: boom"), "{text}");
+        assert!(text.contains("0192-id"), "{text}");
+        assert!(text.contains(r#"{"error":{"step_id":"a"}}"#), "{text}");
+        assert!(!text.contains("main.ts"), "{text}");
+
+        let huge = json!({ "error": { "name": "Error", "message": "x".repeat(200_000) } });
+        let res = failed_run_result("script", "0192-id", "http://wm/run/0192-id", huge);
+        let text = &res.content[0].as_text().unwrap().text;
+        assert!(text.len() < MAX_TOOL_RESULT_BYTES + 100, "{}", text.len());
+        assert!(text.contains("0192-id"));
     }
 }

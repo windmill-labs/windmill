@@ -66,6 +66,7 @@ use crate::{
     args::RawWebhookArgs,
     db::{ApiAuthed, DB},
     users::fetch_api_authed,
+    utils::check_scopes,
 };
 
 use axum::{
@@ -200,7 +201,14 @@ pub struct AzureTriggerConfig {
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
-    pub gcp_resource_path: String,
+    /// `None` selects application default credentials. Deliberately not `empty_as_none`: unlike
+    /// every other field here, absent does not mean "unset" but "use the instance's own identity",
+    /// so a blank string left behind by a half-filled form must stay distinguishable and be
+    /// rejected rather than silently selecting the privileged mode.
+    #[serde(default)]
+    pub gcp_resource_path: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub project_id: Option<String>,
     pub subscription_mode: GcpSubscriptionMode,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
@@ -312,6 +320,7 @@ async fn get_configs(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
 ) -> JsonResult<Vec<CaptureConfig>> {
+    check_scopes(&authed, || format!("capture:read:{}", path.to_path()))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let configs = sqlx::query_as!(
@@ -424,11 +433,24 @@ async fn set_gcp_trigger_config(
         return Err(Error::BadRequest("Invalid GCP Pub/Sub config".to_string()));
     };
 
+    if gcp_config
+        .gcp_resource_path
+        .as_deref()
+        .is_some_and(|path| path.trim().is_empty())
+    {
+        return Err(Error::BadRequest(
+            "GCP resource path cannot be empty. Remove the field entirely to use application \
+             default credentials."
+                .to_string(),
+        ));
+    }
+
     let config = manage_google_subscription(
         authed,
         db,
         w_id,
-        &gcp_config.gcp_resource_path,
+        gcp_config.gcp_resource_path.as_deref(),
+        gcp_config.project_id.as_deref(),
         &capture_config.path,
         &gcp_config.topic_id,
         &mut gcp_config.subscription_id,
@@ -537,6 +559,7 @@ async fn set_config(
     Path(w_id): Path<String>,
     Json(nc): Json<NewCaptureConfig>,
 ) -> JsonResult<Option<TriggerConfig>> {
+    check_scopes(&authed, || format!("capture:write:{}", nc.path))?;
     let nc = match nc.trigger_kind {
         TriggerKind::Postgres => {
             set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
@@ -546,7 +569,21 @@ async fn set_config(
         _ => nc,
     };
 
+    // The listener runs a capture's `$script:`/`$flow:` URL as its saver, as it does a
+    // trigger's, so the URL takes the trigger save's Hub rule. A capture keeps nothing to compare.
+    #[cfg(feature = "websocket")]
+    if matches!(nc.trigger_kind, TriggerKind::Websocket) {
+        use windmill_api_auth::composed::check_new_hub_paths;
+        use windmill_trigger::TriggerCrud;
+        let config = serde_json::to_value(&nc.trigger_config)?;
+        let new = windmill_trigger_websocket::WebsocketTrigger::config_runnables(&config);
+        check_new_hub_paths(&new, &[], &authed, &db, &w_id).await?;
+    }
+
     let mut tx = user_db.begin(&authed).await?;
+    if matches!(nc.trigger_kind, TriggerKind::Postgres) {
+        windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, false).await?;
+    }
 
     sqlx::query!(
         r#"
@@ -593,7 +630,11 @@ async fn ping_config(
         StripPath,
     )>,
 ) -> Result<()> {
+    check_scopes(&authed, || format!("capture:write:{}", path.to_path()))?;
     let mut tx = user_db.begin(&authed).await?;
+    if matches!(trigger_kind, TriggerKind::Postgres) {
+        windmill_common::datatable_roles::lock_datatable_streams(&mut *tx, false).await?;
+    }
 
     sqlx::query!(
         r#"
@@ -641,6 +682,7 @@ async fn list_captures(
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
     Query(query): Query<ListCapturesQuery>,
 ) -> JsonResult<Vec<Capture>> {
+    check_scopes(&authed, || format!("capture:read:{}", path.to_path()))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
@@ -687,12 +729,44 @@ async fn list_captures(
     Ok(Json(captures))
 }
 
+/// A capture addressed by id carries no path in the route, so its path scope can only be
+/// checked against the row. Looked up under the caller's RLS so the check never reveals
+/// whether an id the caller cannot see exists, and the refusal omits the path, which the
+/// caller named only by id.
+async fn check_capture_id_scope(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    id: i64,
+    action: &str,
+) -> Result<()> {
+    if authed.scopes.is_none() {
+        return Ok(());
+    }
+    let path = sqlx::query_scalar!(
+        "SELECT path FROM capture WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id,
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(path) = path {
+        check_scopes(authed, || format!("capture:{action}:{path}")).map_err(|_| {
+            windmill_common::error::Error::PermissionDenied(format!(
+                "This token's capture:{action} scope does not cover capture {id}"
+            ))
+        })?;
+    }
+    Ok(())
+}
+
 async fn get_capture(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<Capture> {
     let mut tx = user_db.begin(&authed).await?;
+    check_capture_id_scope(&mut tx, &authed, &w_id, id, "read").await?;
 
     let capture = sqlx::query_as!(
         Capture,
@@ -722,17 +796,22 @@ async fn get_capture(
 async fn delete_capture(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((_, id)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
+    check_capture_id_scope(&mut tx, &authed, &w_id, id, "write").await?;
+    // capture RLS only keys on the path segment, so without workspace_id an id from
+    // another workspace whose path collides with the caller's grants would be deleted.
     sqlx::query!(
         r#"
-        DELETE FROM 
+        DELETE FROM
             capture
-        WHERE 
+        WHERE
             id = $1
+            AND workspace_id = $2
         "#,
-        id
+        id,
+        &w_id,
     )
     .execute(&mut *tx)
     .await?;
@@ -751,8 +830,10 @@ async fn move_captures_and_configs(
     Path((w_id, runnable_kind, old_path)): Path<(String, RunnableKind, StripPath)>,
     Json(body): Json<MoveCapturesAndConfigsBody>,
 ) -> Result<()> {
-    let mut tx = user_db.begin(&authed).await?;
     let old_path = old_path.to_path();
+    check_scopes(&authed, || format!("capture:write:{}", old_path))?;
+    check_scopes(&authed, || format!("capture:write:{}", body.new_path))?;
+    let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
         r#"
@@ -1047,7 +1128,7 @@ async fn gcp_payload(
         user_db.clone(),
         authed.clone(),
         &headers,
-        &gcp_trigger_config.gcp_resource_path,
+        gcp_trigger_config.gcp_resource_path.as_deref(),
         &w_id,
         config.delivery_config.as_ref().unwrap(),
     )
@@ -1180,8 +1261,8 @@ async fn http_payload(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
-    let headers = build_headers(&args.0.metadata.headers, None, true);
-    let query = build_query(args.0.metadata.query.as_deref(), None, true);
+    let headers = build_headers(&args.0.metadata.headers, None, true, false);
+    let query = build_query(args.0.metadata.query.as_deref(), None, true, false);
 
     let preprocessor_args = args
         .clone()

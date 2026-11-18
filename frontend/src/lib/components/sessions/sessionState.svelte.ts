@@ -5,26 +5,32 @@ import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
 	enterpriseLicense,
 	superadmin,
-	userStore,
 	userWorkspaces,
 	usersWorkspaceStore,
 	workspaceStore,
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
-import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
-import {
-	isRuleActive,
-	canUserBypassRuleKind,
-	protectionRulesState
-} from '$lib/workspaceProtectionRules.svelte'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { isReadOnlySessionWorkspace } from '../copilot/chat/global/sessionAccess'
+import { AIWorkMode } from '../copilot/chat/workMode'
 import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
+import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import { deleteSessionHandEdits } from './sessionHandEdits.svelte'
+import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
+import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
+import type { AppDomSelectorElement } from '../copilot/chat/context'
+import {
+	markSessionDirty,
+	markSessionRemoved,
+	sessionSwept,
+	sessionsLockName
+} from './sessionMirrorSignal'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -36,8 +42,8 @@ export function syncWorkspaceTo(workspaceId: string | undefined): void {
 	switchWorkspace(workspaceId)
 }
 import { WorkspaceService } from '$lib/gen'
+import { createWorkspaceForkAndWait, waitForForkCreation } from '$lib/utils/forkCreation'
 import { sendUserToast } from '$lib/toast'
-import type HistoryManager from '$lib/components/copilot/chat/HistoryManager.svelte'
 import { onUserChange } from '$lib/userScopedStorage'
 
 // A destination the session preview can open as an editor: a workspace item
@@ -53,9 +59,15 @@ export type SessionTarget = { kind: 'flow' | 'script' | 'raw_app' | 'pipeline'; 
 // Sessions whose committed workspace is no longer in the user's list are
 // still treated as forks (the "unavailable" terminal state) so we don't
 // flip them back to Building once access is lost.
-export function isForkSession(session: Session, allWorkspaces: UserWorkspace[]): boolean {
+// `allWorkspaces` is undefined until the workspace list has loaded: a workspace absent
+// from it then says nothing, so only the stored root can tell a fork from a root.
+export function isForkSession(
+	session: Session,
+	allWorkspaces: UserWorkspace[] | undefined
+): boolean {
 	const wsId = session.workspace_id ?? session.pending_workspace_id
 	if (!wsId) return false
+	if (!allWorkspaces) return !!session.workspace_root_id && wsId !== session.workspace_root_id
 	const ws = allWorkspaces.find((w) => w.id === wsId)
 	if (!ws) return !!session.workspace_id
 	return !!ws.parent_workspace_id
@@ -68,24 +80,30 @@ export type PendingFork = {
 	id: string
 	// Display name shown in the workspace bar.
 	name: string
+	// The background creation this fork started, so a reload mid-copy waits for it rather than
+	// requesting the fork again, which the server refuses while that creation runs.
+	creation_id?: string
 }
 
 export type SessionSummarySource = 'placeholder' | 'generated' | 'manual'
 
 export type Session = {
 	id: string
-	name: string
+	// Per-browser `session-N` label that older sessions-page URLs carried; only read
+	// to resolve those links.
+	name?: string
 	// Committed strictly at first user-message send. Undefined for drafts
 	// that have never been sent — those scope by `pending_workspace_id`
 	// instead and don't show the fork bar.
 	workspace_id?: string
-	// Pre-send draft workspace, picked via SessionWorkspaceBar. Drives
-	// scope/editor/display while workspace_id is undefined; gets copied
+	// Where an unsent session will act: the workspace a hand-off named, or, for the
+	// draft on Home, the workspace the page header names (see followHomeDraft).
+	// Drives scope/editor/display while workspace_id is undefined; gets copied
 	// into workspace_id at first send and then becomes irrelevant.
 	pending_workspace_id?: string
-	// Pre-send intent to create a new fork. The actual API call is
-	// deferred to first send (via commitSessionWorkspace) so cancelling
-	// the draft doesn't leave an orphan fork behind.
+	// Intent to create a new fork at first send (via commitSessionWorkspace), so
+	// cancelling the draft doesn't leave an orphan fork behind. Found only on records
+	// older clients wrote: no control stages one.
 	pending_fork?: PendingFork
 	// Stable root workspace id used only for sidebar grouping. Lifecycle follows
 	// workspace_id, not this field. Root sessions store the same id in both fields.
@@ -102,6 +120,10 @@ export type Session = {
 	// archived (not by the user). Lets reconciliation auto-unarchive the session
 	// when the workspace is unarchived, while leaving user-archived sessions be.
 	archivedByWorkspace?: boolean
+	// How many times the session moved to another workspace. The backup keeps it
+	// with the session's marker, so a restore that finds a copy in two workspaces
+	// (moved, the old copy not yet removed) takes the later one without a clock.
+	moves?: number
 	// In-memory-only flag: the session exists but hasn't been written to
 	// IndexedDB yet. Set at creation, cleared on the first genuine user touch
 	// (typed prompt, workspace/fork pick, preview tab, rename) which persists
@@ -110,6 +132,26 @@ export type Session = {
 	// untouched draft never persists, so idle `+` clicks vanish on reload
 	// instead of littering the sidebar.
 	transient?: boolean
+	// In memory only, on a transient session opened onto an item (a new app): no touch stores
+	// it, a typed prompt included, so only its first send does. A session the user never
+	// starts vanishes on reload instead of reopening onto the item. Cleared with `transient`.
+	untilStarted?: boolean
+	// Epoch ms of the last write to this record — typing, renaming, archiving,
+	// changing preview tabs, or catching up on new messages. Stamped by the two
+	// write funnels (persistTouched, markSessionSeen), so it tracks use rather
+	// than creation; merely opening a session without reading anything new is not
+	// a write and does not bump it.
+	// Absent on records last written before the field existed; readers fall back
+	// to createdAt via sessionLastActivityAt.
+	lastActivityAt?: number
+	// Epoch ms of the last time a turn started or ended. The ungrouped sidebar list orders by
+	// it, so typing, renaming, archiving or switching preview tabs does not move a session there.
+	lastStateChangeAt?: number
+	// When this browser restored the session from its backup, by this browser's clock.
+	// The restore sets `lastActivityAt` to the backup's time, the storage's clock; the
+	// retention counts from whichever is later, so a browser clock ahead of the storage's
+	// never deletes a session it just brought back. Not backed up.
+	restoredAt?: number
 	// Per-session unread watermark: the displayMessages count the last time
 	// the user was on this session's page. Compared against the runtime's
 	// current message count to derive the unread badge (see sessionUnread).
@@ -126,10 +168,29 @@ export type Session = {
 	// Preview split size (preview pane %, 0-100) the user dragged for this session.
 	// Per-session so each session restores its own layout.
 	previewSize?: number
+	// Use or Build, as the chat's mode picker last left it. Absent reads as Build.
+	workMode?: AIWorkMode.USE | AIWorkMode.BUILD
+	// The owner roots (`f/<folder>`, `u/<user>`) the AI changes items in, sorted. Empty: none,
+	// so every change asks. Absent: the whole workspace. Per browser, like workMode: the backup leaves it out.
+	workingIn?: string[]
+	// How the scope was set, for its usage counter. Absent: the default.
+	workingInSource?: 'preset' | 'manual'
 	// Unsent composer text for a pending (uncommitted) session, persisted with
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
 	draftPrompt?: string
+	// When `draftPrompt` should be sent on arrival rather than parked in the
+	// composer. Set by hand-offs whose click already stated the intent ("AI Fix",
+	// a typed step or app description), so they land mid-answer rather than
+	// waiting for a second Enter. Holds the arming time, not a flag: `goto`
+	// resolves even when a `beforeNavigate` cancels it, so an abandoned hand-off
+	// would otherwise leave a session armed forever and fire on some later visit.
+	// Consumed exactly once, by takeSessionAutoSend.
+	autoSendDraftAt?: number
+	// The element a preview pick hands over with the auto-sent prompt, sent as its
+	// chip. Lives and dies with `autoSendDraftAt`: a prompt like "make this bigger"
+	// must never go out without the element it names.
+	autoSendDomElement?: AppDomSelectorElement
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -153,6 +214,9 @@ export type SessionPreviewTab = {
 	// from the workspace listing; after, the editor is the only source, else
 	// clearing a summary would fall back to the listing's stale copy of it.
 	editorNamed?: boolean
+	// Stamped by an agent's editor in a resource tab, which is what makes that tab the chat's
+	// ACTIVE EDITOR rather than a page it previews.
+	agentEditor?: boolean
 }
 
 // Sessions live in one per-user IndexedDB, one record per session in the
@@ -257,7 +321,9 @@ export function sessionInCurrentFamily(s: Session): boolean {
 function ensureSessionRootId(s: Session): boolean {
 	if (s.workspace_root_id || s.transient) return false
 	const workspaceId = s.workspace_id ?? s.pending_workspace_id
-	if (workspaceId && get(userWorkspaces).length === 0) return false
+	// `userWorkspaces` holds `admins` for a superadmin before the list loads, so its
+	// length alone would stamp a fork's own id as its root.
+	if (workspaceId && (!get(usersWorkspaceStore) || get(userWorkspaces).length === 0)) return false
 	const root = sessionRootId(s)
 	if (!root) return false
 	s.workspace_root_id = root
@@ -321,14 +387,14 @@ const draftPromptFlushHandles = new Map<string, ReturnType<typeof setTimeout>>()
 export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return
-	// No-op on an unchanged prompt. Crucially, this treats the composer's
-	// mount-time onDraftChange('') as a non-touch (draftPrompt is undefined),
-	// so merely opening an untouched draft never persists it.
+	// No-op on an unchanged prompt, so opening an untouched draft never persists
+	// it. Writes of '' are real edits (a draft typed then erased is still a
+	// session), which is why the composer reports edits only — see AIChatInput.
 	if ((s.draftPrompt ?? '') === text) return
 	// Keep `transient` (means "in-memory only") set until the flush persists the
 	// draft, so hydrateSessions preserves it across a reconcile inside this window;
-	// isReusableBlank, not `transient`, is what stops createSession reusing a typed
-	// draft. Only the IndexedDB write is debounced.
+	// isDiscardableDraft, not `transient`, is what stops createSession reusing a
+	// typed draft. Only the IndexedDB write is debounced.
 	s.draftPrompt = text
 	clearTimeout(draftPromptFlushHandles.get(sessionId))
 	draftPromptFlushHandles.set(
@@ -348,13 +414,119 @@ export function getSessionDraftPrompt(sessionId: string): string | undefined {
 	return s.draftPrompt
 }
 
+// The rest of an unsent draft (collapsed pastes, images, files), so a composer mounted again
+// for the same session, on Home or the session page, gets the draft whole: a collapsed paste
+// is a token in `draftPrompt` whose content lives here. In memory only, like the attachments
+// themselves before a send, so a reload drops them as it always has.
+const draftAttachments = new Map<string, DraftAttachments>()
+
+export function setSessionDraftAttachments(sessionId: string, attachments: DraftAttachments): void {
+	const empty = Object.values(attachments).every((lane) => lane.length === 0)
+	if (empty) {
+		draftAttachments.delete(sessionId)
+		return
+	}
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s || s.workspace_id) return
+	draftAttachments.set(sessionId, attachments)
+	// Attaching is a touch, as typing is: a draft holding only an image would otherwise still
+	// read as a blank, be reused by the next hand-off with the image in it, or be dropped.
+	if (s.transient) persistTouched(s)
+}
+
+export function getSessionDraftAttachments(sessionId: string): DraftAttachments | undefined {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s || s.workspace_id) return undefined
+	return draftAttachments.get(sessionId)
+}
+
+// A hand-off arrives within a navigation; anything older than this is the debris
+// of one that never landed, and must not fire at whatever the user does next.
+const AUTO_SEND_TTL_MS = 5 * 60_000
+
+// Mark this session's draft prompt for sending on arrival. Written straight to
+// the record (not via setSessionDraftPrompt's debounce) because the navigation
+// that follows must not outrun it.
+export function setSessionAutoSend(sessionId: string, domElement?: AppDomSelectorElement): void {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s) return
+	s.autoSendDraftAt = Date.now()
+	s.autoSendDomElement = domElement
+	persistTouched(s)
+}
+
+// The element armed with the auto-send intent; read before takeSessionAutoSend clears both.
+export function getSessionAutoSendDomElement(sessionId: string): AppDomSelectorElement | undefined {
+	return sessionState.sessions.find((x) => x.id === sessionId)?.autoSendDomElement
+}
+
+function autoSendIsFresh(s: Session | undefined): boolean {
+	return !!s?.autoSendDraftAt && Date.now() - s.autoSendDraftAt < AUTO_SEND_TTL_MS
+}
+
+// Whether a claim would be honoured, without consuming it. The composer asks
+// before deciding to stay empty: suppressing the text for an intent that then
+// goes stale would leave the prompt neither sent nor shown, and the composer's
+// own empty-draft write would erase it from the record.
+export function peekSessionAutoSend(sessionId: string): boolean {
+	return autoSendIsFresh(sessionState.sessions.find((x) => x.id === sessionId))
+}
+
+// Claim the auto-send intent, clearing it so a remount (or a second wrapper for
+// the same session) cannot fire the same prompt twice. A stale claim is dropped
+// rather than honoured, but still cleared — it has no other consumer.
+export function takeSessionAutoSend(sessionId: string): boolean {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s?.autoSendDraftAt) return false
+	const fresh = autoSendIsFresh(s)
+	delete s.autoSendDraftAt
+	delete s.autoSendDomElement
+	persistTouched(s)
+	return fresh
+}
+
 // Persist a session on a genuine user edit, promoting an in-memory-only
 // (transient) pending session to a durable IndexedDB record on first touch.
-// Non-touch writers (runtime chatId seeding, unread watermark) call putSession
-// directly, so an untouched draft stays in memory and vanishes on reload.
+// Non-touch writers (runtime chatId writes via patchStoredSessionChatId, the
+// unread watermark via putSession) persist directly, so an untouched draft
+// stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
+	s.lastActivityAt = Date.now()
+	// Stored only by its first send (materializeTransient): stored earlier, a reload would
+	// reopen it onto an item that was never saved.
+	if (s.transient && s.untilStarted) return
 	if (s.transient) delete s.transient
 	void putSession(s)
+}
+
+// When the session was last used. Pre-dates-the-field records report their
+// creation time, which is the earliest activity they could have had.
+export function sessionLastActivityAt(s: Session): number {
+	return s.lastActivityAt ?? s.createdAt
+}
+
+/** The ungrouped sidebar's sort key: the last turn start or end. A session that never ran a
+ * turn (an unsent draft, a record from before the field) sorts by creation, since its last
+ * activity moves on the very touches this key ignores. */
+export function sessionLastStateChangeAt(s: Session): number {
+	return s.lastStateChangeAt ?? s.createdAt
+}
+
+/** Stamps a turn starting or ending. A turn is a use of the session, so it is a touch too. */
+export function markSessionStateChanged(id: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.lastStateChangeAt = Date.now()
+	persistTouched(s)
+}
+
+/** A turn another tab ran: the driving tab persisted the stamp, so this tab only re-sorts.
+ * Writing here would put this tab's stale copy of the whole record (title, tabs, committed
+ * workspace) over the driver's; carrying the stamp in memory also keeps any later write
+ * from this tab from rolling it back. */
+export function noteRemoteStateChange(id: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (s) s.lastStateChangeAt = Date.now()
 }
 
 // Sessions whose record has been removed from IndexedDB. Ids come from createLongHash
@@ -370,18 +542,26 @@ export function __resetDeletedSessionIdsForTesting(): void {
 // The one way to remove a session's record. Tombstones BEFORE awaiting the delete so a
 // putSession racing this transaction cannot commit its write behind it — a direct
 // db.delete elsewhere would silently reopen that window.
-async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Promise<void> {
-	deletedSessionIds.add(id)
+async function deleteSessionRow(
+	db: IDBPDatabase<SessionSchema>,
+	id: string,
+	// The retention sweep passes false. It holds the in-use lock exclusively, so no write can
+	// race its delete, and the backup may still hold the session: a tombstone would refuse the
+	// restore that is meant to bring it back.
+	tombstone = true
+): Promise<void> {
+	if (tombstone) deletedSessionIds.add(id)
 	await db.delete('sessions', id)
 }
 
-// The one way to write a session's record, and the other half of the invariant above:
-// every caller reaches its write across an await — putSession on the DB handle, the
-// reconcile and hydrate passes on a getAll() snapshot that an interleaved delete
-// invalidates — so the tombstone has to be consulted here, not only at the entry points.
+// The way a session record is written (patchStoredSessionChatId is the one
+// exception: it re-checks the tombstone inline to stay inside its own
+// transaction). Every caller reaches its write across an await, so the
+// tombstone has to be consulted here, not only at the entry points.
 async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
 	if (deletedSessionIds.has(s.id)) return
 	await db.put('sessions', s)
+	markSessionDirty(s.id, undefined, emailOfScopedKey(SESSIONS_DB, db.name))
 }
 
 // Write-behind a single session record. Transient sessions are in-memory only
@@ -394,8 +574,8 @@ export async function putSession(s: Session): Promise<void> {
 	if (s.transient) return
 	// A record removed because its workspace is gone had its files and artifacts GC'd with
 	// it, so writing it back resurrects an empty husk. Callers reach here holding a
-	// reference captured before the delete — the chat-id seeder awaits mid-loop,
-	// find-then-write callers race the re-hydrate.
+	// reference captured before the delete: find-then-write callers race the
+	// re-hydrate, and any writer that awaits between the find and the write.
 	if (deletedSessionIds.has(s.id)) return
 	// Separately, keep a UI action (e.g. unarchive) from persisting into a workspace that
 	// has gone unavailable but not yet reconciled. `userWorkspaces` answers that only for
@@ -540,6 +720,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
 				void deleteArtifactsForSession(s.id)
+				deleteSessionHandEdits(s.id)
 				deletedIds.add(s.id)
 				continue
 			}
@@ -562,6 +743,242 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 	// selected" instead of a ghost.
 	if (sessionState.currentSessionId && deletedIds.has(sessionState.currentSessionId)) {
 		sessionState.currentSessionId = undefined
+	}
+}
+
+// --- Retention ---
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Past the retention by this browser's clock, counted from the later of the session's last
+// activity and its restore here: a restored session carries the backup's time, the storage's
+// clock, so without `restoredAt` a browser running ahead would delete what it just brought
+// back. Archived sessions count like any other.
+function isSessionExpired(
+	session: Session,
+	retentionDays: number | undefined,
+	now: number
+): boolean {
+	if (retentionDays === undefined || !(retentionDays >= 1)) return false
+	const since = Math.max(sessionLastActivityAt(session), session.restoredAt ?? 0)
+	return since < now - retentionDays * DAY_MS
+}
+
+// What the server last told this browser, and when. It decides whether the sweep asks again,
+// and nothing else: a retention raised or cleared since must not delete a session, and a
+// persisted unsent draft has no backup to come back from.
+const RETENTION_DAYS = 'windmill_sessions_retention_days'
+
+// Nothing remembered for longer than this is trusted even to say there is nothing to ask
+// about, so a retention lowered while this browser saw nothing expiring still takes effect.
+const RETENTION_STALE_MS = 24 * 60 * 60 * 1000
+
+interface RememberedRetention {
+	at: number
+	days: Record<string, number>
+}
+
+function rememberRetention(email: string, days: Record<string, number>): void {
+	try {
+		const remembered: RememberedRetention = { at: Date.now(), days }
+		localStorage.setItem(scopedKeyFor(RETENTION_DAYS, email), JSON.stringify(remembered))
+	} catch {}
+}
+
+function rememberedRetention(email: string): RememberedRetention | undefined {
+	try {
+		const stored = localStorage.getItem(scopedKeyFor(RETENTION_DAYS, email))
+		const remembered = stored ? JSON.parse(stored) : undefined
+		if (remembered?.days && typeof remembered.days === 'object') {
+			return remembered as RememberedRetention
+		}
+	} catch {}
+	return undefined
+}
+
+// How long the sweep waits for the retention of the workspaces it is about to sweep in. The
+// tab reads its sessions after the sweep, so a request nothing answers costs the list this
+// much and no more, and only in a tab that had something to delete.
+const RETENTION_ASK_MS = 5000
+
+// The retention the server gives now, or undefined when this browser could not be told: a
+// session is deleted only on an answer of the moment.
+async function askRetention(workspaceIds: string[]): Promise<Record<string, number> | undefined> {
+	try {
+		return await Promise.race([
+			WorkspaceService.getSessionWorkspaceRetention({
+				requestBody: { workspace_ids: workspaceIds }
+			}),
+			new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), RETENTION_ASK_MS))
+		])
+	} catch (e) {
+		console.error('Failed to read the AI session retention of the workspaces', e)
+		return undefined
+	}
+}
+
+// One key per session this browser swept whose pieces are not all deleted yet.
+const RETENTION_PENDING = 'windmill_sessions_retention_pending'
+
+function retentionPendingPrefix(email: string): string {
+	return `${scopedKeyFor(RETENTION_PENDING, email)}::`
+}
+
+function forgetRetentionPending(email: string, id: string): void {
+	try {
+		localStorage.removeItem(retentionPendingPrefix(email) + id)
+	} catch {}
+}
+
+function retentionPending(email: string): string[] {
+	const prefix = retentionPendingPrefix(email)
+	const ids: string[] = []
+	try {
+		for (let i = 0; i < localStorage.length; i++) {
+			const key = localStorage.key(i)
+			if (key?.startsWith(prefix)) ids.push(key.slice(prefix.length))
+		}
+	} catch {}
+	return ids
+}
+
+function webLocks(): LockManager | undefined {
+	return typeof navigator === 'undefined' ? undefined : (navigator as { locks?: LockManager }).locks
+}
+
+// Held, shared, by every tab from before it reads the user's sessions until it stops using
+// them: the stores are shared, and each tab keeps copies of the sessions in memory, so the
+// sweep deletes only while holding this exclusively.
+function sessionsInUseLockName(email: string): string {
+	return `${sessionsLockName(email)}::in-use`
+}
+
+interface InUseHold {
+	email: string
+	released: boolean
+	release?: () => void
+	done?: Promise<unknown>
+}
+
+let inUse: InUseHold | undefined
+
+// Resolves once the hold is granted, which waits for the sweep another tab is running. A
+// request the browser refuses (a document that is not fully active) resolves it too, without
+// a hold: the tab reads its sessions unguarded, as it does where Web Locks do not exist, and
+// never sits waiting for a grant that is not coming.
+async function holdSessionsInUse(email: string): Promise<void> {
+	const locks = webLocks()
+	if (!locks || inUse?.email === email) return
+	await releaseSessionsInUse()
+	const hold: InUseHold = { email, released: false }
+	inUse = hold
+	await new Promise<void>((granted) => {
+		hold.done = locks
+			.request(sessionsInUseLockName(email), { mode: 'shared' }, () => {
+				granted()
+				return hold.released ? undefined : new Promise<void>((resolve) => (hold.release = resolve))
+			})
+			.catch((e) => {
+				console.error('Could not hold the AI sessions this tab is reading', e)
+				if (inUse === hold) inUse = undefined
+				granted()
+			})
+	})
+}
+
+// Resolves once the hold is let go of, so an exclusive request made next can be granted.
+async function releaseSessionsInUse(): Promise<void> {
+	const hold = inUse
+	if (!hold) return
+	inUse = undefined
+	hold.released = true
+	hold.release?.()
+	await hold.done?.catch(() => {})
+}
+
+// Deletes one expired session: its record first, so nothing plans a push for it afterwards,
+// then its pieces. The pending key, written before the record and removed once every piece
+// is gone, is what a later sweep finishes a failed deletion from.
+async function sweepSession(
+	db: IDBPDatabase<SessionSchema>,
+	id: string,
+	email: string
+): Promise<void> {
+	try {
+		localStorage.setItem(retentionPendingPrefix(email) + id, '1')
+	} catch {
+		return
+	}
+	await deleteSessionRow(db, id, false)
+	await sessionSwept(id, email)
+	if (await deleteSessionPieces(id, email)) forgetRetentionPending(email, id)
+}
+
+// Chats with their images, artifacts and attached files. False when any of them could not
+// be deleted.
+async function deleteSessionPieces(id: string, email: string): Promise<boolean> {
+	const chats = await deleteSessionChats(id, email)
+	const artifacts = await deleteArtifactsForSession(id, email)
+	const files = await deleteItemsForSession(id)
+	return chats && artifacts && files
+}
+
+// The workspace a session's retention comes from: persisted unsent drafts count by the one
+// they are waiting on.
+function retentionWorkspaceOf(session: Session): string | undefined {
+	return session.workspace_id ?? session.pending_workspace_id
+}
+
+// Deletes this browser's copies of the sessions past their workspace's retention, and the
+// pieces of the ones an earlier sweep could not finish (docs/ai-session-backups.md). Deleting
+// one record at a time, without re-reading it, is safe only under the in-use lock held
+// exclusively, granted exactly when no tab has the sessions loaded — hence the call site.
+async function sweepExpiredSessions(email: string): Promise<void> {
+	const locks = webLocks()
+	if (!locks || inUse) return
+	try {
+		await locks.request(sessionsInUseLockName(email), { ifAvailable: true }, async (idle) => {
+			if (!idle) return
+			// The flush and the restore run under this one: neither must see a session half
+			// deleted, or plan a push from it.
+			await locks.request(sessionsLockName(email), { ifAvailable: true }, async (mirror) => {
+				if (!mirror) return
+				const db = await sessionsDb.whenReady()
+				if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return
+				for (const id of retentionPending(email)) {
+					// A restore brought the session back: its pieces are that copy's now.
+					const back = (await db.getKey('sessions', id)) !== undefined
+					if (back || (await deleteSessionPieces(id, email))) forgetRetentionPending(email, id)
+				}
+				const stored = await db.getAll('sessions')
+				const remembered = rememberedRetention(email)
+				const now = Date.now()
+				const workspaces = new Set<string>()
+				let expired = false
+				for (const s of stored) {
+					const ws = retentionWorkspaceOf(s)
+					if (ws === undefined) continue
+					workspaces.add(ws)
+					expired ||= isSessionExpired(s, remembered?.days[ws], now)
+				}
+				// Nothing to sweep in, or nothing old enough by an answer recent enough to be
+				// believed about that: this load costs no request.
+				const fresh = remembered !== undefined && now - remembered.at < RETENTION_STALE_MS
+				if (workspaces.size === 0 || (!expired && fresh)) return
+				const retention = await askRetention([...workspaces])
+				// Asked and not told: the sessions wait for the next load rather than go on an
+				// answer this browser does not have.
+				if (!retention) return
+				rememberRetention(email, retention)
+				for (const s of stored) {
+					const ws = retentionWorkspaceOf(s)
+					if (ws === undefined || !isSessionExpired(s, retention[ws], Date.now())) continue
+					await sweepSession(db, s.id, email)
+				}
+			})
+		})
+	} catch (e) {
+		console.error('Failed to sweep the sessions past their retention', e)
 	}
 }
 
@@ -646,6 +1063,15 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 // user's sessions never bleed into another.
 onUserChange(async (email, prevEmail) => {
 	if (!BROWSER) return
+	// The retention sweep runs here and nowhere else: this tab holds none of the new user's
+	// sessions yet, and letting go of the hold it had leaves it holding none of anyone's. The
+	// new hold is taken before the sessions are read, so another tab's sweep never deletes
+	// what this tab is about to load, and one already running is waited for.
+	await releaseSessionsInUse()
+	if (email) {
+		await sweepExpiredSessions(email)
+		await holdSessionsInUse(email)
+	}
 	await hydrateSessions({ dropTransients: prevEmail !== email })
 	// onUserChange also fires at registration time, before the email resolves —
 	// that hydration is an empty no-op and must not clear the loading state.
@@ -657,9 +1083,25 @@ onUserChange(async (email, prevEmail) => {
 	void reconcileSessionsLifecycle()
 })
 
+// The unsent session Home's composer holds. Kept apart from currentSessionId, the
+// session open on the sessions page: which draft Home shows says nothing about which
+// session the user last opened. `requests` counts asks to show another one, which
+// remount Home's composer when Home is already on screen.
+export const homeDraft = $state<{
+	id: string | undefined
+	requests: number
+	focus: boolean
+	flash: boolean
+}>({
+	id: undefined,
+	requests: 0,
+	focus: false,
+	flash: false
+})
+
 // Workspace switches do not reload or clear the active session. The sidebar
 // filters the single loaded session list by workspace_root_id, while the current
-// chat survives workspace switches.
+// chat survives workspace switches. Home's draft follows the switch instead.
 if (BROWSER) {
 	let lastWorkspace: string | undefined
 	let initialized = false
@@ -667,72 +1109,117 @@ if (BROWSER) {
 		const isSwitch = initialized && ws !== lastWorkspace
 		initialized = true
 		lastWorkspace = ws
+		if (isSwitch) followHomeDraft()
 		if (isSwitch && Date.now() - lastReconcileAt > RECONCILE_THROTTLE_MS) {
 			void reconcileSessionsLifecycle()
 		}
 	})
 }
 
-export function findSessionByName(name: string): Session | undefined {
-	return sessionState.sessions.find((s) => s.name === name)
-}
-
-// Bumped to ask the active session's composer to re-focus even when
-// `currentSessionId` doesn't change — the `+` reuse path lands you back on the
-// untouched draft you're already viewing, so nothing navigates, but the click
-// should still drop the cursor in the composer. SessionWrapper's focus effect
-// depends on `nonce`.
-export const composerFocusRequest = $state<{ nonce: number }>({ nonce: 0 })
-export function requestComposerFocus(): void {
-	composerFocusRequest.nonce++
-}
-
-// An untouched in-memory blank that `+` may reuse/discard. `draftPrompt ===
-// undefined` (never edited), not falsiness: a draft typed then erased to '' still
-// has a pending flush and is a real session, so it must survive both. Every other
-// touch clears `transient` synchronously, so only the draft prompt needs checking.
-function isReusableBlank(s: Session): boolean {
-	return !!s.transient && s.draftPrompt === undefined
-}
-
-export function createSession(): Session {
-	// Reuse an existing untouched draft from the active family rather than pile a
-	// blank entry on every `+`, so several pending sessions can still be built up
-	// in parallel, one touch at a time. A cross-family leftover blank is dropped
-	// instead of reused (reusing it would act on that family).
-	const reusable = sessionState.sessions.find(
-		(s) => isReusableBlank(s) && sessionInCurrentFamily(s)
-	)
-	if (reusable) {
-		sessionState.currentSessionId = reusable.id
-		// Reusing an already-active draft doesn't change currentSessionId, so ask
-		// the composer to focus explicitly — the caller still navigates/redirects.
-		requestComposerFocus()
-		return reusable
+// Home's draft acts on the workspace the page header names, so a switch to another
+// workspace of its family takes the draft along. A switch to another family leaves
+// it where it was: Home shows that family's own draft. A draft already sending stays
+// too: its send commits the workspace it started in, but only after the pre-flight.
+// Not a touch, so the draft's last activity stays when the user last worked on it.
+function followHomeDraft(): void {
+	const s = homeDraft.id ? sessionState.sessions.find((x) => x.id === homeDraft.id) : undefined
+	const ws = get(workspaceStore)
+	if (!s || !ws || s.workspace_id || sendUnderWay(s.id)) return
+	if (s.pending_workspace_id === ws && !s.pending_fork) return
+	if (s.pending_workspace_id && workspaceRootId(ws, get(userWorkspaces)) !== sessionRootId(s)) {
+		return
 	}
-	sessionState.sessions = sessionState.sessions.filter((s) => !isReusableBlank(s))
-	const existingNumbers = sessionState.sessions
-		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
-		.map((n) => (n ? parseInt(n, 10) : 0))
-	const next = (existingNumbers.length ? Math.max(...existingNumbers) : 0) + 1
-	// Start in the workspace you're in. The one exception: a root you can't
-	// deploy to (locked, no bypass) steers to its dev, since a session there
-	// couldn't edit anything. The picker lets you switch.
-	const currentWs = get(workspaceStore)
-	const devOfCurrent = currentWs
-		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
-		: undefined
-	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
-	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
-	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
-	// editable) when one exists; the picker still lets the user switch back once rules resolve.
-	const rulesLoadedForCurrent =
-		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
-	const canDeployHere =
-		rulesLoadedForCurrent &&
-		(!isRuleActive('DisableDirectDeployment') ||
-			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
-	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
+	s.pending_workspace_id = ws
+	s.pending_fork = undefined
+	void putSession(s)
+}
+
+/** Called by Home's composer for the draft it shows, which then acts on the header's workspace. */
+export function holdHomeDraft(id: string): void {
+	homeDraft.id = id
+	followHomeDraft()
+}
+
+/** Ask Home to show `id`, whether its composer takes focus as it mounts, and whether it then
+ * plays its accent outline. */
+export function showOnHome(id: string, opts?: { focus?: boolean; flash?: boolean }): void {
+	homeDraft.id = id
+	homeDraft.focus = opts?.focus ?? false
+	homeDraft.flash = opts?.flash ?? false
+	homeDraft.requests++
+}
+
+/** Whether Home's composer should take focus now that it is on screen. Read once. */
+export function takeHomeDraftFocus(): boolean {
+	const focus = homeDraft.focus
+	homeDraft.focus = false
+	return focus
+}
+
+/** Whether Home's composer should play its accent outline now that it is on screen. Read once. */
+export function takeHomeDraftFlash(): boolean {
+	const flash = homeDraft.flash
+	homeDraft.flash = false
+	return flash
+}
+
+export function sessionPageHref(id: string): string {
+	return `/sessions?session=${encodeURIComponent(id)}`
+}
+
+// An untouched in-memory blank that a new session may reuse and newTransientSession
+// may silently drop. `draftPrompt === undefined` (never edited), not falsiness: a
+// draft typed then erased to '' still has a pending flush and is a real session.
+// Every other touch clears `transient` synchronously, so only the draft prompt
+// needs checking.
+// An `untilStarted` session is not blank: reused it would reopen its item, and dropped
+// while on screen it would leave the page showing a session that is gone.
+function isDiscardableDraft(s: Session): boolean {
+	return !!s.transient && s.draftPrompt === undefined && !s.untilStarted
+}
+
+// The family's untouched blank, reused rather than piling a blank entry on every
+// new session, so several pending sessions can still be built up in parallel, one
+// touch at a time. A cross-family leftover blank is dropped instead of reused
+// (reusing it would act on that family).
+function reusableBlank(): Session | undefined {
+	return sessionState.sessions.find((s) => isDiscardableDraft(s) && sessionInCurrentFamily(s))
+}
+
+/** A session for a hand-off to open on the sessions page, selected. */
+export function createSession(): Session {
+	const session = reusableBlank() ?? newTransientSession()
+	// The blank may be the one Home holds. The hand-off gives it an item and a workspace of its
+	// own, so Home lets go of it: Home would otherwise show it, and move it with the header.
+	if (homeDraft.id === session.id) homeDraft.id = undefined
+	sessionState.currentSessionId = session.id
+	return session
+}
+
+// Told which never-touched drafts were dropped, so their runtimes go with them. Set by
+// sessionRuntime, which imports this module and so cannot be imported back. Home builds a
+// runtime for its draft on every mount, so a dropped draft would otherwise leave its
+// manager and its history database handle open.
+let onDraftsDiscarded: ((ids: string[]) => void) | undefined
+export function setDraftsDiscardedHandler(handler: (ids: string[]) => void): void {
+	onDraftsDiscarded = handler
+}
+
+// Whether a session's turn is under way, set by sessionRuntime the same way. A send commits
+// the workspace only once its pre-flight is through (the chat's ready gate, the attached files'
+// upkeep), so until then a draft whose first turn has started still reads as unsent.
+let sendUnderWay: (id: string) => boolean = () => false
+export function setSendUnderWayCheck(check: (id: string) => boolean): void {
+	sendUnderWay = check
+}
+
+function newTransientSession(): Session {
+	const discarded = sessionState.sessions.filter(isDiscardableDraft).map((s) => s.id)
+	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
+	if (discarded.length > 0) onDraftsDiscarded?.(discarded)
+	// Start in the workspace you're in, a locked production root included: the session is then
+	// read-only, and points the user to a new session in the dev workspace for changes.
+	const pending = get(workspaceStore)
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).
@@ -740,7 +1227,6 @@ export function createSession(): Session {
 	const summary = `${adj.charAt(0).toUpperCase() + adj.slice(1)} session`
 	const session: Session = {
 		id: createLongHash(),
-		name: `session-${next}`,
 		summary,
 		summarySource: 'placeholder',
 		pending_workspace_id: pending && pending.length > 0 ? pending : undefined,
@@ -748,10 +1234,41 @@ export function createSession(): Session {
 		transient: true
 	}
 	sessionState.sessions = [session, ...sessionState.sessions]
-	sessionState.currentSessionId = session.id
 	// Transient until first touch: no DB record yet. Persisting is deferred to the
 	// first user edit (the mutation helpers below route through persistTouched).
 	return session
+}
+
+/** Whether a session opens in Home's composer rather than on a page of its own: unsent, not
+ * archived (its page holds the way back), and neither about an item (it carries preview tabs,
+ * which need the session page's panel), armed to send itself on arrival, nor already sending. */
+export function opensOnHome(s: Session): boolean {
+	return (
+		!s.workspace_id &&
+		!s.archived &&
+		!s.previewTabs?.length &&
+		!autoSendIsFresh(s) &&
+		!sendUnderWay(s.id)
+	)
+}
+
+/** The unsent session Home's composer shows: the one Home last held, else the family's
+ * most recent stored draft, else a blank. */
+export function homeStarterSession(): Session {
+	const unsent = (s: Session) => opensOnHome(s) && sessionInCurrentFamily(s)
+	const held = sessionState.sessions.find((s) => s.id === homeDraft.id)
+	if (held && unsent(held)) return held
+	// Stored but never sent: a draft the user typed or attached something in. Leaving it
+	// would strand it in the session list.
+	const touched = sessionState.sessions
+		.filter((s) => unsent(s) && !s.transient)
+		.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))[0]
+	return touched ?? blankHomeDraft()
+}
+
+/** A blank for Home's composer: the family's untouched one if any, else a new one. */
+export function blankHomeDraft(): Session {
+	return reusableBlank() ?? newTransientSession()
 }
 
 // Promote an in-memory transient session to a persisted IndexedDB record.
@@ -762,6 +1279,7 @@ export function materializeTransient(id: string): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !s.transient) return
 	delete s.transient
+	delete s.untilStarted
 	void putSession(s)
 }
 
@@ -775,14 +1293,21 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	if (changed) persistTouched(s)
 }
 
-// Records the user's intent to create a new fork without firing the API
-// call yet. Routing/scope stay on the parent workspace until commit.
-export function setSessionPendingFork(id: string, fork: PendingFork) {
+// Keep a just-created session in memory until the user starts it (see `untilStarted`).
+export function holdSessionUntilStarted(id: string) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (s?.transient) s.untilStarted = true
+}
+
+// Park a just-created session on a workspace. Deliberately does not persist a
+// still-transient draft: picking where it will live is part of creating it, not a
+// user touch, so an unused draft still vanishes on reload (see `transient`).
+export function setNewSessionWorkspace(id: string, workspace_id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
-	s.pending_fork = { ...fork }
-	s.pending_workspace_id = fork.parent_workspace_id
-	persistTouched(s)
+	s.pending_workspace_id = workspace_id
+	s.pending_fork = undefined
+	if (!s.transient) persistTouched(s)
 }
 
 // One-shot commit: locks in workspace_id at first user-message send.
@@ -818,7 +1343,10 @@ export async function commitSessionWorkspace(
 				`Community edition is limited to ${CE_MAX_NON_ADMIN_WORKSPACES + 1} workspaces — archive a workspace or pick one to run in`
 			)
 		}
-		const newId = await materializeFork(fork)
+		const newId = await materializeFork(fork, (creation_id) => {
+			s.pending_fork = { ...fork, creation_id }
+			void putSession(s)
+		})
 		if (!newId) {
 			// Real failure (not a recovered duplicate). Drop the pending
 			// fork so the session falls through to the workspace-pick
@@ -850,12 +1378,16 @@ export async function commitSessionWorkspace(
 	// The draft prompt has been consumed as the first message.
 	delete s.draftPrompt
 	await putSession(s)
-	// A picked workspace can itself be an existing fork — classify by root.
-	logFeatureUsage('ai_session', 'created', {
-		key: ws === s.workspace_root_id ? 'root' : 'fork',
-		entityId: s.id,
-		workspace: ws
-	})
+	// A picked workspace can itself be an existing fork — classify by root. A read-only root is
+	// counted apart, to see whether production sessions are used.
+	const sessionId = s.id
+	void isReadOnlySessionWorkspace(ws).then((readOnly) =>
+		logFeatureUsage('ai_session', 'created', {
+			key: readOnly ? 'read_only' : ws === s.workspace_root_id ? 'root' : 'fork',
+			entityId: sessionId,
+			workspace: ws
+		})
+	)
 	// The global workspaceStore is intentionally left untouched (see the fork
 	// branch above): the session chat reads its committed workspace through the
 	// manager's workspace resolver, not the active workspaceStore.
@@ -894,6 +1426,31 @@ export function setSessionPreviewSize(id: string, size: number): void {
 	persistTouched(s)
 }
 
+// Persist the session's Use or Build choice (a touch). Plan is left out: a reload ends the
+// planning round, and the session reopens in the mode it was entered from.
+export function setSessionWorkMode(id: string, mode: AIWorkMode): void {
+	if (mode === AIWorkMode.PLAN) return
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || (s.workMode ?? AIWorkMode.BUILD) === mode) return
+	s.workMode = mode
+	persistTouched(s)
+}
+
+/** Not a touch: picking a scope on Home's untouched draft must not keep it in the sidebar. */
+export function setSessionWorkingIn(
+	id: string,
+	roots: readonly string[] | undefined,
+	source: 'preset' | 'manual' | undefined
+): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	if (roots) s.workingIn = [...new Set(roots)].sort()
+	else delete s.workingIn
+	if (source) s.workingInSource = source
+	else delete s.workingInSource
+	if (!s.transient) void putSession(s)
+}
+
 export function selectSession(id: string) {
 	sessionState.currentSessionId = id
 }
@@ -924,30 +1481,73 @@ export function setGeneratedSessionSummary(
 	return true
 }
 
-// Create a new fork workspace via the API, refresh the user-workspaces
-// store, and return the new fork id. Used by both the first-send commit
-// path (commitSessionWorkspace) and the move-session-to-a-new-fork path
-// in the unavailable-session banner. Returns undefined on failure (a
-// user-facing toast is already emitted).
+// A resumed attempt's polls fail for good once it is gone, so they are not waited out as long as a
+// fresh creation's, whose failures a rolling deploy clears; a resume cut short by such a deploy
+// falls back to requesting the fork, which then waits for it below.
+const RESUMED_FORK_MAX_FAILING_MS = 10_000
+// How long a fork another request is still creating is waited for.
+const IN_FLIGHT_FORK_WAIT_MS = 3 * 60 * 1000
+
+// Make sure the fork exists, refresh the user-workspaces store, and return
+// the fork id. Used by both the first-send commit path
+// (commitSessionWorkspace) and the move-session-to-a-new-fork path in the
+// unavailable-session banner. Returns undefined on failure (a user-facing
+// toast is already emitted).
 //
-// Self-heal: if `fork.id` is already present in the user-workspaces
-// store, the previous create succeeded (whose response we apparently
-// lost). Adopt it silently instead of re-POSTing — the API would
-// otherwise reject with workspace_pkey. Likewise, if the API returns a
-// duplicate-key error we refresh the store and adopt the existing row.
-export async function materializeFork(fork: PendingFork): Promise<string | undefined> {
-	if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
+// Self-heal: a fork already present in the user-workspaces store was
+// created by an earlier request whose response was lost, and is adopted
+// without requesting it again; so is one the API reports as existing. A
+// fork whose `creation_id` is set waits for that creation (started before a
+// reload), and one the API reports as still being created, by a creation
+// whose id was lost, is waited for until it shows up among the user's
+// workspaces. `onCreationStarted` receives the id of a new creation.
+export async function materializeFork(
+	fork: PendingFork,
+	onCreationStarted?: (creationId: string) => void
+): Promise<string | undefined> {
+	return (await materializeForkOutcome(fork, onCreationStarted))?.id
+}
+
+/**
+ * `materializeFork`, also telling whether this call created the fork. `created: false` is a
+ * fork that already existed under that id, whose drafts the clone never wrote.
+ */
+export async function materializeForkOutcome(
+	fork: PendingFork,
+	onCreationStarted?: (creationId: string) => void
+): Promise<{ id: string; created: boolean } | undefined> {
+	if (get(userWorkspaces).some((w) => w.id === fork.id)) return { id: fork.id, created: false }
 	try {
-		await WorkspaceService.createWorkspaceFork({
-			workspace: fork.parent_workspace_id,
-			requestBody: { id: fork.id, name: fork.name }
-		})
+		let resumed = false
+		if (fork.creation_id) {
+			// An attempt that failed or is gone is requested again below.
+			resumed = await waitForForkCreation(
+				fork.parent_workspace_id,
+				fork.creation_id,
+				undefined,
+				RESUMED_FORK_MAX_FAILING_MS
+			).then(
+				() => true,
+				() => false
+			)
+		}
+		if (!resumed) {
+			await createWorkspaceForkAndWait(
+				fork.parent_workspace_id,
+				{ id: fork.id, name: fork.name },
+				{ onCreationStarted }
+			)
+		}
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		sendUserToast(`Created fork ${fork.name}`)
-		return fork.id
+		return { id: fork.id, created: true }
 	} catch (e: any) {
 		const msg = String(e?.body ?? e?.message ?? e)
-		if (/workspace_pkey|duplicate key/i.test(msg)) {
+		if (msg.includes('is already being created') && (await forkJoinedWorkspaces(fork.id))) {
+			sendUserToast(`Created fork ${fork.name}`)
+			return { id: fork.id, created: false }
+		}
+		if (/workspace_pkey|duplicate key|already exists/i.test(msg)) {
 			// Self-heal: the create likely already succeeded. Refresh + adopt the
 			// existing row. Guard this refresh — a second network failure here must
 			// NOT rethrow out of materializeFork (callers rely on the
@@ -955,7 +1555,8 @@ export async function materializeFork(fork: PendingFork): Promise<string | undef
 			// it and propagate up through commitSessionWorkspace/beforeSend).
 			try {
 				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-				if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
+				if (get(userWorkspaces).some((w) => w.id === fork.id))
+					return { id: fork.id, created: false }
 			} catch (refreshErr) {
 				console.error('Failed to refresh workspaces during fork self-heal', refreshErr)
 			}
@@ -963,6 +1564,20 @@ export async function materializeFork(fork: PendingFork): Promise<string | undef
 		sendUserToast(`Could not create fork: ${msg}`, true)
 		return undefined
 	}
+}
+
+// Whether the fork shows up among the user's workspaces within IN_FLIGHT_FORK_WAIT_MS.
+async function forkJoinedWorkspaces(forkId: string): Promise<boolean> {
+	const deadline = Date.now() + IN_FLIGHT_FORK_WAIT_MS
+	while (Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 1500))
+		const listed = await WorkspaceService.listUserWorkspaces().catch(() => undefined)
+		if (listed?.workspaces?.some((w) => w.id === forkId)) {
+			usersWorkspaceStore.set(listed)
+			return true
+		}
+	}
+	return false
 }
 
 // Re-assign a committed session to a different workspace. Used to rescue
@@ -974,11 +1589,36 @@ export async function moveSessionToWorkspace(id: string, newWorkspaceId: string)
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
 	if (s.workspace_id === newWorkspaceId) return
+	if (s.workspace_id !== undefined) s.moves = (s.moves ?? 0) + 1
 	s.workspace_id = newWorkspaceId
 	delete s.pending_workspace_id
 	delete s.pending_fork
 	s.workspace_root_id = workspaceRootId(newWorkspaceId, get(userWorkspaces)) ?? newWorkspaceId
 	await putSession(s)
+}
+
+/**
+ * Adopt the workspace another tab moved this session to. A tab acting on the session's
+ * previous workspace would otherwise keep writing drafts and running jobs there.
+ */
+export async function adoptStoredSessionWorkspace(id: string): Promise<boolean> {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!BROWSER || !s || s.transient) return false
+	const db = await sessionsDb.whenReady()
+	const stored = await db?.get('sessions', id).catch(() => undefined)
+	if (!stored?.workspace_id || stored.workspace_id === s.workspace_id) return false
+	// A fork created by that tab is missing from this tab's list, which would read the
+	// session's workspace as gone.
+	if (!get(userWorkspaces).some((w) => w.id === stored.workspace_id)) {
+		const listed = await WorkspaceService.listUserWorkspaces().catch(() => undefined)
+		if (listed) usersWorkspaceStore.set(listed)
+	}
+	s.workspace_id = stored.workspace_id
+	s.workspace_root_id = stored.workspace_root_id
+	s.moves = stored.moves
+	delete s.pending_workspace_id
+	delete s.pending_fork
+	return true
 }
 
 // Create a brand-new fork and re-assign a committed session to it. Used
@@ -1015,6 +1655,24 @@ export function setSessionArchived(id: string, archived: boolean) {
 	persistTouched(s)
 }
 
+// A counter rather than a flag: an inner teardown finishing must not reopen the
+// gate while an outer one is still running. Released in a finally, so a delete
+// that throws can't wedge it shut.
+let openSessionTeardowns = $state(0)
+
+export function isTearingDownOpenSession(): boolean {
+	return openSessionTeardowns > 0
+}
+
+export async function withOpenSessionTeardown<T>(run: () => Promise<T>): Promise<T> {
+	openSessionTeardowns++
+	try {
+		return await run()
+	} finally {
+		openSessionTeardowns--
+	}
+}
+
 export function deleteSession(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s) return
@@ -1023,6 +1681,7 @@ export function deleteSession(id: string) {
 	// a draft deleted inside the debounce window.
 	clearTimeout(draftPromptFlushHandles.get(id))
 	draftPromptFlushHandles.delete(id)
+	draftAttachments.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
@@ -1031,51 +1690,98 @@ export function deleteSession(id: string) {
 	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
 	void deleteArtifactsForSession(id)
+	deleteSessionHandEdits(id)
+	// Only a delete the user asked for takes the backup with it: the workspace-lifecycle
+	// removals above keep theirs, so a session dropped by a wrong reconcile can be restored.
+	markSessionRemoved(id, s.workspace_id)
 	logFeatureUsage('ai_session', 'deleted', { entityId: id, workspace: s.workspace_id })
+}
+
+// --- Session backup support (sessionMirror) ---
+
+export function isSessionTombstoned(id: string): boolean {
+	return deletedSessionIds.has(id)
+}
+
+// Every stored record of the named user, or undefined when the store is unavailable or
+// already serves someone else: the backup captures its user up front and must not follow
+// an in-place account switch.
+export async function readStoredSessions(email: string): Promise<Session[] | undefined> {
+	if (!BROWSER) return undefined
+	const db = await sessionsDb.whenReady()
+	if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return undefined
+	try {
+		return await db.getAll('sessions')
+	} catch (e) {
+		console.error('Failed to read sessions from IndexedDB', e)
+		return undefined
+	}
+}
+
+// Add restored records for sessions this browser does not have, and re-hydrate the list.
+// A record that exists, or was deleted here, is left alone: the local copy is the newer
+// one. Returns the ids written.
+export async function importSessions(records: Session[], email: string): Promise<string[]> {
+	if (!BROWSER) return []
+	const db = await sessionsDb.whenReady()
+	if (!db || db.name !== scopedKeyFor(SESSIONS_DB, email)) return []
+	const imported: string[] = []
+	try {
+		const tx = db.transaction('sessions', 'readwrite')
+		const existing = new Set((await tx.store.getAllKeys()).map(String))
+		const restoredAt = Date.now()
+		for (const r of records) {
+			if (existing.has(r.id) || deletedSessionIds.has(r.id)) continue
+			const record: Session = { ...r, restoredAt }
+			delete record.transient
+			delete record.workspace_root_id
+			ensureSessionRootId(record)
+			await tx.store.put(record)
+			imported.push(record.id)
+		}
+		await tx.done
+	} catch (e) {
+		console.error('Failed to import sessions', e)
+		return []
+	}
+	if (imported.length > 0) await hydrateSessions()
+	return imported
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (s && s.chatId !== chatId) {
 		s.chatId = chatId
-		void putSession(s)
+		void patchStoredSessionChatId(s, chatId)
 	}
 }
 
-let seedPromise: Promise<void> | undefined
-
-// One-shot pairing of the user's two most-recently-modified saved chats with
-// the two seeded sessions. Idempotent across all callers / SessionWrappers.
-export function ensureChatIdsSeeded(historyManager: HistoryManager): Promise<void> {
-	if (!seedPromise) {
-		seedPromise = (async () => {
-			try {
-				await historyManager.init()
-				// Read directly from storage so we see chats regardless of this manager's
-				// own session-scope filter (getPastChats would hide already-tagged ones).
-				const pastChats = historyManager.getAllSavedChats()
-				const untagged = pastChats
-					.filter((c) => !c.sessionId)
-					.sort((a, b) => b.lastModified - a.lastModified)
-				// Only seed pre-existing (persisted) sessions. Transient
-				// sessions are freshly created via the "+" button and must
-				// start with an empty chat — if the seed catches one (e.g. the
-				// user clicks "New session" before this one-shot runs), it
-				// would graft a previous discussion onto the new session.
-				const seedable = sessionState.sessions.filter((s) => !s.transient)
-				for (let i = 0; i < Math.min(seedable.length, untagged.length); i++) {
-					if (!seedable[i].chatId) {
-						const chatId = untagged[i].id
-						const sessionId = seedable[i].id
-						seedable[i].chatId = chatId
-						await historyManager.tagChatWithSession(chatId, sessionId)
-						void putSession(seedable[i])
-					}
-				}
-			} catch (e) {
-				console.error('Failed to seed chat ids from history', e)
-			}
-		})()
+// Persists the pointer through the STORED row, not this tab's copy: another
+// tab may have written newer fields (summary, tabs, archive state) since this
+// tab last read the record, and a whole-object put would roll them back — a
+// watcher adopting the driver's rotation reaches here with exactly that copy.
+async function patchStoredSessionChatId(s: Session, chatId: string): Promise<void> {
+	if (!BROWSER || s.transient || deletedSessionIds.has(s.id)) return
+	const db = await sessionsDb.whenReady()
+	if (!db) return
+	try {
+		const tx = db.transaction('sessions', 'readwrite')
+		const stored = await tx.store.get(s.id)
+		// Inline tombstone re-check in place of putSessionRow's: routing through
+		// it would put outside this transaction and lose the read's atomicity.
+		if (stored && !deletedSessionIds.has(s.id)) {
+			stored.chatId = chatId
+			await tx.store.put(stored)
+			await tx.done
+			markSessionDirty(s.id, undefined, emailOfScopedKey(SESSIONS_DB, db.name))
+			return
+		}
+		await tx.done
+		// No stored row: either the record is not yet persisted — its own
+		// materialization writes it later with the chatId already set in memory —
+		// or another tab deleted it, and an upsert here would resurrect it. No
+		// write either way.
+	} catch (e) {
+		console.error('Failed to persist session chat id', e)
 	}
-	return seedPromise
 }

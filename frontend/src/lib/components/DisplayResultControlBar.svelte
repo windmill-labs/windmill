@@ -14,7 +14,6 @@
 		workspaceId?: string | undefined
 		jobId?: string | undefined
 		nodeId?: string | undefined
-		base: string
 		result: any
 		disableTooltips?: boolean
 	}
@@ -25,7 +24,6 @@
 		workspaceId = undefined,
 		jobId = undefined,
 		nodeId = undefined,
-		base,
 		result,
 		disableTooltips = false
 	}: Props = $props()
@@ -67,7 +65,7 @@
 				download={downloadName}
 				class="text-current"
 				href={resultApiPath
-					? `${base}/api${resultApiPath}`
+					? `/api${resultApiPath}`
 					: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 			>
 				<Download size={14} />

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status::text AS \"status!\", duration_ms FROM v2_job_completed\n         WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "duration_ms",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      false
+    ]
+  },
+  "hash": "bac36542b16b687a823067c013e3728f1cabe3774f581401514f522ea7522de5"
+}

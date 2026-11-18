@@ -7,7 +7,9 @@ import {
   validatePath,
 } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
+import { ciTestBatchDeployed, ciTestBatchSkip } from "../../core/ci_test_batch.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -18,7 +20,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { deepEqual, getHeaders, isFileResource, isFilesetResource, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { deepEqual, getHeaders, isFileResource, isFilesetResource, readTextFile, readTextFileSync, sleep } from "../../utils/utils.ts";
 import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
@@ -58,12 +60,18 @@ import {
   SyncOptions,
   mergeConfigWithConfigFile,
   readConfigFile,
+  readEffectiveSyncBehavior,
 } from "../../core/conf.ts";
-import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import {
+  SyncCodebase,
+  isPerScriptDigest,
+  listSyncCodebases,
+  uncoveredBundleInputs,
+} from "../../utils/codebase.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
-import { getEsbuild } from "../../utils/esbuild_loader.ts";
+import { withEsbuild } from "../../utils/esbuild_loader.ts";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
@@ -231,7 +239,11 @@ async function push(opts: PushOptions, filePath: string) {
     opts.message,
     opts,
     await getRawWorkspaceDependencies(true),
-    codebases
+    codebases,
+    await buildPermissionedAsContext(
+      workspace.workspaceId,
+      await readEffectiveSyncBehavior(opts, workspace)
+    )
   );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
 }
@@ -420,12 +432,10 @@ export async function handleFile(
         }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
-        const esbuild = await getEsbuild();
-
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
         const format = codebase.format ?? "cjs";
-        const out = await esbuild.build({
+        const out = await withEsbuild((esbuild) => esbuild.build({
           entryPoints: [path],
           format: format,
           bundle: true,
@@ -440,8 +450,21 @@ export async function handleFile(
           target: format == "cjs" ? "node20.15.1" : "esnext",
           banner: codebase.banner,
           // ...(codebase.banner != null && { banner: codebase.banner }),
-        });
+          metafile: true,
+        }));
         const endTime = performance.now();
+        const uncovered = isPerScriptDigest(codebase)
+          ? []
+          : uncoveredBundleInputs(
+              codebase,
+              path,
+              Object.keys(out.metafile?.inputs ?? {})
+            );
+        if (uncovered.length > 0) {
+          log.warnAlways(
+            `${path} bundles files outside codebase ${codebase.relative_path}; edits to them won't be detected as changes unless listed in extra_digest_paths: ${uncovered.join(", ")}`
+          );
+        }
         bundleContent = out.outputFiles[0].text;
         outputFiles = out.outputFiles ?? [];
         if (outputFiles.length == 0) {
@@ -550,7 +573,7 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = await codebase.getDigest(forceTar);
+      typed.codebase = await codebase.getDigest(path, forceTar);
     }
 
     // Scan for modules: folder layout (entry point inside __mod/) or flat layout
@@ -592,6 +615,7 @@ export async function handleFile(
       ws_error_handler_muted: typed?.ws_error_handler_muted,
       dedicated_worker: typed?.dedicated_worker,
       cache_ttl: typed?.cache_ttl,
+      cache_ignore_s3_path: typed?.cache_ignore_s3_path,
       concurrency_time_window_s: normConcurrencyTimeWindowS,
       concurrent_limit: normConcurrentLimit,
       deployment_message: message,
@@ -600,14 +624,24 @@ export async function handleFile(
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
+      on_concurrency_limit: typed?.on_concurrency_limit,
       debounce_key: typed?.debounce_key,
       debounce_delay_s: typed?.debounce_delay_s,
-      codebase: await codebase?.getDigest(forceTar),
+      debounce_args_to_accumulate: typed?.debounce_args_to_accumulate,
+      max_total_debouncing_time: typed?.max_total_debouncing_time,
+      max_total_debounces_amount: typed?.max_total_debounces_amount,
+      codebase: await codebase?.getDigest(path, forceTar),
       timeout: nonePositiveInt(typed?.timeout),
+      // 0 means "delete immediately after completion", so it must survive as 0
+      // rather than being folded into "unset" the way the positive-only settings are.
+      delete_after_secs: typed?.delete_after_secs,
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
       modules: modules,
       labels: typed?.labels,
+      // Always sent: the server keeps a restriction the body omits, so a script.yaml without
+      // the key has to clear it explicitly.
+      job_token_scopes: typed?.job_token_scopes ?? null,
     };
 
     const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
@@ -635,6 +669,12 @@ export async function handleFile(
           (typed.description === remote.description &&
             typed.summary === remote.summary &&
             typed.kind == remote.kind &&
+            // A `.ts` file changes language when defaultTs flips, content untouched.
+            // bun and bunnative share that extension, so the inferred language is always
+            // bun; the server derives bunnative back from the `//native` annotation in
+            // the content, which is compared above.
+            language ==
+              (remote.language === "bunnative" ? "bun" : remote.language) &&
             !remote.archived &&
             (Array.isArray(remote?.lock)
               ? remote?.lock?.join("\n")
@@ -646,6 +686,8 @@ export async function handleFile(
               remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
+            Boolean(typed.cache_ignore_s3_path) ==
+              Boolean(remote.cache_ignore_s3_path) &&
             normConcurrencyTimeWindowS ==
               normalizeConcurrency(
                 remote.concurrent_limit,
@@ -659,15 +701,26 @@ export async function handleFile(
               Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
-            typed.priority == Boolean(remote.priority) &&
+            typed.priority == remote.priority &&
             nonePositiveInt(typed.timeout) == nonePositiveInt(remote.timeout) &&
+            typed.delete_after_secs == remote.delete_after_secs &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
+            (typed.on_concurrency_limit ?? "queue") ==
+              (remote.on_concurrency_limit ?? "queue") &&
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
+            deepEqual(
+              typed.debounce_args_to_accumulate ?? null,
+              remote.debounce_args_to_accumulate ?? null
+            ) &&
+            typed.max_total_debouncing_time == remote.max_total_debouncing_time &&
+            typed.max_total_debounces_amount == remote.max_total_debounces_amount &&
             typed.codebase == remote.codebase &&
             (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
+            deepEqual(typed.labels ?? null, remote.labels ?? null) &&
+            deepEqual(typed.job_token_scopes ?? null, remote.job_token_scopes ?? null) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
@@ -724,14 +777,10 @@ export async function handleFile(
     // create_script (which would bump the script hash) and instead route
     // through /acls/* via applyExtraPermsDiff.
     //
-    // No refetch is needed:
-    //  - folder perms are additive at auth time, never merged onto item rows;
-    //  - the body sent to create_script doesn't carry extra_perms, so a fresh
-    //    deploy of an existing path inherits the previous version's perms
-    //    unchanged. The diff against `remote` (captured before the deploy)
-    //    therefore matches what `wmill acl remove` would do — and the granular
-    //    ACL endpoint updates every matching row, so the inheritance on the
-    //    new version doesn't leave ghost entries.
+    // No refetch is needed: folder perms are additive at auth time and never merged
+    // onto item rows, and each branch above leaves the new version's perms where the
+    // diff expects them — the update branch names a parent, which carries them over,
+    // while the create branch has no `remote` to diff against and sends the whole set.
     await applyExtraPermsDiff(
       workspaceId,
       "script",
@@ -954,7 +1003,9 @@ async function createScript(
   // skip_if_noop asks the backend to treat deploys identical to the parent
   // (same content, lockfile, and metadata) as a no-op, so the CLI does not
   // produce phantom git-sync / promotion commits on re-pushes.
-  const skipIfNoop = "skip_if_noop=true";
+  const skipIfNoop =
+    "skip_if_noop=true" +
+    (ciTestBatchSkip().skipCiTests ? "&skip_ci_tests=true" : "");
   const extraHeaders = getHeaders();
   if (!bundleContent) {
     try {
@@ -1019,6 +1070,7 @@ async function createScript(
       );
     }
   }
+  ciTestBatchDeployed("script", body.path);
   return performance.now() - start;
 }
 
@@ -1050,10 +1102,12 @@ export class DbtPathCollisionError extends UnresolvableScriptContentFileError {}
  * guard on one of them leaves the other silently overwriting.
  */
 export async function collidingDbtProject(
-  basePath: string
+  basePath: string,
+  baseDir?: string
 ): Promise<string | undefined> {
   const project = basePath + "__dbt/dbt_project.yml";
-  return (await stat(project).then(() => true).catch(() => false))
+  const onDisk = baseDir ? path.join(baseDir, project) : project;
+  return (await stat(onDisk).then(() => true).catch(() => false))
     ? project
     : undefined;
 }
@@ -1114,7 +1168,14 @@ async function readScriptContent(filePath: string): Promise<string> {
   }
 }
 
-export async function findContentFile(filePath: string) {
+/**
+ * The script file `filePath`'s metadata belongs to. `baseDir`, when given, is
+ * where the disk lookups happen, leaving `filePath` classified as written: the
+ * layout helpers below match their suffixes ANYWHERE in a path, so a caller
+ * that prefixed a checkout named `repo__mod` would have it read as the module.
+ */
+export async function findContentFile(filePath: string, baseDir?: string) {
+  const onDisk = (p: string) => (baseDir ? path.join(baseDir, p) : p);
   // Folder layout: __mod/script.yaml -> __mod/script.ts
   const isModuleFolderMeta = isModuleEntryMetadata(filePath);
   const toCandidate = (ext: string) =>
@@ -1138,7 +1199,7 @@ export async function findContentFile(filePath: string) {
   const validCandidates = (
     await Promise.all(
       candidates.map((x) => {
-        return stat(x)
+        return stat(onDisk(x))
           .catch(() => undefined)
           .then((x) => x?.isFile())
           .then((e) => {
@@ -1158,6 +1219,7 @@ export async function findContentFile(filePath: string) {
   const dbtCandidate = toCandidate("__dbt/" + DBT_DESCRIPTOR_NAME);
   const dbtProject = await collidingDbtProject(
     dbtCandidate.slice(0, -("__dbt/" + DBT_DESCRIPTOR_NAME).length),
+    baseDir,
   );
   const nonDbtCandidates = validCandidates.filter((c) => c !== dbtCandidate);
   if (dbtProject && nonDbtCandidates.length > 0) {
@@ -1438,45 +1500,49 @@ async function run(
     await track_job(workspace.workspaceId, id);
   }
 
-  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
-  let retries = 0;
-  while (retries < MAX_RETRIES) {
-    try {
-      const completedJob = await wmill.getCompletedJob({
-        workspace: workspace.workspaceId,
-        id,
-      });
-
-      if (completedJob.success === false) {
-        process.exitCode = 1;
-      }
-
-      const result = completedJob.result ?? {};
-      if (opts.silent) {
-        console.log(JSON.stringify(result));
-      } else {
-        log.info(JSON.stringify(result, null, 2));
-      }
-
-      break;
-    } catch {
-      retries++;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+  let { result, success } = await pollForJobResult(workspace.workspaceId, id);
+  // Prefer getCompletedJob: unlike the poller, it counts a skipped
+  // (debounced) job as a success.
+  try {
+    const completedJob = await wmill.getCompletedJob({
+      workspace: workspace.workspaceId,
+      id,
+    });
+    result = completedJob.result;
+    success = completedJob.success !== false;
+  } catch {
+    /* keep the poller's result */
   }
-  if (retries >= MAX_RETRIES) {
-    throw new Error(`Timed out waiting for job ${id} to complete`);
+  if (!success) {
+    process.exitCode = 1;
+  }
+  result = result ?? {};
+  if (opts.silent) {
+    console.log(JSON.stringify(result));
+  } else {
+    log.info(JSON.stringify(result, null, 2));
   }
 }
+
+function logJobCompleted(success: boolean | undefined) {
+  log.info("\n");
+  log.info(
+    success === false
+      ? colors.bold.underline.red("Job Completed")
+      : colors.bold.underline.green("Job Completed")
+  );
+  log.info("\n");
+}
+
+const JOB_UPDATES_POLL_INTERVAL_MS = 500;
+const MAX_CONSECUTIVE_JOB_UPDATE_ERRORS = 5;
 
 export async function track_job(workspace: string, id: string) {
   try {
     const result = await wmill.getCompletedJob({ workspace, id });
 
     log.info(result.logs);
-    log.info("\n");
-    log.info(colors.bold.underline.green("Job Completed"));
-    log.info("\n");
+    logJobCompleted(result.success);
     return;
   } catch {
     /* ignore */
@@ -1484,15 +1550,13 @@ export async function track_job(workspace: string, id: string) {
 
   log.info(colors.yellow("Waiting for Job " + id + " to start..."));
 
+  // Server-side character position (1-based, as returned in `log_offset`), not
+  // a JS string length: UTF-16 lengths drift from it on non-BMP characters.
   let logOffset = 0;
   let running = false;
-  let retry = 0;
+  let errors = 0;
   while (true) {
-    let updates: {
-      running?: boolean | undefined;
-      completed?: boolean | undefined;
-      new_logs?: string | undefined;
-    };
+    let updates: Awaited<ReturnType<typeof wmill.getJobUpdates>>;
     try {
       updates = await wmill.getJobUpdates({
         workspace,
@@ -1500,13 +1564,16 @@ export async function track_job(workspace: string, id: string) {
         logOffset,
         running,
       });
-    } catch {
-      retry++;
-      if (retry > 3) {
-        log.info("failed to get job updated. skipping log streaming.");
+      errors = 0;
+    } catch (e: any) {
+      errors++;
+      if (errors >= MAX_CONSECUTIVE_JOB_UPDATE_ERRORS) {
+        log.warn(
+          `Failed to get job updates (${e?.message ?? e}), log streaming stopped. Waiting for the job to complete...`
+        );
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await sleep(JOB_UPDATES_POLL_INTERVAL_MS);
       continue;
     }
 
@@ -1517,11 +1584,10 @@ export async function track_job(workspace: string, id: string) {
 
     if (updates.new_logs) {
       process.stdout.write(updates.new_logs);
-      logOffset += updates.new_logs.length;
     }
+    logOffset = updates.log_offset ?? logOffset;
 
     if (updates.completed === true) {
-      running = false;
       break;
     }
 
@@ -1529,24 +1595,25 @@ export async function track_job(workspace: string, id: string) {
       running = false;
       log.info(colors.yellow("Job suspended. Waiting for it to continue..."));
     }
+    await sleep(JOB_UPDATES_POLL_INTERVAL_MS);
   }
-  await new Promise((resolve, _) => setTimeout(() => resolve(undefined), 1000));
 
+  await pollForJobResult(workspace, id);
+
+  let success: boolean | undefined;
   try {
     const final_job = await wmill.getCompletedJob({ workspace, id });
-    if ((final_job.logs?.length ?? -1) > logOffset) {
-      log.info(final_job.logs!.substring(logOffset));
+    success = final_job.success;
+    const remaining = Array.from(final_job.logs ?? "")
+      .slice(Math.max(logOffset - 1, 0))
+      .join("");
+    if (remaining) {
+      log.info(remaining);
     }
-    log.info("\n");
-    if (final_job.success) {
-      log.info(colors.bold.underline.green("Job Completed"));
-    } else {
-      log.info(colors.bold.underline.red("Job Completed"));
-    }
-    log.info("\n");
-  } catch {
-    log.info("Job appears to have completed, but no data can be retrieved");
+  } catch (e: any) {
+    log.warn(`Could not retrieve the job's remaining logs: ${e?.message ?? e}`);
   }
+  logJobCompleted(success);
 }
 
 export async function pollForJobResult(
@@ -1554,6 +1621,32 @@ export async function pollForJobResult(
   jobId: string,
 ): Promise<{ result: unknown; success: boolean }> {
   return await pollJobWithQueueLogging(workspace, jobId);
+}
+
+/**
+ * A server that predates preview `on_behalf_of` drops the field and runs the preview as the
+ * caller, which would pass for a reproduction of the other identity's run. Probe it with an
+ * `identity` preview, which runs no code, before submitting any.
+ */
+export async function ensurePreviewOnBehalfOfSupported(
+  workspace: string,
+  onBehalfOf: string | undefined,
+) {
+  if (!onBehalfOf) return;
+  const probeId = await wmill.runScriptPreview({
+    workspace,
+    requestBody: { kind: "identity", args: {}, on_behalf_of: onBehalfOf },
+  });
+  const job = await wmill.getJob({ workspace, id: probeId });
+  if (
+    job.permissioned_as === onBehalfOf ||
+    job.email?.toLowerCase() === onBehalfOf.toLowerCase()
+  ) {
+    return;
+  }
+  throw new Error(
+    `The server does not support --on-behalf-of: it would run the preview as ${job.permissioned_as}, not ${onBehalfOf}. Upgrade the Windmill instance.`
+  );
 }
 
 async function show(opts: GlobalOptions, path: string) {
@@ -1819,6 +1912,7 @@ async function preview(
     data?: string;
     silent: boolean;
     tag?: string;
+    onBehalfOf?: string;
   } & SyncOptions,
   filePath: string
 ) {
@@ -1830,6 +1924,7 @@ async function preview(
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  await ensurePreviewOnBehalfOfSupported(workspace.workspaceId, opts.onBehalfOf);
 
   const argPath = filePath;
   filePath = toSyncRootRelativePath(filePath, cwdBeforeConfig);
@@ -1914,14 +2009,12 @@ async function preview(
         maxBuffer: 1024 * 1024 * 50,
       }).toString();
     } else {
-      const esbuild = await getEsbuild();
-
       if (!opts.silent) {
         log.info(`Bundling ${filePath} for preview...`);
       }
       const startTime = performance.now();
       const format = codebase.format ?? "cjs";
-      const out = await esbuild.build({
+      const out = await withEsbuild((esbuild) => esbuild.build({
         entryPoints: [filePath],
         format: format,
         bundle: true,
@@ -1935,7 +2028,7 @@ async function preview(
         packages: "bundle",
         target: format == "cjs" ? "node20.15.1" : "esnext",
         banner: codebase.banner,
-      });
+      }));
       const endTime = performance.now();
       bundledContent = out.outputFiles[0].text;
 
@@ -1999,6 +2092,7 @@ async function preview(
       kind: isTar ? "tarbundle" : "bundle",
       format: codebase?.format ?? "cjs",
       temp_script_refs: tempScriptRefs,
+      on_behalf_of: opts.onBehalfOf,
     };
     form.append("preview", JSON.stringify(previewPayload));
     form.append(
@@ -2068,6 +2162,7 @@ async function preview(
         tag: opts.tag,
         modules: modules ?? undefined,
         temp_script_refs: tempScriptRefs,
+        on_behalf_of: opts.onBehalfOf,
       },
     });
 
@@ -2190,7 +2285,7 @@ const command = new Command()
   .arguments("<path:file>")
   .option(
     "-d --data <data:file>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",
@@ -2208,7 +2303,7 @@ const command = new Command()
   .arguments("<path:file>")
   .option(
     "-d --data <data:file>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path."
   )
   .option(
     "-s --silent",
@@ -2217,6 +2312,10 @@ const command = new Command()
   .option(
     "--tag <tag:string>",
     "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag)."
+  )
+  .option(
+    "--on-behalf-of <identity:string>",
+    "Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers."
   )
   .action(preview as any)
   .command("new", "create a new script")

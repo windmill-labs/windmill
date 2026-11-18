@@ -1,8 +1,80 @@
-import type { AiAgent, FlowModule, FlowModuleValue, InputTransform } from '$lib/gen'
+import { AGENT_HISTORY_KEYS } from './agentFormFields'
+import type { AiAgent, AiDecision, FlowModule, FlowModuleValue, InputTransform } from '$lib/gen'
 import { loadStoredConfig } from '../aiProviderStorage'
 import { AI_AGENT_SCHEMA } from './flowInfers'
+import { forbiddenIds } from './idUtils'
 
-export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as const
+/** What every websearch entry is named by, mirroring `WEBSEARCH_ENABLED_NAME` in `ai_executor.rs`.
+ *  Reserved rather than merely conventional: `getToolNameError` refuses it to a flow module tool,
+ *  as the worker does, or that tool would answer to the same name and be switched on with web
+ *  search. */
+export const WEBSEARCH_ENABLED_NAME = '__wm_web_search'
+
+/** Tools the worker answers itself rather than by running a module. None is named by its
+ *  `summary`: each has a reserved `enabledName` (mirroring the `*_ENABLED_NAME`s in the worker),
+ *  and the model sees a fixed name the worker picks. `question` parks the agent until someone
+ *  answers (`windmill-worker/src/ai/pause.rs`). */
+export const BUILTIN_TOOLS = {
+	websearch: { label: 'Web search', enabledName: WEBSEARCH_ENABLED_NAME },
+	question: { label: 'Ask a question', enabledName: '__wm_question' }
+} as const
+export type BuiltinToolType = keyof typeof BUILTIN_TOOLS
+
+export function builtinToolType(tool: AgentTool | undefined): BuiltinToolType | undefined {
+	const type = tool?.value?.tool_type
+	return type && type in BUILTIN_TOOLS ? (type as BuiltinToolType) : undefined
+}
+
+/** Whether a tool is named by its `summary`, which only the model-facing kinds are. */
+export function isNamedTool(tool: AgentTool | undefined): boolean {
+	return tool?.value?.tool_type !== 'mcp' && builtinToolType(tool) === undefined
+}
+
+/**
+ * A tool's `summary` is the name the LLM sees, and the worker rejects any name that does not match
+ * `^[a-zA-Z0-9_]+$` (`ai_executor.rs`), so an unvalidated name fails on every run of the flow.
+ *
+ * `kind` only has to tell the three tool kinds apart, so callers may pass either the raw
+ * `value.tool_type` or the module type they resolved it to: anything other than `'mcp'` and
+ * `'websearch'` — including `undefined` on a legacy tool — is checked as a flow module tool, which
+ * is what the worker does too.
+ */
+export function getToolNameError(
+	name: string,
+	kind?: 'mcp' | BuiltinToolType | (string & {}),
+	siblingNames?: string[]
+): string | undefined {
+	if (kind && kind in BUILTIN_TOOLS) return undefined
+	if (kind === 'mcp') {
+		return name.length > 0 ? undefined : 'Tool name must not be empty'
+	}
+	// Ahead of the pattern, which an empty name also fails: "must only contain letters" reads as a
+	// complaint about characters that are not there.
+	if (name.length === 0) {
+		return 'Tool name must not be empty'
+	}
+	if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+		return 'Tool name must only contain letters, numbers and underscores'
+	}
+	if (
+		forbiddenIds.includes(name) ||
+		Object.values(BUILTIN_TOOLS).some((builtin) => builtin.enabledName === name)
+	) {
+		return `'${name}' is a reserved name`
+	}
+	if (siblingNames && siblingNames.filter((n) => n === name).length > 1) {
+		return 'Duplicate tool name'
+	}
+	return undefined
+}
+
+export const SPECIAL_TOOL_KINDS = [
+	'mcpTool',
+	'websearchTool',
+	'questionTool',
+	'aiAgentTool',
+	'aiDecisionTool'
+] as const
 export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
 
 // Type aliases for better readability
@@ -10,6 +82,9 @@ export type AgentTool = NonNullable<AiAgent['tools']>[number]
 export type FlowModuleTool = AgentTool & { value: { tool_type: 'flowmodule' } & FlowModuleValue }
 export type AiAgentTool = AgentTool & {
 	value: { tool_type: 'flowmodule' } & { type: 'aiagent' } & FlowModuleValue
+}
+export type AiDecisionTool = AgentTool & {
+	value: { tool_type: 'flowmodule' } & AiDecision
 }
 export type McpTool = AgentTool & {
 	value: {
@@ -29,6 +104,9 @@ export type WebsearchTool = AgentTool & {
  * Type guard to check if a tool is a FlowModule tool
  */
 export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {
+	// `value` must be there, not merely lack a `tool_type`: the tool list is JSON-authored, and an
+	// entry without one is not a flowmodule tool for the callers that go on to read its script.
+	if (tool?.value == undefined) return false
 	return tool.value.tool_type === undefined || tool.value.tool_type === 'flowmodule'
 }
 
@@ -36,14 +114,80 @@ export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {
  * Type guard to check if a tool is an MCP tool
  */
 export function isMcpTool(tool: AgentTool): tool is McpTool {
-	return tool.value.tool_type === 'mcp'
+	return tool?.value?.tool_type === 'mcp'
 }
 
 /**
  * Type guard to check if a tool is a Websearch tool
  */
 export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
-	return tool.value.tool_type === 'websearch'
+	return tool?.value?.tool_type === 'websearch'
+}
+
+/** The only input a nested agent used as a tool has the calling agent fill: the rest is its own
+ *  configuration, not something to generate. Mirrors the server, which offers such a tool a schema
+ *  of `{user_message}` and nothing else (`AI_AGENT_TOOL_SCHEMA` in `ai_executor.rs`); anything else
+ *  left AI-filled here is dropped from that schema and never reaches the model. */
+export const AI_AGENT_TOOL_AI_KEYS = ['user_message']
+
+/** Likewise for a decision used as a tool: the calling agent supplies what it decides about
+ *  (`AI_DECISION_TOOL_SCHEMA` in `ai_executor.rs`). */
+export const AI_DECISION_TOOL_AI_KEYS = ['state']
+
+/** A new decision: on TypeSafe's latest Jev, with a question to show the shape. */
+export function newAiDecisionInputTransforms(): AiDecision['input_transforms'] {
+	return {
+		provider: { type: 'static', value: { kind: 'typesafe', resource: '', model: 'jev-latest' } },
+		state: { type: 'static', value: undefined },
+		questions: {
+			type: 'static',
+			value: {
+				intent: {
+					type: 'choice',
+					instructions: 'What does the message ask for?',
+					criteria: {
+						question: 'An answer to a question',
+						action: 'Something to be done',
+						other: 'Anything else'
+					}
+				}
+			}
+		}
+	}
+}
+
+/** What a tool is called wherever it is named: its own name, else what it points at. Never its id,
+ *  which is internal. Undefined when it has nothing to be called yet — an MCP tool with no server
+ *  picked is unnamed rather than misnamed, so each surface words that for itself. */
+export function toolDisplayName(tool: AgentTool): string | undefined {
+	const value = tool?.value as Record<string, any>
+	return tool?.summary || value?.path || value?.resource_path || undefined
+}
+
+/** The name `enabled_tools` holds a tool by: the name the model is shown, except for an entry the
+ *  model is shown nothing of, which is named by whatever identifies it instead. An MCP server is
+ *  named by the resource it points at, and web search by `WEBSEARCH_ENABLED_NAME`, since either
+ *  summary is a label something else may share and naming one would enable both.
+ *
+ *  The MCP path is offered bare. It is stored with the `$res:` it was authored with, and an
+ *  `enabled_tools` entry carrying that prefix is resolved to the resource's own value before the
+ *  step runs, reaching the worker as an object where a name is expected. Mirrors
+ *  `tool_enabled_name` in `ai_executor.rs`. */
+export function toolEnabledName(tool: AgentTool): string | undefined {
+	const value = tool?.value as Record<string, any>
+	if (value?.tool_type === 'mcp') {
+		return (value?.resource_path as string | undefined)?.replace(/^\$res:/, '') || undefined
+	}
+	const builtin = builtinToolType(tool)
+	if (builtin) {
+		return BUILTIN_TOOLS[builtin].enabledName
+	}
+	return toolDisplayName(tool)
+}
+
+/** The names `enabled_tools` can pick from: every tool in the roster that has one. */
+export function enabledToolNames(tools: AgentTool[]): string[] {
+	return tools.map((tool) => toolEnabledName(tool)).filter((name): name is string => !!name)
 }
 
 /**
@@ -59,7 +203,7 @@ export function createAiAgentTool(id: string): AiAgentTool {
 		user_message: { type: 'ai' }
 	}
 	for (const key of Object.keys(AI_AGENT_SCHEMA.properties ?? {})) {
-		if (!(key in input_transforms)) {
+		if (!(key in input_transforms) && !(AGENT_HISTORY_KEYS as readonly string[]).includes(key)) {
 			;(input_transforms as Record<string, InputTransform>)[key] = {
 				type: 'static',
 				value: undefined
@@ -77,6 +221,19 @@ export function createAiAgentTool(id: string): AiAgentTool {
 			input_transforms
 		}
 	} as AiAgentTool
+}
+
+/** Create an AI decision tool: the calling agent supplies the state and gets the answers back. */
+export function createAiDecisionTool(id: string): AiDecisionTool {
+	return {
+		id,
+		summary: '',
+		value: {
+			tool_type: 'flowmodule',
+			type: 'aidecision',
+			input_transforms: { ...newAiDecisionInputTransforms(), state: { type: 'ai' } }
+		}
+	}
 }
 
 /**
@@ -101,11 +258,15 @@ export function createMcpTool(id: string): McpTool {
 export function createWebsearchTool(id: string): WebsearchTool {
 	return {
 		id,
-		summary: 'Web Search',
+		summary: 'Web search',
 		value: {
 			tool_type: 'websearch'
 		}
 	}
+}
+
+export function createQuestionTool(id: string): AgentTool {
+	return { id, summary: BUILTIN_TOOLS.question.label, value: { tool_type: 'question' } }
 }
 
 /**

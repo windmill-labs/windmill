@@ -5,6 +5,7 @@ import type { IntrospectionQuery } from 'graphql'
 import {
 	CancelablePromise,
 	type OperatorSettings,
+	type RoleCapabilities,
 	type TokenResponse,
 	type UserWorkspaceList,
 	type Workspace,
@@ -12,6 +13,7 @@ import {
 	WorkspaceService
 } from './gen'
 import { getLocalSetting, type StateStore } from './utils'
+import { capabilitiesIn } from './roleCapabilities'
 import { createState } from './svelte5Utils.svelte'
 import { DEFAULT_HUB_BASE_URL } from './hub'
 import type { DbManagerUriState } from './components/dbManagerDrawerModel.svelte'
@@ -46,6 +48,9 @@ export interface UserWorkspace {
 	username: string
 	color?: string
 	operator_settings?: OperatorSettings
+	/** Absent from a server that predates roles; read it through `capabilitiesIn`. */
+	role?: string
+	capabilities?: RoleCapabilities
 	parent_workspace_id?: string | null
 	is_dev_workspace?: boolean
 	dev_workspace_label?: string | null
@@ -68,8 +73,6 @@ export function clearWorkspaceFromStorage() {
 	sessionStorage.removeItem('workspace')
 }
 
-export const tutorialsToDo = writable<number[]>([])
-export const skippedAll = writable<boolean>(false)
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
@@ -80,8 +83,10 @@ export const whitelabelNameStore = derived([enterpriseLicense], ([enterpriseLice
 	return undefined
 })
 export const workerTags = writable<string[] | undefined>(undefined)
-export const usageStore = writable<number>(0)
-export const workspaceUsageStore = writable<number>(0)
+// `undefined` while unresolved. `0` is a real usage value, so a placeholder that
+// reads as one lets a failed or in-flight fetch render as "no executions used".
+export const usageStore = writable<number | undefined>(undefined)
+export const workspaceUsageStore = writable<number | undefined>(undefined)
 export const initialArgsStore = writable<any>(undefined)
 export const oauthStore = writable<TokenResponse | undefined>(undefined)
 export const userStore = writable<UserExt | undefined>(undefined)
@@ -90,12 +95,38 @@ export const workspaceStore = writable<string | undefined>(
 )
 export const defaultScripts = writable<WorkspaceDefaultScripts | undefined>(undefined)
 export const dbClockDrift = writable<number | undefined>(undefined)
-export const isPremiumStore = writable<boolean>(false)
+// `undefined` until the active workspace's tier is known — a tier belongs to a
+// workspace, so consumers rendering a number from it must not read the previous
+// one's value across a switch. `false` is a claim, not a safe default: it meters a
+// paid workspace against the free cap, so a failed fetch leaves this `undefined`.
+export const isPremiumStore = writable<boolean | undefined>(undefined)
+// Set when the tier fetch for the active workspace failed, which is indistinguishable
+// from "still pending" in `isPremiumStore` alone.
+export const premiumFetchFailed = writable<boolean>(false)
+// For affordances rather than numbers: gate on this so a paid→paid switch doesn't
+// retract a button for the length of the fetch, while a failed fetch still fails
+// closed instead of leaving it enabled for the session.
+export const maybePremium: Readable<boolean> = derived(
+	[isPremiumStore, premiumFetchFailed],
+	([premium, failed]) => premium !== false && !failed
+)
+// Bumped when the active workspace's membership is seen to have changed, so anything
+// deriving a number from the member count (paid seats) can re-resolve it without
+// polling or owning its own invalidation.
+export const workspaceMembershipVersion = writable<number>(0)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
+// Stands in for `UserWorkspace.username` on entries with no `usr` row behind them. It
+// names nobody, so anything that would address a user by it (a `u/<username>/...` path)
+// must treat it as "no username here" rather than render it.
+export const NON_MEMBER_USERNAME = 'superadmin'
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
+// Whether the store above is the instance's answer or still the default it was seeded with.
+// It reads as the public hub either way, which is fine for a link and wrong for anything
+// deciding what may be reported about a hub — those must treat unknown as private.
+export const hubBaseUrlKnown = writable<boolean>(false)
 export const wsBaseUrlStore = writable<string | undefined>(undefined)
 export const disableHubStore = writable<boolean>(false)
 // What a superadmin standing in a workspace they are not a member of needs to see it as a
@@ -122,7 +153,7 @@ export function setNonMemberWorkspaces(forWorkspace: string, workspaces: Workspa
 				name: w.name,
 				// No `usr` row here, hence no per-workspace username — same stand-in as the
 				// synthetic `admins` entry below.
-				username: 'superadmin',
+				username: NON_MEMBER_USERNAME,
 				color: w.color,
 				parent_workspace_id: w.parent_workspace_id,
 				is_dev_workspace: w.is_dev_workspace,
@@ -151,7 +182,7 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 					{
 						id: 'admins',
 						name: 'Admins',
-						username: 'superadmin',
+						username: NON_MEMBER_USERNAME,
 						color: undefined,
 						operator_settings: undefined,
 						disabled: false
@@ -163,6 +194,18 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 		)
 		return extra.length > 0 ? [...workspaces, ...extra] : workspaces
 	}
+)
+
+/** The user's role capabilities in the navigation workspace. A component acting on another
+ * workspace (an AI session) reads `useRoleCapabilities` instead. */
+export const roleCapabilities: Readable<RoleCapabilities> = derived(
+	[userStore, userWorkspaces, workspaceStore],
+	([user, workspaces, workspace]) =>
+		capabilitiesIn(
+			// Mid-switch `user` still describes the workspace being left: only superadmin carries over.
+			user?.workspace_id === workspace ? user : { is_super_admin: user?.is_super_admin },
+			workspaces.find((w) => w.id === workspace)
+		)
 )
 
 export const codeCompletionLoading = writable<boolean>(false)
@@ -216,7 +259,7 @@ export type GlobalForkModalState = {
 export type ForkConflictModalState = {
 	kind: string
 	kindLabel: string
-	parentWorkspaceId: string
+	upstreamWorkspaceId: string
 	resolve: (proceed: boolean) => void
 }
 
@@ -308,8 +351,6 @@ export const workspaceColor: Readable<string | null | undefined> = derived(
 			})
 	}
 )
-
-export const isCurrentlyInTutorial: StateStore<boolean> = createState({ val: false })
 
 export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
 	const schema = dbSchema?.schema ?? {}

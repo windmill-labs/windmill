@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, summary, scorers, created_at, created_by, edited_at, edited_by\n         FROM eval_dataset WHERE workspace_id = $1 AND path = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "scorers",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "edited_by",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4bf7f1a0fd87e79bb789cee06a5da68e465ce7ce67e80770f22a36a9e8320657"
+}

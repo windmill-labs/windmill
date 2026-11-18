@@ -57,7 +57,13 @@ Create a new crate under `backend/windmill-trigger-{kind}/` with:
 - `src/lib.rs`: `pub use mod_ee::*;` behind `#[cfg(all(feature = "enterprise", feature = "private"))]`
 - `src/mod_ee.rs`: core types + helpers
 - `src/handler_ee.rs`: `TriggerCrud` impl + route handlers
-- `src/listener_ee.rs`: (only if streaming/pull-based) `Listener` trait impl
+- `src/listener_ee.rs`: (only if streaming/pull-based) `Listener` trait impl. Retrying is the
+  framework's job (`listening` in `windmill-trigger/src/listener.rs`): open the connection in
+  `get_consumer` and return its error, which disables the trigger only when
+  `is_transient_error` says no retry can fix it (map a retryable failure with no natural kind to
+  `transient_error`); have `consume` write the reason to its status lock and return when the
+  connection drops, and call `disable_with_error` only for a permanent failure. No retry loop
+  or alerting of its own.
 
 Required in `mod_ee.rs`:
 - `{Kind}Config` struct (persisted shape, `FromRow`)
@@ -73,6 +79,7 @@ Required in `handler_ee.rs`:
   - `const TABLE_NAME`, `ADDITIONAL_SELECT_FIELDS`
   - `get_deployed_object`, `validate_config`, `create_trigger`, `update_trigger`, `delete_trigger`, `test_connection`
   - `additional_routes` (optional — mount extra endpoints for things like ARM resource listing, topic discovery)
+  - `config_runnables` — required if the config names a script or flow the listener runs (as the WebSocket URL resolver does): it returns them so a save's Hub check sees them. The default returns none, which leaves such a path unchecked.
 
 Register the crate in `backend/Cargo.toml` as a workspace member and as a dep of `windmill-api` behind the feature flag.
 

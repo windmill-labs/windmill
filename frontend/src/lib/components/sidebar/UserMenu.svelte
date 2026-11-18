@@ -1,21 +1,25 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
 	import { logout } from '$lib/logoutKit'
 	import {
 		userStore,
 		usageStore,
 		workspaceUsageStore,
 		isPremiumStore,
-		workspaceStore
+		workspaceStore,
+		userWorkspaces,
+		roleCapabilities
 	} from '$lib/stores'
+	import { isRestricted } from '$lib/roleCapabilities'
 	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { twMerge } from 'tailwind-merge'
-	import { Crown, ServerCog, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
+	import { Crown, KeyRound, ServerCog, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
+	import { accountSetup } from './accountSetup.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import MenuButton from './MenuButton.svelte'
-	import { Menu, MenuItem } from '$lib/components/meltComponents'
+	import { Menu, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { type MenubarBuilders } from '@melt-ui/svelte'
+	import { EXECUTIONS_HINT } from './executionsHint'
 
 	let darkMode: boolean = $state(false)
 
@@ -26,6 +30,15 @@
 	}
 
 	let { isCollapsed = false, lightMode = false, createMenu }: Props = $props()
+
+	// An account entered through an invite link that still has no credentials of its own.
+	let pendingSetup = $derived(accountSetup.pending)
+
+	// A server that predates roles sends no role name, and its only restricted role is operator.
+	const roleName = $derived(
+		$userWorkspaces.find((w) => w.id === $workspaceStore)?.role ?? 'operator'
+	)
+	const roleLabel = $derived(roleName.charAt(0).toUpperCase() + roleName.slice(1))
 
 	const itemClass = twMerge(
 		'text-secondary text-left font-normal text-xs ',
@@ -57,8 +70,8 @@
 					Superadmin, not a member of this workspace <Crown size={14} />
 				{:else if $userStore?.is_admin}
 					Admin of this workspace <Crown size={14} />
-				{:else if $userStore?.operator}
-					Operator in this workspace <ServerCog size={14} />
+				{:else if isRestricted($roleCapabilities)}
+					{roleLabel} in this workspace <ServerCog size={14} />
 				{/if}
 			</span>
 			{#if $userStore?.non_member}
@@ -71,6 +84,16 @@
 			{/if}
 		</div>
 		<div class="py-1">
+			{#if pendingSetup}
+				<MenuItem
+					onClick={() => setTimeout(() => (accountSetup.open = true), 50)}
+					class={itemClass}
+					{item}
+				>
+					<KeyRound size={16} />
+					Finish account setup
+				</MenuItem>
+			{/if}
 			<MenuItem href={USER_SETTINGS_HASH} class={itemClass} {item}>
 				<Settings size={16} />
 				Account settings
@@ -103,27 +126,41 @@
 			</MenuItem>
 		</div>
 
-		{#if isCloudHosted()}
+		<!-- Both branches below assert a plan, so neither may render for an unresolved or
+		failed tier: `{:else}` would read `undefined` as paid and claim "Premium plan". -->
+		{#if isCloudHosted() && $isPremiumStore !== undefined}
 			<div class="border-t">
-				{#if !$isPremiumStore}
-					<span class="text-secondary block w-full text-left px-4 py-2 text-xs"
-						>{$usageStore}/1000 user execs</span
-					>
+				{#if $isPremiumStore === false}
+					<span class="text-secondary block w-full text-left px-4 py-2 text-xs">
+						{$usageStore ?? '—'}/1000 user execs
+						<Tooltip small>
+							{#snippet text()}
+								{EXECUTIONS_HINT}
+							{/snippet}
+						</Tooltip>
+					</span>
 					<div class="px-4 w-full h-1 mb-1">
 						<div class="bg-gray-200 h-full rounded-sm overflow-hidden">
-							<div class="bg-blue-400 h-full" style="width: {Math.min($usageStore, 1000) / 10}%"
+							<div
+								class="bg-blue-400 h-full"
+								style="width: {Math.min($usageStore ?? 0, 1000) / 10}%"
 							></div>
 						</div>
 					</div>
 					{#if $workspaceStore != 'demo'}
-						<span class="text-secondary block w-full text-left px-4 py-2 text-xs"
-							>{$workspaceUsageStore}/1000 free workspace execs</span
-						>
+						<span class="text-secondary block w-full text-left px-4 py-2 text-xs">
+							{$workspaceUsageStore ?? '—'}/1000 free workspace execs
+							<Tooltip small>
+								{#snippet text()}
+									{EXECUTIONS_HINT}
+								{/snippet}
+							</Tooltip>
+						</span>
 						<div class="px-4 w-full h-1 mb-1">
 							<div class="bg-gray-200 h-full rounded-sm overflow-hidden">
 								<div
 									class="bg-blue-400 h-full"
-									style="width: {Math.min($workspaceUsageStore, 1000) / 10}%"
+									style="width: {Math.min($workspaceUsageStore ?? 0, 1000) / 10}%"
 								></div>
 							</div>
 						</div>
@@ -131,9 +168,7 @@
 					{#if $userStore?.is_admin}
 						<MenuItem
 							class={twMerge(itemClass, 'py-2')}
-							onClick={() => {
-								goto('/workspace_settings?tab=premium')
-							}}
+							href="/workspace_settings?tab=premium"
 							{item}
 						>
 							Upgrade
@@ -142,9 +177,7 @@
 				{:else}
 					<MenuItem
 						class={twMerge(itemClass, 'py-2')}
-						onClick={() => {
-							goto('/workspace_settings?tab=premium')
-						}}
+						href="/workspace_settings?tab=premium"
 						{item}
 					>
 						Premium plan

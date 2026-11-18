@@ -13,6 +13,7 @@
 		X
 	} from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
+	import { isSuspended } from '../agentRequest'
 
 	interface Props {
 		job: Job
@@ -29,7 +30,12 @@
 			<ShieldQuestion size={14} />
 		</Badge>
 	{:else if job.canceled && 'success' in job}
-		<Badge color="gray" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'} title="Canceled">
+		<Badge
+			color="gray"
+			{roundedFull}
+			baseClass={roundedFull ? '' : '!px-1.5'}
+			title={job.resolved ? 'Canceled, marked as resolved' : 'Canceled'}
+		>
 			<Ban size={14} />
 		</Badge>
 	{:else if 'success' in job && job.success}
@@ -55,7 +61,7 @@
 		<Badge color="red" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'}>
 			<X size={14} />
 		</Badge>
-	{:else if 'running' in job && job.running && job.suspend}
+	{:else if 'running' in job && job.running && isSuspended(job)}
 		<Badge color="violet" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'} title="Suspended">
 			<Hourglass size={14} />
 		</Badge>

@@ -1,25 +1,49 @@
 <script lang="ts">
-	import { type Snippet } from 'svelte'
+	import { type Snippet, untrack } from 'svelte'
 	import Select from './select/Select.svelte'
-	import { fetchAvailableModels, AI_PROVIDERS } from './copilot/lib'
-	import type { AIProvider, ProviderConfig } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { get } from 'svelte/store'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import {
+		fetchAvailableModels,
+		AI_PROVIDERS,
+		DECISION_AI_PROVIDERS,
+		aiProviderDetails
+	} from './copilot/lib'
+	import {
+		ResourceService,
+		VariableService,
+		type AIProvider,
+		type ProviderConfig
+	} from '$lib/gen'
 	import ResourcePicker from './ResourcePicker.svelte'
-	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
+	import { aiResourceProvider, vertexPublisherProvider } from './copilot/aiResourceProvider'
 	import Toggle from './Toggle.svelte'
 	import { saveConfig, removeConfig, isSameAsStoredConfig } from './aiProviderStorage'
 	import AIReasoningEffortPicker from './AIReasoningEffortPicker.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		value: ProviderConfig | undefined
 		disabled?: boolean
 		actions?: Snippet
+		/** The workspace the surface operates on, which a session or fork editor sets to something
+		 *  other than the one being navigated. Resources and the models read off them are per
+		 *  workspace, so without it this offers what the wrong one holds. */
+		workspace?: string | undefined
+		/** Offer the decision providers (TypeSafe, Cloudflare, OpenAI) and their decision models in
+		 *  place of the chat ones, for an AI decision. */
+		decision?: boolean
 	}
 
-	let { value: _uncheckedValue = $bindable(), disabled = false, actions }: Props = $props()
+	let {
+		value: _uncheckedValue = $bindable(),
+		disabled = false,
+		actions,
+		workspace = undefined,
+		decision = false
+	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace ?? '')
 
 	let value = $derived.by(() => {
 		if (!_uncheckedValue || typeof _uncheckedValue !== 'object') return undefined
@@ -30,11 +54,28 @@
 	let availableModels = $state<string[]>([])
 	let filterText = $state('')
 
-	let modelsCache = new Map<AIProvider, string[]>()
+	// Keyed by provider *and* path: two `customai` resources point at different base URLs, so they
+	// do not share a model list.
+	let modelsCache = new Map<string, string[]>()
+
+	// The resource picker offers every provider type at once and the pick is what names the kind.
+	// One list for the component's life: it is what the picker queries with.
+	const offeredProviders = Object.keys(
+		untrack(() => decision) ? DECISION_AI_PROVIDERS : AI_PROVIDERS
+	)
+	// Federated resources authenticate a provider without a key of their own.
+	const providerResourceTypes = [
+		...offeredProviders,
+		...(offeredProviders.includes('anthropic') ? ['anthropic_federated'] : []),
+		// Gemini decisions are served by the Gemini API only, never by Vertex.
+		...(offeredProviders.includes('googleai') && !untrack(() => decision)
+			? ['vertex_ai_federated']
+			: [])
+	].join(',')
 
 	if (!_uncheckedValue) {
 		_uncheckedValue = {
-			kind: 'openai',
+			kind: untrack(() => decision) ? 'typesafe' : 'openai',
 			resource: '',
 			model: ''
 		}
@@ -57,11 +98,14 @@
 		return r
 	})
 
-	// Provider options for the toggle button group
-	const providerOptions = Object.entries(AI_PROVIDERS).map(([key, details]) => ({
-		value: key as AIProvider,
-		label: details.label
-	}))
+	// A decision provider's models are the ones Windmill knows: none has a listing of its decision
+	// models, and an OpenAI resource's lists its chat models.
+	function defaultModels(provider: AIProvider): string[] {
+		return decision
+			? ((DECISION_AI_PROVIDERS as Record<string, { defaultModels: string[] }>)[provider]
+					?.defaultModels ?? [])
+			: aiProviderDetails(provider).defaultModels
+	}
 
 	async function loadModels(signal?: AbortSignal) {
 		const provider = value?.kind
@@ -71,29 +115,33 @@
 		if (!provider || !resourcePath) {
 			return
 		}
+		if (decision) {
+			availableModels = defaultModels(provider)
+			loading = false
+			return
+		}
 
 		loading = true
-		if (modelsCache.has(provider)) {
-			availableModels = modelsCache.get(provider) || []
+		const cacheKey = `${effectiveWorkspace}:${provider}:${resourcePath}`
+		if (modelsCache.has(cacheKey)) {
+			availableModels = modelsCache.get(cacheKey) || []
 			loading = false
 			return
 		}
 
 		try {
-			const workspace = get(workspaceStore) || ''
-			const models = await fetchAvailableModels(resourcePath, workspace, provider, signal)
+			const models = await fetchAvailableModels(resourcePath, effectiveWorkspace, provider, signal)
 			if (signal?.aborted) {
 				return
 			}
 			availableModels = models
-			modelsCache.set(provider, models)
+			modelsCache.set(cacheKey, models)
 		} catch (e) {
 			if (signal?.aborted) {
 				return
 			}
 			// Fall back to default models for this provider
-			const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
-			availableModels = defaultModels
+			availableModels = defaultModels(provider)
 		} finally {
 			if (!signal?.aborted) {
 				loading = false
@@ -101,15 +149,56 @@
 		}
 	}
 
-	// Handle provider selection
-	function onProviderChange(selectedProvider: AIProvider) {
-		if (value) {
-			value.kind = selectedProvider
-			value.resource = ''
-			value.model = ''
-			// Reasoning effort is model-specific; reset it with the model.
-			value.reasoning_effort = undefined
+	let latestPick = 0
+
+	/** The provider a Vertex federated resource serves, Claude or Gemini depending on its base
+	 *  URL, which can be a variable. When the URL names no publisher, a Vertex provider already
+	 *  chosen is kept rather than guessed over. */
+	async function vertexResourceProvider(path: string): Promise<AIProvider> {
+		const workspace = effectiveWorkspace
+		let baseUrl = await ResourceService.getResourceValue({ workspace, path })
+			.then((v) => (v as Record<string, any> | undefined)?.base_url)
+			.catch(() => undefined)
+		if (typeof baseUrl === 'string' && baseUrl.startsWith('$var:')) {
+			baseUrl = await VariableService.getVariableValue({
+				workspace,
+				path: baseUrl.substring('$var:'.length)
+			}).catch(() => undefined)
 		}
+		const current = value?.kind
+		return (
+			vertexPublisherProvider(baseUrl) ??
+			(current === 'anthropic' || current === 'googleai' ? current : 'googleai')
+		)
+	}
+
+	/**
+	 * The provider kind follows the resource that was picked. Driven by the pick rather than by an
+	 * effect on the picker's `valueType`, which also resolves for the value the field was opened on
+	 * and would rewrite a saved config just for being looked at.
+	 */
+	async function onResourcePicked(path: string | undefined, type: string | undefined) {
+		const pick = ++latestPick
+		// An empty type is the placeholder the picker keeps for a saved path it could not find. It
+		// says nothing about the provider, so the kind stands.
+		const provider =
+			type === 'vertex_ai_federated' && path
+				? await vertexResourceProvider(path)
+				: aiResourceProvider(type)
+		// A later pick owns the kind.
+		if (pick !== latestPick) {
+			return
+		}
+		if (!value || !provider || !offeredProviders.includes(provider)) {
+			return
+		}
+		if (value.kind === provider) {
+			return
+		}
+		value.kind = provider
+		// Models are per provider, and a reasoning token is per model.
+		value.model = ''
+		value.reasoning_effort = undefined
 	}
 
 	// Helper functions to handle $res: prefix like ObjectResourceInput does
@@ -148,8 +237,7 @@
 		if (provider && resourcePath) {
 			loadModels(abortController.signal)
 		} else {
-			const defaultModels = provider ? AI_PROVIDERS[provider]?.defaultModels || [] : []
-			availableModels = defaultModels
+			availableModels = provider ? defaultModels(provider) : []
 			loading = false
 		}
 
@@ -165,83 +253,63 @@
 	})
 </script>
 
-<div class="w-full flex flex-col gap-1 border rounded-md p-4">
-	<!-- Provider Selection -->
-	<ToggleButtonGroup
-		selected={value?.kind}
-		onSelected={onProviderChange}
-		{disabled}
-		wrap
-		tabListClass="w-full"
-	>
-		{#snippet children({ item })}
-			{#each providerOptions.slice(0, 3) as option}
-				<ToggleButton value={option.value} label={option.label} {item} />
-			{/each}
-			<ToggleButtonMore
-				class="ml-auto"
-				btnText={providerOptions.findIndex((p) => p.value === value?.kind) >= 3 ? '' : 'More'}
-				togglableItems={providerOptions.slice(3)}
-				{item}
-				bind:selected={() => value?.kind, (v) => v && onProviderChange(v)}
-			/>
-		{/snippet}
-	</ToggleButtonGroup>
-
-	<!-- Resource Selection -->
-	<div class="flex flex-col rounded-md pt-2 gap-2">
-		<div class="flex flex-col gap-1">
-			<p class="text-xs font-normal text-primary">resource</p>
-			<ResourcePicker
-				bind:value={
-					() => resourceValueToPath(value?.resource),
-					(v) => {
-						if (value) {
-							value.resource = pathToResourceValue(v) ?? ''
-						}
+<div class="w-full flex flex-col gap-3 border rounded-md p-4">
+	<div class="flex flex-col gap-1">
+		<span class="text-xs font-normal text-secondary">Resource</span>
+		<!-- No auto-select: this picker spans every provider type, so a single candidate means "the
+		     only AI resource in the workspace" rather than "the only one of the kind this agent uses".
+		     Taking it would redefine the agent's provider and drop its model, on open and unasked. -->
+		<ResourcePicker
+			bind:value={
+				() => resourceValueToPath(value?.resource),
+				(v) => {
+					if (value) {
+						value.resource = pathToResourceValue(v) ?? ''
 					}
 				}
-				resourceType={value?.kind}
-				disabled={disabled || !value?.kind}
-				placeholder="Select resource"
-				selectFirst={true}
-			/>
-		</div>
+			}
+			resourceType={providerResourceTypes}
+			{disabled}
+			{workspace}
+			placeholder="Select an AI provider resource"
+			selectFirst={false}
+			onValueChange={onResourcePicked}
+		/>
+	</div>
 
-		<!-- Model Selection -->
+	<div class="flex flex-col gap-1">
+		<span class="text-xs font-normal text-secondary">Model</span>
+		<Select
+			{items}
+			bind:value={() => value?.model, (v) => value && (value.model = v ?? '')}
+			placeholder="Select model"
+			disabled={disabled || !value?.kind || !resourceValueToPath(value?.resource)}
+			onCreateItem={(r) => {
+				availableModels.push(r)
+				if (value) value.model = r
+			}}
+			createText="Press enter to use custom model"
+			{loading}
+			clearable={false}
+			noItemsMsg={'No models available'}
+			bind:filterText
+		/>
+	</div>
+
+	{#if value?.model && !decision}
 		<div class="flex flex-col gap-1">
-			<p class="text-xs font-normal text-primary">model</p>
-			<Select
-				{items}
-				bind:value={() => value?.model, (v) => value && (value.model = v ?? '')}
-				placeholder="Select model"
-				disabled={disabled || !value?.kind || !resourceValueToPath(value?.resource)}
-				onCreateItem={(r) => {
-					availableModels.push(r)
-					if (value) value.model = r
-				}}
-				createText="Press enter to use custom model"
-				{loading}
-				clearable={false}
-				noItemsMsg={'No models available'}
-				bind:filterText
+			<span class="text-xs font-normal text-secondary">Reasoning effort</span>
+			<AIReasoningEffortPicker
+				bind:value={() => value?.reasoning_effort, (v) => value && (value.reasoning_effort = v)}
+				providerConfig={value}
+				{disabled}
 			/>
 		</div>
+	{/if}
 
-		<!-- Reasoning Effort (shown once a model is selected) -->
-		{#if value?.model}
-			<div class="flex flex-col gap-1">
-				<p class="text-xs font-normal text-primary">reasoning effort</p>
-				<AIReasoningEffortPicker
-					bind:value={() => value?.reasoning_effort, (v) => value && (value.reasoning_effort = v)}
-					providerConfig={value}
-					{disabled}
-				/>
-			</div>
-		{/if}
-
-		<!-- Use as Default Checkbox -->
-		<div class="flex justify-end pt-1">
+	<!-- The default seeds new agents, which a decision provider cannot run. -->
+	{#if !decision}
+		<div class="flex justify-end">
 			<Toggle
 				disabled={disabled || !value?.kind || !value?.resource || !value?.model}
 				bind:checked={useAsDefault}
@@ -256,7 +324,7 @@
 				}}
 			/>
 		</div>
-	</div>
+	{/if}
 
 	{@render actions?.()}
 </div>

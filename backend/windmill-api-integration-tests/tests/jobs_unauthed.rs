@@ -236,14 +236,17 @@ async fn test_jobs_unauthed_complex_reachability(db: Pool<Postgres>) -> anyhow::
         "GET /get_log_file",
     );
 
-    let resp = authed(client().post(format!("{base}/queue/cancel_persistent/u/test-user/fake")))
+    // Unauthenticated, so the handler refuses before cancelling, which sleeps for seconds.
+    let resp = client()
+        .post(format!("{base}/queue/cancel_persistent/u/test-user/fake"))
         .json(&serde_json::json!({"reason": "test"}))
         .send()
         .await?;
-    assert_route_reachable(
-        resp.status().as_u16(),
-        &resp.text().await?,
-        "POST /queue/cancel_persistent",
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert!(
+        status == 400 && body.contains("Cancelling persistent script require"),
+        "POST /queue/cancel_persistent did not reach its handler: {status} {body}"
     );
 
     Ok(())

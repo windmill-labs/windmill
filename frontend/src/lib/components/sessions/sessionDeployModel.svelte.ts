@@ -1,11 +1,16 @@
 import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
+import { roleCanAuthor } from '$lib/editRights'
+import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
 import {
 	checkDeployPermission,
+	checkDeployRules,
 	checkItemExists,
+	deployPermissionForKind,
 	getItemValue,
 	type DeployPermission,
 	type DeployResult
 } from '$lib/utils_workspace_deploy'
+import type { Kind } from '$lib/utils_deployable'
 import {
 	deployDraft,
 	discardDraft,
@@ -25,6 +30,8 @@ import {
 import { maskKey } from './modifiedItemsMask'
 import { sessionState } from './sessionState.svelte'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { AssetService } from '$lib/gen'
+import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 
 export type DeploymentStatus = { status: 'loading' | 'failed'; error?: string }
 
@@ -50,11 +57,48 @@ export interface SessionDeployModelArgs {
 	onItemDiscarded?: (item: DeployItem) => void
 	/** Chat-modified-items mask; undefined shows every draft. */
 	mask?: Set<string>
+	/** Deploys a pipeline folder's draft bundle, which no per-item deploy can: it
+	 *  expands into the folder's scripts and triggers. */
+	deployPipeline?: (folder: string) => Promise<DeployResult>
+	/** The session is in Use: its edits still show, but nothing deploys or discards. */
+	readOnly?: boolean
+}
+
+const USE_MODE_REFUSAL: DeployPermission = {
+	ok: false,
+	reason: 'A session in Use mode deploys nothing. Switch it to Use & build to deploy.'
 }
 
 export interface DiffValues {
 	before: unknown
 	after: unknown
+}
+
+// A pipeline has no row of its own: it exists while its folder holds pipeline scripts.
+async function itemExists(kind: Kind, path: string, workspace: string): Promise<boolean> {
+	if (kind !== PIPELINE_DRAFT_KIND) return checkItemExists(kind, path, workspace)
+	const folder = pipelineFolderFromBundlePath(path)
+	if (!folder) return false
+	const pipelines = await AssetService.listPipelineFolders({ workspace })
+	return pipelines.some((p) => p.folder === folder)
+}
+
+/** The session's edits as its bar lists them, read once. */
+export async function readDeployItems(
+	workspaceId: string,
+	mask: Set<string>
+): Promise<DeployItem[]> {
+	const draftItems = await getDraftItems(workspaceId)
+	const keys = await Promise.all(
+		maskOnlyCandidates({ draftItems, mask }).map((c) =>
+			itemExists(c.deployKind, c.path, workspaceId).then(
+				(exists) => (exists ? c.key : null),
+				() => null
+			)
+		)
+	)
+	const existingKeys = new Set(keys.filter((k): k is string => !!k))
+	return buildDeployItems({ draftItems, mask, existingKeys })
 }
 
 /** Resolves which mask-only candidates still exist in the session workspace
@@ -98,7 +142,7 @@ export function useExistingMaskKeys(
 			// workspace; a discarded or deleted one doesn't.
 			void Promise.all(
 				cands.map((c) =>
-					checkItemExists(c.deployKind, c.path, workspaceId)
+					itemExists(c.deployKind, c.path, workspaceId)
 						.then((exists) => (exists ? c.key : null))
 						.catch(() => null)
 				)
@@ -208,10 +252,13 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	})
 
 	// ── Deploy permission ────────────────────────────────────────────────────
-	// Preflight the shared checkDeployPermission (operator / RestrictDeployToDeployers)
-	// for the session workspace so the button disables with a reason instead of
-	// failing on click. `ok` defaults true while resolving (fail-open).
+	// Preflight the shared checkDeployPermission for the session workspace so the
+	// button disables with a reason instead of failing on click. `ok` defaults
+	// true while resolving (fail-open).
 	let deployPerm = $state<DeployPermission>({ ok: true })
+	// `checkDeployPermission` refuses every role that cannot code, but flows.rs and apps.rs let one
+	// that composes that kind deploy it, under the rules alone.
+	let builder = $state<{ perm: DeployPermission; kinds: Kind[] } | undefined>(undefined)
 	let deployPermFetchedFor = ''
 	$effect(() => {
 		const ws = getArgs().workspaceId
@@ -221,11 +268,26 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			// Reset to fail-open for the new workspace and drop a stale resolution
 			// (a slower fetch for the previous workspace must not gate this one).
 			deployPerm = { ok: true }
-			void checkDeployPermission(ws).then((perm) => {
-				if (deployPermFetchedFor === ws) deployPerm = perm
+			builder = undefined
+			void checkDeployPermission(ws).then(async (perm) => {
+				if (deployPermFetchedFor !== ws) return
+				deployPerm = perm
+				const caps = capabilitiesInWorkspace(ws)
+				const kinds = (['flow', 'raw_app'] as const).filter((k) => roleCanAuthor(k, caps))
+				if (perm.refusedBy === 'operator' && kinds.length) {
+					const rules = await checkDeployRules(ws)
+					if (deployPermFetchedFor === ws) builder = { perm: rules, kinds }
+				}
 			})
 		})
 	})
+
+	function permissionFor(kind: Kind): DeployPermission {
+		if (getArgs().readOnly) return USE_MODE_REFUSAL
+		const caps = capabilitiesInWorkspace(getArgs().workspaceId)
+		if (builder?.kinds.includes(kind)) return deployPermissionForKind(builder.perm, kind, caps)
+		return deployPermissionForKind(deployPerm, kind, caps)
+	}
 
 	// ── Deploy execution ─────────────────────────────────────────────────────
 	// Per-item transient deploy state (keyed by DeployItem.key): loading or
@@ -244,11 +306,18 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	async function runPlan(entry: DeployPlanEntry): Promise<DeployResult> {
 		const cur = getArgs().workspaceId
 		switch (entry.op) {
-			case 'deploy_draft':
+			case 'deploy_draft': {
+				const folder =
+					entry.draftKind === PIPELINE_DRAFT_KIND
+						? pipelineFolderFromBundlePath(entry.path)
+						: undefined
+				const deployPipeline = getArgs().deployPipeline
+				if (folder && deployPipeline) return deployPipeline(folder)
 				return deployDraft(entry.draftKind, entry.path, cur, {
 					draftOnly: entry.draftOnly,
 					rawApp: entry.rawApp
 				})
+			}
 			case 'discard':
 				return discardDraft(entry.draftKind, entry.path, cur, entry.draftOnly, entry.legacy)
 		}
@@ -262,14 +331,14 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	/** Deploy (or discard) a single item; returns whether it succeeded. */
 	async function deployOne(item: DeployItem, discard = false): Promise<boolean> {
 		const plan = discard ? discardPlanFor(item) : deployPlanFor(item)
-		if (!plan) return false
+		if (!plan || getArgs().readOnly) return false
 		// Snapshot before the await: the user may switch sessions while the
 		// deploy runs, and the event belongs to the initiating session.
 		const initiatingSessionId = sessionState.currentSessionId
-		// Don't attempt a deploy we know the user can't make (no write permission
-		// on the path, or blocked by the operator / deployer rule) — the UI
-		// disables it too; this is the guard behind that.
-		if (!discard && (!item.canWrite || !deployPerm.ok)) return false
+		// Don't attempt a deploy we know the user can't make (no write permission on
+		// the path, or refused by the preflight for this kind) — the UI disables it
+		// too; this is the guard behind that.
+		if (!discard && (!item.canWrite || !permissionFor(item.deployKind).ok)) return false
 		setStatus(item.key, { status: 'loading' })
 		deploying = true
 		try {
@@ -311,6 +380,16 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 
 	// ── Diff values (one resolver for tree + column) ─────────────────────────
 	async function loadDiffValues(item: DeployItem): Promise<DiffValues> {
+		const pipelineFolder =
+			item.draftKind === PIPELINE_DRAFT_KIND ? pipelineFolderFromBundlePath(item.path) : undefined
+		if (pipelineFolder) {
+			// Dynamic: the pipeline deploy module reaches every trigger kind's save utils.
+			const { loadPipelineDraftDiff } = await import(
+				'$lib/components/assets/AssetGraph/pipelineDeploy.svelte'
+			)
+			if (item.hasDraft) return loadPipelineDraftDiff(getArgs().workspaceId, pipelineFolder)
+			return { before: undefined, after: undefined }
+		}
 		const base = diffBaseFor(item, getArgs().workspaceId)
 		if (base.kind === 'draft') {
 			const { deployed, draft } = await getDraftDiffValues(
@@ -349,9 +428,17 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		staleOf(key: string): boolean {
 			return staleKeys.has(key)
 		},
-		/** Whether the user may deploy into the session workspace. */
-		get deployPermission(): DeployPermission {
-			return deployPerm
+		/**
+		 * Whether the user may deploy into the session workspace. Per-kind, because a
+		 * direct-deployment lock never reaches schedules or triggers server-side — a row of
+		 * that kind stays deployable while a script row does not.
+		 */
+		deployPermissionForKind(kind: Kind): DeployPermission {
+			return permissionFor(kind)
+		},
+		/** The session is in Use, so discarding is refused as deploying is. */
+		get readOnly() {
+			return !!getArgs().readOnly
 		},
 		deployRow,
 		discardRow

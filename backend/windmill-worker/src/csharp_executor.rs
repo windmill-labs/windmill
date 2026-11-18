@@ -13,7 +13,7 @@ use itertools::Itertools;
 #[cfg(feature = "csharp")]
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 #[cfg(feature = "csharp")]
-use windmill_common::{utils::calculate_hash, worker::write_file};
+use windmill_common::worker::write_file;
 
 #[cfg(feature = "csharp")]
 use crate::global_cache::save_cache;
@@ -28,12 +28,12 @@ use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
         get_reserved_variables, read_result, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, start_child_process, DEV_CONF_NSJAIL,
+        resolve_nsjail_tmp_mount_block, script_envars, start_child_process, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override, CSHARP_CACHE_DIR,
-    DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH, NUGET_CONFIG, PATH_ENV,
+    DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH, NUGET_CONFIG, PATH_ENV, PROXY_ENVS,
     TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 #[cfg(feature = "csharp")]
@@ -47,6 +47,9 @@ use crate::SYSTEM_ROOT;
 
 #[cfg(feature = "csharp")]
 const NSJAIL_CONFIG_RUN_CSHARP_CONTENT: &str = include_str!("../nsjail/run.csharp.config.proto");
+#[cfg(feature = "csharp")]
+const NSJAIL_CONFIG_BUILD_CSHARP_CONTENT: &str =
+    include_str!("../nsjail/build.csharp.config.proto");
 
 #[cfg(feature = "csharp")]
 #[cfg(windows)]
@@ -72,13 +75,21 @@ const CSHARP_OBJECT_STORE_PREFIX: &str =
 /// Cache key of a C# build. The run path and the deploy-time prebuild must derive it the
 /// same way or the prebuilt binary is never found and gets rebuilt on first run.
 #[cfg(feature = "csharp")]
-async fn csharp_cache_key(code: &str, requirements_o: Option<&str>, w_id: &str) -> String {
-    let mut hash = calculate_hash(&format!(
+async fn csharp_cache_key(
+    code: &str,
+    requirements_o: Option<&str>,
+    w_id: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    // The SDK project globs every `.cs` under the job dir, so companion modules are
+    // compiled into the binary this key names and have to be part of it.
+    let base = format!(
         "{}{}{}",
         code,
         requirements_o.unwrap_or(""),
         DOTNET_TARGET_FRAMEWORK.as_str()
-    ));
+    );
+    let mut hash = crate::worker::artifact_cache_name(base, modules);
     hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
     hash
 }
@@ -116,6 +127,9 @@ pub async fn generate_nuget_lockfile(
 
     gen_cs_proj(code, job_dir, reqs, lines_to_remove)?;
 
+    // `dotnet restore` resolves and downloads packages but does not import their
+    // MSBuild `build/*.targets`, so it runs no package code — only `dotnet publish`
+    // (jailed below) does — so it runs unsandboxed.
     let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
@@ -376,31 +390,82 @@ async fn build_cs_proj(
         }
     }
 
-    let mut build_cs_cmd = Command::new(DOTNET_PATH.as_str());
-    build_cs_cmd
-        .current_dir(job_dir)
-        .env_clear()
-        .env("PATH", PATH_ENV.as_str())
-        .env("BASE_INTERNAL_URL", base_internal_url)
-        .env("HOME", HOME_ENV.as_str())
-        .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
-        .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
-        .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
-        .env("DOTNET_NOLOGO", "true")
-        .env("MSBUILDDISABLENODEREUSE", "1")
-        .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
-        .args(vec![
-            "publish",
-            "--configuration",
-            "Release",
-            "-o",
-            &format!("{job_dir}/out"),
-            "--no-self-contained",
-            "-p:PublishSingleFile=true",
-            "-p:IncludeNativeLibrariesForSelfExtract=true",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let out_dir = format!("{job_dir}/out");
+    let publish_args = vec![
+        "publish",
+        "--configuration",
+        "Release",
+        "-o",
+        out_dir.as_str(),
+        "--no-self-contained",
+        "-p:PublishSingleFile=true",
+        "-p:IncludeNativeLibrariesForSelfExtract=true",
+    ];
+    // `dotnet publish` imports and runs the MSBuild targets/tasks of restored NuGet
+    // packages (a package's build/*.targets execute at build, not at restore), i.e.
+    // arbitrary package code. Confine it under nsjail when sandboxing is on, the same
+    // way the run step is; HOME is set to /tmp by the config, keep_env passes the
+    // explicit dotnet/proxy vars, and the job dir + shared nuget cache are writable.
+    // Without sandboxing, publish runs directly with no isolation.
+    // mut is required by the #[cfg(windows)] env block below; unused on unix.
+    #[allow(unused_mut)]
+    let mut build_cs_cmd = if is_sandboxing_enabled() {
+        std::fs::create_dir_all(&*CSHARP_CACHE_DIR)?;
+        let nsjail_timeout = resolve_nsjail_timeout(conn, w_id, *job_id, None).await;
+        write_file(
+            job_dir,
+            "build.config.proto",
+            NSJAIL_CONFIG_BUILD_CSHARP_CONTENT
+                .replace("{TIMEOUT}", &nsjail_timeout)
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CSHARP_CACHE_DIR}", &*CSHARP_CACHE_DIR)
+                .replace("{DOTNET_ROOT}", DOTNET_ROOT.as_str())
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .as_str(),
+        )?;
+        let mut nsjail_args = vec!["--config", "build.config.proto", "--", DOTNET_PATH.as_str()];
+        nsjail_args.extend(publish_args.iter().copied());
+        let mut cmd = Command::new(NSJAIL_PATH.as_str());
+        cmd.current_dir(job_dir)
+            .env_clear()
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
+            .env("DOTNET_NOLOGO", "true")
+            .env("MSBUILDDISABLENODEREUSE", "1")
+            .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
+            .envs(PROXY_ENVS.clone())
+            .envs(&*crate::worker::WHITELIST_ENVS)
+            .args(nsjail_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        cmd
+    } else {
+        let mut cmd = Command::new(DOTNET_PATH.as_str());
+        cmd.current_dir(job_dir)
+            .env_clear()
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("HOME", HOME_ENV.as_str())
+            .env("DOTNET_CLI_HOME", &*CSHARP_CACHE_DIR)
+            .env("NUGET_PACKAGES", format!("{}/nuget", *CSHARP_CACHE_DIR))
+            .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
+            .env("DOTNET_NOLOGO", "true")
+            .env("MSBUILDDISABLENODEREUSE", "1")
+            .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
+            .args(publish_args.clone())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        cmd
+    };
 
     #[cfg(windows)]
     build_cs_cmd
@@ -425,14 +490,20 @@ async fn build_cs_proj(
                 .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
         );
 
-    let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str(), true).await?;
+    let build_cs_executable = if is_sandboxing_enabled() {
+        NSJAIL_PATH.as_str()
+    } else {
+        DOTNET_PATH.as_str()
+    };
+    let build_cs_process = start_child_process(build_cs_cmd, build_cs_executable, true).await?;
     handle_child(
         job_id,
         conn,
         mem_peak,
         canceled_by,
         build_cs_process,
-        false,
+        // jailed when sandboxing is on, so mem sampling finds the real process
+        is_sandboxing_enabled(),
         worker_name,
         w_id,
         "dotnet publish",
@@ -487,10 +558,11 @@ pub async fn prebuild_csharp_binary(
     worker_name: &str,
     base_internal_url: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Option<String>> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    let hash = csharp_cache_key(code, Some(lock), &job.workspace_id).await;
+    let hash = csharp_cache_key(code, Some(lock), &job.workspace_id, modules).await;
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
     if crate::global_cache::exists_in_object_store(&remote_path).await {
         return Ok(None);
@@ -549,6 +621,7 @@ pub async fn handle_csharp_job(
     _worker_name: &str,
     _envs: HashMap<String, String>,
     _occupancy_metrics: &mut OccupancyMetrics,
+    _modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<Box<RawValue>, Error> {
     Err(anyhow!("C# is not available because the feature is not enabled").into())
 }
@@ -568,6 +641,7 @@ pub async fn handle_csharp_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
@@ -575,6 +649,7 @@ pub async fn handle_csharp_job(
         inner_content,
         requirements_o.map(|x| x.as_str()),
         &job.workspace_id,
+        modules,
     )
     .await;
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
@@ -654,28 +729,10 @@ pub async fn handle_csharp_job(
     let child = if is_sandboxing_enabled() {
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
-        write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_CSHARP_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", &*CSHARP_CACHE_DIR)
-                .replace("{CACHE_HASH}", &hash)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL)
-                .replace(
-                    "{TMP_MOUNT_BLOCK}",
-                    &resolve_nsjail_tmp_mount_block(job_dir).await,
-                )
-                .replace("{TIMEOUT}", &nsjail_timeout),
-        )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
-            .envs(envs)
             .envs(reserved_variables)
             .envs(
                 get_proxy_envs_for_lang(
@@ -702,6 +759,24 @@ pub async fn handle_csharp_job(
         #[cfg(windows)]
         nsjail_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
+        write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_CSHARP_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CACHE_DIR}", &*CSHARP_CACHE_DIR)
+                .replace("{CACHE_HASH}", &hash)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout)
+                .replace("{ENVARS}", &script_envars(&envs, &nsjail_cmd, &[])),
+        )?;
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), true).await?
     } else {
         #[cfg(unix)]

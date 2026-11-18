@@ -10,10 +10,9 @@
 		WebsocketTriggerService,
 		GcpTriggerService
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt' | 'amqp' | 'gcp'
@@ -23,8 +22,8 @@
 	}
 
 	let { kind, args, noButton = false, testLoading = $bindable(false) }: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	const kindToName: { [key: string]: string } = {
 		websocket: 'WebSocket',

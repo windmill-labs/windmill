@@ -220,7 +220,7 @@ describe('artifactsDB', () => {
 		expect(await noDb.getArtifact('a1')).toBeUndefined()
 		expect(await noDb.listArtifactsForSession('s1')).toEqual([])
 		await expect(noDb.deleteArtifact('a1')).resolves.toBeUndefined()
-		await expect(noDb.deleteArtifactsForSession('s1')).resolves.toBeUndefined()
+		await expect(noDb.deleteArtifactsForSession('s1')).resolves.toBe(false)
 	})
 
 	it('rejects a version read it could not make, instead of reading as absent', async () => {

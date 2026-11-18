@@ -9,7 +9,8 @@
 		noDate?: boolean
 		isRecent?: boolean
 		noSeconds?: boolean
-		/** Single-unit form ("2m", "3h", "5d") for rows too narrow for "2 mins ago". */
+		/** Single-unit form ("2m", "3h", "5d") for rows too narrow for "2 mins ago". With
+		 * `noSeconds`, the first minute reads "1m" rather than counting seconds. */
 		compact?: boolean
 	}
 
@@ -27,18 +28,16 @@
 	let interval
 
 	onMount(() => {
-		// compact schedules itself below; it needs no fixed rate.
-		if (compact) return
+		// compact and noSeconds schedule themselves below; they need no fixed rate.
+		if (compact || noSeconds) return
 
-		// Update every minute for noSeconds mode, every second otherwise.
-		const intervalMs = noSeconds ? 60000 : 1000
 		interval = setInterval(() => {
 			computeDate()
 			if (!isRecent) {
 				clearInterval(interval)
 				interval = undefined
 			}
-		}, intervalMs)
+		}, 1000)
 
 		// Add explicit cleanup
 		return () => {
@@ -49,25 +48,33 @@
 	// Waking on the boundary of the unit on screen, rather than at a fixed rate: `2h` only
 	// changes on the hour, and a row that reads `5d` must not hold a 1s timer to find that
 	// out. Re-armed when `date` changes, so an item edited to now leaves its day-long wait.
+	// noSeconds rides the same schedule: its relative forms keep counting hours and days,
+	// so a fixed-rate timer that stops once the date is an hour old would freeze them.
 	$effect(() => {
-		if (!compact) return
+		if (!compact && !noSeconds) return
 		const at = date
+		// An absent or unparsable date has no boundary to wait for: the delay below would
+		// be NaN, which setTimeout runs immediately, and the tick would re-arm itself in
+		// a tight loop.
+		if (Number.isNaN(new Date(at).getTime())) return
 		let handle: ReturnType<typeof setTimeout> | undefined
 		const tick = () => {
 			computeDate()
-			handle = setTimeout(tick, compactDelayMs(at))
+			handle = setTimeout(tick, nextUnitBoundaryMs(at))
 		}
-		handle = setTimeout(tick, compactDelayMs(at))
+		handle = setTimeout(tick, nextUnitBoundaryMs(at))
 		return () => {
 			handle && clearTimeout(handle)
 		}
 	})
 
-	function compactDelayMs(dateString: string): number {
+	function nextUnitBoundaryMs(dateString: string): number {
 		const secs = secondsAgo(new Date(dateString))
 		const left =
 			secs < 60
-				? 1
+				? compact && noSeconds
+					? 60 - secs
+					: 1
 				: secs < 3600
 					? 60 - (secs % 60)
 					: secs < 86_400
@@ -121,7 +128,7 @@
 			// (PipelineEventLog, PipelineActivityPanel, IndexerMemorySettings): seconds stay
 			// meaningful right up to the minute mark.
 			const secs = secondsAgo(date)
-			if (secs < 60) return `${secs}s`
+			if (secs < 60) return noSeconds ? '1m' : `${secs}s`
 			const mins = minutesAgo(date)
 			if (mins < 60) return `${mins}m`
 			const hours = hoursAgo(date)

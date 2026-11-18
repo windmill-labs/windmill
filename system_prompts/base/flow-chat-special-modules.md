@@ -1,6 +1,7 @@
 ## Special Modules
 
 - Use `set_preprocessor_module` to add, replace, or remove the top-level `value.preprocessor_module`
+- A preprocessor receives the trigger's `event`, not the flow's inputs: leave its `input_transforms` empty
 - Use `set_failure_module` to add, replace, or remove the top-level `value.failure_module`
 - Use `set_flow_json` only when you are replacing the whole flow, including normal modules and optional special modules
 
@@ -12,10 +13,8 @@ set_preprocessor_module({
     value: {
       type: "rawscript",
       language: "bun",
-      content: "export async function preprocessor(payload: string) { const trimmed = payload.trim(); if (!trimmed) { throw new Error('payload must not be empty'); } return { payload: trimmed }; }",
-      input_transforms: {
-        payload: { type: "javascript", expr: "flow_input.payload" }
-      }
+      content: "export async function preprocessor(event: { kind: string; body?: { payload?: string } }) { const payload = String(event.body?.payload ?? '').trim(); if (!payload) { throw new Error('payload must not be empty'); } return { payload }; }",
+      input_transforms: {}
     }
   })
 })

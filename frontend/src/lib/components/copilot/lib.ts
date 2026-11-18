@@ -15,19 +15,30 @@ import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import {
+	getKnownModelMaxOutputTokens,
 	requiresMaxCompletionTokens,
 	usesAnthropicMessagesApi,
 	usesOpenRouterPromptCaching
 } from './modelConfig'
-import { applyReasoningToConfig } from './reasoningRegistry'
+import {
+	applyReasoningToConfig,
+	completionsRejectsToolsWithReasoning,
+	explicitOffToken,
+	requestsReasoning,
+	stripLegacyThinkingSuffix,
+	usesOpenAIResponsesApi,
+	type ReasoningEffort
+} from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	type LiveToolSet,
 	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks
 } from './chat/shared'
+import { OutputTokenLimitError } from './chat/outputTokenLimit'
 import { hasValidToolCallArguments } from './chat/toolCallArguments'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
@@ -36,7 +47,15 @@ import {
 import { convertOpenAIToAnthropicMessages } from './chat/anthropic'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
-import { copilotInfo, getCurrentModel, getMetadataModel } from '$lib/aiStore'
+import {
+	copilotInfo,
+	getCurrentModel,
+	getMetadataModel,
+	resolveMetadataModelFor,
+	resolveModelFor,
+	type AiTarget,
+	type CopilotInfo
+} from '$lib/aiStore'
 import {
 	emptyChatTokenUsage,
 	openAICompletionsUsageToChatTokenUsage,
@@ -49,100 +68,18 @@ import {
 	getReasoningContentDelta
 } from './chat/openaiReasoning'
 import { parseFimCompletionChoice } from './fim'
+import { aiClientWorkspace, setAiClientWorkspace } from './aiClientWorkspace'
+import { AI_PROVIDERS, DECISION_AI_PROVIDERS, type ChatAIProvider } from './aiProviders'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
-interface AIProviderDetails {
-	label: string
-	defaultModels: string[]
-}
-
-// The first entry is what a new workspace is created with (see
-// CreateWorkspaceInner), so each list leads with the balanced tier rather than
-// the frontier model. The gpt-5 family is deprecated (retires 2026-12-11) but
-// still served, so it stays in the list below the 5.6 models.
-const OPENAI_MODELS = [
-	'gpt-5.6-terra',
-	'gpt-5.6-sol',
-	'gpt-5.6-luna',
-	'gpt-5',
-	'gpt-5-mini',
-	'gpt-4o',
-	'gpt-4o-mini',
-	'o4-mini',
-	'o3'
-]
-
-export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
-	openai: {
-		label: 'OpenAI',
-		defaultModels: OPENAI_MODELS
-	},
-	anthropic: {
-		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-haiku-4-5']
-	},
-	googleai: {
-		label: 'Google AI',
-		defaultModels: [
-			'gemini-3.6-flash',
-			'gemini-3.5-flash',
-			'gemini-3.1-pro-preview',
-			'gemini-3.5-flash-lite',
-			'gemini-3.1-flash-lite',
-			'gemini-2.5-pro',
-			'gemini-2.5-flash'
-		]
-	},
-	azure_openai: {
-		label: 'Azure OpenAI',
-		defaultModels: OPENAI_MODELS
-	},
-	azure_foundry: {
-		label: 'Azure AI Foundry',
-		defaultModels: [
-			'gpt-5.6-terra',
-			'gpt-5.6-sol',
-			'claude-sonnet-5',
-			'claude-opus-5',
-			'DeepSeek-V4-Pro',
-			'Llama-3.3-70B-Instruct',
-			'Phi-4'
-		]
-	},
-	mistral: {
-		label: 'Mistral',
-		defaultModels: ['mistral-medium-latest', 'codestral-latest']
-	},
-	deepseek: {
-		label: 'DeepSeek',
-		defaultModels: ['deepseek-v4-pro', 'deepseek-v4-flash']
-	},
-	groq: {
-		label: 'Groq',
-		defaultModels: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']
-	},
-	openrouter: {
-		label: 'OpenRouter',
-		defaultModels: ['meta-llama/llama-3.2-3b-instruct:free']
-	},
-	togetherai: {
-		label: 'Together AI',
-		defaultModels: ['meta-llama/Llama-3.3-70B-Instruct-Turbo']
-	},
-	aws_bedrock: {
-		label: 'AWS Bedrock',
-		defaultModels: [
-			'global.anthropic.claude-sonnet-5',
-			'global.anthropic.claude-opus-5',
-			'global.anthropic.claude-haiku-4-5-20251001-v1:0'
-		]
-	},
-	customai: {
-		label: 'Custom AI',
-		defaultModels: []
-	}
-}
+export {
+	AI_PROVIDERS,
+	DECISION_AI_PROVIDERS,
+	aiProviderDetails,
+	type AIProviderDetails,
+	type ChatAIProvider
+} from './aiProviders'
 
 export interface ModelResponse {
 	id: string
@@ -156,12 +93,30 @@ export interface ModelResponse {
 	}
 }
 
+/** `boundedJson` is imported only when a caller asks for a cap: this module is already slow to
+ * load, and a static edge is paid by every importer. */
+async function readListing(response: Response, maxBytes: number | undefined): Promise<unknown> {
+	if (maxBytes === undefined) {
+		return response.json()
+	}
+	const { readJsonWithLimit } = await import('./boundedJson')
+	return readJsonWithLimit(response, maxBytes)
+}
+
 export async function fetchAvailableModels(
 	resourcePath: string,
 	workspace: string,
 	provider: AIProvider,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	/** Cap on the listing response, for callers that fetch without a user asking. */
+	maxBytes?: number
 ): Promise<string[]> {
+	// Neither decision provider has an OpenAI-shaped listing: TypeSafe's names models with `name`
+	// and serves one under aliases, and Workers AI's catalog spans every model it hosts.
+	if (provider === 'typesafe' || provider === 'cloudflare') {
+		return DECISION_AI_PROVIDERS[provider].defaultModels
+	}
+
 	// Handle AWS Bedrock separately (needs both foundation-models and inference-profiles)
 	if (provider === 'aws_bedrock') {
 		const headers = {
@@ -186,7 +141,7 @@ export async function fetchAvailableModels(
 			throw new Error('Failed to fetch foundation models for AWS Bedrock')
 		}
 
-		const foundationModelsData = (await foundationModelsResp.json()) as {
+		const foundationModelsData = (await readListing(foundationModelsResp, maxBytes)) as {
 			modelSummaries: Array<{
 				modelId: string
 				modelArn: string
@@ -203,7 +158,7 @@ export async function fetchAvailableModels(
 		}> = []
 
 		if (inferenceProfilesResp.ok) {
-			const inferenceProfilesData = (await inferenceProfilesResp.json()) as {
+			const inferenceProfilesData = (await readListing(inferenceProfilesResp, maxBytes)) as {
 				inferenceProfileSummaries: Array<{
 					inferenceProfileId: string
 					models: Array<{ modelArn: string }>
@@ -258,7 +213,7 @@ export async function fetchAvailableModels(
 		throw new Error(`Failed to fetch models for provider ${provider}`)
 	}
 
-	const data = (await models.json()) as { data: ModelResponse[] }
+	const data = (await readListing(models, maxBytes)) as { data: ModelResponse[] }
 	if (data.data.length > 0) {
 		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
 			// First prioritize models in defaultModels array
@@ -297,40 +252,31 @@ export async function fetchAvailableModels(
 	return data?.data.map((m) => m.id) ?? []
 }
 
-export function getModelMaxTokens(provider: AIProvider, model: string) {
-	if (model.includes('gpt-5')) {
-		return 128000
-	} else if (
-		(provider === 'azure_openai' || provider === 'openai' || provider === 'azure_foundry') &&
-		model.startsWith('o')
-	) {
-		return 100000
-	} else if (
-		// Raising this further would also raise the worst case of the
-		// non-streaming completion path, which the Anthropic SDK refuses once
-		// the request could run past ~10 minutes.
-		model.includes('claude-sonnet') ||
-		model.includes('claude-haiku') ||
-		model.includes('claude-fable') ||
-		model.includes('claude-mythos') ||
-		// Opus only from 4.5 on. Opus 4.1 and older cap at 32K and fall through
-		// to the row below. Dots are normalized because OpenRouter writes
-		// `anthropic/claude-opus-4.5` where Anthropic writes `claude-opus-4-5`.
-		/claude-opus-(4-(5|6|7|8)|5)(?!\d)/.test(model.replace(/\./g, '-')) ||
-		model.includes('gemini-2.5') ||
-		model.includes('gemini-3')
-	) {
-		return 64000
-	} else if (model.includes('gpt-4.1')) {
-		return 32768
-	} else if (model.includes('claude-opus')) {
-		return 32000
-	} else if (model.includes('gpt-4o') || model.includes('codestral')) {
-		return 16384
-	} else if (model.includes('gpt-4-turbo') || model.includes('gpt-3.5')) {
-		return 4096
-	}
-	return 8192
+// Thinking counts toward max_tokens, so a model outside the table that is asked to
+// reason gets more room than the plain fallback. A host rejects a budget above the
+// model's cap, so the reasoning fallback must stay within the cap of every model it
+// reaches (true of every reasoning model OpenRouter serves outside the table). Custom
+// AI never gets it: the registry does not know its models, and the per-model override
+// is its way to a larger budget.
+const FALLBACK_MAX_TOKENS = 8192
+const REASONING_FALLBACK_MAX_TOKENS = 32768
+
+/**
+ * The output budget a request sends when the workspace sets no override. `reasoningEffort`
+ * is the effort the request carries, as `resolveRequestReasoning` resolves it.
+ */
+export function getModelMaxTokens(
+	provider: AIProvider,
+	model: string,
+	reasoningEffort?: ReasoningEffort
+): number {
+	const bareModel = stripLegacyThinkingSuffix(model)
+	return (
+		getKnownModelMaxOutputTokens(provider, bareModel) ??
+		(requestsReasoning(provider, bareModel, reasoningEffort)
+			? REASONING_FALLBACK_MAX_TOKENS
+			: FALLBACK_MAX_TOKENS)
+	)
 }
 
 // Resolves the completion token cap for a model: the workspace's per-model
@@ -338,12 +284,21 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 // Anthropic request paths so both honor the same limit. `cap` bounds the result
 // (used by short metadata completions, see METADATA_MAX_TOKENS) — a hard ceiling
 // that wins over both the workspace override and the default.
-function resolveMaxTokens(modelProvider: AIProviderModel, cap?: number): number {
-	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
+function resolveMaxTokens(
+	modelProvider: AIProviderModel,
+	cap?: number,
+	reasoningEffort?: ReasoningEffort,
+	info?: CopilotInfo
+): number {
+	const defaultMaxTokens = getModelMaxTokens(
+		modelProvider.provider,
+		modelProvider.model,
+		reasoningEffort
+	)
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	let customMaxTokensStore: Record<string, number> | undefined
 	try {
-		customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
+		customMaxTokensStore = (info ?? get(copilotInfo))?.maxTokensPerModel
 	} catch {
 		// copilotInfo store may not be initialized in vitest
 	}
@@ -361,9 +316,11 @@ export const METADATA_MAX_TOKENS = 4096
 function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
-	maxTokensCap?: number
+	maxTokensCap?: number,
+	reasoningEffort?: ReasoningEffort,
+	info?: CopilotInfo
 ) {
-	const maxTokens = resolveMaxTokens(modelProvider, maxTokensCap)
+	const maxTokens = resolveMaxTokens(modelProvider, maxTokensCap, reasoningEffort, info)
 	if (
 		(modelProvider.provider === 'openai' ||
 			modelProvider.provider === 'azure_openai' ||
@@ -475,7 +432,7 @@ const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 	messages: []
 }
 
-export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
+export const PROVIDER_COMPLETION_CONFIG_MAP: Record<ChatAIProvider, ChatCompletionCreateParams> = {
 	openai: DEFAULT_COMPLETION_CONFIG,
 	azure_openai: DEFAULT_COMPLETION_CONFIG,
 	azure_foundry: DEFAULT_COMPLETION_CONFIG,
@@ -517,12 +474,11 @@ export function createAnthropicProxyClient(baseURL: string): Anthropic {
 }
 
 class WorkspacedAIClients {
-	private openaiClient: OpenAI | undefined
-	private anthropicClient: Anthropic | undefined
+	private openaiClient: { client: OpenAI; generation: number } | undefined
+	private anthropicClient: { client: Anthropic; generation: number } | undefined
 
 	init(workspace: string) {
-		this.openaiClient = this.createOpenaiClient(workspace)
-		this.anthropicClient = this.createAnthropicClient(workspace)
+		setAiClientWorkspace(workspace)
 	}
 
 	createOpenaiClient(workspace: string): OpenAI {
@@ -533,27 +489,64 @@ class WorkspacedAIClients {
 		return createAnthropicProxyClient(getAiProxyBaseURL(workspace))
 	}
 
-	getOpenaiClient() {
-		if (!this.openaiClient) {
+	getOpenaiClient(): OpenAI {
+		const { workspace, generation } = aiClientWorkspace()
+		if (!workspace) {
 			throw new Error('OpenAI not initialized')
 		}
-		return this.openaiClient
+		if (this.openaiClient?.generation !== generation) {
+			this.openaiClient = { client: this.createOpenaiClient(workspace), generation }
+		}
+		return this.openaiClient.client
 	}
 
-	getAnthropicClient() {
-		if (!this.anthropicClient) {
+	getAnthropicClient(): Anthropic {
+		const { workspace, generation } = aiClientWorkspace()
+		if (!workspace) {
 			throw new Error('Anthropic not initialized')
 		}
-		return this.anthropicClient
+		if (this.anthropicClient?.generation !== generation) {
+			this.anthropicClient = { client: this.createAnthropicClient(workspace), generation }
+		}
+		return this.anthropicClient.client
 	}
 }
 
 export const workspaceAIClients = new WorkspacedAIClients()
 
+interface TestedCredential {
+	apiKey?: string
+	resourcePath?: string
+	resourceValue?: Record<string, any>
+}
+
+/** The header naming the credential under test; a resource wins over a bare key. */
+export function testedCredentialHeaders({
+	apiKey,
+	resourcePath,
+	resourceValue
+}: TestedCredential): Record<string, string> {
+	if (resourceValue) {
+		// Header values must be ASCII, the resource may not be.
+		return { 'X-Resource-Value': encodeURIComponent(JSON.stringify(resourceValue)) }
+	} else if (resourcePath) {
+		return { 'X-Resource-Path': resourcePath }
+	} else if (apiKey) {
+		return { 'X-API-Key': apiKey }
+	}
+	return {}
+}
+
+/** A bare key has no workspace resource behind it, so it goes through the global proxy. */
+export function usesGlobalAiProxy({ apiKey, resourcePath, resourceValue }: TestedCredential) {
+	return !!apiKey && !resourcePath && !resourceValue
+}
+
 export async function testKey({
 	apiKey,
 	workspace,
 	resourcePath,
+	resourceValue,
 	model,
 	abortController,
 	messages,
@@ -562,13 +555,14 @@ export async function testKey({
 	apiKey?: string
 	workspace?: string
 	resourcePath?: string
+	resourceValue?: Record<string, any>
 	model: string | undefined
 	messages: ChatCompletionMessageParam[]
 	abortController: AbortController
 	aiProvider: AIProvider
 }) {
-	if (!apiKey && !resourcePath) {
-		throw new Error('API key or resource path is required')
+	if (!apiKey && !resourcePath && !resourceValue) {
+		throw new Error('API key, resource path or resource value is required')
 	}
 	const modelToTest = model ?? AI_PROVIDERS[aiProvider].defaultModels[0]
 
@@ -586,6 +580,7 @@ export async function testKey({
 		apiKey,
 		workspace,
 		resourcePath,
+		resourceValue,
 		forceModelProvider: {
 			model: modelToTest,
 			provider: aiProvider
@@ -607,7 +602,9 @@ interface AnthropicCompletionParams {
 	apiKey?: string
 	workspace?: string
 	resourcePath?: string
+	resourceValue?: Record<string, any>
 	maxTokensCap?: number
+	info?: CopilotInfo
 }
 
 function buildAnthropicProxyRequest({
@@ -616,7 +613,9 @@ function buildAnthropicProxyRequest({
 	apiKey,
 	workspace,
 	resourcePath,
-	maxTokensCap
+	resourceValue,
+	maxTokensCap,
+	info
 }: Omit<AnthropicCompletionParams, 'abortController'>) {
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 
@@ -624,16 +623,11 @@ function buildAnthropicProxyRequest({
 	// resolves the right credentials and Anthropic URL.
 	const headers: Record<string, string> = {
 		'X-Provider': modelProvider.provider,
-		'anthropic-version': '2023-06-01'
+		'anthropic-version': '2023-06-01',
+		...testedCredentialHeaders({ apiKey, resourcePath, resourceValue })
 	}
 
-	if (resourcePath) {
-		headers['X-Resource-Path'] = resourcePath
-	} else if (apiKey) {
-		headers['X-API-Key'] = apiKey
-	}
-
-	const client = apiKey
+	const client = usesGlobalAiProxy({ apiKey, resourcePath, resourceValue })
 		? createAnthropicProxyClient(getAiProxyBaseURL())
 		: workspace
 			? workspaceAIClients.createAnthropicClient(workspace)
@@ -641,7 +635,7 @@ function buildAnthropicProxyRequest({
 
 	const body = {
 		model: modelProvider.model,
-		max_tokens: resolveMaxTokens(modelProvider, maxTokensCap),
+		max_tokens: resolveMaxTokens(modelProvider, maxTokensCap, undefined, info),
 		messages: anthropicMessages,
 		...(system && { system })
 	}
@@ -686,6 +680,20 @@ function getAnthropicStreamingCompletion({
 					created: 0,
 					model: params.modelProvider.model,
 					choices: [{ index: 0, delta: { content: event.delta.text }, finish_reason: null }]
+				}
+			} else if (event.type === 'message_delta' && event.delta.stop_reason) {
+				yield {
+					id: '',
+					object: 'chat.completion.chunk',
+					created: 0,
+					model: params.modelProvider.model,
+					choices: [
+						{
+							index: 0,
+							delta: {},
+							finish_reason: event.delta.stop_reason === 'max_tokens' ? 'length' : 'stop'
+						}
+					]
 				}
 			}
 		}
@@ -876,7 +884,24 @@ const PROMPTS_CONFIGS = {
  * forwardable native web-search tool.
  */
 export function providerSupportsWebSearch(provider: AIProvider | undefined): boolean {
-	return provider === 'openai' || provider === 'anthropic'
+	return provider === 'openai' || provider === 'anthropic' || provider === 'deepseek'
+}
+
+/**
+ * Whether the chat sends this model the provider's own web search. DeepSeek serves it on
+ * its Responses API for deepseek-v4-pro only, and every other DeepSeek model accepts the
+ * tool and ignores it, so those keep the workspace's search tools instead.
+ */
+export function modelSupportsWebSearch(provider: AIProvider | undefined, model: string): boolean {
+	if (provider === 'deepseek') {
+		return /(?:^|\/)deepseek-v4-pro/.test(model.toLowerCase())
+	}
+	return providerSupportsWebSearch(provider)
+}
+
+/** The model a request sends: for `info`'s workspace when given, else the tab's. */
+function modelFor(info: CopilotInfo | undefined): AIProviderModel {
+	return info ? resolveModelFor(info) : getCurrentModel()
 }
 
 export function getProviderAndCompletionConfig<K extends boolean>({
@@ -885,7 +910,9 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 	tools,
 	forceModelProvider,
 	maxTokensCap,
-	promptCaching
+	promptCaching,
+	reasoningEffort,
+	info
 }: {
 	messages: ChatCompletionMessageParam[]
 	stream: K
@@ -895,13 +922,18 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 	// Opt-in: a cache write costs more than an uncached read, so it only pays off where
 	// the same prefix is sent again. True for the chat loop, false for one-shot calls.
 	promptCaching?: boolean
+	// The effort the caller will add with `applyReasoningToConfig`. Only sizes the
+	// output budget here: a request that reasons needs room for the thinking.
+	reasoningEffort?: ReasoningEffort
+	// The AI config of the workspace the request is made for, when it is not the tab's.
+	info?: CopilotInfo
 }): {
 	provider: AIProvider
 	config: K extends true
 		? ChatCompletionCreateParamsStreaming
 		: ChatCompletionCreateParamsNonStreaming
 } {
-	const modelProvider = forceModelProvider ?? getCurrentModel()
+	const modelProvider = forceModelProvider ?? modelFor(info)
 	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
 	const processedMessages = prepareMessages(modelProvider.provider, messages, {
 		model: modelProvider.model,
@@ -911,7 +943,7 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 		provider: modelProvider.provider,
 		config: {
 			...providerConfig,
-			...getModelSpecificConfig(modelProvider, tools, maxTokensCap),
+			...getModelSpecificConfig(modelProvider, tools, maxTokensCap, reasoningEffort, info),
 			messages: processedMessages,
 			stream
 		} as any
@@ -924,12 +956,14 @@ export async function getNonStreamingCompletion(
 	options?: {
 		apiKey?: string // testing API KEY using the global ai proxy
 		resourcePath?: string // testing resource path passed as a header to the backend proxy
+		resourceValue?: Record<string, any> // testing an unsaved resource value, same route
 		workspace?: string // use a specific workspace proxy when testing a workspace resource
 		forceModelProvider?: AIProviderModel
 		maxTokensCap?: number // hard ceiling on output tokens (see METADATA_MAX_TOKENS)
+		info?: CopilotInfo // the AI config of `workspace`, when it is not the tab's
 	}
 ) {
-	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
+	const modelProvider = options?.forceModelProvider ?? modelFor(options?.info)
 
 	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
 		return getAnthropicNonStreamingCompletion({
@@ -939,7 +973,9 @@ export async function getNonStreamingCompletion(
 			apiKey: options?.apiKey,
 			workspace: options?.workspace,
 			resourcePath: options?.resourcePath,
-			maxTokensCap: options?.maxTokensCap
+			resourceValue: options?.resourceValue,
+			maxTokensCap: options?.maxTokensCap,
+			info: options?.info
 		})
 	}
 
@@ -947,18 +983,18 @@ export async function getNonStreamingCompletion(
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: options?.forceModelProvider,
-		maxTokensCap: options?.maxTokensCap
+		forceModelProvider: modelProvider,
+		maxTokensCap: options?.maxTokensCap,
+		info: options?.info
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
 	if (provider === 'openai' || provider === 'azure_openai') {
 		try {
-			const response = await getNonStreamingOpenAIResponsesCompletion(
-				messages,
-				abortController,
-				options
-			)
+			const response = await getNonStreamingOpenAIResponsesCompletion(messages, abortController, {
+				...options,
+				forceModelProvider: modelProvider
+			})
 			return response
 		} catch (error) {
 			console.error('Error using Responses API:', error)
@@ -974,22 +1010,11 @@ export async function getNonStreamingCompletion(
 			'X-Provider': provider
 		}
 	}
-	if (options?.resourcePath) {
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-Resource-Path': options.resourcePath
-		}
-	} else if (options?.apiKey) {
-		if (provider === 'customai') {
-			throw new Error('Cannot test API key for Custom AI, only resource path is supported')
-		}
-
-		fetchOptions.headers = {
-			...fetchOptions.headers,
-			'X-API-Key': options.apiKey
-		}
+	if (usesGlobalAiProxy(options ?? {}) && provider === 'customai') {
+		throw new Error('Cannot test API key for Custom AI, only resource path is supported')
 	}
-	const openaiClient = options?.apiKey
+	fetchOptions.headers = { ...fetchOptions.headers, ...testedCredentialHeaders(options ?? {}) }
+	const openaiClient = usesGlobalAiProxy(options ?? {})
 		? createOpenAIProxyClient(getAiProxyBaseURL())
 		: options?.workspace
 			? workspaceAIClients.createOpenaiClient(options.workspace)
@@ -1000,13 +1025,17 @@ export async function getNonStreamingCompletion(
 	return response
 }
 
+/** `target` sends it for that workspace with its config; without one it uses the tab's. */
 export async function getNonStreamingMetadataCompletion(
 	messages: ChatCompletionMessageParam[],
-	abortController: AbortController
+	abortController: AbortController,
+	target?: AiTarget
 ) {
 	return getNonStreamingCompletion(messages, abortController, {
-		forceModelProvider: getMetadataModel(),
-		maxTokensCap: METADATA_MAX_TOKENS
+		forceModelProvider: target ? resolveMetadataModelFor(target.info) : getMetadataModel(),
+		maxTokensCap: METADATA_MAX_TOKENS,
+		workspace: target?.workspace,
+		info: target?.info
 	})
 }
 
@@ -1016,7 +1045,8 @@ export async function getFimCompletion(
 	prompt: string,
 	suffix: string,
 	providerModel: AIProviderModel,
-	abortController: AbortController
+	abortController: AbortController,
+	workspace: string = get(workspaceStore)!
 ): Promise<string | undefined> {
 	// The Anthropic Messages API has no fill-in-the-middle endpoint, and Foundry
 	// Claude deployments don't expose the OpenAI-compatible completions surface the
@@ -1035,8 +1065,6 @@ export async function getFimCompletion(
 			'X-Provider': providerModel.provider
 		}
 	}
-
-	const workspace = get(workspaceStore)
 
 	const response = await fetch(
 		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/fim/completions`,
@@ -1077,6 +1105,23 @@ export async function getFimCompletion(
 	}
 }
 
+// A streamed OpenAI-compatible response carries no usage at all unless the request
+// asks for it, so a provider missing from this set reports zero tokens — no context
+// gauge, no cost. `stream_options.include_usage` is part of the OpenAI streaming
+// spec and these providers document supporting it; `customai` is deliberately absent
+// because it points at an arbitrary endpoint that may reject the field outright.
+const STREAM_USAGE_PROVIDERS = new Set<AIProvider>([
+	'openai',
+	'azure_openai',
+	'azure_foundry',
+	'googleai',
+	'openrouter',
+	'groq',
+	'deepseek',
+	'mistral',
+	'togetherai'
+])
+
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
@@ -1087,29 +1132,47 @@ export async function getCompletion(
 		openaiClient?: OpenAI
 		reasoningEffort?: string
 		promptCaching?: boolean
+		maxTokensCap?: number
+		// Send for this workspace, with its AI config, rather than the tab's.
+		workspace?: string
+		info?: CopilotInfo
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
-	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
+	const modelProvider = options?.forceModelProvider ?? modelFor(options?.info)
 
 	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
-		return getAnthropicStreamingCompletion({ messages, modelProvider, abortController })
+		return getAnthropicStreamingCompletion({
+			messages,
+			modelProvider,
+			abortController,
+			maxTokensCap: options?.maxTokensCap,
+			workspace: options?.workspace,
+			info: options?.info
+		})
 	}
 
+	const openaiClient =
+		options?.openaiClient ??
+		(options?.workspace ? workspaceAIClients.createOpenaiClient(options.workspace) : undefined)
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: true,
 		tools,
-		forceModelProvider: options?.forceModelProvider,
-		promptCaching: options?.promptCaching
+		forceModelProvider: modelProvider,
+		maxTokensCap: options?.maxTokensCap,
+		promptCaching: options?.promptCaching,
+		reasoningEffort: options?.reasoningEffort,
+		info: options?.info
 	})
 
-	// Use Responses API for OpenAI and Azure OpenAI
-	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
+	if (usesOpenAIResponsesApi(provider, modelProvider.model) && !options?.forceCompletions) {
 		try {
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
-				forceModelProvider: options?.forceModelProvider,
-				openaiClient: options?.openaiClient,
-				reasoningEffort: options?.reasoningEffort
+				forceModelProvider: modelProvider,
+				openaiClient,
+				reasoningEffort: options?.reasoningEffort,
+				maxTokensCap: options?.maxTokensCap,
+				info: options?.info
 			}) as any
 			return stream
 		} catch (error) {
@@ -1118,23 +1181,29 @@ export async function getCompletion(
 	}
 
 	// Use Completions API for other providers
-	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
+	const client = openaiClient ?? workspaceAIClients.getOpenaiClient()
+	// gpt-5.5+ refuse function tools here unless reasoning is off, so the Responses API
+	// fallback turns it off where the model can rather than failing the turn.
+	const reasoningEffort =
+		tools?.length && completionsRejectsToolsWithReasoning(provider, modelProvider.model)
+			? (explicitOffToken(provider, modelProvider.model) ?? options?.reasoningEffort)
+			: options?.reasoningEffort
 	const completionConfig = applyReasoningToConfig(
-		(provider === 'openai' ||
-			provider === 'azure_openai' ||
-			provider === 'azure_foundry' ||
-			provider === 'googleai') &&
-			config.stream
+		config.stream && STREAM_USAGE_PROVIDERS.has(provider)
 			? {
 					...config,
 					stream_options: {
 						...(config.stream_options ?? {}),
 						include_usage: true
-					}
+					},
+					// OpenRouter's own extension, on top of stream_options: it returns the
+					// credits actually charged next to the token counts, which is the one
+					// route by which the chat sees a real cost rather than an estimate.
+					...(provider === 'openrouter' ? { usage: { include: true } } : {})
 				}
 			: config,
 		provider === 'deepseek' ? 'deepseek' : provider === 'mistral' ? 'mistral' : 'completions',
-		options?.reasoningEffort
+		reasoningEffort
 	)
 	const completion = client.chat.completions.create(completionConfig, {
 		signal: abortController.signal,
@@ -1145,12 +1214,74 @@ export async function getCompletion(
 	return completion
 }
 
+/**
+ * Streams a completion and returns its whole text. For a generation that can run
+ * for minutes: a non-streaming request sends no byte until the model is done, so
+ * an idle timeout on any hop between the browser and the provider cuts it.
+ */
+export async function getStreamedCompletionText(
+	messages: ChatCompletionMessageParam[],
+	abortController: AbortController,
+	// `workspace` and `info` send it for that workspace, with its AI config, rather than the tab's.
+	options?: { maxTokensCap?: number; workspace?: string; info?: CopilotInfo }
+): Promise<string> {
+	const modelProvider = modelFor(options?.info)
+	const drain = async (forceCompletions: boolean) => {
+		const stream = await getCompletion(messages, abortController, undefined, {
+			forceCompletions,
+			forceModelProvider: modelProvider,
+			maxTokensCap: options?.maxTokensCap,
+			workspace: options?.workspace,
+			info: options?.info
+		})
+		let text = ''
+		let finished = false
+		for await (const chunk of stream) {
+			text += getResponseFromEvent(chunk)
+			finished ||= !!chunk.choices?.[0]?.finish_reason
+		}
+		// The OpenAI SDK ends an aborted stream, and one closed early by a hop in
+		// between, without throwing: partial text must not pass for the whole
+		// completion.
+		abortController.signal.throwIfAborted()
+		if (!finished) {
+			throw new Error('The completion stream ended before the model finished')
+		}
+		return text
+	}
+
+	try {
+		return await drain(false)
+	} catch (error) {
+		// The Responses API stream only fails once iterated, so the fallback to
+		// chat completions for a deployment that doesn't serve it lives here.
+		const { provider, model } = modelProvider
+		if (abortController.signal.aborted || !usesOpenAIResponsesApi(provider, model)) {
+			throw error
+		}
+		console.error('Error using Responses API:', error)
+		return drain(true)
+	}
+}
+
 function extractFirstJSON(str: string) {
 	let depth = 0,
 		i = 0
+	// Braces inside string values are not depth changes, so the scan tracks
+	// quoting and escaping: otherwise an argument such as {"a": "} "} is cut short.
+	let inString = false,
+		escaped = false
 	for (; i < str.length; i++) {
-		if (str[i] === '{') depth++
-		else if (str[i] === '}' && --depth === 0) break
+		const ch = str[i]
+		if (inString) {
+			if (escaped) escaped = false
+			else if (ch === '\\') escaped = true
+			else if (ch === '"') inString = false
+			continue
+		}
+		if (ch === '"') inString = true
+		else if (ch === '{') depth++
+		else if (ch === '}' && --depth === 0) break
 	}
 	return str.slice(0, i + 1)
 }
@@ -1166,13 +1297,19 @@ export async function parseOpenAICompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
-	options?: { workspace?: string; provider?: string }
+	options?: {
+		workspace?: string
+		provider?: string
+		onTokenUsage?: (usage: ChatTokenUsage) => void
+		live?: LiveToolSet
+	}
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	// The tool call currently receiving argument deltas; when the stream moves on
 	// to the next call, the previous one is demoted to queued.
 	let streamingToolCallId: string | undefined = undefined
 	let malformedFunctionCallError = false
+	let hitOutputTokenLimit = false
 	let tokenUsage = emptyChatTokenUsage()
 
 	let answer = ''
@@ -1198,6 +1335,9 @@ export async function parseOpenAICompletion(
 			finishReason.includes('MALFORMED_FUNCTION_CALL')
 		) {
 			malformedFunctionCallError = true
+		}
+		if (finishReason === 'length') {
+			hitOutputTokenLimit = true
 		}
 
 		// Mistral nests reasoning inside structured content parts; split them out
@@ -1316,6 +1456,7 @@ export async function parseOpenAICompletion(
 
 	callbacks.onMessageEnd()
 
+	options?.onTokenUsage?.(tokenUsage)
 	// Stream over: every parsed call is queued until its turn in processToolCall.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {
@@ -1371,7 +1512,9 @@ export async function parseOpenAICompletion(
 				toolCall,
 				helpers,
 				toolCallbacks: callbacks,
-				workspace: options?.workspace
+				workspace: options?.workspace,
+				messages,
+				live: options?.live
 			})
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
@@ -1414,6 +1557,8 @@ export async function parseOpenAICompletion(
 		}
 		messages.push(toolResponse)
 		addedMessages.push(toolResponse)
+	} else if (hitOutputTokenLimit) {
+		throw new OutputTokenLimitError()
 	} else {
 		return { shouldContinue: false, tokenUsage }
 	}

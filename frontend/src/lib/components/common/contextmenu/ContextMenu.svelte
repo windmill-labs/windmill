@@ -22,7 +22,7 @@
 		disabled?: boolean
 		onClick?: () => void
 		divider?: boolean
-		type?: 'action' | 'delete'
+		type?: 'action' | 'delete' | 'ai'
 		shortcut?: string
 	}
 
@@ -33,6 +33,8 @@
 		class?: string
 		onItemClick?: (item: ContextMenuItem) => void
 		closeOnOutsideClick?: boolean
+		/** Tailwind z-index class of the menu; raise it above a drawer the trigger sits in. */
+		zIndex?: string
 	}
 
 	let {
@@ -41,7 +43,8 @@
 		menu,
 		class: className = '',
 		onItemClick,
-		closeOnOutsideClick = true
+		closeOnOutsideClick = true,
+		zIndex
 	}: Props = $props()
 
 	// Overlays belong to the enclosing pane when there is one — see overlayHost.
@@ -110,7 +113,7 @@
 
 {#if $open}
 	<div
-		class="{getContextMenuContainerClass()} {CONTEXT_MENU_ANIMATION_CLASSES}"
+		class="{getContextMenuContainerClass(zIndex)} {CONTEXT_MENU_ANIMATION_CLASSES}"
 		use:melt={$menuElement}
 		transition:fly={{ duration: 150, y: -10 }}
 		data-context-menu
@@ -126,7 +129,8 @@
 							? CONTEXT_MENU_ITEM_DISABLED_CLASS
 							: menuItem.type === 'delete'
 								? CONTEXT_MENU_ITEM_DELETE_CLASS
-								: CONTEXT_MENU_ITEM_HOVER_MELT_CLASS
+								: CONTEXT_MENU_ITEM_HOVER_MELT_CLASS,
+						menuItem.type === 'ai' && !menuItem.disabled && 'text-ai'
 					)}
 					use:melt={$item}
 					onclick={() => handleItemClick(menuItem)}

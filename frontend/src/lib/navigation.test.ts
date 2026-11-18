@@ -2,11 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 
 const goto = vi.hoisted(() => vi.fn(async (_path: string) => {}))
 vi.mock('$app/navigation', () => ({ goto: (path: string) => goto(path) }))
-vi.mock('$app/paths', () => ({ base: '' }))
 
-import { buildFilterUrl, setQuery } from './navigation'
+import { buildFilterUrl, isNewTabClick, setQuery } from './navigation'
 
-// Parse the (un-based) app path the builder returns against a dummy origin so we can
+// Parse the app path the builder returns against a dummy origin so we can
 // assert on pathname / searchParams / hash without caring about ordering.
 function parse(appPath: string): URL {
 	return new URL(appPath, 'http://x')
@@ -77,5 +76,34 @@ describe('setQuery', () => {
 		expect(u.searchParams.get('workspace')).toBe('wm-fork-x')
 		expect(u.searchParams.get('search')).toBe('foo')
 		expect(u.searchParams.get('kind')).toBe('script')
+	})
+})
+
+describe('isNewTabClick', () => {
+	// MouseEvent is not in vitest's node environment; the predicate only reads these fields.
+	const click = (init: Partial<MouseEvent>) =>
+		({
+			ctrlKey: false,
+			metaKey: false,
+			shiftKey: false,
+			altKey: false,
+			button: 0,
+			...init
+		}) as MouseEvent
+
+	it('leaves a plain primary click to the in-page handler', () => {
+		expect(isNewTabClick(click({}))).toBe(false)
+	})
+
+	it('hands modified and non-primary clicks to the browser', () => {
+		for (const init of [
+			{ ctrlKey: true },
+			{ metaKey: true },
+			{ shiftKey: true },
+			{ altKey: true },
+			{ button: 1 }
+		]) {
+			expect(isNewTabClick(click(init))).toBe(true)
+		}
 	})
 })

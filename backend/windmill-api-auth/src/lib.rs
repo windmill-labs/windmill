@@ -7,13 +7,18 @@
  */
 
 pub mod auth;
+pub mod composed;
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
 pub mod scopes;
 
-use axum::extract::{FromRequestParts, OptionalFromRequestParts};
+use axum::extract::{FromRequestParts, OptionalFromRequestParts, Path, Request, State};
+use axum::middleware::Next;
+use axum::response::Response;
+use axum::Extension;
 use http::request::Parts;
+use std::collections::HashMap;
 
 use windmill_audit::audit_oss::AuditAuthorable;
 use windmill_common::{
@@ -24,12 +29,15 @@ use windmill_common::{
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
     jobs::JobTriggerKind,
+    roles::RoleCapabilities,
     triggers::TriggerMetadata,
     users::username_to_permissioned_as,
+    workspaces::{check_operator_can_manage, ManageKind},
     DB,
 };
 
 use scopes::ScopeDefinition;
+use windmill_common::scopes::scope_contains;
 
 // Re-export key auth types and functions
 pub use auth::{
@@ -73,6 +81,22 @@ pub struct ApiAuthed {
     pub is_session_token: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,
+    /// Set when this authed was resolved from a job's `WM_TOKEN`. Such a token's
+    /// identity is derived from an app/flow `on_behalf_of` that a `wm_deployers`
+    /// member can point at a superadmin, so it must never be trusted as a global
+    /// superadmin (`require_super_admin`), GHSA-hfh4-cx4h-3fcr.
+    pub job_id: Option<uuid::Uuid>,
+    /// When this credential itself expires, if it carries its own expiry rather than a
+    /// token row. Set for a guest JWT (its `exp`): a token minted from it is capped at
+    /// this, since the JWT's expiry is a guest's only revocation and there is no row to
+    /// look the limit up in. `None` for every credential whose limit lives in `token`.
+    pub credential_expiry: Option<chrono::DateTime<chrono::Utc>>,
+    /// The OAuth client of an external issuer acting for this user (`mcp_external_idp`).
+    /// Recorded on the runs it starts and handed to their steps as `WM_MCP_CLIENT`.
+    pub mcp_client: Option<String>,
+    /// The role's capabilities in the request's workspace (`AuthCache::get_opt_job_authed`); `None`
+    /// outside a request.
+    pub capabilities: Option<RoleCapabilities>,
 }
 
 impl ApiAuthed {
@@ -86,6 +110,7 @@ impl ApiAuthed {
             folders: &self.folders,
             scopes: &self.scopes,
             token_prefix: &self.token_prefix,
+            capabilities: self.capabilities,
         }
     }
 
@@ -140,6 +165,8 @@ impl From<ApiAuthed> for Authed {
             folders: value.folders,
             scopes: value.scopes,
             token_prefix: value.token_prefix,
+            mcp_client: value.mcp_client,
+            capabilities: value.capabilities,
         }
     }
 }
@@ -159,6 +186,10 @@ impl From<Authed> for ApiAuthed {
             is_session_token: false,
             token_prefix: value.token_prefix,
             read_only: false,
+            job_id: None,
+            credential_expiry: None,
+            mcp_client: value.mcp_client,
+            capabilities: value.capabilities,
         }
     }
 }
@@ -185,6 +216,10 @@ impl Authable for ApiAuthed {
 
     fn is_operator(&self) -> bool {
         self.is_operator
+    }
+
+    fn capabilities(&self) -> Option<RoleCapabilities> {
+        self.capabilities
     }
 
     fn groups(&self) -> &[String] {
@@ -247,7 +282,10 @@ impl windmill_mcp::server::McpAuth for ApiAuthed {
 
 // ------------ Utility functions ------------
 
-pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
+/// Assert the *email* belongs to a superadmin. Prefer [`require_super_admin`],
+/// which also rejects job tokens (`WM_TOKEN`); use this only where no `ApiAuthed`
+/// is available and the caller has separately guaranteed it is not a job token.
+pub async fn require_super_admin_email(db: &DB, email: &str) -> error::Result<()> {
     let is_admin = is_super_admin_email(db, email).await?;
 
     if !is_admin {
@@ -257,6 +295,66 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// Assert the caller is a superadmin acting under their own credentials.
+///
+/// A job's `WM_TOKEN` runs as the runnable's `on_behalf_of` identity, which a
+/// non-superadmin `wm_deployers` member can point at a superadmin — so a job
+/// token must never satisfy a global superadmin gate regardless of whose email
+/// it carries (GHSA-hfh4-cx4h-3fcr). A real superadmin needing this from a script
+/// uses a dedicated superadmin token instead of `$WM_TOKEN`.
+pub async fn require_super_admin(db: &DB, authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN). If a script \
+             genuinely needs to do this, create a dedicated superadmin token from the User \
+             settings drawer (the 'Tokens' section), store it as a secret, and use that token \
+             explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    require_super_admin_email(db, &authed.email).await
+}
+
+/// Job-token-aware superadmin predicate for the many boolean `is_super_admin_email`
+/// authorization branches (workspace deletion, fork drops, SSRF exemptions, ...).
+/// A job's `WM_TOKEN` is never a superadmin regardless of whose email it carries
+/// (GHSA-hfh4-cx4h-3fcr), so callers naturally fall through to the restricted path.
+pub async fn is_super_admin_authed(db: &DB, authed: &ApiAuthed) -> error::Result<bool> {
+    if authed.job_id.is_some() {
+        return Ok(false);
+    }
+    is_super_admin_email(db, &authed.email).await
+}
+
+/// Instance-global admin predicate, job-token-aware. `ApiAuthed::is_admin` is a
+/// *workspace*-admin claim (also true for superadmins), and a `WM_TOKEN` is capped
+/// at workspace admin (GHSA-hfh4-cx4h-3fcr). Routes with no workspace binding that
+/// treat `is_admin` as instance authorization (worker-group config, arbitrary
+/// workspace unarchive, global concurrency pruning) must use this instead of the
+/// raw `authed.is_admin`, so a job token can't wield a workspace-admin claim as an
+/// instance action. Interactive admins are unaffected.
+pub fn is_instance_admin(authed: &ApiAuthed) -> bool {
+    authed.is_admin && authed.job_id.is_none()
+}
+
+/// Hard-gate variant of [`is_instance_admin`] for instance-global routes: rejects
+/// a job token (`WM_TOKEN`) explicitly, then requires admin.
+pub fn require_instance_admin(authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN): it is an \
+             instance-global admin action and a job token is capped at workspace admin. \
+             If a script genuinely needs this, create a dedicated token from the User \
+             settings drawer and use it explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    if !authed.is_admin {
+        return Err(Error::RequireAdmin(authed.username.clone()));
+    }
+    Ok(())
 }
 
 /// Forbid sensitive global user/token management when authenticated as a
@@ -280,6 +378,53 @@ pub async fn forbid_superadmin_job_token(
              superadmin. If a script genuinely needs to do this, create a dedicated superadmin \
              token from the User settings drawer (the 'Tokens' section), store it as a secret, \
              and use that token explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Forbid *minting a durable credential* from a job token that carries an elevated
+/// instance identity (superadmin or `devops`; [`is_devops_email`] covers both).
+///
+/// The gates that cap `$WM_TOKEN` key off `ApiAuthed::job_id`, which only a job
+/// token carries. A token minted from one is an ordinary database-backed token with
+/// no such provenance, so it passes every one of those gates by email alone — the
+/// cap would last only until the script exchanged its token for a fresh one
+/// (GHSA-hfh4-cx4h-3fcr). Narrower than rejecting all job tokens: a script running
+/// as an unprivileged identity has nothing to launder and still mints freely.
+pub async fn forbid_elevated_job_token(
+    db: &DB,
+    email: &str,
+    job_id: Option<uuid::Uuid>,
+) -> error::Result<()> {
+    if job_id.is_some() && is_devops_email(db, email).await? {
+        return Err(Error::NotAuthorized(
+            "A job token ($WM_TOKEN) running as a superadmin or devops user cannot mint a new \
+             token, which would carry that identity without the job provenance that caps it. \
+             If a script genuinely needs this, create a dedicated token from the User settings \
+             drawer (the 'Tokens' section), store it as a secret, and use that token explicitly \
+             instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Forbid an irreversible action against the *account* a job token runs as.
+///
+/// A job token borrows an `on_behalf_of` identity to do the runnable's work, and a
+/// `wm_deployers` member may point that at any real user. Destroying the account or
+/// its credentials is never that work, and unlike the privilege gates the damage
+/// does not depend on the identity being elevated — so this rejects every job
+/// token, not just superadmin/devops ones (GHSA-hfh4-cx4h-3fcr).
+pub fn forbid_job_token_account_destruction(authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN): it would destroy the \
+             account or credentials of the identity the job runs as. If this is genuinely \
+             intended, do it from the User settings drawer, or with a dedicated token created \
+             there and used explicitly instead of $WM_TOKEN."
                 .to_owned(),
         ));
     }
@@ -338,6 +483,77 @@ pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
     scope_restrictions(scopes).is_none()
 }
 
+/// Forbid reaching the workspace encryption key with a scope-restricted token.
+///
+/// The key is not the read or the write of any one domain: it decrypts every secret
+/// variable offline, outliving the token that reached it, and it mints the secrets
+/// that unlock public apps. Replacing it is the same capability — the server
+/// re-encrypts every secret under the new key, so a caller that chooses the key can
+/// decrypt them all. No scope grants either, so any scope-restricted token is
+/// refused. An admin check is not a substitute — it answers for the user behind the
+/// token, not for the token's own scopes.
+///
+/// This bounds the token making the request, not every route to the key. The jobs a
+/// scoped user token runs get a token with their owner's privileges, capped only by the
+/// runnable's own `job_token_scopes` (see [`caller_scope_ceiling`]), so a `jobs:run`
+/// token still reaches the key indirectly by running an unrestricted job as a workspace
+/// admin — the same property that lets git-sync export it.
+pub fn forbid_scoped_token_workspace_key(authed: &ApiAuthed) -> error::Result<()> {
+    if is_effectively_unscoped(authed.scopes.as_deref()) {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(
+        "The workspace encryption key cannot be read or replaced with a scoped token: it \
+         decrypts every secret of the workspace offline, past the scopes and the lifetime of \
+         the token that reached it. Use a token created without scopes."
+            .to_string(),
+    ))
+}
+
+/// For a route that authenticates its token itself rather than through the route layer
+/// (which checks scopes): a job token restricted by `job_token_scopes` must still hold
+/// `required` there. Other credentials keep the access those routes always gave them.
+pub fn check_job_token_scope<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
+where
+    F: FnOnce() -> String,
+{
+    if authed.job_id.is_some() {
+        check_scopes(authed, required)
+    } else {
+        Ok(())
+    }
+}
+
+/// The cap on the token of a job pushed on `authed`'s request, to pass to `push` as its
+/// scope ceiling. A job token caps every job it starts at its own job's scopes, so a
+/// restricted job cannot widen its reach by running another one; the job row is the
+/// source rather than the token's claims, which the MCP proxy narrows per route. Any
+/// other credential caps nothing: the jobs it runs act as their owner, as they always did.
+pub async fn caller_scope_ceiling(
+    db: &windmill_common::DB,
+    authed: &ApiAuthed,
+) -> error::Result<Option<Vec<String>>> {
+    let Some(job_id) = authed.job_id else {
+        return Ok(None);
+    };
+    // A job token is minted with scopes exactly when its job is restricted, so an unscoped one
+    // has nothing to read.
+    if authed.scopes.is_none() {
+        return Ok(None);
+    }
+    let row = sqlx::query_scalar!(
+        "SELECT job_token_scopes FROM job_perms WHERE job_id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(match row {
+        Some(scopes) => scopes,
+        // The job left the queue and its row was swept: only the token's own claims are left.
+        None => authed.scopes.clone(),
+    })
+}
+
 /// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
 /// a credential on behalf of `authed`: the resulting credential must never be
 /// more privileged than the caller's own token.
@@ -391,7 +607,9 @@ pub fn ensure_scopes_within_caller(
 
         for requested in requested_restrictions {
             if requested.starts_with("mcp:") {
-                if !caller_mcp.contains(requested.as_str()) {
+                // `mcp:session` (windmill_mcp's SESSION_SCOPE) grants nothing: it only picks
+                // the toolset an `mcp:all` token gets, and `mcp:all` is matched here itself.
+                if requested != "mcp:session" && !caller_mcp.contains(requested.as_str()) {
                     return Err(Error::PermissionDenied(format!(
                         "A scope-restricted token cannot grant MCP scope '{requested}' unless the \
                          caller holds the same scope verbatim"
@@ -448,80 +666,6 @@ fn first_filter_tags(scopes: Option<&[String]>) -> Option<Vec<&str>> {
         s.strip_prefix("if_jobs:filter_tags:")
             .map(|tags| tags.split(',').collect())
     })
-}
-
-/// Whether `caller` grants at least everything `requested` grants (directional
-/// containment).
-///
-/// This is intentionally NOT `ScopeDefinition::includes`: that method answers
-/// "does this scope grant access to a required action" using OR semantics over
-/// resources (any overlap counts, and a `*` on either side matches), which is
-/// correct for access checks but unsafe for subset checks — it would let a
-/// token scoped to `scripts:read:f/team/a` mint `scripts:read:*` or
-/// `scripts:read:f/team/a,f/other/b`. Subset containment instead requires that
-/// EVERY requested resource is covered by SOME caller resource.
-fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool {
-    if caller.domain != requested.domain {
-        return false;
-    }
-
-    // write subsumes read; otherwise the action must match exactly.
-    match (caller.action.as_str(), requested.action.as_str()) {
-        (c, r) if c == r || (c == "write" && r == "read") => {}
-        // Apps only: `write` covers `run` (see `ScopeDefinition::includes`), so an
-        // app-editor token can mint the narrower run-only credential.
-        ("write", "run") if caller.domain == "apps" => {}
-        _ => return false,
-    }
-
-    if caller.domain == "jobs" && caller.action == "run" {
-        match (&caller.kind, &requested.kind) {
-            (Some(caller_kind), Some(requested_kind)) if caller_kind != requested_kind => {
-                return false
-            }
-            // Caller pinned to a kind, but the request covers any kind.
-            (Some(_), None) => return false,
-            _ => {}
-        }
-    }
-
-    match (&caller.resource, &requested.resource) {
-        // Caller is unrestricted on resources: covers everything.
-        (None, _) => true,
-        // Caller is resource-restricted but the request is not: broader.
-        (Some(_), None) => false,
-        (Some(caller_resources), Some(requested_resources)) => {
-            resource_set_contains(caller_resources, requested_resources)
-        }
-    }
-}
-
-/// Every resource in `requested` must be covered by some resource in `caller`.
-fn resource_set_contains(caller: &[String], requested: &[String]) -> bool {
-    if caller.iter().any(|r| r == "*") {
-        return true;
-    }
-    requested
-        .iter()
-        .all(|req| req != "*" && caller.iter().any(|c| resource_covers(c, req)))
-}
-
-/// Directional: does the single caller resource pattern cover `requested`?
-/// `caller` may be an exact path or a `<prefix>/*` subtree wildcard; `requested`
-/// may itself be a subtree wildcard, in which case the whole requested subtree
-/// must fall within the caller's subtree.
-fn resource_covers(caller: &str, requested: &str) -> bool {
-    if caller == requested {
-        return true;
-    }
-    let Some(prefix) = caller.strip_suffix("/*") else {
-        // An exact caller resource only covers itself (handled above).
-        return false;
-    };
-    let requested_base = requested.strip_suffix("/*").unwrap_or(requested);
-    requested_base == prefix
-        || (requested_base.starts_with(prefix)
-            && requested_base.as_bytes().get(prefix.len()) == Some(&b'/'))
 }
 
 /// Returns a predicate that checks whether `path` is within the token's
@@ -651,10 +795,24 @@ pub fn build_scope_path_filter(authed: &ApiAuthed, domain: &str, action: &str) -
     ScopePathFilter::Restricted { exact, prefix }
 }
 
-pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
-    let is_devops = is_devops_email(db, email).await?;
-
-    if is_devops {
+/// Assert the caller holds the instance-level `devops` role under their own
+/// credentials.
+///
+/// `devops` is instance-level and [`is_devops_email`] is also true for
+/// superadmins, so this gate is reachable by the same job token that
+/// [`require_super_admin`] rejects, and is capped the same way
+/// (GHSA-hfh4-cx4h-3fcr).
+pub async fn require_devops_role(db: &DB, authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN). If a script \
+             genuinely needs this, create a dedicated token from the User settings drawer \
+             (the 'Tokens' section), store it as a secret, and use that token explicitly \
+             instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    if is_devops_email(db, &authed.email).await? {
         Ok(())
     } else {
         Err(Error::NotAuthorized(
@@ -774,6 +932,102 @@ pub async fn maybe_refresh_folders(
     }
 }
 
+// ------------ Router-level gate for withdrawable operator rights ------------
+
+/// Refuses every write (anything but GET/HEAD/OPTIONS) under the router it layers, unless the
+/// workspace still grants operators `kind`. It sits on the router rather than in each handler so
+/// that a route added later is covered without its author doing anything; read
+/// `docs/operator-write-rights.md` before putting a new route under one of these routers.
+pub async fn gate_operator_writes(
+    State(kind): State<ManageKind>,
+    Extension(db): Extension<DB>,
+    Path(params): Path<HashMap<String, String>>,
+    request: Request,
+    next: Next,
+) -> Result<Response> {
+    if matches!(
+        *request.method(),
+        http::Method::GET | http::Method::HEAD | http::Method::OPTIONS
+    ) {
+        return Ok(next.run(request).await);
+    }
+
+    // Resolved here rather than taken as an extractor so that reads, which are the traffic under
+    // these routers, do not pay for it.
+    let (mut parts, body) = request.into_parts();
+    let authed = <ApiAuthed as FromRequestParts<()>>::from_request_parts(&mut parts, &()).await?;
+
+    // Absent only if this is layered outside `/w/{workspace_id}`, which is a wiring mistake:
+    // refuse rather than let the write through unchecked.
+    let w_id = params.get("workspace_id").ok_or_else(|| {
+        Error::internal_err("operator write gate layered outside a workspaced router".to_string())
+    })?;
+    check_operator_can_manage(&db, w_id, &authed, kind).await?;
+
+    Ok(next.run(Request::from_parts(parts, body)).await)
+}
+
+/// Whether a path of the jobs router starts a run on the caller's behalf. Anything under a run
+/// prefix is, so a run route added later is gated without its author doing anything; the
+/// exceptions are code tooling gated by `code` (dependency locks, inline dynamic selects) or steps
+/// of a run already started (workflow-as-code), which a view-only member's scheduled or triggered
+/// runs still need.
+fn starts_run(path: &str) -> bool {
+    let mut segments = path.trim_start_matches('/').split('/');
+    match (segments.next(), segments.next()) {
+        // Script previews check `run` in their handlers, after the in-job data table exemption.
+        (Some("run" | "run_inline" | "run_wait_result"), Some("preview")) => false,
+        (Some("run"), Some(next)) => !matches!(
+            next,
+            "dependencies"
+                | "dependencies_async"
+                | "flow_dependencies"
+                | "flow_dependencies_async"
+                | "dynamic_select"
+                | "workflow_as_code"
+        ),
+        (
+            Some(
+                "run_wait_result" | "run_and_stream" | "run_inline" | "restart" | "add_batch_jobs",
+            ),
+            _,
+        ) => true,
+        _ => false,
+    }
+}
+
+/// Refuses a run under the jobs router unless the caller's role holds `run`. Layered on the router
+/// rather than per handler for the reason `gate_operator_writes` is; GET counts, since
+/// `run_and_stream` and `run_wait_result` start runs over GET.
+pub async fn gate_role_runs(
+    Extension(db): Extension<DB>,
+    request: Request,
+    next: Next,
+) -> Result<Response> {
+    if matches!(
+        *request.method(),
+        http::Method::HEAD | http::Method::OPTIONS
+    ) || !starts_run(request.uri().path())
+    {
+        return Ok(next.run(request).await);
+    }
+    let (mut parts, body) = request.into_parts();
+    let Path(params) = <Path<HashMap<String, String>> as FromRequestParts<()>>::from_request_parts(
+        &mut parts,
+        &(),
+    )
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!("run gate layered outside a workspaced router: {e}"))
+    })?;
+    let authed = <ApiAuthed as FromRequestParts<()>>::from_request_parts(&mut parts, &()).await?;
+    let w_id = params.get("workspace_id").ok_or_else(|| {
+        Error::internal_err("run gate layered outside a workspaced router".to_string())
+    })?;
+    windmill_common::workspaces::check_role_can_run(&db, w_id, &authed).await?;
+    Ok(next.run(Request::from_parts(parts, body)).await)
+}
+
 // ------------ FromRequestParts impls (direct call to auth module) ------------
 
 impl<S> FromRequestParts<S> for ApiAuthed
@@ -887,6 +1141,10 @@ pub async fn fetch_api_authed_from_permissioned_as(
     db: &DB,
     username_override: Option<String>,
 ) -> error::Result<ApiAuthed> {
+    // Keyed by the supplied address, so an entry built for a principal's previous holder is reused
+    // while that address is still supplied, until its 120s expiry: a cached dispatch address is
+    // evicted sooner, an app's stored one (a username deleted then reused) may not be. Accepted;
+    // the rebuild after expiry is the current holder's.
     let key = (w_id.to_string(), permissioned_as.clone(), email.clone());
 
     let mut api_authed = match API_AUTHED_CACHE.get(&key) {
@@ -902,7 +1160,10 @@ pub async fn fetch_api_authed_from_permissioned_as(
 
             let api_authed = ApiAuthed {
                 username: authed.username,
-                email,
+                // The resolved one, not the address we were handed: that is the point of
+                // `fetch_authed_from_permissioned_as` validating it against the principal's live
+                // binding, and this value goes on to the job row, `job_perms` and the JWT.
+                email: authed.email,
                 is_admin: authed.is_admin,
                 is_operator: authed.is_operator,
                 groups: authed.groups,
@@ -913,6 +1174,10 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 is_session_token: false,
                 token_prefix: authed.token_prefix,
                 read_only: false,
+                job_id: None,
+                credential_expiry: None,
+                mcp_client: None,
+                capabilities: None,
             };
 
             API_AUTHED_CACHE.insert(
@@ -944,6 +1209,9 @@ pub struct NewToken {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub read_only: Option<bool>,
+    /// An MCP token carries its owner's superadmin rights (every workspace) only when asked.
+    #[serde(default)]
+    pub super_admin: Option<bool>,
 }
 
 impl NewToken {
@@ -955,7 +1223,15 @@ impl NewToken {
         workspace_id: Option<String>,
         read_only: Option<bool>,
     ) -> Self {
-        Self { label, expiration, impersonate_email, scopes, workspace_id, read_only }
+        Self {
+            label,
+            expiration,
+            impersonate_email,
+            scopes,
+            workspace_id,
+            read_only,
+            super_admin: None,
+        }
     }
 }
 
@@ -966,6 +1242,9 @@ impl NewToken {
 /// [`ensure_scopes_within_caller`] first (internal narrowing mints intentionally
 /// skip it, since their scopes derive from the action being authorized, not the
 /// caller's token).
+///
+/// A token the system mints for itself with an `expiration` needs a label reserved in
+/// `windmill_common::auth::is_user_token`, or its expiry alerts its owner (docs/auth-surface.md).
 pub async fn create_token_internal(
     tx: &mut sqlx::PgConnection,
     db: &DB,
@@ -996,6 +1275,11 @@ pub async fn create_token_internal(
     .fetch_optional(&mut *tx)
     .await?
     .unwrap_or(false);
+    let is_mcp = token_config
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|scope| scope.starts_with("mcp:")));
+    let is_super_admin = is_super_admin && (!is_mcp || token_config.super_admin == Some(true));
     if *CLOUD_HOSTED {
         let nb_tokens =
             sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
@@ -1069,6 +1353,10 @@ pub async fn register_token_expiry_notification(
     let Some(expiration) = expiration else { return };
     // System tokens don't get expiry notifications.
     if !windmill_common::auth::is_user_token(label) {
+        return;
+    }
+    let warning_days = windmill_common::auth::TOKEN_EXPIRY_WARNING_DAYS;
+    if expiration <= chrono::Utc::now() + chrono::Duration::days(warning_days.into()) {
         return;
     }
     if let Err(e) = sqlx::query!(
@@ -1652,6 +1940,20 @@ mod tests {
             opt_scopes(Some(vec!["users:read", "if_jobs:filter_tags:default"])).as_deref()
         )
         .is_ok());
+        // A `*` path grant spans the domain, so it may mint the unqualified form a
+        // whole-collection read requires; a listed path may not.
+        let wildcard = authed_with_scopes(Some(vec!["resources:read:*"]));
+        assert!(ensure_scopes_within_caller(
+            &wildcard,
+            opt_scopes(Some(vec!["resources:read"])).as_deref()
+        )
+        .is_ok());
+        let path_scoped = authed_with_scopes(Some(vec!["resources:read:f/team/db"]));
+        assert!(ensure_scopes_within_caller(
+            &path_scoped,
+            opt_scopes(Some(vec!["resources:read"])).as_deref()
+        )
+        .is_err());
         // Apps `write` covers `run`, so an app-editor token can mint the run-only
         // credential for the same app — but only within its own resource subtree,
         // and the equivalence stays Apps-only.
@@ -1759,6 +2061,11 @@ mod tests {
             opt_scopes(Some(vec!["mcp:scripts:*"])).as_deref()
         )
         .is_err());
+        assert!(ensure_scopes_within_caller(
+            &mcp_all,
+            opt_scopes(Some(vec!["mcp:all", "mcp:session"])).as_deref()
+        )
+        .is_ok());
     }
 
     #[test]

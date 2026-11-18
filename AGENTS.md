@@ -26,21 +26,53 @@ Open-source platform for internal tools, workflows, API integrations, background
 
 - **Validation**: `docs/validation.md` — what checks to run based on what you changed
 - **Unreleased SDK changes**: `docs/wac-sdk-e2e.md` — exercising a client change on a real worker
+- **Performance work**: `docs/perf-profiling.md` — the in-process profiler for the job path
+  (allocation bytes, allocation sites and SQL statements per job), how to A/B a change with it, and
+  its measurement caveats. A perf change ships with before/after numbers from it.
 - **Agent workers**: `docs/agent-worker-e2e.md` — building and running one locally. An agent
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.
+- **External instance data tables**: `docs/external-instance-datatables.md` — the cluster Windmill
+  administers behind `external_instance` data tables and Ducklake catalogs: its invariants (one
+  lifecycle lock, managed-object markers, the setup gate, per-cluster roles, fork copy ownership)
+  and how to run one locally
+- **Fork object storage**: `docs/fork-object-storage.md` — how a fork's object keys map under
+  `__wm_forks/<segment>/` with read-through to its ancestors, where the mapping must be applied,
+  and why `__wm_forks/` is reachable only through a workspace's own chain
+- **Data table viewer roles**: `docs/datatable-viewer-roles.md`, on what a connection naming no
+  role holds: the default role as a floor, whose roles are added (the job's own, or its viewer's
+  for an inline app runnable that opts in), why an admin's roles are not added, the per-role-set
+  logins and the order their rows and logins are written in
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Workspace roles**: `docs/workspace-roles.md` — instance-defined roles with per-workspace
+  overrides, the capabilities a role holds, why `ApiAuthed::is_operator` must be derived from the
+  role, and the `role_seat` table billing reads
+- **Operator write rights**: `docs/operator-write-rights.md` — which `operator_settings` flags are
+  enforced rather than cosmetic, and why a right that is granted-unless-withdrawn needs `Option`
+  fields and a jsonb merge rather than a serde default
+- **Operator builder rights**: `docs/operator-builder-rights.md` — the workspace settings that let
+  operators compose flows, AI agents and full-code apps, what the composition check must cover, which
+  raw-app endpoint stays closed on purpose, and why either right costs a full seat
+- **AI agents**: `docs/reusable-ai-agents.md` — saved agents, linked from flow steps and also run
+  on their own (page, API, Slack, apps) as a one-step flow, so flow and chat-flow behaviour
+  reaches them too; memory, approvals and questions
+- **Auth surface**: `docs/auth-surface.md` — credential precedence, session/cache invalidation
+  scope, which token labels email their owner at expiry, how OAuth login matches `login_type`, and
+  that every superadmin route refuses `$WM_TOKEN`. Read before designing anything that creates
+  users, tokens or sessions.
 - **Product telemetry**: `docs/feature-telemetry.md` — when to instrument a new feature with
   `feature_usage`, and the four-step recipe. An unregistered `(feature, kind)` pair is dropped
   silently, so frontend-only instrumentation records nothing.
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
 - **Frontend UUIDs**: do not call `crypto.randomUUID()` in frontend code. Import `randomUUID` from `$lib/utils/uuid` instead.
-- **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi. For a Codex-driven pass that mirrors the `codex-pr-review` GitHub action against your unpushed work (committed + uncommitted) before you push, use `/local-review-codex` (`.agents/skills/local-review-codex/`) — same `REVIEW.md` policy, `gpt-5.6-sol`, `xhigh` reasoning; requires the `codex` CLI >= 0.144.1.
-- **Domain guides**: `.claude/skills/native-trigger/` and `frontend/tutorial-system-guide.mdc`
+- **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi. For a Codex-driven pass that mirrors the `codex-pr-review` GitHub action against your unpushed work (committed + uncommitted) before you push, use `/local-review-codex` (`.agents/skills/local-review-codex/`) — same `REVIEW.md` policy, `gpt-6.1-sol` model and `xhigh` reasoning as the action; requires the `codex` CLI >= 0.159.3.
+- **Domain guides**: `.claude/skills/native-trigger/`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
 - **Domain vocabulary**: `CONTEXT.md` — the words this codebase uses for its own concepts (step, step setting, trigger step, …). Name things the way it does.
 - **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.
+- **AI guidance** (chat prompts and CLI skills): what the AI knows about Windmill itself — how flows, scripts, apps, pipelines and resources work — is written once, in `system_prompts/base/` and `system_prompts/languages/`, and `system_prompts/generate.py` builds both the chat's `$system_prompts` exports and the CLI's skills from it. Add or change such guidance there, never inline in one consumer: a sentence only one side should see goes in a `<!-- cli-only -->` / `<!-- chat-only -->` block, and a new file reaches both through the `TOPICS` table. The chat prompt builders under `frontend/src/lib/components/copilot/chat/` add only tool plumbing and runtime values, and shared markdown names no chat tool, since it reaches every chat mode. Rerun `generate.py` after editing; `system_prompts/README.md` has the details.
+- **Windmill MCP server**: `/api/mcp` gives a token with `mcp:all` the AI session's GLOBAL toolset (`backend/windmill-api/src/ai_session_tools/`), and a token scoped to a selection of scripts and flows the tools server's per-runnable tools, without endpoint tools. The tools server's own URLs, `/api/mcp/w/{workspace}/mcp` and `/api/mcp/gateway`, keep serving existing tokens, endpoint scopes included, except that they give the session toolset to an `mcp:all` token carrying `mcp:session` (added by the OAuth approve and by the token forms' Build and run access, kept across scope edits) or `mcp:read_only`/`mcp:read_run`. Every tool takes a `workspace_id`; the token bounds which (its bound workspace, the `mcp:workspaces:` list, or all of its owner's). With the `mcp_external_idp` instance setting, every MCP URL also accepts an access token of an external OIDC issuer (`mcp/external_idp.rs`), told apart from Windmill's own by its `iss`: the token's client is mapped to a workspace and to the same access a Windmill token takes (an access level, served the session toolset as `mcp:session`, or a selection of scripts and flows), and the request acts as the existing Windmill user with the token's email, under that access, as a workspace-bound token does. The protected-resource metadata then names that issuer. What a model reads there (tool names, descriptions, input schemas, instructions, `get_instructions` texts) is generated from the session's TypeScript into `ai_session_tools/gen/`: after changing a GLOBAL tool definition, the global system prompt or `system_prompts/`, run `npm run gen:mcp-session` from `frontend/` (`mcpSessionGen.test.ts` fails otherwise). The instructions are one template (`EXTERNAL_PROMPT` in `chat/global/core.ts`, with `{{#flag}}` blocks rendered by `promptTemplate.ts`), and the generator exports the flags and variables of each access profile: the token's scope and, for a full token, the caller's role and whether the deploy rules let them deploy. The server only renders it, with the profile the key `prompt_profile` (`ai_session_tools/instructions.rs`) builds, which must match the generator's; its renderer must match `promptTemplate.ts`, which a hash per profile pins. In a workspace with `DisableDirectDeployment` every full token, an admin's included, is held to read-and-run there (`workspace_access` in `mcp/core.rs`), as the chat's session is (`protects` in `chat/global/sessionAccess.ts`), and a member whose role cannot run is held to read-only, with no run tools (`session_ctx_with`, and `capabilitiesForRole` in the chat); the two copies of each rule change together. What a tool *does* is written once, in a Rust handler the chat also calls (`POST /w/{workspace}/ai_session_tools/{name}`, through `chat/global/backendSessionTools.ts`); the browser applies the effects it returns, saving drafts through its own draft store. A new session tool is either implemented in Rust or added to `EDITOR_ONLY` (a `cargo test` in `ai_session_tools/mod.rs` fails otherwise). Still written twice, so a behaviour change must be mirrored: `deploy_workspace_item` and `diff` (the chat uses the UI's shared deploy and diff code), and the run tools' form side (argument coercion, secrets, plan mode, the outcome text), where the chat resolves and starts the run on the server but owns the form in between; both sides test their argument handling against `ai_session_tools/run_args_cases.json`, so a change there comes with a case. For MCP Apps clients the server adds tools of its own, defined in Rust (`ai_session_tools/views.rs`) rather than generated, and not offered to the chat, which draws its own cards: `show_run`, `show_runs`, `show_deploy_review` and `show_item` draw a card in the `ui://windmill/card-v<N>` view (`mcp/card.html`; bump `CARD_URI` in `mcp/session.rs` when the `_meta` it reads changes shape, since hosts cache a view by URI) from their result's `_meta` (`windmill/run`, `windmill/runs`, `windmill/review`, `windmill/item`), which the model never reads. A host draws a card for every call of a tool that declares one, so only these show tools do: the tools the model reads and runs with draw nothing, and `get_run` builds no card data. The card acts only by calling the session's tools (`show_run` to refresh, `cancel_job`, `show_deploy_review` to re-read a draft, `deploy_workspace_item` from the review card's Deploy button, which the user presses), so it sees nothing the model could not. Every `DESTRUCTIVE` tool but those in `CARD_ACTIONS` is hidden from it. Every session tool carries a `title` and explicit read-only, destructive and open-world hints, which the Claude and ChatGPT directories require (`DESTRUCTIVE`, `OPEN_WORLD`). A client that declares capabilities without the MCP Apps extension is not offered the show tools.
 - **Session recorder**: `frontend/src/lib/components/recording/` is also the recorder `wmill app dev --recording` serves, vendored into the CLI as `cli/src/commands/app/devRecorderBundle.gen.ts`. After changing `rawAppSnapshot.ts` or `rawAppRecording.svelte.ts`, run `bun run gen:dev-recorder` from `cli/` (`cli/test/dev_recorder_bundle_unit.test.ts` fails otherwise).
 - **Raw-app policy**: `frontend/src/lib/components/raw_apps/rawAppPolicy.ts` also derives the policy the server's raw-app deploy stores, vendored into the bundle job as `backend/windmill-api/src/apps_raw_policy.gen.js`. After changing it or anything it imports, run `bun run gen:app-policy` from `cli/` (`cli/test/app_policy_bundle_unit.test.ts` fails otherwise). It rides in the job rather than being read from the CLI the job runs because the images install `windmill-cli` unpinned, so an image can carry one older than its server.
 
@@ -51,12 +83,23 @@ Open-source platform for internal tools, workflows, API integrations, background
 > defaults in this section apply only to a plain single checkout. **Discover the real
 > values before running anything** — see "Per-worktree ports and database" below.
 
-**Check whether they are already running before starting anything.** In a webmux worktree
-(`$WEBMUX_WORKTREE_PATH` is set) the backend and frontend are already up in sibling tmux panes —
-use those, don't spawn your own. `tmux list-panes -t "$(tmux display-message -p -t "$TMUX_PANE"
-'#{window_id}')" -F '#{pane_index} #{pane_current_command}'` shows what is running; read its log
-with `tmux capture-pane`, and see `backend/AGENTS.md` to restart it with different cargo features.
-A second server started in your own shell fights the first one for the port. The commands below
+**Check whether they are already running before starting anything.** In a managed worktree the
+backend and frontend are already up in sibling panes — use those, don't spawn your own. A second
+server started in your own shell fights the first one for the port.
+
+**herdr** is the worktree manager; `$HERDR_ENV=1` marks one of its panes. `herdr pane list
+--workspace "$HERDR_WORKSPACE_ID"` lists this worktree's panes — match on `cwd`, since the servers
+run from `backend/` and `frontend/` — and `herdr pane read <pane_id> --source recent-unwrapped
+--lines 50` reads one's log; `herdr --skill` prints the full reference for
+inspecting and driving panes and agents. The plugins that provision these worktrees live in the
+private `windmill-labs/windmill-herdr` — clone it and run `./setup.sh` to install them and the
+keybindings they need.
+
+A worktree from the older **webmux** setup sets `$WEBMUX_WORKTREE_PATH` instead and is driven
+through tmux: `tmux list-panes -t "$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')" -F
+'#{pane_index} #{pane_current_command}'` for what is running, `tmux capture-pane` for a pane's log.
+
+See `backend/AGENTS.md` to restart the backend with different cargo features. The commands below
 are for a plain checkout with nothing running.
 
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
@@ -65,13 +108,25 @@ are for a plain checkout with nothing running.
 - **Login**: `admin@windmill.dev` / `changeme`
 - **Instance settings**: navigate to `/#superadmin-settings`
 - **Migrations**: use `cargo sqlx migrate add -r <name>` from `backend/` to create new migrations (never generate timestamps manually)
+- **Resource types ship through the hub, not migrations.** A new type, a provider's credential
+  included, is a `hub/<app>/<app>.resource_type.json` in `windmill-labs/windmill-integrations`
+  and reaches instances by hub sync; a product name its identifier misses (`typesafe` →
+  "TypeSafe") is that file's `display_name`, not a word in `resourceTypeDisplay.ts`'s map. Only a
+  type Windmill itself defines and reads as a product object (`ai_skill`, `ai_instruction`) is
+  also seeded by a migration, so the feature works before a sync. For local testing, insert the row.
 
 ### Per-worktree ports and database
 
-In a webmux worktree the authoritative values live in
-`$(git rev-parse --git-dir)/webmux/runtime.env` — `BACKEND_PORT`, `FRONTEND_PORT`,
-`DATABASE_URL`, `CARGO_FEATURES`, `WM_DB_NAME`. Every pane sources it at startup. Read that
-first: it is not a `.env*` file, so the repo's secret-file read rules don't stand in the way.
+**`.env.local` in the worktree root holds the real values** — `BACKEND_PORT`, `FRONTEND_PORT`,
+`REMOTE`, `DATABASE_URL`, `CARGO_FEATURES`, `WM_DB_NAME`. Every manager writes those fields, so it
+is correct whichever one you are in. Read it with `cat .env.local` from a shell: the file-read
+tool denies every `.env.*` path, and `DATABASE_URL` is written with an `export` prefix that a
+`^DATABASE_URL=` grep misses.
+
+herdr keeps nothing besides that file; its hooks write it and read it back. A webmux worktree
+additionally has `$(git rev-parse --git-dir)/webmux/runtime.env`, which every pane sources at
+startup and which carries the extras `.env.local` lacks: `WEBMUX_*`, `WM_CLONE_DB`,
+`USE_RUST_PLUGIN`.
 
 In a plain checkout, fall back to `.env` / `.env.local` (repo root) and `backend/.env`.
 
@@ -80,19 +135,25 @@ hook. It is not a copy of the main dev instance: you get the `admins` workspace,
 `admin@windmill.dev` superadmin, the license key copied from the base database, and whatever the
 migrations seed — and none of your own workspaces, scripts, flows or apps. Create whatever a test
 needs. Cloning the base `windmill` database instead is
-opt-in per project via `WM_CLONE_DB` in `.webmux.yaml`; read the note there before turning it on.
+opt-in via `WM_CLONE_DB` (the `windmill.worktree` plugin's `config.env` under herdr, or
+`.webmux.yaml` under webmux); read the note in `.webmux.yaml` before turning it on.
 
 The database is named after the **worktree directory, not the branch** (`scripts/worktree-common.sh`):
 `windmill_` + the directory basename with `-` → `_`, which Postgres then truncates at 63
-characters. Branch `hugo/win-2340-ai-agent-evals-standalone-agent-runs-and-eval-datasets` sits in
-a worktree directory named `win-2340-…`, so its database is
-`windmill_win_2340_ai_agent_evals_standalone_agent_runs_and_eval` — no `hugo_`, and the tail
-chopped. Take `WM_DB_NAME` from `runtime.env` instead of reconstructing the name. Read those, or
-discover from what is already running:
+characters. herdr creates the directory under `~/.herdr/worktrees/<repo>/` from the branch name
+with each `/` turned into `-`, so branch
+`hugo/win-2544-add-options-field-to-the-postgresql-resource-type` gets the database
+`windmill_hugo_win_2544_add_options_field_to_the_postgresql_reso` — the whole branch name, cut
+mid-word at the limit. The two drift apart as soon as the branch is renamed, and webmux named its
+directories after the ticket alone, so reconstructing the name from the branch you are on is
+wrong in both. Take `WM_DB_NAME` from `.env.local` instead. Read that, or discover from what is
+already running:
 
 ```bash
+# match on the worktree directory, truncated the way Postgres truncates it (63 - len('windmill_')):
 psql postgres://postgres:changeme@localhost:5432/postgres -tAc \
-  "select datname from pg_database where datname like 'windmill%'" | grep "$(git branch --show-current | tr - _)"
+  "select datname from pg_database where datname like 'windmill%'" \
+  | grep -F "$(basename "$(git rev-parse --show-toplevel)" | tr '/-' '_' | cut -c1-54)"
 # the port the frontend actually proxies to (REMOTE of this worktree's vite):
 for p in $(pgrep -f vite); do case "$(readlink /proc/$p/cwd)" in *"$(basename "$(git rev-parse --show-toplevel)")"*)
   tr '\0' '\n' < /proc/$p/environ | grep -E '^REMOTE=|^PORT=';; esac; done
@@ -147,13 +208,33 @@ $NAV --root backend callees "X"                           # what does X call?
 - **MUST `outline` before `Read`** on unfamiliar files — then `body` or `Read` with offset/limit for specifics
 - **Scratch stays outside the checkout.** Temp scripts, data dumps, cache backups and
   screenshots go in the session scratch directory or `/tmp`, so nothing temporary can end up
-  committed. Write `rm`/`mv`/`cp` as one plain unchained command: a PreToolUse hook
-  auto-allows those when every operand is under `/tmp` or inside this checkout, but it defers
-  on `&&`, `;`, redirects, quotes and `$VAR` — that deferral, not the delete itself, is what
-  turns a routine cleanup into a permission prompt.
+  committed. Write the paths in `rm`/`mv`/`cp` out literally: a PreToolUse hook proves each
+  operand, and auto-allows deletes, moves, copies and mode changes under `/tmp`, inside a git
+  checkout under `$HOME`, or in the Playwright MCP browser caches (`~/Library/Caches/ms-playwright`
+  and `ms-playwright-mcp`, `~/.cache/…` on Linux), as long as one operation stays within a single
+  root — a sibling checkout is a root of its own (`tar` and `unzip` stay `/tmp`-only). Chain
+  deletes freely, each proved on its own operands, but keep writes to one per line, name the
+  destination rather than a directory to drop it in, and put anything else on its own line: a
+  command the hook does not prove drops the whole line back to the normal permission flow. A
+  leading `~/` or `$HOME/` is expanded and proved; a quoted operand, any other `$VAR`, a redirect,
+  a `$(…)`, a relative `cd`, or a wrapper like `xargs rm` cannot be, and that deferral is what
+  turns a cleanup into a prompt.
+- **Change files with Edit/Write, not the shell.** `sed -i`, `cat > file <<'EOF'` and inline
+  `python3 - <<'PY'` scripts put an edit through the PreToolUse guards and the permission
+  classifier, which match `Bash` and nothing else, so a routine edit arrives as a prompt. Bash
+  stays right for running things — tests, builds, git, one-off queries.
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked
+- **A simpler design found late is still the design.** Work already spent is not an argument
+  for a shape, and neither is a clean review round, a passing suite, or a long PR thread. The
+  signal to stop and re-derive rather than patch again is a change that keeps growing to defend
+  its own structure: each review finding fixing an assumption the previous fix broke, the same
+  class of bug reappearing somewhere new, or most of the diff being consequences of one early
+  choice rather than the thing you set out to do. When that happens, say plainly what the
+  simpler design is and what switching costs — a migration, a review cycle restarted from zero,
+  work discarded — and let the user decide. Do not keep paying down the harder one because it
+  is nearly finished, and do not present the accumulated cost as a reason to continue.
 - **Ship only the tests the PR needs.** A committed test must pin behavior a future change could plausibly break, and be the smallest setup that exercises the new logic. While developing, write as many exhaustive tests and do as much manual testing as you need to convince yourself the change works — then remove that scaffolding before marking the PR ready, keeping only the essential regression guard(s). A test that merely re-exercises pre-existing behavior, or needs elaborate fixtures to assert something trivial, is scaffolding: delete it. If nothing meaningful is left to guard, ship no test rather than a ceremonial one.
 - **Comments record constraints, not narration.** Write a comment only for what the code can't show: why a non-obvious approach is required, what breaks if it's "simplified" away. State each invariant once, at the place where someone would break it, in ≤4 lines. Don't describe what the next line does, don't repeat the same rationale at multiple sites, and don't address the PR reviewer (justifying a change belongs in the PR description, not the code). Reference nothing ephemeral — no numbered steps from your dev flow, no "the poller / the test does X" scaffolding, no transient state that won't exist for the next reader; keep only the essential, durable rationale. Describe the code as it is, never its drafting history: "we no longer do X", "unchanged behavior", "instead of the previous approach" are meaningless to a reader who never saw the earlier iteration — before finishing, reread your comments as if the current state is the only state that ever existed.
 - **Never attribute work to a specific customer, account, or "requested by a customer" in repo-tracked content** (PR descriptions, commit messages, code comments, docs). Describe changes by their technical motivation instead.

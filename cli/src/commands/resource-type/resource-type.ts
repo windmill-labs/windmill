@@ -25,6 +25,10 @@ export interface ResourceTypeFile {
   schema?: any;
   description?: string;
   is_fileset?: boolean;
+  // Extension for a type whose value is one file rather than a set of fields; it
+  // is what makes the resource editor a file editor for that language.
+  format_extension?: string | null;
+  display_name?: string | null;
 }
 
 export async function pushResourceType(
@@ -87,6 +91,19 @@ async function push(opts: PushOptions, filePath: string, name: string) {
   log.info(colors.bold.underline.green("Resource pushed"));
 }
 
+// The hub publishes hundreds of resource types and an instance seeds only a few of its own,
+// so fewer than this means the instance never synced with the hub.
+const UNSYNCED_RESOURCE_TYPE_COUNT = 20;
+
+function warnIfNotSyncedWithHub(resourceTypes: ResourceType[]) {
+  const count = new Set(resourceTypes.map((rt) => rt.name)).size;
+  if (count < UNSYNCED_RESOURCE_TYPE_COUNT) {
+    log.warnAlways(
+      `Only ${count} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. A superadmin can sync resource types from the hub with "Sync resource types with Hub" in the Add resource dialog of the Resources page.`
+    );
+  }
+}
+
 async function list(opts: GlobalOptions & { schema?: boolean; json?: boolean }) {
   if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
@@ -95,12 +112,9 @@ async function list(opts: GlobalOptions & { schema?: boolean; json?: boolean }) 
     workspace: workspace.workspaceId,
   });
 
+  warnIfNotSyncedWithHub(res);
   if (opts.json) {
     console.log(JSON.stringify(res));
-  } else if (res.length === 0) {
-    log.info("No custom resource types found in this workspace.");
-    log.info("Built-in types like 'postgresql', 'slack', 'mysql', etc. are available from the Windmill Hub.");
-    return;
   } else if (opts.schema) {
     new Table()
       .header(["Workspace", "Name", "Schema"])
@@ -168,6 +182,7 @@ export async function generateRTNamespace(opts: GlobalOptions) {
   const rts = await wmill.listResourceType({
     workspace: workspace.workspaceId,
   });
+  warnIfNotSyncedWithHub(rts);
 
   let namespaceContent = "declare namespace RT {\n";
   namespaceContent += rts

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT storage, storage_ref FROM fork_storage_namespace WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "storage",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "storage_ref",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "7796f40e349bf0771cceff037fa2224ab49659213638230be7f9acbf82d8e1b0"
+}

@@ -2,7 +2,6 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { emptyString } from '$lib/utils'
 	import { ScriptService, type ScriptHistory } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -11,6 +10,10 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import VersionListItem from './VersionListItem.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { isNewTabClick } from '$lib/navigation'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -27,7 +30,7 @@
 	async function loadVersions() {
 		loading = true
 		versions = await ScriptService.getScriptHistoryByPath({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			path: scriptPath
 		})
 		loading = false
@@ -42,7 +45,7 @@
 			return
 		}
 		await ScriptService.updateScriptHistory({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			path: scriptPath,
 			hash: scriptHash,
 			requestBody: {
@@ -96,7 +99,10 @@
 								{#snippet action()}
 									{#if openDetails}
 										<Button
-											on:click={() => {
+											href={`/scripts/get/${version.script_hash}?workspace=${$operatingWorkspace}`}
+											onClick={(e) => {
+												if (e instanceof MouseEvent && isNewTabClick(e)) return
+												e?.preventDefault()
 												dispatch('openDetails', { version: version.script_hash })
 											}}
 											class="mr-2 shrink-0 inline-flex gap-1 text-xs items-center"

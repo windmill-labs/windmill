@@ -109,6 +109,10 @@ async function main() {
       "append a compact summary line to ai_evals/history/<mode>.jsonl",
     )
     .option(
+      "--reasoning <effort>",
+      "reasoning effort for frontend modes (e.g. off, low, medium, high, max); default: the product's",
+    )
+    .option(
       "--backend-validation <mode>",
       `backend smoke validation (${BACKEND_VALIDATION_MODES.join(", ")})`,
     )
@@ -126,6 +130,7 @@ async function main() {
           executionOnly?: boolean;
           record?: boolean;
           backendValidation?: string;
+          reasoning?: string;
         },
       ) => {
         await handleRun({
@@ -140,6 +145,7 @@ async function main() {
           executionOnly: options.executionOnly ?? false,
           record: options.record ?? false,
           backendValidation: options.backendValidation,
+          reasoning: options.reasoning,
         });
       },
     );
@@ -190,6 +196,7 @@ async function handleRun(input: {
   executionOnly: boolean;
   record: boolean;
   backendValidation?: string;
+  reasoning?: string;
 }) {
   if (input.record && input.caseIds.length > 0) {
     throw new Error(
@@ -216,6 +223,13 @@ async function handleRun(input: {
     throw new Error(
       "--backend-validation currently supports only flow and script modes",
     );
+  }
+  if (input.reasoning) {
+    if (input.mode === "cli") {
+      throw new Error("--reasoning only applies to frontend modes");
+    }
+    // The frontend runtime runs in a child process, which inherits it.
+    process.env.WMILL_AI_EVAL_REASONING = input.reasoning;
   }
   if (input.mode !== "cli") {
     await assertWindmillBackendReachable(resolveWindmillBackendSettings());
@@ -256,6 +270,10 @@ async function handleRun(input: {
             executionOnly: input.executionOnly,
             backendValidation,
           });
+
+    if (input.reasoning && result.runModel) {
+      result.runModel = `${result.runModel}@${input.reasoning}`;
+    }
 
     const resolvedOutputPath =
       models.length === 1

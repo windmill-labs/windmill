@@ -1,9 +1,20 @@
+<script module lang="ts">
+	// app.css is imported by the layouts below this one, not here: the public app routes
+	// (`public/`, `a/`) load it only when they render more than a raw app's bundle.
+	// A production build links a layout's CSS ahead of its page's, but in dev a stylesheet
+	// lands when its module evaluates, and a page's can evaluate before its layout's. This
+	// module is imported at startup, so loading it here in dev keeps app.css first.
+	if (import.meta.env.DEV && !/^\/(public|a)\//.test(location.pathname)) {
+		import('$lib/assets/app.css')
+	}
+</script>
+
 <script lang="ts">
 	import { page } from '$app/state'
 
-	import { SvelteToast } from '@zerodevx/svelte-toast'
-	import '$lib/assets/app.css'
 	import { installDevPollingDormancy } from '$lib/utils/devPollingDormancy'
+	import { noteClientNavigation, releaseHomeSnapshot } from '$lib/homeSnapshot'
+	import { onNavigate } from '$app/navigation'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -23,6 +34,13 @@
 	}
 
 	document.getElementById('svelte-global-loader')?.remove()
+
+	// Home replaces the snapshot `app.html` painted when it mounts; a load that lands elsewhere
+	// (a redirect to login, to the workspace picker) replaces it here.
+	$effect(() => {
+		if (page.route.id !== '/(root)/(logged)') releaseHomeSnapshot()
+	})
+	onNavigate(noteClientNavigation)
 
 	installDevPollingDormancy()
 
@@ -65,7 +83,9 @@
 {@render children?.()}
 
 <div class="wrap">
-	<SvelteToast options={toastOptions} />
+	{#await import('@zerodevx/svelte-toast') then { SvelteToast }}
+		<SvelteToast options={toastOptions} />
+	{/await}
 </div>
 
 <style>

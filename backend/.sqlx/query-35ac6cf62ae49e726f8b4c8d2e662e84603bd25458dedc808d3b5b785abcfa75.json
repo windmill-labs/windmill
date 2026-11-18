@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT q.id, q.workspace_id, j.timeout AS \"timeout!\"\n        FROM v2_job_queue q JOIN v2_job j USING (id)\n        WHERE q.running = true AND q.canceled_by IS NULL\n            AND (j.kind = 'flow' OR (j.kind = 'flowpreview' AND j.parent_job IS NULL))\n            AND j.timeout > 0\n            AND q.started_at + make_interval(secs => j.timeout) <= now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "timeout!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "35ac6cf62ae49e726f8b4c8d2e662e84603bd25458dedc808d3b5b785abcfa75"
+}

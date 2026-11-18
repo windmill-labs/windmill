@@ -18,19 +18,13 @@ use axum::{routing::get, Json, Router};
 #[cfg(not(feature = "private"))]
 use hmac::Mac;
 
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-use itertools::Itertools;
 #[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
-#[cfg(not(feature = "private"))]
-use sqlx::{Postgres, Transaction};
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use windmill_common::more_serde::maybe_number_opt;
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use windmill_oauth::{helpers, AccessToken, RefreshToken, Scope};
 
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-use crate::OAUTH_CLIENTS;
 #[cfg(not(feature = "private"))]
 use windmill_common::error;
 #[cfg(not(feature = "private"))]
@@ -84,6 +78,7 @@ pub async fn build_oauth_clients(
         logins: HashMap::default(),
         connects: HashMap::default(),
         slack: None,
+        slack_signing_secret: None,
     });
 }
 
@@ -114,31 +109,28 @@ async fn list_logins() -> error::JsonResult<Logins> {
     return Ok(Json(Logins { oauth: vec![], saml: None, auto_login: None }));
 }
 
-#[allow(unused)]
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-async fn list_connects() -> error::JsonResult<Vec<String>> {
-    Ok(Json(
-        (&OAUTH_CLIENTS.load().connects)
-            .keys()
-            .map(|x| x.to_owned())
-            .collect_vec(),
-    ))
-}
-
-#[allow(unused)]
-#[cfg(not(all(feature = "oauth2", not(feature = "private"))))]
-async fn list_connects() -> windmill_common::error::JsonResult<Vec<String>> {
-    // Implementation is not open source
-    return Ok(axum::Json(vec![]));
+/// Same shape as the enterprise response, which the connect dialog reads.
+#[cfg(not(feature = "private"))]
+#[derive(Serialize)]
+struct OAuthConnectListItem {
+    name: String,
+    supports_client_credentials: bool,
+    has_shared_credentials: bool,
 }
 
 #[cfg(not(feature = "private"))]
-pub async fn _refresh_token<'c>(
-    _tx: Transaction<'c, Postgres>,
+async fn list_connects() -> error::JsonResult<Vec<OAuthConnectListItem>> {
+    // Implementation is not open source
+    Ok(Json(vec![]))
+}
+
+#[cfg(not(feature = "private"))]
+pub async fn _refresh_token(
     _path: &str,
     _w_id: &str,
     _id: i32,
     _db: &DB,
+    _force: bool,
 ) -> error::Result<String> {
     // Implementation is not open source
     Err(error::Error::BadRequest(

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { copilotInfo } from '$lib/aiStore'
 	import { aiUserDisabled } from '$lib/stores'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -12,7 +11,8 @@
 		togglePanel,
 		btnClasses,
 		btnProps,
-		label = 'Open in AI session'
+		label = 'Open in AI session',
+		tooltip
 	}: {
 		togglePanel: () => void
 		btnClasses?: string
@@ -21,17 +21,23 @@
 		btnProps?: ComponentProps<typeof Button>
 		/** Tooltip + accessible text of the icon-only button. */
 		label?: string
+		/** Hover text, when the label alone doesn't say where the button leads.
+		 * A host that renamed the button ("AI Fix") uses this to keep "in a new
+		 * AI session" discoverable. Defaults to `label`. */
+		tooltip?: string
 	} = $props()
+
+	const hoverText = $derived(tooltip ?? label)
 </script>
 
 {#if $copilotInfo.enabled}
 	<DarkPopover>
 		{#snippet text()}
-			{label}
+			{hoverText}
 		{/snippet}
 		{@render button({ onPress: () => togglePanel() })}
 	</DarkPopover>
-{:else}
+{:else if !$copilotInfo.workspaceDisabled}
 	<Popover placement="bottom" class="h-full">
 		{#snippet trigger()}
 			{@render button({ onPress: () => togglePanel() })}
@@ -43,7 +49,7 @@
 				{:else}
 					<p class="text-sm"
 						>Enable Windmill AI in the <a
-							href="{base}/workspace_settings?tab=ai"
+							href="/workspace_settings?tab=ai"
 							target="_blank"
 							class="inline-flex flex-row items-center gap-1"
 							>workspace settings <ExternalLink size={16} /></a

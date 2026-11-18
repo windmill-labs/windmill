@@ -8,7 +8,8 @@
  */
 import { z } from 'zod'
 import type { ChatCompletionSystemMessageParam } from 'openai/resources/chat/completions.mjs'
-import { createToolDef, type Tool } from '../shared'
+import { createToolDef } from '../shared'
+import { NONE, type SessionTool } from '../sessionCapabilities'
 import {
 	readFile,
 	searchFilesInWorker,
@@ -95,7 +96,8 @@ const searchFilesToolDef = createToolDef(
 	'Search the user-attached files with a regular expression and return matching lines with their line numbers. Use this to locate content before reading a specific window with read_file.'
 )
 
-export const searchFilesTool: Tool<{}> = {
+export const searchFilesTool: SessionTool<{}> = {
+	requires: NONE,
 	def: searchFilesToolDef,
 	planModeSafe: true,
 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
@@ -164,7 +166,8 @@ const readFileToolDef = createToolDef(
 	'Read a bounded window of lines from a user-attached file. Returns each line prefixed with its 1-based number (`<n>→<content>`) plus a pagination note. Files are not in context, so use this to inspect their contents.'
 )
 
-export const readFileTool: Tool<{}> = {
+export const readFileTool: SessionTool<{}> = {
+	requires: NONE,
 	def: readFileToolDef,
 	planModeSafe: true,
 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
@@ -193,7 +196,7 @@ export const readFileTool: Tool<{}> = {
 	}
 }
 
-export const fileTools: Tool<{}>[] = [searchFilesTool, readFileTool]
+export const fileTools: SessionTool<{}>[] = [searchFilesTool, readFileTool]
 
 function rosterLine(f: AttachedFile): string {
 	// Message rows are addressed by their stable id (names may collide); session

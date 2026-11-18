@@ -48,6 +48,33 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than `script pr
 
 Use `wmill resource-type list --schema` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, still take its connection as one resource-typed parameter, of a custom type holding the connection fields (base URL, account identifiers, credentials), its secret in a variable the resource references. A custom type is named `c_<name>`, which keeps it apart from a hub type synced later: the parameter takes `RT.C<Name>` in TypeScript, a `c_<name>` TypedDict in Python. A plain string parameter or a variable read inside the code only when the user asks for it: the resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records. If the instance is reported as not having synced the Windmill Hub's resource types, mention that a superadmin can sync them, since the hub has types for most services. Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it
+- A Windmill Hub script takes a resource type the hub publishes, so on an instance that has not synced the hub's types that type is missing: say so, and that a superadmin can sync them, before asking for a resource of it. Hub scripts often declare the type inline (`type Stripe = { token: string }`), which is still the `stripe` resource type; in code you write, name it the way the language section shows (`RT.Stripe` in TypeScript) rather than copying the inline declaration
+- Before relying on a resource type, a hub script's included, run `wmill resource-type list`: it shows whether the workspace has the type, and warns when the instance has not synced the hub's types
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it `main` (`Main` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no `main`: their language section shows how they take arguments
+- Where the language has a Windmill client (`wmill`), use it to interact with the platform
+- A script's input schema may carry a top-level `prompt_for_ai` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via `results.step_id`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named `preprocessor` instead of `main`, and it receives a single parameter called `event` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., `{ b: 1, a: 2 }` calls the flow with `a = 2` and `b = 1`, assuming the flow has two inputs called `a` and `b`.
+
 # Python
 
 ## Structure
@@ -131,7 +158,7 @@ For preprocessor scripts, the function should be named `preprocessor` and receiv
 from typing import TypedDict, Literal, Any
 
 class Event(TypedDict):
-    kind: Literal["webhook", "http", "websocket", "kafka", "email", "nats", "postgres", "sqs", "mqtt", "gcp"]
+    kind: Literal["webhook", "http", "websocket", "kafka", "email", "nats", "postgres", "sqs", "mqtt", "amqp", "gcp", "azure"]
     body: Any
     headers: dict[str, str]
     query: dict[str, str]
@@ -182,10 +209,20 @@ result: S3Object = wmill.write_s3_file(
 )
 ```
 
-
 # Python SDK (wmill)
 
 Import: import wmill
+
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it.
 
 To know who is running the script, read the contextual variables rather than calling the API:
 `os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
@@ -234,10 +271,14 @@ def post(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
 def create_token(duration = dt.timedelta(days=1)) -> str
 
 # Create a script job by path and return its job id.
-def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
+# 
+# ``retry`` re-runs the job when it fails, with the policy a schedule takes,
+# e.g. ``{"constant": {"attempts": 3, "seconds": 10}}``. The returned id is
+# the first attempt's; each retry is a job of its own, recorded as a child of it.
+def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None, retry: dict = None) -> str
 
-# Create a script job by hash and return its job id.
-def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
+# Create a script job by hash and return its job id. See ``run_script_by_path_async`` for ``retry``.
+def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None, retry: dict = None) -> str
 
 # Create a flow job and return its job id.
 def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str
@@ -410,6 +451,18 @@ def set_progress(value: int, job_id: Optional[str] = None)
 #     Progress value (0-100) or None if not set
 def get_progress(job_id: Optional[str] = None) -> Any
 
+# Whether the worker running the job has received its shutdown signal.
+# 
+# A draining worker waits for its current job to finish before exiting. A long-running
+# script can poll this and return early so the worker can be replaced.
+# 
+# Args:
+#     job_id: Job ID (defaults to current WM_JOB_ID)
+# 
+# Returns:
+#     True if the worker running the job is draining
+def worker_is_draining(job_id: Optional[str] = None) -> bool
+
 # Set the user state of a flow at a given key
 def set_flow_user_state(key: str, value: Any) -> None
 
@@ -423,15 +476,31 @@ def get_flow_user_state(key: str) -> Any
 def version()
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from DuckDB
+# initiate an S3 connection from DuckDB.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings | None
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from Polars
+# initiate an S3 connection from Polars.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection using boto3
+# initiate an S3 connection using boto3.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: pass the storage's own bucket as ``Bucket``. The proxy
+# serves object reads, writes, deletes, listing and multipart uploads of that bucket only;
+# presigned URLs, other buckets and bucket-level APIs need the storage's own credentials,
+# which passing the resource path returns.
 def get_boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 
 # Load a file from the workspace s3 bucket and returns its content as bytes.
@@ -487,19 +556,23 @@ def delete_s3_object(s3object: S3Object | str, s3_resource_path: str | None = No
 # 
 # Args:
 #     s3_objects: List of S3 objects to sign
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     List of signed S3 objects
-def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]
+def sign_s3_objects(s3_objects: list[S3Object | str], expiry_secs: int | None = None) -> list[S3Object]
 
 # Sign a single S3 object for use by anonymous users in public apps.
 # 
 # Args:
 #     s3_object: S3 object to sign
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     Signed S3 object
-def sign_s3_object(s3_object: S3Object | str) -> S3Object
+def sign_s3_object(s3_object: S3Object | str, expiry_secs: int | None = None) -> S3Object
 
 # Generate presigned public URLs for an array of S3 objects.
 # If an S3 object is not signed yet, it will be signed first.
@@ -507,6 +580,8 @@ def sign_s3_object(s3_object: S3Object | str) -> S3Object
 # Args:
 #     s3_objects: List of S3 objects to sign
 #     base_url: Optional base URL for the presigned URLs (defaults to WM_BASE_URL)
+#     expiry_secs: How long the signatures stay valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     List of signed public URLs
@@ -514,7 +589,7 @@ def sign_s3_object(s3_object: S3Object | str) -> S3Object
 # Example:
 #     >>> s3_objs = [S3Object(s3="/path/to/file1.txt"), S3Object(s3="/path/to/file2.txt")]
 #     >>> urls = client.get_presigned_s3_public_urls(s3_objs)
-def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None) -> list[str]
+def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str | None = None, expiry_secs: int | None = None) -> list[str]
 
 # Generate a presigned public URL for an S3 object.
 # If the S3 object is not signed yet, it will be signed first.
@@ -522,6 +597,8 @@ def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str
 # Args:
 #     s3_object: S3 object to sign
 #     base_url: Optional base URL for the presigned URL (defaults to WM_BASE_URL)
+#     expiry_secs: How long the signature stays valid, in seconds
+#         (defaults to 43200 = 12h, clamped to [60, 604800])
 # 
 # Returns:
 #     Signed public URL
@@ -529,7 +606,7 @@ def get_presigned_s3_public_urls(s3_objects: list[S3Object | str], base_url: str
 # Example:
 #     >>> s3_obj = S3Object(s3="/path/to/file.txt")
 #     >>> url = client.get_presigned_s3_public_url(s3_obj)
-def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None) -> str
+def get_presigned_s3_public_url(s3_object: S3Object | str, base_url: str | None = None, expiry_secs: int | None = None) -> str
 
 # Get the current user information.
 # 
@@ -635,10 +712,13 @@ def send_teams_message(conversation_id: str, text: str, success: bool = True, ca
 # 
 # Args:
 #     name: Database name (default: "main")
+#     role: Connect as this data table role instead of the data table's default one.
+#         Only meaningful on a data table under roles, and only for a role you are a
+#         tenant of.
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main')
+def datatable(name: str = 'main', *, role: Optional[str] = None)
 
 # Get a DuckLake client for DuckDB queries.
 # 
@@ -816,11 +896,37 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
 # 
 # A task runs as its own job, so its result is always encoded as JSON and
 # decoded back before the caller sees it: a ``datetime`` comes back as a
 # string, a tuple as a list.
+# 
+# ``retry`` re-dispatches the task after a failure, inside ``@workflow`` only.
+# Every attempt is a step of its own (``call_api``, ``call_api#2``, ...) and
+# the wait between two of them is a durable sleep, so a retrying task holds no
+# worker while it backs off. Keys: ``attempts`` (retries after the first
+# failure, a whole number from 0 to 100), ``delay`` (seconds before the first
+# retry, sub-second delays dropped), ``multiplier`` (applied to the delay
+# after each attempt, 1 keeps it constant), ``max_delay`` (ceiling in
+# seconds). ``attempts`` is required, and an out-of-range or unknown key is
+# rejected where the policy is written.
+# 
+# A workflow sleeps once per round, so tasks backing off in the same fan-out
+# wait one after another rather than together: the delay before a fan-out
+# retries is the sum of every backoff pending in it, not the longest one, and
+# it grows with both the width of the fan-out and ``attempts``. Retries with
+# no ``delay`` all go out in a single round.
+# 
+# ``cache_ttl`` serves a previous result of the task for that many seconds
+# instead of running it again. A task is keyed on its step key (its name and
+# call order) and the workflow's input, not on the arguments it is called
+# with, so cache one only when whether it runs, and what it receives, follow
+# from the workflow's input alone. A ``task_script`` target is keyed on the
+# arguments it is called with. It has no effect on a ``task_flow`` target,
+# which keeps its flow's own cache policy.
 # 
 # Usage::
 # 
@@ -829,9 +935,14 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 #     @task(path="f/external_script", timeout=600, tag="gpu")
 #     async def run_external(x: int): ...
-def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+# 
+#     @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
+#     async def call_api(payload: dict): ...
+def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill script.
+# 
+# ``retry`` takes the same policy as :func:`task`.
 # 
 # Usage::
 # 
@@ -840,9 +951,11 @@ def task(_func = None, path: Optional[str] = None, tag: Optional[str] = None, ti
 #     @workflow
 #     async def main():
 #         data = await extract(url="https://...")
-def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill flow.
+# 
+# ``retry`` takes the same policy as :func:`task`.
 # 
 # Usage::
 # 
@@ -851,7 +964,7 @@ def task_script(path: str, timeout: Optional[int] = None, tag: Optional[str] = N
 #     @workflow
 #     async def main():
 #         result = await pipeline(input=data)
-def task_flow(path: str, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Decorator marking an async function as a workflow-as-code entry point.
 # 
@@ -871,12 +984,15 @@ def workflow(func)
 # ``fn``'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a ``datetime`` comes back as a string, a tuple as a list.
+# 
+# Called from inside a task body, ``fn`` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 # 
 # Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
-# Outside a workflow, falls back to ``asyncio.sleep``.
+# Outside a workflow, or inside a task body, falls back to ``asyncio.sleep``.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
@@ -892,13 +1008,17 @@ async def sleep(seconds: int)
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
 #     key: Optional checkpoint key naming this approval step.
+#     skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+#         instead of the detailed page with the workflow's details.
+#     description: Shown to approvers above the form: a string, or a rich value such as
+#         ``{"markdown": "..."}``.
 # 
 # Example::
 # 
 #     urls = await step("urls", lambda: get_approval_urls("manager"))
 #     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
 #     result = await wait_for_approval(key="manager", timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None, skin: Literal['detailed', 'minimal'] | None = None, description: str | dict | None = None) -> dict
 
 # Process items in parallel with optional concurrency control.
 # 
@@ -912,7 +1032,7 @@ async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_
 #         ...
 # 
 #     results = await parallel(items, process, concurrency=5)
-async def parallel(items, fn, concurrency: Optional[int] = None)
+async def parallel(items, fn, *, concurrency: Optional[int] = None)
 
 # Commit Kafka offsets for a trigger with auto_commit disabled.
 # 
@@ -922,4 +1042,3 @@ async def parallel(items, fn, concurrency: Optional[int] = None)
 #     partition: Partition number (from event['partition'])
 #     offset: Message offset to commit (from event['offset'])
 def commit_kafka_offsets(trigger_path: str, topic: str, partition: int, offset: int) -> None
-

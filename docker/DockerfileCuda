@@ -1,4 +1,5 @@
-FROM ghcr.io/windmill-labs/windmill-ee:dev
+ARG BASE_IMAGE=ghcr.io/windmill-labs/windmill-ee:dev
+FROM ${BASE_IMAGE}
 
 # Install any necessary dependencies for managing repositories and packages
 RUN apt-get update && apt-get install -y curl gnupg2

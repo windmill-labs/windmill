@@ -5,6 +5,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import { Button } from '../common'
 	import type { ButtonType } from '../common/button/model'
+	import { ExternalLink } from 'lucide-svelte'
 
 	interface Props {
 		label?: string
@@ -14,7 +15,9 @@
 		settingKey?: string
 		actionButton?: {
 			label: string
-			onclick: (values: Record<string, any>) => Promise<void>
+			onclick?: (values: Record<string, any>) => Promise<void>
+			/** Opens in a new tab, so unsaved settings survive. */
+			href?: string
 			variant?: ButtonType.Variant
 		}
 		values?: Record<string, any>
@@ -58,12 +61,22 @@
 			</div>
 			{#if headerAction}
 				{@render headerAction()}
+			{:else if actionButton?.href}
+				<Button
+					variant={actionButton.variant ?? 'default'}
+					unifiedSize="sm"
+					href={actionButton.href}
+					target="_blank"
+					endIcon={{ icon: ExternalLink }}
+				>
+					{actionButton.label}
+				</Button>
 			{:else if actionButton}
 				<Button
 					disabled={ee_only != undefined && !$enterpriseLicense}
 					variant={actionButton.variant ?? 'default'}
 					unifiedSize="sm"
-					onclick={async () => await actionButton?.onclick(values ?? {})}
+					onclick={async () => await actionButton?.onclick?.(values ?? {})}
 				>
 					{actionButton.label}
 				</Button>

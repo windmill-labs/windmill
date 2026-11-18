@@ -26,7 +26,7 @@
 	import { Alert, Button, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import {
 		classNames,
 		getModifierKey,
@@ -39,9 +39,7 @@
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 
-	import ItemPicker from '$lib/components/ItemPicker.svelte'
-	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService } from '$lib/gen'
+	import VariablePicker from '$lib/components/VariablePicker.svelte'
 	import { initHistory } from '$lib/history.svelte'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
 	import { animateTo, findGridItemParentGrid } from './appUtils'
@@ -67,7 +65,7 @@
 	let {
 		app,
 		path,
-		policy,
+		policy = $bindable(),
 		summary,
 		labels,
 		deployedBaseline = undefined,
@@ -85,7 +83,9 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		onRestore
+		onRestore,
+		onDeploy,
+		ownsPageHeader = false
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
@@ -338,9 +338,7 @@
 		}
 	}
 
-	let itemPicker: ItemPicker | undefined = $state(undefined)
-
-	let variableEditor: VariableEditor | undefined = $state(undefined)
+	let variablePicker: VariablePicker | undefined = $state(undefined)
 
 	setContext<ContextPanelContext>('ContextPanel', {
 		search: writable<string>(''),
@@ -472,15 +470,6 @@
 	}
 
 	let appEditorHeader: AppEditorHeader | undefined = $state(undefined)
-
-	export function triggerTutorial() {
-		const urlParams = new URLSearchParams(window.location.search)
-		const tutorial = urlParams.get('tutorial')
-
-		if (tutorial) {
-			appEditorHeader?.runTutorialById(tutorial)
-		}
-	}
 
 	let box: HTMLElement | undefined = $state(undefined)
 	function parseScroll() {
@@ -826,7 +815,7 @@
 	})
 	$effect(() => {
 		if ($pickVariableCallback) {
-			itemPicker?.openDrawer()
+			variablePicker?.openDrawer()
 		}
 	})
 	// Animation logic for cssInput
@@ -890,9 +879,10 @@
 />
 
 <!-- {$focusedGrid?.parentComponentId} -->
-{#if !$userStore?.operator}
+{#if $roleCapabilities.apps === 'full'}
 	{#if $appStore}
 		<AppEditorHeader
+			{ownsPageHeader}
 			{newPath}
 			{newApp}
 			{labels}
@@ -902,7 +892,8 @@
 			{othersDraftsCount}
 			{onOpenOthersDrafts}
 			{onRestore}
-			{policy}
+			{onDeploy}
+			bind:policy
 			{fromHub}
 			bind:this={appEditorHeader}
 			{diffDrawer}
@@ -921,7 +912,7 @@
 			onHideBottomPanel={() => hideBottomPanel()}
 		/>
 		{#if $mode === 'preview'}
-			<SplitPanesWrapper class="border-t">
+			<SplitPanesWrapper>
 				<div
 					class={twMerge(
 						'h-full w-full relative',
@@ -966,7 +957,7 @@
 				</div>
 			{/if}
 
-			<SplitPanesWrapper class="border-t">
+			<SplitPanesWrapper>
 				<Splitpanes id="o1" class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<div
@@ -1304,38 +1295,7 @@
 	App editor not available to operators
 {/if}
 
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, _) => {
-		$pickVariableCallback?.(path)
-	}}
-	itemName="Variable"
-	extraField="path"
-	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
-			name: x.path,
-			...x
-		}))}
->
-	{#snippet submission()}
-		<div
-			class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
-		>
-			<Button
-				variant="default"
-				size="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew?.()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
-
-<VariableEditor bind:this={variableEditor} />
+<VariablePicker bind:this={variablePicker} onPick={(path) => $pickVariableCallback?.(path)} />
 
 <style global>
 	#o1 > .splitpanes__pane {

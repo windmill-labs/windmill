@@ -1,9 +1,9 @@
 <script lang="ts">
 	import {
 		AlertTriangle,
-		ArrowDownRight,
+		ArrowDown,
 		ArrowRight,
-		ArrowUpRight,
+		ArrowUp,
 		Building,
 		CircleCheck,
 		CircleX,
@@ -16,7 +16,8 @@
 		RefreshCw,
 		UserPlus
 	} from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
+	import { isExternalRef } from '$lib/externalSecretRef'
 	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
 	import {
@@ -37,10 +38,12 @@
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 
 	import type { Kind } from '$lib/utils_deployable'
 	import {
 		checkDeployPermission,
+		deployPermissionForKinds,
 		deployItem,
 		deleteItemInWorkspace,
 		diffActionableInDirection,
@@ -48,6 +51,7 @@
 		diffRemovesInTarget,
 		getItemValue,
 		getOnBehalfOf,
+		triggerCiTestsForBatch,
 		type DeployPermission,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
@@ -63,8 +67,9 @@
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
+	import AiReview from './deploymentRequest/AiReview.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 	import { userStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import CompareTargetPicker from './CompareTargetPicker.svelte'
 	import { displayDate } from '$lib/utils'
@@ -96,6 +101,8 @@
 		onRetry?: () => void
 		onSelectTarget?: (target: string) => void
 		comparison: WorkspaceComparison | undefined
+		/** The comparison is still in flight, so an empty list says nothing yet. */
+		comparisonLoading?: boolean
 		/** Set when the comparison request failed (e.g. not an admin of the target). */
 		comparisonError?: string
 		/** Initial merge direction; lets the page restore the chosen direction when
@@ -143,6 +150,7 @@
 		onRetry,
 		onSelectTarget,
 		comparison,
+		comparisonLoading = false,
 		comparisonError,
 		initialMergeIntoParent = true,
 		deployCount = 0,
@@ -279,14 +287,19 @@
 					}
 				})
 			} else {
-				const v = await VariableService.getVariable({ workspace: from, path, decryptSecret: true })
+				// An external secret reference is copied as the reference, never as its resolved value.
+				let v = await VariableService.getVariable({ workspace: from, path, decryptSecret: false })
+				if (v.is_secret && !isExternalRef(v.value)) {
+					v = await VariableService.getVariable({ workspace: from, path, decryptSecret: true })
+				}
 				await VariableService.createVariable({
 					workspace: to,
 					requestBody: {
 						path,
 						value: v.value ?? '',
 						is_secret: v.is_secret ?? false,
-						description: v.description ?? ''
+						description: v.description ?? '',
+						value_valid_until: v.value_valid_until ?? undefined
 					}
 				})
 			}
@@ -425,6 +438,7 @@
 	)
 
 	let selectedItems = $state<string[]>([])
+	let selectedDiffs = $derived(selectableDiffs.filter((d) => selectedItems.includes(getItemKey(d))))
 
 	// Selected items that carry a pending draft. They're opt-in (excluded from the
 	// default selection), so a non-empty list means the user explicitly picked an
@@ -485,6 +499,15 @@
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
+	// Resource rows that are AI agents: titled by their summary and drawn as agents, as a script is.
+	// Per side, since a path can be an agent on one side and another resource type on the other.
+	let agentKeys = $state<Record<string, { current: boolean; parent: boolean }>>({})
+	// What has already been asked for. Deliberately not `$state`: the fetchers below run inside an
+	// effect, and a guard that reads reactive state makes that effect depend on what it writes —
+	// which is a loop. A plain Set is also what tells "asked, and the answer was nothing" from
+	// "never asked", which a value map cannot when the value for both is `undefined`.
+	const summariesRequested = new Set<string>()
+	const onBehalfOfRequested = new Set<string>()
 
 	// On-behalf-of tracking for flows and scripts
 	// Source workspace on_behalf_of emails (keyed by workspace/kind:path)
@@ -498,51 +521,136 @@
 		return `${diff.kind}:${diff.path}`
 	}
 
+	// Drawn as an agent by the side being deployed, or by the target's when the source deletes it.
+	function isAgentRow(diff: WorkspaceItemDiff): boolean {
+		const sides = agentKeys[getItemKey(diff)]
+		if (!sides) return false
+		const fromCurrent = mergeIntoParent ? diff.exists_in_fork : !diff.exists_in_source
+		return fromCurrent ? sides.current : sides.parent
+	}
+
+	/** The two things a row needs from an item — the name it shows and who it runs as — are fields
+	 *  of the same object, so it is read once per item per workspace and awaited by both loops.
+	 *
+	 *  `SHARED_READ_KINDS` is the kinds that carry both. A folder has a summary and no identity; a
+	 *  schedule or a trigger has an identity read from its own endpoint, which `getOnBehalfOf`
+	 *  dispatches. */
+	const SHARED_READ_KINDS = ['script', 'flow', 'app', 'raw_app']
+	type ItemRead = { summary?: string; onBehalfOf?: string }
+	const itemReads = new Map<string, Promise<ItemRead>>()
+
+	function readItem(kind: string, path: string, workspace: string): Promise<ItemRead> {
+		const key = `${workspace}/${kind}:${path}`
+		let pending = itemReads.get(key)
+		if (!pending) {
+			// A failure is not an answer, so it is not kept: held, it would read as "this item has
+			// no identity", which is what decides whether the deploy offers to preserve one — and
+			// an item deployed without it silently becomes the deployer's. Each caller swallows its
+			// own, as both did before they shared a read.
+			pending = loadItem(kind, path, workspace).catch((error) => {
+				itemReads.delete(key)
+				throw error
+			})
+			itemReads.set(key, pending)
+		}
+		return pending
+	}
+
+	async function loadItem(kind: string, path: string, workspace: string): Promise<ItemRead> {
+		if (kind === 'script') {
+			const script = await ScriptService.getScriptByPath({ workspace, path })
+			return { summary: script.summary, onBehalfOf: script.on_behalf_of_email }
+		} else if (kind === 'flow') {
+			const flow = await FlowService.getFlowByPath({ workspace, path })
+			return { summary: flow.summary, onBehalfOf: flow.on_behalf_of_email }
+		} else if (kind === 'app' || kind === 'raw_app') {
+			const app = await AppService.getAppByPath({ workspace, path })
+			return { summary: app.summary, onBehalfOf: app.policy?.on_behalf_of_email }
+		} else if (kind === 'folder') {
+			const folder = await FolderService.getFolder({ workspace, name: path.replace(/^f\//, '') })
+			return { summary: folder.summary }
+		}
+		return {}
+	}
+
 	async function fetchSummary(
 		kind: string,
 		path: string,
 		workspace: string
 	): Promise<string | undefined> {
 		try {
-			if (kind === 'script') {
-				const script = await ScriptService.getScriptByPath({ workspace, path })
-				return script.summary
-			} else if (kind === 'flow') {
-				const flow = await FlowService.getFlowByPath({ workspace, path })
-				return flow.summary
-			} else if (kind === 'app' || kind === 'raw_app') {
-				const app = await AppService.getAppByPath({ workspace, path })
-				return app.summary
-			} else if (kind === 'folder') {
-				const folder = await FolderService.getFolder({ workspace, name: path.replace(/^f\//, '') })
-				return folder.summary
-			}
+			return (await readItem(kind, path, workspace)).summary
 		} catch (error) {
 			console.error(`Failed to fetch summary for ${kind}:${path}`, error)
+			return undefined
 		}
-		return undefined
 	}
 
+	// Both loops below run one item at a time and outlive the mount that started them: the page
+	// remounts this component when either side of the pair changes, and whatever was in flight then
+	// still resolves. It must not be stored — the summary key is kind and path, which the other
+	// pair spells the same way — and the loop must not keep asking for a pair nobody is looking at.
+	let alive = true
+	onDestroy(() => {
+		alive = false
+	})
+
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
-		// Only fetch summaries for scripts, flows, and apps
+		// Only fetch summaries for scripts, flows, apps, and resources (for the agents among them)
 		const itemsToFetch = diffs.filter((diff) =>
-			['script', 'flow', 'app', 'raw_app', 'folder'].includes(diff.kind)
+			['script', 'flow', 'app', 'raw_app', 'folder', 'resource'].includes(diff.kind)
 		)
+		// Read once, so every request in this pass names the pair the pass was started for. Named
+		// the way the diff names the two sides: `exists_in_fork` is this workspace, `exists_in_source`
+		// the one it is compared against.
+		const forkWs = currentWorkspaceId
+		const sourceWs = parentWorkspaceId
 
 		for (const diff of itemsToFetch) {
+			if (!alive) return
 			const key = getItemKey(diff)
 
-			// Skip if already cached or loading
-			if (summaryCache[key]) continue
+			// Asked for already — including one still in flight, and one whose answer was nothing.
+			if (summariesRequested.has(key)) continue
+			summariesRequested.add(key)
 
-			// Mark as loading
 			summaryCache[key] = { loading: true }
 
-			// Fetch from both workspaces in parallel
+			if (diff.kind === 'resource') {
+				const read = (ws: string) =>
+					ResourceService.getResource({ workspace: ws, path: diff.path }).catch((error) => {
+						console.error(`Failed to fetch resource ${diff.path} in ${ws}`, error)
+						return undefined
+					})
+				const [current, parent] = await Promise.all([
+					diff.exists_in_fork ? read(forkWs) : undefined,
+					diff.exists_in_source ? read(sourceWs) : undefined
+				])
+				if (!alive) return
+				const sides = {
+					current: current?.resource_type === 'ai_agent',
+					parent: parent?.resource_type === 'ai_agent'
+				}
+				const agent = sides.current || sides.parent
+				if (agent) agentKeys[key] = sides
+				summaryCache[key] = agent
+					? {
+							current: sides.current ? current?.description : undefined,
+							parent: sides.parent ? parent?.description : undefined,
+							loading: false
+						}
+					: { loading: false }
+				continue
+			}
+
+			// Only the sides that have the item. An item that is only ahead does not exist in the
+			// other workspace, so asking it there is a 404 by construction — a guaranteed-failing
+			// request per one-sided row, and a console error for each.
 			const [currentSummary, parentSummary] = await Promise.all([
-				fetchSummary(diff.kind, diff.path, currentWorkspaceId),
-				fetchSummary(diff.kind, diff.path, parentWorkspaceId)
+				diff.exists_in_fork ? fetchSummary(diff.kind, diff.path, forkWs) : undefined,
+				diff.exists_in_source ? fetchSummary(diff.kind, diff.path, sourceWs) : undefined
 			])
+			if (!alive) return
 
 			summaryCache[key] = {
 				current: currentSummary,
@@ -553,25 +661,40 @@
 	}
 
 	async function fetchOnBehalfOfInfo(diffs: WorkspaceItemDiff[]) {
-		// Runnables carry an email; triggers/schedules carry `permissioned_as`.
-		// `getOnBehalfOf` handles the dispatch — we just need to skip kinds that
-		// have no on_behalf_of concept (resource, variable, folder, resource_type).
+		// Runnables carry an email; triggers/schedules and agents carry `permissioned_as`.
+		// `getOnBehalfOf` handles the dispatch (a resource that is not an agent has none) — we
+		// just need to skip kinds that have no on_behalf_of concept (variable, folder, resource_type).
 		const itemsWithOnBehalfOf = diffs.filter(
 			(d) =>
-				['flow', 'script', 'app', 'raw_app'].includes(d.kind) || isTriggerOrScheduleKind(d.kind)
+				['flow', 'script', 'app', 'raw_app', 'resource'].includes(d.kind) ||
+				isTriggerOrScheduleKind(d.kind)
 		)
+		const pair = [
+			{ workspace: currentWorkspaceId, side: 'fork' as const },
+			{ workspace: parentWorkspaceId, side: 'source' as const }
+		]
 		for (const diff of itemsWithOnBehalfOf) {
-			for (const workspace of [currentWorkspaceId, parentWorkspaceId]) {
+			for (const { workspace, side } of pair) {
+				if (!alive) return
 				const workspacedKey = getWorkspacedKey(workspace, getItemKey(diff))
-				if (onBehalfOfInfo[workspacedKey] !== undefined) continue
+				// Marked before the request, not after it answers: a guard keyed on the value it
+				// stores (`undefined` either way) would ask again on every pass, forever.
+				if (onBehalfOfRequested.has(workspacedKey)) continue
+				onBehalfOfRequested.add(workspacedKey)
+				// The side that does not have the item has nothing to say about who it runs as, and
+				// asking produces a 404 rather than an answer.
+				if (!(side === 'fork' ? diff.exists_in_fork : diff.exists_in_source)) continue
 
 				try {
-					onBehalfOfInfo[workspacedKey] = await getOnBehalfOf(
-						diff.kind as Kind,
-						diff.path,
-						workspace
-					)
+					// The same read the summary loop does, for the kinds that answer both from one
+					// object; the rest keep their own endpoint.
+					const email = SHARED_READ_KINDS.includes(diff.kind)
+						? (await readItem(diff.kind, diff.path, workspace)).onBehalfOf
+						: await getOnBehalfOf(diff.kind as Kind, diff.path, workspace)
+					if (!alive) return
+					onBehalfOfInfo[workspacedKey] = email
 				} catch {
+					if (!alive) return
 					onBehalfOfInfo[workspacedKey] = undefined
 				}
 			}
@@ -606,17 +729,22 @@
 		})
 	)
 
+	/** Triggers, schedules and agents record who they run as by principal, the rest by address. */
+	function usesPrincipal(kind: Kind): boolean {
+		return kind === 'trigger' || isTriggerOrScheduleKind(kind) || kind === 'resource'
+	}
+
 	/**
 	 * Get the on_behalf_of value for deployment based on user's choice.
-	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for
+	 * triggers/schedules and agents.
 	 */
 	function getOnBehalfOfForDeploy(itemKey: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[itemKey]
 		if (choice === 'target') return getTargetOnBehalfOf(itemKey)
 		if (choice === 'custom') {
 			const details = customOnBehalfOf[itemKey]
-			const wantsPermissionedAs = kind === 'trigger' || isTriggerOrScheduleKind(kind)
-			return wantsPermissionedAs ? details?.permissionedAs : details?.email
+			return usesPrincipal(kind) ? details?.permissionedAs : details?.email
 		}
 		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
@@ -628,7 +756,7 @@
 	 * returning undefined clears the source item's value rather than keeping it.
 	 */
 	function getOnBehalfOfPermissionedAsForDeploy(itemKey: string, kind: Kind): string | undefined {
-		if (kind === 'trigger' || isTriggerOrScheduleKind(kind)) return undefined
+		if (usesPrincipal(kind)) return undefined
 		if (onBehalfOfChoice[itemKey] !== 'custom') return undefined
 		return customOnBehalfOf[itemKey]?.permissionedAs
 	}
@@ -721,20 +849,62 @@
 				workspaceFrom,
 				workspaceTo: workspaceToDeployTo,
 				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
-				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind)
+				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind),
+				skipCiTests: true
 			})
 		}
 
 		if (result.success) {
 			deploymentStatus[statusKey] = { status: 'deployed' }
+			if (kind === 'folder' && !removes) {
+				warnOnAddedFolderOwners(path, workspaceFrom, workspaceToDeployTo)
+			}
 		} else {
 			deploymentStatus[statusKey] = { status: 'failed', error: result.error }
 			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`, 'error')
 		}
 	}
 
+	// A non-admin can't drop their own ownership of a folder (the folder UPDATE policy
+	// rejects a row they don't own), so updateFolder keeps them as an owner. The folder then
+	// never matches its source, and the conflict comes back on every compare unless we say why.
+	async function warnOnAddedFolderOwners(path: string, workspaceFrom: string, workspaceTo: string) {
+		const name = path.replace(/^f\//, '')
+		try {
+			const [source, target, me] = await Promise.all([
+				FolderService.getFolder({ workspace: workspaceFrom, name }),
+				FolderService.getFolder({ workspace: workspaceTo, name }),
+				UserService.whoami({ workspace: workspaceTo })
+			])
+			const owner = `u/${me.username}`
+			if (!me.is_admin && target.owners.includes(owner) && !source.owners.includes(owner)) {
+				sendUserToast(
+					`${path} still differs in ${workspaceTo}: it kept ${owner} as owner, because a non-admin can't remove their own ownership of a folder. To clear it, make ${owner} owner of ${path} in ${workspaceFrom} too, or deploy as an admin of ${workspaceTo}.`,
+					'warning',
+					[],
+					undefined,
+					15000
+				)
+			}
+		} catch {
+			// The deploy itself succeeded; the next compare still shows the difference.
+		}
+	}
+
 	let deploymentErrorMessage = $state('')
-	let allowBehindChangesOverride = $state(false)
+	// The override acknowledges the outdated items listed next to it, not the
+	// selection, so it holds while every outdated item is one the user ticked it
+	// for: a refresh bringing in a new one asks again, one leaving the list does not.
+	let acknowledgedBehindKeys = $state<Set<string> | undefined>()
+	let allowBehindChangesOverride = $derived(
+		acknowledgedBehindKeys != undefined &&
+			itemsWithBehindChanges.every((d) => acknowledgedBehindKeys!.has(getItemKey(d)))
+	)
+	function setBehindChangesOverride(allow: boolean) {
+		acknowledgedBehindKeys = allow
+			? new Set(itemsWithBehindChanges.map((d) => getItemKey(d)))
+			: undefined
+	}
 
 	async function isComparisonUpToDate(): Promise<boolean> {
 		if (!comparison) {
@@ -783,6 +953,7 @@
 		let anyFailed = false
 		// Datatables whose migrations deployed cleanly — candidates for a run prompt.
 		const deployedMigrationDatatables = new Set<string>()
+		const ciTested: { kind: 'script' | 'flow' | 'resource'; path: string }[] = []
 		const applyAll = async () => {
 			for (const itemKey of sortedItems) {
 				const deployable = deployableItems.find((d) => d.key === itemKey)
@@ -798,6 +969,13 @@
 					anyFailed = true
 				} else if (deployable.kind === 'datatable_migration') {
 					deployedMigrationDatatables.add(deployable.path.split('/')[0])
+				} else if (
+					(deployable.kind === 'script' ||
+						deployable.kind === 'flow' ||
+						deployable.kind === 'resource') &&
+					!comparison?.diffs.some((d) => getItemKey(d) === itemKey && removesInTarget(d))
+				) {
+					ciTested.push({ kind: deployable.kind, path: deployable.path })
 				}
 			}
 		}
@@ -808,6 +986,10 @@
 		await (mergeIntoParent ? applyAll() : asSyncDeploy(applyAll))
 		deploying = false
 		deselectAll()
+		// The tests are held back while the batch deploys, so each one runs against all of it.
+		triggerCiTestsForBatch(to, ciTested).catch((e) =>
+			sendUserToast(`Failed to queue CI tests: ${e?.body ?? e?.message ?? e}`, true)
+		)
 
 		await maybePromptRunMigrations(deployedMigrationDatatables, to)
 
@@ -950,21 +1132,28 @@
 		toggleDeploymentDirection(v)
 	}
 
-	// Fetch user permissions for both workspaces
+	// Fetch user permissions for both workspaces. The server's `can_preserve_on_behalf_of` reads
+	// the merged `is_admin || super_admin`, which `whoami` reports as two fields.
 	$effect(() => {
 		;[currentWorkspaceId, parentWorkspaceId]
 		async function fetchPermissions() {
 			try {
 				const parentUser = await UserService.whoami({ workspace: parentWorkspaceId })
 				canPreserveInParent =
-					parentUser.is_admin || parentUser.groups?.includes('wm_deployers') || false
+					parentUser.is_admin ||
+					parentUser.is_super_admin ||
+					parentUser.groups?.includes('wm_deployers') ||
+					false
 			} catch {
 				canPreserveInParent = false
 			}
 			try {
 				const currentUser = await UserService.whoami({ workspace: currentWorkspaceId })
 				canPreserveInCurrent =
-					currentUser.is_admin || currentUser.groups?.includes('wm_deployers') || false
+					currentUser.is_admin ||
+					currentUser.is_super_admin ||
+					currentUser.groups?.includes('wm_deployers') ||
+					false
 			} catch {
 				canPreserveInCurrent = false
 			}
@@ -972,10 +1161,9 @@
 		fetchPermissions()
 	})
 
-	// Can the user actually deploy into the target workspace? Fills the frontend
-	// gap for the `RestrictDeployToDeployers` rule (+ operator), shared with the
-	// session review drawer via the same checkDeployPermission util. Cached per
-	// workspace; `deployPerm` tracks whichever side the current direction targets.
+	// Can the user actually deploy into the target workspace? Shared with the session
+	// review drawer via the same checkDeployPermission util. Cached per workspace;
+	// `workspaceDeployPerm` tracks whichever side the current direction targets.
 	let deployPerms = $state<Record<string, DeployPermission>>({})
 	const deployPermFetched = new Set<string>()
 	$effect(() => {
@@ -985,13 +1173,33 @@
 			void checkDeployPermission(ws).then((p) => (deployPerms = { ...deployPerms, [ws]: p }))
 		}
 	})
-	let deployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+	let workspaceDeployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+	// A direct-deployment lock never reaches schedules or triggers server-side, so it must not
+	// disable a selection made only of those. One refused kind still blocks the whole action.
+	let deployPerm = $derived(
+		deployPermissionForKinds(
+			workspaceDeployPerm,
+			(comparison?.diffs ?? [])
+				.filter((d) => selectedItems.includes(getItemKey(d)))
+				.map((d) => d.kind),
+			capabilitiesIn(
+				// Superadmin is global; a workspace's admin flag is not.
+				{ is_super_admin: $userStore?.is_super_admin },
+				$userWorkspaces.find((w) => w.id == deployTargetWorkspace)
+			)
+		)
+	)
 
-	// Fetch summaries and on_behalf_of_email when comparison data loads
+	// Fetch summaries and on_behalf_of_email when comparison data loads. `untrack`: both fetchers
+	// write the state they also read, and without this the effect depends on their writes and
+	// re-runs on each one.
 	$effect(() => {
-		if (comparison?.diffs) {
-			fetchSummaries(comparison.diffs)
-			fetchOnBehalfOfInfo(comparison.diffs)
+		const diffs = comparison?.diffs
+		if (diffs) {
+			untrack(() => {
+				fetchSummaries(diffs)
+				fetchOnBehalfOfInfo(diffs)
+			})
 		}
 	})
 
@@ -1022,16 +1230,15 @@
 			const current = new Set(diffs.filter(removesInTarget).map((d) => getItemKey(d)))
 			const flipped = [...current].filter((k) => !removalKeys.has(k))
 			removalKeys = current
-			if (flipped.some((k) => selectedItems.includes(k))) {
-				selectedItems = selectedItems.filter((k) => !flipped.includes(k))
+			// A row that left the list (made workspace specific, synced elsewhere) takes its
+			// tick with it: the deploy button counts the selection, and a key with no row
+			// would be reported as undeployable.
+			const listed = new Set(selectableDiffs.map((d) => getItemKey(d)))
+			const kept = selectedItems.filter((k) => listed.has(k) && !flipped.includes(k))
+			if (kept.length !== selectedItems.length) {
+				selectedItems = kept
 			}
 		})
-	})
-
-	// Reset override when selection or direction changes
-	$effect(() => {
-		;[selectedItems, mergeIntoParent]
-		allowBehindChangesOverride = false
 	})
 
 	// Trigger and schedule rows now flow through `comparison.diffs` like every
@@ -1204,6 +1411,7 @@
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
 				items={deployableItems}
+				isAgent={(item) => isAgentRow(item.diff as WorkspaceItemDiff)}
 				{selectedItems}
 				{deploymentStatus}
 				{allSelected}
@@ -1212,6 +1420,7 @@
 				onSelectAll={selectAll}
 				onDeselectAll={deselectAll}
 				emptyMessage={emptyDeployMessage}
+				loading={comparisonLoading}
 			>
 				{#snippet header()}
 					<div class="flex items-center justify-between bg-surface-tertiary">
@@ -1365,7 +1574,7 @@
 									<span class="text-secondary">{test.test_script_path}</span>
 									{#if test.job_id}
 										<a
-											href="{base}/run/{test.job_id}?workspace={currentWorkspaceId}"
+											href="/run/{test.job_id}?workspace={currentWorkspaceId}"
 											class="text-tertiary hover:text-secondary text-2xs"
 										>
 											view run
@@ -1481,7 +1690,8 @@
 							<span class="font-medium flex flex-row gap-1 text-red-500">
 								<input
 									type="checkbox"
-									bind:checked={allowBehindChangesOverride}
+									checked={allowBehindChangesOverride}
+									onchange={(e) => setBehindChangesOverride(e.currentTarget.checked)}
 									class="rounded max-w-4"
 								/>
 								Override: Deploy despite {itemsWithBehindChanges.length} outdated item{itemsWithBehindChanges.length !==
@@ -1526,10 +1736,10 @@
 					<!-- Point the edit link at the workspace the item actually lives in:
 					     a parent-only row (deleted/absent in the fork) would 404 if linked
 					     into the fork, so link it into the parent instead. -->
-					{@const editUrl = editUrlFor(
-						diff,
-						diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId
-					)}
+					{@const linkWs = diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId}
+					{@const editUrl = agentKeys[key]?.[diff.exists_in_fork ? 'current' : 'parent']
+						? `/agents/edit/${diff.path}?workspace=${encodeURIComponent(linkWs)}`
+						: editUrlFor(diff, linkWs)}
 					{#if isTriggerOrScheduleKind(diff.kind)}
 						<span class="text-emphasis">
 							{KIND_DISPLAY_NAMES[diff.kind as string] ?? diff.kind}
@@ -1633,13 +1843,13 @@
 							{#if isConflict || existsInBothWorkspaces}
 								{#if diff.ahead > 0}
 									<Badge color="green" size="xs">
-										<ArrowUpRight class="w-3 h-3 inline" />
+										<ArrowUp class="w-3 h-3 inline" />
 										{diff.ahead} ahead
 									</Badge>
 								{/if}
 								{#if diff.behind > 0}
 									<Badge color="blue" size="xs">
-										<ArrowDownRight class="w-3 h-3 inline" />
+										<ArrowDown class="w-3 h-3 inline" />
 										{diff.behind} behind
 									</Badge>
 								{/if}
@@ -1687,8 +1897,21 @@
 
 				{#snippet footer()}
 					{#if !nothingToAct}
-						<div class="flex items-center justify-between">
-							<div></div>
+						<div class="flex items-start justify-between gap-4">
+							<div class="flex-1 min-w-0">
+								<!-- The request form and an open request carry their own review. -->
+								{#if mergeIntoParent && $copilotInfo.enabled && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
+									<AiReview
+										scope={{
+											kind: 'deployment',
+											diffs: selectedDiffs,
+											forkWorkspaceId: currentWorkspaceId,
+											parentWorkspaceId
+										}}
+										source="selection"
+									/>
+								{/if}
+							</div>
 
 							<div class="flex flex-col items-end gap-2">
 								<!-- Always show the deploy footer: only the items visible to the user are
@@ -1765,6 +1988,7 @@
 					{parentWorkspaceId}
 					currentUsername={$userStore?.username ?? ''}
 					isAdmin={$userStore?.is_admin ?? false}
+					diffs={comparison?.diffs.filter((d) => diffActionableInDirection(d, true)) ?? []}
 					onStateChange={(open) => {
 						hasOpenDeploymentRequest = open
 					}}

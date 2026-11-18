@@ -687,8 +687,9 @@ pub mod script {
                 schema_validation AS \"schema_validation: bool\", \
                 codebase LIKE '%.tar' as use_tar, \
                 codebase LIKE '%.esm%' as is_esm, \
-                modules AS \"modules: serde_json::Value\" \
-            FROM script WHERE hash = $1 LIMIT 1",
+                modules AS \"modules: serde_json::Value\", \
+                deleted \
+            FROM script WHERE hash = $1 ORDER BY deleted LIMIT 1",
             hash.0
         )
         .fetch_optional(db)
@@ -696,6 +697,14 @@ pub mod script {
         .map_err(Into::into)
         .and_then(unwrap_or_error(&loc, "Script", hash))
         .and_then(|r| {
+            // The hash leaves out the workspace, so forks and clones share it, and a deleted
+            // copy keeps its row with the content wiped. Any live copy holds the same code;
+            // only when every copy is deleted is there nothing left to run.
+            if r.deleted {
+                return Err(error::Error::NotFound(format!(
+                    "Script version {hash} was deleted"
+                )));
+            }
             Ok(RawScript {
                 content: r.content,
                 lock: r.lock,
@@ -836,6 +845,33 @@ pub mod job {
                     "Job ({job}) isn't a flow job."
                 ))),
             })
+        }
+    }
+
+    /// The flow a flow job runs: its stored version, else the inline `raw_flow` of a preview.
+    /// A job with neither fails with the stored lookup's error (e.g. a version deleted along
+    /// with its flow), which says what is missing where the preview's error would not.
+    /// Performs no permission check: the caller must have scoped `job` to its workspace.
+    #[track_caller]
+    pub fn fetch_flow_or_preview<'a>(
+        db: &'a DB,
+        kind: &JobKind,
+        hash: Option<ScriptHash>,
+        job: &'a Uuid,
+        raw_flow: Option<Json<Box<RawValue>>>,
+    ) -> impl Future<Output = error::Result<Arc<FlowData>>> + 'a {
+        let fetch_flow = fetch_flow(db, kind, hash);
+        async move {
+            let err = match fetch_flow.await {
+                Ok(data) => return Ok(data),
+                Err(err) => err,
+            };
+            let conn = Connection::from(db);
+            match fetch_preview(&conn, job, None, None, raw_flow).await {
+                Ok(RawData::Flow(data)) => Ok(data),
+                Ok(RawData::Script(_)) => Err(err),
+                Err(preview_err) => Err(preview_err),
+            }
         }
     }
 

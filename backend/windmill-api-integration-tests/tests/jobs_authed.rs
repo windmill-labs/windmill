@@ -286,13 +286,24 @@ async fn test_jobs_authed_reachability(db: Pool<Postgres>) -> anyhow::Result<()>
         "GET /jobs/result_by_id",
     );
 
+    // Sent the way the generated client sends it. A handler whose `Path` tuple has drifted from
+    // the route is rejected by axum before it runs, which surfaces as a routing error rather
+    // than the handler's own answer, so reaching the handler is what this pins.
     let resp = authed(client().post(format!("{base}/restart/f/{fake}")))
+        .json(&json!({ "step_id": "a" }))
         .send()
         .await?;
-    assert_route_reachable(
-        resp.status().as_u16(),
-        &resp.text().await?,
-        "POST /jobs/restart/f",
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_route_reachable(status, &body, "POST /jobs/restart/f");
+    assert!(
+        !body.contains("path arguments"),
+        "POST /jobs/restart/f never reached its handler: {status} {body}",
+    );
+    #[cfg(not(feature = "enterprise"))]
+    assert!(
+        body.contains("only available in enterprise version"),
+        "POST /jobs/restart/f must report the enterprise gate outside EE: {status} {body}",
     );
 
     let resp = authed(client().post(format!("{base}/run/workflow_as_code/{fake}/main")))
@@ -615,10 +626,9 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         .json(&json!({ "job_ids": [mine] }))
         .send()
         .await?;
-    // Error::NotAuthorized maps to 401 (403 is RequireAdmin/PermissionDenied).
     assert_eq!(
         resp.status().as_u16(),
-        401,
+        403,
         "operators must be refused: {}",
         resp.text().await?
     );
@@ -688,6 +698,54 @@ async fn test_list_filtered_job_uuids_resolved_excludes_queue(
         !ids.contains(&queued),
         "a queued job must not match resolved=true, got: {body}"
     );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_worker_is_draining_follows_the_job_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let job = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, kind, tag, args)
+         VALUES ($1, 'test-workspace', 'test-user', 'u/test-user', 'script', 'deno', '{}'::jsonb)",
+    )
+    .bind(job)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag, running, started_at, worker)
+         VALUES ($1, 'test-workspace', now(), 'deno', true, now(), 'wk-drain-test')",
+    )
+    .bind(job)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO worker_ping (worker, worker_instance, ip, worker_group, wm_version)
+         VALUES ('wk-drain-test', 'host', 'NO IP', 'default', 'v0')",
+    )
+    .execute(&db)
+    .await?;
+
+    let url = format!("http://localhost:{port}/api/w/test-workspace/jobs/worker_is_draining/{job}");
+    let draining = || async {
+        let resp = authed(client().get(&url)).send().await?;
+        anyhow::Ok(resp.json::<bool>().await?)
+    };
+    assert!(!draining().await?);
+
+    windmill_common::worker::set_worker_draining_query("wk-drain-test", &db).await?;
+    assert!(draining().await?);
+
+    // A parked job keeps its last worker on the queue row without running on it.
+    sqlx::query("UPDATE v2_job_queue SET started_at = NULL WHERE id = $1")
+        .bind(job)
+        .execute(&db)
+        .await?;
+    assert!(!draining().await?);
 
     Ok(())
 }

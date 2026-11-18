@@ -78,3 +78,46 @@ async fn test_draft_write_strips_nul(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// The lineage the server derives for `draft.base` comes from the same value: read before
+/// the sanitizer, a NUL in it costs the draft its base, which then reads as up to date
+/// whatever the head is.
+#[sqlx::test(fixtures("drafts_nul"))]
+async fn test_draft_base_is_derived_from_sanitized_value(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/dnul-ws");
+
+    let resp = authed(client().post(format!(
+        "{base}/drafts/update/script/u/dnul-admin/poisoned_base"
+    )))
+    .json(&json!({
+        "value": {
+            "summary": "s",
+            "path": "u/dnul-admin/poisoned_base",
+            "content": "x",
+            "parent_hash": "0000000000001b62\u{0}"
+        }
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "save refused: {}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    let stored: Option<String> = sqlx::query_scalar(
+        "SELECT base FROM draft WHERE workspace_id = 'dnul-ws' AND path = 'u/dnul-admin/poisoned_base'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        stored.as_deref(),
+        Some("0000000000001b62"),
+        "the NUL cost the draft its base: {stored:?}"
+    );
+    Ok(())
+}

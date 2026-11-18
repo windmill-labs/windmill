@@ -3,14 +3,16 @@
 		Loader2,
 		ChevronRight,
 		XCircle,
-		Play,
 		ClipboardList,
 		Check,
 		CircleMinus,
 		FileText,
 		PanelRight,
-		Lock
+		Lock,
+		ExternalLink,
+		BookOpen
 	} from 'lucide-svelte'
+	import { truncateRev } from '$lib/utils'
 	import {
 		EXIT_PLAN_MODE_TOOL,
 		isPlanCardTool,
@@ -19,12 +21,18 @@
 		PLAN_CARD_COPY,
 		PLAN_MODE_TEXT_COLOR
 	} from './planMode'
+	import {
+		isWorkModeSwitchTool,
+		WORK_MODE_SWITCH_CARD_COPY,
+		WORK_MODE_SWITCH_TARGET
+	} from './workMode'
+	import { workModeOption } from './autonomyModes'
 	import { Button } from '$lib/components/common'
 	import { markdownProse } from '$lib/components/markdownProse'
-	import { getAiChatManager } from './aiChatManagerContext'
+	import { getChatViewHost } from './chatViewHost'
 
-	const aiChatManager = getAiChatManager()
-	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
+	const chatHost = getChatViewHost()
+	import { isActiveUserQuestion, webSearchResultOf, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -32,24 +40,46 @@
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
+	import MarkdownImage from './MarkdownImage.svelte'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolConfirmationFooter from './ToolConfirmationFooter.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
+	import RunScriptCard from './RunScriptCard.svelte'
+	import ToolDiffCard from './ToolDiffCard.svelte'
+	import { hasToolCodeDiff } from './toolCodeDiff'
+	import { TOOL_CONFIRM_ACTIONS } from './toolConfirmAction'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
+	import OutOfScopeFooter from './OutOfScopeFooter.svelte'
+	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
 
 	interface Props {
 		message: ToolDisplayMessage
+		hidePreviewChip?: boolean
 	}
 
-	let { message }: Props = $props()
+	let { message, hidePreviewChip = false }: Props = $props()
+
+	// Recorded by the call itself, from the connected-server list rather than from the
+	// model's arguments — which is what lets a reloaded transcript still resolve it, and
+	// what keeps a path the model made up from being read as a workspace resource.
+	const mcpServer = $derived(message.mcpServer)
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
-	const isPlanCard = $derived(isPlanCardTool(message.toolName))
+	// A switch between Use and Use & build renders as enter_plan_mode's card, with its own copy
+	// and the icon of the mode it leads to.
+	const switchTool = $derived(isWorkModeSwitchTool(message.toolName) ? message.toolName : undefined)
+	const isPlanCard = $derived(isPlanCardTool(message.toolName) || switchTool !== undefined)
 	const planCopy = $derived(
-		isPlanCardTool(message.toolName) ? PLAN_CARD_COPY[message.toolName] : undefined
+		isPlanCardTool(message.toolName)
+			? PLAN_CARD_COPY[message.toolName]
+			: switchTool && WORK_MODE_SWITCH_CARD_COPY[switchTool]
+	)
+	const CardIcon = $derived(
+		switchTool ? workModeOption(WORK_MODE_SWITCH_TARGET[switchTool]).icon : ClipboardList
 	)
 	// exit_plan_mode carries the plan, enter_plan_mode the one-line justification.
 	const planBody = $derived(isPlanReview ? message.parameters?.summary : message.parameters?.reason)
@@ -61,7 +91,7 @@
 	const planLabel = $derived((planState && planCopy?.[planState]) ?? '')
 	const planDoc = $derived(
 		message.planArtifactId
-			? aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
+			? chatHost.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
 			: undefined
 	)
 	// The version this card wrote, not the document's current one, since later proposals move it on.
@@ -76,7 +106,12 @@
 	)
 
 	// The preview pane's renderers, so a model-written link opens in a new tab either way.
-	const planPlugins = [gfmPlugin(), { renderer: { pre: CodeDisplay, a: LinkRenderer } }]
+	const planPlugins = [
+		gfmPlugin(),
+		{ renderer: { pre: CodeDisplay, a: LinkRenderer, img: MarkdownImage } }
+	]
+
+	const confirmAction = $derived(TOOL_CONFIRM_ACTIONS[message.confirmAction ?? 'confirm'])
 
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
@@ -93,18 +128,36 @@
 
 	// Executing right now, as opposed to queued behind another tool or waiting on
 	// the user — the only state that gets the shimmer.
-	const isRunning = $derived(Boolean(message.isLoading && !message.needsConfirmation))
+	const pendingOutOfScope = $derived(
+		message.isLoading && message.outOfScope && !message.outOfScope.decision
+			? message.outOfScope
+			: undefined
+	)
+	const isRunning = $derived(
+		Boolean(message.isLoading && !message.needsConfirmation && !pendingOutOfScope)
+	)
 
 	// An errored tool must be expandable even if it never opted into details,
 	// otherwise the error set on its status would be invisible.
 	const detailsAvailable = $derived(message.showDetails === true || message.error !== undefined)
 
-	let isExpanded = $derived(
-		Boolean(
-			(detailsAvailable && (!isSuccessful || !autoCollapseDetails)) ||
-				(message.isStreamingArguments && hasParameters) ||
-				(message.isLoading && message.needsConfirmation)
-		)
+	// Queued and running calls stay closed: their label already says what they are doing, and
+	// opening them would only show empty logs and result. A call opens while its arguments
+	// stream, while it waits on the user, and once it has an error or details to keep in view.
+	// The user's toggle lives in state keyed by call id: the `message` prop is replaced on every
+	// chat update, so an override written onto a derived would be recomputed away. A pending
+	// confirmation wins over it, since the confirm/reject footer renders inside the card.
+	let toggled = $state<{ id: string | undefined; open: boolean } | undefined>(undefined)
+	const isExpanded = $derived(
+		Boolean(message.isLoading && message.needsConfirmation) ||
+			!!pendingOutOfScope ||
+			(toggled?.id === message.tool_call_id
+				? toggled.open
+				: Boolean(
+						(detailsAvailable &&
+							(message.error !== undefined || (isSuccessful && !autoCollapseDetails))) ||
+							(message.isStreamingArguments && hasParameters)
+					))
 	)
 
 	const visibleActions = $derived(
@@ -117,12 +170,35 @@
 		isActiveUserQuestion(message) ? message.userQuestion : undefined
 	)
 
+	// The run card owns this call from the form to whatever settled it, cancelling included:
+	// the card is the call, and a run the user stopped is not a different kind of thing.
+	// A call that inspected a run rather than starting one gets the same card, bound to
+	// the job it named — what happened in a run reads the same either way.
+	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
+	const isDiffCard = $derived(hasToolCodeDiff(message))
+
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
 	const showPreviewChip = $derived(
 		Boolean(
-			message.previewCard && !message.isLoading && !message.error && !message.needsConfirmation
+			!hidePreviewChip &&
+				message.previewCard &&
+				!message.isLoading &&
+				!message.error &&
+				!message.needsConfirmation
 		)
+	)
+
+	// A provider-side search sets `webSearchSources` and words its own header; any other tool
+	// gets the same card by returning the web search result shape.
+	const searchResult = $derived(
+		message.webSearchSources || message.error ? undefined : webSearchResultOf(message.result)
+	)
+	const sources = $derived(message.webSearchSources ?? searchResult?.sources)
+	const label = $derived(
+		searchResult?.query !== undefined
+			? `${message.content} · "${searchResult.query}"`
+			: message.content
 	)
 </script>
 
@@ -140,6 +216,22 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
 		{/if}
 	</div>
+{:else if message.heldForFolderInstructions}
+	<!-- The call never ran: the model gets the folder's instructions and calls it again.
+	     A diff or run card here would show a write that did not happen. -->
+	<div class="font-mono text-xs flex items-center gap-2 py-0.5 my-0.5 min-w-0">
+		<BookOpen class="w-3.5 h-3.5 text-tertiary shrink-0" />
+		<span class="font-medium text-2xs text-tertiary shrink-0">
+			{message.content}
+		</span>
+		{#if message.toolName}
+			<span class="text-2xs text-tertiary truncate">{message.toolName} held until read</span>
+		{/if}
+	</div>
+{:else if isRunCard}
+	<RunScriptCard {message} />
+{:else if isDiffCard}
+	<ToolDiffCard {message} {hidePreviewChip} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
@@ -160,13 +252,18 @@
 					{#if message.isLoading && !message.needsConfirmation}
 						<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
 					{:else if planState === 'settled'}
-						<Check class={twMerge('w-3.5 h-3.5 shrink-0', PLAN_MODE_TEXT_COLOR)} />
+						<Check
+							class={twMerge(
+								'w-3.5 h-3.5 shrink-0',
+								switchTool ? 'text-secondary' : PLAN_MODE_TEXT_COLOR
+							)}
+						/>
 					{:else if planState === 'declined'}
 						<!-- Muted and not red: declining a plan is an outcome, not a failure, and
 						     this state also covers a card resolved by leaving plan mode. -->
 						<CircleMinus class="w-3.5 h-3.5 text-tertiary shrink-0" />
 					{:else}
-						<ClipboardList class="w-3.5 h-3.5 text-secondary shrink-0" />
+						<CardIcon class="w-3.5 h-3.5 text-secondary shrink-0" />
 					{/if}
 					<span class="text-primary font-medium text-2xs">{planLabel}</span>
 					{#if planBodyText}
@@ -187,7 +284,7 @@
 					title="Open this plan in the side panel: {planDoc.name}"
 					startIcon={{ icon: FileText, classes: PLAN_MODE_TEXT_COLOR }}
 					endIcon={{ icon: PanelRight }}
-					on:click={() => aiChatManager.openArtifact?.(planDoc.id, planDoc.name, planCardVersion)}
+					on:click={() => chatHost.openArtifact?.(planDoc.id, planDoc.name, planCardVersion)}
 				>
 					<span class="font-main">Plan</span>
 				</Button>
@@ -199,7 +296,7 @@
 				toolCallId={message.tool_call_id}
 				rejectLabel={planCopy?.reject}
 				confirmLabel={planCopy?.confirm ?? ''}
-				confirmIcon={isPlanReview ? undefined : ClipboardList}
+				confirmIcon={isPlanReview ? undefined : CardIcon}
 				class={extraClass}
 			/>
 		{/snippet}
@@ -222,7 +319,7 @@
 			</div>
 			<!-- Collapsed: the buttons stand on their own rather than boxing empty space. -->
 		{:else if message.needsConfirmation}
-			{@render confirmFooter('py-1 font-main')}
+			{@render confirmFooter('py-1')}
 		{/if}
 	</div>
 {:else}
@@ -235,22 +332,48 @@
 		{/if}
 	{/snippet}
 
+	{#snippet jobLink()}
+		<a
+			href="/run/{message.jobId}?workspace={chatHost.operatingWorkspace}"
+			target="_blank"
+			rel="noopener noreferrer"
+			class="shrink-0 inline-flex items-center gap-1 font-main text-2xs text-tertiary hover:text-primary hover:underline"
+			title="Open this run"
+		>
+			<span>job <span class="font-mono">{truncateRev(message.jobId ?? '', 8)}</span></span>
+			<ExternalLink size={11} class="shrink-0" />
+		</a>
+	{/snippet}
+
+	<!-- Which system a call reaches is the first thing to know about it, so an MCP call
+	     is marked before its label. Awaited rather than drawn immediately: the MCP logo
+	     appearing first and being replaced would flicker on every row. -->
+	{#snippet serverMark()}
+		{#if mcpServer?.workspace && mcpServer.path}
+			{#await resolveMcpServerMark(mcpServer.workspace, mcpServer.path) then mark}
+				<McpServerIcon icon={mark.icon} size={14} />
+			{/await}
+		{/if}
+	{/snippet}
+
 	<!-- The shimmer is the only running indicator, so the states have to read off
 	     weight alone: queued calls (waiting their turn behind the executing tool)
 	     are faded, the running one sweeps, a settled one is plain. -->
 	<ChatCollapsibleCard
-		label={message.content}
+		{label}
 		expanded={isExpanded}
-		onToggle={() => (isExpanded = !isExpanded)}
+		onToggle={() => (toggled = { id: message.tool_call_id, open: !isExpanded })}
 		toggleable={detailsAvailable || message.isStreamingArguments === true}
 		shimmer={isRunning}
+		settleLabel
 		class={message.isQueued && !message.error
 			? 'opacity-60 hover:opacity-100 transition-opacity'
 			: ''}
-		headerClass={message.needsConfirmation ? 'opacity-80' : ''}
-		labelClass={showPreviewChip ? 'truncate' : ''}
+		headerClass={message.needsConfirmation || pendingOutOfScope ? 'opacity-80' : ''}
+		labelClass="truncate"
 		contentClass="space-y-3"
-		headerRight={showPreviewChip ? previewChip : undefined}
+		headerRight={showPreviewChip ? previewChip : message.jobId ? jobLink : undefined}
+		headerLeft={mcpServer?.workspace ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
 		{#snippet belowHeader()}
@@ -266,8 +389,8 @@
 		{/snippet}
 
 		<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
-		{#if hasParameters || message.needsConfirmation}
-			<div class={message.needsConfirmation ? 'opacity-80' : ''}>
+		{#if hasParameters || message.needsConfirmation || pendingOutOfScope}
+			<div class={message.needsConfirmation || pendingOutOfScope ? 'opacity-80' : ''}>
 				<ToolContentDisplay
 					title="Parameters"
 					content={message.parameters}
@@ -284,8 +407,17 @@
 				toolCallId={message.tool_call_id}
 				rejectIcon={XCircle}
 				rejectDestructive
-				confirmLabel="Run"
-				confirmIcon={Play}
+				confirmLabel={confirmAction.label}
+				confirmIcon={confirmAction.icon}
+				confirmDestructive={confirmAction.destructive}
+			/>
+		{:else if pendingOutOfScope}
+			<OutOfScopeFooter
+				toolCallId={message.tool_call_id}
+				path={pendingOutOfScope.path}
+				root={pendingOutOfScope.root}
+				scope={pendingOutOfScope.scope}
+				verb={pendingOutOfScope.verb}
 			/>
 
 			<!-- Logs and Result - hide while streaming -->
@@ -300,8 +432,8 @@
 
 			{#if visibleActions.length > 0}
 				<ToolMessageActions actions={visibleActions} />
-			{:else if message.webSearchSources?.length && !message.error}
-				<WebSearchSourcesDisplay sources={message.webSearchSources} />
+			{:else if sources?.length && !message.error}
+				<WebSearchSourcesDisplay {sources} favicons={message.webSearchSources !== undefined} />
 			{:else}
 				<ToolContentDisplay
 					title="Result"
@@ -313,4 +445,13 @@
 			{/if}
 		{/if}
 	</ChatCollapsibleCard>
+{/if}
+
+<!-- An exception the user made stays on the record: the card itself is gone once answered. -->
+{#if message.outOfScope?.decision}
+	<p class="font-main text-2xs text-tertiary pl-1 pb-1">
+		{message.outOfScope.decision === 'once'
+			? `You allowed this ${message.outOfScope.verb} outside ${message.outOfScope.scope}.`
+			: `You allowed writes in ${message.outOfScope.root} for this session.`}
+	</p>
 {/if}

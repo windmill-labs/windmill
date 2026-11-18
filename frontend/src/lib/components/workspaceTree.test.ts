@@ -7,7 +7,7 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemKind
 } from './workspacePicker'
-import type { DrillBranch, DrillLeaf, DrillNode } from './drillPicker'
+import { resolveScope, type DrillBranch, type DrillLeaf, type DrillNode } from './drillPicker'
 
 const item = (
 	kind: WorkspaceItemKind,
@@ -373,6 +373,23 @@ describe('buildWorkspaceTree', () => {
 			expect(admin.children.map((c) => c.key)).toEqual([leafKeyFor('app', 'u/admin/draft_abc')])
 		})
 
+		it('keeps one leaf per draft when two drafts share a friendly path', () => {
+			const a = { ...item('flow', 'u/admin/draft_a'), draftPath: 'u/admin/fond_flow' }
+			const b = { ...item('flow', 'u/admin/draft_b'), draftPath: 'u/admin/fond_flow' }
+			const tree = buildWorkspaceTree({
+				loaded: { flow: [a, b] },
+				kinds: ['flow'],
+				loadingKind: {},
+				// b's extra first, so a friendly-path match would fold it into a;
+				// the repeat of a stands for a stale snapshot re-keyed twice.
+				extraItemsByKind: { flow: [{ ...b }, { ...a }, { ...a }] }
+			})
+			const admin = findBranch(tree, dirKey('flow', 'u/admin'))
+			expect(admin.children.map((c) => c.key).sort()).toEqual(
+				[leafKeyFor('flow', 'u/admin/draft_a'), leafKeyFor('flow', 'u/admin/draft_b')].sort()
+			)
+		})
+
 		it('folds a mid-rename live extra into the stale loaded row: one storage-keyed leaf under the typed folder', () => {
 			// Session picker while a rename's autosave is pending: listApps still
 			// carries the pre-rename friendly path, the live cell extra (re-keyed to
@@ -503,6 +520,17 @@ describe('legacyScopeToPath', () => {
 		expect(legacyScopeToPath({ kind: 'flow', dir: 'f/demo' }, ['flow', 'script'], 'flat')).toEqual([
 			dirKey('all', 'f/demo')
 		])
+	})
+
+	it('walks every ancestor folder, so a nested dir resolves in the built tree', () => {
+		const loaded = { flow: [item('flow', 'f/a/b/c')], script: [] }
+		for (const layout of ['flat', 'by-kind'] as const) {
+			const tree = buildWorkspaceTree({ loaded, kinds: ['flow', 'script'], loadingKind: {}, layout })
+			const path = legacyScopeToPath({ kind: 'flow', dir: 'f/a/b' }, ['flow', 'script'], layout)
+			expect(resolveScope(tree, path)?.children.map((c) => c.key)).toEqual([
+				leafKeyFor('flow', 'f/a/b/c')
+			])
+		}
 	})
 
 	it('flat: returns [] without a dir', () => {

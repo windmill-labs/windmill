@@ -11,6 +11,7 @@ import { psql as psqlDatatable } from "./psql.ts";
 import { serve as serveDatatable } from "./serve.ts";
 import {
   createMigration,
+  listLocalMigrations,
   pushLocalMigrations,
   rollbackMigrations,
   runMigrations,
@@ -49,13 +50,19 @@ async function run(
 }
 
 function migrateNew(
-  opts: GlobalOptions & { datatable?: string },
+  opts: GlobalOptions & { datatable?: string; schemas?: string },
   name: string,
 ) {
-  createMigration(opts.datatable ?? DEFAULT_DATATABLE_NAME, name);
+  const schemas = (opts.schemas ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  createMigration(opts.datatable ?? DEFAULT_DATATABLE_NAME, name, schemas);
 }
 
-async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
+async function migrateUp(
+  opts: GlobalOptions & { datatable?: string; schema?: string },
+) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
@@ -73,7 +80,7 @@ async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
   // Push any locally-created/edited migration files first (without running
   // them), so `migrate up` works even before a `wmill sync push`.
   await pushLocalMigrations(workspace.workspaceId, dt);
-  await runMigrations(workspace.workspaceId, dt);
+  await runMigrations(workspace.workspaceId, dt, opts.schema);
 }
 
 async function migrateDown(opts: GlobalOptions & { datatable?: string }) {
@@ -81,6 +88,67 @@ async function migrateDown(opts: GlobalOptions & { datatable?: string }) {
   await requireLogin(opts);
   const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
   await rollbackMigrations(workspace.workspaceId, dt);
+}
+
+async function migrateStatus(
+  opts: GlobalOptions & { datatable?: string; json?: boolean },
+) {
+  if (opts.json) log.setSilent(true);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
+  const status = await wmill.getDatatableMigrationsStatus({
+    workspace: workspace.workspaceId,
+    datatableName: dt,
+  });
+  // `migrate up` pushes local files before running, so they count as pending too.
+  const remote = new Set(status.migrations.map((m) => m.timestamp));
+  const migrations: {
+    timestamp: number;
+    name: string;
+    status: string;
+    schemas?: string[];
+  }[] = [
+    ...status.migrations,
+    ...listLocalMigrations(dt)
+      .filter((m) => !remote.has(m.timestamp))
+      .map((m) => ({ ...m, status: "local" })),
+  ].sort((a, b) => a.timestamp - b.timestamp);
+
+  if (opts.json) {
+    console.log(JSON.stringify({ ...status, migrations }));
+    return;
+  }
+  if (!status.enabled) {
+    log.info(`Migrations are not enabled on datatable '${dt}'`);
+    return;
+  }
+  if (status.error) {
+    log.warn(`Could not read applied migrations on '${dt}': ${status.error}`);
+  }
+  if (migrations.length === 0) {
+    log.info(`No migrations on datatable '${dt}'`);
+    return;
+  }
+  const label: Record<string, string> = {
+    not_run: "pending",
+    local: "pending (not pushed)",
+  };
+  new Table()
+    .header(["Timestamp", "Name", "Status", "Schemas"])
+    .padding(2)
+    .border(true)
+    .body(
+      migrations.map((m) => [
+        String(m.timestamp),
+        m.name,
+        label[m.status] ?? m.status,
+        m.status === "local"
+          ? ""
+          : (m.schemas?.join(", ") ?? "whole database"),
+      ]),
+    )
+    .render();
 }
 
 const migrateCommand = new Command()
@@ -91,6 +159,10 @@ const migrateCommand = new Command()
     "-d --datatable <datatable:string>",
     "Target datatable (default: main)",
   )
+  .option(
+    "-s --schemas <schemas:string>",
+    "Comma-separated schemas the migration changes, written as its `-- schemas` line. Without it the migration applies to the whole database and every later migration waits for it",
+  )
   .action(migrateNew as any)
   .command(
     "up",
@@ -99,6 +171,10 @@ const migrateCommand = new Command()
   .option(
     "-d --datatable <datatable:string>",
     "Target datatable (default: main)",
+  )
+  .option(
+    "--schema <schema:string>",
+    "Apply only the pending migrations that declare this schema; refused while an earlier overlapping migration is pending",
   )
   .action(migrateUp as any)
   .command(
@@ -109,7 +185,19 @@ const migrateCommand = new Command()
     "-d --datatable <datatable:string>",
     "Target datatable (default: main)",
   )
-  .action(migrateDown as any);
+  .action(migrateDown as any)
+  .command(
+    "status",
+    "show applied and pending migrations on the main datatable (or one via --datatable)",
+  )
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(migrateStatus as any);
+
+type DataTableResourceType = "postgresql" | "instance" | "external_instance";
 
 async function create(
   opts: GlobalOptions & { resource?: string; force?: boolean },
@@ -139,12 +227,12 @@ async function create(
 
   const datatables: Record<
     string,
-    { database: { resource_type: "postgresql" | "instance"; resource_path?: string } }
+    { database: { resource_type: DataTableResourceType; resource_path?: string } }
   > = {};
   for (const d of existing) {
     datatables[d.name] = {
       database: {
-        resource_type: d.resource_type as "postgresql" | "instance",
+        resource_type: d.resource_type as DataTableResourceType,
         resource_path: d.resource_path ?? undefined,
       },
     };

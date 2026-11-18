@@ -23,17 +23,42 @@
 	 * bearer token (no cookie); the raw wrapper document always carries `CSP: sandbox`.
 	 */
 	import { BROWSER } from 'esm-env'
-	import { OpenAPI } from '$lib/gen'
+	import { OpenAPI } from '$lib/gen/core/OpenAPI'
 	import { page } from '$app/state'
 	import { onDestroy, onMount, setContext, type Snippet } from 'svelte'
-	import { Alert, Skeleton } from '$lib/components/common'
-	import { base } from '$app/paths'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import { goto } from '$app/navigation'
-	import Login from '$lib/components/Login.svelte'
-	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils'
+	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils/queryParams'
 	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
-	import RawAppSdkConsent from '$lib/components/raw_apps/RawAppSdkConsent.svelte'
-	import { hasStoredSdkConsent, storeSdkConsent } from '$lib/components/raw_apps/sdkScopes'
+	import { loadAppPreview } from './loadAppPreview'
+	import { dropPrefetched, loadAppCss } from './publicAppApi'
+	import {
+		hasStoredSdkConsent,
+		sdkConsentCovers,
+		storeSdkConsent
+	} from '$lib/components/raw_apps/sdkScopes'
+
+	// Everything but a rendered app (sign-in, errors, the SDK consent prompt) loads on
+	// demand: a raw app that renders right away needs none of it. See publicAppApi.ts.
+	let frameUi:
+		| Promise<{
+				Alert: typeof import('$lib/components/common/alert/Alert.svelte').default
+				Login: typeof import('$lib/components/Login.svelte').default
+				RawAppSdkConsent: typeof import('$lib/components/raw_apps/RawAppSdkConsent.svelte').default
+		  }>
+		| undefined
+	function loadFrameUi() {
+		return (frameUi ??= Promise.all([
+			loadAppCss(),
+			import('$lib/components/common/alert/Alert.svelte'),
+			import('$lib/components/Login.svelte'),
+			import('$lib/components/raw_apps/RawAppSdkConsent.svelte')
+		]).then(([, alert, login, consent]) => ({
+			Alert: alert.default,
+			Login: login.default,
+			RawAppSdkConsent: consent.default
+		})))
+	}
 
 	type EmbedToken = {
 		token?: string | null
@@ -49,7 +74,9 @@
 		fetchEmbedToken,
 		onViewerReady,
 		viewer,
-		viewerUrl
+		viewerUrl,
+		guestAppPath = undefined,
+		guestEntry = 'none'
 	}: {
 		/** Embedder-side: validate access + mint the scoped token. Throws with a
 		 * `.status` of 401 (login required) or 404 (not found). Pass
@@ -68,6 +95,16 @@
 		 * (`/apps/get`, auth-gated, with chrome) differs from the cookieless,
 		 * chrome-less viewer route (`/app_embed`). */
 		viewerUrl?: string
+		/** `<workspace>/<app_path>` when this app is open to guests. The embedder's
+		 * login gate fires before the page's own load, so the page must resolve this
+		 * up front and pass it down — otherwise a signed-out visitor is offered an
+		 * ordinary sign-in that creates an account and still cannot open the app. */
+		guestAppPath?: string | undefined
+		/** Whether the app admits guests, as far as the page has found out. The sign-in
+		 * card waits while `pending` (a configured auto-login would otherwise start an
+		 * ordinary sign-in) and refuses to offer one on `error` — a transient fault must
+		 * not become an account and a seat. Nothing else waits on it. */
+		guestEntry?: 'pending' | 'none' | 'guest' | 'error'
 	} = $props()
 
 	const EMBED_PARAM = 'wm_embed'
@@ -157,21 +194,38 @@
 	// Top-level navigation relay (WIN-2006): in-app links to other apps (navbar
 	// "app" items) must navigate the top page — navigating inside the opaque
 	// iframe would load the SPA cookieless. Consumed by PublicApp via gotoFn.
-	setContext<EmbedNav | undefined>(
-		EMBED_NAV_CONTEXT_KEY,
-		isViewer
-			? {
-					navigateTop: (href: string) => {
-						try {
-							window.parent.postMessage(
-								{ type: 'wm_embed_navigate', href },
-								expectedEmbedderOrigin ?? '*'
-							)
-						} catch (_) {}
-					}
-				}
-			: undefined
-	)
+	function navigateTop(href: string) {
+		try {
+			window.parent.postMessage({ type: 'wm_embed_navigate', href }, expectedEmbedderOrigin ?? '*')
+		} catch (_) {}
+	}
+	setContext<EmbedNav | undefined>(EMBED_NAV_CONTEXT_KEY, isViewer ? { navigateTop } : undefined)
+
+	// Plain links (markdown, HTML components) would otherwise load inside the
+	// cookieless frame, or put an external site in it. Bound on <body> so the link's own
+	// handlers run first and can cancel it, and before SvelteKit's router on <html>,
+	// which skips a prevented click. A link to this same page only changes ?query/#hash,
+	// which the hash relay mirrors, so it stays in the frame.
+	function relayLinkClick(e: MouseEvent) {
+		if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+			return
+		// Attributes, not properties: on an SVG <a> those are SVGAnimatedString.
+		const a = (e.target as Element | null)?.closest?.('a[href]')
+		const target = a?.getAttribute('target')
+		if (
+			!a ||
+			a.hasAttribute('download') ||
+			(target && !['_self', '_top', '_parent'].includes(target))
+		)
+			return
+		const url = new URL(a.getAttribute('href')!, document.baseURI)
+		// The embedder only relays http(s); mailto:, tel: and the like work in the frame.
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') return
+		const sameOrigin = url.origin === window.location.origin
+		if (sameOrigin && url.pathname === window.location.pathname) return
+		e.preventDefault()
+		navigateTop(sameOrigin ? url.pathname + url.search + url.hash : url.href)
+	}
 	function installHashRelay() {
 		origPushState = history.pushState
 		origReplaceState = history.replaceState
@@ -194,7 +248,53 @@
 	}
 
 	// ---------------------------- embedder mode ----------------------------
-	let status: 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkPrompt' = $state('loading')
+	type FrameStatus = 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkPrompt'
+	let status = $state<FrameStatus>('loading')
+	/** Whether the visitor holds an account session, probed whenever the app denies
+	 * them. An account this app still refuses is not something signing in again can
+	 * fix — an identity with an account is never given a guest session — so the card
+	 * gives way to an explanation. */
+	let accountSession = $state<'unknown' | 'none' | 'held'>('unknown')
+	/** What the sign-in refused with, shown above the card until the next attempt. */
+	let signInError: string | undefined = $state(undefined)
+	let deniedStatus: number | undefined = $state(undefined)
+	/** The sign-in card belongs on a 401, and on a 403 unless discovery has settled
+	 * that the app is not open to guests: a 403 on a guest app is a session for another
+	 * app of the workspace, which a fresh sign-in replaces. True while discovery is
+	 * pending, so the skeleton shows rather than a flash of "Not found". */
+	let offerSignIn = $derived(
+		status === 'noPermission' ||
+			(status === 'notExists' && deniedStatus === 403 && guestEntry !== 'none')
+	)
+	let signInDidNotHelp = $derived(offerSignIn && accountSession === 'held')
+	$effect(() => {
+		if (offerSignIn && accountSession === 'unknown') {
+			// Workspace-less, so it answers for an account and never for a guest
+			// (pinned to its workspace) or for nobody.
+			import('$lib/gen')
+				.then(({ UserService }) => UserService.getCurrentEmail())
+				.then(() => (accountSession = 'held'))
+				.catch(() => (accountSession = 'none'))
+		}
+	})
+
+	// The stale guest session must be gone before the card mounts: it still
+	// authenticates here, so the popup's success poll would see it and complete the
+	// sign-in before the new session lands. The card waits on `staleGuestCleared`; a
+	// failed logout fails closed rather than offering a sign-in that cannot complete.
+	let staleGuestCleared = $state(false)
+	let staleGuestLogoutFailed = $state(false)
+	$effect(() => {
+		if (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared) {
+			import('$lib/gen')
+				.then(({ UserService }) => UserService.logout())
+				.then(() => {
+					dropPrefetched()
+					staleGuestCleared = true
+				})
+				.catch(() => (staleGuestLogoutFailed = true))
+		}
+	})
 	let embedToken: string | null = $state(null)
 	let iframeEl: HTMLIFrameElement | undefined = $state(undefined)
 
@@ -293,6 +393,10 @@
 			}
 			finishReady()
 		} catch (e: any) {
+			// 401: no session. 403 on an app that admits guests: a guest session for a
+			// different app of this workspace, which a fresh sign-in replaces. Either
+			// way the sign-in card is the answer; anything else is not found.
+			deniedStatus = e?.status
 			status = e?.status === 401 ? 'noPermission' : 'notExists'
 		}
 	}
@@ -329,7 +433,7 @@
 			appPath = resp.app_path ?? appPath
 			workspaceId = resp.workspace_id ?? workspaceId
 			const granted = resp.sdk_scopes ?? []
-			if (!granted.every((s) => approved.includes(s))) {
+			if (!sdkConsentCovers(approved, granted)) {
 				// The app was redeployed with more scopes between the prompt and the
 				// mint. Never inject a token carrying scopes the viewer wasn't shown:
 				// drop it and ask again with the new set.
@@ -363,7 +467,11 @@
 		if (unsandboxed || isRaw) {
 			// Render the app directly on this origin: same-origin when unsandboxed
 			// (the default), or a single opaque bundle iframe when it's a sandboxed
-			// raw app.
+			// raw app. A low-code app's runtime downloads alongside the app payload.
+			if (!isRaw) {
+				loadAppCss().catch(() => {})
+				loadAppPreview().catch(() => {})
+			}
 			onViewerReady?.(undefined, requestTokenRefresh)
 		} else {
 			// Sandboxed low-code: hand the scoped token to the opaque viewer iframe.
@@ -472,8 +580,12 @@
 
 	onMount(() => {
 		if (isViewer) {
+			// Only a sandboxed low-code app is ever framed as a viewer.
+			loadAppCss().catch(() => {})
+			loadAppPreview().catch(() => {})
 			window.addEventListener('message', handleViewerMessage)
 			installHashRelay()
+			document.body.addEventListener('click', relayLinkClick)
 			// Announce readiness so the embedder sends us the token.
 			window.parent.postMessage({ type: 'wm_embed_ready' }, expectedEmbedderOrigin ?? '*')
 			// This page is only ever loaded as the embedder's opaque iframe, which
@@ -495,7 +607,10 @@
 		if (!BROWSER) return
 		window.removeEventListener('message', handleViewerMessage)
 		window.removeEventListener('message', handleEmbedderMessage)
-		if (isViewer) uninstallHashRelay()
+		if (isViewer) {
+			uninstallHashRelay()
+			document.body.removeEventListener('click', relayLinkClick)
+		}
 	})
 </script>
 
@@ -503,64 +618,120 @@
 	{#if viewerReady}
 		{@render viewer()}
 	{:else if viewerOrphaned}
-		<div class="px-4 mt-20 max-w-xl mx-auto">
-			<Alert type="info" title="Open this app from Windmill">
-				This is a Windmill app viewer and must be loaded by Windmill. If you embedded it in your own
-				page, use the app's public URL without the <code>wm_embed</code> parameter.
-			</Alert>
-		</div>
+		{#await loadFrameUi() then { Alert }}
+			<div class="px-4 mt-20 max-w-xl mx-auto">
+				<Alert type="info" title="Open this app from Windmill">
+					This is a Windmill app viewer and must be loaded by Windmill. If you embedded it in your
+					own page, use the app's public URL without the <code>wm_embed</code> parameter.
+				</Alert>
+			</div>
+		{/await}
 	{:else}
-		<Skeleton layout={[[4], 0.5, [50]]} />
+		{#await loadAppCss() then}
+			<Skeleton layout={[[4], 0.5, [50]]} />
+		{/await}
 	{/if}
 {:else if status === 'loading'}
-	<Skeleton layout={[[4], 0.5, [50]]} />
-{:else if status === 'notExists'}
-	<div class="px-4 mt-20">
-		<Alert type="error" title="Not found">
-			There was an error loading the app, is the url correct?
-			<a href={base}>Go to Windmill</a>
-		</Alert>
-	</div>
-{:else if status === 'sdkPrompt'}
-	<!-- Raw-app frontend SDK: ask before the app's code runs, so the viewer sees
-	     what it will be able to do with their identity. -->
-	<RawAppSdkConsent
-		scopes={sdkScopes ?? []}
-		onContinue={onSdkConsentContinue}
-		onDecline={onSdkConsentDecline}
-	/>
-{:else if status === 'noPermission'}
-	<!-- Login happens here, on the embedder (main) window, so the session cookie
-	     is set on the main origin only and never reaches the opaque iframe. -->
-	<div class="px-4 mt-20 w-full text-center font-bold text-xl">This app requires read access</div>
-	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
-		<Login
-			onLoginSuccess={() => initEmbedder()}
-			popup
-			rd={page.url.pathname + page.url.search + page.url.hash}
-		/>
-	</div>
-{:else if unsandboxed}
-	<!-- Same-origin (full session): the app was not opted into sandbox isolation
-	     (the default). Rendered directly here; RawAppPreview reads
-	     IS_APP_UNSANDBOXED to drop the bundle's opaque sandbox. -->
-	{@render viewer()}
-{:else if isRaw}
-	<!-- Variant A: sandboxed raw app rendered directly on the real origin. The
-	     untrusted author bundle stays isolated in its own opaque iframe (inside
-	     RawAppPreview); no opaque viewer and no embed token are needed. -->
-	{@render viewer()}
+	{#await loadAppCss() then}
+		<Skeleton layout={[[4], 0.5, [50]]} />
+	{/await}
+{:else if status === 'ready'}
+	{#if unsandboxed}
+		<!-- Same-origin (full session): the app was not opted into sandbox isolation
+		     (the default). Rendered directly here; RawAppPreview reads
+		     IS_APP_UNSANDBOXED to drop the bundle's opaque sandbox. -->
+		{@render viewer()}
+	{:else if isRaw}
+		<!-- Variant A: sandboxed raw app rendered directly on the real origin. The
+		     untrusted author bundle stays isolated in its own opaque iframe (inside
+		     RawAppPreview); no opaque viewer and no embed token are needed. -->
+		{@render viewer()}
+	{:else}
+		<!-- referrerpolicy: the embedder page URL can carry a viewer credential (the
+		     JWT path segment of share links); without this, the same-origin iframe
+		     navigation would expose it to app-authored code via document.referrer.
+		     Styled inline: it can render before app.css has loaded. -->
+		<iframe
+			bind:this={iframeEl}
+			src={buildViewerUrl()}
+			title="App"
+			style="display: block; width: 100%; height: 100%; border: 0"
+			sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation"
+			allow="clipboard-read; clipboard-write; fullscreen"
+			referrerpolicy="no-referrer"
+		></iframe>
+	{/if}
 {:else}
-	<!-- referrerpolicy: the embedder page URL can carry a viewer credential (the
-	     JWT path segment of share links); without this, the same-origin iframe
-	     navigation would expose it to app-authored code via document.referrer. -->
-	<iframe
-		bind:this={iframeEl}
-		src={buildViewerUrl()}
-		title="App"
-		class="w-full h-screen border-0 block"
-		sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation"
-		allow="clipboard-read; clipboard-write; fullscreen"
-		referrerpolicy="no-referrer"
-	></iframe>
+	{#await loadFrameUi() then { Alert, Login, RawAppSdkConsent }}
+		{#if status === 'notExists' && !offerSignIn}
+			<div class="px-4 mt-20">
+				<Alert type="error" title="Not found">
+					There was an error loading the app, is the url correct?
+					<a href="/">Go to Windmill</a>
+				</Alert>
+			</div>
+		{:else if status === 'sdkPrompt'}
+			<!-- Raw-app frontend SDK: ask before the app's code runs, so the viewer sees
+	     what it will be able to do with their identity. -->
+			<RawAppSdkConsent
+				scopes={sdkScopes ?? []}
+				onContinue={onSdkConsentContinue}
+				onDecline={onSdkConsentDecline}
+			/>
+		{:else if offerSignIn && (guestEntry === 'pending' || accountSession === 'unknown' || (deniedStatus === 403 && guestEntry === 'guest' && !staleGuestCleared && !staleGuestLogoutFailed))}
+			<Skeleton layout={[[4], 0.5, [50]]} />
+		{:else if offerSignIn && (guestEntry === 'error' || staleGuestLogoutFailed)}
+			<div class="px-4 mt-20">
+				<Alert type="error" title="Could not check access">
+					The app could not be reached to find out who may open it. Reload to try again.
+				</Alert>
+			</div>
+		{:else if offerSignIn}
+			<!-- Login happens here, on the embedder (main) window, so the session cookie
+	     is set on the main origin only and never reaches the opaque iframe. -->
+			{#if signInDidNotHelp}
+				<!-- Offering the same sign-in again would loop: they are signed in, and this
+		     app still will not open for them. Say why and stop. -->
+				<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+					You are signed in, but this app is not open to you
+				</div>
+				<div class="text-center mt-8 text-sm text-primary">
+					It is open to the people it was shared with{guestAppPath
+						? ', and to guests who have no Windmill account'
+						: ''}. Ask the person who shared it to give your account access.
+				</div>
+			{:else}
+				{#if guestAppPath}
+					<div class="px-4 mt-20 w-full text-center font-bold text-xl">Sign in to open this app</div
+					>
+					<div class="text-center mt-8 text-sm text-primary">
+						You do not need a Windmill account. Signing in lets you open this app and nothing else.
+					</div>
+				{:else}
+					<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+						This app requires read access
+					</div>
+				{/if}
+				{#if signInError}
+					<div class="px-2 mx-auto mt-8 max-w-xl w-full">
+						<Alert type="error" title="Could not sign you in">{signInError}</Alert>
+					</div>
+				{/if}
+				<div class="px-2 mx-auto mt-20 max-w-xl w-full">
+					<Login
+						onLoginSuccess={() => {
+							dropPrefetched()
+							signInError = undefined
+							accountSession = 'unknown'
+							initEmbedder()
+						}}
+						onLoginError={(message) => (signInError = message)}
+						popup
+						guestApp={guestAppPath}
+						rd={page.url.pathname + page.url.search + page.url.hash}
+					/>
+				</div>
+			{/if}
+		{/if}
+	{/await}
 {/if}

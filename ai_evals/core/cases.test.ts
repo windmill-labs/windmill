@@ -192,8 +192,6 @@ describe("loadCases", () => {
       requiredSkills: ["write-script-bun"],
       requiredSkillsBeforeFirstMutation: ["write-script-bun"],
       forbiddenSkills: ["write-script-python3", "write-flow"],
-      orderedAssistantMentions: ["wmill generate-metadata", "wmill sync push"],
-      orderedProposedCommands: ["wmill generate-metadata", "wmill sync push"],
       forbiddenExecutedCommands: ["^wmill generate-metadata", "^wmill sync push"],
     });
   });

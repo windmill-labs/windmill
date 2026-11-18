@@ -7,7 +7,10 @@ import type {
   FrontendBenchmarkProgressEvent,
   ModeRunner,
 } from "./types";
-import { validateToolExpectations } from "./validators";
+import {
+  validateAssistantExpectations,
+  validateToolExpectations,
+} from "./validators";
 
 export async function runSuite<TInitial, TExpected, TActual>(input: {
   modeRunner: ModeRunner<TInitial, TExpected, TActual>;
@@ -114,6 +117,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         attempt,
         runs: input.runs,
         verbose: input.verbose,
+        executionOnly: input.executionOnly,
         onAssistantMessageStart: input.verbose && surface
           ? () =>
               input.onProgress?.({
@@ -182,6 +186,10 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
           ...validateToolExpectations({
             run,
             toolExpect: input.evalCase.toolExpect,
+          }),
+          ...validateAssistantExpectations({
+            run,
+            assistantExpect: input.evalCase.assistantExpect,
           })
         );
       }
@@ -238,15 +246,18 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         input.judgeModel !== null &&
         !input.evalCase.skipJudge
       ) {
+        const output = input.modeRunner.prepareJudgeActual
+          ? input.modeRunner.prepareJudgeActual(run.actual)
+          : run.actual;
         const judge = await judgeOutput({
           mode: input.modeRunner.mode,
           prompt: input.evalCase.prompt,
           checklist: input.evalCase.judgeChecklist,
           initial,
           expected: input.modeRunner.mode === "cli" ? undefined : expected,
-          actual: input.modeRunner.prepareJudgeActual
-            ? input.modeRunner.prepareJudgeActual(run.actual)
-            : run.actual,
+          actual: input.evalCase.judgeAssistantText
+            ? { assistantReply: run.assistantText, output }
+            : output,
           model: input.judgeModel,
         });
 

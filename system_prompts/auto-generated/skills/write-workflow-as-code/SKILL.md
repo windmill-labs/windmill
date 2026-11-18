@@ -48,14 +48,13 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than `script pr
 
 Use `wmill resource-type list --schema` to discover available resource types.
 
-Workflow-as-Code files use the normal script CLI workflow. There are no separate WAC deploy commands.
-
 # Windmill Workflow-as-Code Writing Guide
 
 ## Scope
 
 Use this guide when writing or modifying Windmill Workflow-as-Code (WAC) scripts.
 WAC is authored as a Windmill script and deployed with the normal script workflow. It is not an OpenFlow YAML flow.
+Workflow-as-Code files use the normal script CLI workflow. There are no separate WAC deploy commands.
 
 Supported WAC authoring targets:
 - Bun TypeScript scripts that import from `windmill-client`
@@ -143,6 +142,8 @@ async def enrich(customer_id: str):
 ```
 
 In TypeScript, prefer assigning each task to a named top-level const. In Python, prefer top-level async functions decorated with `@task()` or `@task`.
+
+Only the workflow body dispatches steps. A task runs as a single job, so a task or `step()` called from inside a task body runs in place in that job, as a plain function call: no child job, no checkpoint, and its task options (retry, timeout, tag) do not apply. `sleep()` there waits in the job, and `taskScript()` / `taskFlow()` / `waitForApproval()` (`task_script()` / `task_flow()` / `wait_for_approval()`) throw. To get separate jobs, call the tasks one after another from the workflow body and pass results between them.
 
 For existing scripts:
 
@@ -240,20 +241,55 @@ TypeScript: avoid broad `try/catch` around WAC SDK calls. The SDK uses an intern
 
 A caught failure reads the same whether it came from a task or from a `step()`, and the same in the round that ran the failing body as in every round replaying it. It carries `step_key`, `child_job_id` (absent for a `step()`, which runs in the workflow job and has no child job), a `message` that is the failure's own message, and `result` = `{"error": {"name", "message", "stack"?, "extra"?}}`. `name`, `message` and `stack` are the fields that read the same whichever side failed; `name` and `message` are always there, `stack` only when the failure had a traceback to give. `extra` carries the failure's own custom fields (an exception's attributes, an error's properties) and is best-effort: it is absent when there were none, and a task can report entries a step does not, so read it defensively and don't branch on its absence. `extra` is dropped when it is too large to keep in the checkpoint, and `extra_omitted: true` says so — absent `extra` with no `extra_omitted` means the failure simply had no custom fields. Branch on those, not on the original exception type: the workflow body re-runs from the top every round and a replay rebuilds the failure from the checkpoint, so nothing outside that record survives. Python raises `TaskError`; TypeScript throws an `Error` named `TaskError` carrying the same fields. Nothing is chained onto `__cause__` / `cause` — the traceback is in `result.error.stack`, and is also printed to the job log when the step fails.
 
-
 ## TypeScript Workflow-as-Code API (windmill-client)
 
 Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"`
 
 ```typescript
+/**
+ * Re-dispatch policy for a failed task.
+ *
+ * Every attempt is a step of its own (`fetch`, `fetch#2`, `fetch#3`), and the
+ * wait between two of them is a durable sleep, so a retrying task holds no
+ * worker while it backs off.
+ *
+ * A workflow sleeps once per round, so tasks backing off in the same fan-out
+ * wait one after another rather than together: the delay before a fan-out
+ * retries is the sum of every backoff pending in it, not the longest one, and
+ * it grows with both the width of the fan-out and `attempts`. Retries with no
+ * `delay` all go out in a single round.
+ */
+export interface TaskRetry {
+  /** Attempts after the first failure: `2` runs the task at most 3 times.
+  *  A whole number from 0 to 100; anything else is rejected where the policy
+  *  is written. */
+  attempts: number;
+  /** Seconds to wait before the first retry. Default 0, retry immediately.
+  *  Sub-second delays are dropped — a durable sleep resolves to the second. */
+  delay?: number;
+  /** Applied to the delay after each attempt: 1 (the default) keeps it
+  *  constant, 2 doubles it. */
+  multiplier?: number;
+  /** Ceiling for the delay in seconds, for a `multiplier` above 1. */
+  max_delay?: number;
+}
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
+  /** Seconds during which a previous result of this task is served instead of
+  *  running it again. A task written inline in the workflow is keyed on its
+  *  step key (its name and call order) and the workflow's input, not on the
+  *  arguments it is called with, so cache one only when whether it runs, and
+  *  what it receives, follow from the workflow's input alone. A `taskScript`
+  *  target is keyed on the arguments it is called with. It has no effect on a
+  *  `taskFlow` target, which keeps its flow's own cache policy. */
   cache_ttl?: number;
   priority?: number;
   concurrency_limit?: number;
   concurrency_key?: string;
   concurrency_time_window_s?: number;
+  retry?: TaskRetry;
 }
 
 /**
@@ -271,9 +307,12 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  * @example
  * const extract_data = task(async (url: string) => { ... });
  * const run_external = task("f/external_script", async (x: number) => { ... });
+ * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly.
+ * Outside a workflow, or called from inside another task, the function body
+ * executes directly and {@link TaskOptions} — retry included — does not apply:
+ * a task runs as a single job, so the tasks it calls run in that same job.
  *
  * A task runs as its own job, so its result is always encoded as JSON and
  * decoded back before the caller sees it: a `Date` comes back as a string, a
@@ -317,6 +356,9 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>)
  * `fn`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a `Date`
  * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ *
+ * Called from inside a task body, `fn` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 export async function step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -329,12 +371,16 @@ export async function sleep(seconds: number): Promise<void>
  * resume exactly this approval — route them through your own channel. Without a
  * key the steps are named `approval`, `approval_2`, ...
  *
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details. `description` is
+ * shown above the form: a string, or a rich value such as `{ markdown: "..." }`.
+ *
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
  * await step("notify", () => sendEmail(urls.resume, urls.cancel));
  * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; skin?: "detailed" | "minimal"; description?: string | object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
 
 /**
  * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
@@ -411,11 +457,37 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 #
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
 #
 # A task runs as its own job, so its result is always encoded as JSON and
 # decoded back before the caller sees it: a ``datetime`` comes back as a
 # string, a tuple as a list.
+#
+# ``retry`` re-dispatches the task after a failure, inside ``@workflow`` only.
+# Every attempt is a step of its own (``call_api``, ``call_api#2``, ...) and
+# the wait between two of them is a durable sleep, so a retrying task holds no
+# worker while it backs off. Keys: ``attempts`` (retries after the first
+# failure, a whole number from 0 to 100), ``delay`` (seconds before the first
+# retry, sub-second delays dropped), ``multiplier`` (applied to the delay
+# after each attempt, 1 keeps it constant), ``max_delay`` (ceiling in
+# seconds). ``attempts`` is required, and an out-of-range or unknown key is
+# rejected where the policy is written.
+#
+# A workflow sleeps once per round, so tasks backing off in the same fan-out
+# wait one after another rather than together: the delay before a fan-out
+# retries is the sum of every backoff pending in it, not the longest one, and
+# it grows with both the width of the fan-out and ``attempts``. Retries with
+# no ``delay`` all go out in a single round.
+#
+# ``cache_ttl`` serves a previous result of the task for that many seconds
+# instead of running it again. A task is keyed on its step key (its name and
+# call order) and the workflow's input, not on the arguments it is called
+# with, so cache one only when whether it runs, and what it receives, follow
+# from the workflow's input alone. A ``task_script`` target is keyed on the
+# arguments it is called with. It has no effect on a ``task_flow`` target,
+# which keeps its flow's own cache policy.
 #
 # Usage::
 #
@@ -424,9 +496,14 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 #
 #     @task(path="f/external_script", timeout=600, tag="gpu")
 #     async def run_external(x: int): ...
-def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+#
+#     @task(retry={"attempts": 3, "delay": 30, "multiplier": 2})
+#     async def call_api(payload: dict): ...
+def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill script.
+#
+# ``retry`` takes the same policy as :func:`task`.
 #
 # Usage::
 #
@@ -435,9 +512,11 @@ def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None,
 #     @workflow
 #     async def main():
 #         data = await extract(url="https://...")
-def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Create a task that dispatches to a separate Windmill flow.
+#
+# ``retry`` takes the same policy as :func:`task`.
 #
 # Usage::
 #
@@ -446,7 +525,7 @@ def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] 
 #     @workflow
 #     async def main():
 #         result = await pipeline(input=data)
-def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None, retry: Optional[dict] = None)
 
 # Decorator marking an async function as a workflow-as-code entry point.
 #
@@ -466,12 +545,15 @@ def workflow(func)
 # ``fn``'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a ``datetime`` comes back as a string, a tuple as a list.
+#
+# Called from inside a task body, ``fn`` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 #
 # Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
-# Outside a workflow, falls back to ``asyncio.sleep``.
+# Outside a workflow, or inside a task body, falls back to ``asyncio.sleep``.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.
@@ -487,13 +569,17 @@ async def sleep(seconds: int)
 #     form: Optional form schema for the approval page.
 #     self_approval: Whether the user who triggered the flow can approve it (default True).
 #     key: Optional checkpoint key naming this approval step.
+#     skin: ``"minimal"`` shows approvers only the request (form and approve/reject)
+#         instead of the detailed page with the workflow's details.
+#     description: Shown to approvers above the form: a string, or a rich value such as
+#         ``{"markdown": "..."}``.
 #
 # Example::
 #
 #     urls = await step("urls", lambda: get_approval_urls("manager"))
 #     await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
 #     result = await wait_for_approval(key="manager", timeout=3600)
-async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None) -> dict
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True, key: str | None = None, skin: Literal['detailed', 'minimal'] | None = None, description: str | dict | None = None) -> dict
 
 # Get the resume/cancel/approval-page URLs bound to one ``wait_for_approval`` step.
 #

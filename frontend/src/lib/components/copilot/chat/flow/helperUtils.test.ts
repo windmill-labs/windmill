@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FlowModule } from '$lib/gen'
 import {
 	applyFlowJsonUpdate,
+	isFlowSchemaChange,
 	updateRawScriptModuleContent,
 	validateFlowGroups,
 	validateFlowNotes
@@ -625,5 +626,32 @@ describe('validateFlowNotes', () => {
 		expect(result).toEqual([
 			{ id: 'n', text: 't', color: 'blue', type: 'group', contained_node_ids: ['a', 'b'] }
 		])
+	})
+})
+
+describe('isFlowSchemaChange', () => {
+	const schema = { type: 'object', properties: { a: { type: 'string' } }, required: ['a'] }
+
+	it('treats a resent schema as no change, whatever its key order', () => {
+		expect(isFlowSchemaChange(schema, undefined)).toBe(false)
+		expect(isFlowSchemaChange(schema, structuredClone(schema))).toBe(false)
+		expect(
+			isFlowSchemaChange(schema, {
+				required: ['a'],
+				properties: { a: { type: 'string' } },
+				type: 'object'
+			})
+		).toBe(false)
+		expect(isFlowSchemaChange(undefined, null)).toBe(false)
+	})
+
+	it('flags an added, changed or removed input', () => {
+		const added = structuredClone(schema)
+		added.properties['b'] = { type: 'string' }
+		expect(isFlowSchemaChange(schema, added)).toBe(true)
+		expect(isFlowSchemaChange(schema, { ...schema, properties: { a: { type: 'number' } } })).toBe(
+			true
+		)
+		expect(isFlowSchemaChange(schema, null)).toBe(true)
 	})
 })

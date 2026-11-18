@@ -14,7 +14,13 @@
 	import { untrack } from 'svelte'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
-	import { AppService, FlowService, ScriptService, type WorkspaceItemDiff } from '$lib/gen'
+	import {
+		AppService,
+		FlowService,
+		ResourceService,
+		ScriptService,
+		type WorkspaceItemDiff
+	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		getDraftDiffValues,
@@ -22,7 +28,11 @@
 		discardDraft,
 		draftBaseIsStale
 	} from '$lib/utils_draft_deploy'
-	import { checkDeployPermission, type DeployPermission } from '$lib/utils_workspace_deploy'
+	import {
+		checkDeployPermission,
+		deployPermissionForKinds,
+		type DeployPermission
+	} from '$lib/utils_workspace_deploy'
 	import {
 		type DraftItem,
 		invalidateWorkspaceDrafts,
@@ -30,7 +40,11 @@
 	} from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
 	import { userStore, userWorkspaces } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
+	import { copilotInfo } from '$lib/aiStore'
+	import AiReview from './deploymentRequest/AiReview.svelte'
+	import { draftReviewItem } from './deploymentRequest/draftReviewItem'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -102,6 +116,7 @@
 		draft_only: boolean
 		legacy_draft: boolean
 		raw_app: boolean
+		resource_type?: string
 		key: string
 		can_write: boolean
 		draft_users?: { username?: string | null }[]
@@ -248,13 +263,38 @@
 	// side to diff the name against. Raw apps are fetched via the apps endpoint too
 	// (it auto-detects raw from the deployed row and overlays the raw_app draft).
 	const summaryCache = $state<
-		Record<string, { deployed?: string; draft?: string; stale?: boolean; loading?: boolean }>
+		Record<
+			string,
+			{
+				deployed?: string
+				draft?: string
+				stale?: boolean
+				loading?: boolean
+			}
+		>
 	>({})
+
+	const isAgentDraft = (item: Row) =>
+		item.draftKind === 'resource' && item.resource_type === 'ai_agent'
 
 	async function fetchDraftSummary(item: Row) {
 		if (summaryCache[item.key]) return
 		summaryCache[item.key] = { loading: true }
 		try {
+			// An agent's summary is its resource's description.
+			if (isAgentDraft(item)) {
+				const r = await ResourceService.getResource({
+					workspace: currentWorkspaceId,
+					path: item.path,
+					getDraft: true
+				})
+				summaryCache[item.key] = {
+					deployed: r.description,
+					draft: (r.draft as { description?: string } | undefined)?.description,
+					loading: false
+				}
+				return
+			}
 			const r = (await (item.draftKind === 'script'
 				? ScriptService.getScriptByPath({
 						workspace: currentWorkspaceId,
@@ -292,7 +332,9 @@
 				if (
 					item.mine &&
 					!item.draft_only &&
-					(['script', 'flow', 'app'].includes(item.draftKind) || item.raw_app) &&
+					(['script', 'flow', 'app'].includes(item.draftKind) ||
+						item.raw_app ||
+						isAgentDraft(item)) &&
 					!summaryCache[item.key]
 				) {
 					void fetchDraftSummary(item)
@@ -304,20 +346,35 @@
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
 
-	// Whether the user may deploy drafts into this workspace — fills the
-	// `RestrictDeployToDeployers` (+ operator) gap via the shared util, same as the
-	// fork compare page and the session review drawer. Fail-open while resolving.
-	let deployPerm = $state<DeployPermission>({ ok: true })
+	// Whether the user may deploy drafts into this workspace, via the shared util —
+	// same as the fork compare page and the session review drawer. Fail-open while
+	// resolving.
+	let workspaceDeployPerm = $state<DeployPermission>({ ok: true })
 	$effect(() => {
 		const ws = currentWorkspaceId
 		// Reset to fail-open on workspace change, and drop a stale resolution —
 		// otherwise the previous workspace's verdict lingers (or lands last) and
 		// gates the wrong workspace.
-		deployPerm = { ok: true }
+		workspaceDeployPerm = { ok: true }
 		void checkDeployPermission(ws).then((p) => {
-			if (ws === currentWorkspaceId) deployPerm = p
+			if (ws === currentWorkspaceId) workspaceDeployPerm = p
 		})
 	})
+	// A direct-deployment lock never reaches trigger or schedule drafts server-side, so it must
+	// not disable a selection made only of those. One refused kind still blocks the whole action.
+	let deployPerm = $derived(
+		deployPermissionForKinds(
+			workspaceDeployPerm,
+			visibleItems
+				.filter((i) => selectedItems.includes(i.key) && isDeployable(i))
+				.map((i) => i.draftKind),
+			capabilitiesIn(
+				// Superadmin is global; a workspace's admin flag is not.
+				{ is_super_admin: $userStore?.is_super_admin },
+				$userWorkspaces.find((w) => w.id === currentWorkspaceId)
+			)
+		)
+	)
 	// Select all on the first non-empty load (acting on everything is the common
 	// intent); only once, so a refetch after a deploy doesn't re-select the
 	// leftovers.
@@ -397,6 +454,13 @@
 		selectedItems = []
 	}
 
+	// Your own drafts only: another user's draft is view-only, and reading one returns yours.
+	const reviewItems = $derived(
+		visibleItems
+			.filter((i) => selectedItems.includes(i.key) && i.mine && i.draftKind !== 'data_pipeline')
+			.map((i) => draftReviewItem(i.draftKind, i.path, currentWorkspaceId, i.draft_only))
+	)
+
 	// --- Diff ---
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(false)
@@ -421,7 +485,13 @@
 			mode: 'simple',
 			original: deployed as any,
 			current: draft as any,
-			title: 'Deployed → Draft'
+			title: 'Deployed → Draft',
+			aiReview: {
+				workspaceId: currentWorkspaceId,
+				kind: item.draftKind,
+				path: item.path,
+				added: item.draft_only
+			}
 		})
 	}
 
@@ -591,6 +661,9 @@
 				? `/pipeline/${encodeURIComponent(folder)}?workspace=${encodeURIComponent(currentWorkspaceId)}`
 				: undefined
 		}
+		if (isAgentDraft(d)) {
+			return `/agents/edit/${d.path}?workspace=${encodeURIComponent(currentWorkspaceId)}`
+		}
 		const listPage = LIST_PAGE_FOR_KIND[d.draftKind]
 		if (listPage) {
 			return `${listPage}?workspace=${encodeURIComponent(currentWorkspaceId)}#${d.path}`
@@ -648,6 +721,7 @@
 			{deploymentStatus}
 			{allSelected}
 			selectablePredicate={(item) => isDiscardable(item as unknown as Row)}
+			isAgent={(item) => isAgentDraft(item as unknown as Row)}
 			selectBlockedReason={(item) => blockedReason(item as unknown as Row)}
 			onToggleItem={toggleItem}
 			onSelectAll={selectAll}
@@ -738,7 +812,7 @@
 
 			{#snippet itemPath(item)}
 				{@const draftItem = item as unknown as Row}
-				{#if draftItem.kind === 'resource' || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
+				{#if (draftItem.kind === 'resource' && !isAgentDraft(draftItem)) || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
 					<!-- drawer-only items show their path as the title; keep this line empty -->
 				{:else if !draftItem.draft_only && draftItem.draft_path && draftItem.draft_path !== draftItem.path}
 					<!-- Path rename: a *deployed* item's draft moves it to a new path. Strike
@@ -755,17 +829,21 @@
 			{#snippet itemActions(item)}
 				{@const draftItem = item as unknown as Row}
 				{@const others = otherDraftUsers(draftItem)}
-				<Badge color="gray" size="xs">{kindLabel(draftItem.draftKind)}</Badge>
-				<DraftBadge
-					is_draft={true}
-					draft_only={draftItem.draft_only}
-					draft_users={draftItem.draft_users ?? []}
-					{currentUsername}
-					workspace={currentWorkspaceId}
-					itemKind={draftItem.draftKind}
-					path={draftItem.path}
-					allowFork={false}
-				/>
+				<div class="flex items-center gap-1">
+					<Badge color="gray" size="xs">
+						{isAgentDraft(draftItem) ? 'agent' : kindLabel(draftItem.draftKind)}
+					</Badge>
+					<DraftBadge
+						is_draft={true}
+						draft_only={draftItem.draft_only}
+						draft_users={draftItem.draft_users ?? []}
+						{currentUsername}
+						workspace={currentWorkspaceId}
+						itemKind={draftItem.draftKind}
+						path={draftItem.path}
+						allowFork={false}
+					/>
+				</div>
 				{#if draftItem.mine && others.length > 0}
 					<Popover openOnHover debounceDelay={50}>
 						{#snippet trigger()}
@@ -839,35 +917,45 @@
 			{/snippet}
 
 			{#snippet footer()}
-				<div class="flex flex-col items-end gap-2">
-					<div class="flex items-center gap-2">
-						<Button
-							variant="default"
-							destructive
-							disabled={discardableCount === 0 || deploying || discarding}
-							loading={discarding}
-							startIcon={{ icon: Undo2 }}
-							onClick={onDiscardSelectedClick}
-						>
-							Discard {discardableCount} draft{discardableCount !== 1 ? 's' : ''}
-						</Button>
-						<Button
-							variant="accent"
-							disabled={deployableCount === 0 || deploying || discarding || !deployPerm.ok}
-							title={!deployPerm.ok ? deployPerm.reason : undefined}
-							loading={deploying}
-							onClick={deploySelected}
-						>
-							Deploy {deployableCount} draft{deployableCount !== 1 ? 's' : ''}
-						</Button>
+				<div class="flex flex-col gap-4">
+					<div class="flex flex-col items-end gap-2">
+						<div class="flex items-center gap-2">
+							<Button
+								variant="default"
+								destructive
+								disabled={discardableCount === 0 || deploying || discarding}
+								loading={discarding}
+								startIcon={{ icon: Undo2 }}
+								onClick={onDiscardSelectedClick}
+							>
+								Discard {discardableCount} draft{discardableCount !== 1 ? 's' : ''}
+							</Button>
+							<Button
+								variant="accent"
+								disabled={deployableCount === 0 || deploying || discarding || !deployPerm.ok}
+								title={!deployPerm.ok ? deployPerm.reason : undefined}
+								loading={deploying}
+								onClick={deploySelected}
+							>
+								Deploy {deployableCount} draft{deployableCount !== 1 ? 's' : ''}
+							</Button>
+						</div>
+						{#if !deployPerm.ok}
+							<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
+						{:else if undeployableSelectedCount > 0}
+							<span class="text-xs text-secondary">
+								{undeployableSelectedCount} selected draft{undeployableSelectedCount !== 1
+									? 's'
+									: ''}
+								can't be deployed (no write permission on the path) but can still be discarded
+							</span>
+						{/if}
 					</div>
-					{#if !deployPerm.ok}
-						<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
-					{:else if undeployableSelectedCount > 0}
-						<span class="text-xs text-secondary">
-							{undeployableSelectedCount} selected draft{undeployableSelectedCount !== 1 ? 's' : ''}
-							can't be deployed (no write permission on the path) but can still be discarded
-						</span>
+					{#if $copilotInfo.enabled}
+						<AiReview
+							scope={{ kind: 'drafts', workspaceId: currentWorkspaceId, items: reviewItems }}
+							source="drafts"
+						/>
 					{/if}
 				</div>
 			{/snippet}

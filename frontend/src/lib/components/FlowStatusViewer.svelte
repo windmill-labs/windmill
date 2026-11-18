@@ -4,8 +4,11 @@
 	import { setContext, untrack } from 'svelte'
 	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
 	import { isOwner as loadIsOwner, type StateStore } from '$lib/utils'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import type { CompletedJob, FlowModule, FlowNote, FlowValue, Job } from '$lib/gen'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		jobId: string
@@ -41,6 +44,14 @@
 		showLogsWithResult?: boolean
 		notes?: FlowNote[]
 		groups?: FlowValue['groups']
+		/** Size the graph and its details panel to the parent's height instead of their fixed
+		 * 1200px. The parent must be a flex column with a definite height. */
+		fillHeight?: boolean
+		/** Drop the Graph / Logs / Details / Assets strip, leaving only the graph. */
+		hideRunTabs?: boolean
+		/** Let the details panel be closed, leaving the graph the full width until a step is
+		 * selected again. */
+		closableDetails?: boolean
 	}
 
 	let {
@@ -78,7 +89,10 @@
 		onDone,
 		showLogsWithResult = false,
 		notes: notesProp = undefined,
-		groups: groupsProp = undefined
+		groups: groupsProp = undefined,
+		fillHeight = false,
+		hideRunTabs = false,
+		closableDetails = false
 	}: Props = $props()
 
 	let lastJobId: string = untrack(() => jobId)
@@ -98,7 +112,7 @@
 	})
 
 	function loadOwner(path: string) {
-		isOwner = loadIsOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
+		isOwner = loadIsOwner(path, $userStore!, workspaceId ?? $operatingWorkspace!)
 	}
 
 	async function updateJobId() {
@@ -198,5 +212,8 @@
 		{hideFlowResult}
 		notes={notesProp}
 		groups={groupsProp}
+		{fillHeight}
+		{hideRunTabs}
+		{closableDetails}
 	/>
 {/key}

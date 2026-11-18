@@ -18,14 +18,15 @@ use windmill_parser_r::{parse_r_requirements, parse_r_signature};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
+    check_no_network_jailed,
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics,
-        DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_tmp_mount_block, script_envars, script_overrides,
+        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::{self},
-    is_sandboxing_enabled,
+    is_sandboxing_enabled, nsjail_clone_newnet,
     universal_pkg_installer::{
         par_install_language_dependencies_seq, DependencyGraph, InstallDeps, RequiredDependency,
     },
@@ -86,6 +87,8 @@ pub async fn handle_r_job<'a>(
                 .to_string(),
         ));
     }
+    let jailed = !cfg!(windows) && (is_sandboxing_enabled() || annotation.sandbox);
+    check_no_network_jailed(annotation.no_network, jailed)?;
 
     // --- Prepare ---
     {
@@ -120,7 +123,13 @@ pub async fn handle_r_job<'a>(
     };
     // --- Execute ---
     {
-        run(&mut args, lib_path.as_deref(), annotation.sandbox).await?;
+        run(
+            &mut args,
+            lib_path.as_deref(),
+            jailed,
+            annotation.no_network,
+        )
+        .await?;
     }
     // --- Retrieve results ---
     {
@@ -593,51 +602,44 @@ async fn run<'a>(
         ..
     }: &mut JobHandlerInput<'a>,
     lib_path: Option<&str>,
-    sandbox: bool,
+    nsjail: bool,
+    no_network: bool,
 ) -> Result<(), Error> {
-    let reserved_variables =
+    let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
+    crate::strip_no_network_token(&mut reserved_variables, no_network);
 
-    let nsjail = !cfg!(windows) && (is_sandboxing_enabled() || sandbox);
     let child = if nsjail {
         append_logs(
             &job.id,
             &job.workspace_id,
-            "\n--- R CODE EXECUTION (nsjail) ---\n".to_string(),
+            format!(
+                "\n--- R CODE EXECUTION (nsjail) ---\n{}",
+                if no_network { "no network\n" } else { "" }
+            ),
             conn,
         )
         .await;
 
-        write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_R_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{SHARED_MOUNT}", &shared_mount)
-                .replace("{R_CACHE_DIR}", &*R_CACHE_DIR)
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL)
-                .replace(
-                    "{TMP_MOUNT_BLOCK}",
-                    &resolve_nsjail_tmp_mount_block(job_dir).await,
-                )
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-        )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.env_clear()
-            .current_dir(job_dir)
+            .current_dir(*job_dir)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .envs(envs)
-            .envs(reserved_variables)
-            .envs(R_PROXY_ENVS.clone())
+            .envs(&reserved_variables)
+            .envs(if no_network || !crate::passes_proxy_to_jobs() {
+                vec![]
+            } else {
+                R_PROXY_ENVS.clone()
+            })
             .envs(
-                get_proxy_envs_for_lang(
+                get_run_proxy_envs(
                     &ScriptLang::Rlang,
                     job.kind,
                     &job.id,
                     &job.workspace_id,
                     conn,
+                    no_network,
                 )
                 .await?,
             );
@@ -653,6 +655,30 @@ async fn run<'a>(
         ]);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
+        write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_R_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{SHARED_MOUNT}", &shared_mount)
+                .replace("{R_CACHE_DIR}", &*R_CACHE_DIR)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{CLONE_NEWNET}", nsjail_clone_newnet(no_network))
+                .replace(
+                    "{ENVARS}",
+                    &script_envars(
+                        &envs,
+                        &cmd,
+                        &script_overrides(&["PATH", "BASE_INTERNAL_URL"], &reserved_variables),
+                    ),
+                ),
+        )?;
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         append_logs(
@@ -677,7 +703,11 @@ async fn run<'a>(
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
-            .envs(R_PROXY_ENVS.clone())
+            .envs(if crate::passes_proxy_to_jobs() {
+                R_PROXY_ENVS.clone()
+            } else {
+                vec![]
+            })
             .envs(
                 get_proxy_envs_for_lang(
                     &ScriptLang::Rlang,

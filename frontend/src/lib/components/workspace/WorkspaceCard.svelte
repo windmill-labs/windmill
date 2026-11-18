@@ -12,7 +12,8 @@
 	import WorkspaceIcon from './WorkspaceIcon.svelte'
 	import WorkspaceCard from './WorkspaceCard.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { devBadgeText, devLabelWord } from '$lib/utils/devWorkspaceLabel'
+	import { devLabelWord } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 
 	interface ExtendedWorkspace extends UserWorkspace {
 		_children?: ExtendedWorkspace[]
@@ -143,12 +144,12 @@
 							{/if}
 						</span>
 						{#if workspace.is_dev_workspace}
-							<Badge
-								color="dark-blue"
-								small
-								class="text-3xs px-1 py-0 dark:bg-surface-accent-primary text-white dark:text-white"
-								>{devBadgeText(workspace.dev_workspace_label)}</Badge
-							>
+							<DevWorkspaceBadge
+								label={workspace.dev_workspace_label}
+								color={workspace.color}
+								fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
+								class="text-3xs px-1 py-0"
+							/>
 						{/if}
 						<span class="text-secondary text-xs">-</span>
 						{#if workspace.id === 'admins'}

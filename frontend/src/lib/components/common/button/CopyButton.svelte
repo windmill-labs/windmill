@@ -9,7 +9,8 @@
 		value,
 		sendToast = false,
 		title = 'Copy to clipboard',
-		class: className = ''
+		class: className = '',
+		btnClasses = ''
 	}: {
 		value: string
 		// Also pop the global "copied to clipboard" toast on success.
@@ -18,6 +19,7 @@
 		// always takes over after a copy.
 		title?: string
 		class?: string
+		btnClasses?: string
 	} = $props()
 
 	let copied = $state(false)
@@ -41,4 +43,5 @@
 		: { icon: Copy }}
 	onClick={copy}
 	wrapperClasses={className}
+	{btnClasses}
 />

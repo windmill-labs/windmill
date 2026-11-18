@@ -99,7 +99,18 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
         ("configs", "Configs", "Configuration management", false),
         ("oauth", "OAuth", "OAuth management", false),
         ("ai", "AI", "AI feature management", false),
-        ("ai_skills", "AI Skills", "AI skill management", false),
+        (
+            "ai_evals",
+            "AI Evals",
+            "AI agent eval datasets and standalone runs",
+            false,
+        ),
+        (
+            "slack_agents",
+            "Slack Agents",
+            "AI agents answering in Slack channels",
+            false,
+        ),
         (
             "agent_workers",
             "Agent Workers",
@@ -188,12 +199,17 @@ lazy_static! {
                 ScopeOption {
                     value: "jobs:read".to_string(),
                     label: "Read".to_string(),
-                    requires_resource_path: false,
+                    requires_resource_path: true,
                 },
                 ScopeOption {
                     value: "jobs:write".to_string(),
                     label: "Write".to_string(),
                     requires_resource_path: false,
+                },
+                ScopeOption {
+                    value: "jobs:cancel".to_string(),
+                    label: "Cancel".to_string(),
+                    requires_resource_path: true,
                 },
                 ScopeOption {
                     value: "jobs:run:scripts".to_string(),
@@ -203,6 +219,11 @@ lazy_static! {
                 ScopeOption {
                     value: "jobs:run:flows".to_string(),
                     label: "Run flows".to_string(),
+                    requires_resource_path: true,
+                },
+                ScopeOption {
+                    value: "jobs:run:dependencies".to_string(),
+                    label: "Generate dependency locks".to_string(),
                     requires_resource_path: true,
                 },
             ],

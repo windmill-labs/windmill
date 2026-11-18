@@ -191,6 +191,7 @@ async fn push_job(db: &Pool<Postgres>, content: &str, args: &serde_json::Value) 
         None,
         None,
         None,
+        None,
     )
     .await
     .expect("push must succeed");

@@ -1,20 +1,18 @@
-use std::cell::RefCell;
 use std::env;
-use std::ffi::{c_char, c_uint, CStr, CString};
-use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
-use libloading::{Library, Symbol};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
+use windmill_common::jobs::JobKind;
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
-    strip_fork_reserved_attach_args, DucklakeCatalogResourceType,
+    get_datatable_resource_from_db, get_ducklake_from_db_unchecked, sql_literal_len,
+    strip_fork_reserved_attach_args, strip_sql_comments, DatatableAccess, DatatableConnectAs,
+    DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
 use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
@@ -24,6 +22,7 @@ use windmill_types::s3::S3Object;
 
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
+use crate::duckdb_runner::{RequestMode, RunnerMode, RunnerRequest};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
@@ -112,9 +111,13 @@ async fn fetch_custom_test_body(conn: &Connection, w_id: &str, path: &str) -> Re
 // the user's own ATTACH. `// data_test` lines append verifier probes that run
 // against the freshly-materialized target and raise (failing the run) on
 // violation. Returns `None` when there is no materialize annotation or the
-// target isn't a ducklake (only ducklake is materialized in v1).
+// target isn't a ducklake: only ducklake has a write engine, and a `dbt://`
+// target is recorded by the generic job path instead (worker.rs,
+// `record_declared_warehouse_write`).
 fn build_materialized_query(
     query: &str,
+    // Names the table of a target that names none; a run without a path has to name it.
+    script_path: Option<&str>,
     partition_value: Option<&str>,
     // Custom (`// data_test <path>`) test bodies, pre-fetched by the caller
     // (`fetch_custom_test_bodies`) so this stays pure/sync and unit-testable —
@@ -129,6 +132,10 @@ fn build_materialized_query(
     };
 
     let ann = parse_pipeline_annotations(query);
+    let ann = match script_path {
+        Some(path) => ann.for_script(path),
+        None => ann,
+    };
     let has_tests = !ann.data_tests.is_empty();
     let Some(m) = ann.materialize else {
         // Data tests run *against the materialized asset*; without a
@@ -211,7 +218,8 @@ fn build_materialized_query(
     }
     if table.is_empty() {
         return Err(Error::ExecutionErr(format!(
-            "materialize: target `ducklake://{}` has no table (use ducklake://<name>/<table>)",
+            "materialize: target `ducklake://{}` has no table, and this run has no script path to \
+             name it after (use ducklake://<name>/<table>)",
             m.target_path
         )));
     }
@@ -403,23 +411,19 @@ async fn compute_sync_alter_ddl(
     base_internal_url: String,
     w_id: String,
     job_dir: String,
+    runner: RunnerMode,
 ) -> Result<String> {
-    let n = probe_blocks.len();
-    let (result, _) = tokio::task::spawn_blocking(move || {
-        run_duckdb_ffi_safe(
-            probe_blocks.iter().map(String::as_str),
-            n,
-            job_args,
-            &token,
-            &base_internal_url,
-            &w_id,
-            &job_dir,
-            SqlResultCollectionStrategy::LastStatementAllRows,
-        )
-    })
+    let (result, _) = run_duckdb(
+        runner,
+        probe_blocks,
+        job_args,
+        token,
+        base_internal_url,
+        w_id,
+        job_dir,
+        SqlResultCollectionStrategy::LastStatementAllRows,
+    )
     .await
-    .map_err(|e| Error::from(to_anyhow(e)))
-    .and_then(|r| r)
     .map_err(|e| {
         Error::ExecutionErr(format!(
             "on_schema_change=sync: the schema pre-pass probe failed ({e}); refusing to write"
@@ -1326,6 +1330,7 @@ pub async fn do_duckdb(
 
     let token = client.token.clone();
     let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
+    let runner = crate::duckdb_runner::runner_mode();
 
     let result_f = async {
         let mut hidden_passwords = hidden_passwords.clone();
@@ -1346,7 +1351,30 @@ pub async fn do_duckdb(
             // itself stays pure/sync.
             let custom_test_bodies =
                 fetch_custom_test_bodies(query, conn, &job.workspace_id).await?;
-            build_materialized_query(query, partition_value.as_deref(), &custom_test_bodies)?
+            // A deployed script, run directly or from a flow, names an untabled target after
+            // its own path. An inline flow step's path is `<flow>/<step id>`, which would name
+            // one shared table per step id across every flow, so it has to name its table.
+            // A flow editor's "Test this step" (marked by `_FLOW_PATH`) previews an inline step
+            // under that same `<flow>/<step id>` path. A step referencing a deployed script
+            // sends that script's hash and previews under its own path, which names its table
+            // as the script's own run does, wherever the script sits relative to the flow.
+            let inline_step_preview = job.runnable_id.is_none()
+                && job
+                    .args
+                    .as_ref()
+                    .is_some_and(|a| a.0.contains_key("_FLOW_PATH"));
+            let script_path = (job.kind == JobKind::Script
+                || (job.kind == JobKind::Preview
+                    && job.flow_step_id.is_none()
+                    && !inline_step_preview))
+                .then(|| job.runnable_path.as_deref())
+                .flatten();
+            build_materialized_query(
+                query,
+                script_path,
+                partition_value.as_deref(),
+                &custom_test_bodies,
+            )?
         } else {
             None
         };
@@ -1473,6 +1501,7 @@ pub async fn do_duckdb(
                             &job.id,
                             client,
                             &mut hidden_passwords,
+                            job_dir,
                         )
                         .await?,
                     );
@@ -1488,6 +1517,7 @@ pub async fn do_duckdb(
                     &mut hidden_passwords,
                     &job.workspace_id,
                     materialize.as_ref().map(|(_, m)| m.asset_path.as_str()),
+                    job_dir,
                 )
                 .await?
                 {
@@ -1496,7 +1526,8 @@ pub async fn do_duckdb(
                     &query_block,
                     conn,
                     &mut hidden_passwords,
-                    &job.workspace_id,
+                    job,
+                    job_dir,
                 )
                 .await?
                 {
@@ -1517,10 +1548,6 @@ pub async fn do_duckdb(
                 probe_blocks,
             )
             .await?;
-            // The probe opens its own DuckDB connection, so it needs the same
-            // connection policy as the main query below.
-            #[cfg(feature = "private")]
-            let probe_blocks = crate::duckdb_isolation_ee::apply_duckdb_isolation(probe_blocks)?;
             let alter_ddl = compute_sync_alter_ddl(
                 probe_blocks,
                 job_args.clone(),
@@ -1529,6 +1556,7 @@ pub async fn do_duckdb(
                 client.base_internal_url.clone(),
                 job.workspace_id.clone(),
                 job_dir.to_string(),
+                runner,
             )
             .await?;
             query = query.replace(
@@ -1554,6 +1582,7 @@ pub async fn do_duckdb(
                             &job.id,
                             client,
                             &mut hidden_passwords,
+                            job_dir,
                         )
                         .await?,
                     );
@@ -1569,6 +1598,7 @@ pub async fn do_duckdb(
                     &mut hidden_passwords,
                     &job.workspace_id,
                     materialize.as_ref().map(|(_, m)| m.asset_path.as_str()),
+                    job_dir,
                 )
                 .await?
                 {
@@ -1577,7 +1607,8 @@ pub async fn do_duckdb(
                     &query_block,
                     conn,
                     &mut hidden_passwords,
-                    &job.workspace_id,
+                    job,
+                    job_dir,
                 )
                 .await?
                 {
@@ -1602,51 +1633,40 @@ pub async fn do_duckdb(
         )
         .await?;
 
-        #[cfg(feature = "private")]
-        let query_block_list =
-            crate::duckdb_isolation_ee::apply_duckdb_isolation(query_block_list)?;
-
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
         let job_dir = job_dir.to_string();
 
         if annotations.prepare {
-            let result = tokio::task::spawn_blocking(move || {
-                prepare_duckdb_ffi_safe(
-                    query_block_list.iter().map(String::as_str),
-                    &token,
-                    &base_internal_url,
-                    &w_id,
-                    &job_dir,
-                )
-            })
-            .await
-            .map_err(|e| Error::from(to_anyhow(e)))
-            .and_then(|r| r)?;
-
-            return Ok(result);
+            return prepare_duckdb(
+                runner,
+                query_block_list,
+                token.clone(),
+                base_internal_url,
+                w_id,
+                job_dir,
+            )
+            .await;
         }
 
-        let result = tokio::task::spawn_blocking(move || {
-            run_duckdb_ffi_safe(
-                query_block_list.iter().map(String::as_str),
-                query_block_list.len(),
-                job_args,
-                &token,
-                &base_internal_url,
-                &w_id,
-                &job_dir,
-                collection_strategy,
-            )
-        })
-        .await
-        .map_err(|e| Error::from(to_anyhow(e)))
-        .and_then(|r| r);
+        let result = run_duckdb(
+            runner,
+            query_block_list,
+            job_args,
+            token.clone(),
+            base_internal_url,
+            w_id,
+            job_dir,
+            collection_strategy,
+        )
+        .await;
 
         let (result, column_order) = match result {
             Ok(r) => r,
             Err(e) => {
                 if let Some((_, meta)) = &materialize {
+                    // Persisted and served by the assets API, so masked like the job error.
+                    let error = mask_secrets(e.to_string(), &hidden_passwords.lock().unwrap());
                     record_mat(
                         conn,
                         &job.workspace_id,
@@ -1656,7 +1676,7 @@ pub async fn do_duckdb(
                         None,
                         None,
                         None,
-                        Some(&e.to_string()),
+                        Some(&error),
                     )
                     .await;
                 }
@@ -1804,6 +1824,8 @@ pub async fn do_duckdb(
                 return Err(Error::ExecutionRawError(to_raw_value(&json!({
                     "message": message,
                     "name": "ExecutionErr",
+                    "flow_path": reserved_variables.get("WM_FLOW_PATH").filter(|p| !p.is_empty()),
+                    "job_id": job.id,
                     "step_id": job.flow_step_id,
                     "data_tests": data_tests,
                 }))));
@@ -1849,19 +1871,10 @@ pub async fn do_duckdb(
     match result {
         Ok(result) => Ok(result),
         Err(e) => {
-            #[cfg(feature = "private")]
-            let e = crate::duckdb_isolation_ee::explain_error(e);
             // Passwords might appear in the error message — and, for the
             // structured data-test failure, in sampled row data read from an
             // attached database — so every outgoing error is sanitized here.
-            let sanitize = |mut s: String| {
-                for pwd in hidden_passwords.lock().unwrap().iter() {
-                    if let Some(sanitized) = sanitize_string_from_password(&s, &pwd.clone()) {
-                        s = sanitized;
-                    }
-                }
-                s
-            };
+            let sanitize = |s: String| mask_secrets(s, &hidden_passwords.lock().unwrap());
             match e {
                 // The structured payload must keep its variant: flattening it
                 // to a string (the arm below) would strip the data-test
@@ -1895,111 +1908,6 @@ pub async fn do_duckdb(
     }
 }
 
-thread_local! {
-    static DUCKDB_FFI_LIB_SINGLETON: RefCell<*const DuckDbFfiLib> = RefCell::new(std::ptr::null());
-}
-
-struct DuckDbFfiLib {
-    run_duckdb_ffi: Symbol<
-        'static,
-        unsafe extern "C" fn(
-            query_block_list: *const *const c_char,
-            query_block_list_count: usize,
-            job_args: *const c_char,
-            token: *const c_char,
-            base_internal_url: *const c_char,
-            w_id: *const c_char,
-            memory_limit: *const c_char,
-            temp_directory: *const c_char,
-            max_result_size: usize,
-            column_order_ptr: *mut *mut c_char,
-            collect_last_only: bool,
-            collect_first_row_only: bool,
-        ) -> *mut c_char,
-    >,
-    prepare_duckdb_ffi: Option<
-        Symbol<
-            'static,
-            unsafe extern "C" fn(
-                query_block_list: *const *const c_char,
-                query_block_list_count: usize,
-                token: *const c_char,
-                base_internal_url: *const c_char,
-                w_id: *const c_char,
-                memory_limit: *const c_char,
-                temp_directory: *const c_char,
-            ) -> *mut c_char,
-        >,
-    >,
-    free_cstr: Symbol<'static, unsafe extern "C" fn(string: *mut c_char) -> ()>,
-}
-
-impl DuckDbFfiLib {
-    fn get_singleton() -> Result<&'static DuckDbFfiLib> {
-        DUCKDB_FFI_LIB_SINGLETON.with(|cell| unsafe {
-            let mut singleton = cell.borrow_mut();
-            if singleton.is_null() {
-                let lib = DuckDbFfiLib::init()?;
-                let boxed_lib = Box::new(lib);
-                let lib_ptr = Box::leak(boxed_lib);
-                *singleton = lib_ptr as *const _;
-                Ok(NonNull::new_unchecked(*singleton as *mut DuckDbFfiLib).as_ref())
-            } else {
-                Ok(&**singleton)
-            }
-        })
-    }
-    fn init() -> Result<Self> {
-        let lib = unsafe {
-            Library::new(if cfg!(target_os = "macos") {
-                "libwindmill_duckdb_ffi_internal.dylib"
-            } else if cfg!(target_os = "windows") {
-                "windmill_duckdb_ffi_internal.dll"
-            } else {
-                "libwindmill_duckdb_ffi_internal.so"
-            })
-            .map_err(|e| {
-                Error::InternalErr(format!(
-                    "Could not init duckdb. Make sure you have the latest windmill_duckdb_ffi_lib.{} alongside your binary : https://github.com/windmill-labs/windmill/releases \n{}",
-                    if cfg!(target_os = "macos") { "dylib" }
-                        else if cfg!(target_os = "windows") { "dll" }
-                        else { "so" },
-                    e.to_string()
-                ))
-            })?
-        };
-
-        let lib = Box::leak(Box::new(lib));
-
-        // Version mismatch should only be possible on Windows agent workers
-        // We check for it because FFI interface mismatch will cause undefined behavior / crashes
-        unsafe {
-            let expected_version: c_uint = 3;
-            let get_version: Symbol<'static, unsafe extern "C" fn() -> c_uint> = 
-            lib.get(b"get_version")
-                .map_err(|e| return Error::ExecutionErr(format!("Could not find get_version in the duckdb ffi library. If you are not using docker, consider manually upgrading windmill_duckdb_ffi_lib. {}", e.to_string())))?;
-            let actual_version = get_version();
-            if actual_version < expected_version {
-                return Err(Error::InternalErr(
-                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please update to the latest windmill_duckdb_ffi_lib."),
-                ));
-            } else if actual_version > expected_version {
-                return Err(Error::InternalErr(
-                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please upgrade your worker to the latest windmill version."),
-                ));
-            }
-        }
-
-        let prepare_duckdb_ffi = unsafe { lib.get(b"prepare_duckdb_ffi").ok() };
-
-        Ok(DuckDbFfiLib {
-            run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
-            prepare_duckdb_ffi,
-            free_cstr: unsafe { lib.get(b"free_cstr").map_err(to_anyhow)? },
-        })
-    }
-}
-
 // 20% headroom for Rust runtime + DuckDB's untracked allocations. Mirrors
 // DuckDB's own default ratio, but applied to the worker's cgroup budget
 // instead of host RAM.
@@ -2029,123 +1937,43 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
     Some(format!("{}MiB", mib.max(64)))
 }
 
-// Read backend/windmill-duckdb-ffi-internal/README_DEV.md for details about why we use FFI
-// The FFI returns errors as `ERROR <json-encoded-message>` (the message is
-// serde_json::to_string'd). Decode the JSON string back so multi-line errors
-// render with real newlines, not escaped `\n` inside wrapping quotes; fall back
-// to the raw slice if it is somehow not a JSON string.
+/// Longest first: a short secret can occur inside a longer one (an IAM resource's placeholder
+/// password inside the token minted for it), and masking it first leaves the rest unmatched.
+/// An empty secret would put a mask between every character.
+fn mask_secrets(mut s: String, secrets: &[String]) -> String {
+    let mut secrets: Vec<&String> = secrets.iter().filter(|p| !p.is_empty()).collect();
+    secrets.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    for pwd in secrets {
+        if let Some(sanitized) = sanitize_string_from_password(&s, pwd) {
+            s = sanitized;
+        }
+    }
+    s
+}
+
+// The runner reports an engine error as `ERROR <json-encoded-message>`. Decode the JSON string
+// back so multi-line errors render with real newlines, not escaped `\n` inside wrapping quotes;
+// fall back to the raw slice if it is somehow not a JSON string.
 fn decode_ffi_error(result_str: &str) -> String {
     let raw = result_str.strip_prefix("ERROR ").unwrap_or(result_str);
-    let msg = serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string());
-    // Mirrors the filter the FFI applies to the same variable (`ResourceLimits::from_ffi`);
-    // they live in separate crates, so the rule is stated twice and must stay one rule.
-    let configured = env::var("DUCKDB_MAX_TEMP_DIRECTORY_SIZE").is_ok_and(|v| !v.trim().is_empty());
-    match spill_cap_hint(&msg, configured) {
-        Some(hint) => format!("{msg}\n{hint}"),
-        None => msg,
-    }
+    serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string())
 }
 
-/// DuckDB's own wording when a query outgrows the spill cap. Asserted against real engine
-/// output by `spilling_past_the_configured_cap_fails_the_query_and_cleans_up` in
-/// `windmill-duckdb-ffi-internal`, so an engine bump that rewords it fails there rather than
-/// silently dropping the hint.
-const SPILL_CAP_ENGINE_MARKER: &str = "This limit was set by the 'max_temp_directory_size' setting";
-
-/// Split out of [`decode_ffi_error`] so the branch is testable without mutating the process
-/// environment. The engine emits the same text for a configured cap and for its own default,
-/// so which limit was hit has to come from the worker's config, not from the message.
-fn spill_cap_hint(msg: &str, configured: bool) -> Option<&'static str> {
-    if !msg.contains(SPILL_CAP_ENGINE_MARKER) {
-        return None;
-    }
-    Some(if configured {
-        SPILL_CAP_CONFIGURED
-    } else {
-        SPILL_CAP_DEFAULT
-    })
-}
-
-/// Both hints open by contradicting the engine, whose message ends by suggesting
-/// `PRAGMA max_temp_directory_size='10GiB'`: every windmill connection refuses that, since the
-/// cap is frozen along with the temp directory, so following it yields a second,
-/// unrelated-looking permission error. True either way, because the lock is unconditional.
-const SPILL_CAP_CONFIGURED: &str = "\nThe PRAGMA suggested above is refused: this connection's \
-     temp directory and the cap on it are frozen, so a script cannot raise the limit. That limit \
-     is the worker's DUCKDB_MAX_TEMP_DIRECTORY_SIZE. Spill less (fewer threads, a narrower scan, \
-     aggregating before the join), or ask an operator to raise it.";
-
-/// Nothing configured a cap, so this is DuckDB's own default and the worker is genuinely low on
-/// disk. Naming the env var here would send the reader after a knob nobody set.
-const SPILL_CAP_DEFAULT: &str = "\nThe PRAGMA suggested above is refused: this connection's temp \
-     directory and the cap on it are frozen, so a script cannot raise the limit. No cap is \
-     configured on this worker, so that limit is DuckDB's default of 90% of the free space on \
-     its temp volume: the worker is low on disk. Free space on it, or spill less (fewer threads, \
-     a narrower scan, aggregating before the join).";
-
-fn run_duckdb_ffi_safe<'a>(
-    query_block_list: impl Iterator<Item = &'a str>,
+/// Turns what the runner returned into the job result.
+fn finish_run(
+    result_str: String,
+    column_order: Option<String>,
     query_block_list_count: usize,
-    job_args: Vec<Arg>,
-    token: &str,
-    base_internal_url: &str,
-    w_id: &str,
-    job_dir: &str,
     collection_strategy: SqlResultCollectionStrategy,
 ) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
-    let query_block_list = query_block_list
-        .map(|s| {
-            CString::new(s).map_err(|e| {
-                Error::ExecutionErr(format!("Failed CString conversion: {}", e.to_string()))
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let query_block_list = query_block_list
-        .iter()
-        .map(|s| s.as_ptr())
-        .collect::<Vec<_>>();
-    let job_args = serde_json::to_string(&job_args).map_err(to_anyhow)?;
-
-    let job_args = CString::new(job_args).map_err(to_anyhow)?;
-    let token = CString::new(token).map_err(to_anyhow)?;
-    let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
-    let w_id = CString::new(w_id).map_err(to_anyhow)?;
-    let memory_limit =
-        CString::new(resolve_duckdb_memory_limit().unwrap_or_default()).map_err(to_anyhow)?;
-    let temp_directory = CString::new(job_dir).map_err(to_anyhow)?;
-
-    let run_duckdb_ffi = &DuckDbFfiLib::get_singleton()?.run_duckdb_ffi;
-    let free_cstr = &DuckDbFfiLib::get_singleton()?.free_cstr;
-    let mut column_order: *mut c_char = std::ptr::null_mut();
-    let result_str = unsafe {
-        let ptr = run_duckdb_ffi(
-            query_block_list.as_ptr(),
-            query_block_list_count,
-            job_args.as_ptr(),
-            token.as_ptr(),
-            base_internal_url.as_ptr(),
-            w_id.as_ptr(),
-            memory_limit.as_ptr(),
-            temp_directory.as_ptr(),
-            *MAX_SQL_RESULT_SIZE,
-            &mut column_order,
-            collection_strategy.collect_last_statement_only(query_block_list_count),
-            collection_strategy.collect_first_row_only(),
-        );
-        let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
-        free_cstr(ptr);
-        str
-    };
-
-    let column_order = if column_order.is_null()
-        || !collection_strategy.collect_last_statement_only(query_block_list_count)
-        || collection_strategy.collect_scalar()
-    {
-        None
-    } else {
-        let str = unsafe { CStr::from_ptr(column_order).to_string_lossy().to_string() };
-        unsafe { free_cstr(column_order) };
-        Some(serde_json::from_str::<Vec<String>>(&str)?)
+    let column_order = match column_order {
+        Some(str)
+            if collection_strategy.collect_last_statement_only(query_block_list_count)
+                && !collection_strategy.collect_scalar() =>
+        {
+            Some(serde_json::from_str::<Vec<String>>(&str)?)
+        }
+        _ => None,
     };
 
     if result_str.starts_with("ERROR") {
@@ -2163,60 +1991,76 @@ fn run_duckdb_ffi_safe<'a>(
     }
 }
 
-fn prepare_duckdb_ffi_safe<'a>(
-    query_block_list: impl Iterator<Item = &'a str>,
-    token: &str,
-    base_internal_url: &str,
-    w_id: &str,
-    job_dir: &str,
-) -> Result<Box<RawValue>> {
-    let query_block_list = query_block_list
-        .map(|s| {
-            CString::new(s).map_err(|e| {
-                Error::ExecutionErr(format!("Failed CString conversion: {}", e.to_string()))
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let query_block_list = query_block_list
-        .iter()
-        .map(|s| s.as_ptr())
-        .collect::<Vec<_>>();
-
-    let token = CString::new(token).map_err(to_anyhow)?;
-    let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
-    let w_id = CString::new(w_id).map_err(to_anyhow)?;
-    let memory_limit =
-        CString::new(resolve_duckdb_memory_limit().unwrap_or_default()).map_err(to_anyhow)?;
-    let temp_directory = CString::new(job_dir).map_err(to_anyhow)?;
-
-    let lib = DuckDbFfiLib::get_singleton()?;
-    let prepare_fn = lib.prepare_duckdb_ffi.as_ref().ok_or_else(|| {
-        Error::InternalErr(
-            "prepare_duckdb_ffi not available in duckdb ffi library. Please update to the latest windmill_duckdb_ffi_lib.".to_string(),
-        )
-    })?;
-    let free_cstr = &lib.free_cstr;
-
-    let result_str = unsafe {
-        let ptr = prepare_fn(
-            query_block_list.as_ptr(),
-            query_block_list.len(),
-            token.as_ptr(),
-            base_internal_url.as_ptr(),
-            w_id.as_ptr(),
-            memory_limit.as_ptr(),
-            temp_directory.as_ptr(),
-        );
-        let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
-        free_cstr(ptr);
-        str
-    };
-
+fn finish_prepare(result_str: String) -> Result<Box<RawValue>> {
     if result_str.starts_with("ERROR") {
         Err(Error::ExecutionErr(decode_ffi_error(&result_str)))
     } else {
         Ok(serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?)
     }
+}
+
+async fn run_duckdb(
+    runner: RunnerMode,
+    query_block_list: Vec<String>,
+    job_args: Vec<Arg>,
+    token: String,
+    base_internal_url: String,
+    w_id: String,
+    job_dir: String,
+    collection_strategy: SqlResultCollectionStrategy,
+) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
+    let n = query_block_list.len();
+    let job_args = serde_json::value::to_raw_value(&job_args).map_err(to_anyhow)?;
+    let memory_limit = resolve_duckdb_memory_limit().unwrap_or_default();
+    let out = crate::duckdb_runner::run(
+        runner,
+        &RunnerRequest {
+            mode: RequestMode::Run,
+            blocks: &query_block_list,
+            job_args: Some(&job_args),
+            token: &token,
+            base_internal_url: &base_internal_url,
+            w_id: &w_id,
+            memory_limit: &memory_limit,
+            temp_directory: &job_dir,
+            max_result_size: *MAX_SQL_RESULT_SIZE,
+            collect_last_only: collection_strategy.collect_last_statement_only(n),
+            collect_first_row_only: collection_strategy.collect_first_row_only(),
+        },
+        &job_dir,
+    )
+    .await?;
+    finish_run(out.result, out.column_order, n, collection_strategy)
+}
+
+async fn prepare_duckdb(
+    runner: RunnerMode,
+    query_block_list: Vec<String>,
+    token: String,
+    base_internal_url: String,
+    w_id: String,
+    job_dir: String,
+) -> Result<Box<RawValue>> {
+    let memory_limit = resolve_duckdb_memory_limit().unwrap_or_default();
+    let out = crate::duckdb_runner::run(
+        runner,
+        &RunnerRequest {
+            mode: RequestMode::Prepare,
+            blocks: &query_block_list,
+            job_args: None,
+            token: &token,
+            base_internal_url: &base_internal_url,
+            w_id: &w_id,
+            memory_limit: &memory_limit,
+            temp_directory: &job_dir,
+            max_result_size: 0,
+            collect_last_only: false,
+            collect_first_row_only: false,
+        },
+        &job_dir,
+    )
+    .await?;
+    finish_prepare(out.result)
 }
 
 struct ParsedAttachDbResource<'a> {
@@ -2246,11 +2090,80 @@ fn parse_attach_db_resource<'a>(query: &'a str) -> Option<ParsedAttachDbResource
     None
 }
 
-fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String> {
+/// The verification a DuckDB postgres attach keeps, as its libpq `sslmode` and `sslrootcert`.
+///
+/// Attaches have always turned verify-ca and verify-full into `require`, which resources rely on.
+/// A connection that explicitly refuses invalid certificates — the external instance cluster's —
+/// keeps its mode instead: under `require` its shared password would go to whichever server
+/// answers. DuckDB's libpq takes one root file, so it gets the system bundle plus the configured
+/// certificate, written in the job directory: a resource's certificate is workspace-controlled, so
+/// a file per distinct one has to go with the job rather than pile up on the worker.
+fn pg_attach_verification<'a>(
+    res: &'a PgDatabase,
+    job_dir: &str,
+) -> Result<Option<(&'a str, std::path::PathBuf)>> {
+    let mode = match res.sslmode.as_deref() {
+        // The rule every other Postgres connection uses, so a resource that verifies elsewhere is
+        // not quietly downgraded here.
+        Some(mode @ ("verify-ca" | "verify-full")) if !res.verify_mode_skips_verification() => mode,
+        _ => return Ok(None),
+    };
+    let bundle = windmill_common::system_ca_bundle()
+        .map(std::fs::read_to_string)
+        .transpose()
+        .map_err(|e| Error::ExecutionErr(format!("Failed to read the system CA bundle: {e}")))?
+        .unwrap_or_default();
+    let pem = res.root_certificate_pem.as_deref().unwrap_or_default();
+    if bundle.is_empty() && pem.is_empty() {
+        return Err(Error::ExecutionErr(format!(
+            "sslmode {mode} needs a root certificate, and this worker has no system CA bundle"
+        )));
+    }
+    let roots = format!("{bundle}\n{pem}\n");
+    use sha2::Digest;
+    let path = std::path::Path::new(job_dir).join(format!(
+        "pg_roots_{}.pem",
+        hex::encode(&sha2::Sha256::digest(roots.as_bytes())[..8])
+    ));
+    // The job's modules are written in this directory first, so whatever already sits at this path
+    // may be caller-supplied: trusting it would let the caller pick the CA. Replace it, and
+    // `create_new` refuses to write through anything recreated there.
+    let write_roots = || -> std::io::Result<()> {
+        match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)?
+            .write_all(roots.as_bytes())
+    };
+    write_roots()
+        .map_err(|e| Error::ExecutionErr(format!("Failed to write root certificates: {e}")))?;
+    Ok(Some((mode, path)))
+}
+
+fn pg_attach_uri(res: &PgDatabase, job_dir: &str) -> Result<String> {
+    let uri = res.to_uri();
+    let Some((mode, roots)) = pg_attach_verification(res, job_dir)? else {
+        return Ok(uri);
+    };
+    let base = uri.strip_suffix("?sslmode=require").ok_or_else(|| {
+        Error::internal_err("unexpected sslmode in a postgres connection URI".to_string())
+    })?;
+    Ok(format!(
+        "{base}?sslmode={mode}&sslrootcert={}",
+        urlencoding::encode(&roots.to_string_lossy())
+    ))
+}
+
+fn format_attach_db_conn_str(db_resource: Value, db_type: &str, job_dir: &str) -> Result<String> {
     let s = match db_type.to_lowercase().as_str() {
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
-            res.to_uri()
+            pg_attach_uri(&res, job_dir)?
         }
         #[cfg(feature = "mysql")]
         "mysql" => {
@@ -2317,20 +2230,68 @@ fn get_attach_db_install_str(db_type: &str) -> Result<&str> {
     }
 }
 
+/// A postgres resource with `use_iam_auth` authenticates with an RDS IAM token, which DuckDB's
+/// postgres extension cannot mint: swap one in as the password before the ATTACH is built, and
+/// force TLS as every IAM connection does. The token is valid for 15 minutes, so a connection
+/// DuckDB opens later in the job is refused.
+async fn apply_pg_iam_auth(
+    db_resource: &mut Value,
+    hidden_passwords: &Arc<Mutex<Vec<String>>>,
+) -> Result<()> {
+    if db_resource.get("use_iam_auth").and_then(Value::as_bool) != Some(true) {
+        return Ok(());
+    }
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let res: PgDatabase = serde_json::from_value(db_resource.clone())?;
+        let token = res.iam_auth_token().await?;
+        // DuckDB's connection errors echo the attach URI, where the token is percent-encoded.
+        hidden_passwords
+            .lock()
+            .unwrap()
+            .extend([urlencoding::encode(&token).into_owned(), token.clone()]);
+        db_resource["password"] = json!(token);
+        if !matches!(res.sslmode.as_deref(), Some("verify-ca" | "verify-full")) {
+            db_resource["sslmode"] = json!("require");
+        }
+        Ok(())
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    {
+        let _ = hidden_passwords;
+        Err(Error::ExecutionErr(
+            "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+        ))
+    }
+}
+
 async fn transform_attach_db_resource_query(
     parsed: &ParsedAttachDbResource<'_>,
     job_id: &Uuid,
     client: &AuthedClient,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+    job_dir: &str,
 ) -> Result<Vec<String>> {
-    let db_resource: Value = client
+    let mut db_resource: Value = client
         .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
         .await?;
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
-    db_resource_to_attach_statements(db_resource, parsed.name, parsed.db_type, parsed.extra_args)
-        .await
+    if matches!(
+        parsed.db_type.to_lowercase().as_str(),
+        "postgres" | "postgresql"
+    ) {
+        apply_pg_iam_auth(&mut db_resource, hidden_passwords).await?;
+    }
+    db_resource_to_attach_statements(
+        db_resource,
+        parsed.name,
+        parsed.db_type,
+        parsed.extra_args,
+        job_dir,
+    )
+    .await
 }
 
 async fn db_resource_to_attach_statements(
@@ -2338,11 +2299,12 @@ async fn db_resource_to_attach_statements(
     ident_name: &str,
     db_type: &str,
     extra_args: Option<&str>,
+    job_dir: &str,
 ) -> Result<Vec<String>> {
     // Escape single quotes: the connection string is built from resource fields
     // (host/db/user/password) and embedded in a single-quoted DuckDB literal, so an
     // unescaped quote in any field would otherwise break out of the ATTACH statement.
-    let conn_str = format_attach_db_conn_str(db_resource, db_type)?.replace('\'', "''");
+    let conn_str = format_attach_db_conn_str(db_resource, db_type, job_dir)?.replace('\'', "''");
     let attach_str = format!(
         "ATTACH '{}' as {} (TYPE {}{});",
         conn_str,
@@ -2352,11 +2314,18 @@ async fn db_resource_to_attach_statements(
     )
     .to_string();
 
-    Ok(vec![
+    let mut statements = vec![
         get_attach_db_install_str(db_type)?.to_string(),
         format!("LOAD {};", db_type),
-        attach_str,
-    ])
+    ];
+    // DuckDB 2.0's MySQL scanner hands whole queries to the server by default, which turns
+    // binary-collated text into BLOB and moves grouping to MySQL's collation. Read when the
+    // ATTACH runs, so it has to precede it.
+    if db_type == "mysql" {
+        statements.push("SET mysql_enable_remote_pushdown=false;".to_string());
+    }
+    statements.push(attach_str);
+    Ok(statements)
 }
 
 async fn transform_attach_ducklake(
@@ -2365,6 +2334,7 @@ async fn transform_attach_ducklake(
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     w_id: &str,
     materialize_target: Option<&str>,
+    job_dir: &str,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
         static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'ducklake(://[^':]+)?'\s*AS\s+([^ ;]+)\s*(\([^)]*\))?").unwrap();
@@ -2379,12 +2349,12 @@ async fn transform_attach_ducklake(
         .map(|m| m.as_str()[1..m.as_str().len() - 1].to_string())
         .unwrap_or_default();
 
-    let ducklake = match conn {
+    let mut ducklake = match conn {
         Connection::Http(client) => get_ducklake_from_agent_http(client, name, w_id).await?,
         Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
     };
     // In a fork, METADATA_SCHEMA / DATA_PATH / OVERRIDE_DATA_PATH are owned by the fork
-    // resolution (DuckDB silently keeps the last occurrence of a duplicated option, so a
+    // resolution (the last occurrence of a duplicated option is the one kept, so a
     // user-supplied one would escape the fork namespace back to the parent's).
     let user_extra_args = if ducklake.fork_defer.is_some() {
         strip_fork_reserved_attach_args(&user_extra_args)
@@ -2397,7 +2367,9 @@ async fn transform_attach_ducklake(
         format!(", {}", user_extra_args)
     };
     let db_type = match ducklake.catalog.resource_type {
-        DucklakeCatalogResourceType::Instance => "postgres",
+        DucklakeCatalogResourceType::Instance | DucklakeCatalogResourceType::ExternalInstance => {
+            "postgres"
+        }
         _ => ducklake.catalog.resource_type.as_ref(),
     };
 
@@ -2408,12 +2380,23 @@ async fn transform_attach_ducklake(
     {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
+    if db_type == "postgres" {
+        apply_pg_iam_auth(&mut ducklake.catalog_resource, hidden_passwords).await?;
+    }
+    // A fork attaches each ancestor's catalog too, usually the same IAM-auth database.
+    for a in ducklake
+        .fork_defer
+        .iter_mut()
+        .flat_map(|d| d.ancestors.iter_mut())
+    {
+        apply_pg_iam_auth(&mut a.catalog_resource, hidden_passwords).await?;
+    }
 
     // Escape single quotes: db_conn_str, storage and data_path are embedded in
     // single-quoted DuckDB literals below, so an unescaped quote in a resource
     // field would break out of the ATTACH statement.
     let db_conn_str =
-        format_attach_db_conn_str(ducklake.catalog_resource, db_type)?.replace('\'', "''");
+        format_attach_db_conn_str(ducklake.catalog_resource, db_type, job_dir)?.replace('\'', "''");
     let storage = ducklake
         .storage
         .storage
@@ -2423,37 +2406,18 @@ async fn transform_attach_ducklake(
     let data_path = ducklake.storage.path.replace('\'', "''");
 
     let extra_args = if let Some(default_extra_args) = ducklake.extra_args {
-        format!("{},{}", extra_args, default_extra_args)
+        // A newline, so a trailing `--` comment in the script's args ends before the config's.
+        format!("{}\n,{}", extra_args, default_extra_args)
     } else {
         extra_args
     };
-    // Ducklake 0.3 only requires DATA_PATH at creation and then stores it internally in the catalog
-    // But it will fail if DATA_PATH changes afterwards which is annoying for us
-    // So we always enable override
-    let extra_args = if extra_args.contains("OVERRIDE_DATA_PATH") {
-        extra_args
-    } else {
-        format!(", OVERRIDE_DATA_PATH TRUE{extra_args}")
-    };
-    // Automatically migrate ducklake
-    let extra_args = if extra_args.contains("AUTOMATIC_MIGRATION") {
-        extra_args
-    } else {
-        format!(", AUTOMATIC_MIGRATION TRUE{extra_args}")
-    };
-    // In a fork, re-emit the fork-owned DATA_PATH as the LAST option: DuckDB keeps the last
-    // occurrence of a duplicated option, so this wins over anything the arg stripping might
-    // not recognize (e.g. a dollar-quoted literal), regardless of literal syntax. The
-    // METADATA_SCHEMA injected by the fork resolution is already last within `extra_args`.
-    let extra_args = if ducklake.fork_defer.is_some() {
-        format!("{extra_args}, DATA_PATH 's3://{storage}/{data_path}'")
-    } else {
-        extra_args
-    };
-
-    let attach_str = format!(
-        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",
+    let options = ducklake_attach_options(
+        &format!("s3://{storage}/{data_path}"),
+        &extra_args,
+        ducklake.fork_defer.is_some(),
     );
+    let attach_str =
+        format!("ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} ({options});");
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
     let mut statements = vec![
@@ -2468,9 +2432,90 @@ async fn transform_attach_ducklake(
             defer,
             materialize_target,
             hidden_passwords,
+            job_dir,
         )?);
     }
     Ok(Some(statements))
+}
+
+/// The option list of a lake's ATTACH. `extra_args` are the script's then the lake config's,
+/// each part prefixed by a comma; later options override earlier ones, so Windmill's defaults
+/// come first and, in a fork, the fork-owned DATA_PATH last (it must win over anything the
+/// reserved-arg stripping did not recognize, e.g. a dollar-quoted literal).
+fn ducklake_attach_options(data_path: &str, extra_args: &str, fork: bool) -> String {
+    // OVERRIDE_DATA_PATH: DuckLake stores DATA_PATH at creation and refuses a different one
+    // afterwards. DUCKLAKE_VERSION '1.0': a catalog migrated to 1.1 cannot be downgraded and is
+    // unreadable by DuckDB 1.x engines, so one job on an upgraded worker would break every older
+    // worker and any rollback. Unpinned, AUTOMATIC_MIGRATION targets the newest format and new
+    // catalogs are created at it.
+    let mut options = format!(
+        "DATA_PATH '{data_path}', OVERRIDE_DATA_PATH TRUE, AUTOMATIC_MIGRATION TRUE, \
+         DUCKLAKE_VERSION '1.0'{extra_args}"
+    );
+    if fork {
+        options.push_str(&format!("\n, DATA_PATH '{data_path}'"));
+    }
+    keep_last_attach_option(&options)
+}
+
+/// Drops every occurrence of an ATTACH option but its last. DuckDB 1.x kept the last of
+/// duplicated options; 2.0 rejects the statement ("Unexpected duplicate option").
+fn keep_last_attach_option(options: &str) -> String {
+    let parts = split_attach_options(options);
+    let key = |part: &str| -> String {
+        match part.strip_prefix('"') {
+            Some(quoted) => quoted.split('"').next().unwrap_or_default().to_string(),
+            None => part
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect(),
+        }
+        .to_ascii_uppercase()
+    };
+    let keys: Vec<String> = parts.iter().map(|p| key(p)).collect();
+    parts
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| keys[i + 1..].iter().all(|k| k.is_empty() || *k != keys[*i]))
+        .map(|(_, p)| p.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Splits an ATTACH option list on the commas outside string literals ([`sql_literal_len`])
+/// and parentheses, dropping empty parts. SQL comments are dropped too: a `--` comment would
+/// otherwise swallow whatever is joined after it on the same line, `);` included.
+fn split_attach_options(options: &str) -> Vec<String> {
+    let options = strip_sql_comments(options);
+    let options = options.as_str();
+    let mut parts = vec![];
+    let mut part = String::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < options.len() {
+        let rest = &options[i..];
+        if let Some(len) = sql_literal_len(options, i) {
+            part.push_str(&rest[..len]);
+            i += len;
+            continue;
+        }
+        let c = rest.chars().next().unwrap();
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(std::mem::take(&mut part).trim().to_string());
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+        part.push(c);
+        i += c.len_utf8();
+    }
+    parts.push(part.trim().to_string());
+    parts.retain(|p| !p.is_empty());
+    parts
 }
 
 // Double-quote a possibly schema-qualified table reference, each dotted segment
@@ -2501,6 +2546,7 @@ fn fork_defer_statements(
     defer: &windmill_common::workspaces::DucklakeForkDefer,
     materialize_target: Option<&str>,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
+    job_dir: &str,
 ) -> Result<Vec<String>> {
     let mut stmts = vec![];
     if defer.ancestors.is_empty() {
@@ -2513,12 +2559,13 @@ fn fork_defer_statements(
             hidden_passwords.lock().unwrap().push(pwd.to_string());
         }
         let db_type = match a.catalog.resource_type {
-            DucklakeCatalogResourceType::Instance => "postgres",
+            DucklakeCatalogResourceType::Instance
+            | DucklakeCatalogResourceType::ExternalInstance => "postgres",
             _ => a.catalog.resource_type.as_ref(),
         };
         stmts.push(get_attach_db_install_str(db_type)?.to_string());
-        let conn_str =
-            format_attach_db_conn_str(a.catalog_resource.clone(), db_type)?.replace('\'', "''");
+        let conn_str = format_attach_db_conn_str(a.catalog_resource.clone(), db_type, job_dir)?
+            .replace('\'', "''");
         let storage = a
             .storage
             .storage
@@ -2532,8 +2579,8 @@ fn fork_defer_statements(
             .map(|s| format!(", METADATA_SCHEMA '{}'", s.replace('\'', "''")))
             .unwrap_or_default();
         // The ancestor config's own non-reserved args (e.g. `ENCRYPTED true`) — an
-        // option-dependent lake wouldn't attach without them. Emitted FIRST: DuckDB keeps the
-        // last occurrence of a duplicated option, so the fork-owned DATA_PATH / READ_ONLY /
+        // option-dependent lake wouldn't attach without them. Emitted FIRST: the last occurrence
+        // of a duplicated option is the one kept, so the fork-owned DATA_PATH / READ_ONLY /
         // METADATA_SCHEMA after them always win.
         let extra_args = a
             .extra_args
@@ -2544,8 +2591,11 @@ fn fork_defer_statements(
         // / CREATE_IF_NOT_EXISTS: an ancestor lake that would need creating or migrating fails
         // loudly rather than being mutated from a fork. IF NOT EXISTS: several ATTACH blocks in
         // one script (e.g. the user's + the materialize synthetic one) emit the same ancestors.
+        let options = keep_last_attach_option(&format!(
+            "{extra_args}DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema}"
+        ));
         stmts.push(format!(
-            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} ({extra_args}DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema});",
+            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} ({options});",
             a.alias
         ));
     }
@@ -2607,33 +2657,87 @@ fn fork_defer_statements(
     Ok(stmts)
 }
 
+struct AttachedDatatable<'a> {
+    /// The data table reference, query string included; a bare `datatable` is `main`.
+    reference: String,
+    alias: &'a str,
+}
+
+/// `ATTACH 'datatable[://<name>][?role=<role>]' AS <alias>`. A bare `datatable` names the default
+/// data table, so the role query string has to be accepted with and without an explicit name. The
+/// reference is split only once the workspace can be read, because a stored name may contain `?`.
+fn parse_attach_datatable(query: &str) -> Option<AttachedDatatable<'_>> {
+    lazy_static::lazy_static! {
+        static ref RE: regex::Regex = regex::Regex::new(
+            r"(?i)ATTACH\s*'datatable(://[^':]+|\?[^':]*)?'\s*AS\s+([^ ;]+)"
+        ).unwrap();
+    }
+    let cap = RE.captures(query)?;
+    let reference = match cap.get(1).map(|m| m.as_str()) {
+        Some(named) if named.starts_with("://") => named[3..].to_string(),
+        Some(query) => format!("main{query}"),
+        None => "main".to_string(),
+    };
+    let alias = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+    Some(AttachedDatatable { reference, alias })
+}
+
 async fn transform_attach_datatable(
     query: &str,
     conn: &Connection,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
-    w_id: &str,
+    job: &MiniPulledJob,
+    job_dir: &str,
 ) -> Result<Option<Vec<String>>> {
-    lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?'\s*AS\s+([^ ;]+)").unwrap();
-    }
-    let Some(cap) = RE.captures(query) else {
+    let Some(attached) = parse_attach_datatable(query) else {
         return Ok(None);
     };
-    let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
-    let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
 
+    // A query string that does not parse is refused rather than dropped: attaching under the
+    // default role when the statement asked for another one is the failure this guards.
     let db_resource = match conn {
         Connection::Http(client) => {
-            get_datatable_resource_from_agent_http(client, name, w_id).await?
+            let (name, role) =
+                windmill_common::workspaces::parse_datatable_ref(&attached.reference)?;
+            get_datatable_resource_from_agent_http(client, name, &job.workspace_id, role, &job.id)
+                .await?
         }
-        Connection::Sql(db) => get_datatable_resource_from_db_unchecked(db, w_id, name).await?,
+        Connection::Sql(db) => {
+            let (name, role) = windmill_common::workspaces::parse_datatable_ref_for(
+                db,
+                &job.workspace_id,
+                &attached.reference,
+            )
+            .await?;
+            get_datatable_resource_from_db(
+                db,
+                &job.workspace_id,
+                &name,
+                role.as_deref(),
+                DatatableAccess::PermissionedAs {
+                    permissioned_as: &job.permissioned_as,
+                    email: &job.permissioned_as_email,
+                    connect_as: DatatableConnectAs::from_job_perms(
+                        job.viewer_data_access.unwrap_or(false),
+                        job.permissioned_as_end_user_email.as_deref(),
+                    ),
+                },
+            )
+            .await?
+        }
     };
 
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
+    let mut db_resource = db_resource;
+    apply_pg_iam_auth(&mut db_resource, hidden_passwords).await?;
 
-    Ok(Some(pg_secret_attach_statements(db_resource, alias_name)?))
+    Ok(Some(pg_secret_attach_statements(
+        db_resource,
+        attached.alias,
+        job_dir,
+    )?))
 }
 
 // Secret names must be plain identifiers; the hash keeps two aliases distinct even
@@ -2652,18 +2756,42 @@ fn datatable_secret_name(alias: &str) -> String {
 }
 
 /// ATTACH a datatable's postgres database through a DuckDB TEMPORARY SECRET holding
-/// the connection parameters; only sslmode rides in the ATTACH string.
-fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<Vec<String>> {
+/// the connection parameters; only sslmode and options ride in the ATTACH string.
+fn pg_secret_attach_statements(
+    db_resource: Value,
+    alias_name: &str,
+    job_dir: &str,
+) -> Result<Vec<String>> {
     let res: PgDatabase = serde_json::from_value(db_resource)?;
     // Escape single quotes: each field is embedded in a single-quoted DuckDB literal,
     // so an unescaped quote would break out of the CREATE SECRET statement.
     let esc = |s: &str| s.replace('\'', "''");
     // The postgres secret type has no sslmode parameter, so it goes in the ATTACH
     // string; only the libpq values PgDatabase::to_uri collapses to are forwarded.
-    let sslmode = match res.sslmode.as_deref() {
-        Some("disable") => "disable",
-        Some("require") | Some("verify-ca") | Some("verify-full") => "require",
-        _ => "prefer",
+    let sslmode = match pg_attach_verification(&res, job_dir)? {
+        // A libpq keyword/value string: the path is quoted for libpq, then for the DuckDB literal.
+        Some((mode, roots)) => format!(
+            "{mode} sslrootcert=''{}''",
+            roots
+                .to_string_lossy()
+                .replace('\\', "\\\\")
+                .replace('\'', "\\''")
+        ),
+        None => match res.sslmode.as_deref() {
+            Some("disable") => "disable",
+            Some("require") | Some("verify-ca") | Some("verify-full") => "require",
+            _ => "prefer",
+        }
+        .to_string(),
+    };
+    // Nor an options parameter. The value is quoted for libpq's keyword/value syntax first,
+    // then escaped for the DuckDB literal around it.
+    let options = match res.non_empty_options() {
+        Some(o) => esc(&format!(
+            " options='{}'",
+            o.replace('\\', "\\\\").replace('\'', "\\'")
+        )),
+        None => String::new(),
     };
     let secret_name = datatable_secret_name(alias_name);
     Ok(vec![
@@ -2677,7 +2805,12 @@ fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<V
             esc(res.login_name()),
             esc(res.password.as_deref().unwrap_or("")),
         ),
-        format!("ATTACH 'sslmode={sslmode}' AS {alias_name} (TYPE postgres, SECRET {secret_name});"),
+        format!("ATTACH 'sslmode={sslmode}{options}' AS {alias_name} (TYPE postgres, SECRET {secret_name});"),
+        // The attachment keeps its own resolved connection string, so the secret is dead weight
+        // once attached — and a live one is a credential the script's own statements can name: an
+        // `ATTACH 'dbname=<other>' (TYPE postgres, SECRET …)` would reach a database nobody
+        // authorized this job for, as this role.
+        format!("DROP TEMPORARY SECRET {secret_name};"),
     ])
 }
 
@@ -2752,6 +2885,125 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pg_attach_keeps_verification_only_when_required() {
+        let job_dir = std::env::temp_dir().join(format!("wm-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let job_dir = job_dir.to_string_lossy().to_string();
+        let pg = |sslmode: &str, accept_invalid_certs: Option<bool>| PgDatabase {
+            host: "db.internal".to_string(),
+            user: Some("custom_instance_user".to_string()),
+            password: Some("pw".to_string()),
+            port: None,
+            sslmode: Some(sslmode.to_string()),
+            dbname: "dt".to_string(),
+            root_certificate_pem: Some("-----BEGIN CERTIFICATE-----test".to_string()),
+            accept_invalid_certs,
+            use_iam_auth: None,
+            region: None,
+            options: None,
+        };
+        let uri = pg_attach_uri(&pg("verify-full", Some(false)), &job_dir).unwrap();
+        assert!(uri.contains("?sslmode=verify-full&sslrootcert="), "{uri}");
+        let root = urlencoding::decode(uri.split("sslrootcert=").nth(1).unwrap()).unwrap();
+        assert!(std::fs::read_to_string(root.as_ref())
+            .unwrap()
+            .contains("-----BEGIN CERTIFICATE-----test"));
+        // A file a job module planted under the same name is not trusted.
+        std::fs::write(root.as_ref(), "-----BEGIN CERTIFICATE-----planted").unwrap();
+        assert_eq!(
+            pg_attach_uri(&pg("verify-full", Some(false)), &job_dir).unwrap(),
+            uri
+        );
+        assert!(!std::fs::read_to_string(root.as_ref())
+            .unwrap()
+            .contains("planted"));
+        // Every certificate a job attaches keeps its own file: one attach must not evict another's.
+        for i in 0..40 {
+            let mut other = pg("verify-full", Some(false));
+            other.root_certificate_pem = Some(format!("-----BEGIN CERTIFICATE-----{i}"));
+            let other = pg_attach_uri(&other, &job_dir).unwrap();
+            let path = urlencoding::decode(other.split("sslrootcert=").nth(1).unwrap()).unwrap();
+            assert!(std::path::Path::new(path.as_ref()).is_file(), "{path}");
+        }
+        assert!(
+            std::path::Path::new(root.as_ref()).is_file(),
+            "the first file is still there"
+        );
+        let external = serde_json::to_value(pg("verify-full", Some(false))).unwrap();
+        let attach = &pg_secret_attach_statements(external, "dt", &job_dir).unwrap()[3];
+        assert!(
+            attach.starts_with(&format!(
+                "ATTACH 'sslmode=verify-full sslrootcert=''{}''",
+                root.replace('\\', "\\\\")
+            )),
+            "{attach}"
+        );
+        // A resource carrying a root certificate verifies without opting in, as it does on every
+        // other Postgres path; one carrying neither keeps the historical downgrade.
+        assert!(pg_attach_uri(&pg("verify-full", None), &job_dir)
+            .unwrap()
+            .contains("?sslmode=verify-full&sslrootcert="));
+        let mut bare = pg("verify-full", None);
+        bare.root_certificate_pem = None;
+        assert!(pg_attach_uri(&bare, &job_dir)
+            .unwrap()
+            .ends_with("?sslmode=require"));
+        assert!(pg_attach_uri(&pg("require", Some(false)), &job_dir)
+            .unwrap()
+            .ends_with("?sslmode=require"));
+        std::fs::remove_dir_all(&job_dir).unwrap();
+    }
+
+    #[test]
+    fn attach_datatable_parses_name_and_role() {
+        let reference_of = |q: &str| parse_attach_datatable(q).unwrap().reference;
+        let named =
+            parse_attach_datatable("ATTACH 'datatable://sales?role=analytics' AS dt").unwrap();
+        assert_eq!(
+            (named.reference.as_str(), named.alias),
+            ("sales?role=analytics", "dt")
+        );
+        // A bare `datatable` is the default one, and still takes a role.
+        assert_eq!(
+            reference_of("ATTACH 'datatable?role=analytics' AS dt"),
+            "main?role=analytics"
+        );
+        assert_eq!(reference_of("ATTACH 'datatable://sales' AS dt"), "sales");
+        assert_eq!(reference_of("ATTACH 'datatable' AS dt"), "main");
+        assert!(parse_attach_datatable("SELECT 1").is_none());
+        // A stored name can contain `?`, so that is left to the workspace lookup to split.
+        assert_eq!(reference_of("ATTACH 'datatable://a?b' AS dt"), "a?b");
+
+        // The key matches case-insensitively, as the `-- role` annotation does, and a query string
+        // that does not parse is refused rather than attached under the default role.
+        let parse = |q: &str| {
+            windmill_common::workspaces::parse_datatable_ref(&reference_of(q))
+                .map(|(name, role)| (name.to_string(), role.map(str::to_string)))
+        };
+        assert_eq!(
+            parse("ATTACH 'datatable://sales?Role=analytics' AS dt").unwrap(),
+            ("sales".to_string(), Some("analytics".to_string()))
+        );
+        for malformed in [
+            "ATTACH 'datatable://sales?role=' AS dt",
+            "ATTACH 'datatable://sales?role=an;alytics' AS dt",
+            "ATTACH 'datatable://sales?x=1&role=analytics' AS dt",
+        ] {
+            assert!(parse(malformed).is_err(), "silently ignored: {malformed}");
+        }
+    }
+
+    #[test]
+    fn mask_secrets_masks_a_token_containing_a_shorter_secret() {
+        let token = "h:5432/?Action=connect&DBUser=rds_iam&X-Amz-Signature=abc123";
+        let secrets = [String::new(), "rds_iam".to_string(), token.to_string()];
+        assert_eq!(
+            mask_secrets(format!("failed for {token} as rds_iam"), &secrets),
+            "failed for ****** as ******"
+        );
+    }
+
+    #[test]
     fn decode_ffi_error_unescapes_multiline_and_strips_quotes() {
         // Mirror the FFI: JSON-encode the raw DuckDB message, prefix "ERROR ".
         let raw_msg = "Invalid Input Error: data tests failed on main/raw_orders \
@@ -2774,33 +3026,6 @@ mod tests {
         );
         // non-JSON payload falls back to the raw slice
         assert_eq!(decode_ffi_error("ERROR not json"), "not json");
-    }
-
-    /// The engine says the same thing whether the cap came from the worker or is its own
-    /// default, so the attribution has to come from the config — naming the env var on a
-    /// worker that never set it would send the reader after the wrong problem.
-    #[test]
-    fn spill_cap_hint_attributes_the_limit_to_whoever_set_it() {
-        let capped = "Out of Memory Error: failed to offload data block of size 256.0 KiB \
-             (18.9 MiB/19.0 MiB used).\nThis limit was set by the 'max_temp_directory_size' \
-             setting.\nYou can adjust this setting, by using (for example) PRAGMA \
-             max_temp_directory_size='10GiB'";
-
-        let configured = spill_cap_hint(capped, true).expect("the cap error must be recognised");
-        assert!(configured.contains("DUCKDB_MAX_TEMP_DIRECTORY_SIZE"));
-
-        let default = spill_cap_hint(capped, false).expect("the cap error must be recognised");
-        assert!(
-            !default.contains("DUCKDB_MAX_TEMP_DIRECTORY_SIZE") && default.contains("low on disk"),
-            "with nothing configured the hint must point at the disk, not at an unset variable"
-        );
-
-        // Both must contradict the PRAGMA the engine suggests, which the lock always refuses.
-        assert!([configured, default]
-            .iter()
-            .all(|h| h.contains("PRAGMA suggested above is refused")));
-
-        assert!(spill_cap_hint("Binder Error: column \"x\" not found", true).is_none());
     }
 
     fn test_ancestor(wid: &str) -> windmill_common::workspaces::DucklakeAncestorAttach {
@@ -2856,6 +3081,40 @@ mod tests {
     }
 
     #[test]
+    fn ducklake_attach_pins_catalog_format_and_never_repeats_an_option() {
+        assert_eq!(
+            ducklake_attach_options("s3://b/p", "", false),
+            "DATA_PATH 's3://b/p', OVERRIDE_DATA_PATH TRUE, AUTOMATIC_MIGRATION TRUE, \
+             DUCKLAKE_VERSION '1.0'"
+        );
+        // The script's then the lake config's args override the defaults; in a fork the
+        // fork-owned DATA_PATH overrides everything.
+        assert_eq!(
+            ducklake_attach_options(
+                "s3://b/fork",
+                ", data_path 's3://b/parent', ducklake_version '1.1',METADATA_SCHEMA 'a,b'",
+                true
+            ),
+            "OVERRIDE_DATA_PATH TRUE, AUTOMATIC_MIGRATION TRUE, ducklake_version '1.1', \
+             METADATA_SCHEMA 'a,b', DATA_PATH 's3://b/fork'"
+        );
+        assert_eq!(
+            keep_last_attach_option("X 'it''s, ok', ENCRYPTED $t$a, b$t$, X 1, f(a, b)"),
+            "ENCRYPTED $t$a, b$t$, X 1, f(a, b)"
+        );
+        assert_eq!(
+            keep_last_attach_option(
+                "DATA_PATH 'a', \"data_path\" 'b', READ_ONLY false -- why, it is\n, /* x, */ E 1"
+            ),
+            "\"data_path\" 'b', READ_ONLY false, E 1"
+        );
+        assert_eq!(
+            keep_last_attach_option("READ_ONLY false /* a /* b, */ c, */, E 1"),
+            "READ_ONLY false, E 1"
+        );
+    }
+
+    #[test]
     fn test_fork_defer_statements_ancestor_extra_args() {
         // The ancestor config's own args (e.g. ENCRYPTED) must ride on its read-only attach —
         // BEFORE the fork-owned options, so DuckDB's last-occurrence-wins keeps DATA_PATH /
@@ -2863,7 +3122,7 @@ mod tests {
         let mut defer = test_fork_defer(vec![("orders", false)], vec![]);
         defer.ancestors[0].extra_args = Some("ENCRYPTED true".to_string());
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp, "/tmp").unwrap();
         let attach = stmts
             .iter()
             .find(|s| s.starts_with("ATTACH IF NOT EXISTS"))
@@ -2887,7 +3146,7 @@ mod tests {
             vec![],
         );
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp, "/tmp").unwrap();
         let joined = stmts.join("\n");
         assert!(
             joined.contains(
@@ -2919,7 +3178,7 @@ mod tests {
     fn test_fork_defer_statements_shape() {
         let defer = test_fork_defer(vec![("orders", false), ("dim", true)], vec![]);
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp, "/tmp").unwrap();
         let joined = stmts.join("\n");
         // Ancestor attach: read-only, idempotent, never auto-migrating or auto-creating.
         assert!(joined.contains("ATTACH IF NOT EXISTS"), "{joined}");
@@ -2945,9 +3204,15 @@ mod tests {
         // Target currently a defer view → skip its CREATE, drop the view (+ companion).
         let defer = test_fork_defer(vec![("orders", false)], vec!["orders", "orders_current"]);
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts =
-            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
-                .unwrap();
+        let stmts = fork_defer_statements(
+            "lake",
+            "_wm_target",
+            &defer,
+            Some("lake/orders"),
+            &mut hp,
+            "/tmp",
+        )
+        .unwrap();
         let joined = stmts.join("\n");
         assert!(!joined.contains("CREATE VIEW"), "{joined}");
         assert!(
@@ -2962,15 +3227,22 @@ mod tests {
         // Target already a real table (NOT in fork_views, e.g. after a failed re-run whose
         // status can't be trusted) → no DROP VIEW, or the job would wedge on a type mismatch.
         let defer = test_fork_defer(vec![("orders", false)], vec![]);
-        let stmts =
-            fork_defer_statements("lake", "_wm_target", &defer, Some("lake/orders"), &mut hp)
-                .unwrap();
+        let stmts = fork_defer_statements(
+            "lake",
+            "_wm_target",
+            &defer,
+            Some("lake/orders"),
+            &mut hp,
+            "/tmp",
+        )
+        .unwrap();
         assert!(!stmts.join("\n").contains("DROP VIEW"), "{stmts:?}");
 
         // Target in a different lake → this lake's defer views are untouched.
         let defer = test_fork_defer(vec![("orders", false)], vec!["orders"]);
         let stmts =
-            fork_defer_statements("lake", "dl", &defer, Some("other/orders"), &mut hp).unwrap();
+            fork_defer_statements("lake", "dl", &defer, Some("other/orders"), &mut hp, "/tmp")
+                .unwrap();
         let joined = stmts.join("\n");
         assert!(
             joined.contains("CREATE VIEW IF NOT EXISTS dl.\"orders\""),
@@ -2983,7 +3255,7 @@ mod tests {
     fn test_fork_defer_statements_schema_qualified() {
         let defer = test_fork_defer(vec![("staging.raw", false)], vec![]);
         let mut hp = Arc::new(Mutex::new(vec![]));
-        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp).unwrap();
+        let stmts = fork_defer_statements("lake", "dl", &defer, None, &mut hp, "/tmp").unwrap();
         let joined = stmts.join("\n");
         assert!(
             joined.contains("CREATE SCHEMA IF NOT EXISTS dl.\"staging\";"),
@@ -3424,7 +3696,7 @@ mod tests {
         // The wrapped query still references `$file`, so the parsed sig binds it.
         // No custom data tests here, so no fetched bodies are needed.
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3458,6 +3730,7 @@ mod tests {
         // binds them at run time.
         let (rewritten, _) = build_materialized_query(
             script,
+            None,
             Some("2026-07-02"),
             &std::collections::HashMap::new(),
         )
@@ -3480,7 +3753,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history track=name\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
@@ -3511,7 +3784,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history deletes=close\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
@@ -3524,10 +3797,11 @@ mod tests {
     #[test]
     fn materialize_scd2_requires_key() {
         let script = "-- materialize scd2 ducklake://main/dim\nSELECT id, name FROM dl.src";
-        let err = match build_materialized_query(script, None, &std::collections::HashMap::new()) {
-            Err(e) => e,
-            Ok(_) => panic!("scd2 without key must error"),
-        };
+        let err =
+            match build_materialized_query(script, None, None, &std::collections::HashMap::new()) {
+                Err(e) => e,
+                Ok(_) => panic!("scd2 without key must error"),
+            };
         assert!(
             format!("{err}").contains("requires a natural key"),
             "got: {err}"
@@ -3540,6 +3814,7 @@ mod tests {
                       -- materialize scd2 ducklake://main/dim key=id\nSELECT id, name FROM dl.src";
         let err = match build_materialized_query(
             script,
+            None,
             Some("2026-07-01"),
             &std::collections::HashMap::new(),
         ) {
@@ -3565,7 +3840,7 @@ mod tests {
                       -- data_test not_null id\n\
                       SELECT id FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3590,7 +3865,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id on_schema_change=fail\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3609,7 +3884,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id on_schema_change=sync\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3642,7 +3917,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3666,7 +3941,7 @@ mod tests {
         let script = "-- materialize ducklake://main/t on_schema_change=fail\n\
                       SELECT a, b FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3809,7 +4084,7 @@ mod tests {
             "dbname": "mydb",
             "sslmode": "require"
         });
-        let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "postgres", "/tmp").unwrap();
         // Should be in URI format: postgres://user:password@host:port/dbname?sslmode=require
         assert!(result.starts_with("postgres://"));
         assert!(result.contains("admin:secret123@localhost:5432/mydb"));
@@ -3822,7 +4097,7 @@ mod tests {
             "host": "db.example.com",
             "dbname": "production"
         });
-        let result = format_attach_db_conn_str(db_resource, "postgres").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "postgres", "/tmp").unwrap();
         // Should be in URI format with defaults: postgres://postgres:@host:5432/dbname?sslmode=prefer
         assert!(result.starts_with("postgres://"));
         assert!(result.contains("@db.example.com:5432/production"));
@@ -3835,7 +4110,7 @@ mod tests {
             "host": "localhost",
             "dbname": "test"
         });
-        let result = format_attach_db_conn_str(db_resource, "postgresql").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "postgresql", "/tmp").unwrap();
         // Should be in URI format (postgresql is treated the same as postgres)
         assert!(result.starts_with("postgres://"));
         assert!(result.contains("@localhost:5432/test"));
@@ -3852,7 +4127,7 @@ mod tests {
             "dbname": "wm_datatables",
             "sslmode": "require"
         });
-        let stmts = pg_secret_attach_statements(db_resource, "dt").unwrap();
+        let stmts = pg_secret_attach_statements(db_resource, "dt", "/tmp").unwrap();
         assert_eq!(stmts[0], "INSTALL postgres;");
         assert_eq!(stmts[1], "LOAD postgres;");
         let secret_name = datatable_secret_name("dt");
@@ -3866,6 +4141,8 @@ mod tests {
             stmts[3],
             format!("ATTACH 'sslmode=require' AS dt (TYPE postgres, SECRET {secret_name});")
         );
+        assert_eq!(stmts[4], format!("DROP TEMPORARY SECRET {secret_name};"));
+        assert_eq!(stmts.len(), 5);
     }
 
     #[test]
@@ -3881,13 +4158,26 @@ mod tests {
             if let Some(s) = input {
                 db_resource["sslmode"] = json!(s);
             }
-            let stmts = pg_secret_attach_statements(db_resource, "dt").unwrap();
+            let stmts = pg_secret_attach_statements(db_resource, "dt", "/tmp").unwrap();
             assert!(
                 stmts[3].starts_with(&format!("ATTACH 'sslmode={expected}'")),
                 "sslmode {input:?} → {}",
                 stmts[3]
             );
         }
+    }
+
+    #[test]
+    fn test_pg_secret_attach_statements_options() {
+        let db_resource = json!({ "host": "h", "dbname": "d", "options": r"-c search_path='a\b'" });
+        let stmts = pg_secret_attach_statements(db_resource, "dt", "/tmp").unwrap();
+        let secret_name = datatable_secret_name("dt");
+        assert_eq!(
+            stmts[3],
+            format!(
+                r"ATTACH 'sslmode=prefer options=''-c search_path=\''a\\b\''''' AS dt (TYPE postgres, SECRET {secret_name});"
+            )
+        );
     }
 
     #[test]
@@ -3904,7 +4194,7 @@ mod tests {
         let db_resource = json!({
             "project_id": "my-gcp-project"
         });
-        let result = format_attach_db_conn_str(db_resource, "bigquery").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "bigquery", "/tmp").unwrap();
         assert_eq!(result, "project=my-gcp-project");
     }
 
@@ -3913,7 +4203,7 @@ mod tests {
         let db_resource = json!({
             "other_field": "value"
         });
-        let result = format_attach_db_conn_str(db_resource, "bigquery");
+        let result = format_attach_db_conn_str(db_resource, "bigquery", "/tmp");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("project_id"));
     }
@@ -3921,7 +4211,7 @@ mod tests {
     #[test]
     fn test_format_attach_db_conn_str_unsupported_type() {
         let db_resource = json!({});
-        let result = format_attach_db_conn_str(db_resource, "oracle");
+        let result = format_attach_db_conn_str(db_resource, "oracle", "/tmp");
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -3935,7 +4225,7 @@ mod tests {
             "host": "localhost",
             "dbname": "test"
         });
-        let result = format_attach_db_conn_str(db_resource, "POSTGRES").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "POSTGRES", "/tmp").unwrap();
         // Should be in URI format
         assert!(result.starts_with("postgres://"));
         assert!(result.contains("@localhost:5432/test"));
@@ -3952,7 +4242,7 @@ mod tests {
             "database": "app_db",
             "ssl": true
         });
-        let result = format_attach_db_conn_str(db_resource, "mysql").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "mysql", "/tmp").unwrap();
         assert!(result.contains("database=app_db"));
         assert!(result.contains("host=mysql.example.com"));
         assert!(result.contains("ssl_mode=required"));
@@ -3969,7 +4259,7 @@ mod tests {
             "database": "test",
             "ssl": false
         });
-        let result = format_attach_db_conn_str(db_resource, "mysql").unwrap();
+        let result = format_attach_db_conn_str(db_resource, "mysql", "/tmp").unwrap();
         assert!(result.contains("ssl_mode=disabled"));
     }
 

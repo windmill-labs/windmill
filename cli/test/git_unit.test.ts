@@ -364,9 +364,11 @@ describe("gitSyncIncludePattern", () => {
   });
   test("flow/app expand to dotted + __ folder patterns", () => {
     expect(gitSyncIncludePattern("flow", "f/x")).toBe("f/x.flow/*,f/x__flow/*");
-    expect(gitSyncIncludePattern("app", "f/x")).toBe("f/x.app/*,f/x__app/*");
+    expect(gitSyncIncludePattern("app", "f/x")).toBe(
+      "f/x.app/*,f/x__app/*,f/x.custom_path.*,f/x.*.custom_path.*"
+    );
     expect(gitSyncIncludePattern("raw_app", "f/x")).toBe(
-      "f/x.raw_app/**,f/x__raw_app/**"
+      "f/x.raw_app/**,f/x__raw_app/**,f/x.custom_path.*,f/x.*.custom_path.*"
     );
   });
   test("folder and triggers", () => {

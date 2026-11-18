@@ -28,7 +28,7 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, resolve_job_timeout, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
-        start_child_process, OccupancyMetrics,
+        script_envars, script_overrides, start_child_process, OccupancyMetrics,
     },
     handle_child, is_sandboxing_enabled, read_ee_registry_bool_with_workspace_override,
     read_ee_registry_with_workspace_override,
@@ -66,6 +66,7 @@ pub(crate) struct JobHandlerInput<'a> {
     pub requirements_o: Option<&'a String>,
     pub shared_mount: &'a str,
     pub worker_name: &'a str,
+    pub modules: Option<&'a HashMap<String, windmill_common::scripts::ScriptModule>>,
 }
 
 pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawValue>, Error> {
@@ -251,7 +252,7 @@ pub async fn resolve<'a>(
 
         // Configure proxies
         {
-            let jps = parse_proxy()?;
+            let jps = parse_proxy(PROXY_ENVS.clone())?;
             if let Some(val) = jps.https_host {
                 cmd.arg(&format!("-Dhttps.proxyHost={}", val));
             }
@@ -416,7 +417,7 @@ async fn install<'a>(
                 .envs(PROXY_ENVS.clone());
             // Configure proxies
             {
-                let jps = parse_proxy()?;
+                let jps = parse_proxy(PROXY_ENVS.clone())?;
                 if let Some(val) = jps.https_host {
                     cmd.arg(&format!("-Dhttps.proxyHost={}", val));
                 }
@@ -612,25 +613,33 @@ async fn compile<'a>(
         inner_content,
         requirements_o,
         parent_runnable_path,
+        modules,
         ..
     }: &mut JobHandlerInput<'a>,
     classpath: &'a str,
     // plugins: Vec<&'a str>,
 ) -> Result<(), Error> {
-    fn compute_hash(code: &str, requirements_o: Option<&String>) -> String {
-        calculate_hash(&format!(
+    // The cached artifact is the whole `target/` dir, and companion modules are written
+    // into the job dir before this runs, so their content can land in it.
+    fn compute_hash(
+        code: &str,
+        requirements_o: Option<&String>,
+        modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+    ) -> String {
+        let base = format!(
             "{}{}",
             code,
             requirements_o
                 .as_ref()
                 .map(|x| x.to_string())
                 .unwrap_or_default()
-        ))
+        );
+        crate::worker::artifact_cache_name(base, modules)
     }
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
     let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
-    let mut hash = compute_hash(inner_content, *requirements_o);
+    let mut hash = compute_hash(inner_content, *requirements_o, *modules);
     hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
@@ -669,9 +678,13 @@ async fn compile<'a>(
                 .current_dir(job_dir.to_owned())
                 .env("PATH", PATH_ENV.as_str())
                 .env("HOME", &*JAVA_HOME_DIR)
-                .env("BASE_INTERNAL_URL", base_internal_url)
-                .envs(envs)
-                .envs(reserved_variables)
+                .env("BASE_INTERNAL_URL", base_internal_url);
+            // javac runs outside the jail even when sandboxing is on: script env
+            // (`LD_PRELOAD`, `JAVA_TOOL_OPTIONS`) would load code into it on the host.
+            if !is_sandboxing_enabled() {
+                cmd.envs(envs);
+            }
+            cmd.envs(reserved_variables)
                 .envs(PROXY_ENVS.clone())
                 .args(&[
                     "-classpath",
@@ -768,29 +781,13 @@ async fn run<'a>(
 
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
-        write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_JAVA_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", &*JAVA_CACHE_DIR)
-                .replace("{SHARED_MOUNT}", &shared_mount)
-                // .replace("{CACHED_TARGET}", &shared_mount)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace(
-                    "{TMP_MOUNT_BLOCK}",
-                    &resolve_nsjail_tmp_mount_block(job_dir).await,
-                )
-                .replace("{TIMEOUT}", &nsjail_timeout),
-        )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.env_clear()
-            .current_dir(job_dir)
+            .current_dir(*job_dir)
             .env("PATH", PATH_ENV.as_str())
             .env("HOME", &*JAVA_HOME_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .envs(envs)
-            .envs(reserved_variables)
+            .envs(&reserved_variables)
             .envs(crate::get_otel_context_envs(&job.id))
             .args(vec![
                 "--config",
@@ -806,7 +803,7 @@ async fn run<'a>(
         }
         // Configure proxies
         {
-            let jps = parse_proxy()?;
+            let jps = parse_proxy(crate::job_proxy_envs())?;
             if let Some(val) = jps.https_host {
                 cmd.arg(&format!("-Dhttps.proxyHost={}", val));
             }
@@ -826,6 +823,32 @@ async fn run<'a>(
         cmd.args(vec!["-classpath", &classpath, "net.script.App"]);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
+        write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_JAVA_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CACHE_DIR}", &*JAVA_CACHE_DIR)
+                .replace("{SHARED_MOUNT}", &shared_mount)
+                // .replace("{CACHED_TARGET}", &shared_mount)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout)
+                .replace(
+                    "{ENVARS}",
+                    &script_envars(
+                        &envs,
+                        &cmd,
+                        &script_overrides(
+                            &["PATH", "HOME", "BASE_INTERNAL_URL"],
+                            &reserved_variables,
+                        ),
+                    ),
+                ),
+        )?;
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         append_logs(
@@ -859,7 +882,7 @@ async fn run<'a>(
         }
         // Configure proxies
         {
-            let jps = parse_proxy()?;
+            let jps = parse_proxy(crate::job_proxy_envs())?;
             if let Some(val) = jps.https_host {
                 cmd.arg(&format!("-Dhttps.proxyHost={}", val));
             }
@@ -920,9 +943,9 @@ struct JavaProxySettings {
     https_port: Option<String>,
     no_proxy: Option<String>,
 }
-fn parse_proxy() -> anyhow::Result<JavaProxySettings> {
+fn parse_proxy(proxy_envs: Vec<(&'static str, String)>) -> anyhow::Result<JavaProxySettings> {
     let mut jps = JavaProxySettings::default();
-    for (ident, mut val) in PROXY_ENVS.clone() {
+    for (ident, mut val) in proxy_envs {
         match ident {
             "HTTPS_PROXY" => {
                 if !val.contains("://") {

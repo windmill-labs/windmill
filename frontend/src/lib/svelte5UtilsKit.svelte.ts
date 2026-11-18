@@ -2,19 +2,14 @@
 // This file should only be imported in SvelteKit apps as it depends on $app/environment
 
 import { z } from 'zod'
+import { serializeParam } from '$lib/utils/serializeParam'
+import { untrack } from 'svelte'
+import { useHostedPage } from '$lib/components/hostedPage'
 
 export type SearchParamsResult<S extends z.ZodType> =
 	S extends z.ZodObject<infer Shape>
 		? { -readonly [K in keyof Shape]: z.infer<Shape[K]> } & Record<string, unknown>
 		: z.infer<S> & Record<string, unknown>
-
-/** Serialize a value to a URL search param string. Primitives are written as-is; anything else is JSON. */
-export function serializeParam(value: unknown): string {
-	if (typeof value === 'string') return value
-	if (typeof value === 'number') return String(value)
-	if (typeof value === 'boolean') return String(value)
-	return JSON.stringify(value)
-}
 
 /** Parse a raw string from the URL back to a typed value guided by the zod field schema. */
 function deserializeParam(raw: string, fieldSchema: z.ZodType): unknown {
@@ -65,12 +60,14 @@ function deserializeParam(raw: string, fieldSchema: z.ZodType): unknown {
 export function useSearchParams<S extends z.ZodType>(schema: S): SearchParamsResult<S> {
 	const shape: Record<string, z.ZodType> = (schema as any).shape ?? {}
 	const keys = Object.keys(shape)
+	const hosted = useHostedPage()
+	const currentSearch = () => (hosted ? hosted.search : window.location.search)
 
 	// Reactive snapshot of search params - one $state cell per key
 	const values: Record<string, unknown> = $state(
 		Object.fromEntries(
 			keys.map((k) => {
-				const raw = new URLSearchParams(window.location.search).get(k)
+				const raw = new URLSearchParams(untrack(currentSearch)).get(k)
 				const parsed = raw != null ? deserializeParam(raw, shape[k]) : null
 				return [k, parsed]
 			})
@@ -78,7 +75,7 @@ export function useSearchParams<S extends z.ZodType>(schema: S): SearchParamsRes
 	)
 
 	function syncFromUrl() {
-		const sp = new URLSearchParams(window.location.search)
+		const sp = new URLSearchParams(currentSearch())
 		for (const k of keys) {
 			const raw = sp.get(k)
 			const parsed = raw != null ? deserializeParam(raw, shape[k]) : null
@@ -86,8 +83,13 @@ export function useSearchParams<S extends z.ZodType>(schema: S): SearchParamsRes
 		}
 	}
 
-	// Keep in sync when the user navigates back/forward
+	// Keep in sync when the user navigates back/forward, or the host re-points the page
 	$effect(() => {
+		if (hosted) {
+			hosted.search
+			untrack(syncFromUrl)
+			return
+		}
 		window.addEventListener('popstate', syncFromUrl)
 		return () => window.removeEventListener('popstate', syncFromUrl)
 	})
@@ -101,11 +103,15 @@ export function useSearchParams<S extends z.ZodType>(schema: S): SearchParamsRes
 			},
 			set(v: unknown) {
 				;(values as any)[key] = v
-				const sp = new URLSearchParams(window.location.search)
+				const sp = new URLSearchParams(untrack(currentSearch))
 				if (v == null) {
 					sp.delete(key)
 				} else {
 					sp.set(key, serializeParam(v))
+				}
+				if (hosted) {
+					hosted.setSearch(sp.size ? `?${sp}` : '')
+					return
 				}
 				const hash = window.location.hash
 				const newUrl = sp.toString()

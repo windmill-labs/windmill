@@ -48,6 +48,9 @@
 	// migrations, its changes flow through the normal item diff instead, so it is
 	// excluded here and the whole section hides once none remain.
 	let applicableCount = $state(0)
+	let applicableLabel = $derived(
+		applicableCount === 1 ? 'this data table has' : 'these data tables have'
+	)
 	let expandedDatatables: Set<string> = $state(new Set())
 
 	// Drawer state
@@ -199,7 +202,7 @@
 				// The merge migration gets the highest timestamp, so any still-pending
 				// migration on the target is earlier: running only the merge applies it
 				// out of order. Warn like the row-level Run action does.
-				const pending = pendingMigrations(status.migrations)
+				const pending = pendingMigrations(status.migrations, migrationSql)
 				if (pending.length > 0) {
 					const confirmed = await outOfOrderModal.ask({
 						title: 'Run migration out of order',
@@ -293,6 +296,12 @@
 {#if applicableCount > 0}
 	<div class="bg-surface-tertiary p-4 rounded-md border">
 		<h3 class="text-sm font-semibold">Datatable schema changes</h3>
+		<Alert type="warning" size="xs" title="Legacy schema comparison" class="mt-2">
+			This section diffs data table schemas directly because {applicableLabel} not opted in to migrations.
+			With migrations enabled, schema changes are tracked as migrations and deployed like any other item.
+			Opt in from the parent workspace's data table settings — a fork only inherits the flag when it
+			is created, so this fork keeps using the legacy diff.
+		</Alert>
 		{#if loading}
 			<div class="flex items-center gap-2 text-xs text-tertiary py-2">
 				<Loader2 class="w-4 h-4 animate-spin" /> Loading datatable diffs...

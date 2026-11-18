@@ -136,11 +136,14 @@ export type TemplateV2Input = {
 	connections: InputConnectionEval[]
 }
 
+/** `agent` (a saved AI agent run as one chat turn) exists in raw apps only. */
+export type PathRunType = 'script' | 'flow' | 'hubscript' | 'agent'
+
 export type RunnableByPath = {
 	name: string
 	path: string
 	schema: any
-	runType: 'script' | 'flow' | 'hubscript'
+	runType: PathRunType
 	type: 'runnableByPath' | 'path'
 }
 

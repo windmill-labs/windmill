@@ -14,10 +14,10 @@
 	import { defaultCode } from '../component'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
 	import RunnableSelector from '../settingsPanel/mainInput/RunnableSelector.svelte'
-	import { defaultScripts, isCurrentlyInTutorial } from '$lib/stores'
+	import { defaultScripts } from '$lib/stores'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { Preview } from '$lib/gen'
-	import { twMerge } from 'tailwind-merge'
 	import type { InlineScript } from '../../sharedTypes'
 
 	interface Props {
@@ -39,6 +39,8 @@
 	let picker: Drawer | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyApps = $derived($roleCaps.apps === 'compose')
 
 	async function inferInlineScriptSchema(
 		language: Preview['language'],
@@ -99,13 +101,15 @@
 </script>
 
 <Drawer bind:this={picker} size="1000px">
-	<DrawerContent title="Script/Flow Picker" on:close={picker.closeDrawer}>
+	<DrawerContent title="Fork a script" on:close={picker.closeDrawer}>
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
-					<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
+					<Tab value="workspacescripts" label="Workspace scripts" icon={Building} />
 
-					<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+					{#if !composeOnlyApps}
+						<Tab value="hubscripts" label="Hub scripts" icon={Globe2} />
+					{/if}
 				</Tabs>
 				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">
@@ -122,29 +126,27 @@
 	</DrawerContent>
 </Drawer>
 
-<div
-	class={twMerge(
-		'flex flex-col px-4 gap-2 text-sm',
-		isCurrentlyInTutorial.val ? 'h-full overflow-y-clip' : ''
-	)}
-	id="app-editor-empty-runnable"
->
+<div class="flex flex-col px-4 gap-2 text-sm" id="app-editor-empty-runnable">
 	<div class="mt-2 flex justify-between gap-4" id="app-editor-runnable-header">
-		<div class="font-bold items-baseline truncate">Choose a language</div>
+		<div class="font-bold items-baseline truncate">
+			{composeOnlyApps ? 'Choose a script or flow' : 'Choose a language'}
+		</div>
 		<div class="flex gap-2">
 			{#if showScriptPicker}
 				<RunnableSelector {unusedInlineScripts} {rawApps} on:pick hideCreateScript />
 			{/if}
-			<Button
-				on:click={() => picker?.openDrawer()}
-				size="xs"
-				variant="border"
-				color="light"
-				startIcon={{ icon: GitFork }}
-				btnClasses="truncate"
-			>
-				Fork other script
-			</Button>
+			{#if !composeOnlyApps}
+				<Button
+					on:click={() => picker?.openDrawer()}
+					size="xs"
+					variant="border"
+					color="light"
+					startIcon={{ icon: GitFork }}
+					btnClasses="truncate"
+				>
+					Fork other script
+				</Button>
+			{/if}
 
 			<Button
 				on:click={() => dispatch('delete')}
@@ -158,7 +160,9 @@
 		</div>
 	</div>
 
-	<div class="flex flex-row w-full gap-8">
+	<!-- Operators with builder rights compose runnables that already exist: the language pickers
+	     below all author code, which the backend refuses from them. -->
+	<div class="flex flex-row w-full gap-8" class:hidden={composeOnlyApps}>
 		<div id="app-editor-backend-runnables">
 			<div class="mb-1 text-sm font-semibold flex gap-4">Backend <DefaultScripts /> </div>
 

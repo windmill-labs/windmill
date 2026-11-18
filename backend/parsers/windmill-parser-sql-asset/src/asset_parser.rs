@@ -43,9 +43,11 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     // target, keep inference only when every tagged entry shares one output
     // asset — otherwise it's ambiguous which asset the flat list describes, so
     // drop it rather than show false dependencies.
+    // A target naming no table is named after the script, which this parser does not know.
     let target = pipeline
         .materialize
         .as_ref()
+        .filter(|m| !m.names_no_table())
         .map(|m| (m.target_kind, m.target_path.clone()));
     let inferred: Vec<ColumnLineage> = match &target {
         Some(t) => collector

@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { EvalMode, JudgeResult } from "./types";
 
-export const DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6";
+export const DEFAULT_JUDGE_MODEL = "claude-sonnet-5-5";
 
 const JUDGE_TOOL_NAME = "submit_judgement";
 
@@ -29,6 +29,7 @@ export async function judgeOutput(input: {
 
   const system = [
     "You evaluate benchmark outputs for Windmill AI generation.",
+    `Always answer by calling the ${JUDGE_TOOL_NAME} tool.`,
     "Deterministic checks already run separately. Focus on whether the final output satisfies the user request.",
     "If expected state is provided, treat it as a valid example and reward semantically equivalent outputs.",
     "If a checklist is provided, treat it as the explicit acceptance criteria for this case.",
@@ -69,8 +70,8 @@ export async function judgeOutput(input: {
   try {
     const response = await client.messages.create({
       model,
-      max_tokens: 1024,
-      temperature: 0,
+      // The judge thinks by default, and thinking shares this budget with the verdict.
+      max_tokens: 16000,
       system,
       messages: [{ role: "user", content: user }],
       tools: [
@@ -93,11 +94,8 @@ export async function judgeOutput(input: {
           },
         },
       ],
-      tool_choice: {
-        type: "tool",
-        name: JUDGE_TOOL_NAME,
-        disable_parallel_tool_use: true,
-      },
+      // Current models refuse a forced tool_choice ("tool"/"any").
+      tool_choice: { type: "auto", disable_parallel_tool_use: true },
     });
 
     const toolUseBlock = response.content.find(

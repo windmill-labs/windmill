@@ -12,8 +12,11 @@ import { findMcpEntry, findMcpEntryByUrl } from './registry'
  * the chat does not otherwise reach that barrel. `import.meta.glob` gives the
  * filenames at build time and the module only when a match is actually used, so
  * a workspace with two connections downloads two icons.
+ *
+ * The pattern is relative because svelte-package rewrites `$lib` only in import
+ * specifiers: an aliased glob ships as-is and no consumer's bundler expands it.
  */
-const iconModules = import.meta.glob('$lib/components/icons/*.svelte') as Record<
+const iconModules = import.meta.glob('../icons/*.svelte') as Record<
 	string,
 	() => Promise<{ default: Component<any> }>
 >

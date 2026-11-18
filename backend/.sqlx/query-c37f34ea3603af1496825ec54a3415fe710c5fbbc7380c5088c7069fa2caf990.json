@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM fork_storage_namespace WHERE workspace_id = $1 AND storage = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c37f34ea3603af1496825ec54a3415fe710c5fbbc7380c5088c7069fa2caf990"
+}

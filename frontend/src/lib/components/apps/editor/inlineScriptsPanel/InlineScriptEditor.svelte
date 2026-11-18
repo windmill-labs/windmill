@@ -6,7 +6,8 @@
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
 	import type { AppViewerContext } from '../../types'
-	import { Maximize2, Trash2 } from 'lucide-svelte'
+	import { Maximize2, Paintbrush, Trash2 } from 'lucide-svelte'
+	import { getModifierKey } from '$lib/utils'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs, parseOutputs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
@@ -305,18 +306,17 @@
 				{/if}
 
 				<Button
-					variant="default"
+					title={`Format (${getModifierKey()}S)`}
+					aria-label="Format"
+					variant="subtle"
 					unifiedSize="sm"
 					on:click={async () => {
 						editor?.format()
 						simpleEditor?.format()
 					}}
-					shortCut={{
-						key: 'S'
-					}}
-				>
-					Format
-				</Button>
+					endIcon={{ icon: Paintbrush }}
+					iconOnly
+				/>
 				<RunButton bind:runLoading {id} inlineScript={!transformer ? inlineScript : undefined} />
 			</div>
 		</div>

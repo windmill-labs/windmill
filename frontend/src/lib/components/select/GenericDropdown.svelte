@@ -15,7 +15,9 @@
 		class: className = '',
 		innerClass = '',
 		maxHeight = 256,
+		instantClose = false,
 		getInputRect,
+		portalName = 'dropdown-portal',
 		children
 	}: {
 		listAutoWidth?: boolean
@@ -26,7 +28,13 @@
 		class?: string
 		innerClass?: string
 		maxHeight?: number
+		// Close with no height-collapse animation (still animates open). Used where the
+		// dropdown is toggled off as the user types, so the panel vanishes at once.
+		instantClose?: boolean
 		getInputRect?: () => DOMRect
+		/** Outside-click handlers ignore clicks in `.dropdown-portal`: a panel that holds Selects of
+		 * its own needs another name, or their lists would not close on clicks elsewhere in it. */
+		portalName?: string
 		children?: Snippet
 	} = $props()
 
@@ -49,6 +57,9 @@
 		const spaceAbove = inputR.y
 		const isBelow = fitsBelow || spaceBelow >= spaceAbove
 		let [x, y] = disablePortal ? [0, 0] : [inputR.x, inputR.y]
+		// The list grows to its widest item, so one wider than the room right of its input
+		// would run off screen: slide it left instead.
+		if (!disablePortal) x = Math.max(0, Math.min(x, window.innerWidth - listR.width))
 		if (isBelow)
 			return { width: inputR.width, height: listR.height, x: x, y: y + inputR.height, isBelow }
 		else {
@@ -71,7 +82,11 @@
 	// We do not use Svelte transitions because they can not animate in the opposite direction
 	// when the dropdown is opens above the input
 	// Also CSS transitions are smoother because they do not rely on JS / animation frames
-	let uiState = $state({ domExists: untrack(() => open), visible: untrack(() => open), timeout: null as number | null })
+	let uiState = $state({
+		domExists: untrack(() => open),
+		visible: untrack(() => open),
+		timeout: null as number | null
+	})
 	let initial = true
 	watch(
 		() => open && !disabled,
@@ -81,7 +96,10 @@
 					initial = false
 					return
 				}
-				if (reducedMotion.val) {
+				// Reduced motion skips all animation; instantClose skips only the closing
+				// one (open still animates) so the panel disappears the instant it's toggled off.
+				if (reducedMotion.val || (instantClose && !isOpen)) {
+					if (uiState.timeout) clearTimeout(uiState.timeout)
 					uiState = {
 						domExists: open && !disabled,
 						visible: open && !disabled,
@@ -111,7 +129,7 @@
 	)
 </script>
 
-<ConditionalPortal condition={!disablePortal} name="dropdown-portal">
+<ConditionalPortal condition={!disablePortal} name={portalName}>
 	{#if uiState.domExists}
 		<div
 			class={twMerge(

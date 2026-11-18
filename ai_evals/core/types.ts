@@ -29,6 +29,10 @@ export interface EvalCaseRuntimeAppContextSpec {
 
 export interface EvalCaseRuntimeSpec {
   maxTurns?: number;
+  // Global mode: scripted answers to askUserQuestion, one per question in order; a question
+  // past the last one is dismissed, so `[]` dismisses them all. Unset, the question tool
+  // reports that it cannot ask.
+  userAnswers?: string[];
   backendPreview?: EvalCaseRuntimeBackendPreview;
   appContext?: EvalCaseRuntimeAppContextSpec;
   // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
@@ -36,6 +40,20 @@ export interface EvalCaseRuntimeSpec {
   // Global session chats: start the case in plan mode, so the workspace-changing tools are
   // refused until the model hands over a plan with exit_plan_mode.
   planMode?: boolean;
+  // Global session chats: the user's rights in the workspace, as production resolves them for
+  // a session from a non-admin role. Unset means full access. A role that builds nothing holds
+  // the session in Use, with the read-only toolset and the session section that says why.
+  profile?: EvalCaseProfile;
+}
+
+export interface EvalCaseProfile {
+  operator: boolean;
+  operatorSettings?: {
+    builder_flows?: boolean;
+    builder_apps?: boolean;
+    manage_schedules?: boolean;
+    manage_triggers?: boolean;
+  };
 }
 
 export interface FlowValidationSpec {
@@ -134,6 +152,56 @@ export interface GlobalValidationSpec {
     path: string;
     triggerKind?: string;
   }>;
+  /**
+   * Deploy the pipeline nodes drafted under `f/<folder>/` to the case's workspace once the chat
+   * is over, run the ones nothing upstream feeds, let the asset triggers run the rest, then
+   * query the DuckLake. Needs `objectStorage` in the fixture and an eval backend that runs
+   * DuckDB jobs; without `WMILL_AI_EVAL_S3_ENDPOINT` the run is skipped (README).
+   */
+  pipelineRun?: PipelineRunSpec;
+}
+
+export interface PipelineRunSpec {
+  folder: string;
+  /**
+   * How many nodes the pipeline may start from. A node no recorded read or trigger ties to
+   * an upstream one is started directly, and so passes whatever its `on` says; capping the
+   * roots fails that, e.g. a read the asset parser records under another path.
+   */
+  maxRoots?: number;
+  timeoutSeconds?: number;
+  queries?: PipelineRunQuery[];
+}
+
+/**
+ * A DuckDB query run with the lake attached as `dl` (`SELECT … FROM dl.<table>`). Name the
+ * tables in the prompt, as a user would; column names are the model's to choose, so the
+ * expectations look at values, not at columns.
+ */
+export interface PipelineRunQuery {
+  name: string;
+  sql: string;
+  ducklake?: string;
+  rowCount?: number;
+  /** Every value appears in some cell of the result: numbers within 0.01, strings by prefix. */
+  includesValues?: Array<string | number>;
+}
+
+export interface PipelineRunResult {
+  /** Why the run did not happen; nothing was asserted. */
+  skipped?: string;
+  error?: string;
+  roots?: string[];
+  nodes: Array<{
+    path: string;
+    deployError?: string;
+    ran?: boolean;
+    success?: boolean;
+    /** `created_by` of the node's last run: `asset-<producer>` when a trigger ran it. */
+    triggeredBy?: string;
+    error?: string;
+  }>;
+  queries: Array<{ name: string; rows?: unknown[]; error?: string }>;
 }
 
 export interface CliValidationSpec {
@@ -161,6 +229,13 @@ export interface ToolCallArgumentRule {
   stringStartsWithAnyOf?: string[];
   stringMustNotStartWithAnyOf?: string[];
   /**
+   * Universal over calls: every recorded call to `tool` must carry `field` as
+   * exactly one of these strings. Use when a near-miss would still satisfy a
+   * prefix — a resource reference like `$res:f/a/b` shares its prefix with the
+   * wrong `$res:f/a/b_backup`, and the mock never resolves it to catch that.
+   */
+  stringEqualsAnyOf?: string[];
+  /**
    * Case-insensitive "contains", existential over calls: at least one recorded
    * call to `tool` must have `field` containing one of these substrings. Other
    * calls to the same tool may do anything. Use instead of `stringStartsWithAnyOf`
@@ -175,6 +250,13 @@ export interface ToolCallArgumentRule {
    * the point is that the model filled it in at all rather than what it said.
    */
   nonEmpty?: boolean;
+  /**
+   * Existential over calls: at least this many recorded calls to `tool` carry the
+   * same non-blank string in `field`. Use when calls have to share an identifier —
+   * e.g. test runs that continue one conversation — while a retry with a rejected
+   * value in between is still acceptable.
+   */
+  sharedByAtLeast?: number;
   /**
    * Universal over calls: no recorded call to `tool` may pass `field` at all.
    * For partial-update tools, where supplying a field the model could not have
@@ -213,6 +295,30 @@ export type EvalValidationSpec =
   | AppValidationSpec
   | GlobalValidationSpec;
 
+/**
+ * Expectations on what the assistant SAID, for cases where the deliverable is
+ * partly a warning to the user. The `global` judge only ever sees the resulting
+ * drafts, so "tells the user X" is invisible to it and has to be checked here.
+ * Needs a mode whose runner reports `assistantText`.
+ */
+export interface AssistantValidationSpec {
+  /** Each entry: at least one of its phrases appears somewhere in the assistant's text. */
+  requiredMentionsAnyOf?: string[][];
+  /**
+   * Plain case-insensitive substring test, so it cannot see negation: a phrase the correct
+   * answer might use in the negative ("you don't need to deploy the app") is not a valid
+   * entry. Use it for tokens that never legitimately appear, and leave nuanced "did the
+   * assistant say the right thing" expectations to the judge checklist.
+   */
+  forbiddenMentions?: string[];
+  /**
+   * `required`: the reply holds at least one ```wm-display block, and every one validates
+   * against the chat's display catalog (what the chat renders as a chart or table).
+   * `forbidden`: the reply holds none.
+   */
+  displayBlocks?: "required" | "forbidden";
+}
+
 export interface EvalCase {
   id: string;
   prompt: string;
@@ -221,8 +327,15 @@ export interface EvalCase {
   validate?: EvalValidationSpec;
   toolExpect?: ToolValidationSpec;
   cliExpect?: CliValidationSpec;
+  assistantExpect?: AssistantValidationSpec;
   judgeChecklist?: string[];
   skipJudge?: boolean;
+  /**
+   * The judge also reads what the assistant said, for a case whose deliverable is the answer
+   * itself: the `global` judge otherwise sees only the drafts. Needs a mode whose runner
+   * reports `assistantText`.
+   */
+  judgeAssistantText?: boolean;
   runtime?: EvalCaseRuntimeSpec;
 }
 
@@ -287,6 +400,8 @@ export interface ModeRunOutput<TActual> {
   toolsUsed: string[];
   toolCallDetails?: ToolCallDetail[];
   skillsInvoked: string[];
+  /** Concatenated assistant-visible text of the run, when the mode reports it. */
+  assistantText?: string;
   tokenUsage?: BenchmarkTokenUsage | null;
   /**
    * Total input tokens occupying the context window on the LAST model request
@@ -304,6 +419,8 @@ export interface ModeRunContext {
   attempt: number;
   runs: number;
   verbose: boolean;
+  /** `--execution-only`: the run validates nothing on the backend, `pipelineRun` included. */
+  executionOnly?: boolean;
   onAssistantMessageStart?: () => void;
   onAssistantChunk?: (chunk: string) => void;
   onAssistantMessageEnd?: () => void;

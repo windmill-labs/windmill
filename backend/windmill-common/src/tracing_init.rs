@@ -44,6 +44,11 @@ lazy_static::lazy_static! {
 /// Use `tracing::info!(target: windmill_common::tracing_init::VERBOSE_TARGET, ...)` for logs that should be suppressed in quiet mode.
 pub const VERBOSE_TARGET: &str = "windmill_verbose";
 
+/// Target of audit events, so a log pipeline can route them without matching on content.
+/// It keeps the `windmill` prefix because that is what a `RUST_LOG` of `info` or `debug`
+/// is rewritten to filter on.
+pub const AUDIT_TARGET: &str = "windmill:audit";
+
 /// Prefix used by user scripts to emit a log line as an OTEL tracing event
 /// when `OTEL_JOB_LOGS=true`. Stripped before forwarding to the tracing layer.
 pub const OTEL_PREFIX: &str = "OTEL: ";
@@ -178,57 +183,63 @@ pub fn initialize_tracing(
         .with(logs_bridge.with_filter(otel_logs_filter))
         .with(opentelemetry_filtered);
 
-    match *JSON_FMT {
-        true => {
-            // Stdout layer with its own filter
-            let stdout_layer = json_layer()
-                .with_writer(std::io::stdout)
-                .flatten_event(true)
-                .with_filter(stdout_env_filter)
-                .with_filter(create_targets_filter(default_env_filter));
+    // The service log files are written to be indexed, not tailed, so they always carry the
+    // JSON format: it is what preserves level, target and the current span as fields rather
+    // than as text the index would have to recover by regex. JSON_FMT governs stdout only.
+    let file_layer = json_layer()
+        .with_writer(log_file_writer)
+        .flatten_event(true)
+        .with_filter(file_env_filter)
+        .with_filter(create_targets_filter(default_env_filter));
 
-            // File layer with its own filter
-            let file_layer = json_layer()
-                .with_writer(log_file_writer)
-                .flatten_event(true)
-                .with_filter(file_env_filter)
-                .with_filter(create_targets_filter(default_env_filter));
+    // Boxed so both arms have one type: the file layer is a single value and could not
+    // otherwise be typed against two different subscriber stacks.
+    let stdout_layer = match *JSON_FMT {
+        true => json_layer()
+            .with_writer(std::io::stdout)
+            .flatten_event(true)
+            .with_filter(stdout_env_filter)
+            .with_filter(create_targets_filter(default_env_filter))
+            .boxed(),
+        false => compact_layer()
+            .with_writer(std::io::stdout)
+            .with_ansi(style.to_lowercase() != "never")
+            .with_file(true)
+            .with_line_number(true)
+            .with_target(false)
+            .with_filter(stdout_env_filter)
+            .with_filter(create_targets_filter(default_env_filter))
+            .boxed(),
+    };
 
-            base_layer
-                .with(stdout_layer)
-                .with(file_layer)
-                .with(CountingLayer::new())
-                .init()
-        }
-        false => {
-            // Stdout layer with its own filter
-            let stdout_layer = compact_layer()
-                .with_writer(std::io::stdout)
-                .with_ansi(style.to_lowercase() != "never")
-                .with_file(true)
-                .with_line_number(true)
-                .with_target(false)
-                .with_filter(stdout_env_filter)
-                .with_filter(create_targets_filter(default_env_filter));
-
-            // File layer with its own filter
-            let file_layer = compact_layer()
-                .with_writer(log_file_writer)
-                .with_ansi(false) // No ANSI codes in log files
-                .with_file(true)
-                .with_line_number(true)
-                .with_target(false)
-                .with_filter(file_env_filter)
-                .with_filter(create_targets_filter(default_env_filter));
-
-            base_layer
-                .with(stdout_layer)
-                .with(file_layer)
-                .with(CountingLayer::new())
-                .init()
-        }
-    }
+    base_layer
+        .with(stdout_layer)
+        .with(file_layer)
+        .with(CountingLayer::new())
+        .init();
     (_guard, meter_provider)
+}
+
+/// Tracing for a subcommand that writes to the instance without running a server
+/// (`sync-config`, the operator): stdout, plus the OTel logs bridge when OTel logs are
+/// enabled, which is how the audit events of its writes reach a collector. It writes no
+/// service log files, as nothing lists such a process to read them back.
+///
+/// Only audit events are exported. These processes log each setting they write with its
+/// value, masked by a list of known secret fields rather than by shape, and that is fit
+/// for the operator's own stdout but not for a collector.
+pub fn initialize_subcommand_tracing(service: &str, hostname: &str, environment: &str) {
+    let logs_bridge = crate::otel_oss::init_logs_bridge_for_service(service, hostname, environment);
+    tracing_subscriber::registry()
+        .with(logs_bridge.with_filter(Targets::new().with_target(AUDIT_TARGET, LevelFilter::INFO)))
+        .with(
+            tracing_subscriber::fmt::layer().with_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            ),
+        )
+        .init();
 }
 
 lazy_static::lazy_static! {

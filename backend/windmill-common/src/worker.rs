@@ -33,6 +33,7 @@ use crate::{
     external_ip::UNKNOWN_IP,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
+    runnable_ref::RunnableRef,
     server::Smtp,
     utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array},
     KillpillSender, DB,
@@ -41,6 +42,8 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CustomTags {
     pub global: Vec<String>,
+    /// Keyed by the entry's name, which may hold placeholders like a global entry: only a name
+    /// without any can be looked up by the tag it admits, the others through [`custom_tag_matches`].
     pub specific: HashMap<String, SpecificTagData>,
 }
 
@@ -83,25 +86,90 @@ impl CustomTags {
         } else {
             self.specific
                 .iter()
-                .map(|(tag, tag_data)| {
-                    let separator = tag_data.tag_type.corresponding_separator();
-                    let mut workspaces = tag_data
-                        .workspaces
-                        .iter()
-                        .map(|w| w.to_string())
-                        .collect::<Vec<_>>()
-                        .join(&*separator.to_string());
-                    if tag_data.tag_type == SpecificTagType::AllExcluding {
-                        // the AllExcluding tag syntax has a leading separator
-                        workspaces.insert(0, separator);
-                    }
-                    format!("{}({})", tag, workspaces)
-                })
+                .map(|(tag, tag_data)| tag_data.authored(tag))
                 .collect::<Vec<String>>()
         };
         let all_tags = self.global.clone();
         all_tags.into_iter().chain(specific.into_iter()).collect()
     }
+}
+
+/// Whether a job whose tag resolved to `tag` falls under the custom tag `entry`. An entry holding
+/// placeholders is a pattern over resolved tags: `$args[...]` and `$flow_expr[...]` match any
+/// text, since whoever pushes the job picks their values, and `$workspace` matches
+/// `tag_workspace`, what the job's own `$workspace` resolves to. The text around them must match
+/// as written: it is what confines `gpu-$args[size]` to the `gpu-` tags.
+///
+/// Placeholders whose values are tied, a repeat or one reading inside another, make an entry no
+/// wildcard pattern describes (`t-$args[id]-$args[id]` never resolves to `t-a-b`). Such an entry
+/// matches nothing here: it admits only a job whose tag is written exactly as the entry is.
+pub fn custom_tag_matches(entry: &str, tag: &str, tag_workspace: &str) -> bool {
+    if !entry.contains('$') {
+        return entry == tag;
+    }
+    let dynamic: Vec<&str> = CUSTOM_TAG_PLACEHOLDER
+        .find_iter(entry)
+        .map(|m| m.as_str())
+        .filter(|p| *p != "$workspace")
+        .collect();
+    let tied = dynamic
+        .iter()
+        .enumerate()
+        .any(|(i, a)| dynamic[i + 1..].iter().any(|b| placeholders_tied(a, b)));
+    if tied {
+        return false;
+    }
+    // The literal runs between wildcards, with `$workspace` substituted.
+    let mut pieces = vec![];
+    let mut current = String::new();
+    let mut last_end = 0;
+    for m in CUSTOM_TAG_PLACEHOLDER.find_iter(entry) {
+        current.push_str(&entry[last_end..m.start()]);
+        if m.as_str() == "$workspace" {
+            current.push_str(tag_workspace);
+        } else {
+            pieces.push(std::mem::take(&mut current));
+        }
+        last_end = m.end();
+    }
+    current.push_str(&entry[last_end..]);
+    pieces.push(current);
+
+    let [first, rest @ ..] = pieces.as_slice() else {
+        return false;
+    };
+    let Some((last, middle)) = rest.split_last() else {
+        return tag == first;
+    };
+    let Some(mut inner) = tag
+        .strip_prefix(first.as_str())
+        .and_then(|t| t.strip_suffix(last.as_str()))
+    else {
+        return false;
+    };
+    for piece in middle {
+        match inner.find(piece.as_str()) {
+            Some(i) => inner = &inner[i + piece.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Whether two `$args[...]` / `$flow_expr[...]` placeholders read the same value, or one reads a
+/// value inside the other's.
+fn placeholders_tied(a: &str, b: &str) -> bool {
+    let (Some((kind_a, path_a)), Some((kind_b, path_b))) = (a.split_once('['), b.split_once('['))
+    else {
+        return false;
+    };
+    let (path_a, path_b) = (path_a.trim_end_matches(']'), path_b.trim_end_matches(']'));
+    let inside = |outer: &str, inner: &str| {
+        inner
+            .strip_prefix(outer)
+            .is_some_and(|rest| rest.starts_with('.'))
+    };
+    kind_a == kind_b && (path_a == path_b || inside(path_a, path_b) || inside(path_b, path_a))
 }
 
 /// Marker suffixed to a workspace id inside a custom tag's scope (`mytag(prod*)`) to extend the
@@ -183,6 +251,22 @@ impl SpecificTagData {
     pub fn is_fork_scoped(&self) -> bool {
         self.workspaces.iter().any(|w| w.include_forks)
     }
+
+    /// The entry named `name` with this scope, as written in the custom tags: `tag(ws1+ws2)`.
+    pub fn authored(&self, name: &str) -> String {
+        let separator = self.tag_type.corresponding_separator();
+        let mut workspaces = self
+            .workspaces
+            .iter()
+            .map(|w| w.to_string())
+            .collect::<Vec<_>>()
+            .join(&*separator.to_string());
+        if self.tag_type == SpecificTagType::AllExcluding {
+            // the AllExcluding tag syntax has a leading separator
+            workspaces.insert(0, separator);
+        }
+        format!("{}({})", name, workspaces)
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SpecificTagType {
@@ -210,7 +294,39 @@ impl SpecificTagType {
 
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
+/// Premium cloud workspaces may run a job for this many times [`MAX_TIMEOUT`].
+const CLOUD_PREMIUM_TIMEOUT_MULTIPLIER: u64 = 6;
+
+/// Longest a single job may run, in seconds. A premium cloud workspace outruns [`MAX_TIMEOUT`]
+/// sixfold, so a per-job resource sized off `MAX_TIMEOUT` alone dies under a job the instance is
+/// still willing to keep running.
+pub fn max_job_duration_secs(cloud_premium_workspace: bool) -> u64 {
+    if cloud_premium_workspace {
+        MAX_TIMEOUT.saturating_mul(CLOUD_PREMIUM_TIMEOUT_MULTIPLIER)
+    } else {
+        *MAX_TIMEOUT
+    }
+}
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
+
+/// `background_task_state` row the workspace fairness refresh writes [`WorkspaceFairnessState`]
+/// to. Only pulls drive the refresh, so a row whose `updated_at` is old means no worker has
+/// pulled lately, not that nothing is overloaded.
+pub const WORKSPACE_FAIRNESS_STATE_NAME: &str = "workspace_fairness";
+
+#[derive(Serialize, Deserialize, Default, Debug)]
+pub struct WorkspaceFairnessState {
+    #[serde(default)]
+    pub overloaded: Vec<String>,
+    /// Admission probability for capped pulls in parts per 10_000. Absent in rows written
+    /// before it existed, which leaves the admission atomic at its default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admission_ppm: Option<u32>,
+    /// When each workspace in `overloaded` entered the list in its current episode of being
+    /// capped, carried across refreshes until it leaves.
+    #[serde(default)]
+    pub capped_since: HashMap<String, chrono::DateTime<chrono::Utc>>,
+}
 /// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
 /// the setting is cleared or malformed.
 pub const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
@@ -354,16 +470,27 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_TAGS_WORKSPACES: arc_swap::ArcSwap<Option<Vec<String>>> = arc_swap::ArcSwap::from_pointee(None);
     pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
     pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
+    pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
+    /// Whether the jobs of dev workspaces and forks are queued on suffixed tags.
+    pub static ref DEV_WORKSPACE_ISOLATION: AtomicBool = AtomicBool::new(false);
+    /// Whether a fork whose lineage holds no dev workspace runs on its parent's workers.
+    pub static ref DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS: AtomicBool = AtomicBool::new(false);
+    /// The suffix of those tags. Groups serving dev workspaces listen with it whether isolation is
+    /// on or not, so turning it off leaves no job already queued on a suffixed tag unserved.
+    pub static ref DEV_WORKSPACE_TAG_SUFFIX: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee(DEFAULT_DEV_WORKSPACE_TAG_SUFFIX.to_string());
+    /// Whether this process's worker group serves dev workspaces, set when its config is loaded.
+    pub static ref WORKER_SERVES_DEV_WORKSPACES: AtomicBool = AtomicBool::new(false);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
     .and_then(|x| x.parse::<u64>().ok())
     .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
 
-    pub static ref SCRIPT_TOKEN_EXPIRY: u64 = std::env::var("SCRIPT_TOKEN_EXPIRY")
+    /// Explicit operator override for the ephemeral job token's lifetime. Unset, the lifetime is
+    /// derived per workspace by `job_token_expiry_secs`, the only place this is read.
+    pub static ref SCRIPT_TOKEN_EXPIRY_OVERRIDE: Option<u64> = std::env::var("SCRIPT_TOKEN_EXPIRY")
         .ok()
-        .and_then(|x| x.parse::<u64>().ok())
-        .unwrap_or(*MAX_TIMEOUT);
+        .and_then(|x| x.parse::<u64>().ok());
 
     pub static ref WORKER_CONFIG: arc_swap::ArcSwap<WorkerConfig> = arc_swap::ArcSwap::from_pointee(WorkerConfig {
         worker_tags: Default::default(),
@@ -377,14 +504,19 @@ lazy_static::lazy_static! {
         additional_python_paths: Default::default(),
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
+        disable_job_proxy: false,
         native_mode: false,
+        object_store_cache_config: Default::default(),
+        paused: false,
+        fairness_reserve: false,
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKER_PULL_QUERIES_FAIRNESS: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
     pub static ref WORKER_SUSPENDED_PULL_QUERY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
+    pub static ref WORKER_SUSPENDED_PULL_QUERY_FAIRNESS: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
 
-    // Workspace fairness (cloud-only). When enabled, a workspace whose footprint over the rolling
+    // Workspace fairness (Enterprise). When enabled, a workspace whose footprint over the rolling
     // `WORKSPACE_FAIRNESS_DURATION_SECS` window represents >= `WORKSPACE_FAIRNESS_MAX_PERCENT`% of
     // all worker activity gets excluded from the pull query, freeing slots for other workspaces.
     // The list of overloaded workspaces is computed cluster-wide via a single coordinated UPDATE
@@ -413,6 +545,10 @@ lazy_static::lazy_static! {
     /// spare worker capacity can absorb. `0` disables the cap.
     pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 =
         AtomicU32::new(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
+
+    /// Admit the jobs waiting on a concurrency key in order: per tag, by priority, then by
+    /// when they became due. On unless the `concurrency_limit_in_order` setting is false.
+    pub static ref CONCURRENCY_LIMIT_IN_ORDER: AtomicBool = AtomicBool::new(true);
 
     /// Cloud-only ceiling on the total number of jobs a workspace may have queued at once,
     /// across every concurrency key and script. Guards against a workspace flooding the queue
@@ -449,7 +585,9 @@ lazy_static::lazy_static! {
 
 
 
-    //    ^([\w-]+)         # Group 1: tag name
+    //    ^(                # Group 1: tag name, a pattern when it holds placeholders
+    //      (?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+
+    //    )
     //    \(                # Literal '('
     //    (                 # Group 2: the full workspace list
     //      (?:[\w-]+\*?\+)*[\w-]+\*?   # NoneExcept pattern: ws1+ws2*
@@ -458,8 +596,12 @@ lazy_static::lazy_static! {
     //    )
     //    \)$               # Closing ')'
     //
-    // The optional `*` after each workspace id is the fork marker, see [`WorkspaceMatcher`].
-    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
+    // The placeholders are CUSTOM_TAG_PLACEHOLDER's. The optional `*` after each workspace id is
+    // the fork marker, see [`WorkspaceMatcher`].
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^((?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
+
+    // The placeholders a job's tag is resolved from when it is pushed, see [`custom_tag_matches`].
+    static ref CUSTOM_TAG_PLACEHOLDER: Regex = Regex::new(r"\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\]").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -527,7 +669,25 @@ pub fn is_cloud_production_host() -> bool {
 /// Use this for hot-path checks (e.g. per-job dispatch) to avoid read-locking WORKER_CONFIG.
 pub static NATIVE_MODE_RESOLVED: AtomicBool = AtomicBool::new(false);
 
+/// Notified when a dedicated worker group's config is re-saved unchanged, which is how a deploy
+/// of one of its scripts reaches every worker of the group: they reload their dedicated
+/// subprocesses in place rather than restart.
+pub static DEDICATED_WORKER_RELOAD: std::sync::LazyLock<tokio::sync::Notify> =
+    std::sync::LazyLock::new(tokio::sync::Notify::new);
+
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
+/// The server's error message, which callers match on to tell a retryable refusal (a volume
+/// leased or being written by another worker) from a failure.
+async fn agent_error_body(response: reqwest::Response) -> String {
+    response
+        .text()
+        .await
+        .unwrap_or_default()
+        .chars()
+        .take(1000)
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct HttpClient {
     pub client: ClientWithMiddleware,
@@ -566,11 +726,12 @@ impl HttpClient {
         if status.is_success() {
             Ok(response.json().await?)
         } else {
-            Err(anyhow::anyhow!(format!(
-                "HTTP agent request POST {} failed {}",
+            Err(anyhow::anyhow!(
+                "HTTP agent request POST {} failed {}: {}",
                 url,
-                response.status()
-            )))
+                status,
+                agent_error_body(response).await
+            ))
         }
     }
 
@@ -586,11 +747,12 @@ impl HttpClient {
         if status.is_success() {
             Ok(response.json().await?)
         } else {
-            Err(anyhow::anyhow!(format!(
-                "HTTP agent request GET {} failed {}",
+            Err(anyhow::anyhow!(
+                "HTTP agent request GET {} failed {}: {}",
                 url,
-                response.status()
-            )))
+                status,
+                agent_error_body(response).await
+            ))
         }
     }
 
@@ -706,9 +868,10 @@ fn format_pull_query(peek: String) -> String {
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
+            p.viewer_data_access, p.mcp_client
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
@@ -720,25 +883,48 @@ fn format_pull_query(peek: String) -> String {
     r
 }
 
+// The `CASE` is `suspend <= 0 OR suspend_until <= now()` written as one indexable
+// expression, equivalent only under the `suspend_until IS NOT NULL` guard. It must stay in
+// sync with `queue_suspended_v2` (migration 20260826202939): if it no longer matches, the
+// test silently reverts to a heap filter over every suspended row on every worker poll.
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
+    suspended_pull_query(tags, "")
+}
+
+/// [`make_suspended_pull_query`] leaving out the workspaces bound as `$2::text[]`.
+pub fn make_suspended_pull_query_fairness(tags: &[String]) -> String {
+    suspended_pull_query(tags, "AND workspace_id <> ALL($2::text[])")
+}
+
+fn suspended_pull_query(tags: &[String], extra_filter: &str) -> String {
     format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
-        WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
+        WHERE suspend_until IS NOT NULL
+          AND (CASE WHEN suspend <= 0 THEN '-infinity'::timestamptz ELSE suspend_until END) <= now()
+          AND tag IN ({})
+          {extra_filter}
         ORDER BY priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
         tags.iter().map(|x| format!("'{x}'")).join(", ")
     ))
 }
-// pub async fn make_suspended
+
 pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
-    if wc.worker_tags.len() == 0 {
-        tracing::error!("Empty tags in worker tags, skipping");
-        return;
-    }
-    let query = make_suspended_pull_query(&wc.worker_tags);
+    // An empty tag list must clear the query: keeping the previous one would leave a reloaded
+    // worker pulling suspended jobs for tags it no longer listens to.
+    let (query, fairness_query) = if wc.worker_tags.is_empty() {
+        tracing::error!("Empty tags in worker tags, pulling no suspended jobs");
+        (String::new(), String::new())
+    } else {
+        (
+            make_suspended_pull_query(&wc.worker_tags),
+            make_suspended_pull_query_fairness(&wc.worker_tags),
+        )
+    };
     WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
+    WORKER_SUSPENDED_PULL_QUERY_FAIRNESS.store(std::sync::Arc::new(fairness_query));
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
@@ -752,6 +938,24 @@ pub fn make_pull_query(tags: &[String]) -> String {
         tags.iter().map(|x| format!("'{x}'")).join(", ")
     ));
     query
+}
+
+/// Claim a parent's tool jobs matching its worker tags. The caller must supply only child IDs
+/// it owns; this query is an internal scheduling primitive and does not authorize job access.
+pub fn make_tool_job_pull_query(job_ids: &[uuid::Uuid], tags: &[String]) -> String {
+    // pull() binds only the worker name. These literals come from typed UUIDs, never input SQL.
+    let ids = job_ids.iter().map(|id| format!("'{id}'::uuid")).join(", ");
+    let tags = tags
+        .iter()
+        .map(|tag| format!("'{}'", tag.replace('\'', "''")))
+        .join(", ");
+    format_pull_query(format!(
+        "SELECT id FROM v2_job_queue
+        WHERE running = false AND id = ANY(ARRAY[{ids}]::uuid[]) AND scheduled_for <= now()
+        AND tag = ANY(ARRAY[{tags}]::text[])
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED LIMIT 1"
+    ))
 }
 
 // Variant of `make_pull_query` that additionally excludes jobs whose workspace_id is in the
@@ -791,6 +995,42 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
     }
     WORKER_PULL_QUERIES.store(std::sync::Arc::new(queries));
     WORKER_PULL_QUERIES_FAIRNESS.store(std::sync::Arc::new(fairness_queries));
+}
+
+const WORKER_GROUP_PAUSED_CACHE_TTL: Duration = Duration::from_secs(10);
+
+lazy_static::lazy_static! {
+    static ref WORKER_GROUP_PAUSED_CACHE: quick_cache::sync::Cache<String, (bool, std::time::Instant)> =
+        quick_cache::sync::Cache::new(1000);
+}
+
+/// Whether the config of `worker_group` is paused, as the server sees it. A worker that reads
+/// its own config knows from `WORKER_CONFIG`; this is for the server deciding on behalf of
+/// workers that do not, and is cached since they ask on every pull.
+pub async fn is_worker_group_paused(db: &DB, worker_group: &str) -> bool {
+    if let Some((paused, at)) = WORKER_GROUP_PAUSED_CACHE.get(worker_group) {
+        if at.elapsed() < WORKER_GROUP_PAUSED_CACHE_TTL {
+            return paused;
+        }
+    }
+    let paused = match sqlx::query_scalar!(
+        "SELECT COALESCE(config->'paused' = 'true'::jsonb, false) FROM config WHERE name = $1",
+        format!("worker__{worker_group}")
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(paused) => paused.flatten().unwrap_or(false),
+        Err(e) => {
+            tracing::error!("Could not read whether worker group {worker_group} is paused: {e:#}");
+            return false;
+        }
+    };
+    WORKER_GROUP_PAUSED_CACHE.insert(
+        worker_group.to_string(),
+        (paused, std::time::Instant::now()),
+    );
+    paused
 }
 
 lazy_static::lazy_static! {
@@ -1020,6 +1260,7 @@ pub struct RlangAnnotations {
     pub renv_verbose: bool,
     pub renv_install_verbose: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("#")]
@@ -1032,7 +1273,10 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
+    pub py314: bool,
+    pub py315: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("//")]
@@ -1047,6 +1291,7 @@ pub struct TypeScriptAnnotations {
     pub native: bool,
     pub nobundling: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("--")]
@@ -1061,10 +1306,88 @@ pub struct SqlAnnotations {
     pub raw_output: bool,
 }
 
+impl SqlAnnotations {
+    /// The data table role a query declares as `-- role <name>`, if any. Only meaningful against a
+    /// `datatable://` database that is under roles; absent means the data table's default role.
+    ///
+    /// Hand-written rather than derived because the value matters, not just the presence, and
+    /// because the executor needs it before it knows the connection is a data table at all. Like
+    /// every annotation it lives in the leading comment block.
+    ///
+    /// A leading comment whose first word is `role` is an annotation *attempt*, and a malformed
+    /// one is an error. The alternative — ignoring what does not parse — resolves the query to the
+    /// data table's default role instead, so a typo silently runs it under a login the author did
+    /// not choose, which is the opposite of what naming a role is for. Only callers that already
+    /// know the target is a `datatable://` reference ever run this, so ordinary SQL keeps its
+    /// comments.
+    pub fn datatable_role(code: &str) -> error::Result<Option<String>> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with("--") {
+                break;
+            }
+            // The keyword may be followed by whitespace, `:` or `=` — `role x`, `role: x`,
+            // `role=x`, `Role = x` all open an attempt, while `rolexyz` does not. Each accepted
+            // separator is one spelling that would otherwise take the `continue` below and run the
+            // query as the data table's default role, which is the silence this exists to remove.
+            let body = line[2..].trim_start();
+            let Some(after) = body
+                .get(..4)
+                .filter(|kw| kw.eq_ignore_ascii_case("role"))
+                .map(|_| &body[4..])
+            else {
+                continue;
+            };
+            if !after.is_empty()
+                && !after.starts_with(char::is_whitespace)
+                && !after.starts_with([':', '='])
+            {
+                continue;
+            }
+
+            // Past this point the line is an attempt to name a role, so a malformed one is an
+            // error rather than a miss. Falling through would run the query as the data table's
+            // default role — quietly, and under a login the author did not choose.
+            let after = after.trim_start();
+            let after = after.strip_prefix([':', '=']).unwrap_or(after);
+            let mut tokens = after.split_whitespace();
+            let role = tokens
+                .next()
+                .map(|role| role.strip_suffix(';').unwrap_or(role));
+            let rest = tokens.next();
+            match (role, rest) {
+                (Some(role), None)
+                    if !role.is_empty()
+                        && role.len() <= 63
+                        && role
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
+                {
+                    return Ok(Some(role.to_string()));
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "Malformed data table role annotation: `{line}`. Write it as \
+                         `-- role <name>` on a line of its own, where <name> is letters, digits, \
+                         '_' or '-'. A comment in the leading block that starts with the word \
+                         'role' is read as this annotation; move it below the first statement if \
+                         it is prose."
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 impl BashAnnotations {
@@ -1536,6 +1859,76 @@ pub fn get_cpu_period() -> Option<i64> {
     Some(100000)
 }
 
+/// Bucket bounds in bytes, 16 MiB to 32 GiB, shared by the Prometheus and OTel job
+/// peak-memory histograms so the two exports stay comparable.
+pub const JOB_MEMORY_PEAK_BUCKETS: [f64; 12] = {
+    let mut buckets = [0.0; 12];
+    let mut i = 0;
+    while i < 12 {
+        buckets[i] = (16u64 << (20 + i)) as f64;
+        i += 1;
+    }
+    buckets
+};
+
+/// Cumulative CPU accounting of the worker's cgroup. The throttling fields stay at 0
+/// when the cgroup has no CPU controller, which is also what an unthrottled one reports.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CpuStat {
+    pub usage_usec: u64,
+    pub nr_periods: u64,
+    pub nr_throttled: u64,
+    pub throttled_usec: u64,
+}
+
+#[cfg(not(windows))]
+fn cpu_stat_field(stat: &str, key: &str) -> Option<u64> {
+    stat.lines().find_map(|line| {
+        let (k, v) = line.split_once(' ')?;
+        (k == key).then(|| v.trim().parse().ok()).flatten()
+    })
+}
+
+#[cfg(not(windows))]
+fn parse_cgroup_v2_cpu_stat(stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpu_stat_field(stat, "usage_usec")?,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_usec").unwrap_or(0),
+    })
+}
+
+/// cgroup v1 splits the same figures over two controllers and counts time in nanoseconds.
+#[cfg(not(windows))]
+fn parse_cgroup_v1_cpu_stat(cpuacct_usage: &str, stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpuacct_usage.trim().parse::<u64>().ok()? / 1000,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_time").unwrap_or(0) / 1000,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    const V1_USAGE: &str = "/sys/fs/cgroup/cpuacct/cpuacct.usage";
+    if Path::new(V1_USAGE).exists() {
+        parse_cgroup_v1_cpu_stat(
+            &std::fs::read_to_string(V1_USAGE).ok()?,
+            &std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.stat").unwrap_or_default(),
+        )
+    } else {
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_cgroup_v2_cpu_stat(&std::fs::read_to_string(format!("{cgroup_path}/cpu.stat")).ok()?)
+    }
+}
+
+#[cfg(windows)]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    None
+}
+
 /// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
 /// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
 /// the quota in, so a fraction of a CPU makes it report a single-core machine.
@@ -1705,6 +2098,7 @@ pub enum PingType {
     MainLoop,
     Job,
     InitScript,
+    Draining,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Ping {
@@ -1727,7 +2121,11 @@ pub struct Ping {
     pub occupancy_rate_30m: Option<f32>,
     pub job_isolation: Option<String>,
     pub native_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draining: Option<bool>,
     pub ping_type: PingType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_stats: Option<crate::worker_job_stats::WorkerJobStats>,
 }
 pub async fn update_ping_http(
     insert_ping: Ping,
@@ -1752,6 +2150,10 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
                 insert_ping.ip.as_deref(),
+                insert_ping
+                    .last_job_executed
+                    .zip(insert_ping.last_job_workspace_id.as_deref()),
+                insert_ping.job_stats.as_ref(),
                 db,
             )
             .await?
@@ -1776,6 +2178,7 @@ pub async fn update_ping_http(
                 insert_ping.memory,
                 insert_ping.job_isolation,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.draining,
                 db,
             )
             .await?;
@@ -1802,9 +2205,99 @@ pub async fn update_ping_http(
                 insert_ping.last_job_executed.unwrap_or_default(),
                 db,
             )
-            .await?
+            .await?;
+            if let Some(job_stats) = insert_ping.job_stats.as_ref() {
+                set_worker_job_stats_query(worker_name, job_stats, db).await?;
+            }
         }
+        PingType::Draining => set_worker_draining_query(worker_name, db).await?,
     }
+    Ok(())
+}
+
+pub async fn set_worker_draining_query(worker_name: &str, db: &DB) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET draining = true WHERE worker = $1",
+        worker_name
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// How long a dedicated worker's restart holds its group's turn at most: a successor that never
+/// reports ready must not block the group's other workers for longer.
+const DEDICATED_RESTART_TURN_SECS: f64 = 300.0;
+
+/// Restarts this worker once no other worker of its group is restarting, so that a change that
+/// reaches a whole dedicated worker group never takes all of its warm workers down at once.
+/// The turn is keyed on the host, which a supervisor's restart keeps, and is released by the
+/// next worker of this host once its dedicated subprocesses are up (`dedicated_worker_ready`).
+pub fn restart_dedicated_worker_in_turn(db: DB, killpill_tx: KillpillSender) {
+    tokio::spawn(async move {
+        let mut waiting = false;
+        loop {
+            match claim_dedicated_restart_turn(&db).await {
+                Ok(true) => break,
+                Ok(false) if !waiting => {
+                    tracing::info!("waiting for another worker of group {} to finish restarting before restarting", *WORKER_GROUP);
+                    waiting = true;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::error!(
+                        "could not take the dedicated worker restart turn, restarting now: {e:#}"
+                    );
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+        tracing::info!("Dedicated worker restarting, expecting to be restarted by supervisor.");
+        killpill_tx.send();
+    });
+}
+
+async fn claim_dedicated_restart_turn(db: &DB) -> sqlx::Result<bool> {
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('dedicated_restart_turn:' || $1))",
+        &*WORKER_GROUP
+    )
+    .execute(&mut *tx)
+    .await?;
+    let busy = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM worker_ping WHERE worker_group = $1 AND worker_instance <> $2
+            AND dedicated_restart_at > now() - make_interval(secs => $3)) AS "busy!""#,
+        &*WORKER_GROUP,
+        &*crate::utils::HOSTNAME,
+        DEDICATED_RESTART_TURN_SECS
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if !busy {
+        sqlx::query!(
+            "UPDATE worker_ping SET dedicated_restart_at = now() WHERE worker_group = $1 AND worker_instance = $2",
+            &*WORKER_GROUP,
+            &*crate::utils::HOSTNAME
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(!busy)
+}
+
+/// Releases the restart turn held by this host's previous worker of the group, if any.
+pub async fn dedicated_worker_ready(db: &DB) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET dedicated_restart_at = NULL
+            WHERE worker_group = $1 AND worker_instance = $2 AND dedicated_restart_at IS NOT NULL",
+        &*WORKER_GROUP,
+        &*crate::utils::HOSTNAME
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -1885,14 +2378,22 @@ pub async fn fetch_raw_script_from_app_query(
     loc: &'static Location<'_>,
 ) -> error::Result<RawScript> {
     sqlx::query!(
-        "SELECT lock, code FROM app_script WHERE id = $1 LIMIT 1",
+        "SELECT lock, code, modules AS \"modules: serde_json::Value\"
+         FROM app_script WHERE id = $1 LIMIT 1",
         id,
     )
     .fetch_optional(db)
     .await
     .map_err(Into::into)
     .and_then(unwrap_or_error(&loc, "Application script", id))
-    .map(|r| RawScript { content: r.code, lock: r.lock, meta: None, modules: None })
+    .and_then(|r| {
+        Ok(RawScript {
+            content: r.code,
+            lock: r.lock,
+            meta: None,
+            modules: r.modules.map(serde_json::from_value).transpose()?,
+        })
+    })
 }
 
 /// Returns the number of jobs the row already accounted for: non-zero when a worker of the
@@ -1906,6 +2407,9 @@ pub async fn fetch_raw_script_from_app_query(
 /// `started_at` and `jobs_executed` are the only two columns carried over, being the
 /// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
 /// lookup has not resolved yet and the predecessor's address is still the best guess.
+///
+/// `draining` is `Some(false)` from a worker starting up and `None` from one re-registering
+/// mid-life, which must leave alone a flag its own shutdown may have set in the meantime.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
@@ -1919,16 +2423,17 @@ pub async fn insert_ping_query(
     memory: Option<i64>,
     job_isolation: Option<String>,
     native_mode: bool,
+    draining: Option<bool>,
     db: &DB,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<ReclaimedPing> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
     // meanwhile the value a previous process wrote to a reclaimed row is the best guess we have. A
     // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
-    let previous_jobs_executed = sqlx::query_scalar!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
-        RETURNING jobs_executed",
+    let reclaimed = sqlx::query!(
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, false)) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = COALESCE($13, worker_ping.draining)
+        RETURNING jobs_executed, job_stats",
         worker_instance,
         worker_name,
         ip,
@@ -1941,10 +2446,23 @@ pub async fn insert_ping_query(
         memory,
         job_isolation.as_deref(),
         native_mode,
+        draining,
         )
         .fetch_one(db)
         .await?;
-    Ok(previous_jobs_executed)
+    Ok(ReclaimedPing {
+        jobs_executed: reclaimed.jobs_executed,
+        job_stats: reclaimed
+            .job_stats
+            .and_then(|v| serde_json::from_value(v).ok()),
+    })
+}
+
+/// What a worker starting under the name of an earlier process carries over from its row.
+#[derive(Default)]
+pub struct ReclaimedPing {
+    pub jobs_executed: i32,
+    pub job_stats: Option<crate::worker_job_stats::WorkerJobStats>,
 }
 
 pub async fn update_worker_ping_from_job_query(
@@ -2019,6 +2537,21 @@ pub async fn update_job_ping_query(
     }
 }
 
+pub async fn set_worker_job_stats_query(
+    worker_name: &str,
+    job_stats: &crate::worker_job_stats::WorkerJobStats,
+    db: &DB,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET job_stats = $1 WHERE worker = $2",
+        serde_json::to_value(job_stats)?,
+        worker_name,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn update_worker_ping_main_loop_query(
     worker_name: &str,
     tags: &[String],
@@ -2033,12 +2566,18 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
     ip: Option<&str>,
+    last_job: Option<(Uuid, &str)>,
+    job_stats: Option<&crate::worker_job_stats::WorkerJobStats>,
     db: &DB,
 ) -> anyhow::Result<()> {
+    let (last_job_id, last_job_workspace_id) = last_job.unzip();
+    let job_stats = job_stats.and_then(|s| serde_json::to_value(s).ok());
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip) WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip),
+         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id),
+         job_stats = COALESCE($16, job_stats) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -2052,6 +2591,9 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_30m,
         native_mode,
         ip,
+        last_job_id,
+        last_job_workspace_id,
+        job_stats,
     )
         .execute(db))
     .await??;
@@ -2062,8 +2604,98 @@ pub async fn update_worker_ping_main_loop_query(
 // occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
 // memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
 
-const MAX_TAG_LEN: usize = 50;
+/// The length of `v2_job.tag`.
+pub const MAX_TAG_LEN: usize = 50;
 const HASH_SUFFIX_LEN: usize = 16;
+
+pub const DEFAULT_DEV_WORKSPACE_TAG_SUFFIX: &str = "-dev";
+
+/// The suffix new jobs of dev workspaces and forks get, `None` while isolation is off.
+pub fn dev_workspace_tag_suffix() -> Option<String> {
+    DEV_WORKSPACE_ISOLATION
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .then(|| DEV_WORKSPACE_TAG_SUFFIX.load().to_string())
+}
+
+/// Whether a workspace's jobs are isolated, given that it has a parent or a generated fork id
+/// (`is_dev_or_fork`) and whether a dev workspace is on its ancestor chain, itself included
+/// (`in_dev_lineage`). Leaves out only the forks of a non-dev workspace, and only when the
+/// instance opts out of isolating them.
+pub fn is_isolated_workspace(is_dev_or_fork: bool, in_dev_lineage: bool) -> bool {
+    is_dev_or_fork
+        && (in_dev_lineage
+            || !DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS
+                .load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Worker tags are pasted into the pull queries as SQL literals and listed comma-separated, so
+/// the suffix must not carry a quote, a comma or whitespace.
+pub fn is_valid_dev_workspace_tag_suffix(suffix: &str) -> bool {
+    !suffix.is_empty()
+        && suffix.len() <= 32
+        && suffix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// `tag` as the workers serving dev workspaces listen to it. Idempotent, because a tag inherited
+/// from a dev job (a flow step, an agent's tool) already carries the suffix.
+pub fn with_dev_workspace_suffix(tag: &str, suffix: &str) -> String {
+    if tag.ends_with(suffix) {
+        tag.to_string()
+    } else {
+        format!("{tag}{suffix}")
+    }
+}
+
+/// Whether `tag` has the shape of a [`dedicated_worker_tag`] too long to keep whole. Its prefix
+/// alone does not tell whose it is: two workspaces may share it.
+pub fn is_hashed_dedicated_worker_tag(tag: &str) -> bool {
+    tag.len() == MAX_TAG_LEN && tag.as_bytes().get(MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN) == Some(&b'#')
+}
+
+/// The path prefix a `dedicated_workers` entry ending in `/*` (`f/dw/*`) stands for: every
+/// script under it, nested folders included. Flows are listed one by one.
+pub fn dedicated_worker_pattern_prefix(path: &str) -> Option<&str> {
+    path.strip_suffix('*')
+        .filter(|p| p.ends_with('/') && p.len() > 1 && !p.starts_with("flow/"))
+}
+
+/// `entries` with each pattern replaced by the scripts under it that a dedicated worker serves:
+/// those enabling `dedicated_worker` with an unrestricted job token, the only ones whose jobs
+/// get the dedicated tag on push. Reads every workspace's scripts unchecked: `entries` must come
+/// from a worker group config, which only an instance admin or devops user can write, never from a
+/// request.
+pub async fn expand_dedicated_workers(
+    db: &DB,
+    entries: &[WorkspacedPath],
+) -> error::Result<Vec<WorkspacedPath>> {
+    let mut out: Vec<WorkspacedPath> = vec![];
+    for wp in entries {
+        let Some(prefix) = dedicated_worker_pattern_prefix(&wp.path) else {
+            out.push(wp.clone());
+            continue;
+        };
+        let paths = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT path FROM script
+             WHERE workspace_id = $1 AND starts_with(path, $2) AND archived = false
+               AND dedicated_worker = true AND job_token_scopes IS NULL
+             ORDER BY path",
+        )
+        .bind(&wp.workspace_id)
+        .bind(prefix)
+        .fetch_all(db)
+        .await?;
+        out.extend(
+            paths
+                .into_iter()
+                .map(|path| WorkspacedPath { workspace_id: wp.workspace_id.clone(), path }),
+        );
+    }
+    let mut seen = HashSet::new();
+    out.retain(|wp| seen.insert((wp.workspace_id.clone(), wp.path.clone())));
+    Ok(out)
+}
 
 pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
     let full_tag = format!("{}:{}", workspace_id, path);
@@ -2131,12 +2763,7 @@ pub async fn load_worker_config(
                     "Invalid dedicated_worker format. Got {x}, expects <workspace_id>:<path>"
                 ));
             } else {
-                let workspace = splitted[0];
-                let script_path = splitted[1];
-                Ok(WorkspacedPath {
-                    workspace_id: workspace.to_string(),
-                    path: script_path.to_string(),
-                })
+                Ok(WorkspacedPath::dedicated(splitted[0], splitted[1]))
             }
         })
         .transpose()?;
@@ -2154,16 +2781,15 @@ pub async fn load_worker_config(
                             "Invalid dedicated_workers format. Got {x}, expects <workspace_id>:<path>"
                         ));
                     }
-                    let workspace = splitted[0];
-                    let script_path = splitted[1];
-                    Ok(WorkspacedPath {
-                        workspace_id: workspace.to_string(),
-                        path: script_path.to_string(),
-                    })
+                    Ok(WorkspacedPath::dedicated(splitted[0], splitted[1]))
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
         .transpose()?;
+    let dedicated_scripts = match dedicated_workers.as_deref() {
+        Some(dws) => Some(expand_dedicated_workers(db, dws).await?),
+        None => None,
+    };
     if *WORKER_GROUP == "default" && dedicated_worker.is_none() {
         let mut all_tags = config
             .worker_tags
@@ -2198,7 +2824,7 @@ pub async fn load_worker_config(
         .worker_tags
         .or_else(|| {
             // Check for multiple dedicated workers
-            if let Some(ref dws) = dedicated_workers.as_ref() {
+            if let Some(ref dws) = dedicated_scripts.as_ref() {
                 let mut dedi_tags: Vec<String> = dws
                     .iter()
                     .map(|dw| dedicated_worker_tag(&dw.workspace_id, &dw.path))
@@ -2225,8 +2851,32 @@ pub async fn load_worker_config(
         })
         .unwrap_or_else(|| DEFAULT_TAGS.clone());
 
+    // A group serving dev workspaces listens to the suffixed form of its tags only, so it never
+    // takes a root workspace's job. Dedicated workers are placed by hand and keep their tags.
+    let dev_suffix = (config.serves_dev_workspaces == Some(true)
+        && dedicated_worker.is_none()
+        && dedicated_workers.is_none())
+    .then(|| DEV_WORKSPACE_TAG_SUFFIX.load().to_string());
+    WORKER_SERVES_DEV_WORKSPACES.store(dev_suffix.is_some(), std::sync::atomic::Ordering::Relaxed);
+    let worker_tags = match &dev_suffix {
+        Some(suffix) => worker_tags
+            .iter()
+            .map(|t| with_dev_workspace_suffix(t, suffix))
+            .unique()
+            .collect_vec(),
+        None => worker_tags,
+    };
+
     let mut priority_tags_sorted: Vec<PriorityTags> = Vec::new();
-    let priority_tags_map = config.priority_tags.unwrap_or_else(HashMap::new);
+    let priority_tags_map: HashMap<String, u8> = match &dev_suffix {
+        Some(suffix) => config
+            .priority_tags
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(t, p)| (with_dev_workspace_suffix(&t, suffix), p))
+            .collect(),
+        None => config.priority_tags.unwrap_or_else(HashMap::new),
+    };
     if priority_tags_map.len() > 0 {
         let mut all_tags_set: HashSet<String> = HashSet::from_iter(worker_tags.clone());
 
@@ -2255,6 +2905,12 @@ pub async fn load_worker_config(
             .collect();
         priority_tags_sorted.push(PriorityTags { priority: 0, tags: Vec::from_iter(all_tags_set) }); // push the tags that were not listed as high priority with a priority = 0
         priority_tags_sorted.sort_by_key(|elt| Reverse(elt.priority)); // sort by priority DESC
+
+        // The buckets come out of hash maps: without a fixed order two loads of the same
+        // config compare unequal, and a reload reads that as a config change.
+        for bucket in priority_tags_sorted.iter_mut() {
+            bucket.tags.sort();
+        }
     } else {
         // if no priority is used, push all tags with a priority to 0
         priority_tags_sorted.push(PriorityTags { priority: 0, tags: worker_tags.clone() });
@@ -2303,6 +2959,17 @@ pub async fn load_worker_config(
     let native_mode = is_native_mode_from_env() || config.native_mode.unwrap_or(false);
     NATIVE_MODE_RESOLVED.store(native_mode, std::sync::atomic::Ordering::Relaxed);
 
+    // Fairness needs an Enterprise license, which a CE build (`private` included) never has, so
+    // no workspace would ever be overloaded and a reserve worker would idle forever.
+    let fairness_reserve = config.fairness_reserve.unwrap_or(false);
+    if fairness_reserve && !cfg!(feature = "enterprise") {
+        tracing::warn!(
+            "fairness_reserve is set on worker group {} but requires an Enterprise build, ignoring it",
+            *WORKER_GROUP
+        );
+    }
+    let fairness_reserve = fairness_reserve && cfg!(feature = "enterprise");
+
     Ok(WorkerConfig {
         worker_tags,
         priority_tags_sorted,
@@ -2322,7 +2989,11 @@ pub async fn load_worker_config(
             .additional_python_paths
             .or_else(|| load_additional_python_paths_from_env()),
         env_vars: resolved_env_vars,
+        disable_job_proxy: config.disable_job_proxy.unwrap_or(false),
         native_mode,
+        object_store_cache_config: config.object_store_cache_config,
+        paused: config.paused.unwrap_or(false),
+        fairness_reserve,
     })
 }
 
@@ -2364,6 +3035,93 @@ pub fn load_whitelist_env_vars_from_env() -> std::vec::IntoIter<String> {
         .into_iter()
 }
 
+/// Warns, by name only, about each `WHITELIST_ENVS` entry that looks like a credential:
+/// every job on the worker can read what is listed there.
+pub fn warn_secret_shaped_whitelist_envs() {
+    for name in load_whitelist_env_vars_from_env().sorted().unique() {
+        let value = std::env::var(&name).unwrap_or_default();
+        if looks_like_secret(&name, &value) {
+            tracing::warn!(
+                "WHITELIST_ENVS forwards {name}, which looks like a secret, to every job on \
+                this worker, where any script can read it. Store it as a secret variable or \
+                resource, or in a secret backend, and remove it from WHITELIST_ENVS"
+            );
+        }
+    }
+}
+
+fn looks_like_secret(name: &str, value: &str) -> bool {
+    const SECRET_WORDS: &[&str] = &[
+        "TOKEN",
+        "TOKENS",
+        "SECRET",
+        "SECRETS",
+        "PASSWORD",
+        "PASSWD",
+        "KEY",
+        "APIKEY",
+        "CREDENTIAL",
+        "CREDENTIALS",
+        "AUTH",
+        "PRIVATE",
+    ];
+    let name_matches = name
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| SECRET_WORDS.contains(&word.to_ascii_uppercase().as_str()));
+    if name_matches {
+        return true;
+    }
+
+    let value = value.trim();
+    let is_private_pem = value.contains("-----BEGIN ") && value.contains("PRIVATE KEY-----");
+    let is_jwt = value.starts_with("eyJ") && {
+        let parts: Vec<&str> = value.split('.').collect();
+        parts.len() == 3
+            && parts.iter().all(|p| {
+                !p.is_empty()
+                    && p.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '=')
+            })
+    };
+    let has_url_password = url::Url::parse(value).is_ok_and(|u| u.password().is_some());
+    is_private_pem || is_jwt || has_url_password || is_high_entropy(value)
+}
+
+/// A single token whose longest run between separators is 24+ chars mixing letters and digits
+/// with more than 4 bits of entropy per char: above what hex digests, UUIDs and words reach.
+/// Scoring the whole value instead flags pod names and cloud resource paths, whose entropy
+/// grows with their length.
+fn is_high_entropy(value: &str) -> bool {
+    if !value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "+/=_-".contains(c))
+    {
+        return false;
+    }
+    let Some(run) = value.split(['-', '_', '/']).max_by_key(|s| s.len()) else {
+        return false;
+    };
+    if run.len() < 24
+        || !run.chars().any(|c| c.is_ascii_digit())
+        || !run.chars().any(|c| c.is_ascii_alphabetic())
+    {
+        return false;
+    }
+    let mut counts = HashMap::<char, usize>::new();
+    for c in run.chars() {
+        *counts.entry(c).or_default() += 1;
+    }
+    let len = run.len() as f64;
+    let entropy: f64 = counts
+        .values()
+        .map(|&n| {
+            let p = n as f64 / len;
+            -p * p.log2()
+        })
+        .sum();
+    entropy > 4.0
+}
+
 pub fn load_env_vars(
     iter: impl Iterator<Item = String>,
     env_vars_static: &HashMap<String, String>,
@@ -2397,6 +3155,26 @@ pub struct WorkspacedPath {
     pub path: String,
 }
 
+impl WorkspacedPath {
+    /// A dedicated worker setting's `<path>`, a flow written `flow/<path>`, read the way job
+    /// resolution reads it: the result is the path its jobs' dedicated tag is built from. A path
+    /// that does not parse is kept as written: its tag matches no job, and refusing it would stop
+    /// the worker serving the other entries of its group.
+    pub fn dedicated(workspace_id: &str, path: &str) -> Self {
+        let runnable = if path.starts_with("flow/") {
+            RunnableRef::from_prefixed(path)
+        } else {
+            RunnableRef::from_path(path, false)
+        };
+        let path = match runnable {
+            Ok(r) if r.is_flow() => format!("flow/{}", r.path()),
+            Ok(r) => r.path().to_string(),
+            Err(_) => path.to_string(),
+        };
+        Self { workspace_id: workspace_id.to_string(), path }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
@@ -2411,7 +3189,12 @@ pub struct WorkerConfigOpt {
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars_static: Option<HashMap<String, String>>,
     pub env_vars_allowlist: Option<Vec<String>>,
+    pub disable_job_proxy: Option<bool>,
     pub native_mode: Option<bool>,
+    pub object_store_cache_config: Option<serde_json::Value>,
+    pub paused: Option<bool>,
+    pub serves_dev_workspaces: Option<bool>,
+    pub fairness_reserve: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2429,7 +3212,12 @@ impl Default for WorkerConfigOpt {
             pip_local_dependencies: Default::default(),
             env_vars_static: Default::default(),
             env_vars_allowlist: Default::default(),
+            disable_job_proxy: Default::default(),
             native_mode: Default::default(),
+            object_store_cache_config: Default::default(),
+            paused: Default::default(),
+            serves_dev_workspaces: Default::default(),
+            fairness_reserve: Default::default(),
         }
     }
 }
@@ -2447,13 +3235,27 @@ pub struct WorkerConfig {
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars: HashMap<String, String>,
+    /// Job runs get none of the worker's `HTTP(S)_PROXY`/`NO_PROXY`; dependency installs keep them.
+    pub disable_job_proxy: bool,
     pub native_mode: bool,
+    /// Object store this group's dependency cache uses instead of the instance one, as stored
+    /// in the group config. Raw JSON: `windmill-common` cannot depend on the object store crate
+    /// that parses it, and comparing the raw value is what tells a reload the store changed.
+    pub object_store_cache_config: Option<serde_json::Value>,
+    /// The group pulls no job from the queue: its workers finish what they hold, keep pinging
+    /// and leave queued jobs for when it is resumed.
+    pub paused: bool,
+    /// Pulls nothing while no workspace is overloaded, and otherwise only jobs of the workspaces
+    /// that are not. See "Reserve workers" in `windmill_queue::workspace_fairness`.
+    pub fairness_reserve: bool,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode)
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, disable_job_proxy: {:?}, native_mode: {:?}, paused: {:?}, fairness_reserve: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.disable_job_proxy, self.native_mode, self.paused, self.fairness_reserve,
+        // holds bucket credentials
+        self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }
 }
 
@@ -2482,14 +3284,55 @@ pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> 
         .collect()
 }
 
+/// Byte offset of the comment marker, per pip's rule: a `#` at line start or preceded by
+/// whitespace. A `#` elsewhere belongs to the requirement (`pkg @ https://h/p.whl#sha256=…`).
+fn requirement_comment_start(line: &str) -> Option<usize> {
+    line.char_indices()
+        .find(|(i, c)| *c == '#' && (*i == 0 || line[..*i].ends_with(char::is_whitespace)))
+        .map(|(i, _)| i)
+}
+
+/// The installable requirement carried by one lockfile line, or `None` for a comment, a
+/// `-r`/`-e`/`--flag` directive, or a blank.
+///
+/// Windmill installs a lockfile one entry at a time as a `uv pip install` argument, so
+/// requirements-file syntax a file-level parser would absorb is an unparseable package name
+/// here and has to be stripped first.
+pub fn requirement_from_lockfile_line(line: &str) -> Option<&str> {
+    let requirement = match requirement_comment_start(line) {
+        Some(i) => &line[..i],
+        None => line,
+    }
+    .trim()
+    // Continuations are stripped, not joined: right for `--generate-hashes` locks, whose
+    // continued lines are `--hash=` flags this function drops, but a lock continuing onto a
+    // marker or extra would lose it.
+    .trim_end_matches('\\')
+    .trim_end();
+
+    (!requirement.is_empty() && !requirement.starts_with('-')).then_some(requirement)
+}
+
+/// Whether a lockfile line continues onto the next one. The continued lines reach the
+/// installer as entries of their own rather than being joined, so a caller that cares what
+/// they carried — `--hash=` pins, for a `--generate-hashes` lock — has to say so itself.
+pub fn lockfile_line_has_continuation(line: &str) -> bool {
+    line.trim_end().ends_with('\\')
+}
+
 #[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
 #[repr(u32)]
 pub enum PyVAlias {
     Py310 = 10,
     Py311,
+    // Frozen: what a lock with no `# py:` line runs on, and what the server writes into
+    // `instance_python_version` for an instance that never chose one. Raise `NEW_INSTANCE`
+    // instead, which existing instances never pick up.
     #[default]
     Py312,
     Py313,
+    Py314,
+    Py315,
 }
 
 impl Into<pep440_rs::Version> for PyVAlias {
@@ -2505,15 +3348,32 @@ impl Into<u32> for PyVAlias {
 }
 
 impl PyVAlias {
+    /// What the server writes into `instance_python_version` when it initializes an instance.
+    /// Raising it also means the images must keep preinstalling every earlier value, or
+    /// instances that started on one download their runtime on first use.
+    pub const NEW_INSTANCE: PyVAlias = PyVAlias::Py313;
+
     pub fn all<T: From<PyVAlias>>() -> Vec<T> {
         use PyVAlias::*;
-        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+        vec![
+            Py310.into(),
+            Py311.into(),
+            Py312.into(),
+            Py313.into(),
+            Py314.into(),
+            Py315.into(),
+        ]
     }
+    /// `MAJOR.MINOR`, the form the instance settings store.
+    pub fn version_string(self) -> String {
+        format!("{}.{}", self.major(), self as u32)
+    }
+
     // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
     fn major(&self) -> u32 {
         use PyVAlias::*;
         match self {
-            Py310 | Py311 | Py312 | Py313 => 3,
+            Py310 | Py311 | Py312 | Py313 | Py314 | Py315 => 3,
             // Py400 | Py401 => 4
         }
     }
@@ -2528,6 +3388,8 @@ impl PyVAlias {
             "311" => Some(Py311),
             "312" => Some(Py312),
             "313" => Some(Py313),
+            "314" => Some(Py314),
+            "315" => Some(Py315),
             _ => None,
         }
     }
@@ -2587,6 +3449,144 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    #[test]
+    fn dedicated_path_is_read_like_a_job_path() {
+        let path = |p: &str| WorkspacedPath::dedicated("ws", p).path;
+        assert_eq!(path("/u/me/x"), "u/me/x");
+        assert_eq!(path("flow//f/a/b"), "flow/f/a/b");
+        assert_eq!(path("u/me/x"), "u/me/x");
+        assert_eq!(path("//u/me/x"), "//u/me/x");
+        assert_eq!(path("/f/dw/*"), "f/dw/*");
+    }
+
+    #[test]
+    fn whitelist_env_secret_heuristic() {
+        let cases = [
+            ("GITHUB_TOKEN", "x", true),
+            ("aws_secret_access_key", "", true),
+            ("DB-PASSWORD", "x", true),
+            ("OPENAI_APIKEY", "x", true),
+            ("MY_CREDENTIALS", "x", true),
+            ("PRIVATE_REGISTRY", "x", true),
+            ("MONKEY", "banana", false),
+            ("KEYCLOAK_URL", "https://kc.example.com", false),
+            ("TOKENIZER_PATH", "/opt/tok", false),
+            (
+                "SSH_CFG",
+                "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----",
+                true,
+            ),
+            (
+                "CA_CERT",
+                "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----",
+                false,
+            ),
+            (
+                "JWT_LIKE",
+                "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+                true,
+            ),
+            ("DB_URL", "postgres://user:hunter2@db:5432/app", true),
+            ("PROXY", "http://proxy.local:3128", false),
+            ("PROXY_USER", "http://bob@proxy.local:3128", false),
+            ("OPAQUE", "app_51HxQ2vLk9Tq8ZpR3mNcY7wB4aD6eF0gJ", true),
+            ("GIT_SHA", "3f786850e387550fdab836ed7e6dc881de23001b", false),
+            ("RUN_ID", "123e4567-e89b-12d3-a456-426614174000", false),
+            (
+                "SOME_PATH",
+                "/usr/local/lib/python3.11/site-packages/x1",
+                false,
+            ),
+            ("REGION", "eu-west-1", false),
+            ("HOSTNAME", "windmill-workers-7d9f8c6b5-x2k4p", false),
+            (
+                "TOPIC",
+                "projects/my-gcp-project-123/locations/europe-west1",
+                false,
+            ),
+        ];
+        for (name, value, expected) in cases {
+            assert_eq!(looks_like_secret(name, value), expected, "{name}={value}");
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn cgroup_cpu_stat_is_normalized_to_microseconds() {
+        let v2 = "usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n\
+                  nr_periods 40\nnr_throttled 7\nthrottled_usec 350000\nnr_bursts 0\n";
+        let expected = CpuStat {
+            usage_usec: 2_500_000,
+            nr_periods: 40,
+            nr_throttled: 7,
+            throttled_usec: 350_000,
+        };
+        assert_eq!(parse_cgroup_v2_cpu_stat(v2), Some(expected));
+
+        let v1_stat = "nr_periods 40\nnr_throttled 7\nthrottled_time 350000000\n";
+        assert_eq!(
+            parse_cgroup_v1_cpu_stat("2500000000\n", v1_stat),
+            Some(expected)
+        );
+
+        // No CPU controller: usage is still reported, throttling reads as zero.
+        assert_eq!(
+            parse_cgroup_v2_cpu_stat("usage_usec 12\nuser_usec 8\nsystem_usec 4\n"),
+            Some(CpuStat { usage_usec: 12, ..Default::default() })
+        );
+        assert_eq!(parse_cgroup_v2_cpu_stat("nr_periods 40\n"), None);
+    }
+
+    #[test]
+    fn datatable_role_is_read_from_the_leading_comment_block() {
+        let role = |code| SqlAnnotations::datatable_role(code);
+        assert_eq!(
+            role("-- role analytics\nSELECT 1").unwrap(),
+            Some("analytics".to_string())
+        );
+        // Blank lines and other annotations before it are fine.
+        assert_eq!(
+            role("\n-- prepare\n-- role read_only\nSELECT 1").unwrap(),
+            Some("read_only".to_string())
+        );
+        // Past the first statement it is an ordinary comment, not an annotation.
+        assert_eq!(role("SELECT 1;\n-- role analytics").unwrap(), None);
+        assert_eq!(role("SELECT 1").unwrap(), None);
+
+        // Unambiguous intent is honoured: the keyword matches case-insensitively, a trailing
+        // semicolon is a habit carried over from SQL rather than a different role, and the colon
+        // spelling is the one most likely to be typed.
+        for accepted in [
+            "-- Role operator\nSELECT 1",
+            "-- role operator;\nSELECT 1",
+            "-- role: operator\nSELECT 1",
+            "-- role:operator\nSELECT 1",
+            "-- role=operator\nSELECT 1",
+            "-- Role = operator\nSELECT 1",
+        ] {
+            assert_eq!(
+                role(accepted).unwrap(),
+                Some("operator".to_string()),
+                "not honoured: {accepted}"
+            );
+        }
+
+        // Anything else opening with the word is refused rather than resolved to the default role:
+        // the whole point of naming one is to not run as something else.
+        for near_miss in [
+            "-- role operator -- why\nSELECT 1",
+            "-- role an;alytics\nSELECT 1",
+            "-- role\nSELECT 1",
+            "-- role:\nSELECT 1",
+            "-- role based access is handled below\nSELECT 1",
+        ] {
+            assert!(role(near_miss).is_err(), "silently ignored: {near_miss}");
+        }
+
+        // A word that merely starts with the keyword is not an attempt.
+        assert_eq!(role("-- rolebased notes\nSELECT 1").unwrap(), None);
+    }
+
     fn matcher(id: &str) -> WorkspaceMatcher {
         WorkspaceMatcher { id: id.to_string(), include_forks: false }
     }
@@ -2598,6 +3598,52 @@ mod tests {
     /// A workspace id chain: the workspace itself, then its fork ancestors nearest-first.
     fn chain(ids: &[&str]) -> Vec<String> {
         ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Fixtures are verbatim `uv pip compile` output (uv 0.11.28): split and inline
+    /// annotation styles, and `--generate-hashes`.
+    #[test]
+    fn test_requirement_from_lockfile_line() {
+        assert_eq!(requirement_from_lockfile_line("    # via httpx"), None);
+        assert_eq!(requirement_from_lockfile_line("    # via"), None);
+        assert_eq!(requirement_from_lockfile_line("    #   anyio"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("    # via -r .tmp/requirements.in"),
+            None
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("anyio==4.15.1 \\"),
+            Some("anyio==4.15.1")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line(
+                "    --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7 \\"
+            ),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("# py: 3.11"), None);
+        assert_eq!(requirement_from_lockfile_line("-r other.txt"), None);
+        assert_eq!(
+            requirement_from_lockfile_line("--index-url https://x"),
+            None
+        );
+        assert_eq!(requirement_from_lockfile_line("   "), None);
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0"),
+            Some("httpx==0.27.0")
+        );
+        assert_eq!(
+            requirement_from_lockfile_line("httpx==0.27.0  # via -r requirements.in"),
+            Some("httpx==0.27.0")
+        );
+        // A `#` not preceded by whitespace is part of the requirement, not a comment.
+        assert_eq!(
+            requirement_from_lockfile_line("wmill @ https://h/wmill.whl#sha256=abc"),
+            Some("wmill @ https://h/wmill.whl#sha256=abc")
+        );
+
+        assert!(lockfile_line_has_continuation("anyio==4.15.1 \\"));
+        assert!(!lockfile_line_has_continuation("anyio==4.15.1"));
     }
 
     #[test]
@@ -2832,6 +3878,92 @@ mod tests {
     }
 
     #[test]
+    fn test_custom_tag_matches_resolved_tags() {
+        let matches = |entry, tag| custom_tag_matches(entry, tag, "ws1");
+
+        assert!(matches("gpu", "gpu"));
+        assert!(!matches("gpu", "gpu-large"));
+
+        // The text around a placeholder fences what its value can make of the tag.
+        assert!(matches("gpu-$args[size]", "gpu-large"));
+        assert!(matches("gpu-$flow_expr[results.a.size]", "gpu-"));
+        assert!(!matches("gpu-$args[size]", "prod"));
+        assert!(!matches("gpu-$args[size]", "xgpu-large"));
+        assert!(matches("$args[region]-gpu", "eu-gpu"));
+        assert!(!matches("$args[region]-gpu", "eu-gpu-x"));
+        assert!(matches("a-$args[x]-b-$args[y]-c", "a-1-b-2-c"));
+        assert!(!matches("a-$args[x]-b-$args[y]-c", "a-1-c"));
+        assert!(!matches("ab$args[x]ba", "aba"));
+
+        // A bare placeholder admits every tag.
+        assert!(matches("$flow_expr[results.a.tag]", "anything"));
+
+        // Tied placeholders are no pattern: their entry admits only its own text.
+        assert!(!matches("t-$args[id]-$args[id]", "t-a-a"));
+        assert!(!matches("t-$args[a]-$args[a.b]", "t-x-y"));
+        assert!(matches("t-$args[a.x]-$args[a.y]", "t-x-y"));
+        assert!(matches("t-$args[id]-$flow_expr[flow_input.id]", "t-x-y"));
+
+        // `$workspace` stands for the job's own workspace only.
+        assert!(matches("tag-$workspace", "tag-ws1"));
+        assert!(!matches("tag-$workspace", "tag-ws2"));
+        assert!(matches("$workspace-$args[size]", "ws1-large"));
+        assert!(!matches("$workspace-$args[size]", "ws2-large"));
+    }
+
+    #[test]
+    fn test_scoped_custom_tag_patterns_parse_and_round_trip() {
+        let input = vec![
+            "gpu-$args[size](ws1+ws2)".to_string(),
+            "cpu-$flow_expr[results.a.size](^ws1)".to_string(),
+            "$workspace-$args[x](prod*)".to_string(),
+            "t-$args[id]-$args[id](ws1)".to_string(),
+        ];
+        let tags = CustomTags::from(input.clone());
+
+        assert!(tags.global.is_empty());
+        assert_eq!(
+            tags.specific["gpu-$args[size]"],
+            SpecificTagData {
+                tag_type: SpecificTagType::NoneExcept,
+                workspaces: vec![matcher("ws1"), matcher("ws2")],
+            }
+        );
+        assert_eq!(
+            tags.specific["cpu-$flow_expr[results.a.size]"],
+            SpecificTagData {
+                tag_type: SpecificTagType::AllExcluding,
+                workspaces: vec![matcher("ws1")],
+            }
+        );
+        assert!(tags.specific["$workspace-$args[x]"].is_fork_scoped());
+        assert!(tags.specific.contains_key("t-$args[id]-$args[id]"));
+
+        let mut result = tags.to_string_vec(None);
+        result.sort();
+        let mut expected = input;
+        expected.sort();
+        assert_eq!(result, expected);
+
+        let mut for_ws1 = tags.to_string_vec(Some(&chain(&["ws1"])));
+        for_ws1.sort();
+        assert_eq!(for_ws1, vec!["gpu-$args[size]", "t-$args[id]-$args[id]"]);
+
+        // Only the placeholders a tag resolves from make a name a pattern: anything else is no
+        // scoped entry at all.
+        for literal in [
+            "gpu-$foo(ws1)",
+            "gpu-$args[](ws1)",
+            "gpu-$args[a.](ws1)",
+            "gpu.x(ws1)",
+        ] {
+            let tags = CustomTags::from(vec![literal.to_string()]);
+            assert_eq!(tags.global, vec![literal]);
+            assert!(tags.specific.is_empty());
+        }
+    }
+
+    #[test]
     fn test_fork_marker_parses_and_round_trips() {
         let tags = CustomTags::from(vec![
             "urgent(prod*+ws2)".to_string(),
@@ -2891,6 +4023,19 @@ mod tests {
         assert!(!marked.applies_to_workspace(&chain(&["prod"])));
         assert!(!marked.applies_to_workspace(&fork));
         assert!(marked.applies_to_workspace(&chain(&["other"])));
+    }
+
+    #[test]
+    fn dedicated_worker_patterns_are_script_folders() {
+        assert_eq!(dedicated_worker_pattern_prefix("f/dw/*"), Some("f/dw/"));
+        assert_eq!(
+            dedicated_worker_pattern_prefix("u/alice/*"),
+            Some("u/alice/")
+        );
+        assert_eq!(dedicated_worker_pattern_prefix("f/dw/script"), None);
+        assert_eq!(dedicated_worker_pattern_prefix("f/dw*"), None);
+        assert_eq!(dedicated_worker_pattern_prefix("/*"), None);
+        assert_eq!(dedicated_worker_pattern_prefix("flow/f/dw/*"), None);
     }
 
     #[test]
@@ -2966,6 +4111,22 @@ mod tests {
         let combined = SqlAnnotations::parse("-- prepare\n-- raw_output\nSELECT 1");
         assert!(combined.raw_output);
         assert!(combined.prepare);
+    }
+
+    #[test]
+    fn test_no_network_annotation() {
+        assert!(PythonAnnotations::parse("# sandbox\n# no_network\ndef main(): pass").no_network);
+        assert!(!PythonAnnotations::parse("# sandbox\ndef main(): pass").no_network);
+        assert!(RlangAnnotations::parse("#no_network\nmain <- function() {}").no_network);
+        assert!(
+            TypeScriptAnnotations::parse("// no_network\nexport function main() {}").no_network
+        );
+        let bash = "# sandbox alpine\n# no_network\necho hi";
+        assert!(BashAnnotations::parse(bash).no_network);
+        assert_eq!(
+            BashAnnotations::sandbox_image(bash),
+            Some("alpine".to_string())
+        );
     }
 
     #[test]

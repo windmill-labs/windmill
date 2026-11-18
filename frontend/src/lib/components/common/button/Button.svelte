@@ -16,11 +16,15 @@
 
 	type MenuItem = {
 		label: string
+		description?: string
 		onClick?: (e?: Event) => void
 		href?: string
+		hrefTarget?: Item['hrefTarget']
 		icon?: any
 		disabled?: boolean
 		tooltip?: string
+		/** Marks the current choice, for a menu that picks one of several values. */
+		selected?: boolean
 	}
 	interface Props {
 		id?: string
@@ -79,6 +83,9 @@
 		startIcon?: ButtonType.Icon | undefined
 		endIcon?: ButtonType.Icon | undefined
 		destructive?: boolean
+		/** Colors the `accent`, `default` and `subtle` variants to match an Alert of this type.
+		 * Ignored when `dropdownItems` is set: split buttons keep the neutral palette. */
+		tone?: ButtonType.Tone
 		shortCut?: { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean } | undefined
 		tooltipPopover?:
 			| {
@@ -129,6 +136,7 @@
 		startIcon = undefined,
 		endIcon = undefined,
 		destructive = false,
+		tone = undefined,
 		shortCut = undefined,
 		tooltipPopover = undefined,
 		dropdownBtnClasses = '',
@@ -142,15 +150,27 @@
 		...rest
 	}: Props = $props()
 
+	const activeTone = $derived(dropdownItems ? undefined : tone)
+	// `dropdownItems` may be a function, whose `.length` is its arity — 0 for the `() => [...]`
+	// every caller writes. Asking it for its items is the only way to know whether there are any,
+	// and a split button that answers `.length` instead renders no caret at all.
+	const hasDropdown = $derived(
+		!!dropdownItems &&
+			(typeof dropdownItems === 'function' ? dropdownItems().length : dropdownItems.length) > 0
+	)
+
 	function computeDropdowns(menuItems: MenuItem[] | (() => MenuItem[])): Item[] {
 		const items = typeof menuItems === 'function' ? menuItems() : menuItems
 		return items.map((item) => ({
 			displayName: item.label,
+			description: item.description,
 			action: item.onClick ? (e) => item.onClick?.(e) : undefined,
 			icon: item.icon,
 			disabled: item.disabled ?? false,
 			href: item.href,
-			tooltip: item.tooltip
+			hrefTarget: item.hrefTarget,
+			tooltip: item.tooltip,
+			selected: item.selected
 		}))
 	}
 
@@ -183,14 +203,13 @@
 		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
 			let style = destructive
 				? ButtonType.DestructiveVariantStyles[variant]
-				: ButtonType.VariantStyles[variant]
+				: activeTone
+					? ButtonType.ToneVariantStyles[activeTone][
+							variant === 'accent-secondary' ? 'accent' : variant
+						]
+					: ButtonType.VariantStyles[variant]
 			// For default variant with dropdowns, remove border from button since it's on wrapper
-			if (
-				variant === 'default' &&
-				dropdownItems &&
-				((typeof dropdownItems === 'function' && dropdownItems().length > 0) ||
-					dropdownItems.length > 0)
-			) {
+			if (variant === 'default' && hasDropdown) {
 				style = style.replace('border border-border-light', '')
 			}
 			return style
@@ -238,7 +257,10 @@
 	function getDividerClass(color, variant) {
 		// Check if using new design system variants
 		if (variant === 'default') {
-			return 'border border-border-light divide-x divide-border-light'
+			// An inset outline, not a border: a border would add 2px around the `unifiedSize`
+			// height the buttons inside already have, so a split button would stand taller than a
+			// plain one of the same size.
+			return 'outline outline-1 -outline-offset-1 outline-border-light divide-x divide-border-light'
 		} else if (variant === 'accent') {
 			return 'divide-x divide-blue-100 dark:divide-blue-200'
 		} else if (variant === 'accent-secondary') {
@@ -266,13 +288,15 @@
 			getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize, extendedSize),
 			unifiedSize ? ButtonType.UnifiedFontSizes[unifiedSize] : '',
 			'focus-visible:ring-2',
-			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
+			hasDropdown ? 'rounded-l-md' : 'rounded-md',
 			'justify-center items-center text-center inline-flex gap-2',
 			'active:opacity-80 transition-[background-color,opacity] duration-150',
 			disabled
-				? ['default', 'subtle'].includes(variant)
-					? '!text-disabled'
-					: '!bg-surface-disabled !text-disabled'
+				? activeTone && !destructive
+					? 'disabled:opacity-50'
+					: ['default', 'subtle'].includes(variant)
+						? '!text-disabled'
+						: '!bg-surface-disabled !text-disabled'
 				: '',
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)
@@ -331,7 +355,7 @@
 
 <div
 	class={twMerge(
-		dropdownItems && dropdownItems.length > 0 ? dividerClass : '',
+		hasDropdown ? dividerClass : '',
 		'shrink-0',
 		wrapperClasses,
 		'flex flex-row rounded-md',
@@ -371,6 +395,7 @@
 			class={buttonClass}
 			{id}
 			{target}
+			{title}
 			tabindex={disabled ? -1 : 0}
 			{...rest}
 			{style}
@@ -470,7 +495,7 @@
 		{/if}
 	{/if}
 
-	{#if dropdownItems && dropdownItems.length > 0}
+	{#if hasDropdown && dropdownItems}
 		<Dropdown
 			aiId={aiId ? `${aiId}-dropdown` : undefined}
 			aiDescription={aiDescription ? `${aiDescription} dropdown` : undefined}

@@ -2,12 +2,51 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	agentConfigToInputTransforms,
+	agentEditorRefusal,
 	flowLocalInputs,
 	inputTransformsToAgentConfig,
 	nonStaticBrainKeys,
+	providerWithOverrides,
 	summarizeAgentBrain,
-	toolInputOverrides
+	toolInputOverrides,
+	transformValuedBrainKeys
 } from './agentResourceUtils'
+
+describe('transformValuedBrainKeys', () => {
+	// The tag is the whole test: `{type:'ai'}` carries no payload key to look for.
+	it('flags every transform variant, whatever it carries', () => {
+		expect(
+			transformValuedBrainKeys({
+				system_prompt: { type: 'ai' },
+				temperature: { type: 'javascript', expr: 'flow_input.t' },
+				max_iterations: { type: 'static', value: 3 }
+			})
+		).toEqual(['system_prompt', 'temperature', 'max_iterations'])
+	})
+
+	it('leaves the brain values that are legitimately objects', () => {
+		expect(
+			transformValuedBrainKeys({
+				output_schema: { type: 'object', properties: {} },
+				memory: { kind: 'auto', context_length: 20 },
+				provider: { kind: 'openai', model: 'gpt-4o' },
+				system_prompt: 'hi'
+			})
+		).toEqual([])
+	})
+})
+
+describe('agentEditorRefusal', () => {
+	it('opens an agent', () => {
+		expect(agentEditorRefusal('u/admin/agent', 'ai_agent')).toBeUndefined()
+	})
+
+	// A path with no deployed row answers with its own draft, and the generic resource editor writes
+	// no type: assuming `ai_agent` there would create that path as an agent on deploy.
+	it('refuses an unknown type rather than assuming one', () => {
+		expect(agentEditorRefusal('u/admin/db', undefined)).toContain('no deployed agent')
+	})
+})
 
 describe('summarizeAgentBrain', () => {
 	it('returns only set fields, in brain-key order, formatted', () => {
@@ -19,9 +58,9 @@ describe('summarizeAgentBrain', () => {
 			max_iterations: 10
 		})
 		expect(rows).toEqual([
-			{ label: 'Model', value: 'openai · gpt-4o' },
-			{ label: 'System prompt', value: 'You are helpful' },
-			{ label: 'Streaming', value: 'on' },
+			{ label: 'Provider', value: 'openai · gpt-4o' },
+			{ label: 'System message', value: 'You are helpful' },
+			{ label: 'Stream the response', value: 'on' },
 			{ label: 'Temperature', value: '0.7' },
 			{ label: 'Max iterations', value: '10' }
 		])
@@ -39,7 +78,7 @@ describe('summarizeAgentBrain', () => {
 			output_schema: { type: 'object' } as any
 		})
 		expect(rows).toEqual([
-			{ label: 'Memory', value: 'auto' },
+			{ label: 'Managed memory', value: 'Last 20 messages' },
 			{ label: 'Output schema', value: 'configured' }
 		])
 	})
@@ -105,16 +144,25 @@ describe('nonStaticBrainKeys', () => {
 })
 
 describe('flowLocalInputs', () => {
-	it('keeps only user_message/user_attachments, dropping brain transforms', () => {
+	it('keeps the step’s own inputs, dropping brain transforms', () => {
 		expect(
 			flowLocalInputs({
 				provider: { type: 'static', value: {} },
+				memory: { type: 'static', value: { kind: 'window', context_length: 10 } },
 				user_message: { type: 'static', value: 'hi' },
-				user_attachments: { type: 'static', value: [] }
+				user_attachments: { type: 'static', value: [] },
+				memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
+				previous_messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] },
+				// The roster it narrows belongs to the agent, but which of it one flow may call does
+				// not: saving this into the resource would impose it on every flow linking the agent.
+				enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 			} as any)
 		).toEqual({
 			user_message: { type: 'static', value: 'hi' },
-			user_attachments: { type: 'static', value: [] }
+			user_attachments: { type: 'static', value: [] },
+			memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
+			previous_messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] },
+			enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 		})
 	})
 
@@ -144,5 +192,56 @@ describe('toolInputOverrides', () => {
 		expect(toolInputOverrides({ extra: { type: 'static', value: 1 } } as any, base)).toEqual({
 			extra: { type: 'static', value: 1 }
 		})
+	})
+})
+
+describe('providerWithOverrides', () => {
+	const saved = {
+		kind: 'openai',
+		resource: '$res:u/a/openai',
+		model: 'gpt-5',
+		reasoning_effort: 'high'
+	}
+
+	it('folds static overrides into a static provider, as the worker reads them', () => {
+		expect(
+			providerWithOverrides(saved, { reasoning_effort: { type: 'static', value: 'low' } })
+		).toEqual({ type: 'static', value: { ...saved, reasoning_effort: 'low' } })
+		// The saved effort names a level of the saved model, so it does not follow to another one.
+		expect(
+			providerWithOverrides(saved, { model: { type: 'static', value: 'gpt-5-mini' } })
+		).toEqual({
+			type: 'static',
+			value: { kind: 'openai', resource: '$res:u/a/openai', model: 'gpt-5-mini' }
+		})
+		expect(providerWithOverrides(saved, { model: { type: 'static', value: '' } })).toEqual({
+			type: 'static',
+			value: saved
+		})
+	})
+
+	it('keeps an expression, resolving as the linked step did', () => {
+		const run = (overrides: Record<string, string>, flow_input: Record<string, unknown>) => {
+			const folded = providerWithOverrides(
+				saved,
+				Object.fromEntries(
+					Object.entries(overrides).map(([key, expr]) => [key, { type: 'javascript', expr }])
+				)
+			) as { type: 'javascript'; expr: string }
+			expect(folded.type).toBe('javascript')
+			return JSON.parse(
+				JSON.stringify(new Function('flow_input', `return ${folded.expr}`)(flow_input))
+			)
+		}
+		const other = { kind: 'openai', resource: '$res:u/a/openai', model: 'gpt-5-mini' }
+		const effort = { reasoning_effort: 'flow_input.effort' }
+		const model = { model: 'flow_input.model' }
+
+		expect(run(effort, { effort: 'low' })).toEqual({ ...saved, reasoning_effort: 'low' })
+		// An effort the step sets to nothing is no effort, not the saved one.
+		expect(run(effort, { effort: '' })).toEqual({ ...other, model: 'gpt-5' })
+		expect(run(model, { model: '' })).toEqual(saved)
+		expect(run(model, { model: 'gpt-5-mini' })).toEqual(other)
+		expect(run({ ...model, ...effort }, { model: 'gpt-5-mini', effort: '' })).toEqual(other)
 	})
 })

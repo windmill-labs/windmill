@@ -27,7 +27,7 @@ Add `--description "..."` when the user provided a longer explanation worth pres
 
 Open the generated `flow.yaml` (under the folder the command just created) and replace the empty `value.modules` + `schema` with the real flow definition.
 
-For rawscript modules, use `!inline path/to/script.ts` for the content key. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
+For rawscript modules, set the content key to the quoted string `content: '!inline path/to/script.ts'`. Unquoted, `!inline` is a YAML tag, which `wmill lint` rejects. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
 
 Once the flow has real content, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a `launch.json` entry) and the user should consent.
 
@@ -71,6 +71,8 @@ This is about **programmatic execution** (`wmill flow preview -d '<args>'`), whi
 If the user hasn't already told you to run/test the flow, offer it as a one-sentence next step (e.g. "Want me to run `wmill flow preview` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the flow in their original request, skip the offer and just execute `wmill flow preview <path> -d '<args>'` directly — pick plausible args from the flow's input schema.
+
+An input typed as a resource (`format: resource-<type>` in the schema) takes the bare string `"$res:<path>"` as its whole value — `-d '{"db": "$res:f/databases/postgres_prod"}'`, not `{"db": {"$res": "..."}}` and not a plain path. Same for a variable, with `"$var:<path>"`. See the `resources` skill.
 
 `wmill flow preview` is safe to run yourself (it does not deploy). `wmill generate-metadata` does not deploy either (it only writes local lock/hash files) but re-resolves deps — offer it and run on agreement, unless the project's `AGENTS.md` opts into automatic metadata. After running it, check the regenerated `.lock` diff and tell the user which inline-script dependency versions changed, so they can catch an unwanted bump before deploying. Only `wmill sync push` deploys; run it only when the user explicitly asks.
 

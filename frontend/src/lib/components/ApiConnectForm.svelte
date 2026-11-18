@@ -1,22 +1,33 @@
 <script lang="ts">
 	import { OauthService, type ResourceType } from '$lib/gen'
 	import FilesetEditor from './FilesetEditor.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
-	import SupabaseIcon from './icons/SupabaseIcon.svelte'
+	import TestAiKey from './copilot/TestAIKey.svelte'
+	import { aiResourceProvider } from './copilot/aiResourceProvider'
+	import { copilotInfo } from '$lib/aiStore'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
-	import { base } from '$lib/base'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
+	import GitLabIntegration from './GitLabIntegration.svelte'
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
+	import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionString'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import ResourceValueReference, {
+		canReferenceWholeValue,
+		resourceValueMenuItems,
+		resourceValueReference
+	} from './ResourceValueReference.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		resourceType: string
@@ -26,6 +37,13 @@
 		isValid?: boolean
 		linkedSecretCandidates?: string[] | undefined
 		description?: string | undefined
+		/** Workspace the resource is being saved into, which is not always the one
+		 * being navigated. The GitLab picker has to store the credential where the
+		 * resource will look for it. */
+		workspace?: string
+		/** Fired once the GitLab picker has stored the picked project's token, so a
+		 * form that would otherwise file the URL as a secret knows it holds none. */
+		onCredentialStored?: () => void
 		onSynced?: () => void
 	}
 
@@ -37,8 +55,12 @@
 		isValid = $bindable(true),
 		linkedSecretCandidates = undefined,
 		description = $bindable(undefined),
+		workspace = undefined,
+		onCredentialStored,
 		onSynced = undefined
 	}: Props = $props()
+
+	let aiProvider = $derived(aiResourceProvider(resourceType, args))
 
 	let schema = $state(emptySchema())
 	let notFound = $state(false)
@@ -56,6 +78,7 @@
 		if (!resourceTypeInfo) return
 		rawCode = '{}'
 		viewJsonSchema = false
+		referencePinned = false
 		try {
 			schema = resourceTypeInfo.schema as any
 			// A resource type may declare no properties at all — `dbt_profile` is a
@@ -95,37 +118,58 @@
 		}
 	}
 
+	let reference = $derived(resourceValueReference(args))
+	// Pinned only by the picker: text typed into the JSON editor that parses to a reference keeps
+	// that editor, while any other form would replace the string with its own fields.
+	let referencePinned = $state(false)
+	let showReference = $derived(
+		!!reference && (referencePinned || !(notFound || viewJsonSchema || !schema?.properties))
+	)
+	let valueReference: ResourceValueReference | undefined = $state(undefined)
+
+	function setWholeValue(v: Record<string, any> | string) {
+		referencePinned = typeof v === 'string'
+		// The "As JSON" toggle holds its own state and remounts unchecked with the form.
+		viewJsonSchema = false
+		rawCode = JSON.stringify(v, null, 2)
+		args = v
+	}
+
 	let connectionString = $state('')
 	let validConnectionString = $state(true)
 	function parseConnectionString(close: (_: any) => void) {
-		const regex =
-			/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
-		const match = connectionString.match(regex)
-		if (match) {
-			validConnectionString = true
-			const { user, password, host, port, dbname, sslmode } = match.groups!
-			rawCode = JSON.stringify(
-				{
-					...args,
-					user,
-					password: password || args?.password,
-					host,
-					port: (port ? Number(port) : undefined) || args?.port,
-					dbname: dbname || args?.dbname,
-					sslmode: sslmode || args?.sslmode
-				},
-				null,
-				2
-			)
-			rawCodeEditor?.setCode(rawCode)
-			close(null)
-		} else {
+		const parts = parsePostgresConnectionString(connectionString)
+		if (!parts) {
 			validConnectionString = false
+			return
 		}
+		validConnectionString = true
+		rawCode = JSON.stringify(
+			{
+				...args,
+				user: parts.user,
+				password: parts.password || args?.password,
+				host: parts.host,
+				port: parts.port || args?.port,
+				dbname: parts.dbname || args?.dbname,
+				sslmode: parts.sslmode || args?.sslmode,
+				options: parts.options || args?.options
+			},
+			null,
+			2
+		)
+		rawCodeEditor?.setCode(rawCode)
+		close(null)
 	}
 
 	let rawCodeEditor: { setCode: (code: string) => void } | undefined = $state(undefined)
 	let textFileContent: string | undefined = $state(undefined)
+
+	function applySupabasePick(value: Record<string, any>) {
+		args = { ...(args ?? {}), ...value }
+		rawCode = JSON.stringify(args, null, 2)
+		rawCodeEditor?.setCode(rawCode)
+	}
 
 	function parseTextFileContent() {
 		args = {
@@ -133,7 +177,7 @@
 		}
 	}
 	$effect(() => {
-		$workspaceStore && untrack(() => loadSchema())
+		$operatingWorkspace && untrack(() => loadSchema())
 	})
 	$effect(() => {
 		notFound && rawCode && untrack(() => parseJson())
@@ -151,81 +195,113 @@
 
 {#if !notFound}
 	<div class="w-full flex gap-2 flex-row-reverse items-center">
-		<Toggle
-			on:change={(e) => switchTab(e.detail)}
-			options={{
-				right: 'As JSON'
-			}}
-			class="as-json-toggle"
-		/>
-		<ResourceGen
-			bind:args
-			{resourceType}
-			resourceSchema={notFound ? undefined : schema}
-			isFileset={resourceTypeInfo?.is_fileset ?? false}
-		/>
-		<TestConnection {resourceType} {args} />
-		{#if resourceType == 'postgresql'}
-			<Popover
-				floatingConfig={{
-					placement: 'bottom'
+		{#if showReference || canReferenceWholeValue(resourceTypeInfo)}
+			<DropdownV2
+				placement="bottom-end"
+				items={() =>
+					resourceValueMenuItems(showReference ? reference : undefined, {
+						pickVariable: () => valueReference?.pickVariable(),
+						editFields: () => setWholeValue({})
+					})}
+			/>
+		{/if}
+		{#if !showReference}
+			<Toggle
+				on:change={(e) => switchTab(e.detail)}
+				options={{
+					right: 'As JSON'
 				}}
-			>
-				{#snippet trigger()}
-					<Button spacingSize="sm" size="xs" variant="default" nonCaptureEvent>
-						From connection string
-					</Button>
-				{/snippet}
-				{#snippet content({ close })}
-					<div class="block text-primary p-4">
-						<div class="w-[550px] flex flex-col items-start gap-1">
-							<div class="flex flex-row gap-1 w-full">
-								<input
-									type="text"
-									bind:value={connectionString}
-									placeholder="postgres://user:password@host:5432/dbname?sslmode=disable"
-								/>
-								<Button
-									size="xs"
-									color="blue"
-									buttonType="button"
-									on:click={() => {
-										parseConnectionString(close)
-									}}
-									disabled={connectionString.length <= 0}
-								>
-									Apply
-								</Button>
+				class="as-json-toggle"
+			/>
+			<ResourceGen
+				bind:args
+				{resourceType}
+				resourceSchema={notFound ? undefined : schema}
+				isFileset={resourceTypeInfo?.is_fileset ?? false}
+			/>
+			<TestConnection {resourceType} {args} />
+			{#if aiProvider}
+				<TestAiKey
+					{aiProvider}
+					workspace={workspace ?? $operatingWorkspace}
+					resourceValue={args}
+					model={$copilotInfo.aiModels.find((m) => m.provider === aiProvider)?.model}
+				/>
+			{/if}
+			{#if resourceType == 'postgresql'}
+				<Popover
+					floatingConfig={{
+						placement: 'bottom'
+					}}
+				>
+					{#snippet trigger()}
+						<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" nonCaptureEvent>
+							From connection string
+						</Button>
+					{/snippet}
+					{#snippet content({ close })}
+						<div class="block text-primary p-4">
+							<div class="w-[550px] flex flex-col items-start gap-1">
+								<div class="flex flex-row gap-1 w-full">
+									<input
+										type="text"
+										bind:value={connectionString}
+										placeholder="postgres://user:password@host:5432/dbname?sslmode=disable"
+									/>
+									<Button
+										size="xs"
+										color="blue"
+										buttonType="button"
+										on:click={() => {
+											parseConnectionString(close)
+										}}
+										disabled={connectionString.length <= 0}
+									>
+										Apply
+									</Button>
+								</div>
+								{#if !validConnectionString}
+									<p class="text-red-500 text-xs">Could not parse connection string</p>
+								{/if}
 							</div>
-							{#if !validConnectionString}
-								<p class="text-red-500 text-xs">Could not parse connection string</p>
-							{/if}
 						</div>
-					</div>
-				{/snippet}
-			</Popover>
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if resourceType == 'postgresql' && supabaseWizard}
+				<!-- Imported here rather than at the top so the wizard's Supabase graph stays out of
+			this form's chunk, which loads on the resources page and in every resource drawer. -->
+				{#await import('./workspaceSettings/SupabaseResourceConnect.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default onPicked={applySupabasePick} />
+				{/await}
+			{/if}
+			<GitHubAppIntegration
+				{resourceType}
+				{args}
+				{description}
+				onArgsUpdate={(newArgs) => {
+					args = newArgs
+					rawCode = JSON.stringify(args, null, 2)
+					rawCodeEditor?.setCode(rawCode)
+				}}
+				onDescriptionUpdate={(newDescription) => (description = newDescription)}
+			/>
+			<!-- Last in a `flex-row-reverse` row, so it lands beside the GitHub App
+		button without splitting it from its own refresh control. -->
+			<GitLabIntegration
+				{resourceType}
+				{args}
+				{workspace}
+				{onCredentialStored}
+				onArgsUpdate={(newArgs) => {
+					args = newArgs
+					rawCode = JSON.stringify(args, null, 2)
+					rawCodeEditor?.setCode(rawCode)
+				}}
+			/>
 		{/if}
-		{#if resourceType == 'postgresql' && supabaseWizard}
-			<a
-				target="_blank"
-				href="{base}/api/oauth/connect/supabase_wizard"
-				class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
-			>
-				<SupabaseIcon height="16px" width="16px" />
-				<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
-			</a>
-		{/if}
-		<GitHubAppIntegration
-			{resourceType}
-			{args}
-			{description}
-			onArgsUpdate={(newArgs) => {
-				args = newArgs
-				rawCode = JSON.stringify(args, null, 2)
-				rawCodeEditor?.setCode(rawCode)
-			}}
-			onDescriptionUpdate={(newDescription) => (description = newDescription)}
-		/>
 	</div>
 	{#if resourceType?.includes('bedrock') && !isCloudHosted()}
 		<BedrockCredentialsCheck />
@@ -237,7 +313,13 @@
 	>
 	<SyncResourceTypes {resourceType} {onSynced} />
 {/if}
-{#if notFound || viewJsonSchema || !schema?.properties}
+<ResourceValueReference
+	bind:this={valueReference}
+	reference={showReference ? reference : undefined}
+	workspace={workspace ?? $operatingWorkspace}
+	onPick={setWholeValue}
+/>
+{#if showReference}{:else if notFound || viewJsonSchema || !schema?.properties}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
 		>{:else}<div class="py-2"></div>{/if}

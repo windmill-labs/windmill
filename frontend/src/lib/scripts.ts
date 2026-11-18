@@ -1,5 +1,4 @@
 import { get } from 'svelte/store'
-import { base } from '$lib/base'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { hubBaseUrlStore, workspaceStore } from './stores'
@@ -136,7 +135,7 @@ export function scriptPathToHref(path: string, hubBaseUrl: string): string {
 	if (path.startsWith('hub/')) {
 		return hubBaseUrl + '/from_version/' + path.substring(4)
 	} else {
-		return `${base}/scripts/get/${path}?workspace=${get(workspaceStore)}`
+		return `/scripts/get/${path}?workspace=${get(workspaceStore)}`
 	}
 }
 
@@ -146,13 +145,12 @@ export function flowPathToHref(path: string, hubBaseUrl: string = get(hubBaseUrl
 		return hubFlowId ? `${hubBaseUrl}/flows/${hubFlowId}` : hubBaseUrl
 	}
 
-	return `${base}/flows/get/${path}?workspace=${get(workspaceStore)}`
+	return `/flows/get/${path}?workspace=${get(workspaceStore)}`
 }
 
 const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string][] = [
 	['bun', 'TypeScript (Bun)'],
 	['python3', 'Python'],
-	['deno', 'TypeScript (Deno)'],
 	['bash', 'Bash'],
 	['go', 'Go'],
 	['nativets', 'REST'],
@@ -175,7 +173,10 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['duckdb', 'DuckDB'],
 	['ruby', 'Ruby'],
 	['rlang', 'R'],
-	['dbt', 'dbt']
+	['dbt', 'dbt'],
+	// Not offered for new scripts (see `processLangs`); listed for the label of
+	// existing ones.
+	['deno', 'Deno']
 	// for related places search: ADD_NEW_LANG
 ]
 /**
@@ -195,6 +196,12 @@ export function processInlineLangs(selected: string | undefined, langs: string[]
 }
 
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
+	// Only a script already written in deno keeps the option, whether or not the
+	// workspace's saved order still carries it.
+	langs = langs.filter((lang) => lang !== 'deno')
+	if (selected === 'deno') {
+		langs = [...langs, 'deno']
+	}
 	if (selected === 'nativets') {
 		return langs
 	} else {
@@ -241,6 +248,8 @@ export async function getScriptByPath(
 	lock?: string
 	created_at?: string
 	hash?: string
+	on_behalf_of?: string
+	on_behalf_of_email?: string
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema, lockfile } = await ScriptService.getHubScriptByPath({ path })
@@ -270,7 +279,9 @@ export async function getScriptByPath(
 			concurrency_time_window_s: script.concurrency_time_window_s,
 			lock: script.lock,
 			hash: script.hash,
-			created_at: script.created_at
+			created_at: script.created_at,
+			on_behalf_of: script.on_behalf_of,
+			on_behalf_of_email: script.on_behalf_of_email
 		}
 	}
 }

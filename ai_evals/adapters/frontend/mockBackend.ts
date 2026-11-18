@@ -1,28 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type {
-	AppWithLastVersion,
-	CompletedJob,
-	Flow,
-	Job,
-	ListableApp,
-	ListableVariable,
-	Script
-} from '../../../frontend/src/lib/gen'
-import type {
-	DataTableTables,
-	DataTableTableSchema,
-	EndpointTool,
-	GetDraftForUserResponse,
-	GetOwnDraftResponse,
-	ListDraftsResponse,
-	ScriptLang,
-	UpdateDraftResponse,
-	UserDraftItemKind
-} from '../../../frontend/src/lib/gen/types.gen'
+import confluenceFixture from '../../fixtures/frontend/global/hub/confluence.json'
+import servicenowFixture from '../../fixtures/frontend/global/hub/servicenow.json'
+import outreachFixture from '../../fixtures/frontend/global/hub/outreach.json'
+import syncedResourceTypesFixture from '../../fixtures/frontend/global/hub/synced_resource_types.json'
+import type { CompletedJob, Flow, Script } from '../../../frontend/src/lib/gen'
+import type { DataMetric, ScriptLang } from '../../../frontend/src/lib/gen/types.gen'
 import { buildScriptLintResult } from './core/script/preview'
-import { applyDatatableSql, type BenchmarkDatatableSeed } from './datatableSqlEngine'
-
-export type { BenchmarkDatatableSeed, BenchmarkDatatableTableSeed } from './datatableSqlEngine'
 
 const BENCHMARK_TIMESTAMP = '1970-01-01T00:00:00.000Z'
 
@@ -46,12 +29,16 @@ export interface BenchmarkWorkspaceFlow {
 export interface BenchmarkWorkspaceApp {
 	path: string
 	summary: string
+	/** Defaults to true. Set false for a drag-and-drop app, which the chat can list
+	 * and read but has no tool to edit — its value is a grid, not files. */
+	rawApp?: boolean
 	value: {
-		files: Record<string, string>
-		runnables: Record<string, unknown>
+		files?: Record<string, string>
+		runnables?: Record<string, unknown>
 		data?: unknown
 		policy?: unknown
 		custom_path?: unknown
+		[key: string]: unknown
 	}
 }
 
@@ -64,8 +51,48 @@ export interface BenchmarkWorkspaceVariable {
 	ws_specific?: boolean
 }
 
+/** An AI provider resource of the benchmark workspace, as an AI agent step would reference it.
+ * `models` stands in for the provider's model listing, which no eval run can reach. */
+export interface BenchmarkWorkspaceAiProvider {
+	path: string
+	/** Resource type, which for AI resources is the provider kind (`anthropic`, `openai`, ...). */
+	kind: string
+	/** What this resource's `/ai/proxy/models` listing returns. */
+	models?: string[]
+	/** Set to point the resource at a gateway rather than the provider's own API. */
+	base_url?: string
+	/** Models the workspace AI settings selected for this provider. */
+	configuredModels?: string[]
+	/** Marks this provider's first configured model as the workspace default. */
+	isDefault?: boolean
+}
+
+/** A plain (non-AI) resource of the benchmark workspace, for cases about referencing a
+ * credential — passing one as a run argument, say. `value` is what `get_resource` returns. */
+export interface BenchmarkWorkspaceResource {
+	path: string
+	resource_type: string
+	value?: Record<string, unknown>
+	description?: string
+	/** A database's tables, as `get_db_schema` reads them: schema, table, then column. */
+	dbSchema?: Record<string, Record<string, Record<string, BenchmarkDbColumn>>>
+}
+
+export interface BenchmarkDbColumn {
+	type: string
+	required: boolean
+	default?: string
+}
+
+/** A resource type the instance holds. */
+export interface BenchmarkWorkspaceResourceType {
+	name: string
+	schema?: unknown
+	description?: string
+}
+
 export interface BenchmarkWorkspaceJob {
-	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
+	/** Stable id so a case prompt can reference a specific run (e.g. for get_run). */
 	id?: string
 	jobKind?: CompletedJob['job_kind']
 	scriptPath?: string
@@ -73,6 +100,77 @@ export interface BenchmarkWorkspaceJob {
 	label?: string
 	success?: boolean
 	logs?: string
+	args?: Record<string, unknown>
+	result?: unknown
+	/** Defaults to `completed`. `suspended` is a running flow parked on an approval step. */
+	state?: 'completed' | 'queued' | 'running' | 'suspended'
+	tag?: string
+	schedulePath?: string
+	/** When the run was created, relative to the case start. Unset = now. */
+	createdMinutesAgo?: number
+	/** Completed runs only: how long the run took. */
+	durationMs?: number
+}
+
+/** A worker of the instance, as `list_workers` reports it. */
+export interface BenchmarkWorkspaceWorker {
+	worker: string
+	worker_group: string
+	custom_tags?: string[]
+	lastPingSecondsAgo?: number
+	jobs_executed?: number
+}
+
+/** A folder of the benchmark workspace, as `read_workspace_item` reads it. */
+export interface BenchmarkWorkspaceFolder {
+	name: string
+	summary?: string
+	owners?: string[]
+	/** Who else may use the folder, as `u/<user>` or `g/<group>`: `true` grants write. */
+	extra_perms?: Record<string, boolean>
+}
+
+export interface BenchmarkWorkspaceGroup {
+	name: string
+	summary?: string
+	members?: string[]
+}
+
+export interface BenchmarkWorkspaceSchedule {
+	path: string
+	/** Six-field cron. */
+	schedule: string
+	script_path: string
+	is_flow?: boolean
+	enabled?: boolean
+	summary?: string
+}
+
+/** One seeded datatable table: its columns (col -> compact_type) and optional rows. */
+export interface BenchmarkDatatableTableSeed {
+	columns: Record<string, string>
+	rows?: Record<string, unknown>[]
+}
+
+/** A seeded datatable: `datatable_name` plus a `schema -> table -> seed` map. */
+export interface BenchmarkDatatableSeed {
+	datatable_name: string
+	schemas: {
+		[schema: string]: {
+			[table: string]: BenchmarkDatatableTableSeed
+		}
+	}
+	/** Whether the datatable keeps its schema as migrations. */
+	migrations_enabled?: boolean
+	migrations?: BenchmarkDatatableMigrationSeed[]
+}
+
+export interface BenchmarkDatatableMigrationSeed {
+	timestamp: number
+	name: string
+	code_up: string
+	code_down?: string
+	applied?: boolean
 }
 
 export interface BenchmarkWorkspaceRunnables {
@@ -80,16 +178,34 @@ export interface BenchmarkWorkspaceRunnables {
 	flows?: BenchmarkWorkspaceFlow[]
 	apps?: BenchmarkWorkspaceApp[]
 	variables?: BenchmarkWorkspaceVariable[]
+	aiProviders?: BenchmarkWorkspaceAiProvider[]
+	resources?: BenchmarkWorkspaceResource[]
+	/** Unset means an instance synced with the hub. */
+	resourceTypes?: BenchmarkWorkspaceResourceType[]
 	datatables?: BenchmarkDatatableSeed[]
+	/** DuckLake catalog names, as `list_ducklakes` reports them. */
+	ducklakes?: string[]
+	/**
+	 * Workspace object storage, with these objects in it. It also makes `ducklakes` real
+	 * catalogs on that storage, so a pipeline can run against them (`validate.pipelineRun`).
+	 */
+	objectStorage?: { files?: Array<{ key: string; content: string }> }
+	dataMetrics?: DataMetric[]
 	jobs?: BenchmarkWorkspaceJob[]
+	/** The instance's workers. Unset falls through to the real backend's; `[]` is none. */
+	workers?: BenchmarkWorkspaceWorker[]
+	schedules?: BenchmarkWorkspaceSchedule[]
+	folders?: BenchmarkWorkspaceFolder[]
+	groups?: BenchmarkWorkspaceGroup[]
+	/** The workspace settings document (`get_workspace_settings` reads it). */
+	workspaceSettings?: Record<string, unknown>
 }
 
 type BenchmarkCompletedJob = CompletedJob & { type: 'CompletedJob' }
 
 const benchmarkWorkspaces = new Set<string>()
 const benchmarkWorkspaceRunnables = new Map<string, BenchmarkWorkspaceRunnables>()
-// Keyed by `${workspace}::${jobId}` so concurrent attempts (or distinct cases)
-// can seed the same fixed job id without clobbering each other's entry.
+// Keyed by `${workspace}::${jobId}` so a job is only visible from the workspace that ran it.
 const benchmarkJobs = new Map<string, { workspace: string; job: BenchmarkCompletedJob }>()
 
 function benchmarkJobKey(workspace: string, jobId: string): string {
@@ -100,14 +216,6 @@ export function resetBenchmarkMockBackend(): void {
 	benchmarkWorkspaces.clear()
 	benchmarkWorkspaceRunnables.clear()
 	benchmarkJobs.clear()
-	benchmarkDrafts.clear()
-}
-
-// Stand-in for FolderService.createFolder so the global create_folder tool runs in
-// memory instead of mutating the real backend. Folders aren't otherwise modelled
-// (no folder-listing in evals), so this just echoes the created name.
-export function createBenchmarkFolder(_workspace: string, name: string): string {
-	return name
 }
 
 export function registerBenchmarkWorkspace(workspace: string): void {
@@ -119,38 +227,26 @@ export function registerBenchmarkWorkspaceRunnables(
 	runnables: BenchmarkWorkspaceRunnables
 ): void {
 	benchmarkWorkspaces.add(workspace)
-	// Fresh case: drop any drafts left from a prior run on this workspace id.
-	clearBenchmarkDrafts(workspace)
-	// Datatables are mutated in place by exec_datatable_sql (a write must be visible
-	// to later reads), so store an isolated deep copy — never mutate the caller's seed.
-	benchmarkWorkspaceRunnables.set(workspace, {
-		...runnables,
-		datatables: runnables.datatables ? structuredClone(runnables.datatables) : undefined
-	})
-	// Seed any fixture jobs so list_runs / get_job_logs have data to return.
-	for (const seed of runnables.jobs ?? []) {
-		createBenchmarkCompletedJob({
-			workspace,
-			id: seed.id,
-			jobKind: seed.jobKind ?? 'script',
-			success: seed.success,
-			scriptPath: seed.scriptPath,
-			createdBy: seed.createdBy,
-			label: seed.label,
-			logs: seed.logs
-		})
-	}
+	benchmarkWorkspaceRunnables.set(workspace, runnables)
 }
 
 export function unregisterBenchmarkWorkspace(workspace: string): void {
 	benchmarkWorkspaces.delete(workspace)
 	benchmarkWorkspaceRunnables.delete(workspace)
-	clearBenchmarkDrafts(workspace)
 	for (const [jobId, entry] of benchmarkJobs.entries()) {
 		if (entry.workspace === workspace) {
 			benchmarkJobs.delete(jobId)
 		}
 	}
+}
+
+/** Answer a real workspace's provider model listings from its fixture, which no eval run can
+ * reach the providers for. Leaves its other API calls to the real backend. */
+export function registerBenchmarkAiModels(
+	workspace: string,
+	aiProviders: BenchmarkWorkspaceAiProvider[]
+): void {
+	benchmarkWorkspaceRunnables.set(workspace, { aiProviders })
 }
 
 export function unregisterBenchmarkWorkspaceRunnables(workspace: string): void {
@@ -201,61 +297,33 @@ export function getBenchmarkFlowByPath(workspace: string, path: string): Flow | 
 	return flow ? buildBenchmarkFlow(flow) : null
 }
 
-export function listBenchmarkApps(workspace: string): ListableApp[] | null {
-	const runnables = benchmarkWorkspaceRunnables.get(workspace)
-	if (!runnables) {
+/** Resource type names of a benchmark workspace, as `ResourceService.listResourceTypeNames`
+ * returns them. Null when the workspace is not a benchmark one. */
+export function listBenchmarkResourceTypeNames(workspace: string): string[] | null {
+	if (!benchmarkWorkspaces.has(workspace)) {
 		return null
 	}
-	return (runnables.apps ?? []).map(buildBenchmarkListableApp)
+	return syncedResourceTypes().map((rt) => rt.name)
 }
 
-export function getBenchmarkAppByPath(workspace: string, path: string): AppWithLastVersion | null {
-	const app = benchmarkWorkspaceRunnables
-		.get(workspace)
-		?.apps?.find((entry) => entry.path === path)
-
-	return app ? buildBenchmarkApp(app) : null
-}
-
-function buildBenchmarkVariable(
-	workspace: string,
-	seed: BenchmarkWorkspaceVariable,
-	decryptSecret: boolean
-): ListableVariable {
-	return {
-		workspace_id: workspace,
-		path: seed.path,
-		// Mirror `get_variable`: a secret's value is withheld unless decryption was
-		// asked for, so a reader genuinely cannot see it.
-		value: seed.is_secret && !decryptSecret ? undefined : seed.value,
-		is_secret: seed.is_secret,
-		description: seed.description,
-		labels: seed.labels,
-		ws_specific: seed.ws_specific ?? false,
-		extra_perms: {},
-		edited_at: BENCHMARK_TIMESTAMP
-	}
-}
-
-export function listBenchmarkVariables(workspace: string): ListableVariable[] | null {
-	const runnables = benchmarkWorkspaceRunnables.get(workspace)
-	if (!runnables) {
-		return null
-	}
-	// The list route never decrypts.
-	return (runnables.variables ?? []).map((seed) => buildBenchmarkVariable(workspace, seed, false))
-}
-
-export function getBenchmarkVariableByPath(
-	workspace: string,
-	path: string,
-	decryptSecret = true
-): ListableVariable | null {
-	const seed = benchmarkWorkspaceRunnables
-		.get(workspace)
-		?.variables?.find((entry) => entry.path === path)
-
-	return seed ? buildBenchmarkVariable(workspace, seed, decryptSecret) : null
+/** Stands in for the resource type search: a type matches when a word of the query appears in
+ * its name or description, ranked by how many do. */
+export function queryBenchmarkResourceTypes(
+	text: string,
+	limit = 10
+): { name: string; schema?: unknown; score: number }[] {
+	const words = text
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((word) => word.length >= 3)
+	return syncedResourceTypes()
+		.map((rt) => {
+			const haystack = `${rt.name} ${rt.description ?? ''}`.toLowerCase()
+			return { name: rt.name, schema: rt.schema, score: words.filter((w) => haystack.includes(w)).length }
+		})
+		.filter((rt) => rt.score > 0)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, limit)
 }
 
 export function createBenchmarkCompletedJob(input: {
@@ -265,26 +333,21 @@ export function createBenchmarkCompletedJob(input: {
 	result?: unknown
 	logs?: string
 	scriptPath?: string
-	scriptHash?: string
 	args?: Record<string, unknown>
-	id?: string
-	createdBy?: string
-	label?: string
 }): string {
-	const jobId = input.id ?? `benchmark-job-${randomUUID()}`
+	const jobId = `benchmark-job-${randomUUID()}`
 	const now = new Date().toISOString()
 	const job: BenchmarkCompletedJob = {
 		type: 'CompletedJob',
 		id: jobId,
 		workspace_id: input.workspace,
-		created_by: input.createdBy ?? 'ai-evals',
+		created_by: 'ai-evals',
 		created_at: now,
 		started_at: now,
 		completed_at: now,
 		duration_ms: 0,
 		success: input.success ?? true,
 		script_path: input.scriptPath,
-		script_hash: input.scriptHash,
 		args: input.args,
 		result: input.result,
 		logs: input.logs,
@@ -295,11 +358,13 @@ export function createBenchmarkCompletedJob(input: {
 		is_skipped: false,
 		email: 'ai-evals@local',
 		visible_to_owner: true,
-		tag: 'benchmark',
-		labels: input.label ? [input.label] : undefined
+		tag: 'benchmark'
 	}
 
-	benchmarkJobs.set(benchmarkJobKey(input.workspace, jobId), { workspace: input.workspace, job })
+	benchmarkJobs.set(benchmarkJobKey(input.workspace, jobId), {
+		workspace: input.workspace,
+		job
+	})
 	return jobId
 }
 
@@ -308,272 +373,10 @@ export function getBenchmarkCompletedJob(
 	jobId: string
 ): BenchmarkCompletedJob | null {
 	const entry = benchmarkJobs.get(benchmarkJobKey(workspace, jobId))
-	if (!entry) {
+	if (!entry || entry.job.type !== 'CompletedJob') {
 		return null
 	}
 	return structuredClone(entry.job)
-}
-
-/**
- * List seeded/recorded jobs for a benchmark workspace, most recent first —
- * the shape `JobService.listJobs` returns. Returns `null` for a non-benchmark
- * workspace so the caller can fall through to the real backend. Server-side
- * filters (path/creator/status/limit) are intentionally not applied: global
- * eval cases assert on the recorded `list_runs` tool call, not on filtering.
- */
-export function listBenchmarkJobs(workspace: string): Job[] | null {
-	if (!hasBenchmarkWorkspace(workspace)) {
-		return null
-	}
-	return [...benchmarkJobs.values()]
-		.filter((entry) => entry.workspace === workspace)
-		.map((entry) => structuredClone(entry.job) as Job)
-		.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-}
-
-/**
- * Mirror `JobService.getJobLogs` (response is the raw log string). Throws a
- * "not found" error for an unknown id, matching the backend 404.
- */
-export function getBenchmarkJobLogs(workspace: string, jobId: string): string {
-	const job = getBenchmarkCompletedJob(workspace, jobId)
-	if (!job) {
-		throw new Error(`Job Logs not found for "${jobId}"`)
-	}
-	return job.logs ?? ''
-}
-
-// ============= Drafts (per-user, DB-backed in production) =============
-
-/**
- * In-memory stand-in for the per-user draft backend (`DraftService`). The global
- * AI chat now persists and reads drafts through the backend DB instead of an
- * in-tab `UserDraft` cell, so the eval mocks the draft endpoints it exercises
- * (`updateDraft` / `getOwnDraft` / `getDraftForUser` / `listDrafts`) and keeps the
- * saved values here, keyed by workspace + draft kind + storage path. Mirrors the
- * semantics of the production unit test's mock in
- * `frontend/src/lib/components/copilot/chat/global/core.test.ts`.
- */
-const benchmarkDrafts = new Map<
-	string,
-	{ workspace: string; kind: UserDraftItemKind; path: string; value: unknown; createdAt: string }
->()
-
-// Counter-based timestamps: deterministic run-to-run (same event order → same
-// values) but MONOTONIC per update, because production bumps a draft row's
-// created_at on every upsert and the diff snapshot cache keys patch reuse on
-// it — a fixed timestamp would serve stale patches after an edit. No eval
-// simulates a concurrent writer, so every save is accepted and the conflict
-// branch is never taken.
-let benchmarkDraftClock = 0
-function nextBenchmarkDraftTimestamp(): string {
-	benchmarkDraftClock += 1
-	return new Date(benchmarkDraftClock * 1000).toISOString()
-}
-
-function benchmarkDraftKey(workspace: string, kind: string, path: string): string {
-	return `${workspace}::${kind}::${path}`
-}
-
-export function clearBenchmarkDrafts(workspace: string): void {
-	for (const [key, entry] of benchmarkDrafts.entries()) {
-		if (entry.workspace === workspace) {
-			benchmarkDrafts.delete(key)
-		}
-	}
-}
-
-/**
- * Seed a draft straight into the store — used by the eval's live-editor draft
- * fixtures, which model "the user already has this draft open/saved". Writing it
- * here (instead of through `UserDraft.save`) keeps it a backend draft row with no
- * shadowing in-tab cell, so a model edit that persists to the backend is what the
- * output read-back captures — not the stale seed.
- */
-export function seedBenchmarkDraft(
-	workspace: string,
-	kind: UserDraftItemKind,
-	path: string,
-	value: unknown
-): void {
-	benchmarkDrafts.set(benchmarkDraftKey(workspace, kind, path), {
-		workspace,
-		kind,
-		path,
-		value,
-		createdAt: nextBenchmarkDraftTimestamp()
-	})
-}
-
-/** Mirror `DraftService.updateDraft`: a `null`/omitted value deletes the row. */
-export function updateBenchmarkDraft(input: {
-	workspace: string
-	kind: UserDraftItemKind
-	path: string
-	requestBody?: { value?: unknown }
-}): UpdateDraftResponse {
-	const key = benchmarkDraftKey(input.workspace, input.kind, input.path)
-	const value = input.requestBody?.value
-	const createdAt = nextBenchmarkDraftTimestamp()
-	if (value == null) {
-		benchmarkDrafts.delete(key)
-	} else {
-		benchmarkDrafts.set(key, {
-			workspace: input.workspace,
-			kind: input.kind,
-			path: input.path,
-			value,
-			createdAt
-		})
-	}
-	return { status: 'saved', current_timestamp: createdAt }
-}
-
-/** Mirror `DraftService.getDraftForUser`: 404-shaped throw when absent so the
- * adapter's narrowed catch treats it as "no draft" instead of re-throwing. */
-export function getBenchmarkDraftForUser(input: {
-	workspace: string
-	kind: UserDraftItemKind
-	path: string
-}): GetDraftForUserResponse {
-	const entry = benchmarkDrafts.get(benchmarkDraftKey(input.workspace, input.kind, input.path))
-	if (!entry) {
-		throw Object.assign(new Error(`no draft for "${input.path}"`), { status: 404 })
-	}
-	return { value: entry.value, created_at: entry.createdAt }
-}
-
-/** Mirror `DraftService.getOwnDraft`: `null` (200) when absent — unlike
- * `getDraftForUser`, absence is not an error on this route. */
-export function getBenchmarkOwnDraft(input: {
-	workspace: string
-	kind: UserDraftItemKind
-	path: string
-}): GetOwnDraftResponse {
-	const entry = benchmarkDrafts.get(benchmarkDraftKey(input.workspace, input.kind, input.path))
-	if (!entry) {
-		return null
-	}
-	return { value: entry.value, created_at: entry.createdAt }
-}
-
-/** Whether a deployed benchmark item exists for a draft row's kind+path —
- * drives `draft_only`, which production computes against the deployed tables. */
-function benchmarkDeployedExists(workspace: string, kind: UserDraftItemKind, path: string): boolean {
-	if (kind === 'script') return Boolean(getBenchmarkScriptByPath(workspace, path))
-	if (kind === 'flow') return Boolean(getBenchmarkFlowByPath(workspace, path))
-	if (kind === 'app' || kind === 'raw_app') return Boolean(getBenchmarkAppByPath(workspace, path))
-	if (kind === 'variable') return Boolean(getBenchmarkVariableByPath(workspace, path))
-	// The remaining drawer kinds (resources/schedules/triggers) have no deployed
-	// benchmark stores today.
-	return false
-}
-
-/** Mirror `DraftService.listDrafts`: metadata rows (no value) for a workspace. */
-export function listBenchmarkDrafts(workspace: string): ListDraftsResponse {
-	return [...benchmarkDrafts.values()]
-		.filter((entry) => entry.workspace === workspace)
-		.map((entry) => ({
-			kind: entry.kind,
-			path: entry.path,
-			summary: (entry.value as { summary?: string } | null)?.summary,
-			draft_only: !benchmarkDeployedExists(workspace, entry.kind, entry.path),
-			legacy_draft: false,
-			created_at: entry.createdAt
-		}))
-}
-
-// ============= Datatables (best-effort in-memory SQL) =============
-
-/**
- * Project the seeded datatables down to the `list_datatable_tables` response:
- * `datatable_name` + `schema -> table_names`, with no column detail.
- * Returns `null` for a non-benchmark workspace so callers can fall through to
- * the real backend; an empty seed yields `[]`.
- */
-export function listBenchmarkDatatables(workspace: string): DataTableTables[] | null {
-	const runnables = benchmarkWorkspaceRunnables.get(workspace)
-	if (!runnables) {
-		return null
-	}
-	return (runnables.datatables ?? []).map((datatable) => ({
-		datatable_name: datatable.datatable_name,
-		schemas: Object.fromEntries(
-			Object.entries(datatable.schemas).map(([schema, tables]) => [schema, Object.keys(tables)])
-		)
-	}))
-}
-
-export function getBenchmarkDatatableSchema(input: {
-	workspace: string
-	datatableName: string
-	schemaName: string
-	tableName: string
-}): DataTableTableSchema {
-	const runnables = benchmarkWorkspaceRunnables.get(input.workspace)
-	const datatable = (runnables?.datatables ?? []).find(
-		(entry) => entry.datatable_name === input.datatableName
-	)
-	if (!datatable) {
-		// Message MUST match the production `isDatatableNotConfiguredError` regex
-		// (/datatable\s+\S+\s+not found/i in datatableTools.ts) so the
-		// get_datatable_table_schema not-configured mapping is actually exercised.
-		throw new Error(`datatable "${input.datatableName}" not found`)
-	}
-	const table = datatable.schemas?.[input.schemaName]?.[input.tableName]
-	if (!table) {
-		throw new Error(
-			`table "${input.schemaName}.${input.tableName}" not found in datatable "${input.datatableName}"`
-		)
-	}
-	return {
-		datatable_name: input.datatableName,
-		schema_name: input.schemaName,
-		table_name: input.tableName,
-		columns: table.columns
-	}
-}
-
-/**
- * Execute SQL against a seeded datatable through the best-effort in-memory engine
- * (`applyDatatableSql`). Writes (CREATE/INSERT/UPDATE/DELETE/DROP) mutate the
- * stored datatable in place so a later list/schema/SELECT reflects them; SELECT
- * (and RETURNING) yield rows, other statements yield `[]`. Creates a benchmark
- * completed job and returns its id, like `runBenchmarkScriptPreview`.
- */
-export function runBenchmarkDatatableSql(input: {
-	workspace: string
-	datatableName: string
-	sql: string
-}): string {
-	const runnables = benchmarkWorkspaceRunnables.get(input.workspace)
-	const datatable = (runnables?.datatables ?? []).find(
-		(entry) => entry.datatable_name === input.datatableName
-	)
-	const rows = datatable ? applyDatatableSql(datatable, input.sql).rows : []
-	return createBenchmarkCompletedJob({
-		workspace: input.workspace,
-		jobKind: 'preview',
-		success: true,
-		args: { database: `datatable://${input.datatableName}` },
-		result: rows
-	})
-}
-
-/**
- * Mirror `JobService.getCompletedJobResultMaybe` for benchmark workspaces — the
- * shape `pollJobResult` consumes. The job is created synchronously before
- * polling, so it is always present and completed.
- */
-export function getBenchmarkCompletedJobResultMaybe(input: {
-	workspace: string
-	id: string
-}): { success: boolean; completed: boolean; result: unknown } {
-	const job = getBenchmarkCompletedJob(input.workspace, input.id)
-	if (!job) {
-		throw new Error(`Job "${input.id}" not found in benchmark workspace`)
-	}
-	return { success: job.success, completed: true, result: job.result }
 }
 
 export function runBenchmarkScriptPreview(input: {
@@ -614,35 +417,6 @@ export function runBenchmarkScriptPreview(input: {
 	})
 }
 
-export function runBenchmarkScriptByPath(input: {
-	workspace: string
-	path: string
-	args?: Record<string, unknown>
-}): string {
-	const script = getBenchmarkScriptByPath(input.workspace, input.path)
-	return createBenchmarkCompletedJob({
-		workspace: input.workspace,
-		jobKind: 'script',
-		success: script !== null,
-		scriptPath: input.path,
-		args: input.args,
-		result:
-			script !== null
-				? {
-						path: input.path,
-						args: input.args ?? {},
-						mocked: true
-					}
-				: {
-						error: `Script "${input.path}" not found in benchmark workspace`
-					},
-		logs:
-			script !== null
-				? 'Mock benchmark script run completed successfully.'
-				: `Script "${input.path}" not found in benchmark workspace.`
-	})
-}
-
 export function runBenchmarkFlowByPath(input: {
 	workspace: string
 	path: string
@@ -671,12 +445,29 @@ export function runBenchmarkFlowByPath(input: {
 	})
 }
 
+export function runBenchmarkFlowPreview(input: {
+	workspace: string
+	requestBody?: { path?: string; args?: unknown }
+}): string {
+	const args = (input.requestBody?.args ?? {}) as Record<string, unknown>
+	return createBenchmarkCompletedJob({
+		workspace: input.workspace,
+		jobKind: 'flowpreview',
+		success: true,
+		args,
+		result: { path: input.requestBody?.path, args, mocked: true },
+		logs: 'Mock benchmark flow preview completed successfully.'
+	})
+}
+
 export function previewBenchmarkSchedule(input: {
 	requestBody?: Record<string, unknown>
 }): Record<string, unknown> {
 	const schedule = input.requestBody?.schedule
 	if (typeof schedule !== 'string' || schedule.trim().split(/\s+/).length !== 6) {
-		throw new Error(`schedule must use a six-field cron expression, got ${JSON.stringify(schedule)}`)
+		throw new Error(
+			`schedule must use a six-field cron expression, got ${JSON.stringify(schedule)}`
+		)
 	}
 
 	return {
@@ -708,7 +499,9 @@ export function createBenchmarkHttpTrigger(input: {
 		typeof input.requestBody.route_path === 'string' &&
 		input.requestBody.route_path.startsWith('/')
 	) {
-		throw new Error(`HTTP trigger route_path must not start with /, got "${input.requestBody.route_path}"`)
+		throw new Error(
+			`HTTP trigger route_path must not start with /, got "${input.requestBody.route_path}"`
+		)
 	}
 	return {
 		path: input.requestBody.path,
@@ -767,157 +560,39 @@ function buildBenchmarkFlow(flow: BenchmarkWorkspaceFlow): Flow {
 	} as Flow
 }
 
-function buildBenchmarkListableApp(app: BenchmarkWorkspaceApp): ListableApp {
-	return {
-		id: 0,
-		workspace_id: 'benchmark',
-		path: app.path,
-		summary: app.summary,
-		version: 1,
-		extra_perms: {},
-		edited_at: BENCHMARK_TIMESTAMP,
-		execution_mode: 'viewer',
-		raw_app: true
-	}
-}
+// A stand-in Windmill hub. `search_hub_scripts` and a `hub/` read go out over
+// relative `/api/...` fetches, which have no origin here, so without these the
+// hub tools throw and no case can exercise hub reuse. Serving fixtures rather
+// than the live hub also keeps assertions on script content stable as the real
+// hub republishes new versions.
 
-function buildBenchmarkApp(app: BenchmarkWorkspaceApp): AppWithLastVersion {
-	return {
-		id: 0,
-		workspace_id: 'benchmark',
-		path: app.path,
-		summary: app.summary,
-		versions: [1],
-		created_by: 'benchmark',
-		created_at: BENCHMARK_TIMESTAMP,
-		value: app.value,
-		policy: (app.value.policy ?? {}) as AppWithLastVersion['policy'],
-		execution_mode: 'viewer',
-		extra_perms: {},
-		custom_path: app.value.custom_path as string | undefined,
-		raw_app: true
-	}
-}
+/** One integration lifted verbatim from the content repo — its shipped scripts, its
+ * authored meta.json and its resource type. Hand-written fixtures make both routes to
+ * an integration's conventions look equally cheap; a real one is the only way to tell
+ * whether reading the metadata beats reading a script. */
+const REAL_HUB_INTEGRATIONS = [
+	confluenceFixture,
+	servicenowFixture,
+	outreachFixture
+] as unknown as Array<{
+	app: string
+	meta: unknown
+	resource_type: { name: string; description: string; schema: unknown }
+	scripts: Array<{
+		version_id: number
+		app: string
+		summary: string
+		description: string
+		terms: string
+		kind: string
+		language: string
+		content: string
+		schema: unknown
+	}>
+}>
 
-// ============= API endpoint catalog (McpService.listMcpTools + raw fetch) =============
-// The global chat's API catalog tools list endpoints via McpService and execute
-// them with a plain relative fetch('/api/...'), which has no meaning in the
-// vitest environment. A representative slice of the real catalog is served here,
-// and `handleBenchmarkApiFetch` answers the executed calls.
-
-const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
-	{
-		name: 'listWorkers',
-		description: 'List workers',
-		instructions: 'List all workers with their last ping and job counts.',
-		path: '/workers/list',
-		method: 'GET',
-		query_params_schema: {
-			type: 'object',
-			properties: { page: { type: 'integer' }, per_page: { type: 'integer' } }
-		}
-	},
-	{
-		name: 'listQueue',
-		description: 'List queued jobs',
-		instructions: '',
-		path: '/w/{workspace}/jobs/queue/list',
-		method: 'GET',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' } },
-			required: ['workspace']
-		}
-	},
-	{
-		name: 'getJob',
-		description: 'get job',
-		instructions: '',
-		path: '/w/{workspace}/jobs_u/get/{id}',
-		method: 'GET',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' }, id: { type: 'string', format: 'uuid' } },
-			required: ['workspace', 'id']
-		},
-		query_params_schema: {
-			type: 'object',
-			properties: {
-				no_logs: { type: 'boolean' },
-				no_code: { type: 'boolean' },
-				approval_token: { type: 'string' }
-			},
-			required: []
-		}
-	},
-	{
-		name: 'runScriptByPath',
-		description: 'Run the deployed version of a script by path',
-		instructions: '',
-		path: '/w/{workspace}/jobs/run/p/{path}',
-		method: 'POST',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
-			required: ['workspace', 'path']
-		},
-		body_schema: { type: 'object', properties: {} }
-	},
-	{
-		name: 'runFlowByPath',
-		description: 'Run the deployed version of a flow by path',
-		instructions: '',
-		path: '/w/{workspace}/jobs/run/f/{path}',
-		method: 'POST',
-		path_params_schema: {
-			type: 'object',
-			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
-			required: ['workspace', 'path']
-		},
-		body_schema: { type: 'object', properties: {} }
-	},
-	// Draft-covered endpoints, present so steering cases exercise the guard the
-	// way production does (hidden from search, refused at call time).
-	{
-		name: 'getScriptByPath',
-		description: 'Get a script by path',
-		instructions: '',
-		path: '/w/{workspace}/scripts/get/p/{path}',
-		method: 'GET'
-	},
-	{
-		name: 'createFlow',
-		description: 'Create a flow',
-		instructions: '',
-		path: '/w/{workspace}/flows/create',
-		method: 'POST'
-	},
-	{
-		name: 'deleteSchedule',
-		description: 'Delete a schedule',
-		instructions: '',
-		path: '/w/{workspace}/schedules/delete/{path}',
-		method: 'DELETE'
-	},
-	{
-		name: 'getVariable',
-		description: 'Get a variable',
-		instructions: '',
-		path: '/w/{workspace}/variables/get/{path}',
-		method: 'GET'
-	}
-]
-
-export function listBenchmarkMcpTools(): EndpointTool[] {
-	return BENCHMARK_MCP_TOOLS
-}
-
-/** A stand-in Windmill hub. `search_hub_scripts` and a `hub/` read go out over
- * relative `/api/...` fetches, which have no origin here, so without these the
- * hub tools throw and no case can exercise hub reuse. Serving fixtures rather
- * than the live hub also keeps assertions on script content stable as the real
- * hub republishes new versions. */
 const BENCHMARK_HUB_SCRIPTS = [
+	...REAL_HUB_INTEGRATIONS.flatMap((integration) => integration.scripts),
 	{
 		version_id: 22235,
 		app: 'holded',
@@ -1005,6 +680,87 @@ export async function main(discord_webhook: DiscordWebhook, message: string) {
 				message: { type: 'string' }
 			}
 		}
+	},
+	// Baremetrics carries no annotation script, on purpose: it stands for an
+	// integration whose conventions (an `apiKey` resource, bearer auth, the /v1
+	// base) are only learnable by reading a script that does something else.
+	{
+		version_id: 8995,
+		app: 'baremetrics',
+		summary: 'List Sources',
+		description: 'List all the sources attached to a Baremetrics account.',
+		terms: 'baremetrics sources list revenue metrics',
+		language: 'bunnative',
+		content: `//native
+type Baremetrics = {
+  apiKey: string;
+};
+export async function main(resource: Baremetrics) {
+  const response = await fetch("https://api.baremetrics.com/v1/sources", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: \`Bearer \${resource.apiKey}\`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(\`\${response.status} \${await response.text()}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['resource'],
+			properties: {
+				resource: { type: 'object', format: 'resource-baremetrics' }
+			}
+		}
+	},
+	{
+		version_id: 8996,
+		app: 'baremetrics',
+		summary: 'Create Customer',
+		description: 'Create a customer on a Baremetrics source.',
+		terms: 'baremetrics customer create source',
+		language: 'bunnative',
+		content: `//native
+type Baremetrics = {
+  apiKey: string;
+};
+export async function main(
+  resource: Baremetrics,
+  sourceId: string,
+  body: { oid: string; name?: string; email?: string },
+) {
+  const response = await fetch(
+    \`https://api.baremetrics.com/v1/\${sourceId}/customers\`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: \`Bearer \${resource.apiKey}\`,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(\`\${response.status} \${await response.text()}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['resource', 'sourceId', 'body'],
+			properties: {
+				resource: { type: 'object', format: 'resource-baremetrics' },
+				sourceId: { type: 'string' },
+				body: { type: 'object' }
+			}
+		}
 	}
 ]
 
@@ -1014,20 +770,26 @@ export async function main(discord_webhook: DiscordWebhook, message: string) {
  * integration, or overlapping on three meaningful words. A looser bar answers
  * "send a Slack message" with the Discord fixture, handing an unrelated case a
  * plausible-looking wrong integration. */
-function searchBenchmarkHubScripts(text: string) {
+function searchBenchmarkHubScripts(text: string, app: string | null, kind: string | null) {
 	const tokens = new Set(
 		text
 			.toLowerCase()
 			.split(/[^a-z0-9]+/)
 			.filter((token) => token.length > 2)
 	)
-	return BENCHMARK_HUB_SCRIPTS.map((script) => {
-		const words = new Set(
-			`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
-		)
-		const score = [...tokens].filter((token) => words.has(token)).length
-		return { script, score, namesApp: tokens.has(script.app) }
-	})
+	// The real endpoint filters by app and kind before ranking, so honour both here —
+	// otherwise a narrowed search silently returns other integrations' scripts, and a
+	// trigger answers a search production would never have shown it to.
+	return BENCHMARK_HUB_SCRIPTS.filter(
+		(script) => (!app || script.app === app) && (!kind || (script.kind ?? 'script') === kind)
+	)
+		.map((script) => {
+			const words = new Set(
+				`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
+			)
+			const score = [...tokens].filter((token) => words.has(token)).length
+			return { script, score, namesApp: tokens.has(script.app) }
+		})
 		.filter((entry) => entry.namesApp || entry.score >= 3)
 		.sort((a, b) => b.score - a.score)
 		.map(({ script }, index) => ({
@@ -1035,10 +797,76 @@ function searchBenchmarkHubScripts(text: string) {
 			id: script.version_id,
 			version_id: script.version_id,
 			summary: script.summary,
+			description: script.description ?? null,
 			app: script.app,
-			kind: 'script',
+			kind: script.kind ?? 'script',
 			score: 1 - index * 0.01
 		}))
+}
+
+/** Listing an integration is unranked and description-bearing, matching the hub's
+ * top-scripts endpoint — that asymmetry with the semantic search is the whole
+ * reason the chat browses by app when no script matches the task. */
+function listBenchmarkHubScriptsByApp(app: string | null, kind: string | null) {
+	return BENCHMARK_HUB_SCRIPTS.filter(
+		(script) => (!app || script.app === app) && (!kind || (script.kind ?? 'script') === kind)
+	).map((script) => ({
+		id: script.version_id,
+		ask_id: script.version_id,
+		version_id: script.version_id,
+		summary: script.summary,
+		description: script.description ?? null,
+		app: script.app,
+		kind: script.kind ?? 'script',
+		views: 0,
+		votes: 0
+	}))
+}
+
+/** Display names of the integrations a case writes against, none of which the content repo
+ * documents — the same majority shape as the live hub, where 18 of ~216 carry a meta.json.
+ * Their conventions live in their shipped scripts, which is what these cases exercise. */
+const BENCHMARK_HUB_INTEGRATION_NAMES: Record<string, string> = {
+	baremetrics: 'Baremetrics',
+	holded: 'Holded'
+}
+
+/** The resource type a mocked hub integration takes. */
+function benchmarkHubIntegrationResourceType(app: string): BenchmarkWorkspaceResourceType | null {
+	const real = REAL_HUB_INTEGRATIONS.find((integration) => integration.app === app)
+	if (real) {
+		return real.resource_type
+	}
+	const displayName = BENCHMARK_HUB_INTEGRATION_NAMES[app]
+	if (!displayName) {
+		return null
+	}
+	return {
+		name: app,
+		description: `${displayName} credentials`,
+		schema: {
+			type: 'object',
+			required: ['apiKey'],
+			properties: {
+				apiKey: { type: 'string', description: `${displayName} API key` }
+			}
+		}
+	}
+}
+
+/** What a hub-synced instance holds: common hub types, plus the one each mocked hub
+ * integration takes, so the hub and the instance agree on them. */
+/** The resource types of an instance synced with the hub, what a fixture that sets no
+ * `resourceTypes` stands for. */
+export function syncedResourceTypes(): BenchmarkWorkspaceResourceType[] {
+	const integrations = [
+		...REAL_HUB_INTEGRATIONS.map((integration) => integration.app),
+		...Object.keys(BENCHMARK_HUB_INTEGRATION_NAMES)
+	]
+	return [
+		...syncedResourceTypesFixture,
+		...integrations.flatMap((app) => benchmarkHubIntegrationResourceType(app) ?? [])
+	]
 }
 
 /** The hub keys a script by its version id; the app and slug segments that
@@ -1048,107 +876,58 @@ function getBenchmarkHubScript(path: string) {
 	return BENCHMARK_HUB_SCRIPTS.find((script) => script.version_id === versionId)
 }
 
-const BENCHMARK_WORKERS = [
-	{
-		worker: 'wk-benchmark-1',
-		worker_instance: 'benchmark-host',
-		last_ping: 2,
-		started_at: BENCHMARK_TIMESTAMP,
-		jobs_executed: 42,
-		custom_tags: null,
-		worker_group: 'default',
-		wm_version: 'benchmark'
-	},
-	{
-		worker: 'wk-benchmark-2',
-		worker_instance: 'benchmark-host',
-		last_ping: 5,
-		started_at: BENCHMARK_TIMESTAMP,
-		jobs_executed: 17,
-		custom_tags: null,
-		worker_group: 'default',
-		wm_version: 'benchmark'
-	}
-]
-
-const BENCHMARK_JOB_GET_PATH = /^\/api\/w\/([^/]+)\/jobs_u\/get\/([^/]+)$/
-const BENCHMARK_RUN_BY_PATH = /^\/api\/w\/([^/]+)\/jobs\/run\/(p|f)\/([^/]+)$/
-
-/** `executeEndpoint` sends a JSON string; anything else means no args were supplied. */
-function parseBenchmarkRequestBody(
-	body: BodyInit | null | undefined
-): Record<string, unknown> | undefined {
-	if (typeof body !== 'string') {
-		return undefined
-	}
-	try {
-		const parsed = JSON.parse(body)
-		return typeof parsed === 'object' && parsed !== null
-			? (parsed as Record<string, unknown>)
-			: undefined
-	} catch {
-		return undefined
-	}
-}
-
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
+// Not anchored: the frontend builds this URL from location.origin, so it arrives absolute. The
+// workspace id is greedy because an eval workspace is a temp directory path, slashes and all.
+const BENCHMARK_AI_MODELS_PATH = /\/api\/w\/(.+)\/ai\/proxy\/models$/
+
 export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
 	return (
-		path === '/api/workers/list' ||
-		BENCHMARK_JOB_GET_PATH.test(path) ||
-		BENCHMARK_RUN_BY_PATH.test(path) ||
-		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
-		path.startsWith('/api/scripts/hub/get_full/')
+		path === '/api/scripts/hub/top' ||
+		path === '/api/integrations/hub/list' ||
+		path.startsWith('/api/scripts/hub/get_full/') ||
+		BENCHMARK_AI_MODELS_PATH.test(path)
 	)
 }
 
-/** Answer a relative `/api/...` fetch — from the API catalog executor, or from the
- * chat's hub tools. */
+/** Answer the relative `/api/...` fetches no mocked service covers. */
 export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Response {
 	const path = url.split('?')[0]
-	if (path === '/api/workers/list') {
-		return Response.json(BENCHMARK_WORKERS)
-	}
-	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
-		return Response.json([])
-	}
-	const jobGet = BENCHMARK_JOB_GET_PATH.exec(path)
-	if (jobGet) {
-		const id = decodeURIComponent(jobGet[2])
-		const job = getBenchmarkCompletedJob(decodeURIComponent(jobGet[1]), id)
-		if (!job) {
-			return Response.json({ error: `Job not found for "${id}"` }, { status: 404 })
-		}
-		// The real endpoint lets a caller drop the bulky fields. Ignoring that here would
-		// size the model's context off a payload it explicitly asked to shrink.
-		const query = new URLSearchParams(url.split('?')[1] ?? '')
-		if (query.get('no_logs') === 'true') {
-			delete job.logs
-		}
-		if (query.get('no_code') === 'true') {
-			delete job.raw_code
-		}
-		return Response.json(job)
-	}
-	const runByPath = BENCHMARK_RUN_BY_PATH.exec(path)
-	if (runByPath) {
-		const workspace = decodeURIComponent(runByPath[1])
-		const runnablePath = decodeURIComponent(runByPath[3])
-		const args = parseBenchmarkRequestBody(init?.body)
-		// The real endpoint answers with the bare job id as text, not JSON.
-		return new Response(
-			runByPath[2] === 'f'
-				? runBenchmarkFlowByPath({ workspace, path: runnablePath, args })
-				: runBenchmarkScriptByPath({ workspace, path: runnablePath, args })
-		)
+	// The provider's own model listing, which grounds an AI agent step's model id. Keyed by the
+	// resource the caller names, so two seeded providers can serve different models.
+	const aiModels = BENCHMARK_AI_MODELS_PATH.exec(path)
+	if (aiModels) {
+		const headers = new Headers(init?.headers)
+		const resourcePath = headers.get('X-Resource-Path') ?? ''
+		const seed = benchmarkWorkspaceRunnables
+			.get(decodeURIComponent(aiModels[1]))
+			?.aiProviders?.find((entry) => entry.path === resourcePath)
+		return Response.json({ data: (seed?.models ?? []).map((id) => ({ id })) })
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
-		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''
-		return Response.json(searchBenchmarkHubScripts(text))
+		const params = new URLSearchParams(url.split('?')[1] ?? '')
+		return Response.json(
+			searchBenchmarkHubScripts(params.get('text') ?? '', params.get('app'), params.get('kind'))
+		)
+	}
+	if (path === '/api/scripts/hub/top') {
+		const params = new URLSearchParams(url.split('?')[1] ?? '')
+		return Response.json({
+			asks: listBenchmarkHubScriptsByApp(params.get('app'), params.get('kind'))
+		})
+	}
+	if (path === '/api/integrations/hub/list') {
+		const apps = [...new Set(BENCHMARK_HUB_SCRIPTS.map((script) => script.app))].sort()
+		const documented = new Set(
+			REAL_HUB_INTEGRATIONS.filter((integration) => integration.meta).map(
+				(integration) => integration.app
+			)
+		)
+		return Response.json(apps.map((name) => ({ name, documented: documented.has(name) })))
 	}
 	if (path.startsWith('/api/scripts/hub/get_full/')) {
 		const script = getBenchmarkHubScript(path)

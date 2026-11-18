@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
 	interface Props {
 		size?: number
 		height?: number
@@ -20,14 +21,15 @@
 	)
 </script>
 
+<!-- #5951FF / #FFFFFF per outreach.ai. -->
 <svg
 	role="img"
 	{width}
 	{height}
-	viewBox="0 0 32 32"
+	viewBox="3.659 3.659 24.682 24.682"
 	fill={color ?? 'currentColor'}
 	xmlns="http://www.w3.org/2000/svg"
-	class={clazz}
+	class={twMerge('text-[#5951FF] dark:text-[#FFFFFF]', clazz)}
 >
 	<title>outreach-svg</title>
 	<path

@@ -69,7 +69,7 @@ makes the client own the whole cascade so the backend dispatcher never double-fi
 - `frontend/src/lib/components/assets/AssetGraph/cascadeRun.ts` — reusable run primitives
   (`makeLaunch`, `makeWaitJobTerminal`, `runDownstreamCascade`, `runBoundedCascade`) wrapping
   `cascadeOrchestrator` + `graphTraversal`.
-- `frontend/src/lib/components/assets/AssetGraph/PipelineDevView.svelte` + `frontend/src/routes/pipeline_dev/+page.svelte`.
+- `frontend/src/lib/components/assets/AssetGraph/PipelineDevView.svelte` + `frontend/src/routes/(styled)/pipeline_dev/+page.svelte`.
 
 **Modified**
 - `cli/src/commands/pipeline/pipeline.ts` — `--local` on `show`/`run`; `show` split into graph

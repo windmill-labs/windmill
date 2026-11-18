@@ -1,7 +1,21 @@
 import { BROWSER } from 'esm-env'
 
 export function isCloudHosted(): boolean {
-	return BROWSER && window.location.hostname == 'app.windmill.dev'
+	// `BROWSER` alone isn't enough: it resolves true wherever the browser export
+	// condition is picked (SSR bundles, vitest's server project), where `window`
+	// may be missing or a stub with no `location`. Same defensive shape as
+	// `isChromiumBrowser`.
+	if (!BROWSER) return false
+	// Dev only: the cloud-specific UI (quotas, plan upgrade, the pre-approved trial offer)
+	// is otherwise unreachable from localhost. `localStorage.cloudHostedOverride = '1'` opts
+	// a browser in against a backend started with CLOUD_HOSTED.
+	if (
+		import.meta.env.DEV &&
+		globalThis.window?.localStorage?.getItem('cloudHostedOverride') === '1'
+	) {
+		return true
+	}
+	return globalThis.window?.location?.hostname == 'app.windmill.dev'
 }
 
 // On the managed cloud, the public demo workspace is kept clean and consistent by

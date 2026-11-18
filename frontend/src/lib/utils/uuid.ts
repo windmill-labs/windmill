@@ -15,3 +15,7 @@ export function randomSecret(bytes = 32): string {
 	crypto.getRandomValues(buf)
 	return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+export function isUuid(s: string | undefined): s is string {
+	return !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim())
+}

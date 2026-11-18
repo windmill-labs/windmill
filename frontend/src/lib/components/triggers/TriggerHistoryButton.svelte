@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { History } from 'lucide-svelte'
 	import { TriggerService, type TriggerHistoryEntry } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 	import Button from '../common/button/Button.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
@@ -9,8 +8,8 @@
 	import Badge from '../common/badge/Badge.svelte'
 	import Skeleton from '../common/skeleton/Skeleton.svelte'
 	import TriggerHistoryChanges from './TriggerHistoryChanges.svelte'
-	import { getTriggerWorkspace } from './triggerWorkspace'
 	import type { TriggerType } from './utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		/** Trigger kind as the backend records it: `schedule`, `http`, `kafka`, … */
@@ -22,8 +21,8 @@
 
 	// An AI session can edit a trigger in a workspace that is not the nav one;
 	// the whole trigger subtree reads its workspace through this seam.
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state()
 	let entries: TriggerHistoryEntry[] | undefined = $state(undefined)

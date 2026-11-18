@@ -1,4 +1,5 @@
 import type { GroupDisplayState } from '$lib/components/graph/groupEditor.svelte'
+import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { GroupedModulesProxy } from '$lib/components/graph/groupedModulesProxy.svelte'
 import type { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 import type { FlowStructureNode } from '$lib/components/graph/flowStructure'
@@ -8,7 +9,6 @@ import type { StateStore } from '$lib/utils'
 import { createDeletePlan, removeDeletePlanTools, type DeletePlan } from './flowDeleteUtils'
 import type { FlowState } from './flowState'
 import { deleteFlowStateById } from './flowStateUtils.svelte'
-import { refreshFlowStateStore } from './flowStoreRefresh.svelte'
 
 export type PreparedDeleteRequest = {
 	plan: DeletePlan
@@ -74,7 +74,7 @@ export function executeDeletePlan(
 		deleteFlowStateById(id, args.flowStateStore)
 	}
 
-	refreshFlowStateStore(args.flowStore)
+	refreshStateStore(args.flowStore)
 
 	if (plan.inputIds.length === 1) {
 		args.onDelete?.(plan.targets[0].id)

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { ResourceService, WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
@@ -11,13 +10,19 @@
 	import Select from './select/Select.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
-	import { appIconComponent } from './icons'
+	import { appIconComponent } from './icons/appIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		initialValue?: string | undefined
 		value?: string | undefined
 		valueType?: string | undefined
 		resourceType?: string | undefined
+		/** Further resource types whose resources are offered alongside `resourceType`'s. New
+		 *  resources are still created as `resourceType`. */
+		additionalResourceTypes?: string[]
 		disabled?: boolean
 		disablePortal?: boolean
 		showSchemaExplorer?: boolean
@@ -32,7 +37,10 @@
 		excludedValues?: string[]
 		datatableAsPgResource?: boolean
 		workspace?: string | undefined
-		disableChatOffset?: boolean
+		/** Fires when this picker sets a resource, with the type it carries, and with `undefined` on
+		 *  clear. Unlike an effect on `valueType` it never fires for the value the picker was opened
+		 *  on, but `selectFirst` choosing the only candidate during a load does count as setting one. */
+		onValueChange?: (path: string | undefined, type: string | undefined) => void
 	}
 
 	let {
@@ -40,6 +48,7 @@
 		value = $bindable(undefined),
 		valueType = $bindable(undefined),
 		resourceType = undefined,
+		additionalResourceTypes = [],
 		disabled = false,
 		disablePortal = false,
 		showSchemaExplorer = false,
@@ -54,10 +63,10 @@
 		excludedValues = undefined,
 		datatableAsPgResource = false,
 		workspace = undefined,
-		disableChatOffset = false
+		onValueChange = undefined
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	if (initialValue && value == undefined) {
 		value = initialValue
@@ -107,8 +116,10 @@
 	async function loadResources(resourceType: string | undefined) {
 		loading = true
 		try {
-			const resourceTypesToQuery =
-				resourceType === 'snowflake' ? ['snowflake', 'snowflake_oauth'] : [resourceType]
+			const resourceTypesToQuery = [
+				...(resourceType === 'snowflake' ? ['snowflake', 'snowflake_oauth'] : [resourceType]),
+				...additionalResourceTypes
+			]
 
 			const resources = await Promise.all(
 				resourceTypesToQuery.map((rt) =>
@@ -155,6 +166,7 @@
 			if (collection.length == 1 && selectFirst && (value == undefined || value == '')) {
 				value = collection[0].value
 				valueType = collection[0].type
+				onValueChange?.(value, valueType)
 			}
 		} catch (e) {
 			sendUserToast('Failed to load resource types', true)
@@ -196,21 +208,21 @@
 		await loadResources(resourceType)
 		value = e.detail
 		valueType = collection.find((x) => x?.value == value)?.type
+		onValueChange?.(value, valueType)
 	}}
 	bind:this={appConnect}
 	{expressOAuthSetup}
 	{workspace}
-	{disableChatOffset}
 />
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	{workspace}
-	{disableChatOffset}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		if (e.detail) {
 			value = e.detail
 			valueType = collection.find((x) => x?.value == value)?.type
+			onValueChange?.(value, valueType)
 			// valueSelect = { value: e.detail, label: e.detail, type: valueType ?? '' }
 		}
 	}}
@@ -237,12 +249,14 @@
 				(v) => {
 					value = v
 					valueType = collection.find((x) => x?.value == v)?.type
+					onValueChange?.(value, valueType)
 				}
 			}
 			onClear={() => {
 				initialValue = undefined
 				value = undefined
 				valueType = undefined
+				onValueChange?.(undefined, undefined)
 				onClear?.()
 			}}
 			items={collection}
@@ -281,6 +295,7 @@
 				<div class="flex bg-surface border-t divide-x">
 					{#if resourceType?.includes(',')}
 						<DropdownV2
+							class="flex-1 justify-stretch"
 							enableFlyTransition
 							items={resourceType?.split(',').map((rt) => ({
 								displayName: `${rt} resource`,
@@ -294,7 +309,7 @@
 									color="light"
 									variant="contained"
 									wrapperClasses="flex-1"
-									btnClasses="rounded-none mt-0.5"
+									btnClasses="rounded-none"
 									size="sm"
 									startIcon={{ icon: Plus }}
 								>

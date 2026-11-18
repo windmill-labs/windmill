@@ -12,6 +12,38 @@ pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC = vc(1, 776, 0, "On-be
 // already-deployed hash (duplicate git-sync commit, duplicate fork tally, a re-triggered
 // relative-import cascade). Must name the release this ships in.
 pub const MIN_VERSION_SUPPORTS_BINARY_PREBUILD: VC = vc(1, 789, 0, "Auto-build binary on deploy");
+// The release that ships bun 1.4, which writes `bun.lock` v2 (v3 with overrides or catalogs).
+// Bun 1.3 reports `error: Unknown lockfile version`, then installs anyway from `package.json`
+// alone — and the dependency job writes every dependency as `"latest"`, so the lockfile is the
+// only pin and an older worker resolves whatever is newest instead. Below this version the
+// dependency job asks bun for a v1 lockfile, and refuses to store one bun raised anyway.
+// Must name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2: VC = vc(1, 794, 0, "Bun v2 lockfiles");
+// A worker that predates `job_token_scopes` mints the token of every job it pulls without
+// them, so a restriction set while one is live is silently ignored on the jobs it runs. Must
+// name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES: VC = vc(1, 822, 0, "Restricted job tokens");
+// Gates writing AES-256-GCM workspace ciphertext and the background pass that rewrites the
+// stored secret variables. Reading it ships one release earlier (1.831), so a rollback to
+// that release still reads every secret; below it, secrets written after the switch stay
+// unreadable until rolled forward. Only worker versions are seen here, not servers.
+pub const MIN_VERSION_SUPPORTS_AEAD_SECRETS: VC = vc(1, 832, 0, "AES-GCM secret encryption");
+// Gates widening `variable.value`. Every query returning that column casts it to text from
+// this release, so the widening changes no result type: before it, each statement prepared on
+// the column fails once per connection, and behind PgBouncer until its server connection
+// closes. Must name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_VARIABLE_VALUE_WIDENING: VC =
+    vc(1, 848, 0, "variable.value widening");
+// A renewed license key replaces the one every process reads, and a worker that predates
+// Ed25519 support rejects an Ed25519-signed key and stops pulling jobs, so renewal only offers
+// to accept one once this is met. Only worker versions are seen here, not servers. Must name
+// the release this ships in.
+pub const MIN_VERSION_SUPPORTS_ED25519_LICENSE: VC = vc(1, 838, 0, "Ed25519 license keys");
+// `volume:ro` mounts pull without the volume's lease and rely on every writer marking its
+// write in `volume.generation`. A worker that predates it writes without that mark, so a
+// lease-free pull overlapping its write would keep a mix of old and new files; until the
+// whole fleet has it, read-only mounts take the lease. Must name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES: VC = vc(1, 872, 0, "Lease-free volume reads");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");
