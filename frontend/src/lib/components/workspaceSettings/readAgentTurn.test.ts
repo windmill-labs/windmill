@@ -41,3 +41,23 @@ describe('readAgentTurn', () => {
 		expect(turn.tool_calls.map((c) => c.name)).toEqual(['refund_order'])
 	})
 })
+
+describe('readAgentTurn with background tools', () => {
+	it('keeps a background call whose result came back as a tagged user message', () => {
+		const turn = readAgentTurn({
+			output: 'Rendered.',
+			messages: [
+				{ role: 'user', content: 'Render it.' },
+				{ role: 'assistant', tool_calls: [call('a', 'render', {})] },
+				{ role: 'tool', tool_call_id: 'a', content: 'Started in the background.' },
+				{
+					role: 'user',
+					content: 'Background tool `render` (call a, job j) finished. Result:\nok',
+					agent_action: { type: 'tool_call', job_id: 'j', function_name: 'render', module_id: 'm' }
+				},
+				{ role: 'assistant', content: 'Rendered.' }
+			]
+		})
+		expect(turn.tool_calls.map((c) => c.name)).toEqual(['render'])
+	})
+})

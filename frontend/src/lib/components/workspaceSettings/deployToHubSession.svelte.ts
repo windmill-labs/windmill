@@ -2262,9 +2262,12 @@ export function readAgentTurn(result: unknown): { answer: string; tool_calls: Ag
 	const text = (v: unknown) =>
 		typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v, null, 2)
 	// With memory, the run returns the whole conversation: this turn starts after its own
-	// message, the last `user` one.
+	// message, the last `user` one. A background tool's result also comes back as a `user`
+	// message, tagged with its call's `agent_action`, and does not start a turn.
 	const all = Array.isArray(r?.messages) ? r.messages : []
-	const lastUser = all.map((m) => m?.role).lastIndexOf('user')
+	const lastUser = all
+		.map((m) => (m?.role === 'user' && !m.agent_action ? 'user' : ''))
+		.lastIndexOf('user')
 	const messages = lastUser >= 0 ? all.slice(lastUser + 1) : all
 	const results = new Map<string, unknown>()
 	for (const m of messages) {

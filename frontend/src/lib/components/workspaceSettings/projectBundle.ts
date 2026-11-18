@@ -465,15 +465,38 @@ function agentAsFlow(value: any): any {
 	}
 }
 
+/** An MCP tool's server: a resource path, bare or as a `$res:` token. The flow walker
+ * skips MCP tools, so an agent's are read here. */
+function mcpResourcePath(tool: any): string | undefined {
+	const v = tool?.value
+	if (v?.tool_type !== 'mcp' || typeof v.resource_path !== 'string') return undefined
+	return v.resource_path.replace(/^\$res:/, '') || undefined
+}
+
 export function extractAgentRefs(value: any): Ref[] {
-	return extractFlowRefs(agentAsFlow(value))
+	const refs = extractFlowRefs(agentAsFlow(value))
+	for (const tool of Array.isArray(value?.tools) ? value.tools : []) {
+		const path = mcpResourcePath(tool)
+		if (path && !refs.some((r) => r.kind === 'resource' && r.path === path)) {
+			refs.push({ kind: 'resource', path })
+		}
+	}
+	return refs
 }
 
 export function rewriteAgentValue(value: any, map: Map<string, string>): any {
 	if (!value || typeof value !== 'object') return value
 	const step = rewriteFlowValue(agentAsFlow(value), map)?.modules?.[0]?.value
 	const out = { ...value }
-	if (Array.isArray(value.tools)) out.tools = step?.tools ?? value.tools
+	if (Array.isArray(value.tools)) {
+		out.tools = (step?.tools ?? value.tools).map((tool: any) => {
+			const path = mcpResourcePath(tool)
+			const next = path ? map.get(path) : undefined
+			if (!next) return tool
+			const token = tool.value.resource_path.startsWith('$res:')
+			return { ...tool, value: { ...tool.value, resource_path: token ? `$res:${next}` : next } }
+		})
+	}
 	if (value.provider !== undefined) {
 		out.provider = step?.input_transforms?.provider?.value ?? value.provider
 	}
@@ -547,6 +570,7 @@ export function collectExportVarPaths(bundle: ProjectExport): string[] {
 	for (const f of bundle.flows) collect(f.value)
 	for (const a of bundle.apps) collect(a.app_type === 'raw' ? safeParseRaw(a.value?.raw) : a.value)
 	for (const t of bundle.triggers) collect(t.config)
+	for (const a of bundle.agents ?? []) collect(a.value)
 	return [...out]
 }
 

@@ -911,7 +911,7 @@
 								<Check size={10} class="mr-0.5" />Recorded
 							</Badge>
 							<Button
-								size="xs"
+								unifiedSize="xs"
 								variant="subtle"
 								startIcon={{ icon: RotateCcw }}
 								onclick={() => openAgentRecord(it)}
@@ -921,7 +921,7 @@
 						{:else}
 							<Badge color="yellow" size="xs">No recording</Badge>
 							<Button
-								size="xs"
+								unifiedSize="xs"
 								variant="subtle"
 								startIcon={{ icon: Play }}
 								onclick={() => openAgentRecord(it)}

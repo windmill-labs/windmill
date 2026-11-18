@@ -1063,4 +1063,60 @@ describe('saved AI agents', () => {
 		expect(out.agents?.[0].value.provider.resource).toBe('$res:f/mine/claude')
 		expect(out.agents?.[0].value.tools[0].value.path).toBe('f/mine/helper')
 	})
+
+	it('ships and rewrites the resource an MCP tool connects to', () => {
+		const value = {
+			provider: { kind: 'anthropic', resource: '$res:f/proj/claude' },
+			tools: [
+				{ id: 'm', value: { tool_type: 'mcp', resource_path: '$res:f/proj/mcp' } },
+				{ id: 'n', value: { tool_type: 'mcp', resource_path: 'f/proj/other_mcp' } }
+			]
+		}
+		expect(extractAgentRefs(value)).toEqual(
+			expect.arrayContaining([
+				{ kind: 'resource', path: 'f/proj/mcp' },
+				{ kind: 'resource', path: 'f/proj/other_mcp' }
+			])
+		)
+		const map = new Map([
+			['f/proj/mcp', 'f/mine/mcp'],
+			['f/proj/other_mcp', 'f/mine/other_mcp']
+		])
+		const out = rewriteAgentValue(value, map)
+		expect(out.tools[0].value.resource_path).toBe('$res:f/mine/mcp')
+		expect(out.tools[1].value.resource_path).toBe('f/mine/other_mcp')
+	})
+
+	it('relocates a variable only an agent uses', () => {
+		const exp: ProjectExport = {
+			project: { slug: 'proj', name: 'P', summary: '', readme: null },
+			scripts: [{ path: 'f/proj/helper', content: '' }],
+			flows: [],
+			apps: [],
+			resources: [],
+			triggers: [],
+			agents: [
+				{
+					path: 'f/proj/video_agent',
+					value: {
+						tools: [
+							{
+								id: 'a',
+								value: {
+									type: 'script',
+									path: 'f/proj/helper',
+									input_transforms: { region: { type: 'static', value: '$var:f/proj/region' } }
+								}
+							}
+						]
+					}
+				}
+			]
+		}
+		expect(collectExportVarPaths(exp)).toContain('f/proj/region')
+		const out = retargetProjectExport(exp, 'proj', 'mine')
+		expect(out.agents?.[0].value.tools[0].value.input_transforms.region.value).toBe(
+			'$var:f/mine/region'
+		)
+	})
 })
