@@ -1,5 +1,16 @@
 -- The repository URL a workspace admin last saved on an app-backed git_repository
 -- resource. Anyone who can write the resource controls its URL, so the GitHub App
--- installation serves a non-admin only the repository this names. On the row
--- rather than keyed by path, so it follows every rename and dies with the row.
-ALTER TABLE resource ADD COLUMN github_app_approved_url TEXT;
+-- installation serves a non-admin only the repository this names. The cascading FK
+-- carries it through every rename and takes it with a delete, so a new resource at
+-- a freed path never inherits an approval.
+CREATE TABLE github_app_repo_approval (
+    workspace_id VARCHAR(50) NOT NULL,
+    path VARCHAR(255) NOT NULL,
+    url TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, path),
+    FOREIGN KEY (workspace_id, path) REFERENCES resource (workspace_id, path)
+        ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+GRANT ALL ON github_app_repo_approval TO windmill_user;
+GRANT ALL ON github_app_repo_approval TO windmill_admin;

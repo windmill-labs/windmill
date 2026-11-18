@@ -143,74 +143,38 @@ pub fn prepend_token_to_github_url(
     ))
 }
 
-/// An admin's write of a resource, as it bears on the GitHub App repository
-/// non-admins may read through it: the raw `url` the admin left on an
-/// app-backed `git_repository` resource, or `None` for any other resource.
-pub struct GithubAppRepoSave(Option<String>);
-
-/// Read, in an admin's write transaction and after the write, what
-/// [`approve_github_app_repo`] approves once that transaction commits.
-pub async fn github_app_repo_save(
+/// Make the URL an admin just saved on an app-backed `git_repository`
+/// resource the only repository the GitHub App installation serves non-admins
+/// through it, or revoke it when the save names none. Run in the admin's write
+/// transaction, after a write that carries the value, so the approval commits
+/// with the value it approves and no later write can be overtaken by it.
+///
+/// Only a literal URL is approved. A `$var:` resolves to whatever its owner
+/// sets, which the admin never saw, so such a resource stays admin-only.
+pub async fn approve_github_app_repo(
     tx: &mut sqlx::PgConnection,
     w_id: &str,
     path: &str,
-) -> crate::error::Result<GithubAppRepoSave> {
-    let value = sqlx::query_scalar!(
-        "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
+) -> crate::error::Result<()> {
+    sqlx::query!(
+        "DELETE FROM github_app_repo_approval WHERE workspace_id = $1 AND path = $2",
         w_id,
         path
     )
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-    let url = value.as_ref().and_then(|v| {
-        v.get("is_github_app")
-            .and_then(|b| b.as_bool())
-            .unwrap_or(false)
-            .then(|| v.get("url").and_then(|u| u.as_str()).map(str::to_string))
-            .flatten()
-    });
-    Ok(GithubAppRepoSave(url))
-}
-
-/// Make the URL an admin saved the only repository the installation serves
-/// non-admins through this resource, or clear it when the save names none.
-///
-/// Runs after the write commits: resolving a `$var:` takes a second pool
-/// connection and maybe a secret backend, neither of which may be held under
-/// the write's row lock. The update applies only while the row still holds
-/// the URL the admin saved, so a write landing in between is never approved.
-/// Best-effort: the admin's write has already succeeded.
-pub async fn approve_github_app_repo(
-    db: &crate::DB,
-    w_id: &str,
-    path: &str,
-    save: GithubAppRepoSave,
-) {
-    let approved = match &save.0 {
-        Some(raw) => match crate::variables::get_variable_or_self(raw.clone(), db, w_id).await {
-            Ok(url) => Some(url),
-            Err(e) => {
-                tracing::warn!("not approving the repository of {w_id}/{path}: {e}");
-                None
-            }
-        },
-        None => None,
-    };
-    let res = sqlx::query!(
-        "UPDATE resource SET github_app_approved_url = $3
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO github_app_repo_approval (workspace_id, path, url)
+         SELECT workspace_id, path, value->>'url' FROM resource
          WHERE workspace_id = $1 AND path = $2
-           AND ($4::text IS NULL OR value->>'url' = $4)",
+           AND value->'is_github_app' = 'true'::jsonb
+           AND left(value->>'url', 1) <> '$'",
         w_id,
-        path,
-        approved,
-        save.0
+        path
     )
-    .execute(db)
-    .await;
-    if let Err(e) = res {
-        tracing::error!("failed to record the approved repository of {w_id}/{path}: {e}");
-    }
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,1 +1,1 @@
-ALTER TABLE resource DROP COLUMN IF EXISTS github_app_approved_url;
+DROP TABLE IF EXISTS github_app_repo_approval;

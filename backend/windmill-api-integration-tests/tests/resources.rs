@@ -798,12 +798,12 @@ async fn test_github_app_repo_approval_follows_admin_writes(
     let approved_url = |path: &'static str| {
         let db = db.clone();
         async move {
-            sqlx::query_scalar::<_, Option<String>>(
-                "SELECT github_app_approved_url FROM resource
+            sqlx::query_scalar::<_, String>(
+                "SELECT url FROM github_app_repo_approval
                  WHERE workspace_id = 'test-workspace' AND path = $1",
             )
             .bind(path)
-            .fetch_one(&db)
+            .fetch_optional(&db)
             .await
             .unwrap()
         }
@@ -816,12 +816,18 @@ async fn test_github_app_repo_approval_follows_admin_writes(
         "a non-admin's write approves nothing"
     );
 
+    // Only a save of the value approves: an admin renaming or describing a
+    // resource has not looked at its URL.
     post(
         "SECRET_TOKEN",
         format!("{base}/update/{path}"),
         json!({"description": "ok"}),
     )
     .await;
+    assert_eq!(approved_url(path).await, None);
+    let mut save = value(approved);
+    save["description"] = json!("ok");
+    post("SECRET_TOKEN", format!("{base}/update/{path}"), save).await;
     assert_eq!(approved_url(path).await.as_deref(), Some(approved));
 
     post(
@@ -863,6 +869,15 @@ async fn test_github_app_repo_approval_follows_admin_writes(
     )
     .await;
     assert_eq!(approved_url(renamed).await, None);
+
+    // A `$var:` resolves to whatever its owner sets, so it is never approved.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{path}"),
+        value("$var:u/test-user-2/repo_url"),
+    )
+    .await;
+    assert_eq!(approved_url(path).await, None);
     Ok(())
 }
 
