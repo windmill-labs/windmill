@@ -6,12 +6,15 @@
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import type { OnSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
 	import { untrack } from 'svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { logIterationLabel } from '../iterationLabelTelemetry'
 
 	interface Props {
 		id: string
 		moduleId: string
 		flowJobs: string[] | undefined
 		flowJobsSuccess: (boolean | undefined)[] | undefined
+		flowJobsLabels?: (string | null)[] | undefined
 		selected: number
 		selectedManually: boolean | undefined
 		onSelectedIteration?: OnSelectedIteration
@@ -22,6 +25,7 @@
 		id,
 		flowJobs,
 		flowJobsSuccess,
+		flowJobsLabels,
 		selected,
 		selectedManually,
 		onSelectedIteration,
@@ -29,41 +33,61 @@
 		showIcon = true
 	}: Props = $props()
 
-	let filter: number | undefined = $state(undefined)
+	let filter: string = $state('')
 	function onKeydown(event: KeyboardEvent) {
-		if (
-			event.key === 'Enter' &&
-			filter != undefined &&
-			flowJobs &&
-			filter < flowJobs.length &&
-			filter > 0
-		) {
-			event.preventDefault()
-			onSelectedIteration?.({
-				index: filter - 1,
-				id: flowJobs[filter - 1],
-				manuallySet: true,
-				moduleId: moduleId
-			})
-			menu?.close()
+		if (event.key !== 'Enter' || !flowJobs) {
+			return
 		}
+		const n = Number(filter.trim())
+		const byNumber = Number.isInteger(n) && n > 0 && n <= flowJobs.length
+		const index = byNumber ? n - 1 : items[0]?.index
+		if (index == undefined) {
+			return
+		}
+		event.preventDefault()
+		logIfSearchedByLabel()
+		onSelectedIteration?.({
+			index,
+			id: flowJobs[index],
+			manuallySet: true,
+			moduleId: moduleId
+		})
+		menu?.close()
+	}
+
+	let hasLabels = $derived(flowJobsLabels?.some((l) => l) ?? false)
+
+	function logIfSearchedByLabel() {
+		const query = filter.trim()
+		if (hasLabels && query != '' && !/^\d+$/.test(query)) logIterationLabel('searched')
 	}
 
 	let buttonHover = $state(false)
 	let menu: Menu | undefined = $state(undefined)
 
-	let items: { id: string; success: boolean | undefined; index: number }[] = $state([])
+	let items: {
+		id: string
+		success: boolean | undefined
+		label: string | undefined
+		index: number
+	}[] = $state([])
 	function updateItems() {
+		const query = filter.trim().toLowerCase()
 		items = (flowJobs ?? [])
 			.map((v, i) => {
 				return {
 					id: v,
 					success: flowJobsSuccess?.[i],
+					label: flowJobsLabels?.[i] ?? undefined,
 					index: i
 				}
 			})
 			.filter((v) => {
-				return filter == undefined || (v.index + 1).toString().includes(filter.toString())
+				return (
+					query == '' ||
+					(v.index + 1).toString().includes(query) ||
+					(v.label?.toLowerCase().includes(query) ?? false)
+				)
 			})
 	}
 
@@ -118,7 +142,7 @@
 		>
 			{#snippet triggr({ trigger })}
 				<MeltButton
-					title="Pick an iteration"
+					title={(selected >= 0 && flowJobsLabels?.[selected]) || 'Pick an iteration'}
 					id={`flow-editor-iteration picker-${id}`}
 					type="button"
 					class={twMerge(
@@ -136,8 +160,15 @@
 			{/snippet}
 
 			{#snippet children({ item: childrenItem })}
-				<div class="flex flex-col px-1">
-					<input type="number" bind:value={filter} onkeydown={onKeydown} />
+				<div class={twMerge('flex flex-col px-1', hasLabels ? 'w-64' : '')}>
+					<TextInput
+						bind:value={filter}
+						size="xs"
+						inputProps={{
+							onkeydown: onKeydown,
+							placeholder: hasLabels ? 'Iteration # or label' : 'Iteration #'
+						}}
+					/>
 
 					<div class="max-h-[300px]">
 						{#key items}
@@ -154,6 +185,7 @@
 													items[idx].index == selected ? 'bg-surface-selected' : ''
 												)}
 												onClick={() => {
+													logIfSearchedByLabel()
 													onSelectedIteration?.({
 														moduleId: moduleId,
 														index: items[idx].index,
@@ -173,6 +205,11 @@
 															: 'bg-yellow-400'}"
 												></span>
 												#{items[idx].index + 1}
+												{#if items[idx].label}
+													<span class="truncate text-secondary" title={items[idx].label}
+														>{items[idx].label}</span
+													>
+												{/if}
 											</MenuItem>
 										</div>
 									{/snippet}
