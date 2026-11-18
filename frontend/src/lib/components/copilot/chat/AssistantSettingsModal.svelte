@@ -35,6 +35,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { SettingsService } from '$lib/gen'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { summarizeTools } from './agentContext'
 	import AssistantToolsSection from './AssistantToolsSection.svelte'
@@ -52,6 +53,13 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	const FEEDBACK_ISSUE_URL =
 		'https://github.com/windmill-labs/windmill/issues/new?title=' +
 		encodeURIComponent('AI Sessions feedback: ')
+	// Fetched on first open; until it answers, the link opens without a body.
+	let version: string | undefined = $state()
+	let feedbackIssueUrl = $derived(
+		version
+			? FEEDBACK_ISSUE_URL + '&body=' + encodeURIComponent(`Windmill version: ${version}\n\n`)
+			: FEEDBACK_ISSUE_URL
+	)
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -158,6 +166,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		focusRoot = undefined
 		section = target
 		isOpen = true
+		if (!version) {
+			SettingsService.backendVersion()
+				.then((v) => (version = v))
+				.catch(() => {})
+		}
 		refresh()
 		record('open')
 		record(target)
@@ -246,7 +259,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 					unifiedSize="sm"
 					endIcon={{ icon: ExternalLink }}
 					btnClasses="!justify-start !w-full"
-					href={FEEDBACK_ISSUE_URL}
+					href={feedbackIssueUrl}
 					target="_blank"
 				>
 					Give feedback

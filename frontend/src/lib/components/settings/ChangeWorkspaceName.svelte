@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import {
+		workspaceStore,
+		userWorkspaces,
+		usersWorkspaceStore,
+		nonMemberWorkspaces
+	} from '$lib/stores'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import Button from '../common/button/Button.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
@@ -25,19 +31,35 @@
 		newName = currentName
 	}
 
+	// Overlapping renames: an older list must not land last and restore the previous name.
+	const listRefreshes = latestRequest()
 	async function renameWorkspace() {
 		if (!newName || newName === currentName) {
 			return
 		}
+		const workspace = $workspaceStore!
+		const name = newName
 		await WorkspaceService.changeWorkspaceName({
-			workspace: $workspaceStore!,
+			workspace,
 			requestBody: {
-				new_name: newName
+				new_name: name
 			}
 		})
 
-		sendUserToast(`Changed workspace name to ${newName}`)
+		sendUserToast(`Changed workspace name to ${name}`)
 		getWorkspaceName()
+		// A superadmin's non-member workspace is absent from `listUserWorkspaces`, so the
+		// header reads it from this entry instead.
+		nonMemberWorkspaces.update(
+			(n) =>
+				n && {
+					...n,
+					workspaces: n.workspaces.map((w) => (w.id === workspace ? { ...w, name } : w))
+				}
+		)
+		const isLatest = listRefreshes.start()
+		const list = await WorkspaceService.listUserWorkspaces()
+		if (isLatest()) usersWorkspaceStore.set(list)
 	}
 </script>
 

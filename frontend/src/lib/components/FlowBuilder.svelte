@@ -1181,8 +1181,7 @@
 			opWorkspace,
 			initialPath,
 			true,
-			$primaryScheduleStore,
-			$userStore
+			$primaryScheduleStore
 		)
 	}
 
