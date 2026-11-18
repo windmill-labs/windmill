@@ -810,21 +810,59 @@ async fn test_github_app_repo_approval_follows_admin_writes(
     };
 
     post("SECRET_TOKEN_2", format!("{base}/create"), create(approved)).await;
-    assert_eq!(approved_url(path).await, None, "a non-admin's write approves nothing");
+    assert_eq!(
+        approved_url(path).await,
+        None,
+        "a non-admin's write approves nothing"
+    );
 
-    post("SECRET_TOKEN", format!("{base}/update/{path}"), json!({"description": "ok"})).await;
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update/{path}"),
+        json!({"description": "ok"}),
+    )
+    .await;
     assert_eq!(approved_url(path).await.as_deref(), Some(approved));
 
-    post("SECRET_TOKEN_2", format!("{base}/update_value/{path}"), value(other)).await;
+    post(
+        "SECRET_TOKEN_2",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
     assert_eq!(approved_url(path).await.as_deref(), Some(approved));
 
-    post("SECRET_TOKEN", format!("{base}/update_value/{path}"), value(other)).await;
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
     assert_eq!(approved_url(path).await.as_deref(), Some(other));
 
-    post("SECRET_TOKEN_2", format!("{base}/update/{path}"), json!({"path": renamed})).await;
+    post(
+        "SECRET_TOKEN_2",
+        format!("{base}/update/{path}"),
+        json!({"path": renamed}),
+    )
+    .await;
     assert_eq!(approved_url(renamed).await.as_deref(), Some(other));
     post("SECRET_TOKEN_2", format!("{base}/create"), create(other)).await;
-    assert_eq!(approved_url(path).await, None, "nothing is inherited from the old path");
+    assert_eq!(
+        approved_url(path).await,
+        None,
+        "nothing is inherited from the old path"
+    );
+
+    // An admin save that names no app-backed repository revokes the old one, so a
+    // non-admin cannot put the earlier URL back and be served it.
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{renamed}"),
+        json!({"value": {"url": other, "is_github_app": false}}),
+    )
+    .await;
+    assert_eq!(approved_url(renamed).await, None);
     Ok(())
 }
 

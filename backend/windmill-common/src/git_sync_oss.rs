@@ -143,16 +143,18 @@ pub fn prepend_token_to_github_url(
     ))
 }
 
-/// Record, for an admin's write of `path`, the repository URL an app-backed
-/// `git_repository` resource now resolves to, so non-admins who can read the
-/// resource may use the installation for that repository and no other. Must
-/// run in the write's transaction, after it, and only for an admin caller.
-pub async fn approve_github_app_repo(
+/// An admin's write of a resource, as it bears on the GitHub App repository
+/// non-admins may read through it: the raw `url` the admin left on an
+/// app-backed `git_repository` resource, or `None` for any other resource.
+pub struct GithubAppRepoSave(Option<String>);
+
+/// Read, in an admin's write transaction and after the write, what
+/// [`approve_github_app_repo`] approves once that transaction commits.
+pub async fn github_app_repo_save(
     tx: &mut sqlx::PgConnection,
-    db: &crate::DB,
     w_id: &str,
     path: &str,
-) -> crate::error::Result<()> {
+) -> crate::error::Result<GithubAppRepoSave> {
     let value = sqlx::query_scalar!(
         "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
         w_id,
@@ -165,31 +167,50 @@ pub async fn approve_github_app_repo(
         v.get("is_github_app")
             .and_then(|b| b.as_bool())
             .unwrap_or(false)
-            .then(|| v.get("url").and_then(|u| u.as_str()))
+            .then(|| v.get("url").and_then(|u| u.as_str()).map(str::to_string))
             .flatten()
     });
-    let Some(url) = url else {
-        return Ok(());
+    Ok(GithubAppRepoSave(url))
+}
+
+/// Make the URL an admin saved the only repository the installation serves
+/// non-admins through this resource, or clear it when the save names none.
+///
+/// Runs after the write commits: resolving a `$var:` takes a second pool
+/// connection and maybe a secret backend, neither of which may be held under
+/// the write's row lock. The update applies only while the row still holds
+/// the URL the admin saved, so a write landing in between is never approved.
+/// Best-effort: the admin's write has already succeeded.
+pub async fn approve_github_app_repo(
+    db: &crate::DB,
+    w_id: &str,
+    path: &str,
+    save: GithubAppRepoSave,
+) {
+    let approved = match &save.0 {
+        Some(raw) => match crate::variables::get_variable_or_self(raw.clone(), db, w_id).await {
+            Ok(url) => Some(url),
+            Err(e) => {
+                tracing::warn!("not approving the repository of {w_id}/{path}: {e}");
+                None
+            }
+        },
+        None => None,
     };
-    // Best-effort: an unresolvable `$var:` (not created yet, or a secret
-    // backend that is down) must not fail the admin's write. Non-admins stay
-    // refused until a later admin save resolves it.
-    let url = match crate::variables::get_variable_or_self(url.to_string(), db, w_id).await {
-        Ok(url) => url,
-        Err(e) => {
-            tracing::warn!("not approving the repository of {w_id}/{path}: {e}");
-            return Ok(());
-        }
-    };
-    sqlx::query!(
-        "UPDATE resource SET github_app_approved_url = $3 WHERE workspace_id = $1 AND path = $2",
+    let res = sqlx::query!(
+        "UPDATE resource SET github_app_approved_url = $3
+         WHERE workspace_id = $1 AND path = $2
+           AND ($4::text IS NULL OR value->>'url' = $4)",
         w_id,
         path,
-        url
+        approved,
+        save.0
     )
-    .execute(&mut *tx)
-    .await?;
-    Ok(())
+    .execute(db)
+    .await;
+    if let Err(e) = res {
+        tracing::error!("failed to record the approved repository of {w_id}/{path}: {e}");
+    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE resource SET github_app_approved_url = $3\n         WHERE workspace_id = $1 AND path = $2\n           AND ($4::text IS NULL OR value->>'url' = $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3ae3067c9fc9da64814608b47d6c33e49b1215d32a4f4f58b9cc4de09749e703"
+}

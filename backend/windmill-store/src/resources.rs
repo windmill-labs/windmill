@@ -1446,16 +1446,15 @@ async fn create_resource(
         None,
     )
     .await?;
-    if authed.is_admin {
-        windmill_common::git_sync_oss::approve_github_app_repo(
-            &mut *tx,
-            &db,
-            &w_id,
-            &resource.path,
-        )
-        .await?;
-    }
+    let app_repo_save = if authed.is_admin {
+        Some(windmill_common::git_sync_oss::github_app_repo_save(&mut *tx, &w_id, &resource.path).await?)
+    } else {
+        None
+    };
     tx.commit().await?;
+    if let Some(save) = app_repo_save {
+        windmill_common::git_sync_oss::approve_github_app_repo(&db, &w_id, &resource.path, save).await;
+    }
 
     handle_deployment_metadata(
         &authed.email,
@@ -2418,16 +2417,15 @@ async fn update_resource(
         None,
     )
     .await?;
-    if authed.is_admin {
-        windmill_common::git_sync_oss::approve_github_app_repo(
-            &mut *tx,
-            &db,
-            &w_id,
-            &npath,
-        )
-        .await?;
-    }
+    let app_repo_save = if authed.is_admin {
+        Some(windmill_common::git_sync_oss::github_app_repo_save(&mut *tx, &w_id, &npath).await?)
+    } else {
+        None
+    };
     tx.commit().await?;
+    if let Some(save) = app_repo_save {
+        windmill_common::git_sync_oss::approve_github_app_repo(&db, &w_id, &npath, save).await;
+    }
 
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
@@ -2701,16 +2699,15 @@ async fn set_resource_value(
         None,
     )
     .await?;
-    if authed.is_admin {
-        windmill_common::git_sync_oss::approve_github_app_repo(
-            &mut *tx,
-            db,
-            w_id,
-            path,
-        )
-        .await?;
-    }
+    let app_repo_save = if authed.is_admin {
+        Some(windmill_common::git_sync_oss::github_app_repo_save(&mut *tx, w_id, path).await?)
+    } else {
+        None
+    };
     tx.commit().await?;
+    if let Some(save) = app_repo_save {
+        windmill_common::git_sync_oss::approve_github_app_repo(db, w_id, path, save).await;
+    }
 
     note_resource_write(w_id, path, &resource_type);
 
