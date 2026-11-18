@@ -254,6 +254,32 @@ pub async fn eval_timeout_quickjs(
     by_id: Option<&IdContext>,
     ctx: Option<Vec<(String, String)>>,
 ) -> anyhow::Result<Box<RawValue>> {
+    eval_timeout_quickjs_within(
+        std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
+        expr,
+        transform_context,
+        flow_input,
+        flow_env,
+        authed_client,
+        by_id,
+        ctx,
+    )
+    .await
+}
+
+/// [`eval_timeout_quickjs`] with its own time limit. QuickJS is interrupted at the limit, so a
+/// script that never returns does not keep its blocking thread busy after the caller gave up.
+#[cfg(feature = "quickjs")]
+pub async fn eval_timeout_quickjs_within(
+    timeout: std::time::Duration,
+    expr: String,
+    transform_context: HashMap<String, Arc<Box<RawValue>>>,
+    flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    authed_client: Option<&AuthedClient>,
+    by_id: Option<&IdContext>,
+    ctx: Option<Vec<(String, String)>>,
+) -> anyhow::Result<Box<RawValue>> {
     let expr = expr.trim().to_string();
 
     tracing::debug!(
@@ -315,8 +341,9 @@ pub async fn eval_timeout_quickjs(
     // and producing spurious "DispatchGone" / "runtime dropped the dispatch
     // task" errors on subsequent requests from the main runtime.
     let handle = tokio::runtime::Handle::current();
+    let deadline = std::time::Instant::now() + timeout;
     tokio::time::timeout(
-        std::time::Duration::from_millis(EVAL_TIMEOUT_MS),
+        timeout,
         tokio::task::spawn_blocking(move || {
             handle.block_on(async move {
                 eval_quickjs_inner(
@@ -329,6 +356,7 @@ pub async fn eval_timeout_quickjs(
                     ctx,
                     context_keys,
                     memory_limit,
+                    Some(deadline),
                 )
                 .await
             })
@@ -337,7 +365,8 @@ pub async fn eval_timeout_quickjs(
     .await
     .map_err(|_| {
         anyhow::anyhow!(
-            "The expression evaluation `{expr}` took too long to execute (>{EVAL_TIMEOUT_MS}ms)"
+            "The expression evaluation `{expr}` took too long to execute (>{}ms)",
+            timeout.as_millis()
         )
     })??
 }
@@ -445,9 +474,17 @@ async fn eval_quickjs_inner(
     extra_ctx: Option<Vec<(String, String)>>,
     context_keys: Vec<String>,
     memory_limit: usize,
+    deadline: Option<std::time::Instant>,
 ) -> anyhow::Result<Box<RawValue>> {
     let runtime = AsyncRuntime::new()?;
     runtime.set_memory_limit(memory_limit).await;
+    if let Some(deadline) = deadline {
+        runtime
+            .set_interrupt_handler(Some(Box::new(move || {
+                std::time::Instant::now() >= deadline
+            })))
+            .await;
+    }
     let context = AsyncContext::full(&runtime).await?;
 
     // Create shared state for async ops if we have a client
@@ -469,7 +506,7 @@ async fn eval_quickjs_inner(
         format!("__loadResults({})", serde_json::to_string(&step_ids)?)
     };
 
-    async_with!(context => |ctx| {
+    let result: anyhow::Result<Box<RawValue>> = async_with!(context => |ctx| {
         let globals = ctx.globals();
 
         // Set up context variables
@@ -584,15 +621,29 @@ async fn eval_quickjs_inner(
         // Evaluate the expression (returns a Promise that resolves to a JSON string)
         let promise: rquickjs::Promise = ctx.eval(code).catch(&ctx).map_err(|e| map_quickjs_error(e, memory_limit, Some("QUICKJS_MEMORY_LIMIT_MB")))?;
 
-        // Await the promise
-        let result: Value = promise.into_future().await.catch(&ctx).map_err(|e| map_quickjs_error(e, memory_limit, Some("QUICKJS_MEMORY_LIMIT_MB")))?;
+        // An interrupted job never settles its promise, so the deadline also bounds the wait.
+        let settled = promise.into_future::<Value>();
+        let settled = match deadline {
+            Some(deadline) => tokio::time::timeout_at(deadline.into(), settled)
+                .await
+                .map_err(|_| anyhow::anyhow!("The expression evaluation `{expr}` took too long to execute"))?,
+            None => settled.await,
+        };
+        let result: Value = settled.catch(&ctx).map_err(|e| map_quickjs_error(e, memory_limit, Some("QUICKJS_MEMORY_LIMIT_MB")))?;
 
         let json_str = String::from_js(&ctx, result)
             .unwrap_or_else(|_| "null".to_string());
 
         Ok(unsafe_raw(json_str))
     })
-    .await
+    .await;
+    // Whatever the interrupt surfaced as, report it the way callers recognize (and retry) a timeout.
+    match result {
+        Err(_) if deadline.is_some_and(|d| std::time::Instant::now() >= d) => Err(anyhow::anyhow!(
+            "The expression evaluation `{expr}` took too long to execute"
+        )),
+        result => result,
+    }
 }
 
 #[cfg(feature = "quickjs")]
@@ -1042,6 +1093,20 @@ async fn eval_simple_js_inner(
 
 #[cfg(not(feature = "quickjs"))]
 pub async fn eval_timeout_quickjs(
+    _expr: String,
+    _transform_context: HashMap<String, Arc<Box<RawValue>>>,
+    _flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
+    _flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    _authed_client: Option<&windmill_common::client::AuthedClient>,
+    _by_id: Option<&IdContext>,
+    _ctx: Option<Vec<(String, String)>>,
+) -> anyhow::Result<Box<RawValue>> {
+    anyhow::bail!("JavaScript expression evaluation requires the `quickjs` feature. Enable it with: cargo build --features quickjs")
+}
+
+#[cfg(not(feature = "quickjs"))]
+pub async fn eval_timeout_quickjs_within(
+    _timeout: std::time::Duration,
     _expr: String,
     _transform_context: HashMap<String, Arc<Box<RawValue>>>,
     _flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
@@ -2987,6 +3052,7 @@ mod tests {
             None,
             Vec::new(),
             4 * 1024 * 1024,
+            None,
         )
         .await
         .expect_err("expected OOM to fail")
@@ -3062,6 +3128,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_eval_stops_at_its_deadline() {
+        // Without the interrupt the script never returns, and a caller's timeout only stops
+        // waiting for it.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
+        let err = eval_quickjs_inner(
+            "(() => { while (true) {} })()",
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+            4 * 1024 * 1024,
+            Some(deadline),
+        )
+        .await;
+        let err = err.expect_err("an endless script must be interrupted").to_string();
+        assert!(err.contains("took too long"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
     async fn test_eval_issue_payload_succeeds_with_raised_cap() {
         // The exact #8073 payload exceeds the conservative default but succeeds
         // once the cap is raised to 256MB (what the env override lets operators
@@ -3077,6 +3165,7 @@ mod tests {
             None,
             Vec::new(),
             256 * 1024 * 1024,
+            None,
         )
         .await
         .expect("issue payload should evaluate once the cap is raised");

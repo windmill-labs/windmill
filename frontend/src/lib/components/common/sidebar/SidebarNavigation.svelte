@@ -5,6 +5,7 @@
 	import { arrowTabNav } from '$lib/attachments/arrowTabNav'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import { ChevronRight } from 'lucide-svelte'
 
 	interface NavigationItem {
 		id: string
@@ -29,10 +30,19 @@
 		onNavigate: (id: string) => void
 		/** Renders each item as a link to this URL; the link navigates, so `onNavigate` is not called. */
 		itemHref?: (id: string) => string
+		/** Ends each entry with a chevron, for a list whose entries each open as a page of their own. */
+		drillIn?: boolean
 		class?: string
 	}
 
-	let { groups, selectedId, onNavigate, itemHref, class: className = '' }: Props = $props()
+	let {
+		groups,
+		selectedId,
+		onNavigate,
+		itemHref,
+		drillIn = false,
+		class: className = ''
+	}: Props = $props()
 </script>
 
 <!-- Up/Down walks the items, wrapping at the ends. On the wrapper rather than on each
@@ -58,7 +68,7 @@
 							aiId={item.aiId}
 							aiDescription={item.aiDescription}
 							startIcon={item.icon ? { icon: item.icon } : undefined}
-							btnClasses={'!justify-start text-left !w-full'}
+							btnClasses="group/nav-item !justify-start text-left !w-full"
 							href={itemHref?.(item.id)}
 							onClick={itemHref ? undefined : () => onNavigate(item.id)}
 						>
@@ -73,6 +83,14 @@
 									>
 										{item.count}
 									</span>
+								{/if}
+								{#if drillIn}
+									<!-- On the hovered or focused entry only; a touch screen cannot hover, so
+									     there it stays on every entry. -->
+									<ChevronRight
+										size={14}
+										class="text-tertiary shrink-0 opacity-0 group-hover/nav-item:opacity-100 group-focus-visible/nav-item:opacity-100 [@media(hover:none)]:opacity-100"
+									/>
 								{/if}
 							</div>
 						</Button>

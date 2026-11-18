@@ -285,7 +285,7 @@
 </script>
 
 <div class={classNames('space-y-2', noMargin ? '' : 'mt-2')}>
-	<ToggleButtonGroup bind:selected={draft.selected} disabled={!isEditable}>
+	<ToggleButtonGroup bind:selected={draft.selected} disabled={!isEditable} wrap>
 		{#snippet children({ item })}
 			<ToggleButton label="Slack" value="slack" {item} disabled={!isEditable} />
 			<ToggleButton label="Teams" value="teams" {item} disabled={!isEditable} />
@@ -314,21 +314,25 @@
 	<div class="flex flex-col gap-6 p-4 rounded-md shadow-sm bg-surface-tertiary">
 		{#if draft.selected === 'custom'}
 			<div class="flex flex-col gap-1">
-				<div class="flex flex-row">
-					<ScriptPicker
-						disabled={!isEditable || (customRequiresEE && !$enterpriseLicense)}
-						kinds={['script', 'failure']}
-						allowFlow={true}
-						bind:scriptPath={draft.custom.path}
-						bind:itemKind={draft.custom.kind}
-						allowRefresh={isEditable}
-						workspace={effectiveWorkspace}
-						clearable
-					/>
+				<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+					<!-- The basis is the narrowest the picker stays usable at; below it the template
+					     button wraps rather than squeezing the select to nothing. -->
+					<div class="grow basis-72 min-w-0">
+						<ScriptPicker
+							disabled={!isEditable || (customRequiresEE && !$enterpriseLicense)}
+							kinds={['script', 'failure']}
+							allowFlow={true}
+							bind:scriptPath={draft.custom.path}
+							bind:itemKind={draft.custom.kind}
+							allowRefresh={isEditable}
+							workspace={effectiveWorkspace}
+							clearable
+						/>
+					</div>
 
 					{#if !draft.custom.path}
 						<Button
-							btnClasses="ml-4 whitespace-nowrap"
+							btnClasses="whitespace-nowrap"
 							variant="default"
 							size="xs"
 							href={templateHref}

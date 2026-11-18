@@ -399,6 +399,7 @@ async fn inject_agent_authed(
                 job_id: None,
                 credential_expiry: None,
                 mcp_client: None,
+                capabilities: None,
             },
             job_id: None,
         });
@@ -489,7 +490,7 @@ pub async fn run_server(
         .expose_headers([http::header::WWW_AUTHENTICATE])
         .allow_origin(Any);
 
-    let sp_extension = Arc::new(saml_oss::build_sp_extension().await?);
+    let sp_extension = Arc::new(saml_oss::build_sp_extension(&db).await?);
 
     if server_mode {
         #[cfg(feature = "embedding")]

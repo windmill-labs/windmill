@@ -5,7 +5,8 @@ uses — the workspace pages, then the folders with their flows, scripts and app
 row navigates the app there.
 
 It lands among the current page's siblings: an item opens in its folder with the item
-highlighted, a workspace page inside Pages with that page highlighted.
+highlighted, a workspace page inside Pages with that page highlighted, and a pane of a page with
+several (a workspace settings section) among that page's panes.
 -->
 <script lang="ts">
 	import { ChevronDown } from 'lucide-svelte'
@@ -21,13 +22,18 @@ highlighted, a workspace page inside Pages with that page highlighted.
 	} from './sessions/previewRouter'
 	import { editPathFor, leafKeyFor, viewPathFor, type WorkspaceItem } from './workspacePicker'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import type { PageHeaderItem, PageHeaderSection } from './pageHeaderRegistry.svelte'
+	import type {
+		PageHeaderItem,
+		PageHeaderSection,
+		PageHeaderSubpage
+	} from './pageHeaderRegistry.svelte'
 
 	let {
 		item,
 		pagePath,
 		artifacts,
 		actingWorkspaceId,
+		subpages,
 		iconSize = 14
 	}: {
 		/** The item the page is about, to land in its folder. */
@@ -38,6 +44,8 @@ highlighted, a workspace page inside Pages with that page highlighted.
 		artifacts?: PageHeaderSection['navArtifacts']
 		/** Load from, and navigate within, this workspace rather than the one the app points at. */
 		actingWorkspaceId?: string
+		/** The panes of the page at `pagePath`, listed under it and opened on the current one. */
+		subpages?: PageHeaderSubpage[]
 		iconSize?: number
 	} = $props()
 
@@ -60,20 +68,23 @@ highlighted, a workspace page inside Pages with that page highlighted.
 		const parts = item?.path?.split('/') ?? []
 		return parts.length >= 3 ? { kind: 'all', dir: parts.slice(0, -1).join('/') } : undefined
 	})
+	const currentSubpage = $derived(subpages?.find((sp) => sp.current))
 	const initialHighlight = $derived(
-		artifacts?.currentId
-			? artifactKey(artifacts.currentId)
-			: currentItem
-			? leafKeyFor(currentItem.kind, currentItem.path)
-			: pagePath
-				? pageKey(pagePath)
-				: undefined
+		currentSubpage
+			? pageKey(currentSubpage.href)
+			: artifacts?.currentId
+				? artifactKey(artifacts.currentId)
+				: currentItem
+					? leafKeyFor(currentItem.kind, currentItem.path)
+					: pagePath
+						? pageKey(pagePath)
+						: undefined
 	)
 
 	// A page acting on another workspace than the app's (a session in a fork) keeps acting on it:
 	// the route reads `?workspace=` before the store.
 	function withWorkspace(href: string): string {
-		if (!actingWorkspaceId) return href
+		if (!actingWorkspaceId || /[?&]workspace=/.test(href)) return href
 		const sep = href.includes('?') ? '&' : '?'
 		return `${href}${sep}workspace=${encodeURIComponent(actingWorkspaceId)}`
 	}
@@ -133,6 +144,7 @@ highlighted, a workspace page inside Pages with that page highlighted.
 				return href ? withWorkspace(href) : undefined
 			}}
 			onPick={pick}
+			subpages={subpages ? { path: pagePath ?? '', pages: subpages } : undefined}
 		/>
 	{/snippet}
 </Popover>
