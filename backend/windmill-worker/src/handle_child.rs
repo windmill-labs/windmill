@@ -388,11 +388,7 @@ pub async fn handle_child(
         // when the kill could not be confirmed. SIGINT and SIGTERM are only sent where the
         // sends below are compiled in: elsewhere an exit during their wait is unsignaled.
         let unix_signal = |s: &'static str| {
-            if cfg!(any(target_os = "linux", target_os = "macos")) {
-                s
-            } else {
-                "none"
-            }
+            if cfg!(any(target_os = "linux", target_os = "macos")) { s } else { "none" }
         };
         let kill = async {
             if child.id().is_some() {
