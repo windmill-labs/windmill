@@ -153,6 +153,19 @@ struct OutputLine {
     line: String,
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn send_job_signal(id: u32, sig: Signal) {
+    let pid = Pid::from_raw(id as i32);
+    // if id is a process group leader, send SIGINT/SIGTERM
+    // to its process group
+    let target = if nix::unistd::getpgid(Some(pid)) == Ok(pid) {
+        Pid::from_raw(-(id as i32))
+    } else {
+        pid
+    };
+    let _ = signal::kill(target, sig);
+}
+
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
@@ -385,7 +398,7 @@ pub async fn handle_child(
             if let Some(id) = child.id() {
                 if *MAX_WAIT_FOR_SIGINT > 0 {
                     #[cfg(any(target_os = "linux", target_os = "macos"))]
-                    signal::kill(Pid::from_raw(id as i32), Signal::SIGINT).unwrap();
+                    send_job_signal(id, Signal::SIGINT);
 
                     for _ in 0..*MAX_WAIT_FOR_SIGINT {
                         if child.try_wait().is_ok_and(|x| x.is_some()) {
@@ -400,7 +413,7 @@ pub async fn handle_child(
                 }
                 if sigterm {
                     #[cfg(any(target_os = "linux", target_os = "macos"))]
-                    signal::kill(Pid::from_raw(id as i32), Signal::SIGTERM).unwrap();
+                    send_job_signal(id, Signal::SIGTERM);
 
                     for _ in 0..*MAX_WAIT_FOR_SIGTERM {
                         if child.try_wait().is_ok_and(|x| x.is_some()) {
@@ -1325,5 +1338,29 @@ mod tests {
                 "last",
             ]
         );
+    }
+
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn send_job_signal_reaches_child_behind_a_wrapper_ignoring_sigterm() {
+        use std::process::Stdio;
+        let mut child = tokio::process::Command::new("sh")
+            .args(["-c", "sleep 60 &\ntrap '' TERM\necho ready\nwait"])
+            .process_group(0)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+
+        let stdout = child.stdout.take().unwrap();
+        let mut lines = BufReader::new(stdout).lines();
+        assert_eq!(lines.next_line().await.unwrap().as_deref(), Some("ready"));
+
+        send_job_signal(child.id().unwrap(), Signal::SIGTERM);
+
+        tokio::time::timeout(Duration::from_secs(2), child.wait())
+            .await
+            .expect("wrapper should exit once its child receives SIGTERM")
+            .unwrap();
     }
 }
