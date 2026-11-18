@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ai_memory_turn t\n         USING (SELECT workspace_id, memory_id, job_id FROM ai_memory_turn s\n                WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = s.job_id)) stale\n         WHERE t.workspace_id = stale.workspace_id AND t.memory_id = stale.memory_id\n           AND t.job_id = stale.job_id\n         RETURNING t.handed_jobs",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "handed_jobs",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "11142355eac844d0dc09d58991f20b61f5892b97ed3557230b43ce2a9ca65491"
+}

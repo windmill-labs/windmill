@@ -17,10 +17,13 @@ use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_scopes,
+    composed::check_new_hub_paths,
+    maybe_refresh_folders, require_super_admin, ApiAuthed,
 };
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::DB;
 use windmill_common::{
     can_preserve_on_behalf_of,
@@ -31,8 +34,8 @@ use windmill_common::{
         self, TriggerHistoryEvent, TriggerOperation, TriggerSource, SCHEDULE_TRIGGER_KIND,
     },
     user_drafts::{
-        delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
-        UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, delete_draft_only_for_path, fetch_draft_only_list_rows,
+        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
     },
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
@@ -263,15 +266,32 @@ async fn validate_dynamic_skip<'c>(
     }
 }
 
+/// A handler that does not parse is left out: it never runs, as a fire parses it the same way.
+fn handler_runnables(handlers: [Option<&str>; 3]) -> Vec<RunnableRef> {
+    handlers
+        .into_iter()
+        .flatten()
+        .filter_map(|h| RunnableRef::from_prefixed(h).ok())
+        .collect()
+}
+
 async fn create_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(ns): Json<NewSchedule>,
+    Json(mut ns): Json<NewSchedule>,
 ) -> Result<String> {
     check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
     reject_reserved_schedule_path(&ns.path)?;
+    // Stored as parsed: the next-run check, the monitor's re-arm, the run history and renames
+    // all match the stored target exactly against job paths, which never start with `/`.
+    let target = (!ns.script_path.is_empty())
+        .then(|| RunnableRef::from_path(&ns.script_path, ns.is_flow))
+        .transpose()?;
+    if let Some(target) = &target {
+        ns.script_path = target.path().to_string();
+    }
 
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
@@ -332,12 +352,27 @@ async fn create_schedule(
     )
     .await?;
     // email is still written for backwards compat with old workers that don't know about permissioned_as
-    let resolved_email = windmill_common::users::get_email_from_permissioned_as(
+    let resolved_email = windmill_common::users::get_email_from_permissioned_as_uncached(
         &resolved_permissioned_as,
         &w_id,
         &db,
     )
     .await?;
+
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; the email is derived from it so it always belongs).
+    windmill_common::auth::validate_on_behalf_of(
+        Some(&resolved_permissioned_as),
+        Some(&resolved_email),
+    )?;
+
+    let mut new_runnables = handler_runnables([
+        ns.on_failure.as_deref(),
+        ns.on_recovery.as_deref(),
+        ns.on_success.as_deref(),
+    ]);
+    new_runnables.extend(target);
+    check_new_hub_paths(&new_runnables, &[], &authed, &db, &w_id).await?;
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
@@ -402,7 +437,8 @@ async fn create_schedule(
             paused_until,
             cron_version,
             dynamic_skip,
-            labels
+            labels,
+            late_run_streak
         "#,
         w_id,
         ns.path,
@@ -538,18 +574,14 @@ async fn edit_schedule(
     reject_reserved_schedule_path(path)?;
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
-    let mut tx = user_db.begin(&authed).await?;
 
     // Check schedule for error
     ScheduleType::from_str(&es.schedule, es.cron_version.as_deref(), true)?;
 
-    // Validate dynamic_skip if provided
-    if let Some(handler_path) = &es.dynamic_skip {
-        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
-    }
-
     let resolved_edited_by = resolve_edited_by(&authed);
 
+    // Resolved on the (non-RLS) pool before the RLS transaction opens: the lookup mid-transaction
+    // would hold a second connection while `tx` is checked out.
     let resolved_permissioned_as = resolve_permissioned_as(
         es.permissioned_as.as_ref(),
         es.preserve_permissioned_as,
@@ -561,7 +593,7 @@ async fn edit_schedule(
     let resolved_email = if resolved_permissioned_as
         != windmill_common::users::username_to_permissioned_as(&authed.username)
     {
-        windmill_common::users::get_email_from_permissioned_as(
+        windmill_common::users::get_email_from_permissioned_as_uncached(
             &resolved_permissioned_as,
             &w_id,
             &db,
@@ -571,7 +603,37 @@ async fn edit_schedule(
         authed.email.clone()
     };
 
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; the email is derived from it so it always belongs).
+    windmill_common::auth::validate_on_behalf_of(
+        Some(&resolved_permissioned_as),
+        Some(&resolved_email),
+    )?;
+
+    let new_handlers = handler_runnables([
+        es.on_failure.as_deref(),
+        es.on_recovery.as_deref(),
+        es.on_success.as_deref(),
+    ]);
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Validate dynamic_skip if provided
+    if let Some(handler_path) = &es.dynamic_skip {
+        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
+    }
+
     let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
+    check_new_hub_paths(
+        &new_handlers,
+        &handler_runnables(
+            ["on_failure", "on_recovery", "on_success"]
+                .map(|f| before.as_ref().and_then(|b| b.get(f)?.as_str())),
+        ),
+        &authed,
+        &db,
+        &w_id,
+    )
+    .await?;
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -602,8 +664,12 @@ async fn edit_schedule(
             dynamic_skip            = $23,
             email                   = $24,
             edited_by               = $25,
+            edited_at               = now(),
             permissioned_as         = $26,
-            labels                  = COALESCE($27, labels)
+            labels                  = COALESCE($27, labels),
+            late_run_streak            = 0,
+            missed_occurrences     = 0,
+            last_missed_at              = NULL
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -638,7 +704,8 @@ async fn edit_schedule(
             paused_until,
             cron_version,
             dynamic_skip,
-            labels
+            labels,
+            late_run_streak
         "#,
         es.schedule,
         es.timezone,
@@ -871,17 +938,18 @@ async fn list_schedule(
     }
     if let Some(broad_filter) = &lsq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(path ILIKE ? OR script_path ILIKE ? OR description ILIKE ? OR summary ILIKE ? OR schedule ILIKE ?)"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
     if let Some(label) = &lsq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(labels @> ARRAY[?] OR folder_labels(workspace_id, path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -893,7 +961,6 @@ async fn list_schedule(
 
     // Append the authed user's draft-only schedules; see scripts.rs.
     if lsq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && offset == 0
         && lsq.path.is_none()
         && lsq.is_flow.is_none()
@@ -904,6 +971,13 @@ async fn list_schedule(
         && lsq.summary.is_none()
         && lsq.broad_filter.is_none()
         && lsq.label.is_none()
+        && windmill_common::workspaces::operator_can_draft(
+            &db,
+            &w_id,
+            &authed,
+            UserDraftItemKind::TriggerSchedule,
+        )
+        .await?
     {
         let draft_only_rows = fetch_draft_only_list_rows(
             &db,
@@ -986,6 +1060,9 @@ async fn list_schedule(
 pub struct ScheduleWJobs {
     pub path: String,
     pub jobs: Option<Vec<serde_json::Value>>,
+    pub late_run_streak: i32,
+    pub missed_occurrences: i32,
+    pub last_missed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 async fn list_schedule_with_jobs(
@@ -1002,7 +1079,7 @@ async fn list_schedule_with_jobs(
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
         "SELECT
-            schedule.path, t.jobs FROM schedule,
+            schedule.path, t.jobs, schedule.late_run_streak, schedule.missed_occurrences, schedule.last_missed_at FROM schedule,
             LATERAL(SELECT ARRAY(
                 SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
                 FROM v2_job_completed c JOIN v2_job j USING (id)
@@ -1092,8 +1169,7 @@ pub async fn preview_schedule(
     let schedule =
         ScheduleType::from_str(&payload.schedule, payload.cron_version.as_deref(), true)?;
 
-    let tz =
-        chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+    let tz = windmill_common::tz::Tz::from_str(&payload.timezone).map_err(Error::BadRequest)?;
 
     let upcoming: Vec<DateTime<Utc>> = schedule.upcoming(tz, 5)?;
 
@@ -1112,35 +1188,23 @@ pub async fn set_enabled(
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
     reject_reserved_schedule_path(path)?;
 
-    // Block enabling a schedule in a fork when the parent has the same path
-    // (regardless of parent's enabled flag), unless force=true. Two enabled
-    // crons fire in lockstep; even when the parent is currently disabled the
-    // user is likely to re-enable it later, at which point both fire — better
-    // to surface that risk at every fork-side enable. There's no namespacing
-    // fix for schedules (Phase 3 doesn't help cron); the user has to confirm
-    // or point the script at fork-only side effects.
+    // Block enabling a schedule in a fork when an ancestor has the same path
+    // (regardless of its enabled flag), unless force=true. Two enabled crons
+    // fire in lockstep; even when the ancestor is currently disabled the user
+    // is likely to re-enable it later, at which point both fire — better to
+    // surface that risk at every fork-side enable. There's no namespacing fix
+    // for schedules (Phase 3 doesn't help cron); the user has to confirm or
+    // point the script at fork-only side effects.
     if payload.enabled && !payload.force {
-        let parent_id: Option<String> = sqlx::query_scalar!(
-            "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-            &w_id
+        if let Some(ancestor_id) = windmill_common::workspaces::nearest_fork_ancestor_having(
+            &mut *tx, "schedule", &w_id, path,
         )
-        .fetch_optional(&mut *tx)
         .await?
-        .flatten();
-        if let Some(parent_id) = parent_id {
-            let exists: Option<bool> = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM schedule WHERE workspace_id = $1 AND path = $2)",
-                &parent_id,
-                path,
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            if exists == Some(true) {
-                return Err(Error::BadRequest(format!(
-                    "fork-conflict:schedule:{}",
-                    parent_id
-                )));
-            }
+        {
+            return Err(Error::BadRequest(format!(
+                "fork-conflict:schedule:{}",
+                ancestor_id
+            )));
         }
     }
     let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
@@ -1151,7 +1215,10 @@ pub async fn set_enabled(
         r#"
         UPDATE schedule SET
             enabled = $1,
-            email = $2
+            email = $2,
+            late_run_streak = 0,
+            missed_occurrences = 0,
+            last_missed_at = NULL
         WHERE path = $3 AND workspace_id = $4
         RETURNING
             workspace_id,
@@ -1186,7 +1253,8 @@ pub async fn set_enabled(
             paused_until,
             cron_version,
             dynamic_skip,
-            labels
+            labels,
+            late_run_streak
         "#,
         payload.enabled,
         authed.email,
@@ -1317,6 +1385,18 @@ async fn delete_schedule(
     .flatten();
 
     if exists.is_none() {
+        drop(tx);
+        if delete_draft_only_for_path(
+            &db,
+            &w_id,
+            UserDraftItemKind::TriggerSchedule,
+            path,
+            &authed.email,
+        )
+        .await?
+        {
+            return Ok(format!("Draft-only schedule {} deleted", path));
+        }
         return Err(windmill_common::error::Error::NotFound(format!(
             "Schedule {} not found",
             path
@@ -1413,7 +1493,7 @@ async fn set_default_error_handler(
     Path(w_id): Path<String>,
     Json(payload): Json<ErrorOrRecoveryHandler>,
 ) -> Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let (key, value) = match payload.handler_type {
         HandlerType::Error => {
             let key = format!("default_error_handler_{}", w_id);
@@ -1457,11 +1537,13 @@ async fn set_default_error_handler(
         }
     };
 
-    if let Some(value_content) = value {
-        windmill_api_settings::set_global_setting_internal(&db, key, value_content).await?;
+    if let Some(value_content) = value.clone() {
+        windmill_api_settings::set_global_setting_internal(&db, key.clone(), value_content).await?;
     } else {
         windmill_api_settings::delete_global_setting(&db, key.as_str()).await?;
     }
+    windmill_audit::instance_config::audit_setting_write(&db, &authed, &key, value.as_ref(), None)
+        .await?;
 
     if payload.override_existing {
         // The rewrite and its history rows go in one transaction: on separate
@@ -1670,9 +1752,9 @@ pub use windmill_queue::schedule::clear_schedule;
 #[derive(Deserialize)]
 pub struct SetEnabled {
     pub enabled: bool,
-    /// Bypass the parent-state warning when enabling a schedule in a fork
-    /// whose parent has the same path enabled. The frontend sets this after
-    /// the user confirms the duplicate-firing dialog.
+    /// Bypass the fork-conflict warning when enabling a schedule in a fork
+    /// while an ancestor workspace has the same path. The frontend sets this
+    /// after the user confirms the duplicate-firing dialog.
     #[serde(default)]
     pub force: bool,
 }

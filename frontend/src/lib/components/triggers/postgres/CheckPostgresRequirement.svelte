@@ -2,10 +2,9 @@
 	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { PostgresTriggerService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	let loadingConfiguration = $state(false)
 
@@ -49,14 +48,14 @@
 	}
 
 	interface Props {
-		can_write: boolean;
-		postgres_resource_path: string;
-		checkConnection?: any | undefined;
+		can_write: boolean
+		postgres_resource_path: string
+		checkConnection?: any | undefined
 	}
 
-	let { can_write, postgres_resource_path, checkConnection = undefined }: Props = $props();
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	let { can_write, postgres_resource_path, checkConnection = undefined }: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 </script>
 
 {#if postgres_resource_path}

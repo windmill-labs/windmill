@@ -7,26 +7,29 @@
 	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import type { Item } from '$lib/utils'
 	import { Tooltip } from './meltComponents'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		aiId?: string
-		items?: Item[] | (() => Item[]) | (() => Promise<Item[]>)
+		items?: Item[] | (() => Item[] | Promise<Item[]>)
 		meltItem: MenubarMenuElements['item']
 		builders?: ReturnType<typeof createDropdownMenu>['builders']
+		close?: (afterClose?: () => void) => void
 	}
 
-	let { aiId, items = [], meltItem, builders }: Props = $props()
+	let { aiId, items = [], meltItem, builders, close }: Props = $props()
 
-	let computedItems: Item[] | undefined = $state(undefined)
-	async function computeItems() {
-		if (typeof items === 'function') {
-			computedItems = ((await items()) ?? []).filter((item) => !item.hide)
-		} else {
-			computedItems = items.filter((item) => !item.hide)
-		}
+	function visible(result: Item[] | undefined): Item[] {
+		return (result ?? []).filter((item) => !item.hide)
 	}
 
-	computeItems()
+	// Items returned synchronously render on the first frame: awaiting them would show the
+	// spinner first, the popover would be placed for the spinner's height, then flip.
+	const initial = untrack(() => (typeof items === 'function' ? items() : items))
+	let computedItems: Item[] | undefined = $state(
+		initial instanceof Promise ? undefined : visible(initial)
+	)
+	if (initial instanceof Promise) initial.then((result) => (computedItems = visible(result)))
 </script>
 
 {#snippet menuItem(item: Item)}
@@ -44,7 +47,8 @@
 			item?.disabled && 'text-disabled cursor-not-allowed pointer-events-none',
 			item?.type === 'delete' &&
 				!item?.disabled &&
-				'text-red-600 dark:text-red-400 data-[highlighted]:bg-red-500/10 dark:data-[highlighted]:bg-red-900/80 dark:data-[highlighted]:text-red-300 '
+				'text-red-600 dark:text-red-400 data-[highlighted]:bg-red-500/10 dark:data-[highlighted]:bg-red-900/80 dark:data-[highlighted]:text-red-300 ',
+			item?.type === 'ai' && !item?.disabled && 'text-ai'
 		)}
 		item={meltItem}
 		aiId={`${aiId ? `${aiId}-${item.displayName}` : undefined}`}
@@ -53,9 +57,17 @@
 		{#if item.icon}
 			<item.icon size={14} color={item.iconColor} class="shrink-0" {...item.iconProps ?? {}} />
 		{/if}
-		<p title={item.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
-			{item.displayName}
-		</p>
+		<div class="grow min-w-0 text-left">
+			<p
+				title={item.disabled && item.tooltip ? undefined : item.displayName}
+				class="truncate whitespace-nowrap"
+			>
+				{item.displayName}
+			</p>
+			{#if item.description}
+				<p class="text-2xs text-secondary">{item.description}</p>
+			{/if}
+		</div>
 		{@render item.extra?.()}
 		{#if item.shortcut || item.selected || item.toggle !== undefined}
 			<!-- Single trailing group so `shortcut` and `selected` can coexist:
@@ -94,13 +106,28 @@
 			{#if item.separatorTop}
 				<div class="my-1 border-t border-border-light"></div>
 			{/if}
-			{#if item.submenuItems && builders}
-				<DropdownSubmenuItem {item} {builders} {meltItem} />
+			{#if item.sectionTitle}
+				<p class="px-4 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary">
+					{item.sectionTitle}
+				</p>
+			{/if}
+			{#if (item.submenuItems || item.customSubmenu) && builders}
+				<DropdownSubmenuItem {item} {builders} {meltItem} close={close ?? (() => {})} />
 			{:else if item.disabled && item.tooltip}
 				<!-- Wrapper carries the native `title`; the disabled button's `pointer-events-none`
-				     lets the hover reach it so the user learns why the item is disabled. -->
-				<div title={item.tooltip} class="w-full">
-					{@render menuItem(item)}
+				     lets the hover reach it so the user learns why the item is disabled. The ⓘ sits
+				     outside the disabled button, the only place it can receive a hover. -->
+				<div class="relative w-full">
+					<div title={item.tooltip} class="w-full pr-6">
+						{@render menuItem(item)}
+					</div>
+					<div class="absolute right-3 top-1/2 -translate-y-1/2 flex">
+						<Tooltip>
+							{#snippet text()}
+								{item.tooltip}
+							{/snippet}
+						</Tooltip>
+					</div>
 				</div>
 			{:else}
 				{@render menuItem(item)}

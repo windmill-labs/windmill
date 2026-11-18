@@ -1,10 +1,18 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
-	import { resourceTypeSearchText, sortResourceTypesByMatch } from './resourceTypeDisplay'
+	import {
+		addResourceTypeDisplayName,
+		isCustomResourceTypeName,
+		resourceTypeDisplayName,
+		resourceTypeMatchRank,
+		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
+		sortResourceTypesByMatch
+	} from './resourceTypeDisplay'
 	import {
 		OauthService,
 		ResourceService,
@@ -14,17 +22,17 @@
 		type ResourceType
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
-	import oauthConnectRegistry from '$oauth_connect_registry'
-	import { createEventDispatcher, onDestroy } from 'svelte'
+	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
+	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
-	import { Button, RadioCard, Skeleton } from './common'
+	import { Badge, ListRow, RadioCard, Skeleton } from './common'
+	import { useListHighlight } from './common/listRow/listHighlight.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
 	import WhitelistIp from './WhitelistIp.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import OauthScopes from './OauthScopes.svelte'
 	import autosize from '$lib/autosize'
-	import { base } from '$lib/base'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Pen, Search } from 'lucide-svelte'
@@ -34,8 +42,21 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
+	import {
+		alphabetical,
+		byPopularity,
+		hubResourceTypePicks,
+		localResourceTypeCounts,
+		recordHubResourceTypePick
+	} from './pickerPopularity'
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
+	import SchemaForm from './SchemaForm.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import type { NativeConnect } from './triggers/native/utils'
+	import { aiResourceTypeAlternative } from './copilot/aiResourceProvider'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		step?: number
@@ -45,6 +66,20 @@
 		manual?: boolean
 		express?: boolean
 		workspace?: string
+		/**
+		 * Fill an existing resource instead of creating one. The path is fixed to it and the
+		 * "already exists" guard becomes an update, so a caller holding a resource that is
+		 * already there — the import wizard's empty stubs — can connect into it rather than
+		 * making the user delete it first and retype the path.
+		 *
+		 * Opt-in: without it this flow still refuses to write over anything.
+		 */
+		fillPath?: string
+		/**
+		 * Connect a native trigger account: only the path is asked, and `connect` runs the
+		 * popup through the trigger service's OAuth app, whose callback saves the connection.
+		 */
+		native?: NativeConnect
 	}
 
 	let {
@@ -54,10 +89,12 @@
 		disabled = $bindable(false),
 		manual = $bindable(true),
 		express = false,
-		workspace = undefined
+		workspace = undefined,
+		fillPath = undefined,
+		native = undefined
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	let isValid = $state(true)
 
@@ -70,6 +107,9 @@
 		'graphql',
 		'oracledb'
 	]
+
+	const SEARCH_INPUT_ID = 'search-resource-type'
+	let searchInput: { focus: () => void } | undefined = $state(undefined)
 
 	let filter = $state('')
 	let value: string = $state('')
@@ -88,10 +128,6 @@
 		return connectsInfo[key]?.has_shared_credentials ?? false
 	}
 
-	const SANDBOX_SUFFIX = '_sandbox'
-	function stripSandboxSuffix(name: string): string {
-		return name.endsWith(SANDBOX_SUFFIX) ? name.slice(0, -SANDBOX_SUFFIX.length) : name
-	}
 	// `resourceType` is always the canonical type (e.g. `docusign`) so resource
 	// rows are uniform. `connectClient` carries the suffixed OAuth client name
 	// (e.g. `docusign_sandbox`) used to look up credentials/URLs at runtime
@@ -100,6 +136,20 @@
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
 	let resourceTypeDescriptions: Record<string, string> = $state({})
+	// Types made in this workspace, by the `c_` prefix the resources page adds or by the
+	// workspace they live in — the hub sync writes its own into `admins`, which every
+	// workspace reads from. `created_by` looks like the same signal but isn't: seeded hub
+	// types carry a username too.
+	let customResourceTypes: Set<string> = $state(new Set())
+
+	// Hub descriptions are markdown; a row shows one line of it, where fenced blocks and
+	// backticks read as noise.
+	const plainDescription = (d: string) =>
+		d
+			.replace(/```[\s\S]*?```/g, '')
+			.replace(/`/g, '')
+			.replace(/\s+/g, ' ')
+			.trim()
 	let args: any = $state({})
 	let renderDescription = $state(true)
 
@@ -136,7 +186,6 @@
 	 * toggling back from client-credentials can restore them. */
 	let instanceScopes: string[] = $state([])
 	let extra_params: [string, string][] = []
-	let responseExtra: Record<string, string> = $state({})
 	let path: string = $state('')
 	let description = $state('')
 	let labels: string[] | undefined = $state(undefined)
@@ -158,6 +207,39 @@
 	 */
 	let useClientCredentials = $state(false)
 
+	/** Slack v2 grants a user token for `user_scope` and a bot token for `scope`,
+	 * from the same app: the registry's `user_scopes` offers the choice. */
+	let useUserToken = $state(false)
+	/** Both kinds share one resource type, so the default path and description tell them apart. */
+	let tokenKind = $derived(
+		registryEntry()?.user_scopes && !useClientCredentials
+			? useUserToken
+				? 'user'
+				: 'bot'
+			: undefined
+	)
+	let defaultName = $derived(tokenKind ? `${resourceType}_${tokenKind}` : resourceType)
+	let providerName = $derived(resourceTypeDisplayName(resourceType))
+	/** Last description filled in from `tokenKind`, replaced on reconnect unless the user edited it. */
+	let generatedDescription = ''
+
+	function fillGeneratedDescription() {
+		if (description === generatedDescription) {
+			description = ''
+		}
+		generatedDescription = tokenKind ? `${resourceType} ${tokenKind} token` : ''
+		if (emptyString(description)) {
+			description = generatedDescription
+		}
+	}
+
+	function selectUserToken(user: boolean) {
+		if (user !== useUserToken) {
+			scopes = user ? (registryEntry()?.user_scopes ?? []) : instanceScopes
+		}
+		useUserToken = user
+	}
+
 	/**
 	 * Client credentials for resource-level OAuth
 	 */
@@ -171,16 +253,33 @@
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let resourceTypeNotFound = $state(false)
 
+	// Both resolve `_sandbox` clients to their parent entry (e.g. salesforce_sandbox ->
+	// salesforce) so sandbox connections see the same metadata. Shared with callers that
+	// decide whether to open this dialog at all, so the two cannot disagree.
 	function registryEntry(): any {
-		const reg = oauthConnectRegistry as Record<string, any>
-		// Resolve `_sandbox` clients to their parent registry entry (e.g.
-		// salesforce_sandbox -> salesforce) so sandbox connections see CC metadata.
-		return reg[stripSandboxSuffix(connectClient)] ?? reg[stripSandboxSuffix(resourceType)]
+		return registryEntryFor(connectClient, resourceType)
+	}
+
+	let resourceTypeAlternative = $derived(aiResourceTypeAlternative(resourceType, args))
+
+	async function switchToResourceType(rt: string, carry: string[] = []) {
+		const carried = Object.fromEntries(
+			carry.filter((key) => args?.[key] !== undefined).map((key) => [key, args[key]])
+		)
+		connectClient = rt
+		resourceType = rt
+		linkedSecrets = []
+		args = {}
+		await getResourceTypeInfo()
+		// The form remounts on the new type's schema and starts from empty arguments, so the
+		// fields worth keeping go in after it has.
+		await tick()
+		args = { ...args, ...carried }
 	}
 
 	/** The static registry declares this provider supports client credentials */
 	function registryCcCapable(): boolean {
-		return registryEntry()?.grant_types?.includes('client_credentials') ?? false
+		return registryCcCapableFor(connectClient, resourceType)
 	}
 
 	/** Instance-name metadata for providers whose token URL is instance-templated
@@ -192,6 +291,37 @@
 			| { label: string; placeholder: string; help_url?: string }
 			| undefined
 	)
+
+	/** Fields of the resource type the provider's registry entry asks for once the token is
+	 * in (`resource_fields`): what no token response carries, like Snowflake's database. A
+	 * list rather than "every other field" because most OAuth types also hold the fields of
+	 * another way in: ServiceNow's basic-auth password, Bitbucket's app password. */
+	let resourceFields = $derived((registryEntry()?.resource_fields as string[] | undefined) ?? [])
+	/** The grant's defaults are offered as checkboxes too, so unticking one drops it.
+	 * `scope_options` lists authorization-code scopes, invalid in a 2-legged request. */
+	let scopeOptions = $derived(
+		useClientCredentials
+			? defaultCcScopes()
+			: useUserToken
+				? [...(registryEntry()?.user_scope_options ?? []), ...(registryEntry()?.user_scopes ?? [])]
+				: [...(registryEntry()?.scope_options ?? []), ...instanceScopes]
+	)
+
+	/** Their slice of the resource type's schema, so they render with the type's own
+	 * descriptions; plain text inputs while the type is not synced from the hub. */
+	let resourceFieldsSchema = $derived.by(() => {
+		const props: Record<string, SchemaProperty> =
+			(resourceTypeInfo?.schema as any)?.properties ?? {}
+		return {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			type: 'object',
+			order: resourceFields,
+			properties: Object.fromEntries(
+				resourceFields.map((f) => [f, props[f] ?? { type: 'string', description: '' }])
+			),
+			required: []
+		}
+	})
 
 	/** Instance entry declares client credentials but not authorization_code
 	 * (custom provider configured with only a token URL) */
@@ -217,10 +347,20 @@
 			(registryCcCapable() && connectClient != '' && !(connects?.includes(connectClient) ?? false))
 	)
 
+	/** The provider also has a browser sign-in, unavailable here only because the
+	 * instance holds no OAuth client for it */
+	let signInNeedsInstanceClient = $derived.by(
+		() =>
+			(registryEntry()?.grant_types?.includes('authorization_code') ?? false) &&
+			connectClient != '' &&
+			!(connects?.includes(connectClient) ?? false)
+	)
+
 	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
 	function resetClientCredentialsState() {
 		supportsClientCredentials = false
 		useClientCredentials = false
+		useUserToken = false
 		authCodeUnavailable = false
 		ccInstanceConfigured = false
 		ccBringYourOwn = false
@@ -229,6 +369,10 @@
 		ccInstance = ''
 		tokenUrl = ''
 		scopes = []
+		if (description === generatedDescription) {
+			description = ''
+		}
+		generatedDescription = ''
 	}
 
 	/** Default scopes for the client-credentials grant. Registry providers use
@@ -265,17 +409,21 @@
 
 	/** Static registry declares client-credentials support for `key`. */
 	function isCcCapable(key: string): boolean {
-		return (
-			(oauthConnectRegistry as Record<string, any>)[stripSandboxSuffix(key)]?.grant_types?.includes(
-				'client_credentials'
-			) ?? false
-		)
+		return registryCcCapableFor(key)
 	}
 
 	/** Step-1 "Others" selection: CC-capable resource types open the client-
 	 * credentials form with the user's own credentials — even when the instance
 	 * has shared ones (the "Instance-configured OAuth APIs" section is the entry
 	 * point for those). Every other type opens the raw manual form. */
+	function connectOauth(key: string) {
+		manual = false
+		connectClient = key
+		resourceType = stripSandboxSuffix(key)
+		resetClientCredentialsState()
+		next()
+	}
+
 	function selectFromOthers(key: string) {
 		connectClient = key
 		resourceType = key
@@ -296,10 +444,20 @@
 	let pathError = $state('')
 
 	export async function open(rt?: string) {
+		if (native) {
+			resourceType = rt ?? ''
+			manual = false
+			path = ''
+			step = 4
+			return
+		}
 		if (!rt) {
 			loadResourceTypes()
+			loadPopularity()
 		}
 		step = 1 //express && !manual ? 3 : 1
+		// The list is keyboard-driven from the search field, so it takes focus on open.
+		tick().then(() => searchInput?.focus())
 		value = ''
 		description = ''
 		labels = undefined
@@ -342,12 +500,29 @@
 		}
 	}
 
+	/**
+	 * Orders the browse list: the types this workspace already has resources of lead, ranked
+	 * among themselves by the hub's pick counts, then everything else on the same counts.
+	 * `byPopularity` carries the full rule. Both signals are fetched, so the rows render
+	 * alphabetically and re-sort when this lands.
+	 */
+	let popularity: (a: string, b: string) => number = $state(alphabetical)
+
+	async function loadPopularity() {
+		if (!effectiveWorkspace) return
+		const [hub, local] = await Promise.all([
+			hubResourceTypePicks(effectiveWorkspace),
+			localResourceTypeCounts(effectiveWorkspace)
+		])
+		popularity = byPopularity(hub, local)
+	}
+
 	async function loadConnects() {
 		if (!connects) {
 			try {
-				const list = (await OauthService.listOauthConnects())
-					.filter((x) => x.name != 'supabase_wizard')
-					.sort((a, b) => a.name.localeCompare(b.name))
+				const list = (await OauthService.listOauthConnects()).filter(
+					(x) => x.name != 'supabase_wizard'
+				)
 				connects = list.map((x) => x.name)
 				connectsInfo = Object.fromEntries(list.map((x) => [x.name, x]))
 			} catch (e) {
@@ -358,14 +533,17 @@
 		}
 	}
 
+	// Google's terms require its own button on the control that starts the sign-in, which is
+	// the step-2 Connect: step 1 only picks a type, and a manual step 2 saves a resource
+	// without ever reaching Google. Every registry provider that signs in through Google's
+	// authorize endpoint counts; `google` itself is a login provider, not a registry entry.
 	run(() => {
 		isGoogleSignin =
-			step == 1 &&
+			(step == 2 || (!!native && step == 4)) &&
+			!manual &&
 			(resourceType == 'google' ||
-				resourceType == 'gmail' ||
-				resourceType == 'gcal' ||
-				resourceType == 'gdrive' ||
-				resourceType == 'gsheets')
+				(registryEntryFor(resourceType)?.auth_url?.startsWith('https://accounts.google.com/') ??
+					false))
 	})
 
 	run(() => {
@@ -386,7 +564,7 @@
 							clientSecret.trim() == '' ||
 							(!!ccInstanceMeta && ccInstance.trim() == '')))) ||
 			step == 3 ||
-			(step == 4 && pathError != '') ||
+			(step == 4 && (pathError != '' || (!!native && !path))) ||
 			!isValid
 	})
 
@@ -397,6 +575,9 @@
 		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: effectiveWorkspace
 		})
+		// The prefix alone identifies a workspace-made type, and it rides on the names call the
+		// list already needs — so the custom section survives the full list below 403ing.
+		customResourceTypes = new Set(availableRts.filter(isCustomResourceTypeName))
 
 		// Descriptions only feed search, so they are fetched off the critical path and
 		// allowed to fail: `resources/type/list` is not on the public app domain's route
@@ -406,9 +587,17 @@
 		// $derived, so search re-ranks when they land.
 		ResourceService.listResourceType({ workspace: effectiveWorkspace })
 			.then((types) => {
+				setResourceTypeDisplayNames(types)
 				resourceTypeDescriptions = Object.fromEntries(
 					types.filter((t) => t.description).map((t) => [t.name, t.description!])
 				)
+				// A type sitting in this workspace was made here too, but only the full list carries
+				// `workspace_id`. Inside `admins` the two are indistinguishable — every type lives
+				// there — so the prefix is all there is to go on.
+				customResourceTypes = new Set([
+					...customResourceTypes,
+					...types.filter((t) => t.workspace_id && t.workspace_id !== 'admins').map((t) => t.name)
+				])
 			})
 			.catch(() => {})
 
@@ -416,19 +605,17 @@
 		// providers — so any of them can also be connected with the user's own
 		// credentials or manually, not only via the shared instance setup (same as
 		// the authorization-code behavior).
-		connectsManual = availableRts
-			.map(
-				(x) =>
-					({
-						key: x,
-						...(apiTokenApps[x] ?? {
-							instructions: '',
-							img: undefined,
-							linkedSecret: undefined
-						})
-					}) as { key: string; img?: string; instructions: string[] }
-			)
-			.sort((a, b) => a.key.localeCompare(b.key))
+		connectsManual = availableRts.map(
+			(x) =>
+				({
+					key: x,
+					...(apiTokenApps[x] ?? {
+						instructions: '',
+						img: undefined,
+						linkedSecret: undefined
+					})
+				}) as { key: string; img?: string; instructions: string[] }
+		)
 		const filteredNativeLanguages = filteredConnectsManual?.filter(
 			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
 		)
@@ -503,16 +690,19 @@
 			resourceType = stripSandboxSuffix(connectClient)
 			value = data.res.access_token!
 			valueToken = data.res
-			responseExtra = data.extra ?? {}
+			Object.assign(args, data.res.resource_fields ?? {})
+			fillGeneratedDescription()
 			step = 4
-			if (express) {
-				path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+			// `fillPath` decides the path as surely as express does, so neither stops here.
+			if (fillPath || express) {
+				path = fillPath ?? `u/${$userStore?.username}/${defaultName}_${new Date().getTime()}`
 				next()
 			}
 		}
 	}
 
 	async function getScopesAndParams() {
+		useUserToken = false
 		if (!connects?.includes(connectClient)) {
 			// No instance OAuth client (registry-declared CC-only provider):
 			// defaults come from the static registry instead.
@@ -555,6 +745,7 @@
 				workspace: effectiveWorkspace,
 				path: resourceType
 			})
+			addResourceTypeDisplayName(resourceTypeInfo)
 			const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
 			const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
 
@@ -570,11 +761,23 @@
 		}
 	}
 	export async function next() {
+		if (native) {
+			step = 3
+			try {
+				await native.connect(path)
+				dispatch('close')
+			} catch {
+				step = 4
+			}
+			return
+		}
 		if (step == 1) {
 			linkedSecrets = []
+			// Both branches: the OAuth one fills `resourceFields` into the same map, and fields
+			// typed into another type's form before Back would otherwise ride along.
+			args = {}
 			if (manual) {
 				getResourceTypeInfo()
-				args = {}
 			} else {
 				getResourceTypeInfo()
 				// Awaited: the popup is built from `scopes`, so advancing before this
@@ -640,9 +843,10 @@
 						...tokenResponse,
 						grant_type: 'client_credentials' // Mark this token as client_credentials
 					}
+					fillGeneratedDescription()
 					step = 4
-					if (express) {
-						path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+					if (fillPath || express) {
+						path = fillPath ?? `u/${$userStore?.username}/${defaultName}_${new Date().getTime()}`
 						next()
 					}
 				} catch (error) {
@@ -658,7 +862,11 @@
 				 * Opens popup for user to authenticate with OAuth provider
 				 */
 				const url = new URL(`/api/oauth/connect/${connectClient}`, window.location.origin)
-				url.searchParams.append('scopes', scopes.join('+'))
+				// An empty `scopes` still overrides the instance's bot scopes.
+				url.searchParams.append('scopes', useUserToken ? '' : scopes.join('+'))
+				if (useUserToken) {
+					url.searchParams.append('user_scope', scopes.join(','))
+				}
 				if (extra_params.length > 0) {
 					extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
 				}
@@ -701,7 +909,41 @@
 				path
 			})
 
-			if (exists) {
+			// Filling one names its path up front; anything else reaching an occupied path got
+			// there by the user typing it, which is the case worth refusing.
+			//
+			// The type is checked here and not only by the caller: `fillPath` says "write into
+			// this path", and a path says nothing about what lives at it. A workspace resource
+			// of another type sitting where the project wanted one of ours would otherwise have
+			// its value replaced with credentials for a different provider, while keeping its
+			// own type — destroying a working resource that has nothing to do with the import.
+			const filling = exists && !!fillPath && path === fillPath
+			if (filling) {
+				// Fails closed. Only a read that succeeds and answers with exactly this type
+				// permits the write — a failed read, a missing type, or any other type all
+				// refuse. Letting "could not tell" through is how the overwrite this guard
+				// exists to stop would happen anyway, on the one occasion the check was needed
+				// and could not run.
+				let occupantType: string | undefined
+				try {
+					occupantType = (
+						await ResourceService.getResource({ workspace: effectiveWorkspace, path })
+					)?.resource_type
+				} catch (e: any) {
+					throw Error(
+						`Could not read what is already at ${path} (${e?.body ?? e?.message ?? e}), ` +
+							`so it will not be written over. Try again.`
+					)
+				}
+				if (occupantType !== resourceType) {
+					throw Error(
+						`Resource at path ${path} is ${
+							occupantType ? `a ${occupantType} resource` : 'of an unknown type'
+						}, not ${resourceType}. Move or rename it, then import again.`
+					)
+				}
+			}
+			if (exists && !filling) {
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
 
@@ -712,8 +954,7 @@
 			// the user entered in `ccInstance` (raw, possibly a full host); the shared
 			// path carries it (already normalized) in the connect entry's extra_params.
 			// Prefer the user-entered one so the saved resource matches the exchange.
-			const connectTemplate = (oauthConnectRegistry as Record<string, any>)[resourceType]
-				?.connect_config_template
+			const connectTemplate = registryEntryFor(resourceType)?.connect_config_template
 			if (connectTemplate?.resource_mapping) {
 				const instanceKey = connectTemplate.extra_params_key ?? 'instance'
 				let instanceValue = extra_params.find(([key, _]) => key === instanceKey)?.[1] ?? ''
@@ -736,13 +977,10 @@
 					}
 				}
 			}
-			if (resourceType === 'quickbooks' && responseExtra['realmId']) {
-				args['realmId'] = responseExtra['realmId']
-			}
 
-			let account: number | undefined = undefined
+			let accountData: any = undefined
 			if (valueToken?.expires_in != undefined) {
-				const accountData: any = {
+				accountData = {
 					refresh_token: valueToken.refresh_token ?? '',
 					expires_in: valueToken.expires_in,
 					client: connectClient,
@@ -771,37 +1009,45 @@
 						accountData.cc_token_url = tokenUrl.trim()
 					}
 				}
-
-				account = Number(
-					await OauthService.createAccount({
-						workspace: effectiveWorkspace,
-						requestBody: accountData
-					})
-				)
 			}
 
-			const resourceValue = args
+			// A copy: the form is still mounted and bound to `args` across the awaits below, and
+			// puts back the default of any field removed from it.
+			const resourceValue = $state.snapshot(args)
 
 			let savedVariableCount = 0
 			if (!manual) {
+				// A field left blank is absent, not an empty string a consumer reads as a value:
+				// the Snowflake executor sends any `database` it finds, empty or not.
+				for (const f of resourceFields) {
+					if (resourceValue[f] === '' || resourceValue[f] == undefined) {
+						delete resourceValue[f]
+					}
+				}
 				// OAuth flow: single secret variable for the token
 				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
 					savedVariableCount++
-					await VariableService.createVariable({
-						workspace: effectiveWorkspace,
-						requestBody: {
-							path,
-							value: value,
-							is_secret: true,
-							description: emptyString(description)
-								? `OAuth token for ${resourceType}`
-								: description,
-							is_oauth: true,
-							account: account,
-							ws_specific: wsSpecific
-						}
-					})
-					resourceValue['token'] = `$var:${path}`
+					const tokenVariable = {
+						path,
+						value: value,
+						is_secret: true,
+						description: emptyString(description) ? `OAuth token for ${resourceType}` : description,
+						is_oauth: true,
+						ws_specific: wsSpecific
+					}
+					if (accountData) {
+						// Creates the variable with the account it refreshes through, in one transaction.
+						await OauthService.createAccount({
+							workspace: effectiveWorkspace,
+							requestBody: { ...accountData, variable: tokenVariable }
+						})
+					} else {
+						await VariableService.createVariable({
+							workspace: effectiveWorkspace,
+							requestBody: tokenVariable
+						})
+					}
+					resourceValue['token'] = `$var:${tokenVariable.path}`
 				}
 			} else if (linkedSecrets.length === 1) {
 				// Single secret: use the resource path as variable name (original behavior)
@@ -847,17 +1093,31 @@
 				}
 			}
 
-			await ResourceService.createResource({
-				workspace: effectiveWorkspace,
-				requestBody: {
-					resource_type: resourceType,
+			if (filling) {
+				// The stub the import made carries no description, so this is the one chance to
+				// give it one; its resource_type and path are already what we want.
+				await ResourceService.updateResource({
+					workspace: effectiveWorkspace,
 					path,
-					value: resourceValue,
-					description,
-					labels,
-					ws_specific: wsSpecific
-				}
-			})
+					requestBody: { value: resourceValue, description }
+				})
+			} else {
+				await ResourceService.createResource({
+					workspace: effectiveWorkspace,
+					requestBody: {
+						resource_type: resourceType,
+						path,
+						value: resourceValue,
+						description,
+						labels,
+						ws_specific: wsSpecific
+					}
+				})
+			}
+			// Saving is what "picking a type" means to the hub: reaching step 2 is still
+			// browsing. Both branches above count, `filling` included — an imported stub is
+			// a type taken into the workspace just the same.
+			recordHubResourceTypePick(effectiveWorkspace, resourceType)
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(
@@ -878,6 +1138,9 @@
 		if (step == 1) {
 			loadConnects()
 			loadResourceTypes()
+			// Opened on a specific type, `open()` skipped this; backing out to the browse
+			// list is the first time it is needed.
+			loadPopularity()
 		}
 	}
 
@@ -886,23 +1149,102 @@
 	let filteredConnects: { key: string }[] = $state([])
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
-	// uFuzzy scores the name and the description as one string, so searching "google" ranks
-	// every type whose description mentions Google alongside the ones named after it. Re-sort
-	// on which field matched, keeping uFuzzy's order within a tier.
+	let searching = $derived(filter.trim() !== '')
+
+	// Searching, the query owns the order: uFuzzy scores the name and the description as one
+	// string, so "google" ranks every type whose description mentions Google alongside the
+	// ones named after it — re-sort on which field matched, keeping uFuzzy's order within a
+	// tier. Browsing, there is no query to rank against, so popularity orders the list.
 	const rank = (items: { key: string }[] | undefined) =>
 		items &&
-		sortResourceTypesByMatch(
-			items,
-			filter,
-			(x) => x.key,
-			(x) => resourceTypeDescriptions[x.key]
-		)
+		(searching
+			? sortResourceTypesByMatch(
+					items,
+					filter,
+					(x) => x.key,
+					(x) => resourceTypeDescriptions[x.key]
+				)
+			: // Both signals are keyed by resource type, and a sandbox client is a second row
+				// against one (`salesforce_sandbox` saves a `salesforce`), so it ranks on the
+				// parent's popularity. Its own key still breaks the tie the pair then have, or
+				// the two would order arbitrarily.
+				[...items].sort(
+					(a, b) =>
+						popularity(stripSandboxSuffix(a.key), stripSandboxSuffix(b.key)) ||
+						a.key.localeCompare(b.key)
+				))
 	let rankedConnects = $derived(rank(filteredConnects))
 	let rankedConnectsManual = $derived(
 		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
 	)
 
-	let editScopes = $state(false)
+	// Browsing, the "Others" list leads with the native database types. Searching, that
+	// grouping would outrank the search itself — `ms_sql_server` sorting under `mysql` on
+	// "sql" — so the ranked order stands on its own.
+	let manualOrderedKeys = $derived(
+		!searching
+			? [
+					...(rankedConnectsManual ?? [])
+						.filter((x) => nativeLanguagesCategory.includes(x.key))
+						.map((x) => x.key),
+					...(rankedConnectsManual ?? [])
+						.filter((x) => !nativeLanguagesCategory.includes(x.key))
+						.map((x) => x.key)
+				]
+			: (rankedConnectsManual ?? []).map((x) => x.key)
+	)
+
+	let customKeys = $derived(manualOrderedKeys.filter((key) => customResourceTypes.has(key)))
+	let otherKeys = $derived(manualOrderedKeys.filter((key) => !customResourceTypes.has(key)))
+
+	// Every row in the order it is rendered, so arrow keys walk the sections as one list.
+	// A provider appears in more than one, so rows are addressed by index, not by name.
+	let navItems = $derived([
+		...customKeys.map((key) => ({ key, oauth: false })),
+		...(rankedConnects ?? []).map((x) => ({ key: x.key, oauth: true })),
+		...otherKeys.map((key) => ({ key, oauth: false }))
+	])
+	// Both lists start undefined and render skeletons; "nothing found" only means something
+	// once they have landed.
+	let listsLoaded = $derived(rankedConnectsManual !== undefined && rankedConnects !== undefined)
+	const rowDomId = (index: number) => `resource-type-row-${index}`
+
+	const oauthRowOffset = $derived(customKeys.length)
+	const otherRowOffset = $derived(customKeys.length + (rankedConnects?.length ?? 0))
+
+	// Sections are rendered in a fixed order, so the best match is not necessarily the first
+	// row: rank the rows against the query to find it.
+	function bestMatchIndex(): number {
+		let best = navItems.length > 0 ? 0 : -1
+		let bestRank = Infinity
+		navItems.forEach((item, index) => {
+			const rank = resourceTypeMatchRank(item.key, resourceTypeDescriptions[item.key], filter)
+			if (rank < bestRank) {
+				bestRank = rank
+				best = index
+			}
+		})
+		return best
+	}
+
+	const highlight = useListHighlight({
+		count: () => navItems.length,
+		rowId: rowDomId,
+		// Sections are rendered in a fixed order, so the best match is not necessarily the
+		// first row; Enter should still take the top hit.
+		restingIndex: () => (searching ? bestMatchIndex() : -1),
+		onActivate: (index) => {
+			const item = navItems[index]
+			if (!item) return
+			item.oauth ? connectOauth(item.key) : selectFromOthers(item.key)
+		},
+		activateEnterFrom: [SEARCH_INPUT_ID]
+	})
+
+	function onListKeydown(e: KeyboardEvent) {
+		if (step !== 1) return
+		highlight.onKeydown(e)
+	}
 </script>
 
 {#if !express}
@@ -923,108 +1265,151 @@
 		f={(x) => resourceTypeSearchText(x.key, resourceTypeDescriptions[x.key])}
 	/>
 	{#if step == 1}
-		<div class="pb-2 my-1">
-			<div class="relative w-full">
-				<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
-				<TextInput
-					inputProps={{ placeholder: 'Search resource type', id: 'search-resource-type' }}
-					bind:value={filter}
-					class="pl-7 text-xs w-full"
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<!-- Arrow keys and Enter are caught here so they work whether the search field or a row
+		     holds focus. -->
+		<!-- Full height so the rows scroll inside their own box: the search field and the sync
+		     button stay put, and the drawer itself never scrolls. -->
+		<div
+			class="flex flex-col h-full min-h-0"
+			onkeydown={onListKeydown}
+			onpointermove={highlight.pointerMoved}
+		>
+			<div class="shrink-0 pb-4">
+				<div class="relative w-full">
+					<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
+					<TextInput
+						bind:this={searchInput}
+						inputProps={{ placeholder: 'Search resource type', id: SEARCH_INPUT_ID }}
+						bind:value={filter}
+						class="pl-7 text-xs w-full"
+					/>
+				</div>
+			</div>
+
+			{#snippet sectionHeading(title: string, count: number)}
+				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">
+					{title}{#if searching}<span class="ml-2 text-hint">{count}</span>{/if}
+				</h2>
+			{/snippet}
+
+			{#snippet resourceButton(key: string, index: number, oauth: boolean)}
+				{#snippet icon()}
+					<IconedResourceType name={key} silent width="20px" height="20px" />
+				{/snippet}
+				{#snippet title()}
+					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
+					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
+				{/snippet}
+				{#snippet subtitle()}
+					{plainDescription(resourceTypeDescriptions[key])}
+				{/snippet}
+				<!-- `highlighted`: the pointer moves the same highlight the arrow keys move, so
+				     the row's own hover is off — two lit rows at once would be ambiguous. -->
+				<ListRow
+					id={rowDomId(index)}
+					aiId={`app-connect-inner-${oauth ? 'oauth-' : ''}${key}`}
+					aiDescription={`Connect to ${key}${oauth ? ' with the instance OAuth client' : ''}`}
+					{icon}
+					{title}
+					subtitle={resourceTypeDescriptions[key] ? subtitle : undefined}
+					highlighted={index === highlight.index}
+					onMouseEnter={() => highlight.hovered(index)}
+					onClick={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
+				/>
+			{/snippet}
+
+			<div class="flex-1 min-h-0 overflow-y-auto">
+				{#if searching && listsLoaded && navItems.length === 0}
+					<div class="flex flex-col items-center gap-1 py-16 text-center">
+						<span class="text-sm text-primary">No resource type matches “{filter.trim()}”</span>
+						<span class="text-xs text-secondary">
+							Search on the name, the product or what the resource holds — or sync resource types
+							with the hub for more.
+						</span>
+					</div>
+				{:else}
+					<!-- One gap between sections, owned by the column: a section that a search empties
+					     out then takes its spacing with it. -->
+					<div class="flex flex-col gap-10">
+						{#if customKeys.length > 0}
+							<section>
+								{@render sectionHeading('Custom resource types', customKeys.length)}
+								<div class="flex flex-col gap-0.5">
+									{#each customKeys as key, i}
+										{@render resourceButton(key, i, false)}
+									{/each}
+								</div>
+							</section>
+						{/if}
+
+						{#if !searching || (rankedConnects?.length ?? 0) > 0}
+							<section>
+								{@render sectionHeading(
+									'Instance-configured OAuth APIs',
+									rankedConnects?.length ?? 0
+								)}
+								<div class="flex flex-col gap-0.5">
+									{#if rankedConnects}
+										{#each rankedConnects as { key }, i}
+											{@render resourceButton(key, oauthRowOffset + i, true)}
+										{/each}
+									{:else}
+										{#each new Array(3) as _}
+											<Skeleton layout={[[2]]} />
+										{/each}
+									{/if}
+								</div>
+								{#if !searching && connects && connects.filter(isSharedConnect).length == 0}
+									<div class="text-secondary text-xs w-full"
+										>No OAuth APIs have been set up on this instance. To add OAuth APIs, first sync
+										the resource types with the hub, then add OAuth configuration. See <a
+											href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
+										>
+									</div>
+								{/if}
+							</section>
+						{/if}
+
+						{#if !searching || otherKeys.length > 0}
+							<section>
+								{@render sectionHeading('Others', otherKeys.length)}
+
+								{#if !searching && connectsManual && connectsManual?.length < 10}
+									<div class="text-secondary text-xs p-2">
+										Resource types have not been synced with the hub
+									</div>
+								{/if}
+
+								<div class="flex flex-col gap-0.5">
+									{#if rankedConnectsManual}
+										{#each otherKeys as key, i}
+											{@render resourceButton(key, otherRowOffset + i, false)}
+										{/each}
+									{:else}
+										{#each new Array(9) as _}
+											<Skeleton layout={[[2]]} />
+										{/each}
+									{/if}
+								</div>
+							</section>
+						{/if}
+					</div>
+				{/if}
+			</div>
+			<div class="shrink-0 pt-4">
+				<SyncResourceTypes
+					onSynced={async () => {
+						connectsManual = undefined
+						await loadResourceTypes()
+						connects = undefined
+						await loadConnects()
+					}}
 				/>
 			</div>
 		</div>
-
-		<h2 class="mb-4 text-sm font-semibold text-emphasis">Instance-configured OAuth APIs</h2>
-		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center">
-			{#if rankedConnects}
-				{#each rankedConnects as { key }}
-					<Button
-						unifiedSize="md"
-						variant="default"
-						selected={key === connectClient}
-						on:click={() => {
-							manual = false
-							connectClient = key
-							resourceType = stripSandboxSuffix(key)
-							resetClientCredentialsState()
-							next()
-						}}
-					>
-						<IconedResourceType name={key} after={true} width="20px" height="20px" />
-					</Button>
-				{/each}
-			{:else}
-				{#each new Array(3) as _}
-					<Skeleton layout={[[2]]} />
-				{/each}
-			{/if}
-		</div>
-		{#if connects && connects.filter(isSharedConnect).length == 0}
-			<div class="text-secondary text-xs w-full"
-				>No OAuth APIs have been set up on this instance. To add OAuth APIs, first sync the resource
-				types with the hub, then add OAuth configuration. See <a
-					href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
-				>
-			</div>
-		{/if}
-
-		<h2 class="mt-8 mb-2 text-sm font-semibold text-emphasis">Others</h2>
-
-		{#if connectsManual && connectsManual?.length < 10}
-			<div class="text-secondary text-xs p-2">
-				Resource types have not been synced with the hub
-			</div>
-		{/if}
-
-		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-			{#if rankedConnectsManual}
-				{#each rankedConnectsManual as { key }}
-					{#if nativeLanguagesCategory.includes(key)}
-						<Button
-							unifiedSize="md"
-							variant="default"
-							selected={key === resourceType}
-							on:click={() => selectFromOthers(key)}
-						>
-							<IconedResourceType name={key} after={true} width="20px" height="20px" />
-						</Button>
-					{/if}
-				{/each}
-			{/if}
-			{#if rankedConnectsManual}
-				{#each rankedConnectsManual as { key }}
-					{#if !nativeLanguagesCategory.includes(key)}
-						<!-- Exclude specific items -->
-						<Button
-							aiId={`app-connect-inner-${key}`}
-							aiDescription={`Connect to ${key}`}
-							unifiedSize="md"
-							variant="default"
-							selected={key === resourceType}
-							on:click={() => selectFromOthers(key)}
-						>
-							<IconedResourceType name={key} after={true} width="20px" height="20px" />
-						</Button>
-					{/if}
-				{/each}
-			{:else}
-				{#each new Array(9) as _}
-					<Skeleton layout={[[2]]} />
-				{/each}
-			{/if}
-		</div>
-		<div class="mt-6">
-			<SyncResourceTypes
-				onSynced={async () => {
-					connectsManual = undefined
-					await loadResourceTypes()
-					connects = undefined
-					await loadConnects()
-				}}
-			/>
-		</div>
 	{:else if step == 2 && manual}
-		<div class="flex flex-col gap-8">
+		<div class="flex flex-col gap-4">
 			{#if !emptyString(resourceTypeInfo?.description)}
 				<GfmMarkdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} prose="sm" noPadding />
 			{/if}
@@ -1061,11 +1446,7 @@
 				</div>
 				{#if apiTokenApps[resourceType].img}
 					<div class="mt-4 w-full overflow-hidden">
-						<img
-							class="m-auto max-h-60"
-							alt="connect"
-							src={base + apiTokenApps[resourceType].img}
-						/>
+						<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resourceType].img} />
 					</div>
 				{/if}
 			{/if}
@@ -1112,21 +1493,46 @@
 					onclick={() => enableClientCredentials()}
 					class="text-xs font-normal text-accent w-fit -mt-4"
 				>
-					Acquire the token automatically via client credentials instead
+					Connect as an app with a client ID and secret instead
 				</button>
 			{/if}
-			{#key resourceTypeInfo}
-				<ApiConnectForm
-					bind:linkedSecrets
-					bind:description
-					{linkedSecretCandidates}
-					{resourceType}
-					{resourceTypeInfo}
-					bind:args
-					bind:isValid
-					onSynced={getResourceTypeInfo}
-				/>
-			{/key}
+			{#if resourceTypeAlternative}
+				<button
+					onclick={() =>
+						switchToResourceType(
+							resourceTypeAlternative.resourceType,
+							resourceTypeAlternative.carry
+						)}
+					class="text-xs font-normal text-accent w-fit -mt-4"
+				>
+					{resourceTypeAlternative.label}
+				</button>
+			{/if}
+			<!-- The form is a section of its own, not just the next field: it needs more of a break
+			from the description than the uniform gap gives. -->
+			<div class="mt-2">
+				{#key resourceTypeInfo}
+					<ApiConnectForm
+						bind:linkedSecrets
+						bind:description
+						{linkedSecretCandidates}
+						{resourceType}
+						{resourceTypeInfo}
+						workspace={effectiveWorkspace}
+						onCredentialStored={() => {
+							// `forceSecretValue` files a git_repository's `url` in a secret
+							// variable, for the URLs that carry a token in them. The picker's
+							// does not: the token is stored separately, so that variable would
+							// hold nothing secret and add a second place to keep in step with
+							// the resource.
+							linkedSecrets = linkedSecrets.filter((f) => f !== 'url')
+						}}
+						bind:args
+						bind:isValid
+						onSynced={getResourceTypeInfo}
+					/>
+				{/key}
+			</div>
 		</div>
 	{:else if step == 2 && !manual}
 		{#if manual == false && resourceType != ''}
@@ -1137,16 +1543,11 @@
 						>Create a resource backed by an OAuth connection, whose token is fetched from the
 						external services and refreshed automatically if needed before expiration.</div
 					>
-					{#if ccBringYourOwn}
-						<button
-							onclick={() => {
-								manual = true
-								useClientCredentials = false
-							}}
-							class="text-xs font-normal text-accent w-fit mt-2"
-						>
-							Create resource manually instead
-						</button>
+					<!-- With client credentials, the Authentication section says whose identity applies. -->
+					{#if !supportsClientCredentials && !registryEntry()?.user_scopes}
+						<div class="text-xs text-secondary font-normal mt-1">
+							The connection acts as you, with your {providerName} account's access.
+						</div>
 					{/if}
 				</div>
 
@@ -1163,36 +1564,65 @@
 				{#if supportsClientCredentials}
 					<div class="flex flex-col gap-1">
 						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication</h3>
-						{#if ccOnly || ccBringYourOwn}
+						{#if (ccOnly || ccBringYourOwn) && !signInNeedsInstanceClient}
 							<div class="text-xs text-secondary font-normal mb-2">
 								{#if useSharedInstanceCreds}
-									{resourceType} connects server-to-server using the credentials configured for this
-									instance. The token is acquired and refreshed automatically.
+									{providerName} connects as the app your admin set up for this instance, not as you.
+									No input needed.
 								{:else}
-									{resourceType} connects server-to-server. Enter a client ID and secret; the token is
-									acquired and refreshed automatically.
+									{providerName} connects as an app, not as you. Enter the client ID and secret of an
+									app registered in {providerName}.
 								{/if}
 							</div>
 						{:else}
-							<div class="flex flex-col gap-2 mb-2">
+							<!-- role=radiogroup: the cards below carry `role="radio"`, which a screen
+							     reader can only place ("2 of 2") inside a named group. -->
+							<div
+								class="flex flex-col gap-2 mb-2"
+								role="radiogroup"
+								aria-label="How to authenticate"
+							>
 								<RadioCard
-									label={`Sign in through ${resourceType}`}
-									description="Opens a browser window to log in and authorize. Connects as you."
+									label={`Log in with your ${providerName} account`}
+									description={signInNeedsInstanceClient
+										? `Needs an OAuth client for ${providerName} in the instance settings, added by a superadmin.`
+										: 'Opens a browser window to authorize. The connection acts as you.'}
 									selected={!useClientCredentials}
 									onSelect={selectAuthCodeGrant}
+									disabled={signInNeedsInstanceClient}
+									badge={authCodeBadge}
 								/>
+								{#snippet authCodeBadge()}
+									<span class="text-2xs text-secondary font-normal">Authorization code</span>
+									{#if signInNeedsInstanceClient}
+										<Badge verySmall class="px-2">Instance setup needed</Badge>
+									{/if}
+								{/snippet}
 								<RadioCard
 									label={useSharedInstanceCreds
-										? 'Use the configured instance credentials'
-										: 'Use a client ID and secret'}
+										? "Connect as this instance's app"
+										: 'Connect as an app'}
 									description={useSharedInstanceCreds
-										? "Runs server-to-server with this instance's credentials. No input needed."
-										: 'Runs server-to-server. Best for automation or service accounts.'}
+										? 'Uses the app your admin set up. No input needed. The connection acts as that app, not as you.'
+										: `Enter the client ID and secret of an app registered in ${providerName}. The connection acts as that app, not as you.`}
 									selected={useClientCredentials}
 									onSelect={() => enableClientCredentials()}
+									badge={clientCredentialsBadge}
 								/>
+								{#snippet clientCredentialsBadge()}
+									<span class="text-2xs text-secondary font-normal">Client credentials</span>
+								{/snippet}
 							</div>
 						{/if}
+						<button
+							onclick={() => {
+								manual = true
+								useClientCredentials = false
+							}}
+							class="text-xs font-normal text-accent w-fit mb-2"
+						>
+							Create resource manually instead
+						</button>
 
 						{#if useClientCredentials && !useSharedInstanceCreds}
 							<form class="flex flex-col gap-6">
@@ -1249,24 +1679,29 @@
 					</div>
 				{/if}
 
-				<div class="flex flex-col gap-1">
-					<h3 class="text-xs font-semibold text-emphasis flex gap-4"
-						>Scopes <button
-							onclick={() => {
-								editScopes = !editScopes
-							}}><Pen size={14} /></button
-						></h3
-					>
-
-					{#if editScopes}
-						<OauthScopes bind:scopes />
-					{:else}
-						<div class="flex flex-col gap-1">
-							{#each scopes as scope}
-								<div class="py-0.5 pl-2 text-xs">- {scope}</div>
-							{/each}
+				{#if registryEntry()?.user_scopes && !useClientCredentials}
+					<div class="flex flex-col gap-1">
+						<h3 class="text-sm font-semibold text-emphasis mb-1">Connect as</h3>
+						<div class="flex flex-col gap-2" role="radiogroup" aria-label="Connect as">
+							<RadioCard
+								label="The app (bot token)"
+								description="Acts as the app's bot user, in the channels it is added to."
+								selected={!useUserToken}
+								onSelect={() => selectUserToken(false)}
+							/>
+							<RadioCard
+								label="Yourself (user token)"
+								description="Acts as you, with access to what you can see: history, DMs and search."
+								selected={useUserToken}
+								onSelect={() => selectUserToken(true)}
+							/>
 						</div>
-					{/if}
+					</div>
+				{/if}
+
+				<div class="flex flex-col gap-1">
+					<h3 class="text-xs font-semibold text-emphasis">Scopes</h3>
+					<OauthScopes bind:scopes options={scopeOptions} />
 				</div>
 			</div>
 		{/if}
@@ -1280,36 +1715,56 @@
 		<Label label="Path">
 			<Path
 				initialPath=""
-				namePlaceholder={resourceType}
+				namePlaceholder={native?.defaultName ?? defaultName}
+				fullNamePlaceholder={native?.defaultName}
 				bind:error={pathError}
 				bind:path
 				kind="resource"
 			/>
 		</Label>
-		<LabelsInput bind:labels class="-mt-5" />
-		{#if deployTo}
-			<Label
-				label="Workspace specific"
-				tooltip="Prevents this resource from being deployed to prod/staging"
-			>
-				<Toggle bind:checked={wsSpecific} />
-			</Label>
-		{/if}
-		{#if apiTokenApps[resourceType] || !manual}
-			<ul class="mt-6">
-				<li class="text-xs text-primary font-normal">
-					1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ?? 'token'}
-					<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
-					will be stored a
-					<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
-				</li>
-				<li class="mt-2 text-xs text-primary font-normal">
-					2. The resource containing that token will be stored at the same path <span
-						class="font-mono whitespace-nowrap text-emphasis">{path}</span
-					>. The Variable and Resource will be "linked together", they will be deleted and renamed
-					together.
-				</li></ul
-			>
+		{#if native}
+			<p class="text-xs text-secondary">
+				The account is saved as a resource and its token as a variable at this path. Anyone who can
+				read them can create triggers that act as this account.
+			</p>
+		{:else}
+			<LabelsInput bind:labels class="-mt-5" />
+			{#if deployTo}
+				<Label
+					label="Workspace specific"
+					tooltip="Prevents this resource from being deployed to prod/staging"
+				>
+					<Toggle bind:checked={wsSpecific} />
+				</Label>
+			{/if}
+			<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
+		     are then filled by editing the resource. -->
+			{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
+				<Label
+					label="Connection details"
+					tooltip="Saved on the resource with the token, and editable later"
+					class="mt-6"
+				>
+					<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
+				</Label>
+			{/if}
+			{#if apiTokenApps[resourceType] || !manual}
+				<ul class="mt-6">
+					<li class="text-xs text-primary font-normal">
+						1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ??
+							'token'}
+						<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
+						will be stored a
+						<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
+					</li>
+					<li class="mt-2 text-xs text-primary font-normal">
+						2. The resource containing that token will be stored at the same path <span
+							class="font-mono whitespace-nowrap text-emphasis">{path}</span
+						>. The Variable and Resource will be "linked together", they will be deleted and renamed
+						together.
+					</li></ul
+				>
+			{/if}
 		{/if}
 	{/if}
 {/if}

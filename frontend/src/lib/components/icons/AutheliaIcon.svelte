@@ -1,6 +1,11 @@
 <!-- #3F51B4 per authelia.com/images/branding/logo-cropped.svg (light stop of the official #3F51B4→#113155 gradient, flattened).
 	 authelia.com/reference/guides/branding permits format/layout changes only — do not alter the design. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 335.000000 335.000000" width="24" height="24">
+<svg
+	xmlns="http://www.w3.org/2000/svg"
+	viewBox="-13.71 -13.383 360.458 360.458"
+	width="24"
+	height="24"
+>
 	<title>authelia-svg</title>
 	<g
 		transform="translate(0.000000,335.000000) scale(0.100000,-0.100000)"

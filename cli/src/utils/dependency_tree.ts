@@ -5,7 +5,7 @@
 import { Workspace } from "../commands/workspace/workspace.ts";
 import * as wmill from "../../gen/services.gen.ts";
 import type { ScriptLang } from "../../gen/types.gen.ts";
-import { ScriptLanguage } from "./script_common.ts";
+import { ScriptLanguage, inferContentTypeFromFilePath } from "./script_common.ts";
 import {
   filterWorkspaceDependencies,
   generateScriptHash,
@@ -14,6 +14,65 @@ import {
   updateMetadataGlobalLock,
 } from "./metadata.ts";
 import { generateHash } from "./utils.ts";
+import { extractRelativeImports } from "./relative_imports.ts";
+
+/** A local script file, keyed in `LocalScripts` by its Windmill remote path. */
+export interface LocalScriptSource {
+  localPath: string;
+  content: string;
+}
+export type LocalScripts = Map<string, LocalScriptSource>;
+
+/**
+ * Give every import target that is only a placeholder its local content and its
+ * own imports, so the graph continues through it. A tree seeded from a subset of
+ * the checkout otherwise dead-ends at any module outside that subset — a
+ * re-export barrel needing no edit, typically — hiding what it re-exports from
+ * `getTempScriptRefs`, which then resolves it against the deployed copy.
+ */
+export async function resolvePlaceholdersFromLocal(
+  tree: DoubleLinkedDependencyTree,
+  localScripts: LocalScripts,
+  defaultTs: "bun" | "deno" | undefined
+): Promise<void> {
+  // A module resolved here can expose placeholders of its own (a barrel behind
+  // a barrel), so keep going until a round resolves nothing.
+  for (;;) {
+    let resolved = false;
+    for (const remotePath of tree.placeholderPaths()) {
+      const local = localScripts.get(remotePath);
+      if (!local) continue;
+      let language: ScriptLanguage;
+      try {
+        language = inferContentTypeFromFilePath(local.localPath, defaultTs);
+      } catch {
+        // A bare `.sql` names no dialect, so its imports cannot be read here.
+        continue;
+      }
+      const imports = await extractRelativeImports(
+        local.content,
+        remotePath,
+        language
+      );
+      // Never directly stale: it is outside the change set, so nothing relocks
+      // it. It is here to carry edges, and to be uploaded if it differs from
+      // what is deployed.
+      await tree.addNode(
+        remotePath,
+        local.content,
+        language,
+        "",
+        imports,
+        "script",
+        remotePath,
+        local.localPath,
+        false
+      );
+      resolved = true;
+    }
+    if (!resolved) break;
+  }
+}
 
 /**
  * Diff local scripts against deployed versions, upload only those that differ.
@@ -97,6 +156,9 @@ interface DependencyNode {
   originalPath: string;  // Original path passed to handler (with extension for scripts)
   isRawApp?: boolean;    // Only set for apps
   isDirectlyStale: boolean;  // True if this item's content changed (vs transitively stale)
+  // True while the node exists only because something imports it, so it carries
+  // no content and no imports of its own.
+  isPlaceholder: boolean;
 }
 
 export class DoubleLinkedDependencyTree {
@@ -130,9 +192,11 @@ export class DoubleLinkedDependencyTree {
         content: "", stalenessHash: "", language: "deno", metadata: "",
         imports: new Set(), importedBy: new Set(),
         itemType: "script", folder: "", originalPath: "", isDirectlyStale: false,
+        isPlaceholder: true,
       });
     }
     const node = this.nodes.get(path)!;
+    node.isPlaceholder = false;
     node.content = content;
     node.stalenessHash = stalenessHash;
     node.language = language;
@@ -155,7 +219,7 @@ export class DoubleLinkedDependencyTree {
           stalenessHash: "", language: depsInfo?.language ?? "deno", metadata: "",
           imports: new Set(), importedBy: new Set(),
           itemType: "dependencies", folder: "", originalPath: depsPath,
-          isDirectlyStale: !isUpToDate,
+          isDirectlyStale: !isUpToDate, isPlaceholder: false,
         });
       }
     }
@@ -169,6 +233,7 @@ export class DoubleLinkedDependencyTree {
           content: "", stalenessHash: "", language: "deno", metadata: "",
           imports: new Set(), importedBy: new Set(),
           itemType: "script", folder: "", originalPath: "", isDirectlyStale: false,
+          isPlaceholder: true,
         });
       }
       this.nodes.get(importPath)!.importedBy.add(path);
@@ -307,6 +372,18 @@ export class DoubleLinkedDependencyTree {
 
   allPaths(): IterableIterator<string> {
     return this.nodes.keys();
+  }
+
+  /**
+   * Paths that exist only as somebody's import target, so the traversal stops
+   * at them instead of continuing into what they themselves import.
+   */
+  placeholderPaths(): string[] {
+    const result: string[] = [];
+    for (const [path, node] of this.nodes.entries()) {
+      if (node.isPlaceholder) result.push(path);
+    }
+    return result;
   }
 
   /**

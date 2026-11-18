@@ -8,7 +8,7 @@
 </script>
 
 <!-- #7379FD per https://withpersona.com/favicon.svg (Persona, identity verification). -->
-<svg {width} {height} viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="36.505 33.38 126.989 126.989" xmlns="http://www.w3.org/2000/svg">
 	<path
 		d="M60.8185 139H139.182C141.841 139 144.001 141.159 144.001 143.819V150.182C144.001 152.841 141.842 155.001 139.182 155.001H60.8175C58.1585 155.001 55.9995 152.842 55.9995 150.183V143.82C55.9995 141.161 58.1585 139 60.8185 139Z"
 		fill="#7379FD"

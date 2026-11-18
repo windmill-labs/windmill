@@ -3,13 +3,24 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { ResourceService } from '$lib/gen'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
+	import type { FlowEditorContext } from '../types'
+	import { logReusableAgentUsage } from '../agentTelemetry'
+	import { BotIcon, Loader2, Plus } from 'lucide-svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	const dispatch = createEventDispatcher()
 	interface Props {
@@ -19,6 +30,9 @@
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
 		toolMode?: boolean
+		/** Picking a tool for an agent that is itself a tool, which cannot run agent or decision
+		 *  tools: the server drops them from its roster. */
+		nestedAgent?: boolean
 		/** Narrow layout (450px instead of 650px). Defaults on for the preprocessor
 		 *  and failure pickers; set it when the container cannot fit the wide one. */
 		small?: boolean
@@ -31,6 +45,7 @@
 		kind = 'script',
 		allowTrigger = true,
 		toolMode = false,
+		nestedAgent = false,
 		small: smallProp = undefined
 	}: Props = $props()
 
@@ -42,10 +57,127 @@
 		| 'approval'
 		| 'flow'
 		| 'failure'
-		| 'aisandbox' = $state(untrack(() => kind))
-	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
+		| 'aisandbox'
+		| 'aiagent' = $state(untrack(() => kind))
+	// The server adds a hub path only for a role that has code, so without it never open on the hub.
+	let preFilter: 'all' | 'workspace' | 'hub' = $state(
+		untrack(() => $roleCaps.code) ? 'all' : 'workspace'
+	)
 	let loading = $state(false)
 	let small = $derived(smallProp ?? (kind === 'preprocessor' || kind === 'failure'))
+
+	// Optional: this picker also renders outside the flow editor's context (the triggers wrapper).
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	let ws = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
+
+	// Flagged for the whole menu, whichever pane is showing: the flow builder walks node
+	// selection on ArrowUp/ArrowDown while it is unset, which tears the popover down.
+	onMount(() => {
+		flowEditorContext?.insertButtonOpen.set(true)
+	})
+	onDestroy(() => {
+		flowEditorContext?.insertButtonOpen.set(false)
+	})
+
+	let savedAgents = $state<{ path: string; description?: string }[]>([])
+	let savedAgentsLoading = $state(false)
+	let savedAgentsWs: string | undefined = undefined
+	async function loadSavedAgents() {
+		const requested = ws
+		if (!requested || savedAgentsWs === requested) {
+			return
+		}
+		savedAgentsLoading = true
+		try {
+			const rs = await ResourceService.listResource({
+				workspace: requested,
+				resourceType: 'ai_agent',
+				perPage: 1000
+			})
+			if (requested !== ws) return
+			savedAgents = rs.map((r) => ({ path: r.path, description: r.description }))
+			savedAgentsWs = requested
+		} catch {
+			savedAgents = []
+		} finally {
+			savedAgentsLoading = false
+		}
+	}
+	let filteredAgents = $derived(
+		funcDesc
+			? savedAgents.filter((a) => a.path.toLowerCase().includes(funcDesc.toLowerCase()))
+			: savedAgents
+	)
+
+	function newBlankAgent() {
+		dispatch('close')
+		dispatch('new', { kind: 'aiagent' })
+	}
+	function newLinkedAgent(agentPath: string) {
+		dispatch('close')
+		logReusableAgentUsage('linked')
+		dispatch('new', { kind: 'aiagent', agentPath })
+	}
+	function newAiSandbox(subkind: 'claudesandbox' | 'pisandbox') {
+		dispatch('close')
+		dispatch('new', {
+			kind: 'script',
+			inlineScript: {
+				language: 'bun',
+				kind: 'script',
+				subkind
+			}
+		})
+	}
+	const aiSandboxes = [
+		{ label: 'Claude Code', subkind: 'claudesandbox' },
+		{ label: 'Pi', subkind: 'pisandbox' }
+	] as const
+
+	// Rows of the AI panes in render order. FlowInputsQuick owns the keyboard index for the other
+	// panes and is unmounted while these render, so the two never fight over Enter or the arrows.
+	let aiRows = $derived.by((): (() => void)[] => {
+		if (selectedKind === 'aiagent') {
+			const saved = savedAgentsLoading ? [] : filteredAgents
+			return [newBlankAgent, ...saved.map((a) => () => newLinkedAgent(a.path))]
+		}
+		if (selectedKind === 'aisandbox') {
+			return aiSandboxes.map((s) => () => newAiSandbox(s.subkind))
+		}
+		return []
+	})
+	let selectedByKeyboard = $state(0)
+	// Clamped rather than reset when the search filter shrinks the list, so the index never
+	// points past the last rendered row.
+	let aiSelected = $derived(Math.min(selectedByKeyboard, Math.max(aiRows.length - 1, 0)))
+	let aiScrollable: HTMLElement | undefined = $state()
+	let stepGen: StepGenQuick | undefined = $state()
+	function onAiKeyDown(e: KeyboardEvent) {
+		if (aiRows.length === 0) {
+			return
+		}
+		// Enter activates the highlighted row only from the search box (or nothing focused); a
+		// focused button, link or field keeps its own native activation.
+		if (
+			e.key === 'Enter' &&
+			e.target instanceof HTMLElement &&
+			e.target.closest('button, a, select, textarea')
+		) {
+			return
+		}
+		if (e.key === 'ArrowDown') {
+			selectedByKeyboard = (aiSelected + 1) % aiRows.length
+			aiScrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
+			e.preventDefault()
+		} else if (e.key === 'ArrowUp') {
+			selectedByKeyboard = (aiSelected - 1 + aiRows.length) % aiRows.length
+			aiScrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
+			e.preventDefault()
+		} else if (e.key === 'Enter') {
+			e.preventDefault()
+			aiRows[aiSelected]()
+		}
+	}
 
 	let height = $state(0)
 	let owners = $state([])
@@ -55,6 +187,7 @@
 	let displayPath = $derived(height > 480)
 </script>
 
+<svelte:window onkeydown={onAiKeyDown} />
 <div
 	id="flow-editor-insert-module"
 	class="flex flex-col h-full gap-2 max-w-full {small ? 'w-[450px]' : 'w-[650px]'}"
@@ -66,14 +199,15 @@
 >
 	<div class="flex flex-row items-center gap-2">
 		<StepGenQuick
+			bind:this={stepGen}
 			on:escape={() => dispatch('close')}
-			{disableAi}
+			disableAi={disableAi || composeOnlyFlows}
 			on:insert
 			bind:funcDesc
 			{preFilter}
 			{loading}
 		/>
-		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
+		{#if selectedKind != 'preprocessor' && selectedKind != 'flow' && $roleCaps.code}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
 		<RefreshButton
@@ -81,6 +215,10 @@
 			{loading}
 			onClick={() => {
 				refreshCount.val += 1
+				if (selectedKind === 'aiagent') {
+					savedAgentsWs = undefined
+					loadSavedAgents()
+				}
 			}}
 		/>
 	</div>
@@ -104,19 +242,40 @@
 						}}
 					/>
 					<TopLevelNode
-						label="Web Search"
+						label="Web search"
 						onSelect={() => {
 							dispatch('pickWebsearchTool')
 							dispatch('close')
 						}}
 					/>
+					<!-- A nested agent cannot park, so the worker drops it from its roster. -->
+					{#if !nestedAgent}
+						<TopLevelNode
+							label="Ask a question"
+							onSelect={() => {
+								dispatch('pickQuestionTool')
+								dispatch('close')
+							}}
+						/>
+					{/if}
 					<TopLevelNode
 						label="AI Agent"
+						chevron={false}
 						onSelect={() => {
 							dispatch('pickAiAgentTool')
 							dispatch('close')
 						}}
 					/>
+					{#if !nestedAgent}
+						<TopLevelNode
+							label="AI Decision"
+							chevron={false}
+							onSelect={() => {
+								dispatch('pickAiDecisionTool')
+								dispatch('close')
+							}}
+						/>
+					{/if}
 				{:else}
 					{#if customUi?.triggers != false && allowTrigger}
 						<TopLevelNode
@@ -184,18 +343,31 @@
 					{#if customUi?.aiAgent != false}
 						<TopLevelNode
 							label="AI Agent"
+							selected={selectedKind === 'aiagent'}
+							onSelect={() => {
+								selectedKind = 'aiagent'
+								selectedByKeyboard = 0
+								loadSavedAgents()
+								// Clicking leaves focus on this button, where Enter would only re-select it.
+								stepGen?.focus()
+							}}
+						/>
+						<TopLevelNode
+							label="AI Decision"
 							onSelect={() => {
 								dispatch('close')
-								dispatch('new', { kind: 'aiagent' })
+								dispatch('new', { kind: 'aidecision' })
 							}}
 						/>
 					{/if}
-					{#if customUi?.aiSandbox != false}
+					{#if customUi?.aiSandbox != false && !composeOnlyFlows}
 						<TopLevelNode
 							label="AI Sandbox"
 							selected={selectedKind === 'aisandbox'}
 							onSelect={() => {
 								selectedKind = 'aisandbox'
+								selectedByKeyboard = 0
+								stepGen?.focus()
 							}}
 						/>
 					{/if}
@@ -203,22 +375,72 @@
 			</div>
 		{/if}
 
-		{#if selectedKind === 'aisandbox'}
+		{#if selectedKind === 'aiagent'}
+			<div
+				bind:this={aiScrollable}
+				class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col"
+			>
+				<Button
+					onClick={newBlankAgent}
+					onmousemove={() => (selectedByKeyboard = 0)}
+					role="menuitem"
+					variant="subtle"
+					unifiedSize="sm"
+					btnClasses="justify-start {aiSelected === 0
+						? 'bg-surface-hover'
+						: 'hover:bg-transparent'}"
+				>
+					<Plus size={13} class="shrink-0" />
+					<span class="grow truncate text-left">Blank AI agent</span>
+					{#if aiSelected === 0}
+						<kbd class="!text-xs">&crarr;</kbd>
+					{/if}
+				</Button>
+				{#if savedAgentsLoading}
+					<div class="flex items-center gap-2 p-2 text-xs text-tertiary">
+						<Loader2 size={13} class="animate-spin" /> Loading saved agents
+					</div>
+				{:else if filteredAgents.length > 0}
+					<div class="pt-2 pb-0 text-2xs font-normal text-secondary ml-2">Saved agents</div>
+					{#each filteredAgents as agent, i (agent.path)}
+						<Button
+							onClick={() => newLinkedAgent(agent.path)}
+							onmousemove={() => (selectedByKeyboard = i + 1)}
+							role="menuitem"
+							variant="subtle"
+							unifiedSize="sm"
+							btnClasses="justify-start {aiSelected === i + 1
+								? 'bg-surface-hover'
+								: 'hover:bg-transparent'}"
+							title={agent.description || agent.path}
+						>
+							<BotIcon size={13} class="shrink-0 text-ai" />
+							<span class="grow truncate text-left">{agent.path}</span>
+							{#if aiSelected === i + 1}
+								<kbd class="!text-xs">&crarr;</kbd>
+							{/if}
+						</Button>
+					{/each}
+				{:else}
+					<div class="p-2 text-xs text-tertiary">
+						{savedAgents.length > 0
+							? 'No saved agent matches this search'
+							: 'No saved agent in this workspace yet. Configure a blank one, then Save as reusable agent to reuse it.'}
+					</div>
+				{/if}
+			</div>
+		{:else if selectedKind === 'aisandbox'}
 			<div class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col">
-				<TopLevelNode
-					label="Claude Code"
-					onSelect={() => {
-						dispatch('close')
-						dispatch('new', {
-							kind: 'script',
-							inlineScript: {
-								language: 'bun',
-								kind: 'script',
-								subkind: 'claudesandbox'
-							}
-						})
-					}}
-				/>
+				{#each aiSandboxes as sandbox, i (sandbox.subkind)}
+					<TopLevelNode
+						label={sandbox.label}
+						neutral
+						returnIcon
+						selected={aiSelected === i}
+						onSelect={() => newAiSandbox(sandbox.subkind)}
+						onHover={() => (selectedByKeyboard = i)}
+					/>
+				{/each}
 			</div>
 		{:else}
 			<FlowInputsQuick

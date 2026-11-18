@@ -35,6 +35,9 @@
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
+
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		selected?: boolean
@@ -46,6 +49,7 @@
 			| {
 					enabled?: boolean
 					return_value?: unknown
+					preview_only?: boolean
 			  }
 			| undefined
 		bold?: boolean
@@ -61,7 +65,7 @@
 		icon?: import('svelte').Snippet
 		onTestUpTo?: ((id: string) => void) | undefined
 		inputTransform?: Record<string, any> | undefined
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
@@ -128,6 +132,14 @@
 
 	let newId: string = $state(untrack(() => id) ?? '')
 
+	let mod = $derived(
+		id && flowStore?.val?.value ? dfsPreviousResults(id, flowStore.val, false)[0] : undefined
+	)
+	// A script step is tested as a script preview, which operators are refused: running the
+	// deployed runnable is left to "Test flow".
+	let builderCannotTestStep = $derived(
+		$roleCaps.flows === 'compose' && mod?.value.type === 'script'
+	)
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let hover = $state(false)
@@ -234,8 +246,6 @@
 {/if}
 
 {#if deletable && id && flowStore && outputPickerVisible}
-	{@const flowStoreVal = flowStore.val}
-	{@const mod = flowStoreVal?.value ? dfsPreviousResults(id, flowStoreVal, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
 		<ModuleTest
 			bind:this={moduleTest}
@@ -303,7 +313,7 @@
 						<Pin size={12} />
 					</button>
 					{#snippet text()}
-						Pinned
+						{mock.preview_only ? 'Pinned in test runs' : 'Pinned in every run'}
 					{/snippet}
 				</Popover>
 			{/if}
@@ -454,7 +464,7 @@
 			onmouseenter={() => (hover = true)}
 			onmouseleave={() => (hover = false)}
 		>
-			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible}
+			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible && !builderCannotTestStep}
 				<div class="bg-surface rounded-md" transition:fade={{ duration: 100 }} data-run-button={id}>
 					{#if !testIsLoading}
 						<Button
@@ -464,7 +474,7 @@
 							btnClasses="px-1 py-1.5 bg-surface"
 							on:click={() => {
 								outputPicker?.toggleOpen(true)
-								moduleTest?.loadArgsAndRunTest()
+								moduleTest?.runTestWithStepArgs()
 							}}
 							dropdownItems={[
 								{

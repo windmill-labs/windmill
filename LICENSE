@@ -30,5 +30,18 @@ quotas set in the software and a right to distribute the community edition as is
 but not to sell, resell, serve as a managed service, modify or wrap under any
 form without an explicit agreement.
 
+To re-expose directly any Windmill parts to your users (see
+https://www.windmill.dev/docs/misc/white_labelling) as a feature of your
+product, with the exception of iframed public Windmill "apps", or to build a
+feature on top of "Windmill Community Edition" that you sell commercially or
+embed in a distributable product or binary, you must get a commercial license.
+Contact us at sales@windmill.dev if you have any questions. To do the same from
+the binary compiled from the source code in this repository without the
+"enterprise" feature flag, you must comply with the AGPLv3 license terms and
+conditions or get a commercial license from Windmill Labs, Inc.
+
+To use Windmill "Community Edition" as is internally in your organization, or to
+use its APIs as is, you do NOT need a commercial license.
+
 All third party components incorporated into the Windmill Software are licensed
 under the original license provided by the owner of the applicable component.

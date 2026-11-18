@@ -9,7 +9,9 @@
 		Globe,
 		Plug,
 		Repeat,
+		Scale,
 		Square,
+		MessageCircleQuestion,
 		Zap
 	} from 'lucide-svelte'
 	import type { ComponentType } from 'svelte'
@@ -22,11 +24,14 @@
 		/** Highlight with the neutral hover surface instead of the accent, for transient
 		 * (hover/keyboard) selection rather than the persistent category selection. */
 		neutral?: boolean
+		/** Overrides the label's default chevron, for an entry that inserts directly here instead of
+		 *  opening a sub-menu. */
+		chevron?: boolean
 		onSelect: () => void
 		onHover?: () => void
 	}
 
-	let { label, selected, returnIcon, neutral = false, onSelect, onHover }: Props = $props()
+	let { label, selected, returnIcon, neutral = false, chevron, onSelect, onHover }: Props = $props()
 
 	interface IconConfig {
 		icon: ComponentType
@@ -44,11 +49,14 @@
 		'While loop': { icon: Repeat },
 		'Branch to one': { icon: GitBranch },
 		'Branch to all': { icon: GitBranch },
-		'AI Agent': { icon: BotIcon, iconClass: 'text-ai' },
+		'AI Agent': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
+		'AI Decision': { icon: Scale, iconClass: 'text-ai' },
 		'AI Sandbox': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
 		'Claude Code': { icon: BotIcon, iconClass: 'text-ai' },
+		Pi: { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug },
-		'Web Search': { icon: Globe }
+		'Web search': { icon: Globe },
+		'Ask a question': { icon: MessageCircleQuestion }
 	}
 
 	const config = $derived(iconMap[label])
@@ -73,7 +81,7 @@
 >
 	<span class="grow min-w-0 flex items-center gap-2">
 		{#if config}
-			{@render iconWithText(config.icon, config.showChevron, config.iconClass ?? '')}
+			{@render iconWithText(config.icon, chevron ?? config.showChevron, config.iconClass ?? '')}
 		{/if}
 	</span>
 	{#if returnIcon && selected}

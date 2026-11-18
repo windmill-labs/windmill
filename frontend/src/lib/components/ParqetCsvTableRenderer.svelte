@@ -8,11 +8,13 @@
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { AppService, HelpersService } from '$lib/gen'
-	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
 
@@ -53,7 +55,7 @@
 	// is set, else the viewer-scoped helpers. Same request/response shape either
 	// way — the only difference is which identity authorizes the S3 read.
 	function loadRowCount(searchCol: string | undefined, searchTerm: string | undefined) {
-		const workspace = workspaceId ?? $workspaceStore!
+		const workspace = workspaceId ?? $operatingWorkspace!
 		return appPath
 			? AppService.appLoadTableCount({
 					workspace,
@@ -82,7 +84,7 @@
 		searchTerm?: string
 		csvSeparator?: string
 	}) {
-		const workspace = workspaceId ?? $workspaceStore!
+		const workspace = workspaceId ?? $operatingWorkspace!
 		const csv = s3resource.endsWith('.csv')
 		if (appPath) {
 			const data = {
@@ -264,7 +266,7 @@
 		{:else}
 			<a
 				target="_blank"
-				href="{base}/api{csvApiPath}"
+				href="/api{csvApiPath}"
 				class="text-secondary w-full text-right underline text-2xs whitespace-nowrap"
 				><div class="flex flex-row-reverse gap-2 items-center"><Download size={12} /> CSV</div></a
 			>

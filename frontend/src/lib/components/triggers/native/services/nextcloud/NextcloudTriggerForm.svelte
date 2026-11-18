@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
 	import type { NextCloudEventType } from '$lib/gen/types.gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { getNextcloudSchema } from '../../utils'
+	import { getNextcloudSchema, useNativeConnection } from '../../utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const connectionPath = useNativeConnection()
 
 	interface Props {
 		serviceConfig: Record<string, any>
@@ -38,7 +41,7 @@
 	let eventsError = $state<string | undefined>(undefined)
 
 	async function loadAvailableEvents() {
-		if (!$workspaceStore) {
+		if (!$operatingWorkspace) {
 			availableEvents = []
 			return
 		}
@@ -47,7 +50,8 @@
 		eventsError = undefined
 		try {
 			const events = await NativeTriggerService.listNextCloudEvents({
-				workspace: $workspaceStore!
+				workspace: $operatingWorkspace!,
+				connectionPath: connectionPath()
 			})
 			availableEvents = events
 			serviceSchema = getNextcloudSchema(events)
@@ -84,7 +88,7 @@
 	let externalDataApplied = $state(false)
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			loadAvailableEvents()
 		}
 	})
@@ -114,16 +118,14 @@
 			{#if eventsError}
 				<div class="break-words">Could not load the available events: {eventsError}</div>
 			{:else}
-				<div
-					>No events available. Please ensure your workspace has a connected Nextcloud integration.</div
-				>
+				<div>No events available. Check that the selected Nextcloud account can reach the server.</div>
 			{/if}
 			<div class="flex gap-2">
 				<Button variant="default" on:click={loadAvailableEvents} {disabled}>
 					Retry loading events
 				</Button>
-				<Button variant="subtle" href="/workspace_settings?tab=integrations" target="_blank">
-					Manage integrations
+				<Button variant="subtle" href="/workspace_settings?tab=native_triggers" target="_blank">
+					Integration trigger settings
 				</Button>
 			</div>
 		</div>
@@ -138,8 +140,7 @@
 		/>
 	{:else}
 		<div class="text-secondary text-xs">
-			Please ensure Nextcloud workspace integration is connected to load available configuration
-			options.
+			Select a Nextcloud account to load the available configuration options.
 		</div>
 	{/if}
 </Section>

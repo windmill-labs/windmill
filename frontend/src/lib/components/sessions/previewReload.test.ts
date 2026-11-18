@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { toolReloadEffect, tabsToReload } from './previewReload'
+import { toolReloadEffect, tabsToReload, viewerTabsToReload } from './previewReload'
 import type { SessionPreviewTab } from './sessionState.svelte'
+import { pageItemUrl } from './previewPaths'
 
 describe('toolReloadEffect', () => {
 	it('maps a non-item mutation to its own list page only', () => {
@@ -8,6 +9,7 @@ describe('toolReloadEffect', () => {
 		expect(toolReloadEffect('write_resource', {}).pages).toEqual(['/resources'])
 		expect(toolReloadEffect('write_variable', {}).pages).toEqual(['/variables'])
 		expect(toolReloadEffect('create_folder', { name: 'f' }).pages).toEqual(['/folders'])
+		expect(toolReloadEffect('create_resource_type', { name: 'c_x' }).pages).toEqual(['/resources'])
 	})
 
 	it('maps a trigger write to its kind-specific page', () => {
@@ -52,6 +54,26 @@ describe('toolReloadEffect', () => {
 	})
 })
 
+describe('page item tabs', () => {
+	const tab = (url: string): SessionPreviewTab => ({ id: url, url, loc: url })
+	const kafkaA = tab('pageitem:trigger.kafka/u%2Fme%2Fa')
+	const kafkaB = tab('pageitem:trigger.kafka/u%2Fme%2Fb')
+	const list = tab('/kafka_triggers')
+
+	it('reloads only the trigger a write names, and its list page', () => {
+		const { pages, items } = toolReloadEffect('write_trigger', {
+			kind: 'kafka',
+			config: { path: 'u/me/a' }
+		})
+		const named = new Set(items.map((i) => pageItemUrl(i)))
+		expect(tabsToReload([kafkaA, kafkaB, list], new Set(pages), named)).toEqual([kafkaA, list])
+	})
+
+	it('reloads every tab of the kind when the tool names no item', () => {
+		expect(tabsToReload([kafkaA, kafkaB], new Set(['/kafka_triggers']))).toEqual([kafkaA, kafkaB])
+	})
+})
+
 describe('tabsToReload', () => {
 	const scheduleTab: SessionPreviewTab = { id: 's', url: '/schedules', loc: '/schedules' }
 	const resourceTab: SessionPreviewTab = { id: 'r', url: '/resources', loc: '/resources' }
@@ -76,6 +98,27 @@ describe('tabsToReload', () => {
 		])
 	})
 
+	it("reloads the resources list on an agent write but not the agent's editor, which a discard does", () => {
+		const url = pageItemUrl({ kind: 'resource', path: 'u/me/a' })
+		const agentTab: SessionPreviewTab = { id: 'a', url, loc: url }
+		const reloaded = (name: string, args: any) => {
+			const { pages, items, live = [] } = toolReloadEffect(name, args)
+			return tabsToReload(
+				[resourceTab, agentTab],
+				new Set(pages),
+				new Set(items.map(pageItemUrl)),
+				new Set(live.map(pageItemUrl))
+			)
+		}
+		expect(reloaded('write_resource', { resource_type: 'ai_agent', path: 'u/me/a' })).toEqual([
+			resourceTab
+		])
+		expect(reloaded('discard_local_draft', { type: 'resource', path: 'u/me/a' })).toEqual([
+			resourceTab,
+			agentTab
+		])
+	})
+
 	it('is empty when no pages were touched', () => {
 		expect(tabsToReload(tabs, new Set())).toEqual([])
 	})
@@ -83,5 +126,81 @@ describe('tabsToReload', () => {
 	it('matches on the observed loc (with query/hash stripped) over the seeded url', () => {
 		const navigated: SessionPreviewTab = { id: 'n', url: '/runs', loc: '/schedules?workspace=w' }
 		expect(tabsToReload([navigated], new Set(['/schedules']))).toEqual([navigated])
+	})
+})
+
+describe('viewerTabsToReload', () => {
+	const viewTab: SessionPreviewTab = {
+		id: 'v',
+		url: '/scripts/get/f/foo/bar',
+		loc: '/scripts/get/f/foo/bar'
+	}
+	const editTab: SessionPreviewTab = {
+		id: 'e',
+		url: '/flows/edit/f/foo/baz',
+		loc: '/flows/edit/f/foo/baz'
+	}
+	const pageTab: SessionPreviewTab = { id: 'p', url: '/schedules', loc: '/schedules' }
+
+	it('returns the view-side tab whose item was deployed', () => {
+		expect(viewerTabsToReload([viewTab, editTab, pageTab], new Set(['f/foo/bar']))).toEqual([
+			viewTab
+		])
+	})
+
+	it("refreshes an agent's deployed page when the chat deletes or deploys it", () => {
+		const agentTab: SessionPreviewTab = {
+			id: 'a',
+			url: '/agents/get/u/me/bot',
+			loc: '/agents/get/u/me/bot'
+		}
+		const { deployed } = toolReloadEffect('delete_workspace_item', {
+			type: 'resource',
+			path: 'u/me/bot'
+		})
+		expect(viewerTabsToReload([agentTab, viewTab], new Set(deployed))).toEqual([agentTab])
+	})
+
+	// The editor holds what the user is writing; refetching the deployed version over it
+	// would discard that, and it self-syncs from the store the chat already mutated.
+	it('never returns the edit side, even for the item that was deployed', () => {
+		expect(viewerTabsToReload([editTab], new Set(['f/foo/baz']))).toEqual([])
+	})
+
+	it('leaves a view tab on a different item alone', () => {
+		expect(viewerTabsToReload([viewTab], new Set(['f/other/item']))).toEqual([])
+	})
+
+	it('is empty when no items were deployed', () => {
+		expect(viewerTabsToReload([viewTab, editTab], new Set())).toEqual([])
+	})
+})
+
+describe('toolReloadEffect deployed', () => {
+	// A deploy is invisible to a View tab otherwise: it renders the deployed version over
+	// the API and shares no store with the chat.
+	it('names the item a deploy or delete changed, for the kinds a tab can view', () => {
+		for (const type of ['script', 'flow', 'app']) {
+			expect(toolReloadEffect('deploy_workspace_item', { type, path: 'u/me/x' }).deployed).toEqual([
+				'u/me/x'
+			])
+			expect(toolReloadEffect('delete_workspace_item', { type, path: 'u/me/x' }).deployed).toEqual([
+				'u/me/x'
+			])
+		}
+	})
+
+	it('names no item for a draft-only tool — nothing deployed changed', () => {
+		expect(toolReloadEffect('write_script', { path: 'u/me/x' }).deployed).toEqual([])
+		expect(
+			toolReloadEffect('discard_local_draft', { type: 'script', path: 'u/me/x' }).deployed
+		).toEqual([])
+		expect(toolReloadEffect('rebase_draft', { type: 'flow', path: 'u/me/x' }).deployed).toEqual([])
+	})
+
+	it('names no item for types that have a list page instead of a view side', () => {
+		expect(
+			toolReloadEffect('deploy_workspace_item', { type: 'schedule', path: 'u/me/s' }).deployed
+		).toEqual([])
 	})
 })

@@ -1,5 +1,4 @@
 import { untrack } from 'svelte'
-import { base } from '$lib/base'
 import {
 	AppService,
 	FlowService,
@@ -38,6 +37,8 @@ import type { Kind } from '$lib/utils_deployable'
 import {
 	canRecord,
 	canRecordSession,
+	commonFolderPath,
+	folderSubPaths,
 	inputResourceTypes,
 	mergeAppTableOrigin,
 	HIDDEN_RESOURCE_TYPES,
@@ -142,6 +143,9 @@ export class DeployToHubSession {
 	readonly folder: string
 	/** `f/`-prefixed folder path the project is scoped to. */
 	readonly selectedFolder: string
+	/** The base folder whose items are offered for selection; `folder` is it or one of
+	 * its sub-paths. */
+	readonly listFolder: string
 
 	#disposed = false
 	#deps: SessionDeps
@@ -198,8 +202,31 @@ export class DeployToHubSession {
 	// Whether the Hub currently has a custom logo for this project (from
 	// rehydration) — drives the "Remove current logo" affordance.
 	hubHasRemoteLogo = $state(false)
+	// A pipeline recording is attached on the Hub. An update inherits the published
+	// one, which is only a demo of the new version if nothing it runs changed.
+	hubHasPipelineRecording = $state(false)
+	// The Hub's own verdict: this update runs different content from the published
+	// version. False when there is no update in flight.
+	hubItemsChanged = $state(false)
+	// The attached pipeline recording is the published version's, copied when this
+	// update started, rather than one recorded for it. Authoritative across reloads,
+	// unlike `pipelineRecorded`, which only remembers this session.
+	hubPipelineRecordingInherited = $state(false)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
+	// Set once the project is published: everything the wizard shows from here on
+	// describes an update to it, and the published version keeps serving until that
+	// update is approved. `phase` is the update's own status, not the project's.
+	liveOnHub = $state(false)
+	/** This Hub knows about pending updates — it answers rehydration with a `live`
+	 * key. An older one takes a project offline to republish and has neither the
+	 * withdraw nor the discard endpoint, so the actions built on them stay hidden. */
+	hubSupportsUpdates = $state(false)
+	// A reviewer's verdict on the current draft, shown so the publisher knows what
+	// to fix before resubmitting.
+	rejectionReason = $state<string | undefined>(undefined)
+	discardingUpdate = $state(false)
+	withdrawing = $state(false)
 
 	// Best-effort data table migrations for the bundle, editable in the drawer and
 	// pushed on deploy. Regenerated when the bundle drawer opens.
@@ -228,6 +255,10 @@ export class DeployToHubSession {
 	submitting = $state(false)
 	syncing = $state(false)
 
+	// Set from the Hub's answer to the draft request: this push went into an update
+	// rather than over the published project.
+	#publishedAsUpdate = false
+
 	// Intra-session tokens: latest call wins among competing calls on this session.
 	#triggerLoadTok = 0
 	#recordRunTok = 0
@@ -239,11 +270,22 @@ export class DeployToHubSession {
 	#previewItemCache = new Map<string, Promise<FetchedItem | undefined>>()
 	#previewTypeCache = new Map<string, Promise<string | undefined>>()
 
-	constructor(workspace: string, folder: string, deps: SessionDeps) {
+	constructor(
+		workspace: string,
+		folder: string,
+		deps: SessionDeps,
+		listFolder: string = folder,
+		seed?: { items: DeployItem[]; deselected: Set<string> }
+	) {
 		this.workspace = workspace
 		this.folder = folder
 		this.selectedFolder = `f/${folder}`
+		this.listFolder = listFolder
 		this.#deps = deps
+		if (seed) {
+			this.workspaceItems = seed.items
+			this.manualDeselected = seed.deselected
+		}
 	}
 
 	dispose() {
@@ -275,8 +317,22 @@ export class DeployToHubSession {
 		}
 	}
 
+	/** Set once the Hub has said whether this scope already has a project. */
+	hubChecked = $state(false)
+	/** Sub-paths of the base folder that are Hub projects of their own. */
+	subProjects = $state<{ folder: string; status: string; name: string }[]>([])
+	/** Set once `subProjects` has been looked up. */
+	subProjectsChecked = $state(false)
+	#subProjectsLoaded = false
+	/** Folders already published as other projects: their items cannot join this one. */
+	blockedFolders = $state<string[]>([])
+	isBlocked = (path: string) => this.blockedFolders.some((f) => path.startsWith(`f/${f}/`))
+	// A scope with a Hub project offers only its own items, so an update cannot drift
+	// into another scope's project; until then the whole base folder is offered.
 	filteredWorkspaceItems = $derived(
-		this.workspaceItems.filter((i) => i.path.startsWith(this.selectedFolder + '/'))
+		this.workspaceItems.filter((i) =>
+			i.path.startsWith(`f/${this.effectiveSlug ? this.folder : this.listFolder}/`)
+		)
 	)
 	// Derived (not merged at load time) so it settles regardless of which of the
 	// racing loads (#loadWorkspace / rehydrateFromHub) finishes last.
@@ -286,13 +342,24 @@ export class DeployToHubSession {
 	)
 	selectedItems = $derived(
 		this.phase === 'predeploy'
-			? this.filteredWorkspaceItems.filter((i) => !this.manualDeselected.has(i.key))
+			? this.filteredWorkspaceItems.filter(
+					(i) => !this.manualDeselected.has(i.key) && !this.isBlocked(i.path)
+				)
 			: []
 	)
 	selectedItemKeys = $derived(this.selectedItems.map((i) => i.key))
 	allSelected = $derived(
 		this.phase === 'predeploy' &&
-			this.selectedItemKeys.length === this.filteredWorkspaceItems.length
+			this.selectedItemKeys.length ===
+				this.filteredWorkspaceItems.filter((i) => !this.isBlocked(i.path)).length
+	)
+	/** The project the selection describes: the whole base folder while everything is
+	 * selected and no other project holds part of it, else the deepest sub-path holding
+	 * all of it. */
+	selectionScope = $derived.by(() =>
+		this.allSelected && !this.blockedFolders.length
+			? this.listFolder
+			: (commonFolderPath(this.selectedItems.map((i) => i.path)) ?? this.folder)
 	)
 	// A raw app's recorded session counts towards the project's recordings just as
 	// a script's captured run does — both are what a visitor replays.
@@ -316,6 +383,18 @@ export class DeployToHubSession {
 	)
 	pipelineScriptPathSet = $derived(new Set(this.pipelineScriptPaths))
 	isPipelineProject = $derived(this.pipelineScriptPaths.length > 0)
+	/** The pipeline replay this update carries came from the published version, and
+	 * something it runs has changed since — so it is a recording of another version.
+	 * `hubItemsChanged` is the Hub comparing content, not a guess from which items
+	 * carry recordings: an item nobody ever recorded has not changed. */
+	pipelineReplayMayBeStale = $derived(
+		this.liveOnHub &&
+			this.isPipelineProject &&
+			this.hubHasPipelineRecording &&
+			this.hubPipelineRecordingInherited &&
+			this.hubItemsChanged &&
+			!this.pipelineRecorded
+	)
 	hubSlug = $derived(this.effectiveSlug || sanitizeSlug(this.hubName))
 
 	relevantTriggers = $derived.by(() => {
@@ -447,10 +526,10 @@ export class DeployToHubSession {
 
 	itemUrl(kind: ItemKind, path: string): string | undefined {
 		if (!path) return undefined
-		return `${base}/${ITEM_KIND_ROUTE[kind]}/${path}?workspace=${this.workspace}`
+		return `/${ITEM_KIND_ROUTE[kind]}/${path}?workspace=${this.workspace}`
 	}
 	triggerListUrl(kind: WorkspaceTriggerKind): string {
-		return `${base}/${TRIGGER_KINDS[kind].route}?workspace=${this.workspace}`
+		return `/${TRIGGER_KINDS[kind].route}?workspace=${this.workspace}`
 	}
 
 	#patchItem(key: string, patch: Partial<DeployItem>) {
@@ -558,6 +637,36 @@ export class DeployToHubSession {
 		}
 	}
 
+	// ponytail: one lookup per sub-path; a by-prefix Hub query if folders grow deep.
+	async loadSubProjects() {
+		if (this.#subProjectsLoaded) return
+		this.#subProjectsLoaded = true
+		const subs = folderSubPaths(
+			this.workspaceItems.map((i) => i.path),
+			this.listFolder
+		)
+		const found = await Promise.all(
+			subs.map(async (folder) => {
+				try {
+					const res = await fetch(
+						`/api/w/${this.workspace}/hub/project?folder=${encodeURIComponent(folder)}`,
+						{ credentials: 'include', headers: { accept: 'application/json' } }
+					)
+					if (!res.ok) return undefined
+					const p = await res.json()
+					return p?.slug
+						? { folder, status: String(p.status ?? 'draft'), name: String(p.name || p.slug) }
+						: undefined
+				} catch {
+					return undefined
+				}
+			})
+		)
+		if (this.#disposed) return
+		this.subProjects = found.filter((p) => p !== undefined)
+		this.subProjectsChecked = true
+	}
+
 	async rehydrateFromHub() {
 		try {
 			const res = await fetch(`/api/w/${this.workspace}/hub/project${this.#folderQs()}`, {
@@ -573,6 +682,17 @@ export class DeployToHubSession {
 			this.hubSummary = p.summary ?? ''
 			this.hubReadme = p.readme ?? ''
 			this.hubHasRemoteLogo = p.has_logo === true
+			this.hubHasPipelineRecording = p.has_pipeline_recording === true
+			this.hubItemsChanged = p.items_changed === true
+			this.hubPipelineRecordingInherited = p.pipeline_recording_inherited === true
+			this.rejectionReason = p.rejection_reason ?? undefined
+			// `live` is a key this Hub always sends — null unless an update is in
+			// flight, in which case the fields above describe that update and the
+			// project itself is still published. Its absence means a Hub old enough to
+			// still take a project offline while it re-publishes, so the wizard must
+			// not promise otherwise.
+			this.hubSupportsUpdates = 'live' in p
+			this.liveOnHub = this.hubSupportsUpdates && (p.live?.approved === true || p.status === 'live')
 			this.phase =
 				p.status === 'live' ? 'live' : p.status === 'under_review' ? 'under_review' : 'draft'
 			const ids: Record<string, number> = {}
@@ -589,7 +709,10 @@ export class DeployToHubSession {
 				} satisfies DeployItem
 			})
 			this.hubItemIds = ids
-		} catch {}
+		} catch {
+		} finally {
+			if (!this.#disposed) this.hubChecked = true
+		}
 	}
 
 	/** Kick off schedule-preview fetches for any relevant schedule trigger missing one. */
@@ -640,7 +763,14 @@ export class DeployToHubSession {
 		const triggerVars = this.#triggerVarPaths(this.relevantTriggers)
 		let cancelled = false
 		const timer = setTimeout(() => {
-			buildProjectBundle(seed, slug, this.#cachedBundleDeps(), triggerResources, triggerVars)
+			buildProjectBundle(
+				seed,
+				slug,
+				this.#cachedBundleDeps(),
+				triggerResources,
+				triggerVars,
+				this.folder
+			)
 				.then((b) => {
 					if (cancelled) return
 					this.bundlePreview = b
@@ -838,7 +968,7 @@ export class DeployToHubSession {
 
 	/** Prefill bundle metadata and start migration detection (bundle drawer opening). */
 	prepareBundle() {
-		this.hubName = this.hubName || this.folder
+		this.hubName = this.hubName || (this.folder.split('/').pop() ?? this.folder)
 		void this.regenerateMigrations()
 	}
 
@@ -898,6 +1028,9 @@ export class DeployToHubSession {
 			try {
 				const parsed = JSON.parse(text)
 				if (typeof parsed?.slug === 'string') returnedSlug = parsed.slug
+				// The Hub decides this: publishing over an approved project goes into a
+				// pending update instead, and the project keeps serving meanwhile.
+				this.#publishedAsUpdate = parsed?.pending_revision === true
 			} catch {}
 			if (!returnedSlug) {
 				sendUserToast(`Hub did not return a slug. Aborting publish to avoid path drift.`, true)
@@ -1010,7 +1143,8 @@ export class DeployToHubSession {
 	): Promise<void> {
 		const pathMap = buildPathMap(
 			relevant.map((t) => t.path),
-			slug
+			slug,
+			this.folder
 		)
 		const triggers: Array<Record<string, unknown>> = []
 		const skipped: string[] = []
@@ -1105,7 +1239,8 @@ export class DeployToHubSession {
 				slug,
 				this.#buildBundleDeps(),
 				triggerResources,
-				triggerVars
+				triggerVars,
+				this.folder
 			)
 			// Full path map (incl. unresolved) so a trigger's resource path is always
 			// relocated — never leaks the publisher's original private path to the Hub.
@@ -1252,8 +1387,13 @@ export class DeployToHubSession {
 			// UI stuck in `predeploy`; rehydrate then upgrades to authoritative state.
 			this.draftItems = itemsSnapshot.map((i) => ({ ...i, rec: 'none' }))
 			this.phase = 'draft'
+			const asUpdate = this.#publishedAsUpdate
 			await this.rehydrateFromHub()
-			sendUserToast(`Draft created on the Hub. Add recordings before submitting for review.`)
+			sendUserToast(
+				asUpdate
+					? `Update ready on the Hub. Your published project stays live until it is approved.`
+					: `Draft created on the Hub. Add recordings before submitting for review.`
+			)
 		} finally {
 			this.deploying = false
 		}
@@ -1313,10 +1453,80 @@ export class DeployToHubSession {
 		}
 	}
 
+	/** Go back to picking items, to publish again. Local only — nothing reaches the
+	 * Hub until the bundle is confirmed, and where the Hub supports updates the
+	 * published version keeps serving even then. */
 	startNewDraft = () => {
 		this.draftItems = []
 		this.recordings = {}
+		this.rejectionReason = undefined
+		// All of it belongs to the update just finished, not the one starting. The
+		// captured cascade especially: left in place, the next update could save a
+		// replay of the version it replaces. Bumping the token first abandons a run
+		// still in flight, which would otherwise write its result back over this.
+		this.#pipelineRunTok++
+		this.pipelineRecorded = false
+		this.pipelineRecordingResult = undefined
+		this.pipelineRunState = 'idle'
+		this.pipelineRunError = undefined
 		this.phase = 'predeploy'
+	}
+
+	/** Take the submission back out of review. Everything pushed for it is kept, so
+	 * it can be fixed and submitted again. */
+	cancelSubmission = async () => {
+		if (this.withdrawing) return
+		const slug = this.effectiveSlug
+		if (!slug) return
+		this.withdrawing = true
+		try {
+			const res = await fetch(
+				`/api/w/${this.workspace}/hub/projects/${encodeURIComponent(slug)}/withdraw${this.#folderQs()}`,
+				{ method: 'POST', credentials: 'include' }
+			)
+			if (!res.ok) {
+				sendUserToast(`Could not cancel the submission: ${await res.text()}`, true)
+				return
+			}
+			if (this.#disposed) return
+			this.phase = 'draft'
+			await this.rehydrateFromHub()
+			sendUserToast(`Submission cancelled. Everything you pushed is still here.`)
+		} catch (e: any) {
+			sendUserToast(`Could not cancel the submission: ${e?.message ?? e}`, true)
+		} finally {
+			this.withdrawing = false
+		}
+	}
+
+	/** Throw away an update in progress and go back to what is published. */
+	discardUpdate = async () => {
+		if (this.discardingUpdate) return
+		const slug = this.effectiveSlug
+		if (!slug) return
+		this.discardingUpdate = true
+		try {
+			const res = await fetch(
+				`/api/w/${this.workspace}/hub/projects/${encodeURIComponent(slug)}/discard_update${this.#folderQs()}`,
+				{ method: 'POST', credentials: 'include' }
+			)
+			if (!res.ok) {
+				sendUserToast(`Could not discard the update: ${await res.text()}`, true)
+				return
+			}
+			if (this.#disposed) return
+			this.draftItems = []
+			this.recordings = {}
+			this.deploymentStatus = {}
+			this.rejectionReason = undefined
+			this.phase = 'live'
+			await this.rehydrateFromHub()
+			sendUserToast(`Update discarded. The published project is unchanged.`)
+		} catch (e: any) {
+			sendUserToast(`Could not discard the update: ${e?.message ?? e}`, true)
+		} finally {
+			this.discardingUpdate = false
+		}
 	}
 
 	/** Reset record-drawer state and load the target's schema. */
@@ -1731,6 +1941,8 @@ export class DeployToHubSession {
 export function useDeployToHubSession(args: {
 	workspace: () => string | undefined
 	folder: () => string
+	/** The base folder offered for selection; `folder` is it or one of its sub-paths. */
+	listFolder: () => string
 	hasEeLicense: () => boolean
 }) {
 	let session = $state<DeployToHubSession | undefined>()
@@ -1738,13 +1950,28 @@ export function useDeployToHubSession(args: {
 	$effect(() => {
 		const workspace = args.workspace()
 		const folder = args.folder()
+		const listFolder = args.listFolder()
 		if (!workspace) return
 		untrack(() => {
 			if (session && session.workspace === workspace && session.folder === folder) return
-			session?.dispose()
-			const next = new DeployToHubSession(workspace, folder, {
-				hasEeLicense: args.hasEeLicense
-			})
+			const prev = session
+			// A scope change made by editing the selection keeps that selection.
+			const seed =
+				prev &&
+				prev.workspace === workspace &&
+				prev.listFolder === listFolder &&
+				prev.phase === 'predeploy' &&
+				!prev.effectiveSlug
+					? { items: prev.workspaceItems, deselected: prev.manualDeselected }
+					: undefined
+			prev?.dispose()
+			const next = new DeployToHubSession(
+				workspace,
+				folder,
+				{ hasEeLicense: args.hasEeLicense },
+				listFolder,
+				seed
+			)
 			session = next
 			next.load()
 		})
@@ -1762,14 +1989,25 @@ export function useDeployToHubSession(args: {
 		})
 	})
 
-	// Leaving/entering predeploy invalidates manual selection tweaks.
+	// Leaving/entering predeploy invalidates manual selection tweaks; a new session
+	// keeps the selection it was seeded with.
+	let phaseSeen: { s: DeployToHubSession; phase: Phase } | undefined
 	$effect(() => {
 		const s = session
 		if (!s) return
-		s.phase
+		const phase = s.phase
 		untrack(() => {
-			s.manualDeselected = new Set()
+			if (phaseSeen?.s === s && phaseSeen.phase !== phase) s.manualDeselected = new Set()
+			phaseSeen = { s, phase }
 		})
+	})
+
+	// The base folder looks up which of its sub-paths are published on their own, once
+	// its items have loaded.
+	$effect(() => {
+		const s = session
+		if (s && s.hubChecked && !s.loading && s.folder === s.listFolder)
+			untrack(() => void s.loadSubProjects())
 	})
 
 	// Schedule previews for relevant schedule triggers (deduped in the session).

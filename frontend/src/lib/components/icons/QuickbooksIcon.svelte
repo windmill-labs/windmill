@@ -12,7 +12,7 @@
 	fill="#2CA01C"
 	{width}
 	{height}
-	viewBox="0 0 14 14"
+	viewBox="0.437 0.437 13.125 13.125"
 	role="img"
 	focusable="false"
 	aria-hidden="true"

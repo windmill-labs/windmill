@@ -19,6 +19,7 @@
 		class?: string | undefined
 		disabled?: boolean
 		fixedOverflowWidgets?: boolean
+		placeholder?: string
 	}
 
 	let {
@@ -30,7 +31,8 @@
 		loadAsync = false,
 		class: clazz = undefined,
 		disabled = false,
-		fixedOverflowWidgets = true
+		fixedOverflowWidgets = true,
+		placeholder = undefined
 	}: Props = $props()
 
 	let tooBig = $derived(code && code?.length > 1000000)
@@ -40,7 +42,12 @@
 	// Identity for this editor's entry in the unparseable registry, so a caller about to
 	// persist what is on screen can refuse rather than save the last value that parsed.
 	const unparseableKey = {}
-	onDestroy(() => setEditorUnparseable(unparseableKey, false))
+	// Also clears a bound `error`: a parent gating validity on it would otherwise stay invalid
+	// after the editor that reported the error is gone.
+	onDestroy(() => {
+		error = ''
+		setEditorUnparseable(unparseableKey, false)
+	})
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
@@ -57,13 +64,17 @@
 		} catch (e) {
 			error = e.message
 		}
-		setEditorUnparseable(unparseableKey, error !== '')
+		setEditorUnparseable(unparseableKey, error !== '', rootEl)
 	}
+	let rootEl: HTMLElement | undefined = $state()
 	$effect(() => {
 		code != undefined && untrack(() => parseJson())
 	})
 </script>
 
+<!-- Wraps both branches: the unparseable registry locates this editor by it, and the
+     too-big placeholder must not drop an invalid editor out of its form's run gate. -->
+<div bind:this={rootEl} class="contents">
 {#if tooBig && !loadTooBigAnyway}
 	<div class="flex-1 text-sm">
 		JSON is too big
@@ -92,6 +103,7 @@
 				class={clazz}
 				{disabled}
 				{fixedOverflowWidgets}
+				{placeholder}
 				renderLineHighlight="none"
 			/>
 		</div>
@@ -100,3 +112,4 @@
 		{/if}
 	</div>
 {/if}
+</div>

@@ -339,8 +339,12 @@ class Target {
 					client.destroy()
 					upstream.destroy()
 				}
+				// An upstream close must not destroy the client: `destroy` drops bytes still queued
+				// toward a slow client, truncating the response body. `pipe` already ends the client
+				// once those bytes are flushed.
 				upstream.on('error', teardown)
-				upstream.on('close', teardown)
+				client.on('error', teardown)
+				upstream.on('close', () => this.liveSockets.delete(client))
 				client.on('close', teardown)
 			},
 			(err) => {

@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import YAML from 'yaml'
+	import { isNewTabClick } from '$lib/navigation'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
@@ -11,6 +11,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 	import type { FlowCopilotContext } from './flow'
+	import { logStepInputFill } from './stepInputFillTelemetry'
 	import { Check, ExternalLink, Loader2, Wand2 } from 'lucide-svelte'
 	import { stepInputCompletionEnabled } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
@@ -20,6 +21,7 @@
 	import type { Flow } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
+	import { newFlowInputOf, newFlowInputsInstruction } from './stepInputFlowInputs'
 
 	let loading = $state(false)
 	interface Props {
@@ -30,7 +32,9 @@
 
 	let { pickableProperties = undefined, argNames = [], schema = undefined }: Props = $props()
 
-	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager, customUi } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+	const canAddFlowInputs = customUi?.aiFlowInputs != false
 
 	const { exprsToSet, stepInputsLoading, generatedExprs } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -44,6 +48,7 @@
 		if (Object.keys($generatedExprs || {}).length > 0 || loading) {
 			return
 		}
+		logStepInputFill('all')
 		abortController = new AbortController()
 		loading = true
 		stepInputsLoading?.set(true)
@@ -80,7 +85,7 @@ ${
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
-If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
+${newFlowInputsInstruction(canAddFlowInputs, 'leave that input out of your answer')}
 
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
@@ -104,18 +109,14 @@ input_name2: expression2
 			const exprs = {}
 			newFlowInputs = []
 			for (const [key, value] of parsedInputs) {
-				if (argNames.includes(key)) {
+				if (argNames.includes(key) && value) {
+					const newFlowInput = newFlowInputOf(value, pickableProperties)
+					if (newFlowInput && !canAddFlowInputs) continue
 					exprs[key] = value
-					if (
-						pickableProperties &&
-						value.startsWith('flow_input.') &&
-						value.split('.')[1] &&
-						!(value.split('.')[1] in pickableProperties.flow_input)
-					) {
-						newFlowInputs.push(value.split('.')[1])
-					}
+					if (newFlowInput) newFlowInputs.push(newFlowInput)
 				}
 			}
+			parsedInputs = parsedInputs.filter(([key]) => key in exprs)
 			generatedExprs?.set(exprs)
 		} catch (err) {
 			if (!abortController.signal.aborted) {
@@ -224,7 +225,7 @@ input_name2: expression2
 				Fill inputs
 			{/if}
 		</Button>
-	{:else}
+	{:else if !$copilotInfo.workspaceDisabled}
 		<Popover
 			floatingConfig={{
 				placement: 'top-end'
@@ -250,7 +251,7 @@ input_name2: expression2
 						{#if !$copilotInfo.enabled}
 							Enable Windmill AI in the{' '}
 							<a
-								href="{base}/workspace_settings?tab=ai"
+								href="/workspace_settings?tab=ai"
 								target="_blank"
 								class="inline-flex flex-row items-center gap-1"
 							>
@@ -261,8 +262,8 @@ input_name2: expression2
 							<a
 								href="#user-settings"
 								class="inline-flex flex-row items-center gap-1"
-								onclick={() => {
-									close()
+								onclick={(e) => {
+									if (!isNewTabClick(e)) close()
 								}}
 							>
 								user settings

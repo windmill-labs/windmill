@@ -117,13 +117,9 @@
 				testPanelCollapsed={!fullscreen}
 				onDeploy={(e) => {
 					// Fires on every deploy (primary, "Deploy & Stay here", and lib — we
-					// ignore e.stay since the session always stays). Toast, then sync the
-					// preview to the deployed version.
+					// ignore e.stay since the session always stays).
 					sendUserToast('Deployed')
-					runtime.syncPreviewWithDeployed(workspaceId, 'script', e.path)
-					// Deploying clears the item's pending draft — refresh the workspace
-					// Draft Count so the session bar / compare page drop it immediately.
-					invalidateWorkspaceDrafts(workspaceId)
+					runtime.itemDeployed(workspaceId, 'script', path, e.path)
 				}}
 			/>
 		{/if}

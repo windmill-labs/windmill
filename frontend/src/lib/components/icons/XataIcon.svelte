@@ -8,7 +8,13 @@
 </script>
 
 <!-- #8468F6 / #8468F6 per xata.io/brand (logo-symbol.svg). Brand forbids recolouring, and the full-colour symbol is the same purple in light and dark modes. -->
-<svg {width} {height} viewBox="0 0 134 135" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-6.636 -6.136 147.273 147.273"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		fill-rule="evenodd"
 		clip-rule="evenodd"

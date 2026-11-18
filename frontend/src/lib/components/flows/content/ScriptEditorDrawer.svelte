@@ -5,9 +5,8 @@
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
 	import { ScriptService, type Preview, type Script } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { workspaceStore } from '$lib/stores'
 	import { Loader2, Save, DiffIcon, Settings } from 'lucide-svelte'
-	import ScriptAdvancedSettings from '$lib/components/ScriptAdvancedSettings.svelte'
+	import ScriptRuntimeSettings from '$lib/components/itemSettings/ScriptRuntimeSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import {
@@ -21,13 +20,16 @@
 	import { fade } from 'svelte/transition'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 	import type { FlowEditorContext } from '../types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let scriptEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	export async function openDrawer(hash: string, cb: () => void): Promise<void> {
 		script = undefined
@@ -63,6 +65,7 @@
 				concurrent_limit?: number
 				concurrency_time_window_s?: number
 				concurrency_key?: string
+				on_concurrency_limit?: 'queue' | 'fail'
 				cache_ttl?: number
 				cache_ignore_s3_path?: boolean
 				timeout?: number
@@ -98,6 +101,7 @@
 				concurrent_limit?: number
 				concurrency_time_window_s?: number
 				concurrency_key?: string
+				on_concurrency_limit?: 'queue' | 'fail'
 				cache_ttl?: number
 				cache_ignore_s3_path?: boolean
 				timeout?: number
@@ -175,52 +179,6 @@
 	let settingsDrawer: Drawer | undefined = $state()
 </script>
 
-<ConfirmationModal
-	open={unsavedModalOpen}
-	title="Unsaved changes detected"
-	confirmationText="Discard changes"
-	on:canceled={() => {
-		unsavedModalOpen = false
-	}}
-	on:confirmed={() => {
-		console.log('confirmed')
-		closeAnyway = true
-		unsavedModalOpen = false
-		scriptEditorDrawer?.closeDrawer()
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to discard the changes you have made? </span>
-		<Button
-			wrapperClasses="self-start"
-			variant="default"
-			size="xs"
-			on:click={() => {
-				if (!savedScript || !script) {
-					return
-				}
-				unsavedModalOpen = false
-				closeAnyway = true
-				displayEditor = false
-				diffDrawer?.openDrawer()
-				diffDrawer?.setDiff({
-					title: 'Saved <> Current',
-					mode: 'simple',
-					original: savedScript,
-					current: script,
-					button: {
-						text: 'Close anyway',
-						onClick: () => {
-							closeAnyway = true
-							diffDrawer?.closeDrawer()
-						}
-					}
-				})
-			}}
-			>Show diff
-		</Button>
-	</div>
-</ConfirmationModal>
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <Drawer
@@ -230,6 +188,54 @@
 		checkForUnsavedChanges()
 	}}
 >
+	<!-- Inside the portalled drawer: rendered where this component is mounted, the modal is trapped
+	     under it by any positioned ancestor with its own z-index (the flow editor's split panes),
+	     and the drawer cannot be closed. -->
+	<ConfirmationModal
+		open={unsavedModalOpen}
+		title="Unsaved changes detected"
+		confirmationText="Discard changes"
+		on:canceled={() => {
+			unsavedModalOpen = false
+		}}
+		on:confirmed={() => {
+			closeAnyway = true
+			unsavedModalOpen = false
+			scriptEditorDrawer?.closeDrawer()
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>Are you sure you want to discard the changes you have made? </span>
+			<Button
+				wrapperClasses="self-start"
+				variant="default"
+				unifiedSize="xs"
+				on:click={() => {
+					if (!savedScript || !script) {
+						return
+					}
+					unsavedModalOpen = false
+					closeAnyway = true
+					displayEditor = false
+					diffDrawer?.openDrawer()
+					diffDrawer?.setDiff({
+						title: 'Saved <> Current',
+						mode: 'simple',
+						original: savedScript,
+						current: script,
+						button: {
+							text: 'Close anyway',
+							onClick: () => {
+								closeAnyway = true
+								diffDrawer?.closeDrawer()
+							}
+						}
+					})
+				}}
+				>Show diff
+			</Button>
+		</div>
+	</ConfirmationModal>
 	<DrawerContent
 		title="Script Editor"
 		noPadding
@@ -344,17 +350,17 @@
 />
 
 <Drawer bind:this={settingsDrawer} size="600px">
-	<DrawerContent title="Script settings" on:close={() => settingsDrawer?.closeDrawer()}>
+	<DrawerContent title="Runtime settings" on:close={() => settingsDrawer?.closeDrawer()}>
 		{#if script}
 			<div class="flex flex-col gap-4">
 				<p class="text-xs text-secondary">
 					These runtime settings are saved together with the script when you press Save.
 				</p>
-				<ScriptAdvancedSettings {script} workspaceId={opWs} />
+				<ScriptRuntimeSettings {script} workspaceId={opWs} />
 			</div>
 		{/if}
 		{#snippet actions()}
-			<Button variant="border" on:click={() => settingsDrawer?.closeDrawer()}>Done</Button>
+			<Button variant="default" on:click={() => settingsDrawer?.closeDrawer()}>Done</Button>
 		{/snippet}
 	</DrawerContent>
 </Drawer>

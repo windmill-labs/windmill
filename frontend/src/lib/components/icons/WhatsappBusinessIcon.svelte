@@ -8,7 +8,13 @@
 </script>
 
 <!-- #25D366 on both themes per WhatsApp's Digital_Glyph_Green_RGB_2026.svg, shipped by whatsapp.com/business (→ whatsappbusiness.com). "You shouldn't modify any colors in our logos." -->
-<svg {width} {height} viewBox="0 0 720 720" fill="#25D366" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-32.727 -32.727 785.455 785.455"
+	fill="#25D366"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		d="M360,0C161.18,0,0,161.18,0,360c0,65.41,17.45,126.75,47.94,179.61L0,720l187.02-44.21c51.34,28.18,110.28,44.21,172.98,44.21,198.82,0,360-161.18,360-360S558.82,0,360,0ZM360,655.52c-60.17,0-116.13-17.98-162.82-48.87l-110.49,28.14,30.99-105.61c-33.53-47.93-53.2-106.26-53.2-169.19,0-163.21,132.31-295.52,295.52-295.52s295.52,132.31,295.52,295.52-132.31,295.52-295.52,295.52Z"
 	/>

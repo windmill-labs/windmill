@@ -7,7 +7,7 @@
 
 	interface Props {
 		label: string
-		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | undefined
+		lang?: SupportedLanguage | 'docker' | 'javascript' | 'claudesandbox' | 'pisandbox' | undefined
 		selected?: boolean
 		eeRestricted: boolean
 		enterpriseLangs?: string[]

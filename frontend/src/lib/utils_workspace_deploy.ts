@@ -21,6 +21,12 @@ import {
 	WorkspaceService,
 	type User
 } from '$lib/gen'
+import type { UserDraftItemKind } from '$lib/gen'
+import { get } from 'svelte/store'
+import { userWorkspaces } from '$lib/stores'
+import { capabilitiesIn } from '$lib/roleCapabilities'
+import { roleCanAuthor } from '$lib/editRights'
+import type { ProtectionRuleset, RoleCapabilities } from '$lib/gen'
 import {
 	fetchProtectionRulesForWorkspace,
 	canUserBypassRuleKindInRulesets
@@ -180,17 +186,13 @@ export type AppIdentity = { email: string; permissionedAs: string }
 export type DeployConflict = { hit: boolean }
 
 /**
- * `deployItem` overrides only the email half of the identity, while the body it builds
- * spreads the *source* item — which carries the source workspace's permissioned_as, valid
- * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
- * with the picked user's principal for a custom choice, and cleared otherwise so the
- * backend derives the target's own from the email it is given. The shared `deployItem`
- * clears it too, but this app consumes the published package, so the clear has to exist
- * on both sides until that version ships.
+ * `deployItem` takes the identity only as an email and clears the source workspace's
+ * principal, leaving the backend to derive the target's own from that email. When the user
+ * picked a specific user, their principal is known here, so it is stamped on the body: on a
+ * flow or script directly, and inside the `policy` for an app, which holds both halves.
  */
 function makeProvider(
 	onBehalfOfPrincipal?: string,
-	appIdentity?: AppIdentity,
 	/**
 	 * Refuse the writes the shared `deployItem` reaches for only when the item already exists in
 	 * the target, turning its silent switch to an update into a failure the caller can act on.
@@ -198,12 +200,17 @@ function makeProvider(
 	 * outright, and a script is given the target's head as `parent_hash`, which is what makes an
 	 * otherwise identical `createScript` an update.
 	 */
-	conflict?: DeployConflict
+	conflict?: DeployConflict,
+	/** See `DeployItemParams.skipCiTests`. */
+	skipCiTests?: boolean
 ): DeployProvider {
-	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({
-		...requestBody,
-		on_behalf_of: onBehalfOfPrincipal
-	})
+	const ci = skipCiTests ? { skipCiTests: true } : {}
+	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T =>
+		onBehalfOfPrincipal ? { ...requestBody, on_behalf_of: onBehalfOfPrincipal } : requestBody
+	const withPolicyIdentity = <T extends Record<string, any>>(app: T): T =>
+		onBehalfOfPrincipal && app.policy
+			? { ...app, policy: { ...app.policy, on_behalf_of: onBehalfOfPrincipal } }
+			: app
 	const refuseUpdate = (): never => {
 		if (conflict) conflict.hit = true
 		throw new Error('item already exists in the target workspace')
@@ -218,38 +225,45 @@ function makeProvider(
 		existsFolder: (p) => FolderService.existsFolder(p),
 		getFlowByPath: (p) => FlowService.getFlowByPath(p),
 		createFlow: (p) =>
-			FlowService.createFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+			FlowService.createFlow({ ...p, ...ci, requestBody: withPermissionedAs(p.requestBody) }),
 		updateFlow: (p) =>
 			conflict
 				? refuseUpdate()
-				: FlowService.updateFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+				: FlowService.updateFlow({
+						...p,
+						...ci,
+						requestBody: withPermissionedAs(p.requestBody)
+					}),
 		archiveFlowByPath: (p) => FlowService.archiveFlowByPath(p),
 		getScriptByPath: (p) => ScriptService.getScriptByPath(p),
 		createScript: (p) =>
 			conflict && p.requestBody.parent_hash
 				? refuseUpdate()
-				: ScriptService.createScript({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+				: ScriptService.createScript({
+						...p,
+						...ci,
+						requestBody: withPermissionedAs(p.requestBody)
+					}),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
-		// An app's identity lives in its policy, and the shared deploy forwards the source policy
-		// untouched — it only turns `onBehalfOf` into `preserve_on_behalf_of: true`. Rewriting the
-		// policy on the way out is therefore the only way a chosen identity reaches the target; the
-		// backend honours it (`should_preserve` requires `policy.on_behalf_of.is_some()`).
-		getAppByPath: async (p) => {
-			const app = await AppService.getAppByPath(p)
-			if (!appIdentity) return app
-			return {
-				...app,
-				policy: {
-					...app.policy,
-					on_behalf_of: appIdentity.permissionedAs,
-					on_behalf_of_email: appIdentity.email
-				}
-			}
-		},
-		createApp: (p) => AppService.createApp(p),
-		updateApp: (p) => (conflict ? refuseUpdate() : AppService.updateApp(p)),
-		createAppRaw: (p) => AppService.createAppRaw(p),
-		updateAppRaw: (p) => (conflict ? refuseUpdate() : AppService.updateAppRaw(p)),
+		getAppByPath: (p) => AppService.getAppByPath(p),
+		createApp: (p) =>
+			AppService.createApp({ ...p, requestBody: withPolicyIdentity(p.requestBody) }),
+		updateApp: (p) =>
+			conflict
+				? refuseUpdate()
+				: AppService.updateApp({ ...p, requestBody: withPolicyIdentity(p.requestBody) }),
+		createAppRaw: (p) =>
+			AppService.createAppRaw({
+				...p,
+				formData: { ...p.formData, app: withPolicyIdentity(p.formData.app) }
+			}),
+		updateAppRaw: (p) =>
+			conflict
+				? refuseUpdate()
+				: AppService.updateAppRaw({
+						...p,
+						formData: { ...p.formData, app: withPolicyIdentity(p.formData.app) }
+					}),
 		getPublicSecretOfLatestVersionOfApp: (p) => AppService.getPublicSecretOfLatestVersionOfApp(p),
 		getRawAppData: (p) => AppService.getRawAppData(p),
 		deleteApp: (p) => AppService.deleteApp(p),
@@ -258,8 +272,8 @@ function makeProvider(
 		updateVariable: (p) => VariableService.updateVariable(p),
 		deleteVariable: (p) => VariableService.deleteVariable(p),
 		getResource: (p) => ResourceService.getResource(p),
-		createResource: (p) => ResourceService.createResource(p),
-		updateResource: (p) => ResourceService.updateResource(p),
+		createResource: (p) => ResourceService.createResource({ ...p, ...ci }),
+		updateResource: (p) => ResourceService.updateResource({ ...p, ...ci }),
 		deleteResource: (p) => ResourceService.deleteResource(p),
 		getResourceType: (p) => ResourceService.getResourceType(p),
 		createResourceType: (p) => ResourceService.createResourceType(p),
@@ -273,7 +287,7 @@ function makeProvider(
 		existsTriggerByKind: (kind, p) => triggerServiceFor(kind).exists(p),
 		getTriggerForDeploy: async (kind, p) => {
 			// Reuses the existing per-kind transform map (e.g. GCP wipes
-			// subscription_id and computes base_endpoint from window.location).
+			// subscription_id and computes base_endpoint for this instance).
 			// Operational-state strip is applied by the shared `deployItem`
 			// after this returns.
 			const { data } = await getTriggersDeployData(
@@ -343,6 +357,17 @@ export interface DeployItemParams {
 	 * between the two probes. The result then carries `conflict`.
 	 */
 	createOnly?: boolean
+	/**
+	 * Root URL of the instance `workspaceTo` lives on, when the deploy crosses instances. Only what
+	 * a payload must state about where it landed needs it — a GCP or Azure push trigger's endpoint.
+	 */
+	targetBaseUrl?: string
+	/**
+	 * Hold back the CI tests this deploy would queue. A caller deploying several items in a row
+	 * sets it and queues them once with `triggerCiTestsForBatch` after the last one; nothing else
+	 * queues them.
+	 */
+	skipCiTests?: boolean
 }
 
 /**
@@ -361,7 +386,9 @@ export async function deployItem(
 		additionalInformation,
 		onBehalfOf,
 		onBehalfOfPrincipal,
-		createOnly
+		createOnly,
+		targetBaseUrl,
+		skipCiTests
 	} = params
 
 	if (kind === 'trigger') {
@@ -380,7 +407,8 @@ export async function deployItem(
 				additionalInformation.triggers.kind,
 				path,
 				workspaceFrom,
-				onBehalfOf
+				onBehalfOf,
+				targetBaseUrl
 			)
 			if (alreadyExists) {
 				// Strip operational state so the update doesn't flip the target's
@@ -400,13 +428,9 @@ export async function deployItem(
 		}
 	}
 
-	const appIdentity =
-		(kind === 'app' || kind === 'raw_app') && onBehalfOf && onBehalfOfPrincipal
-			? { email: onBehalfOf, permissionedAs: onBehalfOfPrincipal }
-			: undefined
 	const conflict: DeployConflict | undefined = createOnly ? { hit: false } : undefined
 	const result = await sharedDeployItem(
-		makeProvider(onBehalfOfPrincipal, appIdentity, conflict),
+		makeProvider(onBehalfOfPrincipal, conflict, skipCiTests),
 		kind as DeployKind,
 		path,
 		workspaceFrom,
@@ -414,6 +438,31 @@ export async function deployItem(
 		onBehalfOf
 	)
 	return conflict?.hit ? { ...result, conflict: true } : result
+}
+
+const CI_TEST_BATCH_POLL_MS = 2000
+const CI_TEST_BATCH_MAX_WAIT_MS = 10 * 60 * 1000
+
+/**
+ * Queue the CI tests of items deployed with `skipCiTests`, once the server reports none of
+ * them is still being locked; after `CI_TEST_BATCH_MAX_WAIT_MS` they are queued regardless,
+ * so a stuck lock job cannot leave the batch untested.
+ */
+export async function triggerCiTestsForBatch(
+	workspace: string,
+	items: { kind: 'script' | 'flow' | 'resource'; path: string }[]
+): Promise<string[]> {
+	if (items.length === 0) return []
+	const deadline = Date.now() + CI_TEST_BATCH_MAX_WAIT_MS
+	while (true) {
+		const ignorePending = Date.now() >= deadline
+		const res = await ScriptService.triggerCiTestsBatch({
+			workspace,
+			requestBody: { items, ignore_pending: ignorePending }
+		})
+		if (res.pending.length === 0 || ignorePending) return res.job_ids
+		await new Promise((r) => setTimeout(r, CI_TEST_BATCH_POLL_MS))
+	}
 }
 
 /**
@@ -547,6 +596,17 @@ export async function getOnBehalfOf(
 			return undefined
 		}
 	}
+	if (kind === 'resource') {
+		// Only an agent runs as anyone, and like a trigger it records the principal.
+		try {
+			const resource = await ResourceService.getResource({ workspace, path })
+			return resource.resource_type === 'ai_agent'
+				? (resource.value as { on_behalf_of?: string } | undefined)?.on_behalf_of
+				: undefined
+		} catch {
+			return undefined
+		}
+	}
 	return sharedGetOnBehalfOf(makeProvider(), kind as DeployKind, path, workspace)
 }
 
@@ -648,7 +708,7 @@ export type CreateFolderResult = DeployResult & {
  *    principal's existence at item-create time, so the folder would be created and then reject
  *    every deploy into it, including the retry.
  *
- * `default_permissioned_as` and `labels` are carried at all, which the shared folder deploy drops.
+ * `default_permissioned_as` is carried at all, which the shared folder deploy drops.
  */
 export async function createFolderIfAbsent(
 	name: string,
@@ -677,6 +737,7 @@ export async function createFolderIfAbsent(
 			workspace: workspaceTo,
 			requestBody: {
 				name,
+				display_name: folder.display_name,
 				owners: owners.map(translate).filter((p): p is string => !!p),
 				extra_perms: Object.fromEntries(
 					acl.flatMap(([p, write]) => {
@@ -703,44 +764,210 @@ export async function createFolderIfAbsent(
 	}
 }
 
-export type DeployPermission = { ok: boolean; reason?: string }
+/** Which term refused, so a caller can scope a refusal the server applies to only some kinds. */
+export type DeployRefusal = 'operator' | 'DisableDirectDeployment' | 'RestrictDeployToDeployers'
+
+export type DeployPermission = { ok: boolean; reason?: string; refusedBy?: DeployRefusal }
+
+// The server reaches `check_deploy_rules` from the item handlers, and only these kinds call it
+// (windmill-api-{scripts,flows,groups}, windmill-api/src/apps.rs, windmill-store/src/{resources,
+// variables}.rs). Schedules and triggers hit no gate at all, so a protection rule must not
+// disable them here. Exhaustive by construction: a new `Kind` fails to compile without a verdict.
+const KIND_GATED_BY_DEPLOY_RULES: Record<Kind, boolean> = {
+	script: true,
+	flow: true,
+	app: true,
+	raw_app: true,
+	resource: true,
+	resource_type: true,
+	variable: true,
+	folder: true,
+	schedule: false,
+	http_trigger: false,
+	websocket_trigger: false,
+	kafka_trigger: false,
+	nats_trigger: false,
+	postgres_trigger: false,
+	mqtt_trigger: false,
+	amqp_trigger: false,
+	sqs_trigger: false,
+	gcp_trigger: false,
+	azure_trigger: false,
+	email_trigger: false,
+	datatable_migration: false,
+	trigger: false,
+	// Deploying a pipeline deploys its scripts.
+	data_pipeline: true
+}
+
+// Every gated kind is spelled identically in `Kind` and `UserDraftItemKind`, so one lookup serves
+// both taxonomies and the drafts surface needs no bridge. The kinds whose spellings diverge
+// (`trigger_http` vs `http_trigger`) are exactly the ungated ones — so if a trigger kind ever
+// becomes gated server-side, it needs its draft spelling added here too.
+const GATED_KIND_NAMES = new Set(
+	Object.entries(KIND_GATED_BY_DEPLOY_RULES)
+		.filter(([, gated]) => gated)
+		.map(([kind]) => kind)
+)
+
+export function kindGatedByDeployRules(kind: Kind | UserDraftItemKind): boolean {
+	return GATED_KIND_NAMES.has(kind)
+}
+
+// The kinds whose item handlers refuse a role per kind (`check_role_can_code`,
+// `check_operator_can_build`, `require_full_apps`). `checkDeployPermission` only asks for `code`,
+// so a role that codes but cannot author flows or apps is caught here.
+const ROLE_GATED_KINDS = new Set<string>(['script', 'flow', 'app', 'raw_app', 'data_pipeline'])
+
+function roleRefusal(
+	kind: Kind | UserDraftItemKind,
+	caps: RoleCapabilities
+): DeployPermission | undefined {
+	if (
+		!ROLE_GATED_KINDS.has(kind) ||
+		roleCanAuthor(kind === 'data_pipeline' ? 'script' : kind, caps)
+	)
+		return undefined
+	return {
+		ok: false,
+		reason: `Your role in this workspace can't deploy ${kind.replace('_', ' ')}s`,
+		refusedBy: 'operator'
+	}
+}
 
 /**
- * Whether the current user may deploy into `workspace`. Mirrors the server-side
- * deploy authorization (`check_user_against_rule` in windmill-common) so the UI
- * can disable the action with a reason instead of letting the click 403:
- *  - operators can never deploy;
- *  - when the `RestrictDeployToDeployers` protection rule is active, only
- *    admins, `wm_deployers` members (implicitly), and per-ruleset bypass
- *    users/groups may deploy.
- * Fails open on any error — the server still enforces on the actual deploy.
- * Shared by the session dock and the compare page so both gate identically.
+ * Narrow a workspace-level refusal to one item kind. Only the direct-deployment term is scoped:
+ * the deployers-only term over-reaches the same way, but it does so on `main` too, and loosening
+ * it here would change behaviour beyond mirroring the server.
  */
-export async function checkDeployPermission(
+export function deployPermissionForKind(
+	perm: DeployPermission,
+	kind: Kind | UserDraftItemKind,
+	caps?: RoleCapabilities
+): DeployPermission {
+	const refusal = caps && roleRefusal(kind, caps)
+	if (refusal) return refusal
+	if (perm.ok) return perm
+	if (perm.refusedBy === 'DisableDirectDeployment' && !kindGatedByDeployRules(kind)) {
+		return { ok: true }
+	}
+	return perm
+}
+
+/** The refusal a bulk action carries: it applies as soon as one selected kind is still refused. */
+export function deployPermissionForKinds(
+	perm: DeployPermission,
+	kinds: (Kind | UserDraftItemKind)[],
+	caps?: RoleCapabilities
+): DeployPermission {
+	const refusal = caps && kinds.map((k) => roleRefusal(k, caps)).find((r) => r)
+	if (refusal) return refusal
+	if (perm.ok) return perm
+	// An empty selection keeps the workspace-level refusal, which is then the only thing left
+	// to say why the action is unavailable.
+	if (kinds.length === 0) return perm
+	return kinds.some((k) => !deployPermissionForKind(perm, k).ok) ? perm : { ok: true }
+}
+
+/**
+ * The workspace's deploy-protection rules alone. Mirrors `check_deploy_rules` in
+ * windmill-common so the UI can disable the action with a reason instead of letting the
+ * click 403: `DisableDirectDeployment` is evaluated before `RestrictDeployToDeployers`, so
+ * the same message wins here as on the server when both block; admins and superadmins bypass
+ * both rules, while `wm_deployers` members bypass only the latter.
+ *
+ * Separate from `checkDeployPermission`, which adds a blanket operator refusal: the server
+ * refuses operators per kind, in the item handlers, not in these rules.
+ *
+ * Fails open on any error — the server still enforces on the actual deploy.
+ */
+export async function checkDeployRules(
 	workspace: string,
-	/** Pre-fetched `whoami` for `workspace`, to save a round trip when the caller already has one. */
-	whoami?: User
+	/** Pre-fetched identity for `workspace`, to save a round trip. Narrowed to the fields
+	 * read so a caller holding a `UserExt` can pass it without a cast. */
+	whoami?: Pick<User, 'is_admin' | 'is_super_admin' | 'username' | 'groups'>,
+	/** Pre-fetched protection rules for `workspace`, to save another. */
+	knownRulesets?: ProtectionRuleset[]
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
-		if (me.operator) {
-			return { ok: false, reason: "You're an operator in this workspace — operators can't deploy" }
+		const userInfo = {
+			is_admin: !!me.is_admin,
+			is_super_admin: !!me.is_super_admin,
+			username: me.username,
+			groups: me.groups ?? []
 		}
-		// Admins and wm_deployers members always satisfy RestrictDeployToDeployers
-		// (the backend allows wm_deployers implicitly, so check it before the
-		// per-ruleset bypass_users/bypass_groups fallback).
-		const isDeployer = me.is_admin || (me.groups ?? []).includes('wm_deployers')
-		if (!isDeployer) {
-			const rulesets = await fetchProtectionRulesForWorkspace(workspace)
-			const userInfo = { is_admin: !!me.is_admin, username: me.username, groups: me.groups ?? [] }
-			if (!canUserBypassRuleKindInRulesets(rulesets, 'RestrictDeployToDeployers', userInfo)) {
+		// A superadmin who is only a plain member of the workspace still bypasses every rule,
+		// so dropping either term here refuses a deploy the server accepts.
+		if (!userInfo.is_admin && !userInfo.is_super_admin) {
+			const rulesets = knownRulesets ?? (await fetchProtectionRulesForWorkspace(workspace))
+			if (!canUserBypassRuleKindInRulesets(rulesets, 'DisableDirectDeployment', userInfo)) {
+				// The reserved dev-workspace lock carries DisableWorkspaceForking alongside this rule,
+				// so suggesting a fork unconditionally would point at a second blocked action.
+				const canFork = canUserBypassRuleKindInRulesets(
+					rulesets,
+					'DisableWorkspaceForking',
+					userInfo
+				)
+				const advice = canFork
+					? 'fork the workspace or open a pull request'
+					: 'make your changes locally and open a pull request'
 				return {
 					ok: false,
-					reason: 'Only workspace admins and members of wm_deployers can deploy here'
+					reason: `Direct deployment to ${workspace} is disabled — ${advice}`,
+					refusedBy: 'DisableDirectDeployment'
+				}
+			}
+			// `wm_deployers` membership is an implicit pass on this rule only, so it cannot
+			// short-circuit the fetch above the way admin does.
+			const isDeployer = userInfo.groups.includes('wm_deployers')
+			if (
+				!isDeployer &&
+				!canUserBypassRuleKindInRulesets(rulesets, 'RestrictDeployToDeployers', userInfo)
+			) {
+				return {
+					ok: false,
+					reason: `Only workspace admins and members of wm_deployers can deploy to ${workspace}`,
+					refusedBy: 'RestrictDeployToDeployers'
 				}
 			}
 		}
 		return { ok: true }
+	} catch {
+		return { ok: true }
+	}
+}
+
+/**
+ * Whether the current user may deploy into `workspace` at all: the protection rules above,
+ * plus a refusal of every role without `code`.
+ *
+ * That refusal is not part of the `check_deploy_rules` mirror. The server refuses such roles
+ * in the item handlers instead, and for fewer kinds, so refusing them for everything here is
+ * deliberately stricter than the server rather than a faithful copy of it. A caller mirroring
+ * one handler wants `checkDeployRules`.
+ *
+ * Shared by the session dock and the compare page so both gate identically.
+ */
+export async function checkDeployPermission(
+	workspace: string,
+	whoami?: Pick<User, 'operator' | 'is_admin' | 'is_super_admin' | 'username' | 'groups'>
+): Promise<DeployPermission> {
+	try {
+		const me = whoami ?? (await UserService.whoami({ workspace }))
+		if (
+			!capabilitiesIn(
+				me,
+				get(userWorkspaces).find((w) => w.id === workspace)
+			).code
+		) {
+			return {
+				ok: false,
+				reason: "Your role in this workspace can't deploy",
+				refusedBy: 'operator'
+			}
+		}
+		return await checkDeployRules(workspace, me)
 	} catch {
 		return { ok: true }
 	}
@@ -758,11 +985,13 @@ export async function checkDeployPermission(
 export async function checkPathWritePermission(
 	workspace: string,
 	path: string,
-	me: Pick<User, 'is_admin' | 'username' | 'folders'>,
+	me: Pick<User, 'is_admin' | 'is_super_admin' | 'username' | 'folders'>,
 	folderExists: (folderPath: string) => Promise<boolean> = (folderPath) =>
 		checkItemExists('folder', folderPath, workspace)
 ): Promise<DeployPermission> {
-	if (me.is_admin) return { ok: true }
+	// The server's `is_owner` reads `ApiAuthed.is_admin`, the merged `is_admin || super_admin`,
+	// so a superadmin owns every path here whether or not they own the folder.
+	if (me.is_admin || me.is_super_admin) return { ok: true }
 	const owner = path.match(/^u\/([^/]+)\//)?.[1]
 	if (owner) {
 		return owner === me.username
@@ -813,7 +1042,8 @@ export async function checkItemDeployAccess(
 		permission: workspaceLevel.ok
 			? await checkPathWritePermission(workspace, path, me)
 			: workspaceLevel,
-		canPreserveOnBehalfOf: me.is_admin || (me.groups ?? []).includes('wm_deployers'),
+		canPreserveOnBehalfOf:
+			me.is_admin || me.is_super_admin || (me.groups ?? []).includes('wm_deployers'),
 		me: { email: me.email, permissionedAs: `u/${me.username}` }
 	}
 }

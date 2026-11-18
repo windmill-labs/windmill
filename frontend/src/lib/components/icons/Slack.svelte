@@ -8,7 +8,13 @@
 </script>
 
 <!-- #E01E5A / #36C5F0 / #2EB67D / #ECB22E per slack.com's own nav logo (a.slack-edge.com/38f0e7c/marketing/img/nav/logo.svg, linked from slack.com/media-kit). Fixed full-colour mark, no per-theme variant. -->
-<svg {width} {height} viewBox="0 0 512 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-23.273 -23.273 558.545 558.545"
+	fill="currentColor"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		d="M107.9 323.6c0 29.7-24 53.8-53.8 53.8S.3 353.4.3 323.6c0-29.7 24-53.8 53.8-53.8h53.8zm26.9 0c0-29.7 24-53.8 53.8-53.8s53.8 24 53.8 53.8V458c0 29.7-24 53.8-53.8 53.8s-53.8-24-53.8-53.8z"
 		style="fill:#e01e5a"

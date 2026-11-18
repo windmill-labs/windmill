@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { createToolDef, type Tool, type ToolCallbacks } from '../shared'
+import { createToolDef, type ToolCallbacks } from '../shared'
+import { NONE, type SessionTool } from '../sessionCapabilities'
 import { artifactOverflowBytes, MAX_ARTIFACT_BYTES, normalizeChangeNote } from './artifactLimits'
 import {
 	currentVersion,
@@ -98,8 +99,9 @@ function targetsPlan(args: unknown, h: ArtifactToolHelpers): boolean {
 	)
 }
 
-export const artifactTools: Tool<{}>[] = [
+export const artifactTools: SessionTool<{}>[] = [
 	{
+		requires: NONE,
 		def: createToolDef(
 			createArtifactSchema,
 			'create_artifact',
@@ -156,6 +158,7 @@ export const artifactTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			updateArtifactSchema,
 			'update_artifact',
@@ -208,6 +211,7 @@ export const artifactTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			listArtifactsSchema,
 			'list_artifacts',
@@ -242,6 +246,7 @@ export const artifactTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			readArtifactSchema,
 			'read_artifact',
@@ -303,6 +308,7 @@ export const artifactTools: Tool<{}>[] = [
 		}
 	},
 	{
+		requires: NONE,
 		def: createToolDef(
 			listArtifactVersionsSchema,
 			'list_artifact_versions',

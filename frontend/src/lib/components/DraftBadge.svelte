@@ -1,3 +1,14 @@
+<script lang="ts" module>
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	// Its AI review reaches the AI clients, which a list of rows must not load to render.
+	const diffDrawerModule = lazyModule(() => import('./DiffDrawer.svelte'))
+
+	// Admin flag per `email:workspace`, for a badge describing a workspace other than the one
+	// `$userStore` was fetched for. Shared so a list of badges asks once.
+	const adminInWorkspace = new Map<string, Promise<boolean>>()
+</script>
+
 <script lang="ts">
 	/**
 	 * Home-page draft badge with per-user initial circles. Hover popover lists
@@ -8,17 +19,21 @@
 	 */
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
+	import { userColorClass, userInitials } from './userInitials'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
-	import DiffDrawer from './DiffDrawer.svelte'
+	import type DiffDrawer from './DiffDrawer.svelte'
+	import { tick } from 'svelte'
 	import MigrateLegacyDraftModal from './common/confirmationModal/MigrateLegacyDraftModal.svelte'
-	import { GitCompareArrows, Pencil, Wrench } from 'lucide-svelte'
-	import { DraftService, type UserDraftItemKind } from '$lib/gen'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import { GitCompareArrows, Pencil, Trash2, Wrench } from 'lucide-svelte'
+	import { DraftService, UserService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { goto } from '$lib/navigation'
 	import { OtherUserDraftLoad, editRouteFor } from '$lib/components/otherUserDraftLoad.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
-	import { userStore } from '$lib/stores'
+	import { roleCapabilities, userStore } from '$lib/stores'
+	import { roleCanAuthor } from '$lib/editRights'
+	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 	type DraftUser = { username?: string | null }
 
@@ -32,8 +47,9 @@
 		workspace?: string
 		itemKind?: UserDraftItemKind
 		path?: string
-		/** Called after an admin migrates (deletes / assigns) the legacy draft, so
-		 *  the parent row can refetch and drop the now-resolved legacy entry. */
+		/** Called after an admin migrates (deletes / assigns) the legacy draft or
+		 *  discards another user's draft, so the parent row can refetch and drop
+		 *  the resolved entry. */
 		onMigrated?: () => void
 		/** Offer "Load" alongside "View Diff" on other users' rows. The deploy /
 		 * review page sets this false: loading into a fresh editor is moot there. */
@@ -42,6 +58,9 @@
 		 * slightly smaller — for tight spots like the diff-tree sidebar. The hover
 		 * popover is unchanged. */
 		iconOnly?: boolean
+		/** The `resource` draft is an AI agent's, which has an editor of its own and is authored
+		 *  under the flow right rather than the resource one. */
+		agent?: boolean
 	}
 
 	let {
@@ -54,7 +73,8 @@
 		path = undefined,
 		onMigrated = undefined,
 		allowFork = true,
-		iconOnly = false
+		iconOnly = false,
+		agent = false
 	}: Props = $props()
 
 	// Authed user lands first; everyone else keeps the backend's ordering.
@@ -67,35 +87,16 @@
 		return [self, ...rest]
 	})
 
-	/** Two-letter initials; `john.doe` → `JD`, `alice` → `AL`, no username → `?`. */
 	function initials(u: DraftUser): string {
-		const name = u.username
-		if (!name) return '?'
-		const parts = name.split(/[._\-\s]+/).filter(Boolean)
-		if (parts.length >= 2) {
-			return (parts[0][0] + parts[1][0]).toUpperCase()
-		}
-		return name.slice(0, 2).toUpperCase()
+		return userInitials(u.username)
 	}
 
 	function fullLabel(u: DraftUser): string {
 		return u.username ?? 'Legacy workspace draft'
 	}
 
-	// Deterministic color per username, same circle across rows.
-	const PALETTE = [
-		'bg-blue-500',
-		'bg-emerald-500',
-		'bg-amber-500',
-		'bg-rose-500',
-		'bg-violet-500',
-		'bg-cyan-500'
-	]
 	function colorFor(u: DraftUser): string {
-		const name = u.username ?? ''
-		let hash = 0
-		for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
-		return PALETTE[hash % PALETTE.length]
+		return userColorClass(u.username)
 	}
 
 	// First 3 circles when ≤3 users; first 2 + "+N" overflow when 4+. Sliced from
@@ -116,9 +117,24 @@
 
 	// Inline actions need full context to fetch and fork drafts.
 	const actionsEnabled = $derived(!!workspace && !!itemKind && !!path && draft_users.length > 0)
+	// The editors these open are the full ones, which a role without code cannot use.
+	const canOpenEditor = $derived(
+		agent
+			? roleCanAuthor('agent', $roleCapabilities)
+			: !!itemKind && $roleCapabilities.code && roleCanAuthor(itemKind, $roleCapabilities)
+	)
+	const editHref = $derived(
+		!itemKind || !path ? undefined : agent ? `/agents/edit/${path}` : editRouteFor(itemKind, path)
+	)
 
 	const kindLabel = $derived(
-		itemKind === 'flow' ? 'flow' : itemKind === 'app' || itemKind === 'raw_app' ? 'app' : 'script'
+		agent
+			? 'agent'
+			: itemKind === 'flow'
+				? 'flow'
+				: itemKind === 'app' || itemKind === 'raw_app'
+					? 'app'
+					: 'script'
 	)
 
 	// "Only you can see this {kind}" — true when the authed user owns the
@@ -139,6 +155,69 @@
 
 	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins.
 	const canMigrateLegacy = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
+	// Discarding another user's draft is `drafts/delete_for_user`, admin-only in `workspace`.
+	// `$userStore` describes the navigation workspace, and the review page can show another
+	// one, whose admin flag is read from its own whoami. Superadmin is global.
+	let adminElsewhere = $state<{ key: string; admin: boolean } | undefined>(undefined)
+	const elsewhereKey = $derived(
+		actionsEnabled &&
+			workspace &&
+			$userStore &&
+			!$userStore.is_super_admin &&
+			$userStore.workspace_id !== workspace
+			? `${$userStore.email}:${workspace}`
+			: undefined
+	)
+	$effect(() => {
+		const key = elsewhereKey
+		if (!key || !workspace) return
+		let request = adminInWorkspace.get(key)
+		if (!request) {
+			request = UserService.whoami({ workspace })
+				.then((u) => !!u.is_admin)
+				.catch(() => false)
+			adminInWorkspace.set(key, request)
+		}
+		void request.then((admin) => {
+			if (elsewhereKey === key) adminElsewhere = { key, admin }
+		})
+	})
+	const canDiscardOthers = $derived(
+		!!$userStore?.is_super_admin ||
+			($userStore?.workspace_id === workspace
+				? !!$userStore?.is_admin
+				: adminElsewhere?.key === elsewhereKey && !!adminElsewhere?.admin)
+	)
+
+	let discardTarget = $state<DraftUser | undefined>(undefined)
+	let discardBusy = $state(false)
+	// Their draft is the last one of a never-deployed item: discarding it deletes the item.
+	const discardDeletesItem = $derived(
+		draft_only && draft_users.every((u) => ownerKey(u) === ownerKey(discardTarget ?? {}))
+	)
+
+	async function discardDraft() {
+		const owner = discardTarget
+		if (!owner?.username || !workspace || !itemKind || !path) return
+		discardBusy = true
+		try {
+			await DraftService.deleteDraftForUser({
+				workspace,
+				kind: itemKind,
+				path,
+				username: owner.username
+			})
+			sendUserToast(`Discarded ${owner.username}'s draft`)
+		} catch (e: any) {
+			sendUserToast(`Could not discard draft: ${e.body ?? e.message}`, true)
+			return
+		} finally {
+			discardBusy = false
+			discardTarget = undefined
+		}
+		invalidateWorkspaceDrafts(workspace)
+		onMigrated?.()
+	}
 
 	function ownerKey(owner: DraftUser): string {
 		return owner.username ?? '__legacy__'
@@ -164,8 +243,10 @@
 		try {
 			const [draftValue, deployed] = await Promise.all([
 				fetchDraft(owner),
-				fetchDeployedValueForDiff(workspace, itemKind, path)
+				fetchDeployedValueForDiff(workspace, itemKind, path),
+				diffDrawerModule.load()
 			])
+			await tick()
 			// Close the popover so it doesn't render over the drawer.
 			popoverOpen = false
 			diffDrawer?.openDrawer()
@@ -173,7 +254,12 @@
 				mode: 'simple',
 				title: `${fullLabel(owner)}'s draft vs deployed`,
 				original: deployed,
-				current: draftValue as any
+				current: draftValue as any,
+				// Your own draft only: a fix made from the review edits your draft, not theirs.
+				aiReview:
+					currentUsername && owner.username === currentUsername
+						? { workspaceId: workspace, kind: itemKind, path, added: draft_only }
+						: undefined
 			})
 		} catch (e: any) {
 			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
@@ -303,12 +389,12 @@
 								</span>
 								{#if actionsEnabled && isSelf}
 									<!-- Own draft: jump straight into the editor. -->
-									{#if !$userStore?.operator && itemKind && path}
+									{#if canOpenEditor && editHref}
 										<Button
 											variant="subtle"
 											size="xs3"
 											startIcon={{ icon: Pencil }}
-											on:click={() => goto(editRouteFor(itemKind, path))}
+											href={editHref}
 										>
 											Edit
 										</Button>
@@ -326,9 +412,9 @@
 											View Diff
 										</Button>
 									{/if}
-									<!-- Operators can't edit items, so Load is hidden (View Diff stays, it's
-									     read-only). `allowFork=false` (deploy/review page) hides it too. -->
-									{#if allowFork && !$userStore?.operator}
+									<!-- Load is hidden from a role that can't edit the item (View Diff stays,
+									     it's read-only). `allowFork=false` (deploy/review page) hides it too. -->
+									{#if allowFork && canOpenEditor}
 										<Button
 											variant="subtle"
 											size="xs3"
@@ -338,6 +424,21 @@
 											on:click={() => load(u)}
 										>
 											Load
+										</Button>
+									{/if}
+									{#if u.username && canDiscardOthers}
+										<Button
+											variant="subtle"
+											unifiedSize="2xs"
+											destructive
+											startIcon={{ icon: Trash2 }}
+											disabled={busyFor !== null}
+											onclick={() => {
+												popoverOpen = false
+												discardTarget = u
+											}}
+										>
+											Discard
 										</Button>
 									{/if}
 									{#if !u.username && canMigrateLegacy}
@@ -366,8 +467,32 @@
 <!-- Only reachable from the popover's "View Diff", which requires `actionsEnabled`.
      Mounting it unconditionally would put a hidden drawer (portal + effects) on
      every row of unpaginated lists like resources and variables. -->
+{#if actionsEnabled && diffDrawerModule.current}
+	{@const LoadedDiffDrawer = diffDrawerModule.current.default}
+	<LoadedDiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+{/if}
+
 {#if actionsEnabled}
-	<DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+	<ConfirmationModal
+		open={discardTarget !== undefined}
+		title="Discard {discardTarget?.username}'s draft?"
+		confirmationText="Discard"
+		loading={discardBusy}
+		onConfirmed={() => void discardDraft()}
+		onCanceled={() => (discardTarget = undefined)}
+	>
+		<p class="text-sm">
+			This permanently deletes the draft {discardTarget?.username} has at
+			<span class="font-mono font-medium text-primary">{path}</span>. Their unsaved work there is
+			lost and can't be recovered.
+		</p>
+		{#if discardDeletesItem}
+			<p class="text-sm mt-2">
+				This {kindLabel} was never deployed and this is its last draft, so it will be
+				<span class="font-semibold">permanently deleted</span>.
+			</p>
+		{/if}
+	</ConfirmationModal>
 {/if}
 
 {#if workspace && itemKind && path}

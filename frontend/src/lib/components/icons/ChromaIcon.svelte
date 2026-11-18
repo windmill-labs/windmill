@@ -8,7 +8,7 @@
 </script>
 
 <!-- #327EFF / #FFDE2D / #FF6446 per Chroma's own logo SVG served by trychroma.com (chroma-wordmark.svg). -->
-<svg {width} {height} viewBox="0 0 256 164" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-11.636 -57.636 279.273 279.273" xmlns="http://www.w3.org/2000/svg">
 	<g>
 		<ellipse fill="#FFDE2D" cx="170.666795" cy="81.9198362" rx="85.3332053" ry="81.9198362"
 		></ellipse>

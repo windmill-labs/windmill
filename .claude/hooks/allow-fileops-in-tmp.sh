@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # PreToolUse allowance for scratch file ops: auto-allow `mkdir` / `cp` / `mv` / `touch` /
 # `chmod` whose every path operand resolves inside one of the roots `path_class` recognizes —
-# under /tmp, or inside a git working tree under $HOME — and `tar` / `unzip` confined to /tmp.
+# under /tmp, inside a git working tree under $HOME, or in an MCP browser cache — and
+# `tar` / `unzip` confined to /tmp.
 # Anything else makes no decision (exit 0) and falls back to the normal permission flow, except
 # for `mv` and `chmod`: those get an explicit `ask`, the only prompt they get (see
 # lib-guarded-verb.sh).
@@ -28,9 +29,10 @@
 # file there has never prompted, and moving or chmod-ing one is not the graver act.
 #
 # Deny-by-default tokenizing, in the same spirit as guard-rm-outside-tmp.sh: every path token
-# must consist only of alphanumerics and `. _ / -`. That set contains none of the characters
+# must consist only of alphanumerics and `. _ / -`, the one exception being the leading `~/` or
+# `$HOME/` that `expand_home_prefix` rewrites first. That set contains none of the characters
 # bash uses for quoting, expansion, or command separation ($ ` ~ { } ( ) ' " \ ; & | < >), nor
-# any glob character, so all of those forms fail by construction. `realpath -m` then resolves
+# any glob character, so all of those forms fail by construction. `canon_path` then resolves
 # `..` and existing symlinks, so `/tmp/link` pointing at /etc/passwd is caught.
 #
 # `tar` and `unzip` keep the stricter rule — /tmp only, and absolute operands only — because
@@ -52,7 +54,8 @@
 # extracts. The archive itself must be under /tmp to get here, so this is a hazard only for
 # archives fetched from an untrusted source into the scratch dir.
 #
-# Assumes GNU `realpath` (-m) and `jq`, both present in this repo's Linux dev env.
+# Assumes `jq`. Path canonicalization goes through `canon_path`, which covers both the Linux dev
+# env and macOS; with neither backend available it proves nothing and every op falls back.
 set -uo pipefail
 . "${BASH_SOURCE[0]%/*}/lib-guarded-verb.sh"
 
@@ -90,16 +93,17 @@ literal_path() {
 # resolving a relative one against the tracked working directory. Fails, printing nothing,
 # when the token is unsafe to reason about or lands outside every root.
 operand_class() {
-  local t="$1" canon alt cls alt_cls=""
+  local t canon alt cls alt_cls=""
+  t=$(expand_home_prefix "$1")
   literal_path "$t" || return 1
   case "$t" in
-    /*) canon=$(realpath -m -- "$t" 2>/dev/null) ;;
+    /*) canon=$(canon_path "$t") ;;
     *)  # A `cd` may fail at runtime and leave the command where it started, so a relative
         # operand has to land in the same root either way.
         [ -n "$seg_cwd" ] || return 1
-        canon=$(realpath -m -- "$seg_cwd/$t" 2>/dev/null)
+        canon=$(canon_path "$seg_cwd/$t")
         if [ -n "$alt_cwd" ]; then
-          alt=$(realpath -m -- "$alt_cwd/$t" 2>/dev/null)
+          alt=$(canon_path "$alt_cwd/$t")
           [ -n "$alt" ] || return 1
           alt_cls=$(path_class "$alt") || return 1
         fi
@@ -116,13 +120,14 @@ operand_class() {
 # 0 iff the token is charset-safe and resolves to a path strictly inside /tmp. The archive
 # parser's stricter check; everything else goes through operand_class.
 under_tmp() {
-  local t="$1" canon
+  local t canon
+  t=$(expand_home_prefix "$1")
   literal_path "$t" || return 1
   case "$t" in /*) ;; *) return 1 ;; esac
-  canon=$(realpath -m -- "$t" 2>/dev/null)
+  canon=$(canon_path "$t")
   [ -n "$canon" ] || return 1
   # /tmp itself is never a target — only paths strictly inside it.
-  case "$canon" in /tmp/?*) return 0 ;; esac
+  case "$canon" in "$TMP_ROOT"/?*) return 0 ;; esac
   return 1
 }
 
@@ -191,7 +196,7 @@ check_archive_segment() {
 # Proves one `mkdir` / `cp` / `mv` / `touch` / `chmod` segment ($1 = the verb), whose tokens
 # are in SEG_TOKS.
 check_fileops_segment() {
-  local verb="$1" takes_mode ok_opts t cls resolved seen_class=""
+  local verb="$1" takes_mode ok_opts t cls resolved dest seen_class=""
   local path_operand=0 seen_mode=0 end_opts=0 i=1 rel_operand=0
   local -a ops=()
   # Options are an allowlist per command, so anything that changes how symlinks are followed
@@ -233,13 +238,15 @@ check_fileops_segment() {
       continue
     fi
 
-    resolved=$(operand_class "$t") || defer "\`$t\` is outside /tmp and not inside a git checkout in \$HOME"
+    resolved=$(operand_class "$t") || defer "\`$t\` is outside /tmp and the MCP caches, and not inside a git checkout in \$HOME"
     cls="${resolved%%$'\n'*}"
     # Every operand of one operation stays in one root: see the exfiltration note above.
     [ -n "$seen_class" ] && [ "$cls" != "$seen_class" ] && defer "\`$t\` puts this $verb across two roots"
     seen_class="$cls"
     ops+=("${resolved#*$'\n'}")
-    case "$t" in /*) ;; *) rel_operand=1 ;; esac
+    # Against the expanded token, since `~/a` is cwd-independent and only reads as relative
+    # before `expand_home_prefix` has run.
+    case "$(expand_home_prefix "$t")" in /*) ;; *) rel_operand=1 ;; esac
     path_operand=1
   done
 
@@ -260,8 +267,11 @@ check_fileops_segment() {
       # does not exist, while the one it actually ran in is a directory full of symlinks.
       [ -n "$alt_cwd" ] && [ "$rel_operand" = 1 ] \
         && defer "a relative operand after a \`cd\` lands in one of two directories"
-      [ -d "${ops[-1]}" ] \
-        && defer "\`${ops[-1]}\` already exists as a directory, so this $verb writes a path it does not name"
+      # Index arithmetic rather than `${ops[-1]}`: macOS ships bash 3.2, where a negative
+      # subscript is a fatal error and would abort the guard mid-decision.
+      dest="${ops[$((${#ops[@]} - 1))]}"
+      [ -d "$dest" ] \
+        && defer "\`$dest\` already exists as a directory, so this $verb writes a path it does not name"
       ;;
   esac
 }

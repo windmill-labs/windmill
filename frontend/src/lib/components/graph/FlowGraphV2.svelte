@@ -52,10 +52,8 @@
 	import TriggersNode from './renderers/nodes/TriggersNode.svelte'
 	import { Alert, Drawer } from '../common'
 	import Button from '../common/button/Button.svelte'
-	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	import type { TriggerContext } from '../triggers'
-	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
@@ -112,6 +110,9 @@
 		locateModules,
 		areContiguousSiblings
 	} from '../flows/multiSelectUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -192,6 +193,8 @@
 			inlineScript?: InlineScript
 			script?: { path: string; summary: string; hash: string | undefined }
 			flow?: { path: string; summary: string }
+			/** Saved `ai_agent` resource the inserted agent step links to, for `kind: 'aiagent'`. */
+			agentPath?: string
 			kind: InsertKind
 			expandGroup?: { groupId: string; position: 'top' | 'bottom' }
 		}) => Promise<void>
@@ -222,6 +225,8 @@
 		markRemovedAsShadowed?: boolean
 		controlsPosition?: 'top' | 'bottom'
 		outerDivClass?: string
+		/** Frame the whole graph when it appears, for a canvas capped below the graph's height. */
+		fitOnLoad?: boolean
 		/** Fires when the computed graph height changes. Diff views can use
 		 * this to equalize heights of side-by-side graphs. */
 		onHeight?: (height: number) => void
@@ -264,7 +269,7 @@
 		fullSize = false,
 		disableAi = false,
 		triggerNode = false,
-		workspace = $workspaceStore ?? 'NO_WORKSPACE',
+		workspace = $operatingWorkspace ?? 'NO_WORKSPACE',
 		editMode = false,
 		allowSimplifiedPoll = true,
 		expandedSubflows = $bindable({}),
@@ -301,6 +306,7 @@
 		movingIds = undefined,
 		controlsPosition = 'top',
 		outerDivClass = '',
+		fitOnLoad = false,
 		onHeight = undefined
 	}: Props = $props()
 
@@ -378,6 +384,9 @@
 	})
 	$effect(() => {
 		flowRunStatus.suspendStatus = suspendStatus
+	})
+	$effect(() => {
+		flowRunStatus.showsRun = flowModuleStates !== undefined
 	})
 	$effect(() => {
 		// Each step's state object is replaced rather than mutated, so reading the top level
@@ -732,11 +741,9 @@
 		return false
 	}
 
-	// Clear SvelteFlow's internal selection by creating new nodes array
 	function clearFlowSelection() {
-		// xyflow owns `selected` on the objects it was handed, and drops it only when it sees a
-		// node it does not recognise. Serving the cached mapping back would hand it the very
-		// object it marked selected, so the clear has to go through fresh objects.
+		// Resetting the cache and reassigning `nodes` hands xyflow objects it has not seen, the
+		// only lever on its selection available from our own array.
 		offsetNodeCache = new WeakMap<Node, Node>()
 		nodes = nodes.map((node) => {
 			if (node.selected) {
@@ -853,7 +860,8 @@
 			...aiToolNodesResult.toolNodes
 		]
 
-		// Collect module IDs hidden inside collapsed groups so note cleanup preserves them
+		// Module IDs hidden inside collapsed groups: a note whose members are all in here has
+		// nothing on screen to wrap, so it is skipped.
 		const collapsedModuleIds = new Set<string>()
 		for (const n of finalNodes) {
 			if (n.type === 'collapsedGroup') {
@@ -988,6 +996,9 @@
 		// FlowRunStatus instead.
 		flowJob
 		suspendStatus
+		// Dataflow edges hang off the selected step. Selection is otherwise xyflow's own state,
+		// so it only rebuilds the graph while those edges are shown.
+		if ($useDataflow) selectedId
 
 		const collapsedGroupIds = new Set(
 			allGroups
@@ -1290,14 +1301,17 @@
 </script>
 
 {#if insertable}
-	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
+	<!-- Dynamic: the YAML editor is monaco, which read-only graphs (run previews) never need. -->
+	{#await import('../flows/header/FlowYamlEditor.svelte') then FlowYamlEditor}
+		<FlowYamlEditor.default bind:drawer={yamlEditorDrawer} />
+	{/await}
 {/if}
 {#if canUseDiffDrawer}
 	<DiffDrawer bind:this={diffDrawer} />
 {/if}
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
-	class="overflow-clip relative {outerDivClass}"
+	class="overflow-y-auto overflow-x-clip relative {outerDivClass}"
 	bind:clientWidth={debouncedWidth}
 	bind:this={flowContainer}
 >
@@ -1408,7 +1422,7 @@
 				/>
 
 				<!-- SelectionTool for handling selection changes and filtering -->
-				<SelectionTool {selectionManager} clearGraphSelection={clearFlowSelection} />
+				<SelectionTool {selectionManager} />
 
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">
@@ -1425,7 +1439,12 @@
 						showFitView={false}
 						showLock={false}
 					>
-						<GraphZoomControls fitViewNodes={nodes.filter((n) => n.type !== 'note')} />
+						<GraphZoomControls
+							fitViewNodes={nodes.filter((n) => n.type !== 'note')}
+							{fitOnLoad}
+							canvasWidth={width}
+							canvasHeight={height}
+						/>
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>

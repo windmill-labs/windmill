@@ -8,7 +8,7 @@
 </script>
 
 <!-- #FF00BD (Vivid Magenta) per https://zuplo.com/brand. Brand guidelines forbid recolouring the mark; pink is the official variant on both light and dark surfaces. -->
-<svg {width} {height} viewBox="0 0 330 330" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="15.205 15.205 300.235 300.235" xmlns="http://www.w3.org/2000/svg">
 	<path
 		d="M231.568 198.838H152.639L236.736 114.595C237.529 113.8 238.068 112.788 238.287 111.686C238.505 110.584 238.394 109.442 237.964 108.404C237.535 107.366 236.808 106.479 235.876 105.854C234.944 105.23 233.848 104.897 232.726 104.896H99.1637V49.0042H245.663C256.418 48.8732 266.989 51.7992 276.15 57.4442C285.311 63.0882 292.687 71.2192 297.422 80.8932C302.31 91.2402 303.881 102.849 301.919 114.126C299.957 125.403 294.558 135.795 286.463 143.874L231.568 198.838Z"
 		fill="#FF00BD"

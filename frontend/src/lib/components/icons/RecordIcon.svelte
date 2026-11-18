@@ -11,7 +11,7 @@
 	xmlns="http://www.w3.org/2000/svg"
 	{width}
 	{height}
-	viewBox="0 0 24 24"
+	viewBox="1.057 1.057 21.886 21.886"
 	fill="none"
 	stroke="currentColor"
 	stroke-width="2"

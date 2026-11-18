@@ -13,7 +13,7 @@
 	class="text-[#1C1E21] dark:text-[#FFFFFF]"
 	{width}
 	{height}
-	viewBox="0 0 42 42"
+	viewBox="-0.835 -0.835 43.671 43.671"
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"
 	aria-label="Beamer"

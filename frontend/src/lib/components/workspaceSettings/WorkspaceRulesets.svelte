@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import { Alert, Button, Drawer, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -99,19 +99,15 @@
 </script>
 
 <Drawer bind:this={ruleDrawer}>
-	<DrawerContent
-		title={selectedRule ? `Protection Rule: ${selectedRule.name}` : 'New Protection Rule'}
-		on:close={ruleDrawer?.closeDrawer}
-	>
-		<RulesetEditor
-			rule={selectedRule}
-			existingNames={existingRuleNames}
-			onUpdate={() => {
-				loadRules()
-				ruleDrawer?.closeDrawer()
-			}}
-		/>
-	</DrawerContent>
+	<RulesetEditor
+		rule={selectedRule}
+		existingNames={existingRuleNames}
+		onClose={() => ruleDrawer?.closeDrawer()}
+		onUpdate={() => {
+			loadRules()
+			ruleDrawer?.closeDrawer()
+		}}
+	/>
 </Drawer>
 
 {#if !$enterpriseLicense}

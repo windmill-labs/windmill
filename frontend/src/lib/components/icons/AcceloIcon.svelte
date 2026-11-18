@@ -9,7 +9,7 @@
 
 <!-- #4C49CB, with #F6511E and #CAD1E1, per Accelo_Logo-Primary.svg on accelo.com. The mark keeps these
 	three fills in both themes; only the wordmark (not drawn here) swaps #10202D for white. -->
-<svg {width} {height} viewBox="-1 -1 158 152" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-7.2 -10.508 171.017 171.017" xmlns="http://www.w3.org/2000/svg">
 	<path
 		d="M95.1552 97.2397C92.0269 90.7038 84.2061 87.9534 77.6839 91.0587L7.56272 124.655C0.922451 127.849 -1.8517 135.804 1.30611 142.429C3.60807 147.22 8.35955 150 13.3176 150C15.2359 150 17.2132 149.586 19.0725 148.699L89.1642 115.162C95.6864 112.027 98.4606 104.19 95.3323 97.6537C95.2733 97.5354 95.2142 97.4171 95.1552 97.2988V97.2397Z"
 		fill="#CAD1E1"

@@ -28,9 +28,14 @@ leaves and ignores the current scope.
 		resolveScope,
 		scopeChain,
 		type DrillBranch,
+		type DrillIcon,
 		type DrillLeaf,
 		type DrillNode
 	} from './drillPicker'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import type { BadgeColor } from '$lib/components/common/badge/model'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { isNewTabClick } from '$lib/navigation'
 
 	interface Props {
 		tree: DrillNode<L>[]
@@ -72,6 +77,23 @@ leaves and ignores the current scope.
 		/** Full-text hover tooltip for a leaf row (rows truncate their text).
 		 * Return `undefined` to show none for that leaf. */
 		rowTooltip?: (leaf: DrillLeaf<L>) => string | undefined
+		/** A second thing a leaf row can do, offered on hover and on ⌘/Ctrl-pick
+		 * (the preview picker's "open the editor instead of the deployed page").
+		 * Return `undefined` for a leaf that has only one. The button renders as a
+		 * SIBLING of the row — a button inside a button is invalid markup — and
+		 * stays out of the tab order, because focus lives in the search field and
+		 * rows are reached with the arrow keys. */
+		leafAction?: (
+			leaf: DrillLeaf<L>
+		) => { icon: DrillIcon; label: string; title: string; run: () => void } | undefined
+		/** Status badge on the right of a leaf row. Returns `undefined` for a leaf with
+		 * nothing to report. The hover action, when there is one, covers it. */
+		leafBadge?: (leaf: DrillLeaf<L>) => { label: string; color: BadgeColor } | undefined
+		/** Where picking a leaf navigates, for a host whose pick is a navigation. The row then
+		 * renders as a link: a plain click still goes through `onPick`, while a middle or
+		 * ⌘/Ctrl-click opens it in a new tab — taking ⌘/Ctrl-click from `leafAction`, which
+		 * keeps ⌘/Ctrl-Enter. */
+		leafHref?: (leaf: DrillLeaf<L>) => string | undefined
 	}
 
 	let {
@@ -88,7 +110,10 @@ leaves and ignores the current scope.
 		onScopeChange,
 		onFilterChange,
 		rootLoading = false,
-		rowTooltip
+		rowTooltip,
+		leafAction,
+		leafBadge,
+		leafHref
 	}: Props = $props()
 
 	let searchInput: TextInput | undefined = $state()
@@ -186,6 +211,9 @@ leaves and ignores the current scope.
 		)
 	)
 
+	/** Whether any row in this list has a second line, which sets every row's height. */
+	const entriesTwoLine = $derived(entryList.some((e) => e.type === 'leaf' && !!e.node.secondary))
+
 	// Browse rows annotated with the section header rendered above them. A
 	// header is emitted when a leaf's section differs from the previous LEAF's
 	// section — comparing against the previous entry of any type would insert a
@@ -277,8 +305,21 @@ leaves and ignores the current scope.
 		if (mouseActive) highlightedKey = key
 	}
 
-	function pick(leaf: DrillLeaf<L>) {
-		if (leaf.current || leaf.disabled) return
+	/** `alt` picks the row's second action (see `leafAction`) rather than the row
+	 * itself — ⌘/Ctrl-click and ⌘/Ctrl-Enter, the keyboard reach for the button
+	 * that only appears on hover. A leaf with no second action ignores it. */
+	function pick(leaf: DrillLeaf<L>, alt = false) {
+		if (leaf.disabled) return
+		// The second action is the row's other destination (its editor, for the deployed page
+		// this tab shows), so it stays available on the current row the plain pick skips.
+		if (alt) {
+			const action = leafAction?.(leaf)
+			if (action) {
+				action.run()
+				return
+			}
+		}
+		if (leaf.current) return
 		onPick(leaf)
 	}
 
@@ -316,23 +357,23 @@ leaves and ignores the current scope.
 
 	$effect(() => () => clearTimeout(tooltipTimer))
 
-	function activate(key: string | undefined) {
+	function activate(key: string | undefined, alt = false) {
 		if (!key) return
 		if (isSearching) {
 			const found = (searchedItems ?? []).find((r) => r.leaf.key === key)
-			if (found) pick(found.leaf)
+			if (found) pick(found.leaf, alt)
 			return
 		}
 		const entry = entryList.find((e) => e.key === key)
 		if (!entry) return
-		drill(entry)
+		drill(entry, alt)
 	}
 
-	function drill(entry: Entry) {
+	function drill(entry: Entry, alt = false) {
 		if (entry.type === 'branch') {
 			scope = [...scope, entry.key]
 		} else {
-			pick(entry.node)
+			pick(entry.node, alt)
 		}
 	}
 
@@ -362,7 +403,7 @@ leaves and ignores the current scope.
 			e.preventDefault()
 			e.stopPropagation()
 			mouseActive = false
-			activate(highlightedKey)
+			activate(highlightedKey, e.metaKey || e.ctrlKey)
 		} else if (
 			(e.key === 'ArrowLeft' || e.key === 'Backspace') &&
 			filter === '' &&
@@ -471,47 +512,126 @@ leaves and ignores the current scope.
 	{/if}
 {/snippet}
 
-{#snippet leafRow(leaf: DrillLeaf<L>, secondary: string | undefined, baseClass: string)}
+{#snippet leafRow(
+	leaf: DrillLeaf<L>,
+	secondary: string | undefined,
+	baseClass: string,
+	twoLineHeight: boolean
+)}
 	{@const key = leaf.key}
 	{@const isHl = key === highlightedKey}
 	{@const isCur = !!leaf.current}
 	{@const tip = rowTooltip?.(leaf)}
-	<button
-		type="button"
-		id={idFor(key)}
-		role="option"
-		aria-selected={isHl}
-		data-nav-key={key}
-		aria-current={isCur ? 'true' : undefined}
-		aria-label={tip ? `${leaf.label} — ${tip}` : undefined}
-		class="w-full text-left flex items-center gap-2 px-3 transition-colors {baseClass} {isHl
+	{@const action = leaf.disabled ? undefined : leafAction?.(leaf)}
+	{@const badge = leafBadge?.(leaf)}
+	{@const href = leaf.disabled ? undefined : leafHref?.(leaf)}
+	<!-- The row's action sits BESIDE the option rather than inside it: a button nested in
+	     a button is invalid markup. The wrapper carries the row's padding, highlight and
+	     hover group so the two still read as one row. -->
+	<!-- Hover is tracked on the wrapper, not on the option button: the row's action is a
+	     sibling of that button, so entering it would otherwise read as leaving the row and
+	     drop the highlight out from under the pointer. -->
+	<div
+		class="group flex items-center transition-colors pr-3 {baseClass} {isHl
 			? 'bg-surface-hover'
-			: ''} {isCur ? 'cursor-default text-emphasis font-medium' : ''} {leaf.disabled
-			? 'opacity-50 cursor-not-allowed'
 			: ''}"
-		disabled={leaf.disabled}
-		onmousedown={(e) => e.preventDefault()}
-		onclick={() => pick(leaf)}
 		onmouseenter={(e) => {
 			setHoverHighlight(key)
 			tooltipEnter(e.currentTarget as HTMLElement, leaf)
 		}}
 		onmouseleave={tooltipLeave}
 	>
-		{@render defaultLeafIcon(leaf)}
-		<div class="min-w-0 flex-1">
-			{#if leaf.secondary}
-				<div class="text-xs text-primary font-normal truncate">{leaf.label}</div>
-				<div class="text-2xs text-hint font-normal font-mono truncate">
-					{secondary ?? leaf.secondary}
-				</div>
-			{:else}
-				<div class="text-xs text-primary font-normal font-mono truncate">
-					{secondary ?? leaf.label}
-				</div>
-			{/if}
-		</div>
-	</button>
+		<svelte:element
+			this={href ? 'a' : 'button'}
+			type={href ? undefined : 'button'}
+			{href}
+			id={idFor(key)}
+			role="option"
+			aria-selected={isHl}
+			data-nav-key={key}
+			aria-current={isCur ? 'true' : undefined}
+			aria-label={tip ? `${leaf.label} — ${tip}` : undefined}
+			class="min-w-0 flex-1 text-left flex items-center gap-2 pl-3 {isCur
+				? 'cursor-default text-emphasis font-medium'
+				: 'text-[color:inherit]'} {leaf.disabled ? 'opacity-50 cursor-not-allowed' : ''}"
+			disabled={href ? undefined : leaf.disabled}
+			tabindex={0}
+			onmousedown={(e: MouseEvent) => e.preventDefault()}
+			onclickcapture={(e: MouseEvent) => {
+				// Capture, not a delegated onclick: the picker is portalled outside the app root,
+				// where a delegated handler runs after SvelteKit's link handler has already
+				// followed the href, too late for preventDefault to keep a plain click on `pick`.
+				if (href && isNewTabClick(e)) return
+				e.preventDefault()
+				pick(leaf, e.metaKey || e.ctrlKey)
+			}}
+		>
+			{@render defaultLeafIcon(leaf)}
+			<!-- Centred in a two-line row's height so a one-line leaf sits where a two-line
+			     one's pair does, rather than riding high against the top. A list with no
+			     second line anywhere (a picker's pages) keeps its rows one line tall. -->
+			<div
+				class="min-w-0 flex-1 flex flex-col justify-center {twoLineHeight ? 'min-h-[2.25rem]' : ''}"
+			>
+				{#if leaf.secondary}
+					<div class="text-xs text-primary font-normal truncate">{leaf.label}</div>
+					<div class="text-2xs text-hint font-normal font-mono truncate">
+						{secondary ?? leaf.secondary}
+					</div>
+				{:else}
+					<div
+						class="text-xs text-primary font-normal truncate {secondary === undefined &&
+						leaf.plainLabel
+							? ''
+							: 'font-mono'}"
+					>
+						{secondary ?? leaf.label}
+					</div>
+				{/if}
+			</div>
+		</svelte:element>
+		<!-- Keyed on the props rather than on this leaf's own badge or action, so a picker
+		     that has either holds the column open on every row: paths then truncate at one
+		     column and the button lands in the same place down the list. -->
+		{#if leafBadge || leafAction}
+			<!-- Both sit in one grid cell so they cross-fade in place rather than sitting
+			     side by side or shifting the row as one replaces the other. -->
+			<div class="shrink-0 w-[4.5rem] grid justify-items-end items-center pl-2">
+				{#if action}
+					<!-- `invisible`, not `hidden`: display cannot be transitioned, while
+					     visibility both fades with opacity and keeps the button out of the tab
+					     order while it is out of sight — the picker's focus belongs to its
+					     search field, and rows are reached with the arrow keys.
+					     The classes sit on this wrapper, not on the Button: `wrapperClasses` is
+					     twMerged with the button's own `flex`, which drops a conflicting
+					     display and leaves it showing beside the badge. -->
+					<div
+						class="col-start-1 row-start-1 invisible opacity-0 transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100"
+					>
+						<Button
+							unifiedSize="xs"
+							variant="default"
+							title={action.title}
+							startIcon={{ icon: action.icon }}
+							onClick={action.run}
+							wrapperClasses="shrink-0"
+						>
+							{action.label}
+						</Button>
+					</div>
+				{/if}
+				{#if badge}
+					<div
+						class="col-start-1 row-start-1 transition-[opacity,visibility] duration-150 {action
+							? 'group-hover:invisible group-hover:opacity-0'
+							: ''}"
+					>
+						<Badge small color={badge.color}>{badge.label}</Badge>
+					</div>
+				{/if}
+			</div>
+		{/if}
+	</div>
 {/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -545,7 +665,11 @@ leaves and ignores the current scope.
 	{#if scope.length > 0 && !isSearching}
 		<button
 			type="button"
-			class="flex items-center gap-1.5 w-full text-left px-3 py-1 text-xs font-medium font-mono text-secondary bg-surface-secondary/20 hover:bg-surface-hover transition-colors"
+			class="flex items-center gap-1.5 w-full text-left px-3 py-1 text-xs font-medium {headerChain.every(
+				(b) => b.plainLabel
+			)
+				? ''
+				: 'font-mono'} text-secondary bg-surface-secondary/20 hover:bg-surface-hover transition-colors"
 			onmousedown={(e) => e.preventDefault()}
 			onclick={goUp}
 			title={headerLabel}
@@ -571,6 +695,7 @@ leaves and ignores the current scope.
 				<div role="status" class="px-3 py-2 text-xs text-tertiary">No matches</div>
 			{:else}
 				{#each searchResultsByGroup as { key, label, items } (key)}
+					{@const twoLineHeight = items.some((r) => !!r.leaf.secondary)}
 					{#if label}
 						<div
 							class="px-3 pt-3 pb-1 mt-2 first:mt-0 text-3xs uppercase tracking-wide text-hint font-medium"
@@ -580,7 +705,9 @@ leaves and ignores the current scope.
 					{/if}
 					<ul class="pb-1">
 						{#each items as r (r.leaf.key)}
-							<li>{@render leafRow(r.leaf, r.leaf.secondary ?? r.leaf.label, 'py-1.5')}</li>
+							<li>
+								{@render leafRow(r.leaf, r.leaf.secondary ?? r.leaf.label, 'py-1.5', twoLineHeight)}
+							</li>
 						{/each}
 					</ul>
 				{/each}
@@ -606,7 +733,8 @@ leaves and ignores the current scope.
 						{@render leafRow(
 							entry.node,
 							leafSecondary?.(entry.node, scope) ?? entry.node.secondary,
-							'py-1.5'
+							'py-1.5',
+							entriesTwoLine
 						)}
 					{:else}
 						<button
@@ -615,9 +743,10 @@ leaves and ignores the current scope.
 							role="option"
 							aria-selected={isHl}
 							data-nav-key={entry.key}
-							class="flex items-center gap-1.5 w-full text-left px-3 py-1.5 text-xs font-medium font-mono text-emphasis transition-colors {isHl
-								? 'bg-surface-hover'
-								: ''}"
+							class="flex items-center gap-1.5 w-full text-left px-3 py-1.5 text-xs font-medium {entry
+								.node.plainLabel
+								? ''
+								: 'font-mono'} text-emphasis transition-colors {isHl ? 'bg-surface-hover' : ''}"
 							onmousedown={(e) => e.preventDefault()}
 							onclick={() => drill(entry)}
 							onmouseenter={() => setHoverHighlight(entry.key)}

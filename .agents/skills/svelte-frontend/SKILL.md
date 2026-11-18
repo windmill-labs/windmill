@@ -61,7 +61,13 @@ else, go back to the barrel and grep.
 <Button startIcon={{ icon: ChevronLeft }} iconOnly onclick={prev} />
 ```
 
-Props: `variant?: 'accent' | 'accent-secondary' | 'default' | 'subtle'`, `unifiedSize?: 'sm' | 'md' | 'lg'`, `startIcon?: { icon: SvelteComponent }`, `iconOnly?: boolean`, `disabled?: boolean`
+Props: `variant?: 'accent' | 'accent-secondary' | 'default' | 'subtle'`, `unifiedSize?: '2xs' | 'xs' | 'sm' | 'md' | 'lg'`, `startIcon?: { icon: SvelteComponent }`, `iconOnly?: boolean`, `disabled?: boolean`
+
+**`size` on `<Button>` is banned** — it, `spacingSize` and `extendedSize` are the legacy sizing
+system (`xs3`/`xs2`/`xs`/…, marked `@deprecated` in `Button.svelte`). Size every button with
+`unifiedSize`, the small ones included: `2xs` and `xs` are `h-5`, `sm` is `h-7`, `md` is `h-8`,
+`lg` is `h-10`. Existing `size="xs2"` call sites are legacy, not a precedent to copy. Same for
+`variant`: `contained`/`border`/`divider` are deprecated — use the four listed above.
 
 ### Text inputs — `<TextInput>`
 
@@ -113,8 +119,8 @@ Form components (TextInput, Toggle, Select, etc.) should use the unified size sy
 New user-facing UX is the main source of `feature_usage` counters — propose them in the plan, not
 as a separate question, and read `docs/feature-telemetry.md` first. `logFeatureUsage()` from
 `$lib/utils/featureUsage` is only half the change: the `(feature, kind)` pair must also be
-registered in the backend allowlist or every event is silently discarded, and the disclosure copy
-in `InstanceSettings.svelte` must name what you added.
+registered in the backend allowlist or every event is silently discarded. The disclosure copy in
+`InstanceSettings.svelte` stays at the category level; see the recipe's step 3.
 
 ## Svelte MCP Server
 

@@ -10,6 +10,7 @@
 	import Badge from '../common/badge/Badge.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import { Pen, Trash } from 'lucide-svelte'
+	import { MCP_SESSION } from '../mcp/McpAccessPicker.svelte'
 
 	// --- Props ---
 	interface Props {
@@ -56,9 +57,15 @@
 		if (!label) return true
 		return (
 			label !== 'session' &&
+			label !== 'guest_session' &&
 			!label.toLowerCase().startsWith('ephemeral') &&
 			label !== 'debugger-token' &&
-			!label.startsWith('mcp-oauth-')
+			!label.startsWith('mcp-oauth-') &&
+			!label.startsWith('embed_app:') &&
+			!label.startsWith('sdk_app:') &&
+			!label.startsWith('impersonation:') &&
+			!label.startsWith('cli-login:') &&
+			!label.startsWith('remote-deploy:')
 		)
 	}
 
@@ -108,6 +115,10 @@
 		listTokens()
 	}
 
+	function shownScopes(scopes: string[] | null | undefined): string {
+		return (scopes ?? []).filter((s) => s !== MCP_SESSION).join(', ')
+	}
+
 	function handleEditClick(
 		tokenPrefix: string,
 		tokenLabel: string | undefined,
@@ -123,7 +134,7 @@
 		editModalOpen = true
 	}
 
-	async function listTokens(): Promise<void> {
+	export async function listTokens(): Promise<void> {
 		tokens = await UserService.listTokens({
 			excludeEphemeral: true,
 			page: tokenPage,
@@ -193,13 +204,13 @@
 								</td>
 								<td
 									class="min-w-0 max-w-48 truncate text-xs text-secondary"
-									title={scopes?.join(', ') ?? ''}
+									title={shownScopes(scopes)}
 								>
 									<div class="flex items-center gap-1.5 truncate">
 										{#if read_only}
 											<Badge color="blue" small>Read-only</Badge>
 										{/if}
-										<span class="truncate">{scopes?.join(', ') ?? ''}</span>
+										<span class="truncate">{shownScopes(scopes)}</span>
 									</div>
 								</td>
 								<td class="w-24 text-center">

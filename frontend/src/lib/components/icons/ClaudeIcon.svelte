@@ -9,7 +9,7 @@
 
 <!-- #D97757 per https://claude.ai/favicon.svg (Anthropic's own asset). -->
 <svg
-	viewBox="0 0 24 24"
+	viewBox="-1.091 -1.091 26.182 26.182"
 	width={`${width}px`}
 	height={`${height}px`}
 	xmlns="http://www.w3.org/2000/svg"

@@ -3,7 +3,7 @@
 	import Button from '../common/button/Button.svelte'
 	import Label from '../Label.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { AIMode, getVisibleAIModes } from '../copilot/chat/AIChatManager.svelte'
+	import { AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { ExternalLink } from 'lucide-svelte'
 	import { Alert } from '../common'
 
@@ -66,7 +66,7 @@
 		[AIMode.ASK]: 'Ask Mode'
 	}
 
-	let visibleModes = $derived(modes ?? getVisibleAIModes())
+	let visibleModes = $derived(modes ?? Object.values(AIMode))
 	// In read-only mode, only show modes that actually have a prompt configured
 	let displayModes = $derived(
 		readOnly
@@ -99,7 +99,18 @@
 	}
 </script>
 
-<Modal2 bind:isOpen={open} {title} fixedWidth="md" {fixedHeight} {target}>
+<!-- `xxl` is 1000px, taller than a laptop window, and the dialog would then scroll
+     inside the overlay while this list scrolls inside the dialog. Capped here rather
+     than in `Modal2`: the height stays definite, which is what lets the list below
+     bound its own scroller, and no other modal is touched. -->
+<Modal2
+	bind:isOpen={open}
+	{title}
+	fixedWidth="md"
+	{fixedHeight}
+	{target}
+	css={{ popup: { class: 'max-h-[80vh]' } }}
+>
 	<div class="flex flex-col gap-6 h-full px-1 w-full">
 		<div class="grow min-h-0 overflow-y-auto" style="scrollbar-gutter: stable;">
 			{#if readOnly}

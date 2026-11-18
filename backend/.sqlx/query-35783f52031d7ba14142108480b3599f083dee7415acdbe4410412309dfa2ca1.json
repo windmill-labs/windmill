@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r->>'script_path' as \"script_path\"\n           FROM workspace_settings ws,\n                jsonb_array_elements(\n                    CASE WHEN jsonb_typeof(ws.git_sync->'repositories') = 'array'\n                         THEN ws.git_sync->'repositories' END\n                ) r\n           WHERE ws.workspace_id = $1\n             AND r->>'git_repo_resource_path' IN ($2, '$res:' || $2)\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "35783f52031d7ba14142108480b3599f083dee7415acdbe4410412309dfa2ca1"
+}

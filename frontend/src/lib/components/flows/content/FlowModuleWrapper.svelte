@@ -32,7 +32,7 @@
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
-	let scriptKind: 'script' | 'trigger' | 'approval' = $state('script')
+	let scriptKind: 'script' | 'trigger' | 'approval' | 'preprocessor' = $state('script')
 	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = $state('script')
 
 	// These pointers are used to easily access previewArgs of parent module, and previous module
@@ -49,6 +49,8 @@
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
 		isAgentTool?: boolean
+		/** Lets an agent step add a tool through the same path as the graph's `+ Tool`. */
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
 
 	let {
@@ -60,7 +62,8 @@
 		previousModule = undefined,
 		forceTestTab,
 		highlightArg,
-		isAgentTool = false
+		isAgentTool = false,
+		flowModuleSchemaMap = undefined
 	}: Props = $props()
 
 	function initializePrimaryScheduleForTriggerScript(module: FlowModule) {
@@ -144,8 +147,9 @@
 					type="info"
 					title="Preprocessor is called when the flow is triggered by API or email"
 				>
-					It prepares arguments for the flow. Besides request arguments, the preprocessor receives a
-					`wm_trigger` argument with trigger details.
+					It prepares arguments for the flow. It receives an `event` argument: the trigger's `kind`
+					(such as `webhook` or `email`) and what the trigger received, a webhook's `body` and
+					`headers` for instance.
 				</Alert>
 			</div>
 		{/if}
@@ -207,7 +211,7 @@
 				preprocessorModule={selectedId === 'preprocessor'}
 			/>
 		{/if}
-	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow' || flowModule.value.type === 'aiagent'}
+	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow' || flowModule.value.type === 'aiagent' || flowModule.value.type === 'aidecision'}
 		<FlowModuleComponent
 			{noEditor}
 			bind:flowModule
@@ -222,6 +226,7 @@
 			forceTestTab={forceTestTab?.[flowModule.id]}
 			highlightArg={highlightArg?.[flowModule.id]}
 			{isAgentTool}
+			{flowModuleSchemaMap}
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
@@ -232,6 +237,7 @@
 			child
 		)}
 		<FlowModuleWrapper
+			{flowModuleSchemaMap}
 			{noEditor}
 			bind:flowModule={slot.get, slot.set}
 			bind:parentModule={flowModule}
@@ -261,6 +267,7 @@
 				child
 			)}
 			<FlowModuleWrapper
+				{flowModuleSchemaMap}
 				{noEditor}
 				bind:flowModule={slot.get, slot.set}
 				bind:parentModule={flowModule}
@@ -285,6 +292,7 @@
 			{#each branch.modules as child, index (child.id ?? index)}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
 				<FlowModuleWrapper
+					{flowModuleSchemaMap}
 					{noEditor}
 					bind:flowModule={slot.get, slot.set}
 					bind:parentModule={flowModule}
@@ -305,6 +313,7 @@
 			{#each branch.modules as child, index (child.id ?? index)}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
 				<FlowModuleWrapper
+					{flowModuleSchemaMap}
 					{noEditor}
 					bind:flowModule={slot.get, slot.set}
 					bind:parentModule={flowModule}

@@ -48,6 +48,10 @@ pub struct Flow {
     pub on_behalf_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Caps the scopes of the token minted for each job of this flow; `None` = unrestricted.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time. Not stored on the flow row.
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -98,6 +102,11 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Projected from the flow value so a list can mark a flow that opens as a
+    /// chat without fetching every flow's value.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_input_enabled: Option<bool>,
     /// True when the authed user has a draft for this flow (draft-only or layered
     /// over the deployed row). See ListableScript in scripts.rs.
     #[serde(default)]
@@ -140,6 +149,15 @@ pub struct NewFlow {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Absent keeps the deployed flow's value, so a client unaware of the setting cannot
+    /// drop a restriction by saving; `null` clears it.
+    #[sqlx(skip)]
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
     /// Caller-intent flag (set by the CLI / git sync): when true, deploying
     /// this flow must NOT delete an existing user draft at the same path.
     /// Transient — never persisted.
@@ -178,6 +196,12 @@ pub struct EditFlow {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
     #[serde(default)]
     pub skip_draft_deletion: Option<bool>,
 }
@@ -202,6 +226,7 @@ impl EditFlow {
             preserve_on_behalf_of: self.preserve_on_behalf_of,
             ws_error_handler_muted: self.ws_error_handler_muted,
             labels: self.labels,
+            job_token_scopes: self.job_token_scopes,
             skip_draft_deletion: self.skip_draft_deletion,
         }
     }
@@ -218,10 +243,11 @@ fn validate_retry(retry: &Retry, module_id: &str) -> anyhow::Result<()> {
 }
 
 /// Script/sub-flow step references must be workspace paths (`u/`, `f/`, `g/`) or a hub
-/// reference (`hub/`). Empty is tolerated for intermediate/incomplete steps. This blocks
+/// reference (`hub/`). Empty is tolerated for intermediate/incomplete steps. This keeps
 /// absolute or local filesystem paths (e.g. `/tmp/.../ops/scripts/...` baked in by a
-/// `wmill sync push` from a feature-branch checkout) from being persisted into a flow,
-/// where they silently mis-resolve to an unrelated script at runtime (#9751).
+/// `wmill sync push` from a feature-branch checkout) out of stored flows (#9751). Refuses a
+/// leading `/`, which `RunnableRef` tolerates, so stored paths keep the canonical spelling; it
+/// is not a substitute for the parse, which refuses some paths this accepts.
 fn is_workspace_runnable_path(path: &str) -> bool {
     path.is_empty()
         || path.starts_with("u/")
@@ -290,7 +316,8 @@ pub struct FlowValue {
     // When the flow runs on a custom worker tag, by default that tag is propagated to
     // (and overrides) every step, script and nested sub-flow. Set this to true to instead
     // let steps that declare their own non-empty tag run on it; steps without their own tag
-    // still inherit the flow's tag. Defaults to false to preserve the historical behavior.
+    // still inherit the flow's tag. A subflow without a tag of its own runs on the flow's tag and
+    // follows this setting too. Defaults to false to preserve the historical behavior.
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub preserve_step_tags: bool,
@@ -317,6 +344,8 @@ pub struct FlowValue {
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_secs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
 }
 
 impl FlowValue {
@@ -352,6 +381,8 @@ impl FlowValue {
                 | Flow { .. }
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
+                // Runs no script of its own.
+                AIDecision { .. } => {}
                 ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
                     Self::traverse_leafs(modules.iter().collect(), cb)?
                 }
@@ -359,8 +390,9 @@ impl FlowValue {
                     for tool in tools {
                         match &tool.value {
                             ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
-                            ToolValue::Mcp(_) => {}
-                            ToolValue::Websearch(_) => {}
+                            ToolValue::Mcp(_)
+                            | ToolValue::Websearch(_)
+                            | ToolValue::Question(_) => {}
                         }
                     }
                 }
@@ -511,6 +543,7 @@ pub struct ExponentialDelay {
     pub attempts: u32,
     pub multiplier: u16,
     pub seconds: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub random_factor: Option<i8>,
 }
 
@@ -538,6 +571,20 @@ pub struct Suspend {
     pub hide_cancel: Option<bool>,
     #[serde(skip_serializing_if = "false_or_empty")]
     pub continue_on_disapprove_timeout: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skin: Option<ApprovalSkin>,
+}
+
+/// How an approval request is presented, on the approval page and in Slack/Teams messages.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ApprovalSkin {
+    Minimal,
+    /// A skin this server does not know renders as the detailed one rather than failing to
+    /// deserialize the whole flow, so a flow authored against a newer version still runs.
+    #[default]
+    #[serde(other)]
+    Detailed,
 }
 
 fn false_or_empty(v: &Option<bool>) -> bool {
@@ -549,6 +596,9 @@ pub struct Mock {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_value: Option<serde_json::Value>,
+    /// Absent means every run, which is what a mock meant before the key existed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preview_only: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -596,6 +646,9 @@ pub struct FlowModule {
     pub pass_flow_input_directly: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debouncing: Option<DebouncingSettings>,
+    /// Caps the token of the jobs this step runs, on top of the flow's own restriction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -619,6 +672,8 @@ pub struct FlowModuleValueWithParallel {
 #[derive(Deserialize)]
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
+    pub max_iterations: Option<u32>,
+    pub max_duration_secs: Option<u32>,
     pub parallel: Option<bool>,
     #[serde(
         default,
@@ -799,6 +854,19 @@ impl InputTransform {
     pub fn new_javascript_expr(expr: &str) -> InputTransform {
         InputTransform::Javascript { expr: expr.to_owned() }
     }
+
+    /// Whether this transform fills its input. On an agent tool, an input it does not fill is
+    /// left to the model, which sees only those.
+    pub fn is_completed(&self) -> bool {
+        match self {
+            InputTransform::Static { value } => {
+                let val = value.get().trim();
+                !val.is_empty() && val != "null"
+            }
+            InputTransform::Javascript { expr } => !expr.trim().is_empty(),
+            InputTransform::Ai => false,
+        }
+    }
 }
 
 impl TryFrom<UntaggedInputTransform> for InputTransform {
@@ -867,7 +935,9 @@ pub struct Branch {
     pub modules: Vec<FlowModule>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modules_node: Option<FlowNodeId>,
-    #[serde(default = "default_true")]
+    // The worker reads an absent skip_failure as false (BranchWithSkipFailures),
+    // so a round-trip through this struct must not turn it into true.
+    #[serde(default)]
     pub skip_failure: bool,
     #[serde(default = "default_true")]
     pub parallel: bool,
@@ -883,6 +953,21 @@ pub struct AgentTool {
     /// Overrides the description auto-derived from the underlying runnable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Caps the token of this tool's jobs, on top of the agent step's own restriction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
+    /// A person approves each call before it runs; the agent waits without holding a worker.
+    /// Flow module and MCP tools only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requires_approval: bool,
+    /// The agent is answered as soon as the tool's job starts, and gets its result in a later
+    /// message once it finishes. Only a flow module tool can run in the background.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
+    /// With `background` unset, the agent waits this many seconds for the tool's job, then is
+    /// answered as for a background tool. Flow module tools only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_after_secs: Option<u32>,
     pub value: ToolValue,
 }
 
@@ -896,6 +981,7 @@ impl AgentTool {
 
         self.id = flow_module.id;
         self.summary = flow_module.summary;
+        self.job_token_scopes = flow_module.job_token_scopes;
         self.value = ToolValue::FlowModule(module_value);
     }
 }
@@ -908,10 +994,10 @@ impl From<&AgentTool> for Option<FlowModule> {
                 id: tool.id.clone(),
                 value: to_raw_value(module_value),
                 summary: tool.summary.clone(),
+                job_token_scopes: tool.job_token_scopes.clone(),
                 ..Default::default()
             }),
-            ToolValue::Mcp(_) => None,
-            ToolValue::Websearch(_) => None,
+            ToolValue::Mcp(_) | ToolValue::Websearch(_) | ToolValue::Question(_) => None,
         }
     }
 }
@@ -922,6 +1008,7 @@ pub enum ToolValue {
     FlowModule(FlowModuleValue),
     Mcp(McpToolValue),
     Websearch(WebsearchToolValue),
+    Question(QuestionToolValue),
 }
 
 // Custom deserializer for backward compatibility with old flows
@@ -940,6 +1027,7 @@ impl<'de> Deserialize<'de> for ToolValue {
             FlowModule(FlowModuleValue),
             Mcp(McpToolValue),
             Websearch(WebsearchToolValue),
+            Question(QuestionToolValue),
         }
 
         if let Ok(tagged) = TaggedToolValue::deserialize(&content) {
@@ -947,6 +1035,7 @@ impl<'de> Deserialize<'de> for ToolValue {
                 TaggedToolValue::FlowModule(v) => ToolValue::FlowModule(v),
                 TaggedToolValue::Mcp(v) => ToolValue::Mcp(v),
                 TaggedToolValue::Websearch(v) => ToolValue::Websearch(v),
+                TaggedToolValue::Question(v) => ToolValue::Question(v),
             });
         }
 
@@ -971,6 +1060,14 @@ pub struct McpToolValue {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct WebsearchToolValue {}
+
+/// Lets the agent stop and wait for a person to answer a question it asks.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct QuestionToolValue {
+    /// Seconds to wait for an answer before the question is reported to the model as timed out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u32>,
+}
 
 fn is_none_or_empty_vec<T>(expr: &Option<Vec<T>>) -> bool {
     expr.is_none() || expr.as_ref().unwrap().is_empty()
@@ -1016,6 +1113,10 @@ pub enum FlowModuleValue {
         parallelism: Option<InputTransform>,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        /// Evaluated once per iteration, with `flow_input.iter` set, into the text the run
+        /// viewers show for that iteration. Never fails the iteration.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        iteration_label: Option<InputTransform>,
     },
     WhileloopFlow {
         modules: Vec<FlowModule>,
@@ -1025,6 +1126,10 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_iterations: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_duration_secs: Option<u32>,
     },
     BranchOne {
         branches: Vec<Branch>,
@@ -1036,6 +1141,8 @@ pub enum FlowModuleValue {
         branches: Vec<Branch>,
         #[serde(default = "default_true")]
         parallel: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parallelism: Option<InputTransform>,
     },
     RawScript {
         #[serde(default)]
@@ -1081,7 +1188,8 @@ pub enum FlowModuleValue {
         omit_output_from_conversation: bool,
         /// When set, the agent brain config (provider/model/system prompt/etc.) and tools are
         /// resolved at runtime from this `ai_agent` resource path (hybrid linking). The module's
-        /// `input_transforms` then only carry the flow-local inputs (user_message/user_attachments).
+        /// `input_transforms` then only carry the flow-local inputs: user_message,
+        /// user_attachments, enabled_tools and the history inputs memory_id and previous_messages.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
         /// Binds an agent's tools to *this* flow's context, keyed by tool id then input key, without
@@ -1089,6 +1197,13 @@ pub enum FlowModuleValue {
         /// `agent` set or not: a step forked for editing keeps these until saved back or unlinked.
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         tool_inputs: HashMap<String, HashMap<String, InputTransform>>,
+    },
+    /// One call to a decision model (such as TypeSafe's Jev) answering the typed `questions` of its
+    /// `input_transforms` about a `state`. A flow branches on the answers with a `BranchOne`.
+    AIDecision {
+        input_transforms: HashMap<String, InputTransform>,
+        #[serde(skip_serializing_if = "is_none_or_empty")]
+        tag: Option<String>,
     },
 }
 
@@ -1128,6 +1243,9 @@ struct UntaggedFlowModuleValue {
     tool_inputs: Option<HashMap<String, HashMap<String, InputTransform>>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
+    iteration_label: Option<InputTransform>,
+    max_iterations: Option<u32>,
+    max_duration_secs: Option<u32>,
     #[serde(flatten)]
     concurrency_settings: ConcurrencySettingsWithCustom,
 }
@@ -1169,6 +1287,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 parallel: untagged.parallel.unwrap_or(false),
                 parallelism: untagged.parallelism,
                 squash: untagged.squash,
+                iteration_label: untagged.iteration_label,
             }),
             "whileloopflow" => Ok(FlowModuleValue::WhileloopFlow {
                 modules: untagged
@@ -1177,6 +1296,8 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(false),
                 squash: untagged.squash,
+                max_iterations: untagged.max_iterations,
+                max_duration_secs: untagged.max_duration_secs,
             }),
             "branchone" => Ok(FlowModuleValue::BranchOne {
                 branches: untagged
@@ -1192,6 +1313,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .branches
                     .ok_or_else(|| serde::de::Error::missing_field("branches"))?,
                 parallel: untagged.parallel.unwrap_or(true),
+                parallelism: untagged.parallelism,
             }),
             "rawscript" => Ok(FlowModuleValue::RawScript {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
@@ -1234,6 +1356,10 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 agent: untagged.agent,
                 tool_inputs: untagged.tool_inputs.unwrap_or_default(),
             }),
+            "aidecision" => Ok(FlowModuleValue::AIDecision {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                tag: untagged.tag,
+            }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -1246,6 +1372,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     "rawscript",
                     "identity",
                     "aiagent",
+                    "aidecision",
                 ],
             )),
         }
@@ -1311,6 +1438,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             apply_preprocessor: None,
             pass_flow_input_directly: None,
             debouncing: None,
+            job_token_scopes: None,
         });
     }
 }
@@ -1363,6 +1491,23 @@ mod tests {
         });
         let val: FlowValue = serde_json::from_value(input).unwrap();
         assert_eq!(val.modules.len(), 1);
+    }
+
+    #[test]
+    fn suspend_skin_unknown_value_falls_back_to_detailed() {
+        let skin_of = |skin: &str| {
+            let val: FlowValue = serde_json::from_value(json!({
+                "modules": [{
+                    "id": "a",
+                    "value": {"type": "identity"},
+                    "suspend": {"required_events": 1, "skin": skin}
+                }]
+            }))
+            .unwrap();
+            val.modules[0].suspend.as_ref().unwrap().skin
+        };
+        assert_eq!(skin_of("minimal"), Some(ApprovalSkin::Minimal));
+        assert_eq!(skin_of("not_a_skin_yet"), Some(ApprovalSkin::Detailed));
     }
 
     #[test]
@@ -1590,6 +1735,55 @@ mod tests {
         // A fully-default retry serializes to an empty object.
         let empty = serde_json::to_value(&Retry::default()).unwrap();
         assert_eq!(empty, json!({}));
+    }
+
+    #[test]
+    fn exponential_retry_without_random_factor_omits_it() {
+        // A non-default exponential retry with no random_factor must not gain
+        // random_factor:null on a round-trip (the flow-dependencies job writes
+        // that value back to flow.yaml, and the CLI linter rejects null).
+        let input = json!({ "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2 } });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+
+        // A set random_factor still round-trips.
+        let input = json!({
+            "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2, "random_factor": 10 }
+        });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+    }
+
+    #[test]
+    fn branch_without_skip_failure_keeps_failing_the_flow() {
+        // An absent skip_failure means "a failing branch fails the flow" to the
+        // worker and the flow editor; a round-trip must preserve that.
+        let input = json!({
+            "type": "branchall",
+            "branches": [{ "modules": [] }, { "modules": [], "skip_failure": true }]
+        });
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&val).unwrap();
+        let reparsed: FlowModuleWithBranches = serde_json::from_value(output).unwrap();
+        let skips: Vec<bool> = reparsed
+            .branches
+            .iter()
+            .map(|b| b.skip_failure.unwrap_or(false))
+            .collect();
+        assert_eq!(skips, vec![false, true]);
+    }
+
+    #[test]
+    fn branchall_parallelism_round_trips() {
+        // Deploying a flow re-serializes every module value; a dropped cap would start
+        // every branch at once.
+        let input = json!({ "type": "branchall", "branches": [], "parallelism": 2 });
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&val).unwrap();
+        assert_eq!(
+            output["parallelism"],
+            json!({ "type": "static", "value": 2 })
+        );
     }
 
     #[test]

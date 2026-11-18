@@ -19,6 +19,7 @@ import { sep as SEP } from "node:path";
 
 import * as wmill from "../../../gen/services.gen.ts";
 import { ListableVariable } from "../../../gen/types.gen.ts";
+import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
   if (opts.json) log.setSilent(true);
@@ -97,6 +98,8 @@ export interface VariableFile {
   description: string;
   account?: number;
   is_oauth?: boolean;
+  value_valid_until?: string;
+  extra_perms?: Record<string, boolean>;
 }
 
 /**
@@ -105,16 +108,20 @@ export interface VariableFile {
  * plaintext value a user authored by hand.
  *
  * Mirrors the server guard (windmill-store/src/variables.rs): workspace
- * ciphertext (AES-256-CBC, base64) is standard base64 decoding to a non-zero
+ * ciphertext (AES-256-GCM or legacy AES-256-CBC, base64) is standard base64
+ * decoding to a non-zero
  * multiple of the 16-byte block size. External secret-backend markers
- * ($vault:/$aws_sm:/$azure_kv:) are stored verbatim too, so they count as
- * already-encrypted. This is a shape check only — it never decrypts.
+ * ($vault:/$aws_sm:/$azure_kv:/$http_store:) and `$external:` references to a secret in
+ * an external store are stored verbatim too, so they count as already-encrypted.
+ * This is a shape check only — it never decrypts.
  */
 export function looksLikeWorkspaceCiphertext(value: string): boolean {
   if (
     value.startsWith("$vault:") ||
     value.startsWith("$aws_sm:") ||
-    value.startsWith("$azure_kv:")
+    value.startsWith("$azure_kv:") ||
+    value.startsWith("$http_store:") ||
+    value.startsWith("$external:")
   ) {
     return true;
   }
@@ -152,37 +159,50 @@ export async function pushVariable(
     log.debug(`Variable ${remotePath} does not exist on remote`);
   }
 
+  // extra_perms is synced independently via /acls/* (see applyExtraPermsDiff)
+  // so a perm-only edit never rewrites the variable value. Strip the field from
+  // the body that goes to update_variable / create_variable and treat it as a
+  // separate step both for the up-to-date short-circuit and after the write.
+  const { extra_perms: localPerms, ...localVariableBody } = localVariable;
+
   if (variable) {
-    if (isSuperset(localVariable, variable)) {
+    // An expiry removed from the file is sent as `null` (absent keeps the stored date), and
+    // `isSuperset` cannot see a removed key, so the clear is detected here.
+    const clearsValueValidUntil =
+      localVariableBody.value_valid_until === undefined &&
+      variable.value_valid_until !== undefined &&
+      variable.value_valid_until !== null;
+
+    if (!clearsValueValidUntil && isSuperset(localVariableBody, variable)) {
       log.debug(`Variable ${remotePath} is up-to-date`);
-      return;
-    }
+    } else {
+      log.debug(`Variable ${remotePath} is not up-to-date, updating`);
 
-    log.debug(`Variable ${remotePath} is not up-to-date, updating`);
-
-    // Apply is_secret only when it differs from the remote (the value is always
-    // sent, so the server allows the flag change). Upgrades (non-secret->secret)
-    // always apply; downgrades only when explicitly allowed (single-file push) —
-    // see allowSecretDowngrade. `undefined` leaves the flag untouched.
-    let nextIsSecret: boolean | undefined = undefined;
-    if (localVariable.is_secret !== variable.is_secret) {
-      if (localVariable.is_secret) {
-        nextIsSecret = true;
-      } else if (allowSecretDowngrade) {
-        nextIsSecret = false;
+      // Apply is_secret only when it differs from the remote (the value is always
+      // sent, so the server allows the flag change). Upgrades (non-secret->secret)
+      // always apply; downgrades only when explicitly allowed (single-file push) —
+      // see allowSecretDowngrade. `undefined` leaves the flag untouched.
+      let nextIsSecret: boolean | undefined = undefined;
+      if (localVariableBody.is_secret !== variable.is_secret) {
+        if (localVariableBody.is_secret) {
+          nextIsSecret = true;
+        } else if (allowSecretDowngrade) {
+          nextIsSecret = false;
+        }
       }
-    }
 
-    await wmill.updateVariable({
-      workspace,
-      path: remotePath.replaceAll(SEP, "/"),
-      alreadyEncrypted: !plainSecrets,
-      requestBody: {
-        ...localVariable,
-        is_secret: nextIsSecret,
-        ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
-      },
-    });
+      await wmill.updateVariable({
+        workspace,
+        path: remotePath.replaceAll(SEP, "/"),
+        alreadyEncrypted: !plainSecrets,
+        requestBody: {
+          ...localVariableBody,
+          is_secret: nextIsSecret,
+          ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
+          ...(clearsValueValidUntil ? { value_valid_until: null } : {}),
+        },
+      });
+    }
   } else {
     log.info(colors.yellow.bold(`Creating new variable ${remotePath}...`));
     await wmill.createVariable({
@@ -190,11 +210,22 @@ export async function pushVariable(
       alreadyEncrypted: !plainSecrets,
       requestBody: {
         path: remotePath.replaceAll(SEP, "/"),
-        ...localVariable,
+        ...localVariableBody,
         ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
       },
     });
   }
+
+  // Synced whether or not the body changed. No refetch: folder perms are never
+  // merged onto item.extra_perms, and the update/create body carries no
+  // extra_perms, so the value getVariable read above is still the remote one.
+  await applyExtraPermsDiff(
+    workspace,
+    "variable",
+    remotePath.replaceAll(SEP, "/"),
+    localPerms,
+    (variable as any)?.extra_perms,
+  );
 }
 
 async function push(

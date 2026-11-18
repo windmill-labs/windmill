@@ -2,15 +2,32 @@
 	import Badge from './common/badge/Badge.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Plus, Tag, X } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		labels: string[] | undefined
 		onchange?: () => void
 		class?: string
+		/** Suggest the labels of this workspace rather than the active one, for an editor
+		 * aimed elsewhere (the folder drawer opened from a cross-workspace picker). */
+		workspace?: string
+		/** Text typed into the input but not yet added to `labels`. An editor with a Save
+		 * button needs it: without it that text is invisible to the editor's dirty state,
+		 * so it is silently dropped on close and cannot even enable Save on its own. */
+		onPendingChange?: (pending: string) => void
+		disabled?: boolean
 	}
 
-	let { labels = $bindable(), onchange, class: clazz = '' }: Props = $props()
+	let {
+		labels = $bindable(),
+		onchange,
+		class: clazz = '',
+		workspace,
+		onPendingChange,
+		disabled = false
+	}: Props = $props()
 
 	let adding = $state(false)
 	let inputValue = $state('')
@@ -34,9 +51,13 @@
 			!(labels ?? []).includes(trimmedInput)
 	)
 
+	$effect(() => {
+		onPendingChange?.(adding ? trimmedInput : '')
+	})
+
 	async function loadExistingLabels() {
 		try {
-			const resp = await fetch(`/api/w/${$workspaceStore}/labels/list`)
+			const resp = await fetch(`/api/w/${workspace ?? $operatingWorkspace}/labels/list`)
 			if (resp.ok) existingLabels = await resp.json()
 		} catch {}
 	}
@@ -82,8 +103,15 @@
 				addLabel() // either "Create new" selected or free text
 			}
 		} else if (e.key === 'Escape') {
+			// Escape cancels the label, and nothing else. Left to bubble it also reaches
+			// whatever encloses us — a drawer or dialog closes on it, and one guarding on
+			// unsaved changes reads `pending` before this clears it, so it prompts to
+			// discard work this key just discarded.
+			e.preventDefault()
+			e.stopPropagation()
 			inputValue = ''
 			adding = false
+			onPendingChange?.('')
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault()
 			const maxIdx = suggestions.length + (showCreateNew ? 1 : 0) - 1
@@ -100,18 +128,28 @@
 			if (adding) addLabel()
 		}, 150)
 	}
+
+	/** Add whatever is typed but not yet committed, right now. Blur commits on a 150ms
+	 *  grace period, so a caller that reads `labels` in the same tick as the blur — a Save
+	 *  button, which blurs this input by being clicked — would miss the last label.
+	 *  `adding` is cleared here, so the pending timer then finds nothing to do. */
+	export function flushPendingLabel(): void {
+		if (adding) addLabel()
+	}
 </script>
 
 <div class="inline-flex items-center gap-1 ml-0.5 h-5 {clazz}">
 	{#each labels ?? [] as label (label)}
 		<Badge color="blue" small>
 			{label}
-			<button class="ml-0.5 hover:text-red-500" onclick={() => removeLabel(label)}>
-				<X size={10} />
-			</button>
+			{#if !disabled}
+				<button class="ml-0.5 hover:text-red-500" onclick={() => removeLabel(label)}>
+					<X size={10} />
+				</button>
+			{/if}
 		</Badge>
 	{/each}
-	{#if adding}
+	{#if adding && !disabled}
 		<div class="relative">
 			<input
 				bind:this={inputEl}
@@ -155,7 +193,7 @@
 				</div>
 			{/if}
 		</div>
-	{:else}
+	{:else if !disabled}
 		<Button
 			variant="subtle"
 			unifiedSize="xs"

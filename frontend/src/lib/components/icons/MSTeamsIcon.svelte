@@ -15,7 +15,7 @@
 <svg
 	width={effectiveWidth}
 	height={effectiveHeight}
-	viewBox="0 0 48 48"
+	viewBox="1.223 2.207 41.523 41.523"
 	xmlns="http://www.w3.org/2000/svg"
 	fill="none"
 >

@@ -26,7 +26,7 @@
 	resource picker and docs use. Keep the two in sync if the artwork changes. -->
 <svg
 	role="img"
-	viewBox="0 0 24 24"
+	viewBox="-1.091 -1.091 26.182 26.182"
 	{width}
 	{height}
 	xmlns="http://www.w3.org/2000/svg"

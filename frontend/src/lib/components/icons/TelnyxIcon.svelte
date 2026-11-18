@@ -12,7 +12,7 @@
 	class="text-[#000000] dark:text-[#00E3AA]"
 	{width}
 	{height}
-	viewBox="0 0 128 40"
+	viewBox="-5.818 -49.818 139.636 139.636"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<g clip-path="url(#clip0_36913_41041)">

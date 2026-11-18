@@ -3,11 +3,10 @@
 	import Section from '$lib/components/Section.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import SchemaForm from '../../SchemaForm.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		path: string
@@ -26,8 +25,8 @@
 		can_write = true,
 		showTestingBadge = false
 	}: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	const kafkaConfigSchema = {
 		$schema: 'http://json-schema.org/draft-07/schema#',
@@ -103,7 +102,6 @@
 					/>
 				</Subsection>
 			</div>
-
 		</div>
 	</Section>
 </div>

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+	buildWorkspaceHierarchy,
 	devWorkspacesInChainAbove,
 	findDefaultForkBase,
 	findWorkspaceAncestors,
-	findWorkspaceRoot
+	findWorkspaceRoot,
+	workspaceSubtreeRows
 } from './workspaceHierarchy'
 import type { UserWorkspace } from '../stores'
 
@@ -73,5 +75,41 @@ describe('devWorkspacesInChainAbove', () => {
 			'devws'
 		])
 		expect(devWorkspacesInChainAbove('prod', nestedFamily)).toEqual([])
+	})
+})
+
+describe('buildWorkspaceHierarchy', () => {
+	const mine = { created_by: 'me@x.com' }
+	const theirs = { created_by: 'other@x.com' }
+	const forks = [
+		ws('wm-fork-a', 'prod', theirs),
+		ws('wm-fork-b', 'prod', theirs),
+		ws('wm-fork-c', 'prod', theirs),
+		ws('wm-fork-y', 'prod', mine),
+		ws('wm-fork-z', 'prod', mine)
+	]
+	const ids = (rows: ReturnType<typeof buildWorkspaceHierarchy>) =>
+		rows.map((h) => (h.separatorBefore ? '| ' : '') + h.workspace.id)
+
+	it("puts the user's own forks after the dev workspace, divided from the rest", () => {
+		const all = [root, ws('devws', 'prod', { is_dev_workspace: true, ...mine }), ...forks]
+		expect(ids(workspaceSubtreeRows('prod', buildWorkspaceHierarchy(all, 'me@x.com')))).toEqual([
+			'devws',
+			'wm-fork-y',
+			'wm-fork-z',
+			'| wm-fork-a',
+			'wm-fork-b',
+			'wm-fork-c'
+		])
+	})
+
+	it('draws no divider in a short list', () => {
+		const all = [root, ...forks.slice(2)]
+		expect(ids(buildWorkspaceHierarchy(all, 'me@x.com'))).toEqual([
+			'prod',
+			'wm-fork-y',
+			'wm-fork-z',
+			'wm-fork-c'
+		])
 	})
 })

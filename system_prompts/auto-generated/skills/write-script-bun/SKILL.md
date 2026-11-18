@@ -48,6 +48,33 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than `script pr
 
 Use `wmill resource-type list --schema` to discover available resource types.
 
+# Windmill Script Writing Guide
+
+## General Principles
+
+- A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, still take its connection as one resource-typed parameter, of a custom type holding the connection fields (base URL, account identifiers, credentials), its secret in a variable the resource references. A custom type is named `c_<name>`, which keeps it apart from a hub type synced later: the parameter takes `RT.C<Name>` in TypeScript, a `c_<name>` TypedDict in Python. A plain string parameter or a variable read inside the code only when the user asks for it: the resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records. If the instance is reported as not having synced the Windmill Hub's resource types, mention that a superadmin can sync them, since the hub has types for most services. Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it
+- A Windmill Hub script takes a resource type the hub publishes, so on an instance that has not synced the hub's types that type is missing: say so, and that a superadmin can sync them, before asking for a resource of it. Hub scripts often declare the type inline (`type Stripe = { token: string }`), which is still the `stripe` resource type; in code you write, name it the way the language section shows (`RT.Stripe` in TypeScript) rather than copying the inline declaration
+- Before relying on a resource type, a hub script's included, run `wmill resource-type list`: it shows whether the workspace has the type, and warns when the instance has not synced the hub's types
+- Libraries are installed automatically - do not show installation instructions
+- In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it `main` (`Main` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no `main`: their language section shows how they take arguments
+- Where the language has a Windmill client (`wmill`), use it to interact with the platform
+- A script's input schema may carry a top-level `prompt_for_ai` string: its author's instructions to an AI choosing the inputs. Follow it when you pick arguments to run that script, and keep it when you rewrite the schema
+
+## Return Values
+
+- A script can return any JSON-serializable value; a SQL script returns the rows its query produces
+- Return values become available to subsequent flow steps via `results.step_id`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, AMQP, Postgres, GCP Pub/Sub, Azure, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+A preprocessor is written in TypeScript or Python: its function is named `preprocessor` instead of `main`, and it receives a single parameter called `event` (the language section gives its type).
+
+The returned object determines the parameter values passed to the flow.
+e.g., `{ b: 1, a: 2 }` calls the flow with `a = 2` and `b = 1`, assuming the flow has two inputs called `a` and `b`.
+
 # TypeScript (Bun)
 
 Bun runtime with full npm ecosystem and fastest execution. **Bun is the default and preferred TypeScript runtime** — choose it for any TypeScript script unless there is a major reason to use Deno for that specific use-case.
@@ -102,7 +129,7 @@ import * as wmill from "windmill-client";
 
 **Prefer `windmill-client` over raw `fetch` for anything that talks to Windmill** — reading resources/variables/states, running scripts and flows, S3 object operations, etc. It handles auth, the workspace, and the base URL for you, so you don't hand-roll URLs or tokens. Reserve `fetch` for calling *external* HTTP APIs that aren't Windmill.
 
-The full `windmill-client` API reference (every exported function and its signature) is included in this skill below — consult it for the exact method to use instead of guessing or falling back to `fetch`.
+The full `windmill-client` API reference (every exported function and its signature) is included below — consult it for the exact method to use instead of guessing or falling back to `fetch`.
 
 ## Preprocessor Scripts
 
@@ -120,7 +147,9 @@ type Event = {
     | "postgres"
     | "sqs"
     | "mqtt"
-    | "gcp";
+    | "amqp"
+    | "gcp"
+    | "azure";
   body: any;
   headers: Record<string, string>;
   query: Record<string, string>;
@@ -168,10 +197,20 @@ const result: wmill.S3Object = await wmill.writeS3File(
 );
 ```
 
-
 # TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
+
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it.
 
 To know who is running the script, read the contextual variables rather than calling the API:
 `process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
@@ -284,21 +323,23 @@ async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByPathAsync(path: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
-async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
+async runScriptByHashAsync(hash_: string, args: Record<string, any> | null = null, scheduledInSeconds: number | null | RunScriptAsyncOptions = null, tag: string | null = null): Promise<string>
 
 /**
  * Run a flow asynchronously by its path
@@ -353,6 +394,14 @@ async setProgress(percent: number, jobId?: any): Promise<void>
  * @returns Optional clamped between 0 and 100 progress value
  */
 async getProgress(jobId?: any): Promise<number | null>
+
+/**
+ * Whether the worker running this job has received its shutdown signal.
+ * A draining worker waits for its current job to finish before exiting, so a
+ * long-running script can poll this and return early to let the worker be replaced.
+ * @param jobId? Job to check, defaults to the current job
+ */
+async workerIsDraining(jobId?: string): Promise<boolean>
 
 /**
  * Set a flow user state
@@ -463,31 +512,35 @@ async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined
 /**
  * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 objects
  */
-async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
+async signS3Objects(s3objects: S3Object[], { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object[]>
 
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 object
  */
-async signS3Object(s3object: S3Object): Promise<S3Object>
+async signS3Object(s3object: S3Object, { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object>
 
 /**
  * Generate a presigned public URL for an array of S3 objects.
  * If an S3 object is not signed yet, it will be signed first.
  * @param s3Objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns list of signed public URLs
  */
-async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string[]>
 
 /**
  * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
  * @param s3Object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed public URL
  */
-async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string>
 
 /**
  * Get URLs needed for resuming a flow after this step
@@ -609,6 +662,9 @@ async sleep(seconds: number): Promise<void>
  * `fn`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a `Date`
  * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, `fn` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -648,12 +704,16 @@ workflow<T>(fn: (...args: any[]) => Promise<T>): void
  * resume exactly this approval — route them through your own channel. Without a
  * key the steps are named `approval`, `approval_2`, ...
  * 
+ * `skin: "minimal"` shows approvers only the request (form and approve/reject)
+ * instead of the detailed page with the workflow's details. `description` is
+ * shown above the form: a string, or a rich value such as `{ markdown: "..." }`.
+ * 
  * @example
  * const urls = await step("urls", () => getApprovalUrls("manager"));
  * await step("notify", () => sendEmail(urls.resume, urls.cancel));
  * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; skin?: "detailed" | "minimal"; description?: string | object; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
 
 /**
  * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
@@ -717,6 +777,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param opts.role - Connect as this data table role instead of the data table's default one.
+ *   Only meaningful on a data table under roles, and only for a role you are a tenant of.
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -726,8 +788,11 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
+ * @example
+ * // Read through a restricted role
+ * let sql = wmill.datatable("main", { role: "analytics" })
  */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
+datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries

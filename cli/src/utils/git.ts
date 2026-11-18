@@ -1,6 +1,7 @@
 import * as log from "../core/log.ts";
 import { execSync, spawnSync } from "node:child_process";
 import { WM_FORK_PREFIX } from "../core/constants.ts";
+import { SHARED_LOCK_DIR } from "./script_common.ts";
 
 // Fork *workspace id* prefix ("wm-fork-"). WM_FORK_PREFIX is the *branch*
 // prefix ("wm-fork") used inside the wm-fork/<branch>/<id> branch name.
@@ -387,10 +388,12 @@ export function gitSyncIncludePattern(
   switch (pathType) {
     case "flow":
       return `${path}.flow/*,${path}__flow/*`;
+    // An app's custom path is a sibling workspace-specific file: the export's
+    // `<path>.custom_path.*` and the checkout's `<path>.<workspace>.custom_path.*`.
     case "app":
-      return `${path}.app/*,${path}__app/*`;
+      return `${path}.app/*,${path}__app/*,${path}.custom_path.*,${path}.*.custom_path.*`;
     case "raw_app":
-      return `${path}.raw_app/**,${path}__raw_app/**`;
+      return `${path}.raw_app/**,${path}__raw_app/**,${path}.custom_path.*,${path}.*.custom_path.*`;
     case "folder":
       return `${path}/folder.meta.*`;
     case "resourcetype":
@@ -584,6 +587,11 @@ export function gitSyncDeployPush(params: {
       git(["add", "wmill-lock.yaml", `${parent_path}**`], { allowFail: true });
     }
   }
+  // A shared lockfile (`dedupeLockfiles`) lives under `locks/`, outside every
+  // item's path glob, and the pull rewrites it when a deployed script's lock
+  // changed. `-A` also stages the deletion of a swept one; the add fails only
+  // when nothing under `locks/` exists or is tracked.
+  git(["add", "-A", "--", SHARED_LOCK_DIR], { allowFail: true });
 
   // `git diff --cached --quiet` exits 1 iff there is something staged.
   const staged = git(["diff", "--cached", "--quiet"], { allowFail: true });

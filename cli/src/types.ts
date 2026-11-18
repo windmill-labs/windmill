@@ -6,7 +6,7 @@ import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseContent } from "./utils/yaml.ts";
 import { isDbtDescriptorPath } from "./utils/resource_folders.ts";
-import { pushApp } from "./commands/app/app.ts";
+import { pushApp, pushAppCustomPath } from "./commands/app/app.ts";
 import { pushFolder } from "./commands/folder/folder.ts";
 import { pushFlow } from "./commands/flow/flow.ts";
 import { pushResource } from "./commands/resource/resource.ts";
@@ -35,6 +35,7 @@ import {
   buildFolderPath,
   isScriptModulePath,
 } from "./utils/resource_folders.ts";
+import { isSharedLockPath } from "./utils/script_common.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -186,8 +187,12 @@ export interface PushObjOptions {
   wsSpecific?: boolean;
   /** encryption_key push: non-interactive flag and explicit re-encryption choice */
   keyPushOpts?: PushWorkspaceKeyOptions;
+  /** settings push: whether settings.yaml manages the data tables' roles */
+  includeDatatablePermissions?: boolean;
   /** TypeScript runtime a bare `.ts` denotes, for raw-app runnables */
   defaultTs?: "bun" | "deno";
+  /** schedule push into a fork: the file's `enabled` is the parent's */
+  enabledOwnedByParent?: boolean;
 }
 
 /**
@@ -215,7 +220,9 @@ export async function pushObj(
     permissionedAsContext,
     wsSpecific,
     keyPushOpts,
+    includeDatatablePermissions,
     defaultTs,
+    enabledOwnedByParent,
   } = opts;
   const typeEnding = getTypeStrFromPath(p);
 
@@ -224,13 +231,16 @@ export async function pushObj(
     if (!appName) {
       throw new Error(`Could not extract app name from path: ${p}`);
     }
-    await pushApp(workspace, appName, buildFolderPath(appName, "app"), message, permissionedAsContext);
+    // A sync carries the custom path in its own workspace-specific file.
+    await pushApp(workspace, appName, buildFolderPath(appName, "app"), message, permissionedAsContext, false);
   } else if (typeEnding === "raw_app") {
     const rawAppName = extractResourceName(p, "raw_app");
     if (!rawAppName) {
       throw new Error(`Could not extract raw app name from path: ${p}`);
     }
-    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message, defaultTs);
+    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message, defaultTs, permissionedAsContext, false);
+  } else if (typeEnding === "custom_path") {
+    await pushAppCustomPath(workspace, removeType(p, "custom_path"), newObj);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
@@ -244,12 +254,12 @@ export async function pushObj(
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
-      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific, true);
+      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific, true, permissionedAsContext);
     }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
-    await pushSchedule(workspace, p, befObj, newObj, permissionedAsContext);
+    await pushSchedule(workspace, p, befObj, newObj, permissionedAsContext, enabledOwnedByParent);
   } else if (typeEnding === "http_trigger") {
     await pushTrigger("http", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "websocket_trigger") {
@@ -281,7 +291,9 @@ export async function pushObj(
   } else if (typeEnding === "workspace_dependencies") {
     await pushWorkspaceDependencies(workspace, p, befObj, newObj);
   } else if (typeEnding === "settings") {
-    await pushWorkspaceSettings(workspace, p, befObj, newObj);
+    await pushWorkspaceSettings(workspace, p, befObj, newObj, {
+      includeDatatablePermissions,
+    });
   } else if (typeEnding === "encryption_key") {
     await pushWorkspaceKey(workspace, p, befObj, newObj, keyPushOpts);
   } else {
@@ -316,7 +328,8 @@ export function parseFromFile(p: string): any {
 export function parseDatatableMigrationPath(p: string):
   | { datatable: string; timestamp: number; name: string; kind: "up" | "down" }
   | undefined {
-  const parts = p.split("/");
+  // Local paths carry the platform separator (`\` on Windows).
+  const parts = p.split(/[\\/]/);
   if (
     parts[0] !== "migrations" ||
     parts[1] !== "datatable" ||
@@ -349,6 +362,7 @@ export function getTypeStrFromPath(
   | "folder"
   | "app"
   | "raw_app"
+  | "custom_path"
   | "schedule"
   | "http_trigger"
   | "websocket_trigger"
@@ -366,6 +380,7 @@ export function getTypeStrFromPath(
   | "group"
   | "settings"
   | "encryption_key"
+  | "shared_lock"
   | "workspace_dependencies" {
   if (isDatatableMigrationPath(p)) {
     return "datatable_migration";
@@ -382,7 +397,11 @@ export function getTypeStrFromPath(
   if (isRawAppPath(p)) {
     return "raw_app";
   }
-  if (p.startsWith("dependencies" + SEP)) {
+  // A repo-side artifact of `dedupeLockfiles`: it has no object on the server.
+  if (isSharedLockPath(p)) {
+    return "shared_lock";
+  }
+  if (isWorkspaceDependencies(p)) {
     return "workspace_dependencies";
   }
   if (isFileResource(p) || isFilesetResource(p)) {
@@ -438,6 +457,7 @@ export function getTypeStrFromPath(
     typeEnding === "resource" ||
     typeEnding === "resource-type" ||
     typeEnding === "app" ||
+    typeEnding === "custom_path" ||
     typeEnding === "schedule" ||
     typeEnding === "http_trigger" ||
     typeEnding === "websocket_trigger" ||

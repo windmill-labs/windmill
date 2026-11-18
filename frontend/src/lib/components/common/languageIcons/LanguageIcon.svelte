@@ -16,7 +16,7 @@
 	import MSSqlServerIcon from '$lib/components/icons/MSSqlServerIcon.svelte'
 	import BunIcon from '$lib/components/icons/BunIcon.svelte'
 	import DenoIcon from '$lib/components/icons/DenoIcon.svelte'
-	import type { Script } from '$lib/gen'
+	import { languageLabel } from './languageLabels'
 	import PHPIcon from '$lib/components/icons/PHPIcon.svelte'
 	import RustIcon from '$lib/components/icons/RustIcon.svelte'
 	import AnsibleIcon from '$lib/components/icons/AnsibleIcon.svelte'
@@ -28,6 +28,7 @@
 	import RIcon from '$lib/components/icons/RIcon.svelte'
 	import ClaudeIcon from '$lib/components/icons/ClaudeIcon.svelte'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
+	import { Pi } from 'lucide-svelte'
 
 	interface Props {
 		lang:
@@ -41,6 +42,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 		width?: number
 		height?: number
 		scale?: number
@@ -50,38 +52,16 @@
 
 	let { lang, width = 30, height = 30, scale = 1, size = undefined, ...rest }: Props = $props()
 
-	const languageLabel: Record<Script['language'] | 'bunnative' | 'claudesandbox', String> = {
-		python3: 'Python',
-		deno: 'TypeScript',
-		go: 'Go',
-		bash: 'Bash',
-		powershell: 'PowerShell',
-		nativets: 'HTTP',
-		bunnative: 'HTTP',
-		graphql: 'GraphQL',
-		postgresql: 'Postgresql',
-		bigquery: 'BigQuery',
-		oracledb: 'Oracle Database',
-		duckdb: 'DuckDB',
-		snowflake: 'Snowflake',
-		mysql: 'MySQL',
-		mssql: 'MS SQL Server',
-		bun: 'TypeScript',
-		php: 'PHP',
-		rust: 'Rust',
-		ansible: 'Ansible',
-		csharp: 'C#',
-		nu: 'Nu',
-		java: 'Java',
-		ruby: 'Ruby',
-		rlang: 'R',
-		dbt: 'dbt',
-		claudesandbox: 'Claude Sandbox'
-		// for related places search: ADD_NEW_LANG
-	}
-
 	const langToComponent: Record<
-		SupportedLanguage | 'pgsql' | 'javascript' | 'fetch' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox',
+		| SupportedLanguage
+		| 'pgsql'
+		| 'javascript'
+		| 'fetch'
+		| 'docker'
+		| 'powershell'
+		| 'bunnative'
+		| 'claudesandbox'
+		| 'pisandbox',
 		any
 	> = {
 		go: GoIcon,
@@ -114,7 +94,8 @@
 		rlang: RIcon,
 		duckdb: DuckDbIcon,
 		dbt: DbtIcon,
-		claudesandbox: TypeScriptIcon
+		claudesandbox: TypeScriptIcon,
+		pisandbox: TypeScriptIcon
 		// for related places search: ADD_NEW_LANG
 	}
 
@@ -164,6 +145,16 @@
 				width={width * scale * (subIconScale - 0.1)}
 				height={height * scale * (subIconScale - 0.1)}
 			/>
+		</div>
+	{/if}
+	{#if lang === 'pisandbox'}
+		<div
+			class="absolute -top-1.5 -right-1.5 bg-surface rounded-full flex items-center justify-center text-primary"
+			style={`width: ${width * scale * subIconScale}px; height: ${
+				height * scale * subIconScale
+			}px;`}
+		>
+			<Pi size={width * scale * (subIconScale - 0.1)} />
 		</div>
 	{/if}
 </div>

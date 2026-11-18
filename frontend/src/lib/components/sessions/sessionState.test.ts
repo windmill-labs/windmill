@@ -4,12 +4,27 @@ import {
 	commitSessionWorkspace,
 	createSession,
 	decideSessionLifecycle,
+	getSessionDraftAttachments,
+	holdHomeDraft,
+	holdSessionUntilStarted,
+	homeDraft,
+	homeStarterSession,
 	isForkSession,
+	isTearingDownOpenSession,
+	markSessionStateChanged,
+	opensOnHome,
+	sessionLastStateChangeAt,
 	renameSession,
+	setDraftsDiscardedHandler,
 	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
+	setSessionDraftAttachments,
 	setSessionDraftPrompt,
+	setSendUnderWayCheck,
+	setSessionPendingWorkspace,
+	setSessionTabs,
 	sessionState,
+	withOpenSessionTeardown,
 	type Session
 } from './sessionState.svelte'
 import {
@@ -19,6 +34,10 @@ import {
 	type UserWorkspace
 } from '$lib/stores'
 import { WorkspaceService } from '$lib/gen'
+import type { DraftAttachments } from '$lib/components/copilot/chat/messageDraft.svelte'
+import type { PasteAttachment } from '$lib/components/copilot/chat/pasteTokens'
+
+const NO_ATTACHMENTS: DraftAttachments = { pastes: [], images: [], files: [], blobs: [] }
 
 // Force createWorkspaceFork to fail so we can pin commitSessionWorkspace's
 // failure contract (the invariant the beforeSend abort fix relies on).
@@ -29,6 +48,7 @@ vi.mock('$lib/gen', async (orig) => {
 		WorkspaceService: {
 			...actual.WorkspaceService,
 			createWorkspaceFork: vi.fn().mockRejectedValue(new Error('fork creation failed')),
+			getForkCreationStatus: vi.fn().mockResolvedValue({ status: 'completed' }),
 			listUserWorkspaces: vi.fn().mockResolvedValue([])
 		}
 	}
@@ -69,6 +89,14 @@ describe('isForkSession', () => {
 			true
 		)
 	})
+
+	it('falls back to the stored root until the workspace list has loaded', () => {
+		const fork = session({ workspace_id: 'fork', workspace_root_id: 'root' })
+		const root = session({ workspace_id: 'root', workspace_root_id: 'root' })
+		expect(isForkSession(fork, undefined)).toBe(true)
+		expect(isForkSession(root, undefined)).toBe(false)
+		expect(isForkSession(session({ workspace_id: 'fork' }), undefined)).toBe(false)
+	})
 })
 
 describe('commitSessionWorkspace — fork-creation failure', () => {
@@ -93,6 +121,86 @@ describe('commitSessionWorkspace — fork-creation failure', () => {
 			expect(s?.workspace_id).toBeUndefined()
 			expect(s?.pending_fork).toBeUndefined()
 		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			enterpriseLicense.set(prevLicense)
+		}
+	})
+})
+
+describe('commitSessionWorkspace — fork creation resumed after a reload', () => {
+	it('waits for the creation the pending fork started instead of requesting it again', async () => {
+		const id = 'test-commit-fork-resume'
+		const prevLicense = get(enterpriseLicense)
+		enterpriseLicense.set('test-license')
+		vi.mocked(WorkspaceService.createWorkspaceFork).mockClear()
+		sessionState.sessions.push({
+			id,
+			name: 'fork-resume',
+			createdAt: 0,
+			pending_fork: {
+				parent_workspace_id: 'parent_ws',
+				id: 'wm-fork-resume',
+				name: 'resume',
+				creation_id: '5c3e1b1e-0000-4000-8000-000000000000'
+			}
+		} as Session)
+		try {
+			expect(await commitSessionWorkspace(id, 'parent_ws')).toBe('wm-fork-resume')
+			expect(WorkspaceService.getForkCreationStatus).toHaveBeenCalledWith({
+				workspace: 'parent_ws',
+				creationId: '5c3e1b1e-0000-4000-8000-000000000000'
+			})
+			expect(WorkspaceService.createWorkspaceFork).not.toHaveBeenCalled()
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			enterpriseLicense.set(prevLicense)
+		}
+	})
+})
+
+describe('commitSessionWorkspace — fork still being created', () => {
+	it('gives up a gone creation quickly, then adopts the fork once it is created', async () => {
+		const id = 'test-commit-fork-in-flight'
+		const prevLicense = get(enterpriseLicense)
+		const prevWorkspaces = get(usersWorkspaceStore)
+		enterpriseLicense.set('test-license')
+		vi.useFakeTimers()
+		const status = vi.mocked(WorkspaceService.getForkCreationStatus)
+		status.mockClear()
+		status.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }))
+		vi.mocked(WorkspaceService.createWorkspaceFork).mockRejectedValue({
+			body: "Bad request: workspace 'wm-fork-flight' is already being created"
+		})
+		vi.mocked(WorkspaceService.listUserWorkspaces)
+			.mockResolvedValueOnce({ email: 't@t', workspaces: [] } as never)
+			.mockResolvedValue({ email: 't@t', workspaces: [ws('wm-fork-flight', 'parent_ws')] } as never)
+		sessionState.sessions.push({
+			id,
+			name: 'fork-flight',
+			createdAt: 0,
+			pending_fork: {
+				parent_workspace_id: 'parent_ws',
+				id: 'wm-fork-flight',
+				name: 'flight',
+				creation_id: '5c3e1b1e-0000-4000-8000-000000000000'
+			}
+		} as Session)
+		try {
+			const committed = commitSessionWorkspace(id, 'parent_ws')
+			await vi.runAllTimersAsync()
+			expect(await committed).toBe('wm-fork-flight')
+			// The resumed creation is given up after its own short budget, not a fresh creation's.
+			expect(status.mock.calls.length).toBeLessThan(10)
+		} finally {
+			vi.useRealTimers()
+			status.mockResolvedValue({ status: 'completed' })
+			vi.mocked(WorkspaceService.createWorkspaceFork).mockRejectedValue(
+				new Error('fork creation failed')
+			)
+			vi.mocked(WorkspaceService.listUserWorkspaces).mockResolvedValue([] as never)
+			usersWorkspaceStore.set(prevWorkspaces)
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
 			enterpriseLicense.set(prevLicense)
@@ -249,6 +357,32 @@ describe('session summary generation guards', () => {
 	})
 })
 
+describe('sessionLastStateChangeAt', () => {
+	it('moves on a turn, not on a rename', () => {
+		const now = Date.now()
+		const older = { id: 'sort-older-draft', name: 'd', createdAt: now - 60_000 } as Session
+		const newer = {
+			id: 'sort-newer',
+			name: 'n',
+			createdAt: now - 30_000,
+			lastStateChangeAt: now - 1
+		} as Session
+		sessionState.sessions.push(older, newer)
+		const entry = (id: string) => sessionState.sessions.find((x) => x.id === id)!
+		try {
+			markSessionStateChanged(older.id)
+			const stamped = sessionLastStateChangeAt(entry(older.id))
+			expect(stamped).toBeGreaterThan(sessionLastStateChangeAt(entry(newer.id)))
+			renameSession(older.id, 'Renamed')
+			expect(sessionLastStateChangeAt(entry(older.id))).toBe(stamped)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== older.id && s.id !== newer.id
+			)
+		}
+	})
+})
+
 describe('decideSessionLifecycle — the never-orphaned rule (pure)', () => {
 	const mk = (over: Partial<Session> = {}): Session => ({
 		id: 'x',
@@ -357,6 +491,73 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 			expect(sessionState.currentSessionId).toBe('untouched-same-family')
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'untouched-same-family')
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('does not reuse a draft that holds only an attachment', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const attached = session({
+			id: 'attachment-only',
+			name: 'session-904',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(attached)
+		let createdId: string | undefined
+		try {
+			setSessionDraftAttachments('attachment-only', {
+				...NO_ATTACHMENTS,
+				pastes: [{} as PasteAttachment]
+			})
+			createdId = createSession().id
+			expect(createdId).not.toBe('attachment-only')
+			expect(getSessionDraftAttachments('attachment-only')).toBeDefined()
+		} finally {
+			setSessionDraftAttachments('attachment-only', NO_ATTACHMENTS)
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'attachment-only' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('keeps a session held until started in memory, and does not reuse it', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const held = session({
+			id: 'held-on-app',
+			name: 'session-905',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(held)
+		let createdId: string | undefined
+		try {
+			holdSessionUntilStarted('held-on-app')
+			const tabs = [
+				{ id: 'session', url: '/apps_raw/edit/u/me/app', loc: '/apps_raw/edit/u/me/app' }
+			]
+			setSessionTabs('held-on-app', tabs, 'session')
+			expect(held.transient).toBe(true)
+			vi.useFakeTimers()
+			try {
+				setSessionDraftPrompt('held-on-app', 'make it blue')
+				vi.advanceTimersByTime(1000)
+			} finally {
+				vi.useRealTimers()
+			}
+			expect(held.transient).toBe(true)
+			createdId = createSession().id
+			expect(createdId).not.toBe('held-on-app')
+			expect(sessionState.sessions).toContain(held)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'held-on-app' && s.id !== createdId
+			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
 		}
@@ -482,6 +683,170 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 			vi.useRealTimers()
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => s.id !== 'typed-then-erased' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+})
+
+describe('withOpenSessionTeardown — the gate that holds recovery off during a delete', () => {
+	it('stays shut until the outermost teardown finishes', async () => {
+		let innerDone = false
+		await withOpenSessionTeardown(async () => {
+			await withOpenSessionTeardown(async () => {})
+			innerDone = true
+			expect(isTearingDownOpenSession()).toBe(true)
+		})
+		expect(innerDone).toBe(true)
+		expect(isTearingDownOpenSession()).toBe(false)
+	})
+
+	it('reopens when the teardown throws, so a failed delete cannot wedge recovery shut', async () => {
+		await expect(
+			withOpenSessionTeardown(async () => {
+				throw new Error('fork deletion failed')
+			})
+		).rejects.toThrow('fork deletion failed')
+		expect(isTearingDownOpenSession()).toBe(false)
+	})
+})
+
+describe('opensOnHome', () => {
+	it('leaves an archived draft, and one whose first turn has started, to their own page', () => {
+		const draft = session({ id: 'typed-draft', draftPrompt: 'hi' })
+		expect(opensOnHome(draft)).toBe(true)
+		expect(opensOnHome({ ...draft, archived: true })).toBe(false)
+		setSendUnderWayCheck((id) => id === 'typed-draft')
+		try {
+			expect(opensOnHome(draft)).toBe(false)
+		} finally {
+			setSendUnderWayCheck(() => false)
+		}
+	})
+})
+
+describe('homeStarterSession', () => {
+	it("shows the family's stored draft, not the conversation in view, and selects nothing", () => {
+		const restore = withTwoFamilies('forkA')
+		const prevCurrent = sessionState.currentSessionId
+		const conversation = session({ id: 'conversation', workspace_id: 'rootA' })
+		// Stored, though it holds no text: it is the user's draft.
+		const picked = session({ id: 'picked-draft', pending_workspace_id: 'forkA', lastActivityAt: 2 })
+		const otherFamily = session({
+			id: 'other-family-draft',
+			pending_workspace_id: 'rootB',
+			draftPrompt: 'elsewhere',
+			lastActivityAt: 3
+		})
+		sessionState.sessions.push(conversation, picked, otherFamily)
+		sessionState.currentSessionId = 'conversation'
+		try {
+			expect(homeStarterSession().id).toBe('picked-draft')
+			// Home's draft is not the session open on the sessions page.
+			expect(sessionState.currentSessionId).toBe('conversation')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => !['conversation', 'picked-draft', 'other-family-draft'].includes(s.id)
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('keeps the draft Home holds, acting on the header workspace within its family only', () => {
+		const restore = withTwoFamilies('forkA')
+		const recent = session({ id: 'recent-draft', pending_workspace_id: 'rootA', lastActivityAt: 9 })
+		const held = session({ id: 'held-draft', pending_workspace_id: 'rootA', lastActivityAt: 1 })
+		sessionState.sessions.push(recent, held)
+		const heldNow = () => sessionState.sessions.find((s) => s.id === 'held-draft')
+		try {
+			holdHomeDraft('held-draft')
+			// A blank asked for by New session, or a draft picked in the list, beats the
+			// family's most recent one.
+			expect(homeStarterSession().id).toBe('held-draft')
+			expect(heldNow()?.pending_workspace_id).toBe('forkA')
+			// Another family's header does not take the draft along: Home shows that family's.
+			workspaceStore.set('rootB')
+			holdHomeDraft('held-draft')
+			expect(heldNow()?.pending_workspace_id).toBe('forkA')
+		} finally {
+			homeDraft.id = undefined
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => !['recent-draft', 'held-draft'].includes(s.id)
+			)
+			restore()
+		}
+	})
+
+	it('keeps a draft whose first send is under way in the workspace it was sent from', () => {
+		const restore = withTwoFamilies('forkA')
+		sessionState.sessions.push(session({ id: 'sending-draft', pending_workspace_id: 'forkA' }))
+		const sendingNow = () => sessionState.sessions.find((s) => s.id === 'sending-draft')
+		try {
+			holdHomeDraft('sending-draft')
+			setSendUnderWayCheck((id) => id === 'sending-draft')
+			workspaceStore.set('rootA')
+			holdHomeDraft('sending-draft')
+			expect(sendingNow()?.pending_workspace_id).toBe('forkA')
+		} finally {
+			setSendUnderWayCheck(() => false)
+			homeDraft.id = undefined
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sending-draft')
+			restore()
+		}
+	})
+
+	it('lets go of its blank once a hand-off reuses it for an item', () => {
+		const restore = withTwoFamilies('forkA')
+		const prevCurrent = sessionState.currentSessionId
+		const ids: string[] = []
+		try {
+			ids.push(homeStarterSession().id)
+			holdHomeDraft(ids[0])
+			const reused = createSession()
+			expect(reused.id).toBe(ids[0])
+			setSessionPendingWorkspace(reused.id, 'rootA')
+			reused.previewTabs = [{ id: 'tab', url: '/flows/edit/f/x', loc: '/flows/edit/f/x' }]
+			// The item opens on the session page, and Home starts a draft of its own.
+			expect(opensOnHome(reused)).toBe(false)
+			ids.push(homeStarterSession().id)
+			expect(ids[1]).not.toBe(ids[0])
+			expect(reused.pending_workspace_id).toBe('rootA')
+		} finally {
+			homeDraft.id = undefined
+			sessionState.sessions = sessionState.sessions.filter((s) => !ids.includes(s.id))
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('reports the never-touched drafts it drops, so their runtimes can be disposed', () => {
+		const restore = withTwoFamilies('rootB')
+		const prevCurrent = sessionState.currentSessionId
+		const blank = session({
+			id: 'blank-other-family',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		const typed = session({
+			id: 'typed-other-family',
+			pending_workspace_id: 'rootA',
+			draftPrompt: 'kept'
+		})
+		sessionState.sessions.push(blank, typed)
+		const discarded: string[][] = []
+		setDraftsDiscardedHandler((ids) => discarded.push(ids))
+		let createdId: string | undefined
+		try {
+			// No draft of family B exists, so Home starts one, dropping family A's blank draft.
+			createdId = homeStarterSession().id
+			expect(discarded).toEqual([['blank-other-family']])
+			expect(sessionState.sessions.some((s) => s.id === 'typed-other-family')).toBe(true)
+		} finally {
+			setDraftsDiscardedHandler(() => {})
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => !['blank-other-family', 'typed-other-family', createdId].includes(s.id)
 			)
 			sessionState.currentSessionId = prevCurrent
 			restore()

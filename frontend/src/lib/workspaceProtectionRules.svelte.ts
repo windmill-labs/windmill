@@ -4,7 +4,7 @@ import type { UserExt } from './stores'
 // The slice of the user identity the bypass checks read — structural, so
 // callers can pass a whoami response (normalised groups) as well as the
 // UserExt store value.
-export type RuleBypassUser = Pick<UserExt, 'is_admin' | 'username' | 'groups'>
+export type RuleBypassUser = Pick<UserExt, 'is_admin' | 'is_super_admin' | 'username' | 'groups'>
 
 // Mirrors DEV_WORKSPACE_LOCK_RULE_NAME in windmill-common. The pairing owns this rule by name:
 // attaching a dev workspace creates it, detaching deletes it. The API refuses to create or delete
@@ -89,12 +89,19 @@ export async function loadProtectionRules(workspace: string): Promise<void> {
 export async function fetchProtectionRulesForWorkspace(
 	workspace: string
 ): Promise<ProtectionRuleset[]> {
+	return (await readProtectionRulesForWorkspace(workspace)) ?? []
+}
+
+/** The same rules, but `undefined` when they cannot be read, for a caller that has to fail
+ * closed rather than read an error as "no rules". */
+export async function readProtectionRulesForWorkspace(
+	workspace: string
+): Promise<ProtectionRuleset[] | undefined> {
 	try {
-		const rulesets = await WorkspaceService.listProtectionRules({ workspace })
-		return rulesets
+		return await WorkspaceService.listProtectionRules({ workspace })
 	} catch (error) {
 		console.error(`Failed to fetch protection rules for workspace ${workspace}:`, error)
-		return []
+		return undefined
 	}
 }
 
@@ -102,11 +109,12 @@ export async function fetchProtectionRulesForWorkspace(
  * Checks if a user can bypass a specific ruleset
  * @param ruleset The protection ruleset to check
  * @param userInfo The user information
- * @returns true if user can bypass (is admin, in bypass_users, or has group in bypass_groups)
+ * @returns true if user can bypass (is admin or superadmin, in bypass_users, or has group in bypass_groups)
  */
 export function canUserBypassRule(ruleset: ProtectionRuleset, userInfo: RuleBypassUser): boolean {
-	// Admin always bypasses
-	if (userInfo.is_admin) {
+	// The server bypasses on `ApiAuthed.is_admin`, which it builds as `usr.is_admin ||
+	// super_admin`, so testing `is_admin` alone understates a superadmin who is a plain member.
+	if (userInfo.is_admin || userInfo.is_super_admin) {
 		return true
 	}
 

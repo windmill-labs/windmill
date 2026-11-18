@@ -7,7 +7,6 @@
 // import { get } from 'svelte/store'
 
 import { deepEqual } from 'fast-equals'
-import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
 import type { CompletedJob, Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
@@ -84,13 +83,13 @@ export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
 }
 
-// Only a top-level failure can carry a resolution: cancellations and skipped steps are not
-// failures, and a flow step resolved on its own would render orange inside a flow whose status
-// is still red. The resolve endpoint enforces the same three conditions.
+// Only a top-level failed or canceled run can carry a resolution: successes and skipped steps
+// have nothing to handle, and a flow step resolved on its own would render orange inside a flow
+// whose status is still red. The resolve endpoint enforces the same conditions.
 // Runs obscured from another workspace stand in with `id: '-'`; they look like failures but
 // address nothing, and one reaching the endpoint fails the whole batch on UUID parsing.
 export function isJobResolvable(j: Job): j is CompletedJob {
-	return j.type === 'CompletedJob' && !j.success && !j.canceled && !j.is_flow_step && j.id !== '-'
+	return j.type === 'CompletedJob' && !j.success && !j.is_flow_step && j.id !== '-'
 }
 
 // Mirror the caps enforced by /jobs/completed/resolve, so the UI can chunk and validate
@@ -110,8 +109,8 @@ export function escapeHtml(unsafe: string) {
 }
 
 export function validateUsername(username: string): string {
-	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
-		return 'username can only contain letters and numbers and must start with a letter'
+	if (username != '' && !/^\w{1,50}$/.test(username)) {
+		return 'Username can only contain letters, numbers and underscores (at most 50)'
 	} else {
 		return ''
 	}
@@ -251,6 +250,29 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
 	} else {
 		return `${msToSec(ms, maximumFractionDigits)}s`
 	}
+}
+
+/** A duration in its two largest units (`12.3s`, `4m 5s`, `3h 12m`, `2d 3h`), short enough for a
+ * label beside a bar; use msToReadableTime where the exact value is wanted. */
+export function msToCompactDuration(
+	ms: number | undefined,
+	maximumFractionDigits?: number
+): string {
+	if (ms === undefined) return '?'
+	if (ms < 60_000) return `${msToSec(ms, maximumFractionDigits)}s`
+
+	const seconds = Math.floor(ms / 1000)
+	const minutes = Math.floor(seconds / 60)
+	const hours = Math.floor(minutes / 60)
+	const days = Math.floor(hours / 24)
+
+	const [major, minor] =
+		days > 0
+			? [`${days}d`, hours % 24 ? `${hours % 24}h` : '']
+			: hours > 0
+				? [`${hours}h`, minutes % 60 ? `${minutes % 60}m` : '']
+				: [`${minutes}m`, seconds % 60 ? `${seconds % 60}s` : '']
+	return minor ? `${major} ${minor}` : major
 }
 
 export function msToReadableTimeShort(
@@ -583,7 +605,9 @@ export function groupBy<K, V>(
 }
 
 export function removeMarkdown(text: string): string {
-	return text.replace(/[[\*|\-|#\_]/g, '')
+	// `_` and `-` only where they are markup, not inside a word: `ai_instruction` and
+	// `read-only` in a description must stay as written.
+	return text.replace(/[[*|#]|(?<![\p{L}\p{N}])[-_]+|[-_]+(?![\p{L}\p{N}])/gu, '')
 }
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
@@ -630,6 +654,7 @@ export type InputCat =
 	| 'dynamic'
 	| 'json-schema'
 	| 'ai-provider'
+	| 'ai-decision-questions'
 
 export namespace DynamicInput {
 	const DYN_FORMAT_PREFIX = ['dynmultiselect-', 'dynselect-']
@@ -637,6 +662,20 @@ export namespace DynamicInput {
 	export type HelperScript =
 		| { source: 'deployed'; path: string; runnable_kind: RunnableKind }
 		| { source: 'inline'; code: string; lang: ScriptLang }
+
+	/** A flow's dropdown options for its editor. An operator may not run request-supplied code, and
+	 * a builder cannot change the stored code, so an operator reads it from the deployed flow. */
+	export function flowHelperScript(
+		code: string | undefined,
+		lang: ScriptLang | undefined,
+		deployedPath: string | undefined,
+		operator: boolean | undefined
+	): HelperScript | undefined {
+		if (!code || !lang) return undefined
+		return operator && deployedPath
+			? { source: 'deployed', path: deployedPath, runnable_kind: 'flow' }
+			: { source: 'inline', code, lang }
+	}
 
 	export const generatePythonFnTemplate = (functionName: string): string => {
 		return `
@@ -694,8 +733,10 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (type == 'object' && format == 'ai-provider') {
+	} else if (type == 'object' && (format == 'ai-provider' || format == 'ai-decision-provider')) {
 		return 'ai-provider'
+	} else if (type == 'object' && format == 'ai-decision-questions') {
+		return 'ai-decision-questions'
 	} else if (type == 'object' && DynamicInput.isDynInputFormat(format)) {
 		return 'dynamic'
 	} else if (!type || type == 'object' || type == 'array') {
@@ -815,7 +856,8 @@ export function addDeterminant(word: string): string {
 	return (/^[aeiou]/i.test(word) ? 'an ' : 'a ') + word
 }
 
-export { capitalize } from './sharedUtils'
+// Not from './sharedUtils': that module drags the app policy code into every page.
+export { capitalize } from './utils/capitalize'
 
 export function addWhitespaceBeforeCapitals(word?: string): string {
 	if (!word) {
@@ -1145,14 +1187,16 @@ export function isObviousOwner(path: string, user?: UserExt): boolean {
 	if (user.is_admin || user.is_super_admin) {
 		return true
 	}
-	let userOwner = `u/${user.username}`
+	// The trailing slash keeps folder `fin` from matching `f/finance/...`, and user
+	// `dev` from matching `u/devops/...`.
+	let userOwner = `u/${user.username}/`
 	if (path.startsWith(userOwner)) {
 		return true
 	}
-	if (user.pgroups.findIndex((x) => path.startsWith(x)) != -1) {
+	if (user.pgroups.findIndex((x) => path.startsWith(x + '/')) != -1) {
 		return true
 	}
-	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/')) != -1) {
 		return true
 	}
 	return false
@@ -1305,28 +1349,7 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	return dynamicTemplateRegex.test(expr)
 }
 
-// Query params Windmill consumes internally and that should not be exposed to
-// app logic via the `query` context. Only params we actually own are listed
-// here — the `wm_` prefix is a naming convention, not a reserved namespace, so
-// we don't strip it wholesale (that would break apps reading their own `wm_*`
-// params). `wm_coep` is a transport flag for cross-origin isolation headers;
-// `wm_embed`/`wm_embedder_origin` are the opaque app viewer transport params
-// (see PublicAppFrame).
-export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep', 'wm_embed', 'wm_embedder_origin'])
-
-export function urlParamsToObject(
-	params: URLSearchParams,
-	opts?: { stripReserved?: boolean }
-): Record<string, string> {
-	const result: Record<string, string> = {}
-	params.forEach((value, key) => {
-		if (opts?.stripReserved && WINDMILL_RESERVED_QUERY_PARAMS.has(key)) {
-			return
-		}
-		result[key] = value
-	})
-	return result
-}
+export { WINDMILL_RESERVED_QUERY_PARAMS, urlParamsToObject } from './utils/queryParams'
 
 export async function tryEvery({
 	tryCode,
@@ -1426,7 +1449,8 @@ function replaceFalseWithUndefinedRec(obj: any) {
 // `hash` is the deployed version's identity, `assets` is re-derived from the
 // script content by the editor, and `inherited_labels` is computed at read time
 // from the parent folder — none is editable content, so all three are noise in a
-// fork/workspace or version diff.
+// fork/workspace or version diff. `starred` is the viewer's own favorite flag, and a
+// starred item's `starred: true` survives `replaceFalseWithUndefined`.
 //
 // `lock` and `extra_perms` are deliberately NOT in this set: both are legitimate,
 // user-meaningful fields in some diff contexts (lockfile changes in version-to-version
@@ -1442,13 +1466,17 @@ const CLEANED_VALUE_KEYS = new Set([
 	'draft_only',
 	'draft_saved_at',
 	'draft_created_at',
+	'draft_base',
 	'is_draft',
 	'other_drafts_users',
 	'created_at',
 	'created_by',
+	'edited_at',
+	'edited_by',
 	'workspace_id',
 	'parent_hashes',
-	'lock_error_logs'
+	'lock_error_logs',
+	'starred'
 ])
 
 export function cleanValueProperties(obj: Value) {
@@ -1481,50 +1509,6 @@ export function orderedJsonStringify(obj: any, space?: string | number) {
 		(key, value) => (value != undefined && value != null && allKeys.add(key), value)
 	)
 	return JSON.stringify(obj, (Array.from(allKeys) as string[]).sort(), space)
-}
-
-function sortObjectKeys(obj: any): any {
-	if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-		const sortedObj: any = {}
-		Object.keys(obj)
-			.sort()
-			.forEach((key) => {
-				sortedObj[key] = sortObjectKeys(obj[key])
-			})
-		return sortedObj
-	} else if (Array.isArray(obj)) {
-		return obj.map((item) => sortObjectKeys(item))
-	} else {
-		return obj
-	}
-}
-
-export function orderedYamlStringify(obj: any) {
-	const sortedObj = sortObjectKeys(obj)
-	return YAML.stringify(sortedObj)
-}
-
-function evalJs(expr: string) {
-	let template = `
-return function (fields) {
-"use strict";
-return ${expr.startsWith('return ') ? expr.substring(7) : expr}
-}
-`
-	let functor = Function(template)
-	return functor()
-}
-export function computeShow(argName: string, expr: string | undefined, args: any) {
-	if (expr) {
-		try {
-			let r = evalJs(expr)(args ?? {})
-			return r
-		} catch (e) {
-			console.error(`Impossible to eval ${expr}:`, e)
-			return true
-		}
-	}
-	return true
 }
 
 function urlizeTokenInternal(token: string, formatter: 'html' | 'md'): string {
@@ -1690,24 +1674,34 @@ export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | un
 
 export type Item = {
 	displayName: string
+	/** Second line under the label, for an action whose name alone does not say what it does. */
+	description?: string
 	action?: (e: MouseEvent) => void
 	icon?: any
 	iconColor?: string
 	/** Extra props for `icon`, for an icon that does not take lucide's `size`. */
 	iconProps?: Record<string, any>
+	customSubmenu?: import('svelte').Component<any>
+	customSubmenuProps?: Record<string, unknown>
 	href?: string
 	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean
-	type?: 'action' | 'delete'
+	/** `ai` sets the row in the AI colour, for an action that hands something to the assistant. */
+	type?: 'action' | 'delete' | 'ai'
 	hide?: boolean | undefined
 	extra?: Snippet
 	id?: string
 	tooltip?: string
 	separatorTop?: boolean
+	/** A heading above the row, opening a section of the menu. */
+	sectionTitle?: string
 	/** Renders an on/off switch at the end of the row, so `icon` keeps the leading
 	 * slot. Presentational: the row's own click is what flips it, so `action` must
 	 * apply the change. */
 	toggle?: boolean
+	/** The menu stays open after the row is picked, for a setting whose effect shows in it.
+	 * Rows of a `DropdownSubmenuItem` only. */
+	keepOpen?: boolean
 	submenuItems?: Item[]
 	shortcut?: string
 	// Renders a trailing check on the right of the label to mark the
@@ -2039,7 +2033,7 @@ import tokensFile from './assets/tokens/tokens.json'
 import githubDarkTokens from './assets/tokens/githubDark.json'
 import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
 import BarsStaggered from './components/icons/BarsStaggered.svelte'
-import { GitIcon } from './components/icons'
+import GitIcon from './components/icons/GitIcon.svelte'
 import { Bot, Code, Package } from 'lucide-svelte'
 import type { DbInput } from './components/dbTypes'
 export function getCssColor(

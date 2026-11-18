@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_column_edge (workspace_id, script_path, script_hash, job_id,\n                                      parent_unique_id, parent_column, child_unique_id,\n                                      child_column, lineage_kind)\n         VALUES ($1, $2, $3, $4, 'model.p.stock', 'sku', 'model.p.stock_daily', 'sku', 'copy')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1008ed150f30b56baf17b3c6e6bfc8ee144b14d564a3e589a60678b3e68effbf"
+}

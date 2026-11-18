@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import AiChatLayout from './copilot/chat/AiChatLayout.svelte'
+	import { loadCopilot } from './copilot/loadCopilot'
 	import type { ScriptBuilderProps } from './script_builder'
 	import { usePageDraftSync } from './usePageDraftSync.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -36,9 +36,14 @@
 		workspace: () => $workspaceStore,
 		defaultValue: initialScript
 	})
+
+	// The workspace AI config gates the editor's AI features (code completion, metadata).
+	$effect(() => {
+		if ($workspaceStore && !disableAi) loadCopilot($workspaceStore)
+	})
 </script>
 
-<AiChatLayout noPadding {disableAi} loadAiConfig={!disableAi}>
+<div id="content" class="h-full flex-1 min-h-0 flex flex-col overflow-y-auto">
 	{#if $workspaceStore && draftSync.draft}
 		<ScriptBuilder
 			bind:script={draftSync.draft}
@@ -47,4 +52,4 @@
 			{...props}
 		/>
 	{/if}
-</AiChatLayout>
+</div>

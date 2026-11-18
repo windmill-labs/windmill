@@ -24,7 +24,7 @@ use crate::{transpile_ts, NativeAnnotation, PrewarmedIsolate, PrewarmedResult};
 /// positional args, and return the isolate's result + captured logs.
 async fn run_ts(ts: &str, arg_names: &[&str], args: serde_json::Value) -> PrewarmedResult {
     let js = transpile_ts(ts.to_string()).expect("transpile_ts failed");
-    let ann = NativeAnnotation { useragent: None, proxy: None };
+    let ann = NativeAnnotation::default();
     let arg_names: Vec<String> = arg_names.iter().map(|s| s.to_string()).collect();
     let mut iso = PrewarmedIsolate::spawn(String::new(), js, ann, arg_names, None);
     iso.wait_ready().await.expect("isolate failed to pre-warm");
@@ -232,7 +232,7 @@ export async function main(i: number): Promise<number> {
     for i in 0..N {
         let js = js.clone();
         let h = tokio::spawn(async move {
-            let ann = NativeAnnotation { useragent: None, proxy: None };
+            let ann = NativeAnnotation::default();
             let mut iso =
                 PrewarmedIsolate::spawn(String::new(), js, ann, vec!["i".to_string()], None);
             iso.wait_ready().await.expect("pre-warm failed");
@@ -450,6 +450,10 @@ export async function main(): Promise<{ uuid: string; nonzero: boolean; sha256: 
     const sha256 = Array.from(new Uint8Array(digest))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
+
+    // `crypto` is installed as an accessor; polyfill-style assignment must
+    // still work rather than throw for want of a setter.
+    (globalThis as any).crypto = globalThis.crypto;
 
     return { uuid, nonzero, sha256 };
 }

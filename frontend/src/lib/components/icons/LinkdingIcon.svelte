@@ -16,7 +16,7 @@
 	y="0"
 	{width}
 	{height}
-	viewBox="0 0 56 56"
+	viewBox="-2.068 -2.068 60.136 60.136"
 	style="fill:currentcolor;"
 >
 	<g id="g8">

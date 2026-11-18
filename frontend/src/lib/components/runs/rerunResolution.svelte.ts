@@ -37,7 +37,7 @@ export function offerToResolveOriginal(origin: PendingRerun, onResolved?: () => 
 		'success',
 		[
 			{
-				label: 'Resolve the original failure',
+				label: 'Resolve the original run',
 				callback: async () => {
 					const affected = await JobService.resolveCompletedJobs({
 						workspace: origin.workspace,
@@ -50,10 +50,10 @@ export function offerToResolveOriginal(origin: PendingRerun, onResolved?: () => 
 						}
 					})
 					if (affected.length === 0) {
-						sendUserToast('Could not resolve the original failure', true)
+						sendUserToast('Could not resolve the original run', true)
 						return
 					}
-					sendUserToast('Original failure resolved')
+					sendUserToast('Original run resolved')
 					onResolved?.()
 				}
 			}

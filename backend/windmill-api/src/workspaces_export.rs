@@ -119,6 +119,8 @@ struct ScriptMetadata {
     pub debouncing_settings: DebouncingSettings,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "is_empty_extra_perms")]
     pub extra_perms: serde_json::Value,
 }
@@ -149,9 +151,7 @@ async fn derive_email(
     if let Some(hit) = cache.get(permissioned_as) {
         return Ok(Some(hit.clone()));
     }
-    // Uncached: the address goes into an archive a client redeploys from, and the write path
-    // validates the pair it sends back against an uncached lookup. The memo above still holds
-    // this to one query per distinct principal per export.
+    // The memo above holds this to one query per distinct principal per export.
     let email =
         windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
             .await?;
@@ -283,8 +283,29 @@ enum ArchiveImpl {
     Tar(tokio_tar::Builder<File>),
 }
 
+/// Entry paths come from item paths stored in the workspace; an absolute or
+/// drive-prefixed path, or a parent segment, would make extraction write outside
+/// the target directory. Win32 strips trailing dots and spaces from a segment,
+/// so `.. ` resolves to `..` there: any segment made only of those is refused.
+/// A colon matters only in the first segment (a drive prefix); later segments,
+/// such as a data table name, may carry one.
+fn check_archive_entry_path(path: &str) -> Result<()> {
+    let is_dot_segment = |seg: &str| !seg.is_empty() && seg.chars().all(|c| c == '.' || c == ' ');
+    let first = path.split(['/', '\\']).next().unwrap_or_default();
+    if path.starts_with(['/', '\\'])
+        || first.contains(':')
+        || path.split(['/', '\\']).any(is_dot_segment)
+    {
+        return Err(Error::internal_err(format!(
+            "refusing to write archive entry with path traversal: {path}"
+        )));
+    }
+    Ok(())
+}
+
 impl ArchiveImpl {
     async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
+        check_archive_entry_path(path)?;
         match self {
             ArchiveImpl::Tar(t) => {
                 let bytes = content.as_bytes();
@@ -338,6 +359,9 @@ pub(crate) struct ArchiveQueryParams {
     include_users: Option<bool>,
     include_groups: Option<bool>,
     include_settings: Option<bool>,
+    /// Opt-in, with `settings_version=v2`: state the data tables' roles in settings.json. Their
+    /// tenants name this workspace's users and groups, and their roles this instance's catalog.
+    include_datatable_permissions: Option<bool>,
     include_key: Option<bool>,
     include_workspace_dependencies: Option<bool>,
     /// Default `false`: data table migrations ship in the tarball unless the repo
@@ -346,7 +370,7 @@ pub(crate) struct ArchiveQueryParams {
     default_ts: Option<String>,
     /// Settings format version: "v1" (default) returns legacy flat format, "v2" returns grouped format
     settings_version: Option<String>,
-    /// Opt-in: include `extra_perms` on flow / script / app rows. Default `false`
+    /// Opt-in: include `extra_perms` on script / flow / app / variable rows. Default `false`
     /// so cross-workspace tarball imports do not carry over ACLs referring to
     /// identities that may not exist in the target workspace. `wmill sync pull`
     /// passes `true` to surface ACLs in the git-tracked yaml.
@@ -365,8 +389,8 @@ pub(crate) struct ArchiveQueryParams {
 ///                      pre-existing serialization for folders and groups so
 ///                      no customer sees a one-time noisy diff on upgrade.
 /// * `KeepIfNonEmpty` — keep when there is at least one entry, drop when `{}`
-///                      or null. New surface for flow / script / app, which
-///                      never carried ACLs in source before this change.
+///                      or null. New surface for script / flow / app / variable,
+///                      which never carried ACLs in source before this change.
 #[derive(Clone, Copy)]
 pub enum ExtraPermsBehavior {
     Drop,
@@ -492,49 +516,6 @@ struct SimplifiedGroup {
     admins: Vec<String>,
 }
 
-// V2 format: New grouped format
-#[derive(Serialize)]
-struct SimplifiedSettings {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    auto_invite: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    webhook: Option<String>,
-    // Always serialize (including as `null`) so that `wmill sync pull` emits
-    // these fields in settings.yaml unconditionally. Makes round-trip
-    // bijective: YAML is the source of truth, absence/null = "clear remote",
-    // mirroring every other workspace setting.
-    error_handler: Option<Value>,
-    success_handler: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ai_config: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    large_file_storage: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    git_sync: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    default_app: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    default_scripts: Option<Value>,
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mute_critical_alerts: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    color: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    operator_settings: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    datatable: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    slack_team_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    slack_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    slack_command_script: Option<String>,
-    // Always serialize (see note above on error_handler / success_handler).
-    slack_oauth_client_id: Option<String>,
-    slack_oauth_client_secret: Option<String>,
-}
-
 // V1 format: Legacy flat format for backward compatibility (matches main branch exactly)
 #[derive(Serialize)]
 struct SimplifiedSettingsLegacy {
@@ -581,7 +562,6 @@ struct SettingsRow {
     auto_invite: Option<Value>,
     webhook: Option<String>,
     error_handler: Option<Value>,
-    success_handler: Option<Value>,
     ai_config: Option<serde_json::Value>,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
@@ -595,8 +575,6 @@ struct SettingsRow {
     slack_team_id: Option<String>,
     slack_name: Option<String>,
     slack_command_script: Option<String>,
-    slack_oauth_client_id: Option<String>,
-    slack_oauth_client_secret: Option<String>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -617,6 +595,7 @@ pub(crate) async fn tarball_workspace(
         include_users,
         include_groups,
         include_settings,
+        include_datatable_permissions,
         include_key,
         include_workspace_dependencies,
         skip_datatable_migrations,
@@ -634,19 +613,38 @@ pub(crate) async fn tarball_workspace(
         skip_resources
     );
 
-    // The route is gated by workspaces:read, but exporting DECRYPTED secrets is a
-    // variable-read capability beyond workspace metadata. Require variables:read
-    // only on the plaintext-secret path: ordinary tarball pulls (structure and
-    // encrypted-only values) keep working with workspaces:read, and the workspace
-    // key itself stays admin-only (include_key). No-op for unscoped tokens.
-    if plain_secret.or(plain_secrets).unwrap_or(false)
-        && !skip_secrets.unwrap_or(false)
-        && !skip_variables.unwrap_or(false)
-    {
+    // The workspace key decrypts every secret offline, so it takes an admin *and* an
+    // unscoped token. Checked before the item scopes below so that a scoped token
+    // asking for the key is told about the key rather than about a scope no token
+    // holding the key would need anyway.
+    if include_key.unwrap_or(false) {
+        require_admin(authed.is_admin, &authed.username)?;
+        windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
+    }
+
+    // settings.json carries the admin-managed integration config that `get_settings`
+    // is admin-only for (ai_config, the webhook URL, git_sync, handler extra_args),
+    // so it takes the same check. Not a per-field redaction: fields silently dropped
+    // from settings.json come back as null on the next `wmill sync push`.
+    if include_settings.unwrap_or(false) && !authed.is_admin {
+        return Err(Error::PermissionDenied(
+            "include_settings requires workspace admin".to_string(),
+        ));
+    }
+
+    // The route is gated by workspaces:read, but the tarball also carries the item
+    // values that the per-item routes gate on their own domain (get_resource_value,
+    // get_variable). A whole-workspace export cannot be confined to a path, so it
+    // takes the unrestricted domain scope: a path-scoped token has to skip that kind.
+    // No-op for unscoped tokens.
+    if !skip_resources.unwrap_or(false) {
+        check_scopes(&authed, || "resources:read".to_string())?;
+    }
+    if !skip_variables.unwrap_or(false) {
         check_scopes(&authed, || "variables:read".to_string())?;
     }
 
-    // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
+    // Opt-in behavior for surfacing per-resource ACLs on script/flow/app/variable rows.
     // Folder and group rows have always carried `extra_perms` in source and
     // continue to do so unconditionally (`KeepEvenEmpty`) so existing
     // customer git repos see no one-time noisy diff.
@@ -666,39 +664,6 @@ pub(crate) async fn tarball_workspace(
     } else {
         None
     };
-
-    let mut tx = user_db.begin(&authed).await?;
-
-    // Exporting decrypted secrets in bulk is the same capability as a per-item
-    // secret read, so record it for parity with variables.decrypt_secret.
-    if plain_secret.or(plain_secrets).unwrap_or(false)
-        && !skip_variables.unwrap_or(false)
-        && !skip_secrets.unwrap_or(false)
-    {
-        windmill_audit::audit_oss::audit_log(
-            &mut *tx,
-            &authed,
-            "variables.decrypt_secret",
-            windmill_audit::ActionKind::Execute,
-            &w_id,
-            Some("workspace_tarball_export"),
-            None,
-        )
-        .await?;
-    }
-
-    // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
-    // The wm-fork-* prefix is a creation-time naming convention that could in
-    // principle drift (rename, manual SQL); the column is the contract that
-    // matches what the conflict-warning gates read. The id is also the workspace
-    // whose trigger `mode` / schedule `enabled` a fork export defers to.
-    let parent_workspace_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-    )
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
 
     let tmp_dir = TempDir::new_in(&*WINDMILL_DIR)?;
 
@@ -722,6 +687,58 @@ pub(crate) async fn tarball_workspace(
         }
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
+
+    let export_plain_secrets = plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+        && !skip_variables.unwrap_or(false);
+
+    // Record what the export is about to disclose, once nothing left can reject the
+    // request: an entry written before the gates above would claim a disclosure that
+    // a 403 or an invalid archive type then prevented. On the pool and before the RLS
+    // transaction opens — `tx` is never committed, so a write through it is rolled
+    // back with it, and holding both at once would take two connections.
+    if export_plain_secrets {
+        // Exporting decrypted secrets in bulk is the same capability as a per-item
+        // secret read, so record it for parity with variables.decrypt_secret.
+        windmill_audit::audit_oss::audit_log(
+            &db,
+            &authed,
+            "variables.decrypt_secret",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
+    if include_key.unwrap_or(false) {
+        windmill_audit::audit_oss::audit_log(
+            &db,
+            &authed,
+            "workspaces.read_encryption_key",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
+    // The wm-fork-* prefix is a creation-time naming convention that could in
+    // principle drift (rename, manual SQL); the column is the contract that
+    // matches what the conflict-warning gates read. The id is also the workspace
+    // whose trigger `mode` / schedule `enabled` a fork export defers to.
+    let parent_workspace_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+    )
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
     {
         let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
@@ -849,6 +866,7 @@ pub(crate) async fn tarball_workspace(
                     .then_some(true),
                 modules: script.modules,
                 labels: script.labels,
+                job_token_scopes: script.job_token_scopes,
                 // Same opt-in contract as flow/app: the tarball only surfaces
                 // ACLs when `?preserve_extra_perms=true`. Passing `Null` lets the
                 // `is_empty_extra_perms` skip-serializer drop the field entirely.
@@ -876,7 +894,14 @@ pub(crate) async fn tarball_workspace(
          .fetch_all(&mut *tx)
          .await?;
 
-        for resource in resources {
+        for mut resource in resources {
+            // An agent's identity belongs to this workspace, and whoever writes it elsewhere gets
+            // their own, as `to_string_without_metadata` leaves out a flow's.
+            if resource.resource_type == "ai_agent" {
+                if let Some(obj) = resource.value.as_mut().and_then(|v| v.as_object_mut()) {
+                    obj.remove("on_behalf_of");
+                }
+            }
             let resource_str =
                 &to_string_without_metadata(&resource, ExtraPermsBehavior::Drop, None).unwrap();
             archive
@@ -888,7 +913,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
-            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset FROM resource_type WHERE workspace_id = $1",
+            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name FROM resource_type WHERE workspace_id = $1",
             &w_id
         )
         .fetch_all(&mut *tx)
@@ -909,7 +934,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
              WHERE flow.workspace_id = $1 AND flow.archived = false",
@@ -943,11 +968,13 @@ pub(crate) async fn tarball_workspace(
     }
 
     if !skip_variables.unwrap_or(false) {
+        // `account` is left out: the variable endpoints ignore it, so a pushed spec carrying it
+        // would never match the variable it created and every sync would report it changed.
         let variables =
              sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value::text AS value, is_secret, description, extra_perms, NULL::int AS account, is_oauth, expires_at, value_valid_until, labels FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
              } else {
-                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value::text AS value, is_secret, description, extra_perms, NULL::int AS account, is_oauth, expires_at, value_valid_until, labels FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
              })
              .bind(&w_id)
              .fetch_all(&mut *tx)
@@ -959,13 +986,16 @@ pub(crate) async fn tarball_workspace(
             if plain_secret.or(plain_secrets).unwrap_or(false)
                 && var.value.is_some()
                 && var.is_secret
+                && !var
+                    .value
+                    .as_deref()
+                    .is_some_and(windmill_common::secret_backend::is_external_ref_value)
             {
                 var.value = Some(decrypt(&mc, var.value.unwrap()).map_err(|e| {
                     Error::internal_err(format!("Error decrypting variable {}: {}", var.path, e))
                 })?);
             }
-            let var_str =
-                &to_string_without_metadata(&var, ExtraPermsBehavior::Drop, None).unwrap();
+            let var_str = &to_string_without_metadata(&var, new_kinds_extra_perms, None).unwrap();
             archive
                 .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;
@@ -1390,16 +1420,26 @@ pub(crate) async fn tarball_workspace(
             use strum::IntoEnumIterator;
 
             for service_name in ServiceName::iter() {
-                let native_triggers =
-                    list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None)
-                        .await?;
+                let native_triggers = list_native_triggers(
+                    &mut *tx,
+                    &w_id,
+                    service_name,
+                    None,
+                    None,
+                    None,
+                    None,
+                    windmill_api_auth::ScopePathFilter::AllowAll,
+                )
+                .await?;
 
                 // Native triggers (Nextcloud, Google Drive, GitHub) are never
                 // cloned into a fork — a fork only has one if its owner created
                 // it there, so it's always "fork-only" and keeps its own mode.
-                // No parent-value substitution applies; we only strip the
-                // webhook token hash.
-                let native_ignore_keys = vec!["webhook_token_hash"];
+                // No parent-value substitution applies; we strip the webhook
+                // token hash, and `enabled`, which is operational state a sync
+                // deliberately does not carry — whether a trigger is paused
+                // belongs to the workspace it runs in, not to the code.
+                let native_ignore_keys = vec!["webhook_token_hash", "enabled"];
 
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(
@@ -1426,26 +1466,26 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_users.unwrap_or(false) {
-        let users = sqlx::query!(
-            "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via FROM usr
+        // `role` is the member's workspace role by name, so a custom role survives the round trip.
+        // Admin is a flag on top of the role and is written as `admin`, as it always was.
+        let users = sqlx::query_as::<_, (String, String, bool, bool, bool, Option<String>)>(
+            "SELECT username, email, is_admin, operator, disabled, workspace_role FROM usr
              WHERE workspace_id = $1",
-            &w_id
         )
+        .bind(&w_id)
         .fetch_all(&mut *tx)
         .await?;
 
-        for user in users {
+        for (username, email, is_admin, operator, disabled, workspace_role) in users {
             let user = SimplifiedUser {
-                username: user.username,
-                role: if user.is_admin {
+                username,
+                role: if is_admin {
                     "admin".to_string()
-                } else if user.operator {
-                    "operator".to_string()
                 } else {
-                    "developer".to_string()
+                    windmill_common::roles::resolve_role_name(workspace_role, operator)
                 },
-                disabled: user.disabled,
-                email: user.email,
+                disabled,
+                email,
             };
             let user_str =
                 &to_string_without_metadata(&user, ExtraPermsBehavior::Drop, Some(vec!["email"]))
@@ -1524,7 +1564,6 @@ pub(crate) async fn tarball_workspace(
                  auto_invite,
                  webhook,
                  error_handler,
-                 success_handler,
                  ai_config,
                  large_file_storage,
                  git_sync,
@@ -1537,9 +1576,7 @@ pub(crate) async fn tarball_workspace(
                  datatable,
                  slack_team_id,
                  slack_name,
-                 slack_command_script,
-                 slack_oauth_client_id,
-                 slack_oauth_client_secret
+                 slack_command_script
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
@@ -1548,68 +1585,23 @@ pub(crate) async fn tarball_workspace(
         .fetch_one(&mut *tx)
         .await?;
 
-        // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
-        // Server-owned auto-pull state (the HMAC webhook secret + hook id/error and
-        // the synced-sha / last-pull status) must never leave the server: keep it out
-        // of export archives and synced repos, and don't let a re-imported workspace
-        // inherit another install's hook/sync state. Mirrors the GET-settings redaction.
-        fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
-            let mut git_sync = git_sync?;
-            if let Some(repos) = git_sync
-                .get_mut("repositories")
-                .and_then(|r| r.as_array_mut())
-            {
-                for repo in repos {
-                    if let Some(auto_pull) =
-                        repo.get_mut("auto_pull").and_then(|a| a.as_object_mut())
-                    {
-                        for field in [
-                            "webhook_secret",
-                            "webhook_id",
-                            "webhook_error",
-                            "last_synced_sha",
-                            "last_pull_status",
-                        ] {
-                            auto_pull.remove(field);
-                        }
-                    }
-                }
-            }
-            Some(git_sync)
-        }
-
         let settings_str = if settings_version.as_deref() == Some("v2") {
-            let settings = SimplifiedSettings {
-                auto_invite: row.auto_invite,
-                webhook: row.webhook,
-                error_handler: row.error_handler,
-                success_handler: row.success_handler,
-                ai_config: row.ai_config,
-                large_file_storage: row.large_file_storage,
-                git_sync: redact_git_sync_for_export(row.git_sync),
-                default_app: row.default_app,
-                default_scripts: row.default_scripts,
-                name: row.name.clone().unwrap_or_default(),
-                mute_critical_alerts: row.mute_critical_alerts,
-                color: row.color.clone(),
-                operator_settings: row.operator_settings.clone(),
-                datatable: row.datatable.clone(),
-                slack_team_id: row.slack_team_id.clone(),
-                slack_name: row.slack_name.clone(),
-                slack_command_script: row.slack_command_script.clone(),
-                slack_oauth_client_id: row.slack_oauth_client_id.clone(),
-                // Mirror the non-admin redaction in `get_settings`: the OAuth
-                // client secret is admin-only and must not leak via tarball.
-                slack_oauth_client_secret: if authed.is_admin {
-                    row.slack_oauth_client_secret.clone()
-                } else {
-                    None
-                },
+            let secrets = if export_plain_secrets {
+                crate::workspace_settings_document::SecretMode::Plain
+            } else {
+                crate::workspace_settings_document::SecretMode::Encrypted
             };
-            serde_json::to_value(settings)
-                .map(|v| serde_json::to_string_pretty(&v).ok())
-                .ok()
-                .flatten()
+            let mut doc = crate::workspace_settings_document::load_settings_document(
+                &mut *tx, &db, &w_id, secrets,
+            )
+            .await?;
+            // A repo syncs its rules through protection-rules.yaml, so settings.yaml leaving
+            // them out keeps one writer for them.
+            doc.remove("protection_rules");
+            if !include_datatable_permissions.unwrap_or(false) {
+                doc.remove("datatable_permissions");
+            }
+            serde_json::to_string_pretty(&doc).ok()
         } else {
             // V1 (legacy) format: convert JSONB to flat fields (matches main branch exactly)
             let (auto_invite_enabled, auto_invite_as, auto_invite_mode) =
@@ -1656,14 +1648,14 @@ pub(crate) async fn tarball_workspace(
                 error_handler_muted_on_cancel,
                 ai_config: row.ai_config,
                 large_file_storage: row.large_file_storage,
-                git_sync: redact_git_sync_for_export(row.git_sync),
+                git_sync: crate::workspace_settings_document::redact_git_sync(row.git_sync),
                 default_app: row.default_app,
                 default_scripts: row.default_scripts,
                 name: row.name.unwrap_or_default(),
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color,
                 operator_settings: row.operator_settings,
-                datatable: row.datatable,
+                datatable: windmill_common::workspaces::strip_datatable_permissions(row.datatable),
                 slack_team_id: row.slack_team_id,
                 slack_name: row.slack_name,
                 slack_command_script: row.slack_command_script,
@@ -1680,9 +1672,8 @@ pub(crate) async fn tarball_workspace(
             .await?;
     }
 
+    // Gated in the pre-flight block above: admin plus an unscoped token, audited there.
     if include_key.unwrap_or(false) {
-        require_admin(authed.is_admin, &authed.username)?;
-
         let key = sqlx::query_scalar!(
             "SELECT key FROM workspace_key WHERE workspace_id = $1",
             &w_id
@@ -1743,6 +1734,41 @@ pub(crate) async fn tarball_workspace(
         ),
     ];
     Ok((headers, body))
+}
+
+#[cfg(test)]
+mod archive_entry_path_tests {
+    use super::check_archive_entry_path;
+
+    #[test]
+    fn rejects_traversal_and_absolute_paths() {
+        for ok in [
+            "u/admin/app.app.json",
+            "f/x/a..b.script.json",
+            "settings.yaml",
+            "migrations/datatable/foo:bar/20260617120000_name.up.sql",
+        ] {
+            assert!(
+                check_archive_entry_path(ok).is_ok(),
+                "{ok} should be accepted"
+            );
+        }
+        for bad in [
+            "f/x/../../evil.app.json",
+            "../evil",
+            "/etc/evil",
+            "f\\..\\evil",
+            "f/x/.. /.. /evil.app.json",
+            "f/x/.../evil",
+            "C:/evil",
+            "\\evil",
+        ] {
+            assert!(
+                check_archive_entry_path(bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

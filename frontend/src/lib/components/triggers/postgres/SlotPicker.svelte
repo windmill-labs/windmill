@@ -3,17 +3,16 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import { PostgresTriggerService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
-		edit: boolean;
-		replication_slot_name?: string;
-		postgres_resource_path?: string;
-		disabled?: boolean;
+		edit: boolean
+		replication_slot_name?: string
+		postgres_resource_path?: string
+		disabled?: boolean
 	}
 
 	let {
@@ -21,9 +20,9 @@
 		replication_slot_name = $bindable(''),
 		postgres_resource_path = '',
 		disabled = false
-	}: Props = $props();
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let deletingSlot: boolean = $state(false)
 	let loadingSlot: boolean = $state(false)

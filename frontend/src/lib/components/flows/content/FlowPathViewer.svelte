@@ -6,24 +6,26 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { FlowService, type Flow, type TriggersCount } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { writable } from 'svelte/store'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		path: string
 		noSide?: boolean
 		fillAvailableHeight?: boolean
 		/** Explicit workspace override; takes precedence over the flow-editor
-		 * `opWorkspace` context and the nav `$workspaceStore`. */
+		 * `opWorkspace` context and the operating workspace. */
 		workspace?: string
 	}
 
 	let { path, noSide = false, fillAvailableHeight = false, workspace = undefined }: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(workspace ?? flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(workspace ?? flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	let flow: Flow | undefined = $state(undefined)
 

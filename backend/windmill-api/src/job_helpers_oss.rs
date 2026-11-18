@@ -263,6 +263,10 @@ mod app_s3_display_stubs {
         pub search_col: Option<String>,
         pub search_term: Option<String>,
         pub storage: Option<String>,
+        pub s3_resource_path: Option<String>,
+        pub csv_separator: Option<String>,
+        pub csv_has_header: Option<bool>,
+        pub filters: Option<String>,
     }
 
     #[derive(Serialize)]
@@ -278,7 +282,10 @@ mod app_s3_display_stubs {
         pub search_col: Option<String>,
         pub search_term: Option<String>,
         pub storage: Option<String>,
+        pub s3_resource_path: Option<String>,
         pub csv_separator: Option<String>,
+        pub csv_has_header: Option<bool>,
+        pub filters: Option<String>,
     }
 
     pub async fn load_file_metadata_internal(
@@ -308,6 +315,7 @@ mod app_s3_display_stubs {
     pub async fn load_table_count_internal(
         _authed: OptJobAuthed,
         _db: &DB,
+        _user_db: Option<UserDB>,
         _w_id: &str,
         _file_key: String,
         _query: LoadCountQuery,
@@ -320,6 +328,7 @@ mod app_s3_display_stubs {
     pub async fn load_preview_internal(
         _authed: OptJobAuthed,
         _db: &DB,
+        _user_db: Option<UserDB>,
         _w_id: &str,
         _file_key: String,
         _query: LoadPreviewQuery,
@@ -345,6 +354,17 @@ mod app_s3_display_stubs {
 
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 pub use app_s3_display_stubs::*;
+
+#[cfg(not(feature = "private"))]
+pub async fn get_large_file_storage(
+    _db: &DB,
+    _w_id: &str,
+    _storage: Option<String>,
+) -> windmill_common::error::Result<Option<windmill_types::s3::LargeFileStorage>> {
+    Err(windmill_common::error::Error::internal_err(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
+}
 
 #[cfg(not(feature = "private"))]
 pub async fn get_workspace_s3_resource_and_check_paths<'c>(

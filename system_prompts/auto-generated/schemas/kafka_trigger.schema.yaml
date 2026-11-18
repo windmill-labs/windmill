@@ -100,6 +100,11 @@ properties:
     description: Logic to apply when evaluating the top-level filters. 'and' requires
       all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of`
       groups carry their own logic.
+  run_on_filter_error:
+    type: boolean
+    description: Whether a message the filters cannot read (not UTF-8, or not JSON)
+      still runs the target, as if the trigger had no filters. A preprocessor then
+      finds the reason in `event.filter_error`. When false, such a message is skipped.
   auto_offset_reset:
     type: string
     enum:
@@ -114,7 +119,9 @@ properties:
       endpoint.
   error_handler_path:
     type: string
-    description: Path to a script or flow to run when the triggered job fails
+    description: Path to a script to run when the triggered job fails. A bare path,
+      without the script/ or flow/ prefix a schedule error handler takes; it cannot
+      be a flow.
   error_handler_args:
     type: object
     description: The arguments to pass to the script or flow
@@ -133,7 +140,8 @@ properties:
             description: Seconds to wait between retries
       exponential:
         type: object
-        description: Retry with exponential backoff (delay doubles each time)
+        description: 'Retry with exponential backoff: the n-th retry waits multiplier
+          × seconds^n'
         properties:
           attempts:
             type: integer
@@ -144,7 +152,8 @@ properties:
           seconds:
             type: integer
             minimum: 1
-            description: Initial delay in seconds
+            description: Base of the exponential (seconds); the n-th retry waits multiplier
+              × seconds^n, where n counts constant retries too
           random_factor:
             type: integer
             minimum: 0

@@ -11,7 +11,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="0 0 256 236.624"
+	viewBox="-11.636 -21.324 279.273 279.273"
 	xmlns="http://www.w3.org/2000/svg"
 	preserveAspectRatio="xMidYMid"
 	><title>Asana</title><g

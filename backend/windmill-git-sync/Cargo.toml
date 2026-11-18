@@ -7,10 +7,12 @@ edition.workspace = true
 [lib]
 name = "windmill_git_sync"
 path = "./src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
-private = ["windmill-common/private"]
-enterprise = ["windmill-queue/enterprise", "windmill-common/enterprise"]
+private = ["windmill-common/private", "windmill-dep-map/private", "windmill-audit/private"]
+enterprise = ["windmill-queue/enterprise", "windmill-common/enterprise", "windmill-audit/enterprise"]
 all_sqlx_features = ["enterprise"]
 default = []
 
@@ -22,5 +24,7 @@ serde_json.workspace = true
 tracing.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-queue.workspace = true
+windmill-dep-map.workspace = true
+windmill-audit.workspace = true
 regex = "1.10.3"
 tokio = { workspace = true, features = ["full"] }

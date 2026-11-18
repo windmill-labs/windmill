@@ -7,6 +7,7 @@
 		x,
 		y,
 		label,
+		inNewSession = false,
 		onSend,
 		onClose
 	}: {
@@ -15,11 +16,15 @@
 		y: number
 		/** Short element label shown as the placeholder hint (e.g. "button.btn"). */
 		label: string
-		onSend: (prompt: string) => void
+		/** Sending leaves this page for a new AI session, so the hint says so. */
+		inNewSession?: boolean
+		/** Resolving to `false` keeps the box open with its text. */
+		onSend: (prompt: string) => void | Promise<boolean | void>
 		onClose: () => void
 	} = $props()
 
 	let value = $state('')
+	let sending = $state(false)
 	let textarea = $state<HTMLTextAreaElement | undefined>(undefined)
 
 	// Focus when the anchor first appears (the element was just selected).
@@ -27,16 +32,20 @@
 		textarea?.focus()
 	})
 
-	function submit() {
+	async function submit() {
 		const v = value.trim()
-		if (!v) return
-		onSend(v)
-		value = ''
+		if (!v || sending) return
+		sending = true
+		try {
+			if ((await onSend(v)) !== false) value = ''
+		} finally {
+			sending = false
+		}
 	}
 </script>
 
 <!-- Floating mini-composer anchored to the selected element in the preview. Sends
-     the prompt to the session chat with that element as context. -->
+     the prompt to the session chat (or a new session) with that element as context. -->
 <!-- The whole pill is the field: the border/focus-ring lives on this box and the
      send arrow sits inside it, centered against a single-line input. -->
 <div
@@ -50,7 +59,7 @@
 		bind:value
 		use:autosize={{ maxHeight: '120px', minHeight: 20 }}
 		rows={1}
-		placeholder={`Ask about ${label}…`}
+		placeholder={inNewSession ? 'Ask in a new AI session…' : `Ask about ${label}…`}
 		class="min-w-0 flex-1 resize-none !border-0 !bg-transparent !shadow-none px-1.5 !pt-[5px] !pb-[3px] text-xs leading-tight !ring-0 focus:!border-0 focus:!ring-0 focus:outline-none"
 		onkeydown={(e) => {
 			if (e.key === 'Enter' && !e.shiftKey) {
@@ -67,7 +76,7 @@
 		variant="accent"
 		iconOnly
 		startIcon={{ icon: ArrowUp }}
-		disabled={value.trim().length === 0}
+		disabled={sending || value.trim().length === 0}
 		on:click={submit}
 		title="Send"
 	/>

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { base } from '$app/paths'
 	import { page } from '$app/state'
 	import { onMount } from 'svelte'
 
@@ -12,6 +11,6 @@
 	// component (not a load redirect) because `url.hash` is unavailable in `load`.
 	onMount(() => {
 		const path = page.params.path ?? ''
-		goto(`${base}/apps_raw/get/${path}${page.url.search}${page.url.hash}`, { replaceState: true })
+		goto(`/apps_raw/get/${path}${page.url.search}${page.url.hash}`, { replaceState: true })
 	})
 </script>

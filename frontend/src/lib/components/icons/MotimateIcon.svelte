@@ -11,7 +11,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="0 0 55.278 55.278"
+	viewBox="-2.513 -2.513 60.304 60.304"
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"
 	aria-label="Motimate"

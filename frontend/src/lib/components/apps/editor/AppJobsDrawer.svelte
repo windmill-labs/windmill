@@ -7,7 +7,6 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 
-	import { workspaceStore } from '$lib/stores'
 	import { BellOff, Loader2, RefreshCw } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { classNames, truncateRev, isFlowPreview } from '../../../utils'
@@ -21,6 +20,9 @@
 	import type { Job } from '$lib/gen'
 	import type { JobById } from '../types'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		open?: boolean
@@ -163,7 +165,7 @@
 											<Pane size={90} minSize={10} class="text-sm text-secondary">
 												<div class="relative h-full px-2">
 													<DisplayResult
-														workspaceId={$workspaceStore}
+														workspaceId={$operatingWorkspace}
 														jobId={selectedJobId}
 														result={jobResult.result}
 													/>
@@ -192,7 +194,7 @@
 											<div class="p-2">
 												<JobArgs
 													id={job?.id}
-													workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+													workspace={job?.workspace_id ?? $operatingWorkspace ?? 'no_w'}
 													args={job?.args}
 												/>
 											</div>
@@ -219,7 +221,7 @@
 													{#if job != undefined && 'result' in job && job?.result != undefined}<div
 															class="relative h-full px-2"
 															><DisplayResult
-																workspaceId={$workspaceStore}
+																workspaceId={$operatingWorkspace}
 																jobId={selectedJobId}
 																result={job?.result}
 															/></div
@@ -240,7 +242,7 @@
 														{#if job != undefined && 'result' in job && job?.result != undefined}
 															<div class="relative h-full px-2">
 																<DisplayResult
-																	workspaceId={$workspaceStore}
+																	workspaceId={$operatingWorkspace}
 																	jobId={selectedJobId}
 																	result={jobResult?.transformer}
 																/>

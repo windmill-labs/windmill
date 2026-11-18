@@ -11,7 +11,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="0 0 40 40"
+	viewBox="-0.965 -0.965 41.932 41.932"
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"
 	aria-label="Paychex"

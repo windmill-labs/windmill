@@ -248,11 +248,13 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     // A dbt run records the relations it builds, so it looks like a producer
     // here — but dbt does not trigger downstream runs. Its own DAG is dbt's to
     // order; the only thing a cascade would add is waking Windmill scripts that
-    // read a mart, and nothing outside dbt can declare a `dbt://` write, so
-    // that edge exists in one direction only. Cascading from a project whose
-    // per-run selection can build any subset of itself needs a per-run write set
-    // to be correct, which is a design worth doing deliberately rather than
-    // inferring. Until then dbt materializes and reports; it does not dispatch.
+    // read a mart. Cascading from a project whose per-run selection can build any
+    // subset of itself needs a per-run write set to be correct, which is a design
+    // worth doing deliberately rather than inferring: the deploy-time write set is
+    // not what ran, and the per-relation state table keeps one row per relation.
+    // Until then dbt materializes and reports; it does not dispatch. The opposite
+    // direction does: a native `// materialize manual dbt://…` script reaches the
+    // fan-out below on the ordinary path, on the strength of its own asset rows.
     if job.script_lang == Some(ScriptLang::Dbt) {
         return Ok(DispatchResult::default());
     }
@@ -274,7 +276,6 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     let Some(writes) = producers.get(runnable_path).cloned() else {
         return Ok(DispatchResult::default());
     };
-
 
     let args = fetch_args(db, &job.workspace_id, job.id).await?;
     if read_skip_arg(args.as_ref()) {
@@ -766,9 +767,7 @@ async fn push_subscriber(
     .await?
     .prefetch_cached(db)
     .await?;
-    let on_behalf_of = script
-        .on_behalf_of(&producer.workspace_id, db)
-        .await?;
+    let on_behalf_of = script.on_behalf_of(&producer.workspace_id, db).await?;
     let hash = ScriptHash(script.hash);
     let tag = script.tag;
     let concurrency_settings = script.runnable_settings.concurrency_settings;
@@ -820,6 +819,7 @@ async fn push_subscriber(
             debouncing_settings,
             concurrency_settings,
             labels: script.labels,
+            job_token_scopes: script.job_token_scopes,
         }
     };
 
@@ -863,6 +863,12 @@ async fn push_subscriber(
     if let Some(p) = partition {
         args.insert(PARTITION_ARG.to_string(), to_raw_value(&p));
     }
+    // The partition and chain come from the producer's args, which its author controls, while
+    // the subscriber runs as its own deployer.
+    let args = windmill_common::variables::omit_untrusted_interpolation(
+        args,
+        "The following resource has been omitted for security reasons: ",
+    );
 
     // Attribute the dispatched run to a synthetic user so audit logs reflect
     // it came from the asset cascade, not the original human runner.
@@ -901,6 +907,7 @@ async fn push_subscriber(
             Some(producer_path.to_string()),
             JobTriggerKind::Asset,
         )),
+        None,
         None,
     )
     .await

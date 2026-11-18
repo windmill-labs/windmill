@@ -7,10 +7,14 @@ authors.workspace = true
 [lib]
 name = "windmill_parser_wac"
 path = "./src/lib.rs"
+# src/ has no unit tests or doctests: remove both lines before adding one, or cargo test never runs it.
+test = false
+doctest = false
 
 [dependencies]
-rustpython-parser.workspace = true
-rustpython-ast = { version = "0.4.0", features = ["visitor"] }
+ruff_python_parser.workspace = true
+ruff_python_ast.workspace = true
+ruff_text_size.workspace = true
 swc_common.workspace = true
 swc_ecma_parser.workspace = true
 swc_ecma_ast.workspace = true

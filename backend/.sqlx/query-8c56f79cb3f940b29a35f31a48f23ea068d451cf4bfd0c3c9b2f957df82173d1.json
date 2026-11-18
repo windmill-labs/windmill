@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.teams_team_id FROM v2_job j\n         JOIN workspace_settings ws ON ws.workspace_id = j.workspace_id\n         WHERE j.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "teams_team_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "8c56f79cb3f940b29a35f31a48f23ea068d451cf4bfd0c3c9b2f957df82173d1"
+}

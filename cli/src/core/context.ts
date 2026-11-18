@@ -20,6 +20,7 @@ import {
 import { getLastUsedProfile, setLastUsedProfile } from "./branch-profiles.ts";
 import {
   readConfigFile,
+  peekWorkspaceEntry,
   findWorkspaceByGitBranch,
   getEffectiveWorkspaceId,
   getWmillYamlPath,
@@ -219,6 +220,9 @@ async function tryResolveWorkspace(
     // First try: look up workspace by name in wmill.yaml workspaces config
     const config = await readConfigFile({ warnIfMissing: false });
     const wsEntry = config.workspaces?.[opts.workspace] as WorkspaceEntryConfig | undefined;
+    // What wmill.yaml said to target, kept for the fallback below: a profile
+    // found by name can silently point somewhere else entirely.
+    let configuredTarget: { workspaceId: string; baseUrl: string } | undefined;
     if (wsEntry?.baseUrl) {
       const workspaceId = getEffectiveWorkspaceId(opts.workspace, wsEntry);
       let normalizedBaseUrl: string;
@@ -230,6 +234,8 @@ async function tryResolveWorkspace(
           error: colors.red.underline(`Invalid baseUrl in workspace '${opts.workspace}' configuration: ${wsEntry.baseUrl}`),
         };
       }
+
+      configuredTarget = { workspaceId, baseUrl: normalizedBaseUrl };
 
       // Find matching profile by baseUrl + workspaceId
       const allProfs = await allWorkspaces(opts.configDir);
@@ -283,6 +289,22 @@ async function tryResolveWorkspace(
         ),
       };
     }
+    if (
+      configuredTarget &&
+      (e.workspaceId !== configuredTarget.workspaceId ||
+        e.remote !== configuredTarget.baseUrl)
+    ) {
+      log.warnStderr(
+        colors.yellow(
+          `⚠️  Falling back to the local profile named '${opts.workspace}' (${e.workspaceId} on ${e.remote}), which does NOT match wmill.yaml:\n` +
+            `   wmill.yaml maps workspace '${opts.workspace}' to ${configuredTarget.workspaceId} on ${configuredTarget.baseUrl}, but no profile targets it.\n` +
+            `   Run: wmill workspace add <profile-name> ${configuredTarget.workspaceId} ${configuredTarget.baseUrl}`
+        )
+      );
+    }
+    log.infoStderr(
+      `Using local profile '${e.name}' → ${e.workspaceId} on ${e.remote}`
+    );
     (opts as any).__secret_workspace = e;
     return { isError: false, value: e };
   }
@@ -486,6 +508,8 @@ export async function resolveWorkspace(
         return process.exit(-1);
       }
 
+      let resolved: Workspace | undefined;
+
       // Try to find existing workspace profile by name, then by workspaceId + remote
       if (opts.workspace) {
         let existingWorkspace = await getWorkspaceByName(
@@ -523,19 +547,45 @@ export async function resolveWorkspace(
             );
             return process.exit(-1);
           }
-          return {
+          resolved = {
             ...existingWorkspace,
             token: opts.token,
           };
         }
       }
 
-      return {
+      resolved ??= {
         remote: normalizedBaseUrl,
         workspaceId: opts.workspace,
         name: opts.workspace,
         token: opts.token,
       };
+
+      // --base-url pins the target, so wmill.yaml's `workspaces` block is never
+      // consulted and `--workspace` reaches the API as a workspace id. Name the
+      // id being sent, and the mapping being skipped, before the request 404s
+      // on an id the user never typed.
+      // Only an explicit `workspaceId:` is worth reporting: an entry without one
+      // maps the name to itself, leaving nothing to correct.
+      const yamlEntry = await peekWorkspaceEntry(opts.workspace);
+      const yamlWorkspaceId = yamlEntry?.workspaceId;
+      if (yamlWorkspaceId && yamlWorkspaceId !== resolved.workspaceId) {
+        log.warnStderr(
+          colors.yellow(
+            `⚠️  --base-url is set, so wmill.yaml is not consulted: workspace id '${resolved.workspaceId}' is sent to the API.\n` +
+              `   wmill.yaml maps workspace '${opts.workspace}' to workspace id '${yamlWorkspaceId}'${yamlEntry!.baseUrl ? ` on ${yamlEntry!.baseUrl}` : ""}.\n` +
+              `   Use '--workspace ${yamlWorkspaceId}', or drop --base-url/--token to resolve through wmill.yaml.`
+          )
+        );
+      }
+      log.infoStderr(
+        `Using workspace id '${resolved.workspaceId}' on ${normalizedBaseUrl} (--base-url given` +
+          (resolved.name !== resolved.workspaceId
+            ? `, profile '${resolved.name}')`
+            : ")")
+      );
+      (opts as any).__secret_workspace = resolved;
+      return resolved;
     } else {
       log.infoStderr(
         colors.red(

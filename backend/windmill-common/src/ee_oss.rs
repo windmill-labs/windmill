@@ -72,6 +72,22 @@ pub async fn check_seat_cap_for_reactivation(
 }
 
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub struct SeatCapBaseline;
+
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub async fn seat_cap_baseline(_db: &DB) -> anyhow::Result<SeatCapBaseline> {
+    Ok(SeatCapBaseline)
+}
+
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub async fn check_seat_cap_for_role_change(
+    _baseline: &SeatCapBaseline,
+    _tx: &mut sqlx::PgConnection,
+) -> anyhow::Result<Option<String>> {
+    Ok(None)
+}
+
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
 pub async fn compute_instance_hash(_db: &DB) -> anyhow::Result<Option<String>> {
     // Implementation is not open source
     Ok(None)

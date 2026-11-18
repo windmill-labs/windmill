@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { buildWsUrl } from '$lib/wsUrl'
+	import { MultiplayerConnection } from '$lib/multiplayerConnection'
 	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import { processSecretArgs } from './secretArgUtils'
 	import type { Schema, SupportedLanguage } from '$lib/common'
@@ -11,11 +11,11 @@
 		type ScriptLang,
 		type ScriptModule
 	} from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
-	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
+	import { injectPartitionArg } from '$lib/scriptEditorSchema'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -36,7 +36,6 @@
 	import * as Y from 'yjs'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { langToExt } from '$lib/editorLangUtils'
-	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import DiffEditor from './DiffEditor.svelte'
@@ -47,7 +46,6 @@
 		CornerDownLeft,
 		Disc,
 		Download,
-		ExternalLink,
 		Github,
 		GitBranch,
 		Play,
@@ -56,7 +54,6 @@
 		Target,
 		Terminal,
 		Pencil,
-		WandSparkles,
 		X,
 		Zap
 	} from 'lucide-svelte'
@@ -73,7 +70,6 @@
 		getDebugFileExtension,
 		fetchContextualVariables,
 		signDebugRequest,
-		signMultiplayerRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -81,12 +77,12 @@
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
+	import DraggableTabs, { type TabItem } from './common/tabs/DraggableTabs.svelte'
 	import { slide } from 'svelte/transition'
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import CaptureButton from './triggers/CaptureButton.svelte'
 	import { setContext } from 'svelte'
 	import HideButton from './apps/editor/settingsPanel/HideButton.svelte'
-	import { base } from '$lib/base'
 	import DispatchEventsButton from '$lib/components/runs/DispatchEventsButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
 	import { getStringError } from './copilot/chat/utils'
@@ -120,14 +116,17 @@
 	import GitRepoViewer from './GitRepoViewer.svelte'
 	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
 	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
-	import { copilotInfo } from '$lib/aiStore'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
 	import Toggle from './Toggle.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 	import { resource, watch } from 'runed'
 	import { buildScriptRecording, downloadRecordingJson } from './recording/runRecording'
 	import DropdownV2 from './DropdownV2.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		// Exported
@@ -135,6 +134,8 @@
 		code: string
 		path: string | undefined
 		lang: Preview['language']
+		/** Identity the test runs as instead of the user (see `previewOnBehalfOf`). */
+		previewOnBehalfOf?: string
 		kind?: string | undefined
 		autoKind?: string | undefined
 		template?:
@@ -145,6 +146,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 			| 'wac_python'
 			| 'wac_typescript'
 			| 'ci_test_bun'
@@ -225,10 +227,8 @@
 		// built by the pipeline page from the resolved graph. Absent outside the
 		// pipeline editor — the check still runs, just without suppression.
 		schemaContractContext?: SchemaContractGraphContext
-		// Workspace to scope this editor's calls to. Defaults to the nav
-		// `$workspaceStore`; an AI-session live editor passes the session's
-		// acting workspace (a fork) so tests, captures and toolbar lookups hit
-		// the right workspace instead of the nav one.
+		// Workspace to scope this editor's calls to (tests, captures, toolbar lookups).
+		// Defaults to the operating workspace (see `useOperatingWorkspace`).
 		workspaceOverride?: string
 	}
 
@@ -237,6 +237,7 @@
 		code = $bindable(),
 		path,
 		lang,
+		previewOnBehalfOf,
 		kind = undefined,
 		autoKind = undefined,
 		template = 'script',
@@ -277,7 +278,7 @@
 		workspaceOverride = undefined
 	}: Props = $props()
 
-	let opWs = $derived(workspaceOverride ?? $workspaceStore)
+	let opWs = $derived(workspaceOverride ?? $operatingWorkspace)
 
 	// Publish this editor's hand-off for AI entry points below it (the preview
 	// panel's "AI Fix"), withheld under `disableAi` so an embed that turned AI off
@@ -310,6 +311,10 @@
 	let moduleTestState: Record<string, { args: Record<string, any>; schema: Schema }> = $state({})
 	let testPanelArgs: Record<string, any> = $state({})
 	let testPanelSchema: Schema = $state(emptySchema())
+	// Bumped whenever the args under test are replaced from outside the arg panel. Both arg
+	// views key off it: without a bump the JSON editor keeps showing, and on the next
+	// keystroke commits, the payload it was seeded with for the previous args.
+	let argsRender = $state(0)
 	// editorCode is what the editor shows; code always holds the main script content
 	let editorCode: string = $state(code)
 	// Sync editorCode when code changes externally (template reset, copilot,
@@ -329,7 +334,13 @@
 	})
 
 	function switchToModule(modulePath: string) {
-		if (activeModuleTab !== null && modules && activeModuleTab !== modulePath) {
+		// Re-clicking the tab you are already on is a no-op. Re-running the body would reset this
+		// module's test state whenever its inference is still pending or has failed (the catch
+		// leaves `moduleTestState` unwritten), losing both the filled-in args and the arg views.
+		if (activeModuleTab === modulePath) {
+			return
+		}
+		if (activeModuleTab !== null && modules) {
 			// Switching from another module: save its content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
@@ -345,13 +356,20 @@
 			} else {
 				testPanelArgs = {}
 				testPanelSchema = emptySchema()
+				// Inference lands after the bump below, so the editor opens on `{}` and the arg
+				// views follow the schema in once it arrives. Remounting them again on arrival
+				// instead would discard anything typed while it was in flight.
 				inferModuleSchema()
 			}
+			argsRender++
 		}
 	}
 
 	function switchToMain() {
-		if (activeModuleTab !== null && modules) {
+		if (activeModuleTab === null) {
+			return
+		}
+		if (modules) {
 			// Save current module content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
@@ -360,6 +378,7 @@
 		editorCode = code
 		lastSyncedCode = code
 		editor?.setCode(editorCode)
+		argsRender++
 	}
 
 	// Whether the open file is tested as a runnable of its own. A `__mod` helper
@@ -386,6 +405,30 @@
 	})
 	let supportsModules = $derived((lang === 'bun' || lang === 'python3') && isWacV2)
 	let mainFileName = $derived('script.' + langToExt(scriptLangToEditorLang(lang)))
+
+	// A module path always ends in a file extension, so this id can't collide with one.
+	const MAIN_FILE_TAB_ID = '__main__'
+	// Tab order is view state only: `modules` is stored as JSONB, which re-sorts its keys on
+	// deploy, so an order written into it would not survive.
+	let moduleTabOrder: string[] = $state([])
+	let fileTabs = $derived.by<TabItem[]>(() => {
+		const paths = Object.keys(modules ?? {})
+		const rank = new Map(paths.map((p, i) => [p, i + moduleTabOrder.length]))
+		moduleTabOrder.forEach((p, i) => rank.has(p) && rank.set(p, i))
+		return [
+			{ id: MAIN_FILE_TAB_ID, label: mainFileName, closable: false, pinned: 'left' },
+			// Not closable through the strip: closing deletes the module's code, so it stays on
+			// the explicit × rather than Delete/Backspace and middle-click.
+			...paths
+				.sort((a, b) => rank.get(a)! - rank.get(b)!)
+				.map((modulePath) => ({
+					id: modulePath,
+					label: modulePath,
+					title: modulePath,
+					closable: false
+				}))
+		]
+	})
 
 	let modulePathInput = $state('')
 	let showAddModulePopover = $state(false)
@@ -541,6 +584,7 @@
 		delete modules[modulePath]
 		delete moduleTestState[modulePath]
 		modules = { ...modules }
+		moduleTabOrder = moduleTabOrder.filter((p) => p !== modulePath)
 	}
 
 	function validateRenameModulePath(newPath: string, oldPath: string): string {
@@ -571,6 +615,11 @@
 		return 'path' in canonical && canonical.path === oldPath
 	}
 
+	function prefillRename(modulePath: string) {
+		renameModuleInput = modulePath
+		renameModuleError = ''
+	}
+
 	function renameModule(oldPath: string) {
 		if (!renameModuleInput.trim()) return
 		const canonical = canonicalModulePath(renameModuleInput)
@@ -591,6 +640,7 @@
 		delete modules[oldPath]
 		modules[newPath] = { ...mod, language: newLang ?? mod.language }
 		modules = { ...modules }
+		moduleTabOrder = moduleTabOrder.map((p) => (p === oldPath ? newPath : p))
 		if (moduleTestState[oldPath]) {
 			moduleTestState[newPath] = moduleTestState[oldPath]
 			delete moduleTestState[oldPath]
@@ -703,7 +753,8 @@
 			workspace,
 			bufferCode,
 			(res.assets ?? []) as AssetWithAltAccessType[],
-			schemaContractContext
+			schemaContractContext,
+			path
 		)
 			.then((markers) => {
 				if (seq === contractCheckSeq) contractMarkers = markers
@@ -766,7 +817,11 @@
 		| undefined = undefined
 	let downloadingRecording = $state(false)
 
-	let wsProvider: WebsocketProvider | undefined = $state(undefined)
+	let collab: MultiplayerConnection | undefined = $state(undefined)
+	// Bumped on every disable, so a connection that finishes opening after collaboration
+	// was turned off or the editor unmounted is dropped instead of reconnecting forever.
+	// Declared here because `?collab=1` calls setCollaborationMode during init, below.
+	let collabGeneration = 0
 	let yContent: Y.Text | undefined = $state(undefined)
 	let peers: { name: string }[] = $state([])
 	let showCollabPopup = $state(false)
@@ -854,6 +909,7 @@
 
 	export function setArgs(nargs: Record<string, any>) {
 		args = nargs
+		argsRender++
 	}
 
 	export async function runTest(opts?: { cascade?: boolean; skipDdlGuard?: boolean }) {
@@ -941,7 +997,8 @@
 			// A `__mod` helper is tested alone, so its siblings are left out.
 			onModule ? undefined : modules,
 			undefined,
-			timeout
+			timeout,
+			{ onBehalfOf: previewOnBehalfOf }
 		)
 		if (job) {
 			onTestJob?.({ jobId: job })
@@ -1052,55 +1109,6 @@
 		} catch (e) {
 			validCode = false
 		}
-	}
-
-	// A `// partitioned` pipeline script is materialized one slice at a time and
-	// receives the slice as a runtime `partition` arg (the cascade injects it in
-	// production). It isn't a code parameter, so schema inference doesn't see it —
-	// surface it in the test form so a partitioned script can be run manually.
-	function injectPartitionArg(
-		s: any,
-		a: Record<string, any> | undefined,
-		l: string | undefined,
-		c: string
-	) {
-		try {
-			if (l !== 'duckdb' || !s?.properties) return
-			const part = parsePipelineAnnotations(c).partition
-			if (!part) return
-			// Date-based partition kinds render a date / datetime picker; a dynamic
-			// key is a free-form string.
-			const format =
-				part.kind === 'hourly'
-					? 'date-time'
-					: part.kind === 'daily' || part.kind === 'weekly' || part.kind === 'monthly'
-						? 'date'
-						: undefined
-			if (!s.properties['partition']) {
-				s.properties['partition'] = {
-					type: 'string',
-					...(format ? { format } : {}),
-					// ISO output so partition keys sort lexicographically (the date
-					// picker defaults to dd-MM-yyyy otherwise).
-					...(format === 'date' ? { dateFormat: 'yyyy-MM-dd' } : {}),
-					description:
-						part.kind === 'dynamic'
-							? 'Partition key value to materialize.'
-							: `Partition (${part.kind}) to materialize.`
-				}
-				if (Array.isArray(s.order) && !s.order.includes('partition')) {
-					s.order = ['partition', ...s.order]
-				}
-			}
-			// Pre-fill the *test* arg with the current slice for date kinds — a
-			// convenience default, kept on the args (not baked into the schema,
-			// where it would persist to the deployed script and go stale).
-			if (format && a && (a['partition'] == null || a['partition'] === '')) {
-				const now = new Date()
-				a['partition'] =
-					format === 'date' ? now.toISOString().slice(0, 10) : now.toISOString().slice(0, 16)
-			}
-		} catch (e) {}
 	}
 
 	async function inferModuleSchema() {
@@ -1537,6 +1545,7 @@
 
 	setLicense()
 	export async function setCollaborationMode() {
+		const generation = ++collabGeneration
 		await setLicense()
 		if (!$enterpriseLicense) {
 			sendUserToast(`Multiplayer is an enterprise feature`, true, [
@@ -1550,29 +1559,32 @@
 			return
 		}
 
-		let token: string | undefined
+		const ydoc = new Y.Doc()
+		let yContentInit = ydoc.getText('content')
+
+		let opened: MultiplayerConnection
 		try {
-			token = await signMultiplayerRequest(opWs ?? '')
+			opened = await MultiplayerConnection.open(
+				opWs ?? '',
+				opWs + '/' + (path ?? 'no-room-name'),
+				ydoc
+			)
 		} catch (e) {
 			console.error('Failed to sign multiplayer request:', e)
 			sendUserToast('Failed to authorize multiplayer session', true)
 			return
 		}
-
-		const ydoc = new Y.Doc()
-		if (wsProvider) {
-			wsProvider.destroy()
+		if (generation !== collabGeneration) {
+			opened.destroy()
+			return
 		}
-		let yContentInit = ydoc.getText('content')
+		collab?.destroy()
+		collab = opened
 
-		wsProvider = new WebsocketProvider(
-			buildWsUrl('/ws_mp/'),
-			opWs + '/' + (path ?? 'no-room-name'),
-			ydoc,
-			{ connect: false, params: { token } }
-		)
-
-		wsProvider.on('sync', (isSynced: boolean) => {
+		// One toast per outage: the connection keeps retrying on its own.
+		let errorToastShown = false
+		opened.provider.on('sync', (isSynced: boolean) => {
+			if (isSynced) errorToastShown = false
 			if (isSynced && yContentInit?.toJSON() == '') {
 				showCollabPopup = true
 				yContentInit?.insert(0, code)
@@ -1580,12 +1592,13 @@
 			yContent = yContentInit
 		})
 
-		wsProvider.on('connection-error', (WSErrorEvent) => {
+		opened.provider.on('connection-error', (WSErrorEvent) => {
 			console.error(WSErrorEvent)
+			if (errorToastShown) return
+			errorToastShown = true
 			sendUserToast('Multiplayer server connection had an error', true)
 		})
-		wsProvider.connect()
-		const awareness = wsProvider.awareness
+		const awareness = opened.provider.awareness
 
 		awareness.setLocalStateField('user', {
 			name: $userStore?.username
@@ -1603,11 +1616,11 @@
 	}
 
 	export function disableCollaboration() {
-		if (!wsProvider?.shouldConnect) return
+		collabGeneration++
+		if (!collab) return
 		peers = []
-		wsProvider?.disconnect()
-		wsProvider.destroy()
-		wsProvider = undefined
+		collab.destroy()
+		collab = undefined
 	}
 
 	onDestroy(() => {
@@ -1654,15 +1667,30 @@
 	$effect(() => {
 		!hasPreprocessor && (selectedTab = 'main')
 	})
+	// `main` and `preprocessor` describe the same args under different schemas; every other tab
+	// (`diagram`) runs against main's schema, so it collapses into `main` here.
+	let lastSchemaTab = untrack(() => (selectedTab === 'preprocessor' ? 'preprocessor' : 'main'))
 	$effect(() => {
 		// Only depend on selectedTab (preprocessor ↔ main toggle).
 		// Code changes are handled by the editor on:change handler and
 		// explicit inferSchema calls (initContent, onMount), so we read
 		// `code` inside untrack to avoid a redundant double-inference race.
-		selectedTab && untrack(() => code && inferSchema(code))
+		selectedTab &&
+			untrack(() => {
+				const schemaTab = selectedTab === 'preprocessor' ? 'preprocessor' : 'main'
+				const switched = schemaTab !== lastSchemaTab
+				lastSchemaTab = schemaTab
+				if (!code) return
+				// Bump on the switch itself, not on the inference it starts: the other tab's schema
+				// only lands once that resolves, and remounting the arg views then would discard
+				// anything typed while it was in flight. An untouched editor follows the schema in.
+				if (switched) {
+					argsRender++
+				}
+				inferSchema(code)
+			})
 	})
 
-	let argsRender = $state(0)
 	export async function updateArgs(newArgs: Record<string, any>) {
 		if (Object.keys(newArgs).length > 0) {
 			args = { ...newArgs }
@@ -1874,7 +1902,7 @@
 				workspace={opWs}
 				scriptPath={edit ? path : undefined}
 				on:toggleCollabMode={() => {
-					if (wsProvider?.shouldConnect) {
+					if (collab) {
 						disableCollaboration()
 					} else {
 						setCollaborationMode()
@@ -1883,7 +1911,7 @@
 				on:showDiffMode={showDiffMode}
 				on:hideDiffMode={hideDiffMode}
 				customUi={customUi?.editorBar}
-				collabLive={wsProvider?.shouldConnect}
+				collabLive={collab !== undefined}
 				{collabMode}
 				{validCode}
 				{validAssets}
@@ -2018,7 +2046,8 @@
 						</div>
 					{:else}
 						{#if previewLayout !== 'bottom'}
-							<div class="flex justify-center pt-1 relative">
+							<!-- min-h keeps room for the absolute controls when debug mode hides the run buttons -->
+							<div class="flex justify-center pt-1 relative min-h-9">
 								<div class="absolute top-2 left-2">
 									<HideButton
 										hidden={false}
@@ -2080,43 +2109,15 @@
 							</div>
 						{/if}
 						{#if customUi?.previewPanel?.hideArgs}
-							<!-- Compact preview layout used by the pipeline editor:
-						     no args column (the script is known to take no
-						     inputs), LogPanel takes the full width, with a
-						     small Test/Cancel button at the top-left of the
-						     preview band. The earlier `-translate-y-1/2`
-						     "float onto the editor" version was clipped in
-						     Firefox (transform + overflow: visible interaction
-						     on the parent splitpane Pane), so the button is
-						     now positioned inside the panel — `top-1` keeps
-						     it visually pinned to the top edge without
-						     relying on cross-browser overflow behaviour. -->
-							<div class="relative h-full pt-9 flex flex-col">
-								{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
-									<!-- Right-side affordances when we're displaying a *completed*
-									     job (either the user just ran a test, or the on-mount
-									     last-run loader populated the panel). The job-id link
-									     opens the full run page in a new tab; the dispatch
-									     button mounts a popover that shows what downstream
-									     jobs this run triggered (rendered only when the run
-									     actually dispatched anything). -->
-									<div class="absolute top-1 right-2 z-10 flex items-center gap-2">
-										<a
-											class="text-3xs text-blue-600 hover:underline font-mono"
-											href={`${base}/run/${testJob.id}?workspace=${opWs}`}
-											target="_blank"
-											rel="noopener noreferrer"
-											title="Open this run"
-										>
-											{testJob.id.slice(0, 8)}… ↗
-										</a>
-										<DispatchEventsButton
-											workspace={testJob.workspace_id ?? opWs}
-											jobId={testJob.id}
-										/>
-									</div>
-								{/if}
-								<div class="absolute top-1 left-2 z-10">
+							<!-- Compact preview layout used by the pipeline editor: no args
+							     column (most pipeline scripts take no inputs) and a full-width
+							     LogPanel. The controls sit in normal flow rather than floating
+							     onto the editor band, which Firefox clipped (transform +
+							     overflow: visible on the parent splitpane Pane). -->
+							<div class="h-full flex flex-col">
+								<!-- Test sits at the top right, the last run's link under it. -->
+								<div class="shrink-0 flex flex-col items-end gap-1 px-2 pt-2 pb-1">
+								<div>
 									{#if testIsLoading}
 										{@render cancelTestButton('sm', 'shadow-md')}
 									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0 || customUi?.previewPanel?.onBoundedRun}
@@ -2250,6 +2251,31 @@
 										{@render runTestButton('sm', 'shadow-md')}
 									{/if}
 								</div>
+								{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
+									<!-- Right-side affordances when we're displaying a *completed*
+									     job (either the user just ran a test, or the on-mount
+									     last-run loader populated the panel). The job-id link
+									     opens the full run page in a new tab; the dispatch
+									     button mounts a popover that shows what downstream
+									     jobs this run triggered (rendered only when the run
+									     actually dispatched anything). -->
+									<div class="flex items-center gap-2">
+										<a
+											class="text-3xs text-blue-600 hover:underline font-mono"
+											href={`/run/${testJob.id}?workspace=${opWs}`}
+											target="_blank"
+											rel="noopener noreferrer"
+											title="Open this run"
+										>
+											{testJob.id.slice(0, 8)}… ↗
+										</a>
+										<DispatchEventsButton
+											workspace={testJob.workspace_id ?? opWs}
+											jobId={testJob.id}
+										/>
+									</div>
+								{/if}
+								</div>
 								{#if customUi?.previewPanel?.argsAboveLogs && schema?.properties && Object.keys(schema.properties).length > 0}
 									<div
 										class="shrink-0 overflow-auto max-h-[45%] border-b border-gray-200 dark:border-gray-700 px-4 py-3"
@@ -2299,19 +2325,24 @@
 												style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
 												data-schema-picker
 											>
-												<JsonInputs
-													on:select={(e) => {
-														if (e.detail) {
-															if (onModuleArgs) {
-																testPanelArgs = e.detail
-															} else {
-																args = e.detail
+												{#key argsRender}
+													<JsonInputs
+														on:select={(e) => {
+															if (e.detail) {
+																if (onModuleArgs) {
+																	testPanelArgs = e.detail
+																} else {
+																	args = e.detail
+																}
 															}
-														}
-													}}
-													updateOnBlur={false}
-													placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
-												/>
+														}}
+														initialCode={onModuleArgs
+															? argsToJsonPayload(testPanelSchema, testPanelArgs)
+															: argsToJsonPayload(schema, args)}
+														updateOnBlur={false}
+														placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+													/>
+												{/key}
 											</div>
 										{:else}
 											<div class="px-4">
@@ -2570,93 +2601,71 @@
 {#snippet editorContent()}
 	<div class="h-full !overflow-visible bg-surface dark:bg-surface-secondary relative flex flex-col">
 		{#if supportsModules}
-			<div
-				class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0"
+			<DraggableTabs
+				tabs={fileTabs}
+				activeId={activeModuleTab ?? MAIN_FILE_TAB_ID}
+				onSelect={(id) => (id === MAIN_FILE_TAB_ID ? switchToMain() : switchToModule(id))}
+				onReorder={(next) => (moduleTabOrder = next.map((t) => t.id))}
+				class="shrink-0 border-b border-light bg-surface-secondary/50"
 			>
-				<button
-					class="px-2 py-1 rounded-t {activeModuleTab === null
-						? 'bg-surface font-semibold border-b-2 border-blue-500'
-						: 'hover:bg-surface-hover'}"
-					onclick={() => switchToMain()}
-				>
-					{mainFileName}
-				</button>
-				{#each Object.keys(modules ?? {}) as modulePath}
-					<div
-						class="group rounded-t flex items-center {activeModuleTab === modulePath
-							? 'bg-surface font-semibold border-b-2 border-blue-500'
-							: 'hover:bg-surface-hover'}"
-					>
-						<button class="pl-2 py-1 flex items-center" onclick={() => switchToModule(modulePath)}>
-							{modulePath}
-						</button>
-						<div class="flex items-center pr-1 w-[32px] justify-end">
+				{#snippet tabAccessory(tab)}
+					{#if tab.id !== MAIN_FILE_TAB_ID}
+						<!-- Stops the trigger's click, mouse or Enter/Space alike, from also selecting the tab. -->
+						<span role="presentation" class="inline-flex" onclick={(e) => e.stopPropagation()}>
 							<Popover
 								placement="bottom-start"
 								openFocus={renameModuleInputEl}
 								contentClasses="p-3 w-72"
+								class="inline-flex"
+								triggerAttrs={{
+									'aria-label': `Rename ${tab.id}`,
+									onpointerdown: () => prefillRename(tab.id),
+									onkeydown: (e: KeyboardEvent) =>
+										(e.key === 'Enter' || e.key === ' ') && prefillRename(tab.id)
+								}}
 							>
 								{#snippet trigger()}
 									<span
-										class="opacity-0 group-hover:opacity-100 hover:text-blue-500 transition-opacity"
-										role="button"
-										tabindex="0"
-										onclick={(e) => {
-											e.stopPropagation()
-											renameModuleInput = modulePath
-											renameModuleError = ''
-										}}
-										onkeydown={(e) => {
-											if (e.key === 'Enter') {
-												e.stopPropagation()
-												renameModuleInput = modulePath
-												renameModuleError = ''
-											}
-										}}
+										class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 rounded hover:bg-surface-hover w-4 h-4 inline-flex items-center justify-center"
 									>
-										<Pencil size={12} />
+										<Pencil size={10} />
 									</span>
 								{/snippet}
 								{#snippet content({ close })}
-									{@render renameModuleForm(modulePath, close)}
+									{@render renameModuleForm(tab.id, close)}
 								{/snippet}
 							</Popover>
-							<span
-								class="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
-								role="button"
-								tabindex="0"
-								onclick={(e) => {
-									e.stopPropagation()
-									removeModule(modulePath)
-								}}
-								onkeydown={(e) => {
-									if (e.key === 'Enter') {
-										e.stopPropagation()
-										removeModule(modulePath)
-									}
-								}}
-							>
-								<X size={12} />
-							</span>
-						</div>
-					</div>
-				{/each}
-				<Popover
-					placement="bottom-start"
-					bind:isOpen={showAddModulePopover}
-					openFocus={modulePathInputEl}
-					contentClasses="p-3 w-72"
-				>
-					{#snippet trigger()}
-						<span class="px-2 py-1 rounded-t hover:bg-surface-hover inline-flex items-center">
-							<Plus size={12} />
 						</span>
-					{/snippet}
-					{#snippet content({ close })}
-						{@render addModuleForm(close)}
-					{/snippet}
-				</Popover>
-			</div>
+						<Button
+							variant="subtle"
+							unifiedSize="2xs"
+							iconOnly
+							startIcon={{ icon: X }}
+							wrapperClasses="opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+							aria-label={`Delete ${tab.id}`}
+							title={`Delete ${tab.id}`}
+							onClick={() => removeModule(tab.id)}
+						/>
+					{/if}
+				{/snippet}
+				{#snippet afterTabs()}
+					<Popover
+						placement="bottom-start"
+						bind:isOpen={showAddModulePopover}
+						openFocus={modulePathInputEl}
+						contentClasses="p-3 w-72"
+						class="ml-0.5 h-6 w-6 rounded-md inline-flex items-center justify-center text-hint hover:text-secondary hover:bg-surface-hover focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected"
+						triggerAttrs={{ 'aria-label': 'Add module' }}
+					>
+						{#snippet trigger()}
+							<Plus size={12} />
+						{/snippet}
+						{#snippet content({ close })}
+							{@render addModuleForm(close)}
+						{/snippet}
+					</Popover>
+				{/snippet}
+			</DraggableTabs>
 		{/if}
 		<div class="relative flex-1 min-h-0 min-w-0 !overflow-visible">
 			<div class="absolute bg-surface top-2 right-4 z-10 flex flex-row gap-2">
@@ -2714,43 +2723,9 @@
 						}}
 					/>
 				{/if}
-				{#if !aiChatManager.open && !disableAi && !inSessionPane}
+				{#if !disableAi && !inSessionPane}
 					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-						<OpenInSessionButton source={sessionOpen}>
-							{#snippet fallback()}
-								<HideButton
-									hidden={true}
-									direction="right"
-									panelName="AI"
-									shortcut="L"
-									unifiedSize="sm"
-									usePopoverOverride={!$copilotInfo.enabled}
-									customHiddenIcon={{
-										icon: WandSparkles
-									}}
-									btnClasses="!text-ai"
-									variant="default"
-									on:click={() => {
-										if (!aiChatManager.open) {
-											aiChatManager.changeMode(AIMode.SCRIPT)
-										}
-										aiChatManager.toggleOpen()
-									}}
-								>
-									{#snippet popoverOverride()}
-										<div class="text-sm">
-											Enable Windmill AI in the <a
-												href="{base}/workspace_settings?tab=ai"
-												target="_blank"
-												class="inline-flex flex-row items-center gap-1"
-											>
-												workspace settings <ExternalLink size={16} />
-											</a>
-										</div>
-									{/snippet}
-								</HideButton>
-							{/snippet}
-						</OpenInSessionButton>
+						<OpenInSessionButton source={sessionOpen} deferToHeader />
 					{/if}
 				{/if}
 			</div>
@@ -2792,7 +2767,7 @@
 			bind:this={editor}
 			schemaContractMarkers={contractMarkers}
 			{yContent}
-			awareness={wsProvider?.awareness}
+			awareness={collab?.provider.awareness}
 			on:change={(e) => {
 				if (activeModuleTab === null) {
 					// `editorCode`, not the payload: `setCode` dispatches the string it was

@@ -229,7 +229,11 @@ impl<'client> MqttClientBuilder<'client> {
                                 {
                                     let client_certificate = BASE64_STANDARD
                                         .decode(client_certificate)
-                                        .map_err(to_anyhow)?;
+                                        .map_err(|e| {
+                                            Error::BadConfig(format!(
+                                                "Invalid PKCS12 client certificate: {e}"
+                                            ))
+                                        })?;
                                     let password = tls
                                         .pkcs12_certificate_password
                                         .clone()

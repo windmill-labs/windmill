@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT branch.parent_job AS \"case_job!\", scorer.flow_step_id AS \"module!\",\n                    done.result AS \"result: sqlx::types::Json<Box<RawValue>>\"\n             FROM v2_job branch\n             JOIN v2_job scorer ON scorer.parent_job = branch.id\n             JOIN v2_job_completed done ON done.id = scorer.id\n             WHERE branch.parent_job = ANY($1) AND branch.workspace_id = $2\n                   AND scorer.flow_step_id = ANY($3)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "case_job!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "module!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "result: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "fcf570337b2ceeb0f9dcc311144d8ada02aa4353feb2f63e7a1f520a4000ed70"
+}

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		Save,
-		Trash,
 		XCircle,
 		CheckCircle2,
 		RotateCw,
@@ -15,15 +14,17 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import DetectionFlow from './DetectionFlow.svelte'
+	import { applyNewConnectionDefaults } from './setup/connectionDefaults'
 	import { sendUserToast } from '$lib/toast'
 	import { apiErrorMessage } from '$lib/utils'
-	import { fade } from 'svelte/transition'
 	import { workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
-	import { ResourceService, VariableService } from '$lib/gen'
+	import { GitSyncService, ResourceService, VariableService } from '$lib/gen'
 
 	let {
 		idx = null,
@@ -55,7 +56,10 @@
 	const repo = $derived(repository || (idx !== null ? gitSyncContext.getRepository(idx) : null))
 	const validation = $derived(idx !== null ? gitSyncContext.getValidation(idx) : null)
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
-	let confirmingDelete = $state(false)
+
+	function pullStatusDate(status: { at: number }): string {
+		return new Date(status.at * 1000).toISOString()
+	}
 
 	// Enable/disable automatic repo → workspace pulls, managing the optional
 	// auto_pull object without binding into a possibly-undefined value.
@@ -92,6 +96,9 @@
 	function setForkOpenPrs(v: boolean) {
 		if (repo) repo.fork_open_prs = v
 	}
+	function setAiReviewPrs(v: boolean) {
+		if (repo) repo.ai_review_prs = v
+	}
 	function setPromotionOpenPrs(v: boolean) {
 		if (repo) repo.promotion_open_prs = v
 	}
@@ -109,8 +116,9 @@
 		try {
 			await gitSyncContext.saveRepository(idx)
 		} catch (e) {
-			// The backend rejects promotion mode without an active EE plan; revert
-			// the optimistic toggle instead of leaving it stuck on until reload.
+			// The backend can reject promotion mode (non-EE build, outdated dev sync
+			// script, dev repo not matching its parent's); revert the optimistic
+			// toggle instead of leaving it stuck on until reload.
 			if (repo) {
 				repo.use_individual_branch = prevIndiv
 				repo.group_by_folder = prevGbf
@@ -151,6 +159,105 @@
 	let loadingResourceInfo = $state(false)
 	// Only GitHub App-backed repos can register webhooks; PAT repos poll only.
 	let isGithubApp = $state(false)
+	/** Where the credential Windmill uses for this repository lives, answered by
+	 * the server rather than inferred from the resource: `held` when this
+	 * workspace stores it, `borrowed` when an ancestor does. A borrowed one is not
+	 * this workspace's to renew or replace, which is what keeps a fork from
+	 * warning about a token it must not touch. `undefined` until the lookup
+	 * lands, and when nothing in the chain holds one. */
+	let credentialOrigin = $state<'held' | 'borrowed' | undefined>(undefined)
+	// Whether Windmill itself holds a credential for the repository, which is
+	// what the managed features (webhooks, pull requests, commit checks) need.
+	// A GitHub App installation qualifies, and so does a token the server keeps.
+	// Not the recorded status: that is keyed by resource path and outlives a
+	// repoint, while the origin follows the repository the URL names now.
+	let hasManagedCredential = $derived(isGithubApp || credentialOrigin !== undefined)
+	// Why the AI review cannot be turned on, or undefined when it can. Pull request events
+	// arrive on the auto-pull webhook, the review posts through the credential Windmill holds,
+	// and the job asks the workspace's default model.
+	const aiReviewBlocker = $derived(
+		!$enterpriseLicense
+			? 'Requires an enterprise license.'
+			: !hasManagedCredential
+				? 'Needs a credential Windmill holds for the repository: the GitHub App, or a GitLab project access token.'
+				: !repo?.auto_pull?.enabled
+					? 'Requires automatic deploy from Git to be enabled above: pull request events arrive on its webhook.'
+					: !$copilotInfo.defaultModel
+						? 'Set a default model in the workspace AI settings first.'
+						: undefined
+	)
+
+	const MS_PER_DAY = 86_400_000
+
+	/**
+	 * Whole days until the repository's own token expires, or undefined when it
+	 * never expires and when nothing has checked it yet.
+	 *
+	 * Counted between calendar dates, not instants: GitLab expires a token on a
+	 * date, so measuring from "now" would call a token expiring later today
+	 * expired, and one expiring tomorrow today's problem.
+	 */
+	const credentialDaysLeft = $derived.by(() => {
+		const expiresAt = repo.credential?.expires_at
+		if (!expiresAt) return undefined
+		const expiry = new Date(`${expiresAt}T00:00:00Z`).getTime()
+		const now = new Date()
+		const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+		return Math.round((expiry - today) / MS_PER_DAY)
+	})
+
+	/**
+	 * Only raised when a person has to act. A token Windmill renews on its own is
+	 * reported in the quiet status line instead, so the alert keeps meaning
+	 * "this needs you".
+	 */
+	const credentialAlert = $derived.by(() => {
+		const credential = repo.credential
+		// The status describes the repository the resource named when it was
+		// checked; once nothing is held for the one it names now, it is stale.
+		if (!credential || !hasManagedCredential) return undefined
+		if (credential.error) {
+			return {
+				type: 'error' as const,
+				title: 'Repository token needs attention',
+				body: credential.error
+			}
+		}
+		const days = credentialDaysLeft
+		if (days === undefined) return undefined
+		const when =
+			days <= 0 ? 'has expired' : days === 1 ? 'expires tomorrow' : `expires in ${days} days`
+		// Renewed here, or by the workspace above that holds it. Either way this
+		// workspace has nothing to do, and telling a fork to replace a borrowed
+		// token would split the credential in two. Renewal is licensed per
+		// instance, so a fork knows as well as its parent when nothing renews.
+		if ((credential.rotatable || credentialOrigin === 'borrowed') && $enterpriseLicense) {
+			// A token Windmill renews needs no countdown: a renewal that fails records
+			// an error, which is handled above. Reaching the expiry date anyway is the
+			// one state that proves renewal never happened, and it is the only one
+			// worth raising here — picking an earlier threshold would just be guessing
+			// at the server's renewal window from the client.
+			if (days > 0) return undefined
+			return {
+				type: 'error' as const,
+				title: 'Repository token has expired',
+				body:
+					credentialOrigin === 'borrowed'
+						? 'The workspace that holds this token renews it, but it has expired anyway. Replace it there to restore sync.'
+						: 'Windmill renews this token automatically but has not managed to. Check that the instance can reach GitLab, then replace the token to restore sync.'
+			}
+		}
+		if (days > 30) return undefined
+		const where =
+			credentialOrigin === 'borrowed'
+				? 'in the workspace that holds it'
+				: `on the ${repo?.git_repo_resource_path?.replace(/^\$res:/, '') ?? 'repository'} resource`
+		return {
+			type: days <= 7 ? ('error' as const) : days <= 14 ? ('warning' as const) : ('info' as const),
+			title: `Repository token ${when}`,
+			body: `Windmill does not renew this token. Replace it ${where}${days <= 0 ? ' to restore sync.' : ' before it expires.'}`
+		}
+	})
 
 	// Update target branch when repository changes
 	$effect(() => {
@@ -187,48 +294,38 @@
 				// Clear stale app state up front so a resource change or a failed
 				// fetch can't leave webhook/fork controls showing for the wrong repo.
 				isGithubApp = false
+				credentialOrigin = undefined
 				try {
-					const resource = await ResourceService.getResource({
-						workspace: $workspaceStore,
-						path: repo.git_repo_resource_path
-					})
+					// The server answers whether it holds this repository's credential;
+					// the resource cannot, being client-editable, exported and copied
+					// into forks. Best-effort: a failure here must not hide the URL
+					// below. Awaited alongside the resource because the defaults below
+					// read the answer.
+					const [origin, resource] = await Promise.all([
+						GitSyncService.getCredentialOrigin({
+							workspace: $workspaceStore,
+							path: repo.git_repo_resource_path
+						}).catch(() => undefined),
+						ResourceService.getResource({
+							workspace: $workspaceStore,
+							path: repo.git_repo_resource_path
+						})
+					])
 
+					if (!abortController.signal.aborted) {
+						credentialOrigin = origin?.origin
+					}
 					if (!abortController.signal.aborted && resource?.value) {
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
 						isGithubApp = value?.is_github_app === true
-						// A newly added sync connection defaults to pulling from Git only
-						// when the repository is app-backed (instant webhook delivery).
-						// Polling is opt-in for token repositories, and fork/dev workspaces
-						// never get the parent-only defaults (the backend rejects them).
-						// EE-only.
-						if (
-							repoMode === 'sync' &&
-							repo.isUnsavedConnection &&
-							isGithubApp &&
-							!isFork &&
-							$enterpriseLicense &&
-							repo.auto_pull === undefined
-						) {
-							repo.auto_pull = { enabled: true, mode: 'auto', sync_forks: true }
-						}
-						// Promotion deploys push wm_deploy/** branches that exist to be
-						// merged; without a PR the deploy is an orphaned branch. Default
-						// the managed PR on where Windmill can open it (app-backed).
-						// Fork PRs stay opt-in everywhere.
-						if (
-							repoMode === 'promotion' &&
-							repo.isUnsavedConnection &&
-							isGithubApp &&
-							$enterpriseLicense &&
-							repo.promotion_open_prs === undefined
-						) {
-							repo.promotion_open_prs = true
-						}
-						// Webhook with polling fallback is the only delivery for app repos.
-						if (isGithubApp && repo.auto_pull?.mode === 'polling') {
-							repo.auto_pull = { ...repo.auto_pull, mode: 'auto' }
-						}
+						applyNewConnectionDefaults(repo, {
+							mode: repoMode,
+							managedCredential: hasManagedCredential,
+							isGithubApp,
+							isFork,
+							ee: !!$enterpriseLicense
+						})
 						let gitUrl = value?.url || value?.git_url
 
 						if (gitUrl && typeof gitUrl === 'string') {
@@ -292,6 +389,7 @@
 			} else {
 				resourceInfo = null
 				isGithubApp = false
+				credentialOrigin = undefined
 			}
 		}
 
@@ -372,27 +470,6 @@
 		}
 	}
 
-	function initiateDelete() {
-		confirmingDelete = true
-	}
-
-	async function confirmDelete() {
-		if (idx === null) return
-		try {
-			await gitSyncContext.removeRepository(idx)
-			sendUserToast('Repository connection removed successfully')
-		} catch (error: any) {
-			console.error('Failed to remove repository:', error)
-			sendUserToast('Failed to remove repository: ' + apiErrorMessage(error), true)
-		} finally {
-			confirmingDelete = false
-		}
-	}
-
-	function cancelDelete() {
-		confirmingDelete = false
-	}
-
 	function runGitSyncTestJob() {
 		if (idx !== null && gitSyncContext.runTestJob) {
 			gitSyncContext.runTestJob(idx)
@@ -459,36 +536,6 @@
 			{/if}
 		</button>
 	{/if}
-	{#if !confirmingDelete}
-		<div transition:fade|local={{ duration: 100 }}>
-			<Button
-				size="xs"
-				variant="default"
-				onclick={initiateDelete}
-				startIcon={{ icon: Trash }}
-				destructive
-			>
-				Delete
-			</Button>
-		</div>
-	{:else}
-		<div class="flex gap-1">
-			<button
-				transition:fade|local={{ duration: 100 }}
-				class="px-3 py-1 text-xs bg-red-500 text-white rounded duration-200 hover:bg-red-600"
-				onclick={confirmDelete}
-			>
-				Confirm delete
-			</button>
-			<button
-				transition:fade|local={{ duration: 100 }}
-				class="px-2 py-1 text-xs bg-surface-secondary rounded duration-200 hover:bg-surface-hover"
-				onclick={cancelDelete}
-			>
-				<XCircle size={12} />
-			</button>
-		</div>
-	{/if}
 {/snippet}
 
 {#snippet repositoryContent()}
@@ -537,6 +584,29 @@
 			</div>
 		{/if}
 
+		{#if credentialAlert}
+			<Alert type={credentialAlert.type} title={credentialAlert.title} size="xs">
+				{credentialAlert.body}
+			</Alert>
+		{:else if hasManagedCredential && repo.credential && !repo.credential.error}
+			<div class="text-xs text-secondary">
+				{#if credentialDaysLeft === undefined}
+					Repository token does not expire.
+				{:else if credentialOrigin === 'borrowed' && $enterpriseLicense}
+					Repository token expires on {repo.credential.expires_at}, and the workspace that holds it
+					renews it.
+				{:else if repo.credential.rotatable && $enterpriseLicense}
+					Repository token expires on {repo.credential.expires_at}, and Windmill renews it
+					automatically.
+				{:else if repo.credential.rotatable || credentialOrigin === 'borrowed'}
+					Repository token expires on {repo.credential.expires_at}. Renewing it automatically
+					requires an enterprise license.
+				{:else}
+					Repository token expires on {repo.credential.expires_at}, and Windmill does not renew it.
+				{/if}
+			</div>
+		{/if}
+
 		{#if !emptyString(repo.git_repo_resource_path)}
 			<!-- Validation and Test Status -->
 			{#if validation?.isDuplicate}
@@ -545,7 +615,7 @@
 				</div>
 			{/if}
 			{#if gitSyncTestJob && gitSyncTestJob.status !== undefined}
-				<div class="flex text-sm gap-1 items-center">
+				<div class="flex text-xs gap-1 items-center">
 					{#if gitSyncTestJob.status === 'running'}
 						<RotateCw size={14} class="animate-spin" />
 					{:else if gitSyncTestJob.status === 'success'}
@@ -671,7 +741,7 @@
 									{/if}
 								</div>
 							{/if}
-							{#if repoMode === 'promotion' && isGithubApp}
+							{#if repoMode === 'promotion' && hasManagedCredential}
 								<div class="mt-2">
 									<!-- Locked while the dev promotion toggle's save is in flight: this
 										toggle is revealed by that save, and an edit made mid-save would be
@@ -700,7 +770,12 @@
 										href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 										target="_blank"
 										class="text-blue-500 hover:underline">GitHub App</a
-									> and Windmill opens them automatically.
+									>, or give a GitLab repository a
+									<a
+										href="https://www.windmill.dev/docs/integrations/git_repository"
+										target="_blank"
+										class="text-blue-500 hover:underline">project access token</a
+									>, and Windmill opens them automatically.
 								</div>
 							{/if}
 							{#if repoMode === 'sync' && isFork}
@@ -715,7 +790,7 @@
 									fork is pushed to the fork's own
 									<span class="font-mono">wm-fork/…</span> branch instead of the tracked branch.
 								</div>
-								{#if isGithubApp}
+								{#if hasManagedCredential}
 									<div class="mt-2">
 										<Toggle
 											checked={repo.fork_open_prs ?? false}
@@ -740,11 +815,12 @@
 											target="_blank"
 											class="text-blue-500 hover:underline font-mono">open-pr-on-fork-commit</a
 										>
-										workflow in the repository. Recommended: connect the repository through the
+										workflow in the repository. Recommended: connect the repository through the GitHub
+										App, or give a GitLab repository a
 										<a
-											href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
+											href="https://www.windmill.dev/docs/integrations/git_repository"
 											target="_blank"
-											class="text-blue-500 hover:underline">GitHub App</a
+											class="text-blue-500 hover:underline">project access token</a
 										> and Windmill opens them automatically.
 									</div>
 								{/if}
@@ -789,10 +865,18 @@
 											{#if repo.auto_pull.last_pull_status.success}
 												Last synced{repo.auto_pull.last_pull_status.synced_sha
 													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-													: ''}.
+													: ''}
+												<TimeAgo
+													date={pullStatusDate(repo.auto_pull.last_pull_status)}
+													noSeconds
+												/>.
 											{:else}
 												<span class="text-red-600 dark:text-red-400">
-													Last sync failed{repo.auto_pull.last_pull_status.error
+													Last sync failed
+													<TimeAgo
+														date={pullStatusDate(repo.auto_pull.last_pull_status)}
+														noSeconds
+													/>{repo.auto_pull.last_pull_status.error
 														? `: ${repo.auto_pull.last_pull_status.error}`
 														: ''}.
 												</span>
@@ -806,7 +890,7 @@
 										options={{
 											right: 'Automatically deploy changes from Git',
 											rightTooltip:
-												'Windmill deploys new commits from the tracked branch into this workspace. Repositories connected through the GitHub App sync instantly via webhooks with a polling fallback; token-based repositories are checked about every minute.'
+												'Windmill deploys new commits from the tracked branch into this workspace. Repositories Windmill holds a credential for sync instantly via webhooks with a polling fallback; other token-based repositories are checked about every minute. The webhook also delivers pull request events, which is what posts the diff check on pull requests and, for GitHub repositories, the Windmill CI tests check.'
 										}}
 										on:change={(e) => setAutoPullEnabled(e.detail)}
 									>
@@ -821,14 +905,31 @@
 											options={{
 												right: 'Automatically sync forks with git branches',
 												rightTooltip: repo.auto_pull?.enabled
-													? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. Configured once here, applied to every fork of this workspace."
+													? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. On GitHub, needed for the Windmill CI tests check on a fork pull request whose commits were pushed outside Windmill. Configured once here, applied to every fork of this workspace."
 													: 'Requires automatic deploy from Git to be enabled above.'
 											}}
 											on:change={(e) => setSyncForks(e.detail)}
 										/>
 									</div>
+									<div class="mt-1">
+										<Toggle
+											disabled={!repo.ai_review_prs && aiReviewBlocker != undefined}
+											checked={repo.ai_review_prs ?? false}
+											options={{
+												right: 'Review pull requests with AI',
+												rightTooltip:
+													aiReviewBlocker ??
+													"Windmill reviews each pull request against the tracked branch with the workspace's default AI model and posts the findings on it, following the review instructions on the tracked branch. Pull requests from forks of the repository are not reviewed."
+											}}
+											on:change={(e) => setAiReviewPrs(e.detail)}
+										>
+											{#snippet right()}
+												{#if !$enterpriseLicense}<EEOnly />{/if}
+											{/snippet}
+										</Toggle>
+									</div>
 								{/if}
-								{#if !isGithubApp && !loadingResourceInfo}
+								{#if !hasManagedCredential && !loadingResourceInfo}
 									<div class="mt-2">
 										<Alert type="info" title="Instant pull recommended" size="xs">
 											Pull for this repository checks the tracked branch about every minute; longer
@@ -838,25 +939,30 @@
 												href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 												target="_blank"
 												class="text-blue-500 hover:underline">GitHub App</a
+											>, or give a GitLab repository a
+											<a
+												href="https://www.windmill.dev/docs/integrations/git_repository"
+												target="_blank"
+												class="text-blue-500 hover:underline">project access token</a
 											>
-											(which also lets Windmill manage pull requests), or push changes into Windmill
+											(either also lets Windmill manage pull requests), or push changes into Windmill
 											with the
 											<a
 												href="https://www.windmill.dev/docs/advanced/git_sync#github-actions"
 												target="_blank"
 												class="text-blue-500 hover:underline">sync GitHub workflow</a
-											>. If you already push changes with a GitHub Action, keep either the Action or
-											automatic pull, not both, so they don't fight over deploys.
+											>. If you already push changes from CI, keep either that or automatic pull,
+											not both, so they don't fight over deploys.
 										</Alert>
 									</div>
 								{/if}
 								{#if repo.auto_pull?.enabled}
 									{@const viaWebhook = repo.auto_pull?.webhook_id != null}
-									{#if isGithubApp}
+									{#if hasManagedCredential}
 										<div class="mt-2">
-											<Alert type="info" title="Already pulling with a GitHub Action?" size="xs">
-												If you previously set up a GitHub Action to push changes into Windmill,
-												remove it now so the two don't fight over deploys.
+											<Alert type="info" title="Already pulling with a CI job?" size="xs">
+												If you previously set up a CI job to push changes into Windmill, remove it
+												now so the two don't fight over deploys.
 											</Alert>
 										</div>
 									{/if}
@@ -865,13 +971,21 @@
 											{#if repo.auto_pull.last_pull_status.success}
 												Last synced{repo.auto_pull.last_pull_status.synced_sha
 													? ` to ${repo.auto_pull.last_pull_status.synced_sha.slice(0, 7)}`
-													: ''}.
+													: ''}
+												<TimeAgo
+													date={pullStatusDate(repo.auto_pull.last_pull_status)}
+													noSeconds
+												/>.
 												{viaWebhook
 													? ' Syncing instantly via webhook.'
 													: ' Checking the tracked branch about every minute.'}
 											{:else}
 												<span class="text-red-600 dark:text-red-400">
-													Last sync failed{repo.auto_pull.last_pull_status.error
+													Last sync failed
+													<TimeAgo
+														date={pullStatusDate(repo.auto_pull.last_pull_status)}
+														noSeconds
+													/>{repo.auto_pull.last_pull_status.error
 														? `: ${repo.auto_pull.last_pull_status.error}`
 														: ''}.
 												</span>
@@ -882,7 +996,15 @@
 												: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
 										{/if}
 									</div>
-									{#if isGithubApp && repo.auto_pull?.webhook_error}
+									{#if repo.auto_pull?.enabled_by}
+										<div class="text-2xs text-secondary mt-1">
+											Pulls apply changes as {repo.auto_pull.enabled_by}, the admin who last saved
+											these settings{repo.auto_pull.sync_forks
+												? ', in this workspace and its forks'
+												: ''}.
+										</div>
+									{/if}
+									{#if hasManagedCredential && repo.auto_pull?.webhook_error}
 										<div class="mt-2">
 											<Alert type="warning" title="Falling back to polling" size="xs">
 												{repo.auto_pull.webhook_error}

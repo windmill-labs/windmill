@@ -8,7 +8,7 @@
 </script>
 
 <!-- #FFF35C / #00FF99 / #00CCFF / #9933FF / #FF6666 per GIPHY's own app icon (giphy.com/static/img/icons/apple-touch-icon-180px.png). Same full-colour mark on light and dark. -->
-<svg {width} {height} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-1.091 -1.091 26.182 26.182" xmlns="http://www.w3.org/2000/svg">
 	<path fill="#FFF35C" d="M2.666 0H12.666L10 2.668H5.334Z" />
 	<path fill="#00FF99" d="M2.666 0L5.334 2.668V21.334L2.666 24Z" />
 	<path fill="#00CCFF" d="M2.666 24L5.334 21.334H18.666L21.334 24Z" />

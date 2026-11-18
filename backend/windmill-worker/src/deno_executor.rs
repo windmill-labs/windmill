@@ -7,9 +7,9 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        parse_npm_config, read_file, read_result, start_child_process, OccupancyMetrics,
-        StreamNotifier,
+        build_command_with_isolation, create_args_and_out_file, deno_not_installed_error,
+        get_reserved_variables, parse_npm_config, read_file, read_result, start_child_process,
+        OccupancyMetrics, StreamNotifier,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -155,6 +155,17 @@ async fn get_common_deno_proc_envs(
     return deno_envs;
 }
 
+/// A spawn failure only names Deno when Deno itself is the spawned executable; behind an
+/// isolation wrapper or a dedicated worker it surfaces as an opaque exit. A bare `DENO_PATH`
+/// is resolved through PATH at spawn time, so it is left to the spawn error.
+fn ensure_deno_installed() -> Result<()> {
+    let path = std::path::Path::new(DENO_PATH.as_str());
+    if path.is_absolute() && !path.exists() {
+        return Err(deno_not_installed_error());
+    }
+    Ok(())
+}
+
 pub async fn generate_deno_lock(
     job_id: &Uuid,
     code: &str,
@@ -167,6 +178,7 @@ pub async fn generate_deno_lock(
     base_internal_url: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> error::Result<String> {
+    ensure_deno_installed()?;
     let _ = write_file(job_dir, "main.ts", code)?;
 
     let import_map_path = format!("{job_dir}/import_map.json");
@@ -231,6 +243,49 @@ pub async fn generate_deno_lock(
     }
 }
 
+/// SECURITY: a sandboxed deno job is not nsjail-wrapped; its confinement is
+/// `--allow-read=./` / `--allow-write=./`, which Deno checks against the path
+/// as written and then hands to the kernel, which follows symlinks. `./shared`
+/// is the worker's own link to the flow's shared directory, and every other
+/// step of a `same_worker` flow gets that directory bind-mounted read-write
+/// inside its jail. A link planted there (`ln -s / /tmp/shared/root` from a
+/// bash step) would let the following deno step read and write the whole
+/// worker host through `./shared/root/...`. Links pointing inside the
+/// directory are not safe either: Deno collapses `..` textually before the
+/// check while the kernel applies it to the resolved target. So nothing but
+/// regular files and directories may be in there when the job starts.
+/// `DirEntry::file_type` reports a link's own type without following it.
+async fn refuse_links_in_shared_dir(job_dir: &str) -> error::Result<()> {
+    let shared = format!("{job_dir}/shared");
+    let mut dirs = vec![std::path::PathBuf::from(&shared)];
+    while let Some(dir) = dirs.pop() {
+        let mut entries = tokio::fs::read_dir(&dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let file_type = entry.file_type().await?;
+            if file_type.is_dir() {
+                dirs.push(entry.path());
+            } else if !file_type.is_file() {
+                let path = entry.path();
+                return Err(error::Error::ExecutionErr(format!(
+                    "the flow's shared directory contains ./{}, which is not a regular file \
+                     or directory: a sandboxed deno step cannot run with it",
+                    path.strip_prefix(job_dir).unwrap_or(&path).display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+// An admin may pass a config of their own, or --no-config, through DENO_FLAGS; deno
+// refuses --config next to --no-config or a second --config, so it then stands on its
+// own. `-c` also takes its value attached (`-c/path`, `-c=/path`).
+fn deno_flags_choose_config(flags: &[String]) -> bool {
+    flags.iter().any(|f| {
+        f.starts_with("-c") || f == "--config" || f.starts_with("--config=") || f == "--no-config"
+    })
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_deno_job(
     requirements_o: Option<&String>,
@@ -249,7 +304,12 @@ pub async fn handle_deno_job(
     occupancy_metrics: &mut OccupancyMetrics,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    ensure_deno_installed()?;
     let annotations = TypeScriptAnnotations::parse(inner_content);
+
+    if job.same_worker && (is_sandboxing_enabled() || annotations.sandbox) {
+        refuse_links_in_shared_dir(job_dir).await?;
+    }
 
     // let mut start = Instant::now();
     let mut logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
@@ -373,6 +433,14 @@ try {{
     if (step_id) {{
         err["step_id"] = step_id;
     }}
+    let job_id = Deno.env.get("WM_JOB_ID");
+    if (job_id) {{
+        err["job_id"] = job_id;
+    }}
+    let flow_path = Deno.env.get("WM_FLOW_PATH");
+    if (flow_path) {{
+        err["flow_path"] = flow_path;
+    }}
     await Deno.writeTextFile("result.json", JSON.stringify(err));
     Deno.exit(1);
 }}
@@ -431,6 +499,12 @@ try {{
         conn,
     )
     .await;
+    // The only deno.json deno may honour is the one the worker writes here. Script modules
+    // are written verbatim into the job dir, so without an explicit choice deno would
+    // discover a `deno.json(c)` the job shipped as a module, and a config is applied by
+    // the runtime itself, outside the --allow-* permissions: its `lock` key alone makes
+    // deno write a file wherever it points, past --allow-write.
+    let mut deno_config_path: Option<String> = None;
     if let Some(ref npmrc_content) = npmrc {
         if !npmrc_content.trim().is_empty() {
             write_file(job_dir, ".npmrc", npmrc_content)?;
@@ -439,8 +513,12 @@ try {{
             // routinely serve just-published versions, so the guard would break them.
             // Older Deno ignores the unknown field, so this is safe across versions.
             write_file(job_dir, "deno.json", r#"{"minimumDependencyAge":"0"}"#)?;
+            deno_config_path = Some(format!("{job_dir}/deno.json"));
         }
     }
+    let config_in_deno_flags = DENO_FLAGS
+        .as_ref()
+        .is_some_and(|flags| deno_flags_choose_config(flags));
 
     //do not cache local dependencies
     let child = {
@@ -450,6 +528,15 @@ try {{
         let mut args = Vec::with_capacity(12);
         args.push("run");
         args.push("--no-check");
+        if !config_in_deno_flags {
+            match deno_config_path.as_deref() {
+                Some(config) => {
+                    args.push("--config");
+                    args.push(config);
+                }
+                None => args.push("--no-config"),
+            }
+        }
         args.push("--import-map");
         args.push(&import_map_path);
         args.push(&reload);
@@ -662,7 +749,7 @@ pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> 
                 let res: any = await main(...[ {spread} ]);
                 console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
             }} catch (e) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}) + '\n');
             }}
             continue;
         }}"#
@@ -705,7 +792,7 @@ for await (const chunk of Deno.stdin.readable) {{
                 let res: any = await main(...[ {spread} ]);
                 console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
             }} catch (e) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
+                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}) + '\n');
             }}
             continue;
         }}
@@ -735,7 +822,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<DedicatedWorkerJob>,
+    jobs_rx: &mut Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: windmill_common::client::AuthedClient,
@@ -745,6 +832,7 @@ pub async fn start_worker(
 
     use crate::common::build_envs_map;
 
+    ensure_deno_installed()?;
     let _ = write_file(job_dir, "main.ts", inner_content)?;
     let common_deno_proc_envs = get_common_deno_proc_envs(
         &token,
@@ -814,4 +902,28 @@ pub async fn start_worker(
         concurrency_semaphore,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::deno_flags_choose_config;
+
+    fn flags(s: &str) -> Vec<String> {
+        s.split(' ').map(str::to_string).collect()
+    }
+
+    #[test]
+    fn deno_flags_config_detection() {
+        for f in [
+            "-A -c /etc/deno.json",
+            "-A -c/etc/deno.json",
+            "-A -c=/etc/deno.json",
+            "-A --config /etc/deno.json",
+            "-A --config=/etc/deno.json",
+            "-A --no-config",
+        ] {
+            assert!(deno_flags_choose_config(&flags(f)), "{f}");
+        }
+        assert!(!deno_flags_choose_config(&flags("-A --cached-only")));
+    }
 }

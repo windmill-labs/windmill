@@ -2,7 +2,12 @@ import { ResourceService, type Flow, type ListResourceResponse, type ScriptLang 
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
 import { diffLines } from 'diff'
-import { createAppDomSelectorElement, type ContextElement, type FlowModuleElement } from './context'
+import {
+	createAppDomSelectorElement,
+	isMentionContext,
+	type ContextElement,
+	type FlowModuleElement
+} from './context'
 import type { FlowModule } from '$lib/gen'
 
 import type { DisplayMessage } from './shared'
@@ -78,9 +83,7 @@ export default class ContextManager {
 		this.workspace = workspace
 		this.selectedContext = currentlySelectedContext.filter(
 			(context) =>
-				context.type === 'workspace_script' ||
-				context.type === 'workspace_flow' ||
-				context.type === 'workspace_app'
+				isMentionContext(context)
 		)
 	}
 
@@ -159,9 +162,7 @@ export default class ContextManager {
 			newSelectedContext = newSelectedContext
 				.filter(
 					(c) =>
-						c.type === 'workspace_script' ||
-						c.type === 'workspace_flow' ||
-						c.type === 'workspace_app' ||
+						isMentionContext(c) ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
 				.map((c) =>
@@ -288,9 +289,7 @@ export default class ContextManager {
 						c.type === 'code' ||
 						// Workspace references are user-picked via @-mention and not in
 						// availableContext; preserve so badges survive editor refreshes.
-						c.type === 'workspace_script' ||
-						c.type === 'workspace_flow' ||
-						c.type === 'workspace_app' ||
+						isMentionContext(c) ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
 				.map((c) => {
@@ -328,6 +327,13 @@ export default class ContextManager {
 
 	setSelectedContext(newSelectedContext: ContextElement[]) {
 		this.selectedContext = newSelectedContext
+	}
+
+	/** Callers must gate on mode: only a GLOBAL send owns its mentions. Outside
+	 * GLOBAL these are chips the user removes by hand, and dropping them here
+	 * would delete a selection they still expect to see. */
+	consumeMentionContext() {
+		this.selectedContext = this.selectedContext.filter((c) => !isMentionContext(c))
 	}
 
 	getAvailableContext() {
@@ -445,15 +451,6 @@ export default class ContextManager {
 		this.selectedContext = this.selectedContext.filter(
 			(c) => c.type !== 'app_dom_selector' || (appPath !== undefined && c.appPath !== appPath)
 		)
-	}
-
-	setFixContext() {
-		const codeContext = this.availableContext.find((c) => c.type === 'code')
-		const errorContext = this.availableContext.find((c) => c.type === 'error')
-
-		if (codeContext && errorContext) {
-			this.selectedContext = [codeContext, errorContext]
-		}
 	}
 
 	setAskAiContext(options: { withCode?: boolean; withDiff?: boolean }) {

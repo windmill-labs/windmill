@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::jobs::HTTP_CLIENT;
 use crate::push;
 use crate::PushIsolationLevel;
 use anyhow::Context;
@@ -19,13 +20,14 @@ use windmill_common::ee_oss::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
 use windmill_common::get_flow_version_info_from_version;
 use windmill_common::get_latest_flow_version_id_for_path;
-use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::jobs::JobTriggerKind;
 use windmill_common::jobs::OnBehalfOf;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
+use windmill_common::scripts::get_full_hub_script_by_id;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::WarnAfterExt;
@@ -35,14 +37,15 @@ use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
-    utils::{now_from_db, ScheduleType, StripPath},
+    tz::Tz,
+    utils::{now_from_db, report_critical_error, ScheduleType, StripPath},
 };
 
 /// Helper to fetch metadata for a schedule's script or flow
 async fn get_schedule_metadata<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-    db: &DB,
     schedule: &Schedule,
+    target: &RunnableRef,
 ) -> Result<(
     Option<String>,     // tag
     Option<i32>,        // timeout
@@ -61,7 +64,7 @@ async fn get_schedule_metadata<'c>(
             None,
             &mut **tx,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
             false,
         )
         .await?;
@@ -70,18 +73,25 @@ async fn get_schedule_metadata<'c>(
             &mut **tx,
             version,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
         )
         .await?;
 
         Ok((
             flow_info.tag.clone(),
             None,
-            flow_info.on_behalf_of(&schedule.workspace_id, db).await?,
+            windmill_common::on_behalf_of_from_permissioned_as(
+                flow_info.on_behalf_of.as_deref(),
+                &schedule.workspace_id,
+                &mut **tx,
+            )
+            .await?,
             None,
             Some(version),
             parsed_retry,
         ))
+    } else if target.path().starts_with("hub/") {
+        Ok((None, None, None, None, None, parsed_retry))
     } else {
         let (
             hash,
@@ -100,11 +110,11 @@ async fn get_schedule_metadata<'c>(
             on_behalf_of,
             _runnable_settings_handle,
             _labels,
+            _job_token_scopes,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
-            db,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
             false,
         )
         .await?;
@@ -113,6 +123,10 @@ async fn get_schedule_metadata<'c>(
     }
 }
 
+/// Read identity and runnable settings through `tx` rather than `db`: every caller holds `tx`
+/// open on the same pool, so a second checkout per tick starves it when a burst of schedules
+/// fires at once. `tx` may run as `windmill_user` (schedule and flow API); those tables carry
+/// no RLS, so they resolve the same as on the pool.
 pub async fn push_scheduled_job<'c>(
     db: &DB,
     mut tx: Transaction<'c, Postgres>,
@@ -127,11 +141,11 @@ pub async fn push_scheduled_job<'c>(
         ));
     }
 
+    let target = RunnableRef::from_path(&schedule.script_path, schedule.is_flow)?;
     let sched =
         ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref(), false)?;
 
-    let tz = chrono_tz::Tz::from_str(&schedule.timezone)
-        .map_err(|e| error::Error::BadRequest(e.to_string()))?;
+    let tz = Tz::from_str(&schedule.timezone).map_err(error::Error::BadRequest)?;
 
     let now = now_from_db(&mut *tx).await?;
 
@@ -166,28 +180,30 @@ pub async fn push_scheduled_job<'c>(
         }
     };
 
-    let next = sched.find_next(&starting_from);
-    // println!("next event ({:?}): {}", tz, next);
-    // println!("next event(UTC): {}", next.with_timezone(&chrono::Utc));
+    let next = sched.find_next(&starting_from)?;
 
     // Scheduled events must be stored in the database in UTC
     let next = next.with_timezone(&chrono::Utc);
-    // panic!("next: {}", next);
     let already_exists: bool = sqlx::query_scalar!(
-        // Query plan:
-        // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
-        // - select from `v2_job` first, then join with `v2_job_queue` to avoid a full table scan
-        //   on `scheduled_for = $3`.
+        // Must be driven by `v2_job_queue` (via `v2_job_queue_workspace_scheduled_for`), never
+        // by a `v2_job` path index, which walks the schedule's whole retained history (stats
+        // underestimate a single path's rows). The lateral reference forces the join order and
+        // `OFFSET 0` keeps the filters out of the subquery, so `v2_job` is only ever probed by
+        // primary key.
         "SELECT EXISTS (
-            SELECT 1 FROM v2_job j JOIN v2_job_queue USING (id)
-            WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2 AND runnable_path = $4
-                AND parent_job IS NULL
-                AND scheduled_for = $3
+            SELECT 1 FROM v2_job_queue q
+            CROSS JOIN LATERAL (
+                SELECT trigger_kind, trigger, runnable_path, parent_job
+                FROM v2_job WHERE id = q.id OFFSET 0
+            ) j
+            WHERE q.workspace_id = $1 AND q.scheduled_for = $3
+                AND j.trigger_kind = 'schedule' AND j.trigger = $2 AND j.runnable_path = $4
+                AND j.parent_job IS NULL
         )",
         &schedule.workspace_id,
         &schedule.path,
         next,
-        &schedule.script_path
+        target.path()
     )
     .fetch_one(&mut *tx)
     .warn_after_seconds_with_sql(1, "already_exists_job".to_string())
@@ -201,6 +217,62 @@ pub async fn push_scheduled_job<'c>(
             next
         );
         return Ok(tx);
+    }
+
+    // Only a chained push (`now_cutoff` is the previous occurrence) can miss one: create,
+    // edit, enable and re-arm start fresh, and a pause, even one already over, is deliberate.
+    let missed = now_cutoff
+        .filter(|_| schedule.paused_until.is_none())
+        .and_then(|prev| {
+            // A failed count leaves the streak as it was rather than reading as a run on time.
+            count_missed_occurrences(&sched, &tz, prev, next)
+                .inspect_err(|e| {
+                    tracing::warn!(
+                        "failed to count the occurrences schedule {} missed: {e}",
+                        &schedule.path
+                    )
+                })
+                .ok()
+        });
+    if let Some((missed, last_missed)) = missed {
+        // Past the cap the walk stops short of the last miss; the time it was detected is at
+        // most one period after it.
+        let last_missed = last_missed.map(|l| if missed == MAX_COUNTED_MISSES { now } else { l });
+        if let Some(last_missed) = last_missed {
+            let streak = sqlx::query!(
+                "UPDATE schedule SET late_run_streak = late_run_streak + 1,
+                    missed_occurrences = CASE WHEN late_run_streak = 0 THEN $3
+                        ELSE missed_occurrences + $3 END,
+                    last_missed_at = $4
+                WHERE workspace_id = $1 AND path = $2
+                RETURNING late_run_streak, missed_occurrences",
+                &schedule.workspace_id,
+                &schedule.path,
+                missed as i32,
+                last_missed,
+            )
+            .fetch_optional(&mut *tx)
+            .warn_after_seconds_with_sql(1, "update_schedule_late_run_streak".to_string())
+            .await?;
+            if let Some(streak) = streak.filter(|s| s.late_run_streak == LATE_RUNS_BEFORE_ALERT) {
+                tokio::spawn(alert_late_run_streak(
+                    db.clone(),
+                    schedule.workspace_id.clone(),
+                    schedule.path.clone(),
+                    streak.missed_occurrences,
+                ));
+            }
+        } else if schedule.late_run_streak > 0 {
+            sqlx::query!(
+                "UPDATE schedule SET late_run_streak = 0
+                WHERE workspace_id = $1 AND path = $2",
+                &schedule.workspace_id,
+                &schedule.path,
+            )
+            .execute(&mut *tx)
+            .warn_after_seconds_with_sql(1, "reset_schedule_late_run_streak".to_string())
+            .await?;
+        }
     }
 
     let mut args: HashMap<String, Box<serde_json::value::RawValue>> = HashMap::new();
@@ -257,11 +329,11 @@ pub async fn push_scheduled_job<'c>(
 
         // Get metadata from the scheduled script/flow for tag, timeout, etc.
         let (tag, timeout, on_behalf_of, hash, flow_version, retry) =
-            get_schedule_metadata(&mut tx, db, schedule).await?;
+            get_schedule_metadata(&mut tx, schedule, &target).await?;
 
         (
             JobPayload::SingleStepFlow {
-                path: schedule.script_path.clone(),
+                path: target.path().to_string(),
                 hash,
                 flow_version,
                 language: None,
@@ -297,7 +369,7 @@ pub async fn push_scheduled_job<'c>(
             None,
             &mut *tx,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
             false,
         )
         .warn_after_seconds_with_sql(1, "get_latest_flow_version_id_for_path".to_string())
@@ -307,25 +379,69 @@ pub async fn push_scheduled_job<'c>(
             &mut *tx,
             version,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
         )
         .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
-        let on_behalf_of = flow_info.on_behalf_of(&schedule.workspace_id, db).await?;
-        let FlowVersionInfo { version, tag, dedicated_worker, labels, .. } = flow_info;
+        let on_behalf_of = windmill_common::on_behalf_of_from_permissioned_as(
+            flow_info.on_behalf_of.as_deref(),
+            &schedule.workspace_id,
+            &mut *tx,
+        )
+        .await?;
+        let FlowVersionInfo { version, tag, dedicated_worker, labels, job_token_scopes, .. } =
+            flow_info;
 
         (
             JobPayload::Flow {
-                path: schedule.script_path.clone(),
+                path: target.path().to_string(),
                 dedicated_worker,
                 apply_preprocessor: false,
                 version,
                 labels,
+                job_token_scopes,
             },
             tag,
             None,
             on_behalf_of,
         )
+    } else if let Some(hub_id) = target.hub_id() {
+        let tag = schedule.tag.clone().filter(|t| !t.is_empty());
+        let payload = match &schedule.retry {
+            // The language is what lets `push` materialize this as a native retry
+            // instead of a flow wrapper, which would queue the next tick at start.
+            Some(retry) => JobPayload::SingleStepFlow {
+                path: target.path().to_string(),
+                hash: None,
+                flow_version: None,
+                language: Some(
+                    get_full_hub_script_by_id(hub_id, &HTTP_CLIENT, Some(db))
+                        .await?
+                        .language,
+                ),
+                retry: Some(serde_json::from_value::<Retry>(retry.clone()).map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Unable to parse retry information from schedule: {e}"
+                    ))
+                })?),
+                error_handler_path: None,
+                error_handler_args: None,
+                skip_handler: None,
+                args: args.clone(),
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                priority: None,
+                tag_override: tag.clone(),
+                trigger_path: None,
+                apply_preprocessor: false,
+                concurrency_settings: ConcurrencySettings::default(),
+                debouncing_settings: DebouncingSettings::default(),
+            },
+            None => {
+                JobPayload::ScriptHub { path: target.path().to_string(), apply_preprocessor: false }
+            }
+        };
+        (payload, tag, None, None)
     } else {
         let (
             hash,
@@ -344,27 +460,21 @@ pub async fn push_scheduled_job<'c>(
             on_behalf_of,
             runnable_settings_handle,
             labels,
+            job_token_scopes,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
-            db,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
             false,
         )
         .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
         .await?;
 
-        // NB: read on the non-RLS pool (`db`), not `tx`. push_scheduled_job is
-        // also invoked with an RLS user_db transaction (api-schedule/api-flows),
-        // under which these lookups would resolve against the caller's row
-        // visibility rather than the full table. The dual-connection here is
-        // intentional and required for correctness.
+        let rs =
+            windmill_common::runnable_settings::from_handle(runnable_settings_handle, &mut *tx)
+                .await?;
         let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
-                runnable_settings_handle,
-                db,
-            )
-            .await?;
+            windmill_common::runnable_settings::prefetch_cached_tx(&rs, &mut tx).await?;
 
         if schedule.retry.is_some() {
             let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
@@ -388,7 +498,7 @@ pub async fn push_scheduled_job<'c>(
             // cannot be evaluated and fails closed (no retry).
             (
                 JobPayload::SingleStepFlow {
-                    path: schedule.script_path.clone(),
+                    path: target.path().to_string(),
                     hash: Some(hash),
                     flow_version: None,
                     language: Some(language),
@@ -422,7 +532,7 @@ pub async fn push_scheduled_job<'c>(
             (
                 JobPayload::ScriptHash {
                     hash,
-                    path: schedule.script_path.clone(),
+                    path: target.path().to_string(),
                     cache_ttl,
                     cache_ignore_s3_path,
                     dedicated_worker,
@@ -437,6 +547,7 @@ pub async fn push_scheduled_job<'c>(
                         concurrency_time_window_s,
                     ),
                     labels,
+                    job_token_scopes,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -490,7 +601,7 @@ pub async fn push_scheduled_job<'c>(
         let resolved_email = windmill_common::users::get_email_from_permissioned_as(
             &permissioned_as,
             &schedule.workspace_id,
-            db,
+            &mut *tx,
         )
         .await?;
         (resolved_email, permissioned_as, authed, false)
@@ -513,14 +624,16 @@ pub async fn push_scheduled_job<'c>(
     };
 
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
-        check_tag_available_for_workspace_internal(
+        let is_super_admin = windmill_common::auth::is_super_admin_email(&mut *tx, &email).await?;
+        crate::check_tag_available_for_push(
             db,
             &schedule.workspace_id,
             &tag,
-            &email,
+            &crate::PushArgs::from(&args),
+            is_super_admin,
             None, // no token for schedules so no scopes so no scope_tags
         )
-        .warn_after_seconds_with_sql(1, "check_tag_available_for_workspace_internal".to_string())
+        .warn_after_seconds_with_sql(1, "check_tag_available_for_push".to_string())
         .await?;
     }
 
@@ -564,6 +677,7 @@ pub async fn push_scheduled_job<'c>(
             JobTriggerKind::Schedule,
         )),
         None,
+        None,
     )
     .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())
     .await?;
@@ -576,6 +690,68 @@ pub async fn push_scheduled_job<'c>(
     }
 
     Ok(tx) // TODO: Bubble up pushed UUID from here
+}
+
+const MAX_COUNTED_MISSES: u32 = 1000;
+
+/// Due slots of the cron strictly between the previous occurrence and the next one, and
+/// the last of them. A chain on time costs one `find_next`: its first slot is `next` itself.
+fn count_missed_occurrences(
+    sched: &ScheduleType,
+    tz: &Tz,
+    prev: DateTime<Utc>,
+    next: DateTime<Utc>,
+) -> Result<(u32, Option<DateTime<Utc>>)> {
+    let mut count = 0;
+    let mut last = None;
+    let mut slot = prev.with_timezone(tz);
+    while count < MAX_COUNTED_MISSES {
+        match sched.find_next(&slot) {
+            Ok(s) if s.with_timezone(&Utc) < next => {
+                count += 1;
+                last = Some(s.with_timezone(&Utc));
+                slot = s;
+            }
+            Ok(_) => break,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok((count, last))
+}
+
+/// A single late run is a blip (a slow run, a worker restart, an edit mid-run); only a
+/// streak alerts, once, when it reaches this length. The schedules list shows every one.
+const LATE_RUNS_BEFORE_ALERT: i32 = 3;
+
+/// Spawned: it reaches the instance alert channels, which must not hold up the push.
+async fn alert_late_run_streak(db: DB, w_id: String, path: String, missed: i32) {
+    // The push transaction holds this row until it ends, so FOR SHARE waits for it: a push
+    // that rolled back leaves the streak short of the threshold, and only its committed
+    // retry alerts.
+    let committed = sqlx::query_scalar!(
+        "SELECT late_run_streak FROM schedule WHERE workspace_id = $1 AND path = $2 FOR SHARE",
+        &w_id,
+        &path,
+    )
+    .fetch_optional(&db)
+    .await;
+    match committed {
+        Ok(Some(streak)) if streak >= LATE_RUNS_BEFORE_ALERT => {}
+        Ok(_) => return,
+        Err(e) => {
+            tracing::warn!("failed to confirm the late run streak of schedule {w_id}/{path}: {e}");
+            return;
+        }
+    }
+    report_critical_error(
+        format!(
+            "Schedule {path} missed {missed} occurrences: its last {LATE_RUNS_BEFORE_ALERT} runs in a row started or finished too late"
+        ),
+        db,
+        Some(&w_id),
+        None,
+    )
+    .await;
 }
 
 /// Enabled schedules with no occurrence in the queue, as `(workspace_id, path)`.
@@ -699,7 +875,7 @@ pub async fn get_schedule_opt<'c>(
     path: &str,
 ) -> Result<Option<Schedule>> {
     let schedule_opt = sqlx::query_as::<_, Schedule>(
-        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels, late_run_streak FROM schedule WHERE path = $1 AND workspace_id = $2",
     )
     .bind(path)
     .bind(w_id)
@@ -757,4 +933,23 @@ pub async fn clear_schedule<'c>(
 
     windmill_common::jobs::delete_jobs(&mut **tx, &deleted_ids).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counts_the_slots_missed_between_two_occurrences() {
+        let every_30s = ScheduleType::from_str("*/30 * * * * *", None, false).unwrap();
+        let at = |s: &str| DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
+        let tz = Tz::UTC;
+        let prev = at("2026-09-02T08:20:00Z");
+        let count = |next| count_missed_occurrences(&every_30s, &tz, prev, at(next)).unwrap();
+        assert_eq!(count("2026-09-02T08:20:30Z"), (0, None));
+        assert_eq!(
+            count("2026-09-02T08:21:30Z"),
+            (2, Some(at("2026-09-02T08:21:00Z")))
+        );
+    }
 }

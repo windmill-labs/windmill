@@ -17,6 +17,7 @@ import {
   previewLocationLabel,
   promptSafe,
   resolvePreviewTab,
+  slotShowsPage,
 } from "../../../../../frontend/src/lib/components/sessions/previewRouter";
 import type { ArtifactVersionTarget } from "../../../../../frontend/src/lib/components/sessions/previewRouter";
 import type { SessionTarget } from "../../../../../frontend/src/lib/components/sessions/sessionState.svelte";
@@ -41,6 +42,7 @@ export interface EvalPreviewTabFixture {
 // by session id: global cases run concurrently, so a per-run registration would have every
 // case answering out of whichever run registered last.
 const panels = new Map<string, SessionPreviewTabs>();
+const pipelineOpeners = new Map<string, (folder: string) => Promise<string>>();
 
 const NO_SESSION = "No active session; the preview panel is unavailable.";
 
@@ -61,9 +63,15 @@ setOpenPreviewHandler(async ({ sessionId, kind, path }) => {
   if (!target) {
     return `Error: ${kind} targets cannot be shown in the preview panel.`;
   }
-  // The pipeline branch of the production handler waits on an editor that only exists once
-  // a canvas mounts, which never happens here — a pipeline preview reports as any other.
   const result = owner.open(target);
+  const openPipeline = pipelineOpeners.get(sessionId!);
+  if (kind === "pipeline" && openPipeline) {
+    const folder = await openPipeline(path);
+    // Production's success text (sessionRuntime.svelte.ts): it names the node path prefix.
+    return `${
+      result.status === "focused" ? "Focused the" : "Opened the"
+    } pipeline editor for folder "${folder}" in the side panel. build_pipeline_node, edit_pipeline_node and the other pipeline tools are now in your tool list: call them in your next step. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`;
+  }
   return result.status === "focused"
     ? `A preview tab is already showing ${kind} "${path}" — focused it.`
     : `Opened ${kind} preview for ${path} in a new tab in the side panel.`;
@@ -111,6 +119,8 @@ export function createEvalPreviewPanel(input: {
   tabs: EvalPreviewTabFixture[];
   /** Artifact ids by name, from the artifact fixture seeding. */
   artifactIds: Map<string, string>;
+  /** Mounts the folder's pipeline editor and resolves to its normalized folder. */
+  openPipeline: (folder: string) => Promise<string>;
 }): EvalPreviewPanel {
   // Nothing durable to write back to, and no debounce worth waiting on.
   const owner = new SessionPreviewTabs(
@@ -128,6 +138,7 @@ export function createEvalPreviewPanel(input: {
   if (requestedActive) owner.select(requestedActive);
   // Registered last: seeding throws on a malformed fixture, and this map outlives the run.
   panels.set(input.sessionId, owner);
+  pipelineOpeners.set(input.sessionId, input.openPipeline);
 
   return {
     openArtifact: (id, name, version) => {
@@ -136,13 +147,13 @@ export function createEvalPreviewPanel(input: {
     activePreview: () => {
       const tab = owner.displayedTab;
       if (!tab) return undefined;
-      // Artifact and editor tabs are not iframes: they carry no page location, and an
-      // artifact's pinned version reaches the chat only through get_preview_status.
-      if (resolvePreviewTab(tab.url).kind !== "iframe") return undefined;
+      // An artifact's pinned version reaches the chat only through get_preview_status.
+      if (!slotShowsPage(resolvePreviewTab(tab.url).kind)) return undefined;
       return previewLocationContext(whereIs(tab));
     },
     dispose: () => {
       panels.delete(input.sessionId);
+      pipelineOpeners.delete(input.sessionId);
     },
   };
 }

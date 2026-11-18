@@ -36,6 +36,13 @@ export interface ScriptBuilderProps {
 	 * stop/restart pair is a no-op on a non-live entry.
 	 */
 	userDraftPath?: string
+	/** Moves the draft's base to the head and keeps its content; offered in the diff
+	 *  drawer while the draft is behind. Called with the version the drawer shows as
+	 *  head. The route owns it because the base lives in a per-kind field of the value. */
+	onTakeLatest?: (head?: string) => void | Promise<void>
+	/** The hash the draft forked from, so the drawer offers `onTakeLatest` only while
+	 *  it differs from the head on display. */
+	draftBaseHash?: string
 	/**
 	 * Workspace + path the AutosaveIndicator watches for sync state. Default
 	 * (undefined) falls back to `$workspaceStore` / `userDraftPath` — the
@@ -50,6 +57,7 @@ export interface ScriptBuilderProps {
 		| 'docker'
 		| 'bunnative'
 		| 'claudesandbox'
+		| 'pisandbox'
 		| 'wac_python'
 		| 'wac_typescript'
 		| 'ci_test_bun'
@@ -74,6 +82,8 @@ export interface ScriptBuilderProps {
 	onDeployError?: (e: { path: string; error: any }) => void
 	onHistoryRestore?: () => void
 	onSeeDetails?: (e: { path: string }) => void
+	/** Makes "Exit & See details" a link, so it opens in a new tab on middle/ctrl-click. Wins over `onSeeDetails`. */
+	seeDetailsHref?: (path: string) => string
 	onNavigate?: (item: WorkspaceItem) => void
 	// Fired whenever a test run is started from the script editor, with the
 	// preview job id. Used by whitelabel embedders to track test jobs.
@@ -106,4 +116,6 @@ export interface ScriptBuilderProps {
 	// EditorHeader's path/breadcrumb row dropped (summary only). Used by the
 	// session preview to save vertical room.
 	condensedHeader?: boolean
+	/** True for the route's own editor: its top bar becomes the page header. */
+	ownsPageHeader?: boolean
 }

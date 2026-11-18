@@ -12,7 +12,7 @@
 <svg
 	class="text-[#29B5E8]"
 	xmlns="http://www.w3.org/2000/svg"
-	viewBox="0 0 1565 1559"
+	viewBox="-71.136 -74.136 1707.273 1707.273"
 	{height}
 	{width}
 	style="fill:currentcolor"

@@ -8,7 +8,13 @@
 </script>
 
 <!-- #00B8E3 per keycloak.org's own mark, https://www.keycloak.org/resources/images/icon.svg (cyan #00B8E3/#33C6E9/#008AAA over greys #4D4D4D–#EDEDED, single theme). -->
-<svg {width} {height} viewBox="0 0 500 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="57.129 56.641 386.719 386.719"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		d="M120.265 169.789L165.899 91.024L349.671 91L395.059 170.549L395.113 329.677L349.678 409.178L165.96 409.243L119.799 329.688L120.265 169.789Z"
 		fill="#4D4D4D"

@@ -1,13 +1,17 @@
 import path from "node:path";
 import ts from "typescript";
+import { parseFence } from "../../frontend/src/lib/components/display/displayCatalog";
 import type {
   AppValidationSpec,
+  AssistantValidationSpec,
   BenchmarkCheck,
   CliTrace,
   CliValidationSpec,
   FlowValidationSpec,
   GlobalValidationSpec,
   ModeRunOutput,
+  PipelineRunResult,
+  PipelineRunSpec,
   ToolValidationSpec,
 } from "./types";
 
@@ -54,6 +58,7 @@ export interface AppDatatableState {
 
 export interface GlobalDraftState {
   drafts: GlobalDraft[];
+  pipelineRun?: PipelineRunResult;
 }
 
 export interface GlobalDraft {
@@ -160,6 +165,81 @@ function valueIncludesAnyOf(value: unknown, lowercaseNeedles: string[]): boolean
   );
 }
 
+export function validateAssistantExpectations(input: {
+  run: ModeRunOutput<unknown>;
+  assistantExpect?: AssistantValidationSpec;
+}): BenchmarkCheck[] {
+  const expect = input.assistantExpect;
+  if (!expect) {
+    return [];
+  }
+  // Only some mode runners report assistantText. Defaulting a missing one to "" would pass
+  // every forbiddenMentions entry forever, so a case that expects to inspect what the
+  // assistant said fails on the mode that cannot show it.
+  if (input.run.assistantText === undefined) {
+    return [
+      check(
+        "assistant text is available to check",
+        false,
+        "this mode's runner does not report assistantText, so assistantExpect cannot be evaluated"
+      ),
+    ];
+  }
+  const text = input.run.assistantText;
+  const checks: BenchmarkCheck[] = [];
+
+  for (const phrases of expect.requiredMentionsAnyOf ?? []) {
+    checks.push(
+      check(
+        `assistant mentions one of: ${phrases.join(" / ")}`,
+        phrases.some((phrase) => assistantMentions(text, phrase)),
+        truncateForDetails(text)
+      )
+    );
+  }
+
+  for (const phrase of expect.forbiddenMentions ?? []) {
+    checks.push(
+      check(
+        `assistant does not mention '${phrase}'`,
+        !assistantMentions(text, phrase),
+        truncateForDetails(text)
+      )
+    );
+  }
+
+  if (expect.displayBlocks) {
+    checks.push(...validateDisplayBlocks(text, expect.displayBlocks));
+  }
+
+  return checks;
+}
+
+const DISPLAY_BLOCK = /```wm-display[^\n]*\n([\s\S]*?)```/g;
+
+/** The ```wm-display blocks in `text`, checked with the parser the chat renders them with. */
+export function validateDisplayBlocks(
+  text: string,
+  mode: "required" | "forbidden"
+): BenchmarkCheck[] {
+  const blocks = [...text.matchAll(DISPLAY_BLOCK)].map((m) => m[1]);
+  if (mode === "forbidden") {
+    return [check("reply holds no wm-display block", blocks.length === 0, truncateForDetails(text))];
+  }
+  const failures = blocks
+    .map((source, i) => ({ i, parsed: parseFence(source) }))
+    .filter(({ parsed }) => !parsed.ok)
+    .map(({ i, parsed }) => `block ${i + 1}: ${parsed.ok ? "" : parsed.error}`);
+  return [
+    check("reply holds a wm-display block", blocks.length > 0, truncateForDetails(text)),
+    check(
+      "every wm-display block validates against the display catalog",
+      blocks.length > 0 && failures.length === 0,
+      failures.join("\n") || undefined
+    ),
+  ];
+}
+
 export function validateToolExpectations(input: {
   run: ModeRunOutput<unknown>;
   toolExpect?: ToolValidationSpec;
@@ -231,6 +311,20 @@ export function validateToolExpectations(input: {
       );
     }
 
+    if (rule.stringEqualsAnyOf && rule.stringEqualsAnyOf.length > 0) {
+      const invalidValues = values.filter(
+        (value) =>
+          typeof value !== "string" || !rule.stringEqualsAnyOf!.includes(value)
+      );
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} matches an accepted value`,
+          invalidValues.length === 0,
+          `accepted values: ${rule.stringEqualsAnyOf.join(", ")}; values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
     if (rule.stringMustNotStartWithAnyOf && rule.stringMustNotStartWithAnyOf.length > 0) {
       const invalidValues = values.filter(
         (value) =>
@@ -255,6 +349,23 @@ export function validateToolExpectations(input: {
           `${rule.tool}.${rule.field} is filled in on every call`,
           blankValues.length === 0,
           `blank on ${blankValues.length} of ${values.length} call(s); values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
+    if (rule.sharedByAtLeast !== undefined) {
+      const counts = new Map<string, number>();
+      for (const value of values) {
+        if (typeof value === "string" && value.trim().length > 0) {
+          counts.set(value, (counts.get(value) ?? 0) + 1);
+        }
+      }
+      const mostShared = Math.max(0, ...counts.values());
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} is shared by at least ${rule.sharedByAtLeast} calls`,
+          mostShared >= rule.sharedByAtLeast,
+          `most calls sharing one value: ${mostShared}; values: ${summarizeToolValues(values)}`
         )
       );
     }
@@ -319,6 +430,84 @@ export function validateToolExpectations(input: {
   }
 
   return checks;
+}
+
+export function validatePipelineRun(
+  spec: PipelineRunSpec,
+  run: PipelineRunResult | undefined
+): BenchmarkCheck[] {
+  // A run the backend could not host asserts nothing: the harness says why on the console.
+  if (run?.skipped) {
+    return [];
+  }
+  if (!run) {
+    return [check("pipeline ran", false, "the harness recorded no pipeline run")];
+  }
+  const checks: BenchmarkCheck[] = [];
+  checks.push(check("pipeline ran to completion", !run.error, run.error));
+  if (spec.maxRoots !== undefined) {
+    const roots = run.roots ?? [];
+    checks.push(
+      check(
+        `at most ${spec.maxRoots} pipeline node(s) start the pipeline`,
+        roots.length <= spec.maxRoots,
+        `started directly, nothing upstream recorded as feeding them: ${roots.join(", ")}`
+      )
+    );
+  }
+  for (const node of run.nodes) {
+    checks.push(
+      check(
+        `pipeline node ${node.path} deploys`,
+        !node.deployError,
+        node.deployError
+      )
+    );
+    if (node.deployError) continue;
+    checks.push(
+      check(
+        `pipeline node ${node.path} runs and succeeds`,
+        node.ran === true && node.success === true,
+        node.ran ? node.error : "never ran: no root reached it through an asset trigger"
+      )
+    );
+  }
+  for (const query of spec.queries ?? []) {
+    const result = run.queries.find((q) => q.name === query.name);
+    const rows = result?.rows;
+    if (!rows) {
+      checks.push(check(`pipeline data: ${query.name}`, false, result?.error ?? "not run"));
+      continue;
+    }
+    const problems: string[] = [];
+    if (query.rowCount !== undefined && rows.length !== query.rowCount) {
+      problems.push(`expected ${query.rowCount} row(s), got ${rows.length}`);
+    }
+    const cells = rows.flatMap((row) =>
+      row && typeof row === "object" ? Object.values(row) : [row]
+    );
+    for (const value of query.includesValues ?? []) {
+      if (!cells.some((cell) => cellMatches(cell, value))) {
+        problems.push(`no cell holds ${JSON.stringify(value)}`);
+      }
+    }
+    checks.push(
+      check(
+        `pipeline data: ${query.name}`,
+        problems.length === 0,
+        problems.length ? `${problems.join("; ")} — rows: ${JSON.stringify(rows).slice(0, 400)}` : undefined
+      )
+    );
+  }
+  return checks;
+}
+
+function cellMatches(cell: unknown, value: string | number): boolean {
+  if (typeof value === "number") {
+    const n = typeof cell === "number" ? cell : Number(cell);
+    return cell !== null && cell !== "" && Number.isFinite(n) && Math.abs(n - value) < 0.01;
+  }
+  return typeof cell === "string" && cell.startsWith(value);
 }
 
 export function validateGlobalState(input: {
@@ -386,6 +575,10 @@ export function validateGlobalState(input: {
   const validate = input.validate;
   if (!validate) {
     return checks;
+  }
+
+  if (validate.pipelineRun) {
+    checks.push(...validatePipelineRun(validate.pipelineRun, input.actual.pipelineRun));
   }
 
   if (validate.draftCountAtLeast !== undefined) {

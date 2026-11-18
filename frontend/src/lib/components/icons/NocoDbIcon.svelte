@@ -8,7 +8,13 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg {width} {height} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-1.455 -1.455 34.909 34.909"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		d="M11.553 14.9191V20.9698C11.553 22.0498 10.7767 22.9257 9.81933 22.9241L7.00064 22.9183L7.01546 15.9144V15.688C7.03933 13.9362 8.46514 12.8199 9.78146 13.2851C10.1009 13.3987 10.3873 13.6094 10.6244 13.8761L11.553 14.9191Z"
 		fill="url(#nocodb-a)"

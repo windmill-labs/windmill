@@ -6,24 +6,24 @@
 - **DB schema**: `backend/summarized_schema.txt`
 - **API routes entry point**: `windmill-api/src/lib.rs`
 - **OpenAPI spec**: `windmill-api/openapi.yaml`
-- **DuckDB local jobs**: build the dynamic FFI library before running DuckDB scripts locally:
+- **DuckDB local jobs**: build the DuckDB runner before running DuckDB scripts locally:
   ```bash
   cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh
   ```
-  Re-run after clean builds or when `target/debug/libwindmill_duckdb_ffi_internal.*` is missing.
+  Re-run after clean builds or when `target/debug/windmill_duckdb_runner` is missing.
   The bundled DuckDB compile (~2min) is cached in a per-user dir shared across
   worktrees (keyed by the crate's `Cargo.lock`), so a fresh worktree reuses it and
   the build is near-instant — you don't pay the full compile per worktree. Editing
-  the FFI crate's own source falls back to an isolated per-worktree `./target`.
-  The engine is a **patched fork** of duckdb-rs, not the crates.io crate — read
-  `docs/duckdb-isolation.md` before bumping it or touching the isolation transform.
+  the crate's own source falls back to an isolated per-worktree `./target`.
+  Jobs run in that binary, out of the worker's process, under the worker's job isolation —
+  read `docs/duckdb-execution.md` before changing how it is spawned or what crosses to it.
 - **Running data pipelines (DuckLake) from source**: see the section below — a plain build
   advertises the `duckdb` tag but cannot execute DuckDB scripts and has no working S3 proxy.
 
 ## Cargo features & running the dev backend
 
 The dev backend runs under `cargo watch` and is launched by default with **only
-`--features quickjs`** (see the tmux backend pane). That baseline compiles fast but
+`--features quickjs`** (see the backend pane). That baseline compiles fast but
 **deliberately omits most functionality** — notably S3/object storage, the S3 proxy, all
 EE code, MCP, and every non-JS language runtime. A running server never gains a feature you
 didn't compile in: feature-gated routes 404 or return a `"requires <feature>"` stub. So if
@@ -33,22 +33,30 @@ MUST **restart the backend with the appropriate features** for what you're worki
 ### Restarting the dev backend with the right features
 
 Restart in the **same pane**, so the relaunch inherits that pane's `DATABASE_URL`, `BACKEND_PORT`
-and the rest of `runtime.env`. Scope every kill to this worktree — **never**
+and the rest of the worktree environment. Scope every kill to this worktree — **never**
 `pkill -f target/debug/windmill`, which kills every sibling worktree's backend.
 
-1. Find the backend pane by what it is running, not by index. The index depends on the webmux
-   profile: pane 1 is the backend under `full`, but the *frontend* under `frontendOnly`.
+1. Find the backend pane by where it is running, not by index. Under herdr the two server panes
+   sit in the worktree's `backend/` and `frontend/`, so match on `cwd`:
+
+   ```bash
+   herdr pane list --workspace "$HERDR_WORKSPACE_ID"
+   ```
+
+   Under webmux they are tmux panes, and the index depends on the profile: pane 1 is the backend
+   under `full`, but the *frontend* under `frontendOnly`.
 
    ```bash
    WIN=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')
    tmux list-panes -t "$WIN" -F '#{pane_index} #{pane_current_command} #{pane_pid}'
    ```
 
-2. Read the feature set it is **actually** running. `CARGO_FEATURES` in `runtime.env` is only what
-   the pane started with, and goes stale the first time anyone restarts by hand:
+2. Read the feature set it is **actually** running. The `CARGO_FEATURES` the worktree was created
+   with is only what the pane started with, and goes stale the first time anyone restarts by hand:
 
    ```bash
-   ps --ppid <pane_pid> -o args=
+   herdr pane process-info --pane <pane_id>   # foreground_processes[].argv
+   ps --ppid <pane_pid> -o args=              # under webmux
    # /home/hugo/.cargo/bin/cargo-watch watch -x run --features quickjs
    ```
 
@@ -56,22 +64,25 @@ and the rest of `runtime.env`. Scope every kill to this worktree — **never**
    explicitly:
 
    ```bash
-   tmux send-keys -t "$WIN.<idx>" C-c
-   tmux send-keys -t "$WIN.<idx>" 'PORT=$BACKEND_PORT cargo watch -x "run --features quickjs,private,parquet"' Enter
+   herdr pane send-keys <pane_id> C-c
+   herdr pane run <pane_id> 'PORT=$BACKEND_PORT cargo watch -x "run --features quickjs,private,parquet"'
+   # under webmux: tmux send-keys -t "$WIN.<idx>" C-c, then the same command line with Enter
    ```
 
    Carry over every feature the old command had unless you mean to drop one — rebuilding the list
    from memory is how a backend silently loses `quickjs`.
 
-4. Persist the new set so a recreated pane starts with it: set `CARGO_FEATURES` in the
-   worktree's `.env.local`, which `scripts/post-create.sh` writes and webmux reads. Do **not**
-   edit `runtime.env` for this — webmux regenerates it from metadata and `.env.local` every time
-   the worktree is opened, so an edit there is lost on the next reopen. Either way the change
-   only affects a future pane; step 3 is what takes effect now.
+4. Persist the new set so a recreated pane starts with it: set `CARGO_FEATURES` in the worktree's
+   `.env.local`, which the worktree hooks write. A herdr pane sources that file directly, so the
+   next pane picks the value up. A webmux pane sources `webmux/runtime.env` instead, which webmux
+   regenerates from metadata and `.env.local` when the worktree is *opened* — so the value lands
+   on the next reopen, not the next pane, and editing `runtime.env` by hand is lost at that same
+   reopen. Either way the change only affects a future pane; step 3 is what takes effect now.
 
-5. Re-capture the pane until `health check completed` appears before hitting the API. A cold
-   rebuild takes ~60s, and the previous run's success line is still in the scrollback, so a
-   capture taken too early reads as ready when it isn't.
+5. Re-read the pane (`herdr pane read <pane_id> --source recent-unwrapped`, or `tmux
+   capture-pane`) until `health check completed` appears before hitting the API. A cold rebuild
+   takes ~60s, and the previous run's success line is still in the scrollback, so a capture taken
+   too early reads as ready when it isn't.
 
 cargo-watch only re-runs on a file change, so after an idle/failed run `touch README.md` (from
 `backend/`, where the watch runs) is a cheap retrigger (touching a `.rs` forces a full rebuild).
@@ -109,7 +120,7 @@ only what you need — build time scales with the set.
 | `enterprise` | EE business logic (autoscaling, SAML hooks, advanced S3 rule **enforcement**, WAP, forks, …). Pulls in `license`. | Running EE features. Advanced S3 permission rules only take effect with this. |
 | `license` | License-key/plan plumbing (`LICENSE_KEY`). Pulled in by `enterprise`. Having the feature compiled does **not** require a license *key* at runtime — CE defaults to a free plan and most EE paths still run keyless. | License-gated behavior. |
 | `parquet` | S3/object-storage support: the `job_helpers/*` and `apps_u/*` S3 endpoints, parquet/CSV preview, workspace large-file storage. Without it those routes return `"requires parquet"`. | Anything touching S3/object storage or datasets. |
-| `duckdb` | DuckDB script executor (also needs the FFI dylib — see above). | DuckDB scripts, DuckLake. |
+| `duckdb` | DuckDB script executor (also needs the runner binary — see above). | DuckDB scripts, DuckLake. |
 | `python` `rust` `php` `java` `ruby` `csharp` `nu` `deno_core` `mysql` `mssql` `bigquery` `snowflake` `oracledb` `rlang` | Each enables that language/DB runtime for job execution. | Running jobs in that language. |
 | `mcp` | MCP gateway routes (baseline `quickjs` does NOT include it → MCP routes 404). | MCP work. |
 | `websocket` `http_trigger` `kafka` `nats` `mqtt_trigger` `sqs_trigger` `gcp_trigger` `azure_trigger` `postgres_trigger` `native_trigger` | Each native trigger kind; none on by default (creating one 404s without its feature). | Working on / exercising that trigger. |
@@ -125,15 +136,17 @@ minimal explicit set for dev.
 | Plain dev baseline (JS eval only) | `quickjs` |
 | S3 / object storage / datasets (CE) | `quickjs,private,parquet` |
 | S3 + EE (advanced S3 rules, on-behalf app reads, WAP, forks) | `quickjs,enterprise,private,parquet` |
-| DuckLake / DuckDB (CE) | `quickjs,duckdb,parquet,private` (+ build the FFI) |
+| DuckLake / DuckDB (CE) | `quickjs,duckdb,parquet,private` (+ build the runner) |
 | + Python jobs | append `,python` |
 
 ## Workspace object storage in dev — use the local filesystem
 
 For a dev workspace you don't need MinIO/S3: use the built-in **`FilesystemStorage`** large-file
-storage (a root path on local disk). It is intentionally hidden from the settings-UI storage
-dropdown (dev-only), so set it via the API. Requires the backend built with `parquet` (+ `private`
-for the real S3 helpers, + `enterprise` if you want advanced permission rules enforced):
+storage (a root path on local disk). It is a **debug-build affordance only** — every site that
+builds a filesystem object store calls `ensure_filesystem_storage_allowed`, so release builds
+refuse it, and the settings UI never offers it — so set it via the API on a `cargo run`/`cargo
+test` binary. Requires the backend built with `parquet` (+ `private` for the real S3 helpers,
++ `enterprise` if you want advanced permission rules enforced):
 
 ```bash
 curl -X POST "$BASE/api/w/<ws>/workspaces/edit_large_file_storage_config" \
@@ -150,7 +163,7 @@ in DuckDB"`) — DuckLake/datatable go through the S3 proxy instead, which works
 
 ## Running data pipelines (DuckLake) from source
 
-DuckLake pipelines need **both** the right cargo features **and** the prebuilt DuckDB FFI. A
+DuckLake pipelines need **both** the right cargo features **and** the DuckDB runner binary. A
 plain `cargo run` (or `cargo run --features quickjs`) does **not** suffice, and the failure modes
 are silent-ish, so agents lose time. Verify feature names against `backend/Cargo.toml` `[features]`.
 
@@ -165,7 +178,7 @@ are silent-ish, so agents lose time. Verify feature names against `backend/Cargo
 `enterprise` already pulls in `license`, but list both when you want the license-gated paths.
 `quickjs` is for JS eval, not DuckLake per se — keep it if your baseline build had it.
 
-**Before running any DuckDB script**, build the FFI (see the bullet above):
+**Before running any DuckDB script**, build the runner (see the bullet above):
 `cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh`.
 
 **Two gotchas that a wrong feature set produces:**
@@ -201,7 +214,7 @@ Whole classes of defect compile and unit-test clean:
 - **Stack overflow from a large buffer in an async block.** An array declared across an
   `.await` is baked into the future's state; once that future is boxed a few layers deep
   by the job poller, two 16 KB arrays abort the worker *process* (`thread
-  'tokio-runtime-worker' has overflowed its stack`). Heap-allocate read buffers
+  'tokio-rt-worker' has overflowed its stack`). Heap-allocate read buffers
   (`vec![0u8; N]`, not `[0u8; N]`).
 - Deadlocks from draining only one of a child's pipes, missed cancellation or timeout
   propagation, and anything depending on the real engine's output format.

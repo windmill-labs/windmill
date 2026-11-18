@@ -7,6 +7,8 @@ edition.workspace = true
 [lib]
 name = "windmill_api_workspaces"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
@@ -35,6 +37,7 @@ windmill-store.workspace = true
 
 axum.workspace = true
 chrono.workspace = true
+constant_time_eq.workspace = true
 futures = { workspace = true, optional = true }
 hex.workspace = true
 magic-crypt.workspace = true
@@ -42,12 +45,15 @@ http.workspace = true
 hyper.workspace = true
 lazy_static.workspace = true
 regex.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 tokio-postgres.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
+url.workspace = true
 uuid.workspace = true
 strum.workspace = true

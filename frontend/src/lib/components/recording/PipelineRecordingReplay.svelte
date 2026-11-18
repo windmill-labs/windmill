@@ -10,7 +10,7 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
-	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Button } from '$lib/components/common'
@@ -34,13 +34,40 @@
 	interface Props {
 		recording: PipelineRecording
 		hideControls?: boolean
+		/** Drop the folder name and its details, for a host that shows its own title. */
+		hideTitle?: boolean
 	}
 
-	let { recording, hideControls = false }: Props = $props()
+	let { recording, hideControls = false, hideTitle = false }: Props = $props()
 
 	let replayState = $state<ReplayState>('loaded')
 	let currentStatuses: Record<string, RecordedNodeState> = $state({})
 	let selection: AssetGraphSelection | undefined = $state(undefined)
+
+	// A read-write edge draws as a round trip that pulls the script out of the top-down
+	// flow. The player shows one direction: a read when the asset triggers the script
+	// (it comes after the asset), a write otherwise (the asset comes after it).
+	let displayGraph = $derived.by(() => {
+		const graph = recording.graph
+		const triggeredBy = new Set(
+			graph.triggers.flatMap((t) =>
+				t.trigger_kind === 'asset' ? [`${t.runnable_path}|${t.asset_kind}|${t.asset_path}`] : []
+			)
+		)
+		return {
+			...graph,
+			edges: graph.edges.map((e) =>
+				e.access_type !== 'rw'
+					? e
+					: {
+							...e,
+							access_type: triggeredBy.has(`${e.runnable_path}|${e.asset_kind}|${e.asset_path}`)
+								? ('r' as const)
+								: ('w' as const)
+						}
+			)
+		}
+	})
 	let job: Job | undefined = $state(undefined)
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let timeouts: ReturnType<typeof setTimeout>[] = []
@@ -48,7 +75,7 @@
 	// Graph/detail split, mirroring PipelineGraphEditor: the graph keeps the full
 	// height and the detail pane only mounts on selection. Below `STACK_BELOW` the
 	// split flips to vertical, where the detail pane needs the larger share.
-	const STACK_BELOW = 680
+	const STACK_BELOW = 900
 	let containerWidth = $state(0)
 	let stacked = $derived(containerWidth > 0 && containerWidth < STACK_BELOW)
 	let leftPaneSize = $state(100)
@@ -77,6 +104,15 @@
 				leftPaneSize = 100
 			})
 		}
+	})
+
+	// Re-arms the canvas fit once the panes have settled: fitting as soon as the panel
+	// opens would measure the canvas at its previous size.
+	let fitLayout = $state('full')
+	$effect(() => {
+		const layout = detailsOpen ? 'details' : 'full'
+		const timer = setTimeout(() => (fitLayout = layout), 150)
+		return () => clearTimeout(timer)
 	})
 
 	let jobDone = $derived((job as any)?.type === 'CompletedJob')
@@ -283,19 +319,23 @@
 	{#if !hideControls}
 		<div class="flex items-center justify-between shrink-0">
 			<div class="flex items-center gap-2">
-				<h2 class="text-lg font-semibold text-emphasis">
-					{replayState === 'playing' ? 'Replaying: ' : ''}{recording.folder || 'Pipeline'}
-				</h2>
-				<Tooltip placement="bottom">
-					<InfoIcon size={16} class="text-tertiary" />
-					{#snippet text()}
-						<span class="text-2xs">
-							Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
-							{(recording.total_duration_ms / 1000).toFixed(1)}s &mdash;
-							{Object.keys(recording.jobs).length} job(s)
-						</span>
-					{/snippet}
-				</Tooltip>
+				{#if !hideTitle}
+					<h2 class="text-lg font-semibold text-emphasis">
+						{replayState === 'playing' ? 'Replaying: ' : ''}{recording.folder || 'Pipeline'}
+					</h2>
+				{/if}
+				{#if !hideTitle}
+					<Tooltip placement="bottom">
+						<InfoIcon size={16} class="text-tertiary" />
+						{#snippet text()}
+							<span class="text-2xs">
+								Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
+								{(recording.total_duration_ms / 1000).toFixed(1)}s &mdash;
+								{Object.keys(recording.jobs).length} job(s)
+							</span>
+						{/snippet}
+					</Tooltip>
+				{/if}
 			</div>
 			{#if replayState === 'playing'}
 				<Button variant="border" size="xs" onclick={stop} startIcon={{ icon: Square }}>Stop</Button>
@@ -333,25 +373,17 @@
 			<Pane bind:size={leftPaneSize}>
 				<div class="relative h-full">
 					<AssetGraphCanvas
-						graph={recording.graph}
+						graph={displayGraph}
 						{selection}
 						onselect={(s) => (selection = s)}
 						{activeRunnableIds}
 						{runStates}
 						highlightActiveRun={replayState === 'playing'}
 						{recomputedAssetIds}
-						showMinimap={!stacked}
-						viewportFitKey={recording.folder}
+						showMinimap={false}
+						maxNodesPerRow={containerWidth > 0 && containerWidth < 1000 ? 2 : undefined}
+						viewportFitKey={`${recording.folder}:${fitLayout}`}
 					/>
-					{#if !selection}
-						<p
-							class="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border text-2xs text-tertiary shadow-sm"
-						>
-							{replayState === 'playing'
-								? 'Replaying the recorded run — click a node to inspect its logs, result or data sample.'
-								: 'Click a script node for its logs/result, or an asset node for its recorded data sample.'}
-						</p>
-					{/if}
 				</div>
 			</Pane>
 			{#if selection}
@@ -382,12 +414,22 @@
 								</div>
 
 								{#if runnableTab === 'code'}
-									<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
+									<div class="flex-1 min-h-0 overflow-hidden rounded-md border">
 										{#if selectedCode}
-											<HighlightCode
-												code={selectedCode.content}
-												language={selectedCode.language as any}
-											/>
+											{#await import('$lib/components/SimpleEditor.svelte')}
+												<Loader2 size={16} class="animate-spin m-4 text-secondary" />
+											{:then { default: SimpleEditor }}
+												{#key selection.path}
+													<SimpleEditor
+														class="h-full"
+														lang={scriptLangToEditorLang(selectedCode.language as any)}
+														code={selectedCode.content}
+														readOnly
+														disableSuggestions
+														disableLinting
+													/>
+												{/key}
+											{/await}
 										{:else}
 											<p class="text-xs text-secondary p-3">
 												No code was captured for this step in the recording.
@@ -396,40 +438,58 @@
 									</div>
 								{:else if selectedJobId && recording.jobs[selectedJobId]}
 									{#if job?.args && Object.keys(job.args).length > 0}
-										<div class="shrink-0">
-											<h3 class="text-2xs font-semibold text-tertiary mb-1">Arguments</h3>
-											<JobArgs args={job.args} />
-										</div>
+										{#if stacked}
+											<!-- Collapsed: open, the table would squeeze Logs and Result out of the short pane. -->
+											<details class="shrink-0 max-h-[50%] overflow-auto">
+												<summary class="text-2xs font-semibold text-tertiary cursor-pointer">
+													Arguments
+												</summary>
+												<JobArgs args={job.args} />
+											</details>
+										{:else}
+											<div class="shrink-0">
+												<h3 class="text-2xs font-semibold text-tertiary mb-1">Arguments</h3>
+												<JobArgs args={job.args} />
+											</div>
+										{/if}
 									{/if}
-									<!-- Logs and Result share the leftover height; Result gets the
-									     larger share (2:1) since a pipeline step's output is what you
-									     usually inspect, while both stay scrollable when squeezed. -->
-									<div class="flex flex-col flex-1 min-h-0">
-										<h3 class="text-2xs font-semibold text-tertiary mb-1">Logs</h3>
-										<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
-											<LogViewer
-												jobId={job?.id}
-												duration={job?.['duration_ms']}
-												mem={job?.['mem_peak']}
-												isLoading={!jobDone}
-												content={job?.logs}
-												tag={job?.tag}
-												download={false}
-											/>
+									<!-- Stacked, the detail pane is wide and short, so Logs and Result sit side
+									     by side. Otherwise they share the height, Result taking the larger share
+									     (2:1) since a pipeline step's output is what you usually inspect. -->
+									<div
+										class={stacked
+											? 'grid grid-cols-2 grid-rows-[minmax(0,1fr)] gap-2 flex-1 min-h-0'
+											: 'contents'}
+									>
+										<div class="flex flex-col flex-1 min-h-0 min-w-0">
+											<h3 class="text-2xs font-semibold text-tertiary mb-1">Logs</h3>
+											<div
+												class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary"
+											>
+												<LogViewer
+													jobId={job?.id}
+													duration={job?.['duration_ms']}
+													mem={job?.['mem_peak']}
+													isLoading={!jobDone}
+													content={job?.logs}
+													tag={job?.tag}
+													download={false}
+												/>
+											</div>
 										</div>
-									</div>
-									<div class="flex flex-col flex-[2_1_0%] min-h-0">
-										<h3 class="text-2xs font-semibold text-tertiary mb-1">Result</h3>
-										<div
-											class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary p-3"
-										>
-											{#if job !== undefined && job.type === 'CompletedJob' && job.result !== undefined}
-												<DisplayResult result={job.result} language={job.language} />
-											{:else if jobDone}
-												<div class="text-secondary text-xs">No output available</div>
-											{:else}
-												<div class="text-secondary text-xs">Waiting for result…</div>
-											{/if}
+										<div class="flex flex-col flex-[2_1_0%] min-h-0 min-w-0">
+											<h3 class="text-2xs font-semibold text-tertiary mb-1">Result</h3>
+											<div
+												class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary p-3"
+											>
+												{#if job !== undefined && job.type === 'CompletedJob' && job.result !== undefined}
+													<DisplayResult result={job.result} language={job.language} />
+												{:else if jobDone}
+													<div class="text-secondary text-xs">No output available</div>
+												{:else}
+													<div class="text-secondary text-xs">Waiting for result…</div>
+												{/if}
+											</div>
 										</div>
 									</div>
 								{:else}

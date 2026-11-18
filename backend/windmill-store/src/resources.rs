@@ -7,20 +7,25 @@
  */
 
 use dashmap::DashMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::LazyLock;
 
 use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
-    require_super_admin, ApiAuthed, Tokened,
+    require_super_admin_email, ApiAuthed, Tokened,
 };
 use windmill_common::db::DB;
 use windmill_common::per_minute_counter::PerMinuteCounter;
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::scopes::ScopeDefinition;
+use windmill_common::ssrf::{
+    is_private_ip, private_git_host_allowed, private_git_host_hint, GitRemoteCaller,
+};
+use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
+use crate::variables::{describe_authed, describe_extra_perms};
 use windmill_common::utils::{
     check_proper_path, check_proper_type_name, escape_ilike_pattern, sanitize_db_error,
     BulkDeleteRequest,
@@ -50,9 +55,9 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     get_database_url,
     user_drafts::{
-        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only,
-        fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind, WithDraftOverlay,
-        WithDraftQuery,
+        delete_all_drafts_for_path, delete_draft_only_for_path, delete_own_draft_for_path,
+        fetch_draft_only, fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind,
+        WithDraftOverlay, WithDraftQuery,
     },
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
@@ -81,17 +86,17 @@ pub fn workspaced_service() -> Router {
             "/history/p/{*path}",
             get(get_resource_history).delete(clear_resource_history),
         )
-        .route("/history/v/{version}", get(get_resource_version))
-        .route(
-            "/history/restore/v/{version}",
-            post(restore_resource_version),
-        )
+        .route("/history/v/{id}", get(get_resource_version))
+        .route("/history/restore/v/{id}", post(restore_resource_version))
         .route("/delete/{*path}", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
         .route("/git_commit_hash/{*path}", get(get_git_commit_hash))
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
+        .route("/type/resource_counts", get(list_resource_counts_by_type))
+        .route("/type/hub/info", get(list_hub_resource_type_info))
+        .route("/type/hub/pick/{name}", post(pick_hub_resource_type))
         .route("/type/get/{name}", get(get_resource_type))
         .route("/type/exists/{name}", get(exists_resource_type))
         .route("/type/update/{name}", post(update_resource_type))
@@ -117,6 +122,10 @@ pub struct ResourceType {
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub format_extension: Option<String>,
     pub is_fileset: bool,
+    /// The name the product goes by (`gsheets` is "Google Sheets"), null where nobody named it.
+    /// Skipped when absent, so the type files of a synced repo gain nothing until one is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +135,7 @@ pub struct CreateResourceType {
     pub description: Option<String>,
     pub format_extension: Option<String>,
     pub is_fileset: Option<bool>,
+    pub display_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -133,6 +143,22 @@ pub struct EditResourceType {
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
     pub is_fileset: Option<bool>,
+    /// Doubly optional so an edit can distinguish the two things a plain
+    /// `Option` conflates: an absent field leaves the extension alone, while an
+    /// explicit `null` clears it. A hub pull relies on both — a type that stops
+    /// being a file type has to stop being one locally too.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    pub format_extension: Option<Option<String>>,
+    /// Doubly optional for the same reason. A push from a CLI that predates the field omits it,
+    /// and must not clear a name the hub set.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    pub display_name: Option<Option<String>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -165,6 +191,9 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
+    /// The OAuth scopes the linked account was connected with.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time.
@@ -184,6 +213,30 @@ pub struct ListableResource {
     pub is_draft: Option<bool>,
 }
 
+/// A row of the resource listing: the resource as a single read returns it, plus what only the
+/// listing carries.
+#[derive(FromRow, Serialize)]
+pub struct ListedResource {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub resource: ListableResource,
+    /// An `ai_agent`'s `memory` setting, the one part of its value a listing shows: whether it
+    /// keeps a conversation decides how it is offered. `value` stays unlisted for every type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub agent_memory: Option<serde_json::Value>,
+    /// On a draft-only row, the path its editor has staged when it differs from the storage path
+    /// (a new item parked at `u/{user}/draft_{uuid}`), as the other kinds' listings report it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_path: Option<String>,
+    /// The linked OAuth account's grant: `client_credentials` connects as the app, anything
+    /// else as the user who connected it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub grant_type: Option<String>,
+}
+
 #[derive(Deserialize)]
 pub struct CreateResource {
     pub path: String,
@@ -193,6 +246,10 @@ pub struct CreateResource {
     pub labels: Option<Vec<String>>,
     #[serde(default)]
     pub ws_specific: Option<bool>,
+    /// `ai_agent` only: keep the identity `value.on_behalf_of` names, for a caller allowed to
+    /// (see `resolve_agent_on_behalf_of`).
+    #[serde(default)]
+    pub preserve_on_behalf_of: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -202,6 +259,7 @@ struct EditResource {
     resource_type: Option<String>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
+    preserve_on_behalf_of: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -218,6 +276,8 @@ pub struct ListResourceQuery {
     /// When true, append per-user draft-only rows; picker callers leave it off
     /// to stay deployed-only. See list synthesis in scripts.rs.
     pub include_draft_only: Option<bool>,
+    /// Only the `ai_agent` resources the authed user starred.
+    pub starred_only: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -300,7 +360,7 @@ async fn list_resources(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<ListableResource>> {
+) -> JsonResult<Vec<ListedResource>> {
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("resource")
@@ -317,11 +377,14 @@ async fn list_resources(
             "variable.is_oauth",
             "variable.account",
             "account.refresh_error",
+            "account.grant_type",
+            "account.scopes",
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
             "folder_labels(resource.workspace_id, resource.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
+            "CASE WHEN resource.resource_type = 'ai_agent' THEN resource.value->'memory' END as agent_memory",
         ])
         // Scalar EXISTS flags the authed user's per-user draft without fanning rows out.
         .field(
@@ -387,18 +450,27 @@ async fn list_resources(
 
     if let Some(broad_filter) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(resource.path ILIKE ? OR resource.description ILIKE ? OR resource_type ILIKE ? OR resource.value::text ILIKE ?)"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
+        );
+    }
+
+    if lq.starred_only.unwrap_or(false) {
+        sqlb.and_where(
+            "EXISTS(SELECT 1 FROM favorite WHERE favorite.workspace_id = resource.workspace_id \
+             AND favorite.path = resource.path AND favorite.favorite_kind = 'agent' AND favorite.usr = ?)"
+                .bind(&authed.username),
         );
     }
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(resource.labels @> ARRAY[?] OR folder_labels(resource.workspace_id, resource.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -406,11 +478,11 @@ async fn list_resources(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
-    let mut rows = sqlx::query_as::<_, ListableResource>(&sql)
+    let mut rows = sqlx::query_as::<_, ListedResource>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
-        .filter(|r| allowed(&r.path))
+        .filter(|r| allowed(&r.resource.path))
         .collect::<Vec<_>>();
 
     tx.commit().await?;
@@ -420,7 +492,6 @@ async fn list_resources(
     // list (the resources page always passes `resource_type_exclude`); they're applied
     // per-row below against the draft JSON's `resource_type` instead.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && offset == 0
         && lq.path_start.is_none()
         && lq.path.is_none()
@@ -428,6 +499,8 @@ async fn list_resources(
         && lq.value.is_none()
         && lq.broad_filter.is_none()
         && lq.label.is_none()
+        && !lq.starred_only.unwrap_or(false)
+        && operator_can_draft(&db, &w_id, &authed, UserDraftItemKind::Resource).await?
     {
         let rt_filter: Option<Vec<&str>> = lq
             .resource_type
@@ -445,14 +518,18 @@ async fn list_resources(
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
             // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
-            let path = v
-                .get("path")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            if path.is_empty() || !allowed(&path) {
+            // Listed at the draft's key rather than its `path`: an editor keys the draft on the path
+            // it opened, which is the only one a draft read can find, while `path` moves on rename.
+            // The staged `path` is reported beside it as `draft_path`.
+            let path = row.path;
+            if !allowed(&path) {
                 continue;
             }
+            let draft_path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .filter(|p| !p.is_empty() && *p != path)
+                .map(str::to_string);
             let description = v
                 .get("description")
                 .and_then(|x| x.as_str())
@@ -483,8 +560,13 @@ async fn list_resources(
                 })
             });
             let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+            let agent_memory = if resource_type == "ai_agent" {
+                value.as_ref().and_then(|a| a.get("memory")).cloned()
+            } else {
+                None
+            };
 
-            rows.push(ListableResource {
+            let resource = ListableResource {
                 workspace_id: w_id.clone(),
                 path,
                 value,
@@ -499,6 +581,7 @@ async fn list_resources(
                 is_expired: None,
                 refresh_error: None,
                 account: None,
+                scopes: None,
                 labels,
                 // No deployed row to inherit folder labels from.
                 inherited_labels: None,
@@ -506,7 +589,8 @@ async fn list_resources(
                 draft_only: Some(true),
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
-            });
+            };
+            rows.push(ListedResource { resource, agent_memory, draft_path, grant_type: None });
         }
     }
 
@@ -532,7 +616,7 @@ async fn get_resource(
         resource.labels,
         folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",
         (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
-        account.refresh_error,
+        account.refresh_error, account.scopes as \"scopes?\",
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
         variable.account,
@@ -623,6 +707,9 @@ async fn get_resource_value(
     Ok(Json(value))
 }
 
+/// Including the resource's and its folder's `extra_perms` in the error is intended, not a
+/// leak: who holds access to an item is not secret within a workspace, and it tells the
+/// denied caller whom to ask. Keep the maps in the message.
 pub async fn explain_resource_perm_error(
     path: &str,
     w_id: &str,
@@ -652,13 +739,16 @@ pub async fn explain_resource_perm_error(
         .fetch_optional(db)
         .await?;
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_extra_perms(folder_extra_perms.as_ref()),
+            describe_authed(Some(authed))
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_authed(Some(authed))
         )));
     }
 }
@@ -724,7 +814,16 @@ pub async fn get_resource_value_interpolated_internal<'a>(
 ) -> Result<Option<serde_json::Value>> {
     // This is a special syntax to help debugging custom instance databases
     if let Some(dbname) = path.strip_prefix("CUSTOM_INSTANCE_DB/") {
-        require_super_admin(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
+        // A job's WM_TOKEN must never reach this superadmin-only path even if it
+        // runs on behalf of a superadmin (GHSA-hfh4-cx4h-3fcr). Read the job
+        // provenance from the *authenticated* identity, never the caller-supplied
+        // `job_id` param (which comes from an untrusted query string).
+        if db_with_opt_authed.authed().and_then(|a| a.job_id).is_some() {
+            return Err(Error::NotAuthorized(
+                "CUSTOM_INSTANCE_DB cannot be resolved from a job token ($WM_TOKEN)".to_string(),
+            ));
+        }
+        require_super_admin_email(db_with_opt_authed.db(), &db_with_opt_authed.email()).await?;
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = dbname.to_string();
         let pg_creds = serde_json::to_value(&pg_creds)
@@ -779,6 +878,7 @@ pub async fn get_resource_value_interpolated_internal<'a>(
             token_for_context,
             0,
             &used_job_context,
+            Some(path),
         )
         .await?;
         if let Some(identity) = cache_identity.as_deref() {
@@ -818,8 +918,70 @@ pub async fn transform_json_value(
         token,
         depth,
         &used_job_context,
+        None,
     )
     .await
+}
+
+/// RLS resolves a reference as the token's user, not as the token: a token scoped to one
+/// resource would otherwise read, through that resource, every variable or resource its
+/// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
+/// `resource_path` is the resource being expanded: see [`check_resource_var_ref_scope`].
+fn check_interpolation_scope(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    domain: &str,
+    path: &str,
+    resource_path: Option<&str>,
+) -> Result<()> {
+    match (db_with_opt_authed.authed(), resource_path) {
+        (Some(authed), Some(r)) if domain == "variables" => {
+            check_resource_var_ref_scope(authed, r, path)
+        }
+        (Some(authed), _) => check_scopes(authed, || format!("{domain}:read:{path}")),
+        (None, _) => Ok(()),
+    }
+}
+
+/// The scope a token needs to resolve variable `var_path` referenced by resource
+/// `resource_path`: `variables:read` on it, unless it is the resource's own linked secret
+/// ([`is_owned_linked_var`]) or a wildcard pattern of the token's `resources:` scopes
+/// matches it. An exact path, or a scope naming no path at all, grants no variable: RLS
+/// lets the token resolve any variable its user can read.
+pub fn check_resource_var_ref_scope(
+    authed: &ApiAuthed,
+    resource_path: &str,
+    var_path: &str,
+) -> Result<()> {
+    if is_owned_linked_var(resource_path, var_path) {
+        return Ok(());
+    }
+    let denied = match check_scopes(authed, || format!("variables:read:{var_path}")) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let required = ScopeDefinition::new("variables", "read", None, Some(vec![var_path.into()]));
+    let covered = authed.scopes.iter().flatten().any(|scope| {
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            return false;
+        };
+        if scope.domain != "resources" {
+            return false;
+        }
+        let patterns = scope
+            .resource
+            .into_iter()
+            .flatten()
+            .filter(|r| r.contains('*'))
+            .collect::<Vec<_>>();
+        !patterns.is_empty()
+            && ScopeDefinition::new("variables", &scope.action, None, Some(patterns))
+                .includes(&required)
+    });
+    if covered {
+        Ok(())
+    } else {
+        Err(denied)
+    }
 }
 
 /// Like [`transform_json_value`], but records into `used_job_context` whether the value
@@ -835,6 +997,7 @@ pub async fn transform_json_value_tracked(
     token: Option<&str>,
     depth: u8,
     used_job_context: &std::sync::atomic::AtomicBool,
+    resource_path: Option<&str>,
 ) -> Result<Value> {
     if depth >= MAX_RESOURCE_INTERPOLATION_DEPTH {
         return Err(Error::internal_err(format!(
@@ -844,6 +1007,7 @@ pub async fn transform_json_value_tracked(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
+            check_interpolation_scope(db_with_opt_authed, "variables", path, resource_path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -852,6 +1016,7 @@ pub async fn transform_json_value_tracked(
         }
         Value::String(y) if y.starts_with("$jsonvar:") => {
             let path = y.strip_prefix("$jsonvar:").unwrap();
+            check_interpolation_scope(db_with_opt_authed, "variables", path, resource_path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -867,6 +1032,7 @@ pub async fn transform_json_value_tracked(
                     "Invalid resource path: {path}"
                 )));
             }
+            check_interpolation_scope(db_with_opt_authed, "resources", path, None)?;
             let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
@@ -886,6 +1052,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    Some(path),
                 )
                 .await
             } else {
@@ -985,6 +1152,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    resource_path,
                 )
                 .await?;
             }
@@ -1009,6 +1177,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    resource_path,
                 )
                 .await?;
                 m.insert(a.clone(), v);
@@ -1092,6 +1261,8 @@ fn note_resource_write(w_id: &str, path: &str, resource_type: &str) {
 #[derive(Deserialize)]
 struct CreateResourceQuery {
     update_if_exists: Option<bool>,
+    #[serde(default)]
+    skip_ci_tests: bool,
 }
 async fn create_resource(
     authed: ApiAuthed,
@@ -1152,7 +1323,20 @@ async fn create_resource(
         check_path_conflict(&mut tx, &w_id, &resource.path).await?;
     }
 
-    let res_value = resource.value.unwrap_or_default();
+    let mut res_value = resource.value.unwrap_or_default();
+    if resource.resource_type == "ai_agent" {
+        res_value = resolve_agent_raw_value(
+            &mut tx,
+            &authed,
+            &db,
+            &w_id,
+            &resource.path,
+            &res_value,
+            resource.preserve_on_behalf_of.unwrap_or(false),
+            true,
+        )
+        .await?;
+    }
     let raw_json = sqlx::types::Json(res_value.as_ref());
 
     if resource.path.starts_with("f/app_themes/") {
@@ -1262,6 +1446,10 @@ async fn create_resource(
         None,
     )
     .await?;
+    if authed.is_admin {
+        windmill_common::git_sync_oss::approve_github_app_repo(&mut *tx, &w_id, &resource.path)
+            .await?;
+    }
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -1278,8 +1466,25 @@ async fn create_resource(
 
     webhook.send_message(
         w_id.clone(),
-        WebhookMessage::CreateResource { workspace: w_id, path: resource.path.clone() },
+        WebhookMessage::CreateResource { workspace: w_id.clone(), path: resource.path.clone() },
     );
+
+    // Trigger CI tests for items that reference this resource
+    if !q.skip_ci_tests {
+        let db2 = db.clone();
+        let path2 = resource.path.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2, &w_id, &path2, "resource", &email2, &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after resource creation");
+            }
+        });
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -1297,6 +1502,17 @@ async fn delete_resource(
     let path = path.to_path();
 
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+
+    // Ahead of the deploy rules: nothing is deployed at a draft-only path, so
+    // gating this discard on them would strand the row in a protected workspace.
+    // Ahead of the transaction too — the not-found branch other kinds hang this
+    // off is the `not_found_if_none` below, past the linked-variable cascade.
+    if delete_draft_only_for_path(&db, &w_id, UserDraftItemKind::Resource, path, &authed.email)
+        .await?
+    {
+        return Ok(format!("draft-only resource {} deleted", path));
+    }
+
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1308,53 +1524,22 @@ async fn delete_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
+
+    let cascade = plan_linked_var_cascade(&db, &w_id, &[path.to_string()]).await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture resource data for trashbin before deleting
-    let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+    // The whole row comes back out of the delete, so the trashbin entry below is built from
+    // what RLS actually removed, and the cascade runs only once RLS has allowed the delete.
+    let deleted: Option<(String, serde_json::Value)> = sqlx::query_as(
+        "DELETE FROM resource AS t WHERE t.path = $1 AND t.workspace_id = $2
+         RETURNING t.path, to_jsonb(t)",
     )
     .bind(path)
     .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
-
-    // Fetch the resource value before deleting, so we can find linked $var: references
-    let resource_value: Option<Option<serde_json::Value>> =
-        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
-            .bind(path)
-            .bind(&w_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-
-    // Collect all $var: paths referenced in the resource value
-    let mut linked_var_paths: Vec<String> = Vec::new();
-    if let Some(Some(ref value)) = resource_value {
-        collect_var_refs(value, &mut linked_var_paths);
-    }
-
-    // A scoped token must not delete linked variables it lacks variables:write for.
-    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
-
-    // Capture linked variables for trashbin before deleting them
-    let trash_linked_vars: Vec<serde_json::Value> = if linked_var_paths.is_empty() {
-        Vec::new()
-    } else {
-        let placeholders: Vec<String> = linked_var_paths
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("${}", i + 2))
-            .collect();
-        let query = format!(
-            "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
-            placeholders.join(", ")
-        );
-        let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
-        for var_path in &linked_var_paths {
-            q = q.bind(var_path);
-        }
-        q.fetch_all(&mut *tx).await?
-    };
+    let (deleted_path, res_data) = not_found_if_none(deleted, "Resource", &path)?;
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
@@ -1364,64 +1549,63 @@ async fn delete_resource(
     .execute(&mut *tx)
     .await?;
 
-    let deleted_path = sqlx::query_scalar!(
-        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
-        path,
-        w_id
+    let linked_var_paths = cascade.resolve(std::slice::from_ref(&deleted_path));
+
+    // A scoped token must not delete linked variables it lacks variables:write for. Erroring
+    // here rolls the resource delete back with it, so nothing is deleted either way.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
+
+    // Capture linked variables for trashbin before deleting them
+    let trash_linked_vars: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT path, to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path = ANY($2)",
     )
-    .fetch_optional(&mut *tx)
+    .bind(&w_id)
+    .bind(&linked_var_paths)
+    .fetch_all(&mut *tx)
     .await?;
-    not_found_if_none(deleted_path, "Resource", &path)?;
 
-    // Delete linked variables that are actually referenced in the resource value
-    let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
-        Vec::new()
-    } else {
-        // Clean up any ws_specific rows for these variables first
-        // (mark_linked_variables_ws_specific may have auto-inserted them) so
-        // they don't survive the variable deletion as orphans — a variable
-        // later recreated at the same path would otherwise inherit the stale
-        // ws_specific flag.
-        sqlx::query!(
-            "DELETE FROM ws_specific
-             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
-            w_id,
-            &linked_var_paths
-        )
-        .execute(&mut *tx)
-        .await?;
+    let deleted_linked_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
+        w_id,
+        &linked_var_paths
+    )
+    .fetch_all(&mut *tx)
+    .await?;
 
-        let placeholders: Vec<String> = linked_var_paths
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("${}", i + 2))
-            .collect();
-        let query = format!(
-            "DELETE FROM variable WHERE workspace_id = $1 AND path IN ({}) RETURNING path",
-            placeholders.join(", ")
-        );
-        let mut q = sqlx::query_scalar::<_, String>(&query).bind(&w_id);
-        for var_path in &linked_var_paths {
-            q = q.bind(var_path);
-        }
-        q.fetch_all(&mut *tx).await?
-    };
+    // ws_specific has no FK to variable, so a row mark_linked_variables_ws_specific inserted
+    // would survive as an orphan and a variable later recreated at that path would inherit
+    // the stale flag.
+    sqlx::query!(
+        "DELETE FROM ws_specific
+         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+        w_id,
+        &deleted_linked_variables
+    )
+    .execute(&mut *tx)
+    .await?;
 
-    if let Some(res_data) = trash_resource {
-        let mut trash_data = serde_json::json!({"row": res_data});
-        if !trash_linked_vars.is_empty() {
-            trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
-        }
-        windmill_common::trashbin::move_to_trash(
-            &mut *tx,
-            &w_id,
-            "resource",
-            path,
-            trash_data,
-            &authed.username,
-        )
-        .await?;
+    // Only the rows that actually went: the snapshot above is what the caller could read,
+    // which is not necessarily what RLS let it delete, and the trashbin must not hold a copy
+    // of a secret that is still live.
+    let trash_linked_vars: Vec<serde_json::Value> = trash_linked_vars
+        .into_iter()
+        .filter(|(var_path, _)| deleted_linked_variables.contains(var_path))
+        .map(|(_, row)| row)
+        .collect();
+
+    let mut trash_data = serde_json::json!({"row": res_data});
+    if !trash_linked_vars.is_empty() {
+        trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
     }
+    windmill_common::trashbin::move_to_trash(
+        &mut *tx,
+        &w_id,
+        "resource",
+        path,
+        trash_data,
+        &authed.username,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -1433,6 +1617,24 @@ async fn delete_resource(
         None,
     )
     .await?;
+
+    // The cascade is the one way a variable dies without a variables/delete request of its
+    // own, so give each one the audit row it would have had, stamped with what took it.
+    for var_path in &deleted_linked_variables {
+        let mut params = HashMap::new();
+        params.insert("via_resource", path);
+        audit_log(
+            &mut *tx,
+            &authed,
+            "variables.delete",
+            ActionKind::Delete,
+            &w_id,
+            Some(var_path),
+            Some(params),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     // Resource gone for everyone: wipe ALL users' drafts at this path (and any linked
@@ -1484,35 +1686,205 @@ async fn delete_resource(
         );
     }
 
-    Ok(format!("resource {} deleted", path))
+    // Name what else went: the cascade is silent from the caller's side otherwise, and a
+    // secret it took is not something to discover later from a failing job.
+    if deleted_linked_variables.is_empty() {
+        Ok(format!("resource {} deleted", path))
+    } else {
+        Ok(format!(
+            "resource {} deleted, along with its linked variables: {}",
+            path,
+            deleted_linked_variables.join(", ")
+        ))
+    }
 }
 
-/// Recursively collect all `$var:path` references from a JSON value.
-fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
+/// The forms that resolve a variable path against `variable`, so a value carrying any of them
+/// breaks when that variable goes. Only `$var:` is minted by the resource editor, which is why
+/// `collect_var_refs` stays narrower than this.
+const REFERRER_PREFIXES: [&str; 2] = ["$var:", "$jsonvar:"];
+
+/// Recursively collect the variable paths a JSON value references through any of `prefixes`.
+fn collect_refs_with_prefixes(value: &serde_json::Value, prefixes: &[&str], out: &mut Vec<String>) {
     match value {
         serde_json::Value::String(s) => {
-            if let Some(var_path) = s.strip_prefix("$var:") {
+            if let Some(var_path) = prefixes.iter().find_map(|p| s.strip_prefix(p)) {
                 out.push(var_path.to_string());
             }
         }
         serde_json::Value::Object(m) => {
             for v in m.values() {
-                collect_var_refs(v, out);
+                collect_refs_with_prefixes(v, prefixes, out);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                collect_var_refs(v, out);
+                collect_refs_with_prefixes(v, prefixes, out);
             }
         }
         _ => {}
     }
 }
 
-/// Deleting a resource cascades into the `$var:` variables its value references. A
-/// scoped token must not use that cascade to delete variables it could not delete
-/// directly via `delete_variable` (which gates on `variables:write:<path>`), so require
-/// `variables:write` for EVERY linked variable and fail the whole delete otherwise.
+/// Recursively collect all `$var:path` references from a JSON value.
+fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
+    collect_refs_with_prefixes(value, &["$var:"], out)
+}
+
+/// Whether the variable at `var_path` is the resource's own secret rather than one its value
+/// merely points at: the same-path twin `delete_variable` and the `update_resource` rename
+/// already act on, or `<resource path>_<field>`, which the connect form mints for a resource
+/// type with several secret fields. Anything else is a standalone workspace variable, and
+/// deleting one destroys a secret its other referrers still need.
+///
+/// A rename moves only the twin, so `<old path>_<field>` secrets stop matching and are left
+/// behind instead. An orphaned secret can be deleted by hand; a destroyed one cannot.
+fn is_owned_linked_var(resource_path: &str, var_path: &str) -> bool {
+    var_path == resource_path
+        || var_path
+            .strip_prefix(resource_path)
+            .is_some_and(|suffix| suffix.starts_with('_'))
+}
+
+/// Which of `var_paths` a resource outside `excluded_resource_paths` still references.
+///
+/// Must run off the non-RLS pool: a referrer in a folder the caller cannot read is precisely
+/// the one whose variable has to survive. Nothing from those rows reaches the response.
+async fn linked_vars_referenced_elsewhere(
+    db: &DB,
+    w_id: &str,
+    var_paths: &[String],
+    excluded_resource_paths: &[String],
+) -> Result<HashSet<String>> {
+    if var_paths.is_empty() {
+        return Ok(HashSet::new());
+    }
+    // The quotes around the pattern are what make it a whole-JSON-string match rather than a
+    // prefix one, so `f/db` does not match `"$var:f/db_replica"`. Paths are `proper_id`
+    // segments, so no JSON escaping or LIKE wildcard can reach this.
+    let referenced = sqlx::query_scalar!(
+        "WITH survivors AS (
+             SELECT value::text AS rendered FROM resource
+             WHERE workspace_id = $1 AND NOT (path = ANY($2::text[]))
+         )
+         SELECT v.path FROM unnest($3::text[]) AS v(path)
+         WHERE EXISTS (
+             SELECT 1 FROM survivors s
+             WHERE strpos(s.rendered, '\"$var:' || v.path || '\"') > 0
+                OR strpos(s.rendered, '\"$jsonvar:' || v.path || '\"') > 0
+         )",
+        w_id,
+        excluded_resource_paths,
+        var_paths,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(referenced.into_iter().flatten().collect())
+}
+
+/// A resource delete's candidate cascade, gathered before the caller's transaction opens: the
+/// referrer scan runs on `db` because it has to see resources RLS hides, and a second acquire
+/// from that same pool under an open `user_db` transaction stalls to the acquire timeout when
+/// `DATABASE_CONNECTIONS` is small. `resolve` then decides without touching the database.
+///
+/// So a resource that starts referencing a candidate between the scan and the delete keeps a
+/// `$var:` pointing at nothing. Narrowing that window means running the scan on the
+/// transaction's own connection under a tightly scoped `SET LOCAL ROLE NONE` (the elevation
+/// `windmill-queue/src/schedule.rs` uses); closing it needs a lock on every resource write.
+struct LinkedVarCascade {
+    /// Each owned `$var:` path with the requested resource whose value carries it.
+    candidates: Vec<(String, String)>,
+    /// Requested resource paths, each with every variable path its value references.
+    requested: Vec<(String, Vec<String>)>,
+    /// Candidate paths a resource outside the requested set still references.
+    referenced_outside: HashSet<String>,
+}
+
+impl LinkedVarCascade {
+    /// The variables to delete, now that RLS has settled which resources went.
+    ///
+    /// A requested resource left standing is the one referrer the scan could not account for,
+    /// having had to exclude every requested path before RLS had ruled.
+    fn resolve(&self, deleted_paths: &[String]) -> Vec<String> {
+        let referenced_by_survivors: HashSet<&str> = self
+            .requested
+            .iter()
+            .filter(|(path, _)| !deleted_paths.contains(path))
+            .flat_map(|(_, refs)| refs.iter().map(String::as_str))
+            .collect();
+
+        let mut resolved: Vec<String> = self
+            .candidates
+            .iter()
+            .filter(|(var_path, owner)| {
+                deleted_paths.contains(owner)
+                    && !self.referenced_outside.contains(var_path.as_str())
+                    && !referenced_by_survivors.contains(var_path.as_str())
+            })
+            .map(|(var_path, _)| var_path.clone())
+            .collect();
+        resolved.sort();
+        resolved.dedup();
+        resolved
+    }
+
+    /// Which deleted resource the cascade took `var_path` for, to stamp on its audit row.
+    fn owner_of<'a>(&'a self, var_path: &str, deleted_paths: &[String]) -> Option<&'a str> {
+        self.candidates
+            .iter()
+            .find(|(candidate, owner)| candidate == var_path && deleted_paths.contains(owner))
+            .map(|(_, owner)| owner.as_str())
+    }
+}
+
+/// Gather what `LinkedVarCascade::resolve` needs for a delete of `paths`.
+async fn plan_linked_var_cascade(
+    db: &DB,
+    w_id: &str,
+    paths: &[String],
+) -> Result<LinkedVarCascade> {
+    let rows: Vec<(String, Option<serde_json::Value>)> = sqlx::query_as(
+        "SELECT path, value FROM resource WHERE workspace_id = $1 AND path = ANY($2)",
+    )
+    .bind(w_id)
+    .bind(paths)
+    .fetch_all(db)
+    .await?;
+
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    let mut requested: Vec<(String, Vec<String>)> = Vec::new();
+    for (path, value) in rows {
+        let mut owned: Vec<String> = Vec::new();
+        let mut refs: Vec<String> = Vec::new();
+        if let Some(value) = &value {
+            collect_var_refs(value, &mut owned);
+            collect_refs_with_prefixes(value, &REFERRER_PREFIXES, &mut refs);
+        }
+        candidates.extend(
+            owned
+                .into_iter()
+                .filter(|var_path| is_owned_linked_var(&path, var_path))
+                .map(|var_path| (var_path, path.clone())),
+        );
+        requested.push((path, refs));
+    }
+    candidates.sort();
+    candidates.dedup();
+
+    let mut candidate_paths: Vec<String> = candidates
+        .iter()
+        .map(|(var_path, _)| var_path.clone())
+        .collect();
+    candidate_paths.dedup();
+    let referenced_outside =
+        linked_vars_referenced_elsewhere(db, w_id, &candidate_paths, paths).await?;
+    Ok(LinkedVarCascade { candidates, requested, referenced_outside })
+}
+
+/// Deleting a resource cascades into the `$var:` variables it owns. A scoped token must not
+/// use that cascade to delete variables it could not delete directly via `delete_variable`
+/// (which gates on `variables:write:<path>`), so require `variables:write` for EVERY cascaded
+/// variable and fail the whole delete otherwise.
 ///
 /// No co-located-path exemption: a resource and a variable may share a path, and a
 /// resource-write token can create a resource over an existing standalone variable and
@@ -1615,111 +1987,91 @@ async fn delete_resources_bulk(
         return Err(Error::PermissionDenied(msg));
     }
 
+    let cascade = plan_linked_var_cascade(&db, &w_id, &request.paths).await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture resources for trashbin per path before bulk delete, and
-    // collect $var: references so we can cascade-delete the linked variables
-    // (matching single-resource delete semantics).
-    let mut linked_var_paths: Vec<String> = Vec::new();
-    for path in &request.paths {
-        let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
-        )
-        .bind(path)
-        .bind(&w_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if let Some(res_data) = trash_resource {
-            // Per-resource linked vars so each resource's trash entry carries
-            // exactly the variables that vanished with it (matching the
-            // single-delete shape: trash_data["linked_variables"]).
-            let mut this_linked: Vec<String> = Vec::new();
-            if let Some(value) = res_data.get("value") {
-                collect_var_refs(value, &mut this_linked);
-            }
-            this_linked.sort();
-            this_linked.dedup();
-
-            let trash_linked_vars: Vec<serde_json::Value> = if this_linked.is_empty() {
-                Vec::new()
-            } else {
-                let placeholders: Vec<String> = this_linked
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("${}", i + 2))
-                    .collect();
-                let query = format!(
-                    "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
-                    placeholders.join(", ")
-                );
-                let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
-                for var_path in &this_linked {
-                    q = q.bind(var_path);
-                }
-                q.fetch_all(&mut *tx).await?
-            };
-
-            let mut trash_data = serde_json::json!({"row": res_data});
-            if !trash_linked_vars.is_empty() {
-                trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
-            }
-            windmill_common::trashbin::move_to_trash(
-                &mut *tx,
-                &w_id,
-                "resource",
-                path,
-                trash_data,
-                &authed.username,
-            )
-            .await?;
-
-            linked_var_paths.extend(this_linked);
-        }
-    }
-    linked_var_paths.sort();
-    linked_var_paths.dedup();
-
-    // A scoped token must not delete linked variables it lacks variables:write for.
-    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
+    // Whole rows out of the delete; see delete_resource. RLS can leave a requested resource
+    // standing, so everything below is driven by this list rather than by `request.paths`.
+    let deleted: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "DELETE FROM resource AS t WHERE t.path = ANY($1) AND t.workspace_id = $2
+         RETURNING t.path, to_jsonb(t)",
+    )
+    .bind(&request.paths)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let deleted_paths: Vec<String> = deleted.iter().map(|(path, _)| path.clone()).collect();
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
         w_id,
-        &request.paths
+        &deleted_paths
     )
     .execute(&mut *tx)
     .await?;
 
-    let deleted_paths = sqlx::query_scalar!(
-        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
-        &request.paths,
-        w_id
+    let linked_var_paths = cascade.resolve(&deleted_paths);
+
+    // A scoped token must not delete linked variables it lacks variables:write for. Erroring
+    // here rolls the resource deletes back with it.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
+
+    // Snapshot before the delete below: the trashbin entries need the rows.
+    let trash_linked_vars: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT path, to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path = ANY($2)",
+    )
+    .bind(&w_id)
+    .bind(&linked_var_paths)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let deleted_linked_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
+        w_id,
+        &linked_var_paths
     )
     .fetch_all(&mut *tx)
     .await?;
 
-    // Cascade-clean linked variables: delete any ws_specific 'variable' rows
-    // (typically auto-inserted by mark_linked_variables_ws_specific when the
-    // resource was ws_specific) BEFORE deleting the variable rows themselves
-    // — otherwise those ws_specific rows survive as orphans and a later
-    // variable created at the same path would inherit a stale flag.
-    if !linked_var_paths.is_empty() {
-        sqlx::query!(
-            "DELETE FROM ws_specific
-             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
-            w_id,
-            &linked_var_paths
-        )
-        .execute(&mut *tx)
-        .await?;
+    // See delete_resource: ws_specific has no FK, so the rows would orphan.
+    sqlx::query!(
+        "DELETE FROM ws_specific
+         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+        w_id,
+        &deleted_linked_variables
+    )
+    .execute(&mut *tx)
+    .await?;
 
-        sqlx::query!(
-            "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
-            w_id,
-            &linked_var_paths
+    for (path, res_data) in &deleted {
+        // Every cascaded variable this resource's value points at, ownership aside: restoring
+        // it on its own must bring back each secret it needs, and the one it borrowed from a
+        // sibling in the same batch is gone too.
+        let mut refs: Vec<String> = Vec::new();
+        if let Some(value) = res_data.get("value") {
+            collect_var_refs(value, &mut refs);
+        }
+        let this_linked: Vec<serde_json::Value> = trash_linked_vars
+            .iter()
+            .filter(|(var_path, _)| {
+                refs.contains(var_path) && deleted_linked_variables.contains(var_path)
+            })
+            .map(|(_, row)| row.clone())
+            .collect();
+
+        let mut trash_data = serde_json::json!({"row": res_data});
+        if !this_linked.is_empty() {
+            trash_data["linked_variables"] = serde_json::Value::Array(this_linked);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "resource",
+            path,
+            trash_data,
+            &authed.username,
         )
-        .execute(&mut *tx)
         .await?;
     }
 
@@ -1734,13 +2086,30 @@ async fn delete_resources_bulk(
     )
     .await?;
 
+    // See delete_resource: a cascaded variable gets the audit row it would have had.
+    for var_path in &deleted_linked_variables {
+        let params = cascade
+            .owner_of(var_path, &deleted_paths)
+            .map(|resource_path| HashMap::from([("via_resource", resource_path)]));
+        audit_log(
+            &mut *tx,
+            &authed,
+            "variables.delete",
+            ActionKind::Delete,
+            &w_id,
+            Some(var_path),
+            params,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     // Wipe ALL users' drafts at these paths (and linked variables); see delete_resource.
     for path in &deleted_paths {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
     }
-    for var_path in &linked_var_paths {
+    for var_path in &deleted_linked_variables {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
     }
 
@@ -1777,6 +2146,7 @@ async fn update_resource(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(ci): Query<windmill_dep_map::ci_tests::SkipCiTestsQuery>,
     Json(ns): Json<EditResource>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
@@ -1812,9 +2182,6 @@ async fn update_resource(
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
     }
-    if let Some(nvalue) = &ns.value {
-        sqlb.set_str("value", nvalue.to_string());
-    }
     if let Some(nrt) = &ns.resource_type {
         sqlb.set_str("resource_type", nrt);
     }
@@ -1848,7 +2215,7 @@ async fn update_resource(
 
             // Handle Vault secret rename if the linked variable is a Vault-stored secret
             let linked_var = sqlx::query!(
-                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
                 path,
                 w_id
             )
@@ -1879,6 +2246,15 @@ async fn update_resource(
                 npath,
                 path,
                 w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE native_trigger SET connection_path = $1 WHERE workspace_id = $2 AND connection_path = $3",
+                npath,
+                w_id,
+                path
             )
             .execute(&mut *tx)
             .await?;
@@ -1920,6 +2296,49 @@ async fn update_resource(
             .execute(&mut *tx)
             .await?;
         }
+    }
+
+    lock_resource_row(&mut tx, &w_id, path).await?;
+    let current = sqlx::query!(
+        "SELECT resource_type, value AS \"value: sqlx::types::Json<Box<RawValue>>\"
+         FROM resource WHERE workspace_id = $1 AND path = $2",
+        &w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let resource_type = ns
+        .resource_type
+        .clone()
+        .or_else(|| current.as_ref().map(|c| c.resource_type.clone()));
+    // Retyping a resource into an agent makes its value an agent's, identity included, so it is
+    // resolved as a written one is.
+    let retyped = ns.resource_type.as_deref() == Some("ai_agent")
+        && current
+            .as_ref()
+            .is_some_and(|c| c.resource_type != "ai_agent");
+    let nvalue = match &ns.value {
+        Some(v) => Some(v.clone()),
+        None if retyped => current.and_then(|c| c.value).map(|v| v.0),
+        None => None,
+    };
+    if let Some(nvalue) = nvalue {
+        let nvalue = if resource_type.as_deref() == Some("ai_agent") {
+            resolve_agent_raw_value(
+                &mut tx,
+                &authed,
+                &db,
+                &w_id,
+                ns.path.as_deref().unwrap_or(path),
+                &nvalue,
+                ns.preserve_on_behalf_of.unwrap_or(false),
+                false,
+            )
+            .await?
+        } else {
+            nvalue
+        };
+        sqlb.set_str("value", nvalue.to_string());
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
@@ -1994,6 +2413,9 @@ async fn update_resource(
         None,
     )
     .await?;
+    if authed.is_admin && ns.value.is_some() {
+        windmill_common::git_sync_oss::approve_github_app_repo(&mut *tx, &w_id, &npath).await?;
+    }
     tx.commit().await?;
 
     // Detect if this was a rename operation
@@ -2043,7 +2465,7 @@ async fn update_resource(
     );
 
     // Trigger CI tests for items that reference this resource
-    {
+    if !ci.skip_ci_tests {
         let db2 = db.clone();
         let npath2 = npath.clone();
         let email2 = authed.email.clone();
@@ -2091,6 +2513,116 @@ async fn update_resource_value(
     Ok(format!("value of resource {} updated", path))
 }
 
+/// Rewrites the identity an `ai_agent` runs as (`value.on_behalf_of`), resolved on every write of
+/// it as a flow's `on_behalf_of` is on every deploy. It exists only while the agent's
+/// `run_on_behalf_of` is set: then the writer's own, unless one allowed to keep the one the value
+/// names asks to, and a folder's default for a new agent. The value is written by anyone who can
+/// write the agent, so the key it arrives with is only a request.
+///
+/// Every write of an agent passes here, so this is also where an operator's is held to the
+/// composed-flow rules: a flow step linking the agent runs its tools unchecked.
+async fn resolve_agent_on_behalf_of(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: &mut serde_json::Value,
+    preserve: bool,
+    created: bool,
+) -> Result<()> {
+    if authed.is_operator {
+        windmill_api_auth::composed::validate_operator_agent(value, authed, db, tx, w_id).await?;
+    }
+    let Some(obj) = value.as_object_mut() else {
+        return Ok(());
+    };
+    let mut requested = obj
+        .remove("on_behalf_of")
+        .and_then(|v| v.as_str().map(str::to_string));
+    if obj.get("run_on_behalf_of").and_then(|v| v.as_bool()) != Some(true) {
+        return Ok(());
+    }
+    let mut preserve = preserve;
+    let explicit =
+        requested.is_some() && preserve && windmill_common::can_preserve_on_behalf_of(authed);
+    if created && !explicit && windmill_common::can_preserve_on_behalf_of(authed) {
+        if let Some((_, folder_default)) =
+            windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
+        {
+            requested = Some(folder_default);
+            preserve = true;
+        }
+    }
+    let own = windmill_common::users::username_to_permissioned_as(&authed.username);
+    // Nothing requested is the writer's own.
+    let resolved = windmill_common::resolve_on_behalf_of(
+        None,
+        Some(requested.as_deref().unwrap_or(&own)),
+        preserve,
+        authed,
+        w_id,
+        db,
+    )
+    .await?;
+    if let Some(resolved) = resolved.as_ref() {
+        obj.insert("on_behalf_of".to_string(), resolved.clone().into());
+    }
+    if let Some(kept) = windmill_common::check_on_behalf_of_preservation(
+        resolved.as_deref(),
+        preserve,
+        authed,
+        &own,
+    ) {
+        audit_log(
+            &mut **tx,
+            authed,
+            "resources.on_behalf_of",
+            if created {
+                ActionKind::Create
+            } else {
+                ActionKind::Update
+            },
+            w_id,
+            Some(path),
+            Some([("on_behalf_of", kept.as_str())].into()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Held until the write commits: whether a value is resolved as an agent's depends on the type
+/// read after this, and a concurrent retype into an agent must not land between the two.
+async fn lock_resource_row(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    sqlx::query("SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 FOR UPDATE")
+        .bind(w_id)
+        .bind(path)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// `resolve_agent_on_behalf_of` on a value as the request carried it.
+async fn resolve_agent_raw_value(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: &RawValue,
+    preserve: bool,
+    created: bool,
+) -> Result<Box<RawValue>> {
+    let mut parsed: serde_json::Value = serde_json::from_str(value.get())?;
+    resolve_agent_on_behalf_of(tx, authed, db, w_id, path, &mut parsed, preserve, created).await?;
+    Ok(serde_json::value::to_raw_value(&parsed)?)
+}
+
 /// Write a resource's value and run everything that has to follow it: a version row, the audit
 /// entry, deployment metadata, the webhook, and dependent CI tests. Shared with version restore
 /// so a restored value is indistinguishable downstream from any other edit.
@@ -2119,6 +2651,21 @@ async fn set_resource_value(
 
     let mut tx = user_db.clone().begin(authed).await?;
 
+    let mut value = value;
+    if let Some(v) = value.as_mut() {
+        lock_resource_row(&mut tx, w_id, path).await?;
+        let resource_type = sqlx::query_scalar!(
+            "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+            w_id,
+            path
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if resource_type.as_deref() == Some("ai_agent") {
+            resolve_agent_on_behalf_of(&mut tx, authed, db, w_id, path, v, false, false).await?;
+        }
+    }
+
     // `RETURNING resource_type` rather than a second lookup: the advisory below has to know the
     // type to leave `state` and `cache` alone, and this statement already runs.
     let updated = sqlx::query_scalar!(
@@ -2143,6 +2690,9 @@ async fn set_resource_value(
         None,
     )
     .await?;
+    if authed.is_admin {
+        windmill_common::git_sync_oss::approve_github_app_repo(&mut *tx, w_id, path).await?;
+    }
     tx.commit().await?;
 
     note_resource_write(w_id, path, &resource_type);
@@ -2191,7 +2741,9 @@ async fn set_resource_value(
 
 #[derive(Serialize)]
 struct ResourceVersion {
+    /// Addresses a version; `version` is the per-resource number it is presented by.
     id: i64,
+    version: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     created_by: Option<String>,
 }
@@ -2199,6 +2751,7 @@ struct ResourceVersion {
 #[derive(Serialize)]
 struct ResourceVersionWithValue {
     id: i64,
+    version: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     created_by: Option<String>,
     value: Option<serde_json::Value>,
@@ -2234,7 +2787,7 @@ async fn get_resource_history(
 
     let versions = sqlx::query_as!(
         ResourceVersion,
-        "SELECT id, created_at, created_by FROM resource_version
+        "SELECT id, version, created_at, created_by FROM resource_version
          WHERE workspace_id = $1 AND path = $2 ORDER BY id DESC LIMIT $3",
         w_id,
         path,
@@ -2348,19 +2901,19 @@ async fn missing_references(
 async fn get_resource_version(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, version)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<ResourceVersionWithValue> {
     let mut tx = user_db.begin(&authed).await?;
 
     let row = sqlx::query!(
-        "SELECT id, path, created_at, created_by, value FROM resource_version
+        "SELECT id, version, path, created_at, created_by, value FROM resource_version
          WHERE workspace_id = $1 AND id = $2",
         w_id,
-        version
+        id
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    let row = not_found_if_none(row, "ResourceVersion", id.to_string())?;
     check_scopes(&authed, || format!("resources:read:{}", row.path))?;
 
     let missing = missing_references(&mut tx, &w_id, row.value.as_ref()).await?;
@@ -2368,6 +2921,7 @@ async fn get_resource_version(
 
     Ok(Json(ResourceVersionWithValue {
         id: row.id,
+        version: row.version,
         created_at: row.created_at,
         created_by: row.created_by,
         value: row.value,
@@ -2446,17 +3000,17 @@ async fn restore_resource_version(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Path((w_id, version)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
     let mut tx = user_db.clone().begin(&authed).await?;
     let row = sqlx::query!(
-        "SELECT path, value FROM resource_version WHERE workspace_id = $1 AND id = $2",
+        "SELECT path, value, version FROM resource_version WHERE workspace_id = $1 AND id = $2",
         w_id,
-        version
+        id
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    let row = not_found_if_none(row, "ResourceVersion", id.to_string())?;
     tx.commit().await?;
 
     check_scopes(&authed, || format!("resources:write:{}", row.path))?;
@@ -2477,7 +3031,7 @@ async fn restore_resource_version(
 
     Ok(format!(
         "resource {} restored to version {}",
-        row.path, version
+        row.path, row.version
     ))
 }
 
@@ -2525,7 +3079,7 @@ async fn list_resource_types(
 ) -> JsonResult<Vec<ResourceType>> {
     let rows = sqlx::query_as!(
         ResourceType,
-        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
          BY name",
         &w_id
     )
@@ -2550,6 +3104,352 @@ async fn list_resource_types_names(
     Ok(Json(rows))
 }
 
+#[derive(Serialize)]
+struct ResourceTypeCount {
+    resource_type: String,
+    count: i64,
+}
+
+/// How many resources of each type this workspace holds — how popular a type is *here*,
+/// which is what the pickers rank on below the hub's own pick counts.
+async fn list_resource_counts_by_type(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<ResourceTypeCount>> {
+    // A count per type is aggregate, so there is no path to narrow it by: a token scoped
+    // to individual resources gets nothing rather than a total spanning paths it cannot
+    // read. Callers treat the refusal as "no local signal".
+    check_scopes(&authed, || "resources:read".to_string())?;
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        "SELECT resource_type, count(*) as \"count!\" FROM resource WHERE workspace_id = $1 GROUP BY resource_type",
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| ResourceTypeCount { resource_type: r.resource_type, count: r.count })
+            .collect(),
+    ))
+}
+
+/// A hub read, remembered with the hub it came from: `hub_base_url` is a live instance
+/// setting, so a cache ignoring it would keep serving the previous hub's answers.
+struct HubCached<T> {
+    hub_base_url: String,
+    fetched_at: std::time::Instant,
+    value: T,
+}
+
+/// The index changes only when a resource type is published to the hub; picks move slowly
+/// and only reorder a list. Both are read on every drawer open, hence caching at all.
+const HUB_RT_INDEX_TTL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+const HUB_RT_PICKS_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// How long a *failed* index read is remembered. Short, and deliberately not the hour a
+/// success is good for: this read is on the path of every picker open, so an unreachable
+/// hub must not cost an outbound timeout each time, while one blip must not silence pick
+/// reporting for an hour.
+const HUB_RT_INDEX_FAILURE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+static HUB_RT_INDEX: LazyLock<
+    std::sync::RwLock<Option<HubCached<Option<HashMap<String, HubResourceType>>>>>,
+> = LazyLock::new(|| std::sync::RwLock::new(None));
+static HUB_RT_PICKS: LazyLock<std::sync::RwLock<Option<HubCached<Vec<HubResourceTypePicks>>>>> =
+    LazyLock::new(|| std::sync::RwLock::new(None));
+
+fn hub_cache_get<T: Clone>(
+    cache: &std::sync::RwLock<Option<HubCached<T>>>,
+    hub_base_url: &str,
+    ttl: std::time::Duration,
+) -> Option<T> {
+    let guard = cache.read().ok()?;
+    let entry = guard.as_ref()?;
+    (entry.hub_base_url == hub_base_url && entry.fetched_at.elapsed() < ttl)
+        .then(|| entry.value.clone())
+}
+
+fn hub_cache_put<T>(cache: &std::sync::RwLock<Option<HubCached<T>>>, hub_base_url: &str, value: T) {
+    if let Ok(mut guard) = cache.write() {
+        *guard = Some(HubCached {
+            hub_base_url: hub_base_url.to_string(),
+            fetched_at: std::time::Instant::now(),
+            value,
+        });
+    }
+}
+
+#[derive(Deserialize)]
+struct HubResourceTypeEntry {
+    id: i64,
+    name: String,
+    /// Optional so a hub that does not send it costs only the mapping. Required, it would
+    /// fail the whole parse and take pick reporting — which needs just the id — with it.
+    #[serde(default)]
+    app: Option<String>,
+}
+
+#[derive(Clone)]
+struct HubResourceType {
+    id: i64,
+    /// The integration the type belongs to. Usually the type's own name, but not always:
+    /// `discord_webhook` and `discord_bot_configuration` are both `discord`, and only the
+    /// hub knows that. Without it a workspace holding a `discord_webhook` resource looks
+    /// like one that has never touched Discord.
+    app: String,
+}
+
+/// Reads the index cache, choosing the TTL by what is stored: a failure expires far sooner
+/// than a success. `None` is a miss, `Some(None)` a remembered failure.
+fn hub_index_cached(hub_base_url: &str) -> Option<Option<HashMap<String, HubResourceType>>> {
+    let guard = HUB_RT_INDEX.read().ok()?;
+    let entry = guard.as_ref()?;
+    if entry.hub_base_url != hub_base_url {
+        return None;
+    }
+    let ttl = if entry.value.is_some() {
+        HUB_RT_INDEX_TTL
+    } else {
+        HUB_RT_INDEX_FAILURE_TTL
+    };
+    (entry.fetched_at.elapsed() < ttl).then(|| entry.value.clone())
+}
+
+/// What the hub knows about every published resource type, keyed by the name Windmill
+/// addresses it by. `None` when the hub cannot be reached or does not answer with a list.
+async fn hub_resource_types(
+    db: &DB,
+    hub_base_url: &str,
+) -> Option<HashMap<String, HubResourceType>> {
+    if let Some(cached) = hub_index_cached(hub_base_url) {
+        return cached;
+    }
+    let index = async {
+        let response = windmill_common::utils::http_get_from_hub(
+            &windmill_common::utils::HTTP_CLIENT,
+            &format!("{hub_base_url}/resource_types/list"),
+            false,
+            None,
+            Some(db),
+        )
+        .await
+        .ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        // Only the id and the app are kept. That listing carries every type's schema —
+        // around a megabyte — and neither reporting a pick nor grouping types by
+        // integration needs it.
+        Some(
+            response
+                .json::<Vec<HubResourceTypeEntry>>()
+                .await
+                .ok()?
+                .into_iter()
+                .map(|rt| {
+                    let app = rt.app.unwrap_or_else(|| rt.name.clone());
+                    (rt.name, HubResourceType { id: rt.id, app })
+                })
+                .collect::<HashMap<String, HubResourceType>>(),
+        )
+    }
+    .await;
+
+    hub_cache_put(&HUB_RT_INDEX, hub_base_url, index.clone());
+    index
+}
+
+#[derive(Serialize)]
+struct PickHubResourceTypeResult {
+    success: bool,
+}
+
+/// Tells the hub a resource type was taken into a workspace, which is the counter its
+/// `/resource_types/picked` ranking reads.
+///
+/// Never fails the caller: a hub predating the route, an unreachable one, and a type that
+/// is local-only all mean the same thing — not counted — and the request that reaches here
+/// has already saved the user's resource.
+///
+/// POST, and scoped as a write, because it changes state on the hub under the instance's
+/// own credentials. The sibling `/type/*` routes are metadata reads that a `resources:run`
+/// app-embed token may make, and both the method and this check keep such a token — which
+/// is untrusted app JavaScript — from driving hub counters through us.
+async fn pick_hub_resource_type(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((_w_id, name)): Path<(String, String)>,
+) -> JsonResult<PickHubResourceTypeResult> {
+    check_scopes(&authed, || "resources:write".to_string())?;
+    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
+    let success = async {
+        let id = hub_resource_types(&db, &hub_base_url).await?.get(&name)?.id;
+        let response = windmill_common::utils::http_get_from_hub(
+            &windmill_common::utils::HTTP_CLIENT,
+            &format!("{hub_base_url}/resource_types/{id}/pick"),
+            false,
+            None,
+            Some(&db),
+        )
+        .await
+        .ok()?;
+        Some(response.status().is_success())
+    }
+    .await
+    .unwrap_or(false);
+
+    if !success {
+        tracing::debug!("hub did not record a pick for resource type {name}");
+    }
+    Ok(Json(PickHubResourceTypeResult { success }))
+}
+
+#[derive(Deserialize, Clone)]
+struct HubResourceTypePicks {
+    name: String,
+    /// The hub counts picks in a bigint, which its driver serialises as a string.
+    #[serde(deserialize_with = "windmill_common::more_serde::maybe_number")]
+    picks: i64,
+}
+
+#[derive(Deserialize)]
+struct HubPickedResourceTypes {
+    resource_types: Vec<HubResourceTypePicks>,
+}
+
+#[cfg(test)]
+mod hub_picks_tests {
+    use super::*;
+
+    /// Two properties of the index cache that a later edit could quietly drop: it is keyed on
+    /// the hub it came from, and a failure is forgotten long before a success is.
+    #[test]
+    fn the_index_cache_is_keyed_on_the_hub_and_forgets_failures_sooner() {
+        let index = || {
+            Some(HashMap::from([(
+                "slack".to_string(),
+                HubResourceType { id: 1, app: "slack".to_string() },
+            )]))
+        };
+
+        hub_cache_put(&HUB_RT_INDEX, "https://hub.example", index());
+        assert!(hub_index_cached("https://hub.example").is_some_and(|v| v.is_some()));
+        // Switching hubs must miss rather than serve the previous hub's mapping.
+        assert!(hub_index_cached("https://other.example").is_none());
+
+        // A remembered failure reads as a hit (so the hub is not re-attempted) carrying
+        // nothing, and only until the shorter of the two TTLs.
+        hub_cache_put(&HUB_RT_INDEX, "https://hub.example", None);
+        assert!(hub_index_cached("https://hub.example").is_some_and(|v| v.is_none()));
+        assert!(HUB_RT_INDEX_FAILURE_TTL < HUB_RT_INDEX_TTL);
+
+        if let Ok(mut guard) = HUB_RT_INDEX.write() {
+            *guard = None;
+        }
+    }
+
+    /// The hub counts picks in a bigint, which postgres.js serialises as a string. Typing
+    /// the field as a plain i64 fails the whole response, and the ranking silently empties.
+    #[test]
+    fn picks_decode_from_a_string_or_a_number() {
+        let parsed: HubPickedResourceTypes = serde_json::from_str(
+            r#"{"resource_types":[{"name":"slack","picks":"42"},{"name":"github","picks":7}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed
+                .resource_types
+                .iter()
+                .map(|rt| (rt.name.as_str(), rt.picks))
+                .collect::<Vec<_>>(),
+            vec![("slack", 42), ("github", 7)]
+        );
+    }
+}
+
+/// One hub resource type as the pickers need it.
+#[derive(Serialize)]
+struct HubResourceTypeInfo {
+    name: String,
+    /// The integration it belongs to, so a caller can total a workspace's resources per
+    /// integration rather than per type.
+    app: String,
+    picks: i64,
+}
+
+/// What the hub knows about its resource types: which integration each belongs to, and how
+/// often each has been picked.
+///
+/// Empty rather than an error when the hub answers neither read, so the pickers treat an
+/// older or private hub as "no hub signal" and fall back to what the workspace itself uses.
+/// The two reads degrade independently: a hub that lists types but has no `picked` route
+/// still supplies the type-to-integration mapping, which is what decides whether a
+/// workspace's resources are recognised as belonging to an integration at all.
+async fn list_hub_resource_type_info(
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<HubResourceTypeInfo>> {
+    let hub_base_url = (**windmill_common::HUB_BASE_URL.load()).clone();
+    let picks = match hub_cache_get(&HUB_RT_PICKS, &hub_base_url, HUB_RT_PICKS_TTL) {
+        Some(picks) => picks,
+        None => {
+            let fetched = async {
+                let response = windmill_common::utils::http_get_from_hub(
+                    &windmill_common::utils::HTTP_CLIENT,
+                    &format!("{hub_base_url}/resource_types/picked"),
+                    false,
+                    Some(vec![("limit", "200".to_string())]),
+                    Some(&db),
+                )
+                .await
+                .ok()?;
+                if !response.status().is_success() {
+                    return None;
+                }
+                Some(
+                    response
+                        .json::<HubPickedResourceTypes>()
+                        .await
+                        .ok()?
+                        .resource_types,
+                )
+            }
+            .await
+            .unwrap_or_default();
+            hub_cache_put(&HUB_RT_PICKS, &hub_base_url, fetched.clone());
+            fetched
+        }
+    };
+
+    let mut picks_by_name: HashMap<String, i64> =
+        picks.into_iter().map(|rt| (rt.name, rt.picks)).collect();
+    let index = hub_resource_types(&db, &hub_base_url)
+        .await
+        .unwrap_or_default();
+
+    let mut info: Vec<HubResourceTypeInfo> = index
+        .into_iter()
+        .map(|(name, rt)| HubResourceTypeInfo {
+            picks: picks_by_name.remove(&name).unwrap_or(0),
+            name,
+            app: rt.app,
+        })
+        .collect();
+    // What the index did not account for is a type the picks read knows and the listing does
+    // not — which is what a hub answering only the second read looks like. Its own name is
+    // the same guess a caller makes for any type the mapping misses.
+    info.extend(
+        picks_by_name
+            .into_iter()
+            .map(|(name, picks)| HubResourceTypeInfo { app: name.clone(), name, picks }),
+    );
+
+    Ok(Json(info))
+}
+
 async fn get_resource_type(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -2559,7 +3459,7 @@ async fn get_resource_type(
 
     let resource_type_o = sqlx::query_as!(
         ResourceType,
-        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
         &name,
         &w_id
     )
@@ -2585,6 +3485,20 @@ async fn exists_resource_type(
     .unwrap_or(false);
 
     Ok(Json(exists))
+}
+
+/// Trimmed, blank as none, and held to the column's 100 characters, so an over-long name is
+/// refused with a message rather than a database error.
+fn normalize_display_name(name: Option<&str>) -> Result<Option<String>> {
+    let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
+        return Ok(None);
+    };
+    if name.chars().count() > 100 {
+        return Err(Error::BadRequest(
+            "display_name must be at most 100 characters".to_string(),
+        ));
+    }
+    Ok(Some(name.to_string()))
 }
 
 async fn create_resource_type(
@@ -2620,11 +3534,12 @@ async fn create_resource_type(
             "A fileset resource type cannot have a format_extension".to_string(),
         ));
     }
+    let display_name = normalize_display_name(resource_type.display_name.as_deref())?;
 
     sqlx::query!(
         "INSERT INTO resource_type
-            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, edited_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, display_name, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())",
         w_id,
         resource_type.name,
         resource_type.schema,
@@ -2632,6 +3547,7 @@ async fn create_resource_type(
         authed.username,
         resource_type.format_extension,
         is_fileset,
+        display_name,
     )
     .execute(&mut *tx)
     .await?;
@@ -2793,9 +3709,47 @@ async fn update_resource_type(
     if let Some(is_fileset) = ns.is_fileset {
         sqlb.set("is_fileset", if is_fileset { "TRUE" } else { "FALSE" });
     }
+    if let Some(format_extension) = ns.format_extension.clone() {
+        match format_extension {
+            Some(ext) => sqlb.set_str("format_extension", ext),
+            None => sqlb.set("format_extension", "NULL"),
+        };
+    }
+    if let Some(display_name) = &ns.display_name {
+        match normalize_display_name(display_name.as_deref())? {
+            Some(name) => sqlb.set_str("display_name", name),
+            None => sqlb.set("display_name", "NULL"),
+        };
+    }
     sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
+
+    // Creation refuses the pair outright, so an edit must too — otherwise the same
+    // impossible type (a set of files that is also one file) is reachable by setting
+    // either half on an existing row. Whichever half the request omits is read from
+    // the row being edited, inside this transaction and with the row locked: read
+    // outside it, two concurrent edits each supplying one half would both pass.
+    let current = sqlx::query!(
+        "SELECT is_fileset, format_extension FROM resource_type
+         WHERE name = $1 AND workspace_id = $2 FOR UPDATE",
+        &name,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let effective_is_fileset = ns
+        .is_fileset
+        .unwrap_or_else(|| current.as_ref().map(|c| c.is_fileset).unwrap_or(false));
+    let effective_format_extension = match &ns.format_extension {
+        Some(value) => value.clone(),
+        None => current.and_then(|c| c.format_extension),
+    };
+    if effective_is_fileset && effective_format_extension.is_some() {
+        return Err(Error::BadRequest(
+            "A fileset resource type cannot have a format_extension".to_string(),
+        ));
+    }
 
     sqlx::query(&sql).execute(&mut *tx).await?;
     audit_log(
@@ -2887,38 +3841,6 @@ struct GitRepositoryResource {
     url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     branch: Option<String>,
-}
-
-/// Checks whether an IP address belongs to a private, loopback, link-local, or
-/// otherwise reserved range that should not be reachable from git operations.
-fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                // RFC 1122 "this network": the whole /8, not just the
-                // unspecified address `is_unspecified()` matches — stacks that
-                // map 0.x.y.z onto the local host make `0.0.0.1` a bypass.
-                || v4.octets()[0] == 0 // 0.0.0.0/8
-                || v4.is_broadcast()
-                // 100.64.0.0/10 (Carrier-grade NAT / CGNAT)
-                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
-        }
-        IpAddr::V6(v6) => {
-            let seg = v6.segments();
-            v6.is_loopback()
-                || v6.is_unspecified()
-                // fc00::/7 (unique local address) — std has no stable is_unique_local()
-                || (seg[0] & 0xfe00) == 0xfc00
-                // fe80::/10 (link-local) — std has no stable is_unicast_link_local()
-                || (seg[0] & 0xffc0) == 0xfe80
-                // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the inner v4
-                || v6.to_ipv4_mapped().map_or(false, |v4| {
-                    is_private_or_reserved_ip(&IpAddr::V4(v4))
-                })
-        }
-    }
 }
 
 /// Extracts the hostname from a git URL.
@@ -3017,8 +3939,10 @@ fn git_url_userinfo(url: &str) -> Option<&str> {
     git_url_userinfo_range(url).map(|r| &url[r])
 }
 
-/// Validates a git URL to prevent option injection, SSRF, and local file read.
-async fn validate_git_url(url: &str) -> Result<()> {
+/// Validates a git URL to prevent option injection, SSRF, and local file read. The
+/// syntax and scheme checks apply to every caller; the private-host refusal only
+/// where [`private_git_host_allowed`] refuses `caller`.
+async fn validate_git_url(url: &str, caller: GitRemoteCaller) -> Result<()> {
     let url = url.trim();
     if url.is_empty() {
         return Err(Error::BadRequest("Git URL cannot be empty".to_string()));
@@ -3072,25 +3996,26 @@ async fn validate_git_url(url: &str) -> Result<()> {
     let host = extract_host_from_git_url(url)
         .ok_or_else(|| Error::BadRequest("Could not parse hostname from git URL".to_string()))?;
 
-    // CI/dev escape hatch: integration tests run their git remote (a Gitea
-    // container) on localhost, which the network-target checks below reject.
-    // Scheme and option-injection validation above still applies.
-    if std::env::var("ALLOW_LOCAL_GIT_REMOTES").is_ok_and(|v| v == "true" || v == "1") {
+    // Scheme and option-injection validation above applies to every caller.
+    if private_git_host_allowed(caller) {
         return Ok(());
     }
+    let hint = private_git_host_hint(caller)
+        .map(|h| format!(" {h}"))
+        .unwrap_or_default();
 
     if host == "localhost" || host.ends_with(".local") || host == "[::1]" {
-        return Err(Error::BadRequest(
-            "Git URLs targeting localhost or local network are not allowed".to_string(),
-        ));
+        return Err(Error::BadRequest(format!(
+            "Git URLs targeting localhost or local network are not allowed.{hint}"
+        )));
     }
 
     // Check literal IP addresses
     if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_or_reserved_ip(&ip) {
-            return Err(Error::BadRequest(
-                "Git URLs targeting private or reserved IP addresses are not allowed".to_string(),
-            ));
+        if is_private_ip(&ip) {
+            return Err(Error::BadRequest(format!(
+                "Git URLs targeting private or reserved IP addresses are not allowed.{hint}"
+            )));
         }
     } else {
         // Hostname — resolve via DNS and reject if any address is private. Fail
@@ -3110,10 +4035,10 @@ async fn validate_git_url(url: &str) -> Result<()> {
             )));
         }
         for addr in addrs {
-            if is_private_or_reserved_ip(&addr.ip()) {
-                return Err(Error::BadRequest(
-                    "Git URL hostname resolves to a private or reserved IP address".to_string(),
-                ));
+            if is_private_ip(&addr.ip()) {
+                return Err(Error::BadRequest(format!(
+                    "Git URL hostname resolves to a private or reserved IP address.{hint}"
+                )));
             }
         }
     }
@@ -3183,14 +4108,53 @@ async fn get_git_commit_hash(
     .await
     .map_err(|e| Error::NotFound(format!("Access to resource {} denied: ({e})", path)))?;
 
-    let mut git_resource: GitRepositoryResource = match git_repo_resource_value {
-        Some(value) => serde_json::from_value(value).map_err(|e| {
-            Error::BadRequest(format!("Invalid git repository resource format: {}", e))
-        })?,
-        None => return Err(Error::NotFound(format!("Resource {} not found", path)).into()),
+    let Some(git_repo_resource_value) = git_repo_resource_value else {
+        return Err(Error::NotFound(format!("Resource {} not found", path)).into());
     };
+    let caller = if authed.is_admin {
+        GitRemoteCaller::AdminOrSystem
+    } else {
+        GitRemoteCaller::NonAdmin
+    };
+
+    // App-backed repos store a tokenless URL, so the `ls-remote` below can't
+    // authenticate. Reuse the poller's REST head lookup, which mints an
+    // installation token server-side rather than embedding one in a URL here.
+    // It returns `None` for a repo that isn't app-backed, which is exactly the
+    // ls-remote case below. It serves a non-admin only the repository an admin
+    // approved on the resource.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if git_repo_resource_value
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        if let Some((_, commit_hash)) =
+            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path, caller)
+                .await?
+        {
+            return Ok(Json(GitCommitHashResponse { commit_hash }));
+        }
+    }
+
+    let mut git_resource: GitRepositoryResource = serde_json::from_value(git_repo_resource_value)
+        .map_err(|e| {
+        Error::BadRequest(format!("Invalid git repository resource format: {}", e))
+    })?;
     git_resource.url =
-        resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
+        resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false, caller)
+            .await?;
+    // A credential is stored under the repository it was issued for, so a
+    // resource repointed elsewhere finds none. Which credential can be attached
+    // is bounded by that; who may use it is bounded here: admins only, since
+    // nothing records an admin's approval of the URL as for the installation
+    // credential above.
+    let plain_url = git_resource.url.clone();
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(&db, &w_id, git_resource.url).await?;
+    if git_resource.url != plain_url {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
 
     let identities: Vec<String> = query
         .git_ssh_identity
@@ -3210,7 +4174,7 @@ async fn get_git_commit_hash(
     let (git_ssh_cmd, filenames) =
         get_git_ssh_cmd(&authed, &user_db, &db, &w_id, identities).await?;
 
-    let commit_hash = get_repo_latest_commit_hash(&git_resource, git_ssh_cmd).await;
+    let commit_hash = get_repo_latest_commit_hash(&git_resource, git_ssh_cmd, caller).await;
 
     delete_paths(&filenames).await;
 
@@ -3314,12 +4278,17 @@ async fn get_git_ssh_cmd(
 const GIT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// `git` command for a remote probe, with HTTP redirects disabled. `validate_git_url`
-/// only vets the host in the URL; git's default (`http.followRedirects=initial`)
-/// would let a validated public remote 302 the probe onto a private or link-local
-/// address that no check ever sees. Build every probe through this.
+/// checks the host in the URL, never one a redirect names; git's default
+/// (`http.followRedirects=initial`) would let a public remote 302 the probe of a
+/// caller refused private hosts onto one. Build every probe through this.
+///
+/// The transports are pinned too: an SCP-shaped remote-helper string such as
+/// `ext::<command>@host:path` passes the URL check for a caller allowed private
+/// hosts, and only git's own config would stop it from running the command.
 fn git_probe_command() -> Command {
     let mut git_cmd = Command::new("git");
     git_cmd.args(["-c", "http.followRedirects=false"]);
+    git_cmd.env("GIT_ALLOW_PROTOCOL", "http:https:ssh:git");
     git_cmd
 }
 
@@ -3379,8 +4348,8 @@ fn dot_git_url(url: &str) -> Option<String> {
 }
 
 /// Run a remote probe, retrying against [`dot_git_url`] if the remote answered the
-/// URL as given with a redirect. Extending the path keeps the retry on the host
-/// `validate_git_url` already cleared, which is exactly what following the redirect
+/// URL as given with a redirect. Extending the path keeps the retry on the host of
+/// the URL `validate_git_url` checked, which is exactly what following the redirect
 /// would not guarantee. `build` must produce the probe for the URL it is handed.
 ///
 /// A retry that also fails reports the *original* failure, so the caller's message
@@ -3520,6 +4489,7 @@ async fn resolve_azure_devops_url(
     w_id: &str,
     url: &str,
     allow_cache: bool,
+    caller: GitRemoteCaller,
 ) -> Result<String> {
     // Trim first: the http(s) gates the callers apply trim too, so a stored URL with
     // leading whitespace must not reach the scheme check here as a non-http one.
@@ -3532,7 +4502,7 @@ async fn resolve_azure_devops_url(
     // cost a live credential (nor cache one), and whoever can edit the URL would
     // otherwise drive a token mint per poll tick.
     let probe_url = url.replace(placeholder, "windmill");
-    validate_git_url(&probe_url).await?;
+    validate_git_url(&probe_url, caller).await?;
 
     // The background poller reads the referenced resource under the system identity,
     // which bypasses RLS. Confining the destination is what keeps that from becoming an
@@ -3732,9 +4702,10 @@ fn git_sync_system_dba(db: &DB) -> DbWithOptAuthed<'static, ApiAuthed> {
 async fn get_repo_latest_commit_hash(
     git_resource: &GitRepositoryResource,
     git_ssh_command: Option<String>,
+    caller: GitRemoteCaller,
 ) -> Result<String> {
     // Validate URL and branch to prevent option injection and SSRF attacks
-    validate_git_url(&git_resource.url).await?;
+    validate_git_url(&git_resource.url, caller).await?;
 
     let ref_spec = git_resource
         .branch
@@ -3867,19 +4838,30 @@ pub async fn get_git_repo_head_for_autopull(
             "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
         ));
     }
+    git_resource.url = resolve_azure_devops_url(
+        &git_sync_system_dba(db),
+        w_id,
+        &git_resource.url,
+        true,
+        GitRemoteCaller::AdminOrSystem,
+    )
+    .await?;
+    // A repo whose credential Windmill holds carries none in its URL, so the
+    // poller has to attach it here or every probe would be unauthenticated.
     git_resource.url =
-        resolve_azure_devops_url(&git_sync_system_dba(db), w_id, &git_resource.url, true).await?;
+        windmill_common::git_sync_oss::with_stored_credential(db, w_id, git_resource.url).await?;
 
     if let Some(branch) = git_resource.branch.as_deref().filter(|s| !s.is_empty()) {
         let branch = branch.to_string();
-        let sha = get_repo_latest_commit_hash(&git_resource, None).await?;
+        let sha = get_repo_latest_commit_hash(&git_resource, None, GitRemoteCaller::AdminOrSystem)
+            .await?;
         return Ok(Some((branch, sha)));
     }
 
     // No explicit branch: resolve the remote's default-branch NAME along with
     // its head in one call. Fork sync needs the concrete name to scope
     // `wm-fork/<branch>/*`, so a bare "HEAD" ref would silently disable it.
-    validate_git_url(&git_resource.url).await?;
+    validate_git_url(&git_resource.url, GitRemoteCaller::AdminOrSystem).await?;
     let output = run_git_probe_for_url(&git_resource.url, "ls-remote --symref HEAD", |url| {
         let mut git_cmd = git_probe_command();
         git_cmd.args(["ls-remote", "--symref", url, "HEAD"]);
@@ -3974,8 +4956,20 @@ pub async fn get_git_repo_fork_heads_for_autopull(
             "Automatic pull can't authenticate an SSH git remote in the background. Use an HTTPS URL with an embedded token, or connect the repository through the GitHub App.".to_string(),
         ));
     }
-    git_resource.url = resolve_azure_devops_url(&dba, w_id, &git_resource.url, true).await?;
-    validate_git_url(&git_resource.url).await?;
+    git_resource.url = resolve_azure_devops_url(
+        &dba,
+        w_id,
+        &git_resource.url,
+        true,
+        GitRemoteCaller::AdminOrSystem,
+    )
+    .await?;
+    // Same reason as the head probe above: a repository whose credential Windmill
+    // holds carries none in its URL, and listing the fork branches is the half of
+    // polling that would otherwise go out unauthenticated.
+    git_resource.url =
+        windmill_common::git_sync_oss::with_stored_credential(db, w_id, git_resource.url).await?;
+    validate_git_url(&git_resource.url, GitRemoteCaller::AdminOrSystem).await?;
     validate_git_ref(base_branch)?;
 
     for r in extra_refs {
@@ -4294,113 +5288,52 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_is_private_or_reserved_ip() {
-        use std::net::IpAddr;
-        // Loopback
-        assert!(is_private_or_reserved_ip(
-            &"127.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"127.0.0.2".parse::<IpAddr>().unwrap()
-        ));
-        // Private ranges
-        assert!(is_private_or_reserved_ip(
-            &"10.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"172.16.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"192.168.1.1".parse::<IpAddr>().unwrap()
-        ));
-        // Link-local / cloud metadata
-        assert!(is_private_or_reserved_ip(
-            &"169.254.169.254".parse::<IpAddr>().unwrap()
-        ));
-        // CGNAT
-        assert!(is_private_or_reserved_ip(
-            &"100.64.0.1".parse::<IpAddr>().unwrap()
-        ));
-        // "This network" 0.0.0.0/8, not just the unspecified address
-        assert!(is_private_or_reserved_ip(
-            &"0.0.0.0".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"0.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        // IPv6 loopback
-        assert!(is_private_or_reserved_ip(&"::1".parse::<IpAddr>().unwrap()));
-        // IPv6 unique local address (fc00::/7)
-        assert!(is_private_or_reserved_ip(
-            &"fd00::1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"fc00::1".parse::<IpAddr>().unwrap()
-        ));
-        // IPv6 link-local (fe80::/10)
-        assert!(is_private_or_reserved_ip(
-            &"fe80::1".parse::<IpAddr>().unwrap()
-        ));
-        // IPv4-mapped IPv6
-        assert!(is_private_or_reserved_ip(
-            &"::ffff:127.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        // Public IPs should pass
-        assert!(!is_private_or_reserved_ip(
-            &"8.8.8.8".parse::<IpAddr>().unwrap()
-        ));
-        assert!(!is_private_or_reserved_ip(
-            &"140.82.121.4".parse::<IpAddr>().unwrap()
-        ));
-        // Public IPv6 should pass
-        assert!(!is_private_or_reserved_ip(
-            &"2606:2800:220:1:248:1893:25c8:1946"
-                .parse::<IpAddr>()
-                .unwrap()
-        ));
-    }
-
+    // A caller let through to private hosts must still hit the scheme check.
     #[tokio::test]
     async fn test_validate_git_url_blocks_file_scheme() {
-        let result = validate_git_url("file:///etc/passwd").await;
+        let result = validate_git_url("file:///etc/passwd", GitRemoteCaller::AdminOrSystem).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("https://"));
     }
 
     #[tokio::test]
     async fn test_validate_git_url_blocks_private_ips() {
-        assert!(validate_git_url("http://127.0.0.1/repo.git").await.is_err());
-        assert!(validate_git_url("http://169.254.169.254/latest/meta-data/")
-            .await
-            .is_err());
-        assert!(validate_git_url("http://10.0.0.1/repo.git").await.is_err());
-        assert!(validate_git_url("http://172.16.0.1/repo.git")
-            .await
-            .is_err());
-        assert!(validate_git_url("http://192.168.1.1/repo.git")
-            .await
-            .is_err());
-        assert!(validate_git_url("git://0.0.0.0/repo.git").await.is_err());
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::NonAdmin);
+        assert!(v("http://127.0.0.1/repo.git").await.is_err());
+        assert!(v("http://169.254.169.254/latest/meta-data/").await.is_err());
+        let err = v("http://10.0.0.1/repo.git").await.unwrap_err();
+        assert!(err.to_string().contains("ALLOW_LOCAL_GIT_REMOTES"), "{err}");
+        assert!(v("http://172.16.0.1/repo.git").await.is_err());
+        assert!(v("http://192.168.1.1/repo.git").await.is_err());
+        assert!(v("git://0.0.0.0/repo.git").await.is_err());
         // IPv6 loopback, unique-local, and link-local literals
-        assert!(validate_git_url("git://[::1]/repo.git").await.is_err());
-        assert!(validate_git_url("git://[fd00::1]/repo.git").await.is_err());
-        assert!(validate_git_url("git://[fe80::1]/repo.git").await.is_err());
+        assert!(v("git://[::1]/repo.git").await.is_err());
+        assert!(v("git://[fd00::1]/repo.git").await.is_err());
+        assert!(v("git://[fe80::1]/repo.git").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_git_url_lets_admins_reach_private_hosts() {
+        assert!(
+            validate_git_url("http://10.0.0.1/repo.git", GitRemoteCaller::AdminOrSystem)
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
     async fn test_validate_git_url_blocks_localhost() {
-        assert!(validate_git_url("http://localhost/repo.git").await.is_err());
-        assert!(validate_git_url("http://myhost.local/repo.git")
-            .await
-            .is_err());
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::NonAdmin);
+        assert!(v("http://localhost/repo.git").await.is_err());
+        assert!(v("http://myhost.local/repo.git").await.is_err());
     }
 
     #[tokio::test]
     async fn test_validate_git_url_blocks_local_paths() {
-        assert!(validate_git_url("/etc/passwd").await.is_err());
-        assert!(validate_git_url("../relative/path").await.is_err());
-        assert!(validate_git_url("./local/repo").await.is_err());
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::AdminOrSystem);
+        assert!(v("/etc/passwd").await.is_err());
+        assert!(v("../relative/path").await.is_err());
+        assert!(v("./local/repo").await.is_err());
     }
 
     /// Minimal loopback HTTP server: replies to every request with `response` and
@@ -4530,7 +5463,11 @@ mod tests {
     async fn test_validate_git_url_fails_closed_on_unresolvable_host() {
         // `.invalid` never resolves (RFC 6761). The private-IP check is only
         // meaningful if a failed lookup rejects instead of falling through.
-        let result = validate_git_url("https://this-host-does-not-exist.invalid/repo.git").await;
+        let result = validate_git_url(
+            "https://this-host-does-not-exist.invalid/repo.git",
+            GitRemoteCaller::NonAdmin,
+        )
+        .await;
         assert!(
             result.is_err(),
             "an unresolvable host was allowed — does this resolver synthesize records for NXDOMAIN?"
@@ -4541,21 +5478,33 @@ mod tests {
     #[tokio::test]
     async fn test_validate_git_url_allows_valid_urls() {
         // Needs DNS: validation fails closed on a host it cannot resolve.
-        assert!(validate_git_url("https://github.com/user/repo.git")
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::NonAdmin);
+        assert!(v("https://github.com/user/repo.git").await.is_ok());
+        assert!(v("git@github.com:user/repo.git").await.is_ok());
+        assert!(v("ssh://git@github.com/user/repo.git").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_git_probe_refuses_remote_helpers() {
+        // A caller allowed private hosts skips the DNS step that would reject this
+        // SCP-shaped string, so the transport pin is what keeps git from running it.
+        let output = git_probe_command()
+            .args(["ls-remote", "testhelper::x@127.0.0.1:repo"])
+            .output()
             .await
-            .is_ok());
-        assert!(validate_git_url("git@github.com:user/repo.git")
-            .await
-            .is_ok());
-        assert!(validate_git_url("ssh://git@github.com/user/repo.git")
-            .await
-            .is_ok());
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("transport 'testhelper' not allowed"),
+            "{stderr}"
+        );
     }
 
     #[tokio::test]
     async fn test_validate_git_url_blocks_option_injection() {
-        assert!(validate_git_url("-evil").await.is_err());
-        assert!(validate_git_url("--upload-pack=evil").await.is_err());
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::AdminOrSystem);
+        assert!(v("-evil").await.is_err());
+        assert!(v("--upload-pack=evil").await.is_err());
     }
 
     #[test]
@@ -4651,24 +5600,21 @@ mod tests {
         // GHSA-p5cj-8cfh-mjv6: a loopback authority must stay blocked, and the
         // fragment/query `@public-host` bypasses of #8600 must be rejected so the
         // host git dials can never diverge from the validated host.
-        assert!(validate_git_url("http://127.0.0.1:40173/repo.git")
-            .await
-            .is_err());
-        assert!(validate_git_url(
-            "http://127.0.0.1:40173/repo.git#@github.com/windmill-labs/windmill.git"
-        )
-        .await
-        .is_err());
-        assert!(validate_git_url(
-            "http://127.0.0.1:40173/repo.git?@github.com/windmill-labs/windmill.git"
-        )
-        .await
-        .is_err());
-        // A legitimate public repo URL still validates.
+        let v = |url: &'static str| validate_git_url(url, GitRemoteCaller::NonAdmin);
+        assert!(v("http://127.0.0.1:40173/repo.git").await.is_err());
         assert!(
-            validate_git_url("https://github.com/windmill-labs/windmill.git")
+            v("http://127.0.0.1:40173/repo.git#@github.com/windmill-labs/windmill.git")
                 .await
-                .is_ok()
+                .is_err()
         );
+        assert!(
+            v("http://127.0.0.1:40173/repo.git?@github.com/windmill-labs/windmill.git")
+                .await
+                .is_err()
+        );
+        // A legitimate public repo URL still validates.
+        assert!(v("https://github.com/windmill-labs/windmill.git")
+            .await
+            .is_ok());
     }
 }

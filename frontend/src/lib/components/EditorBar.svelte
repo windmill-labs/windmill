@@ -22,11 +22,9 @@
 <script lang="ts">
 	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
-	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -76,6 +74,9 @@
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -94,7 +95,7 @@
 		// editor). `undefined` = not applicable; `false` makes the badge red
 		// even if the main function parses.
 		validAssets?: boolean | undefined
-		kind?: 'script' | 'trigger' | 'approval'
+		kind?: 'script' | 'trigger' | 'approval' | 'preprocessor'
 		template?:
 			| 'pgsql'
 			| 'mysql'
@@ -103,6 +104,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 			| 'wac_python'
 			| 'wac_typescript'
 			| 'ci_test_bun'
@@ -121,9 +123,8 @@
 		right?: import('svelte').Snippet
 		openAiChat?: boolean
 		moduleId?: string
-		// Workspace to scope variable/resource/data-table lookups to. Defaults to
-		// the nav `$workspaceStore`; an AI-session live editor passes the session's
-		// acting workspace (a fork) so the helper pickers hit the right workspace.
+		// Workspace to scope variable/resource/data-table lookups to. Defaults to the
+		// operating workspace (see `useOperatingWorkspace`).
 		workspace?: string
 	}
 
@@ -153,13 +154,12 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let contextualVariablePicker: ItemPicker | undefined = $state()
-	let variablePicker: ItemPicker | undefined = $state()
+	let variablePicker: VariablePicker | undefined = $state()
 	let resourcePicker: ItemPicker | undefined = $state()
 	let resourceTypePicker: ItemPicker | undefined = $state()
-	let variableEditor: VariableEditor | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
@@ -371,10 +371,6 @@
 		editor && untrack(() => addEditorActions())
 	})
 
-	async function loadVariables() {
-		return await VariableService.listVariable({ workspace: ws ?? '' })
-	}
-
 	async function loadContextualVariables() {
 		return await VariableService.listContextualVariables({
 			workspace: ws ?? 'NO_W'
@@ -580,7 +576,13 @@
 <Drawer bind:this={scriptPicker} size="900px">
 	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
 		{#if pick_existing == 'hub'}
-			<PickHubScript bind:filter {kind} on:pick={onScriptPick}>
+			<!-- The hub publishes no preprocessor script, so that kind falls back to the action list
+			     rather than showing an empty hub. -->
+			<PickHubScript
+				bind:filter
+				kind={kind == 'preprocessor' ? 'script' : kind}
+				on:pick={onScriptPick}
+			>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</PickHubScript>
 		{:else}
@@ -657,9 +659,11 @@
 	loadItems={loadContextualVariables}
 />
 
-<ItemPicker
+<VariablePicker
+	editable
 	bind:this={variablePicker}
-	pickCallback={(path, name) => {
+	workspace={ws}
+	onPick={(path, name) => {
 		if (!editor) return
 		if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 			if (!editor.getCode().includes('import * as wmill from')) {
@@ -723,27 +727,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
-	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-	itemName="Variable"
-	extraField="path"
-	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
->
-	{#snippet submission()}
-		<div class="flex flex-row">
-			<Button
-				variant="accent"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
+/>
 
 <ItemPicker
 	bind:this={resourcePicker}
@@ -837,7 +821,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				startIcon={{ icon: Plus }}
 				target="_blank"
 				variant="accent"
-				href="{base}/resources?connect_app=undefined"
+				href="/resources?connect_app=undefined"
 			>
 				Add resource
 			</Button>
@@ -863,7 +847,6 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	workspace={ws}
 	on:refresh={resourcePicker.openDrawer}
 />
-<VariableEditor bind:this={variableEditor} workspace={ws} on:create={variablePicker.openDrawer} />
 
 {#if showDucklakePicker}
 	<ItemPicker
@@ -896,7 +879,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=ducklake"
+					href="/workspace_settings?tab=ducklake"
 				>
 					Go to settings
 				</Button>
@@ -939,7 +922,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=windmill_data_tables"
+					href="/workspace_settings?tab=windmill_data_tables"
 				>
 					Go to settings
 				</Button>
@@ -1074,7 +1057,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						aiDescription="Add variable"
 						title="Add variable"
 						variant="subtle"
-						on:click={variablePicker.openDrawer}
+						on:click={() => variablePicker?.openDrawer()}
 						unifiedSize="sm"
 						startIcon={{ icon: DollarSign }}
 						{iconOnly}

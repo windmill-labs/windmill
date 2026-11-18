@@ -9,6 +9,11 @@ export function pipelineBundlePath(folder: string): string {
 	return `f/${folder}/${PIPELINE_DRAFT_KIND}`
 }
 
+/** localStorage key of the editor's crash mirror of a folder's bundle. */
+export function pipelineLocalMirrorKey(folder: string): string {
+	return `pipeline-${folder}`
+}
+
 const BUNDLE_PATH_RE = new RegExp(`^f/([^/]+)/${PIPELINE_DRAFT_KIND}$`)
 
 /** The folder a pipeline bundle belongs to, or `undefined` if the path isn't one. */

@@ -12,7 +12,7 @@
 	xmlns="http://www.w3.org/2000/svg"
 	aria-label="Docker"
 	role="img"
-	viewBox="0 0 340 268"
+	viewBox="-15.425 -51.093 370.185 370.185"
 	{width}
 	{height}
 	><path

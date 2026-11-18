@@ -7,7 +7,6 @@
 	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
-	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
 	import { Badge, Button, Drawer, DrawerContent } from './common'
@@ -22,7 +21,6 @@
 		Database,
 		Loader2
 	} from 'lucide-svelte'
-	import DucklakeResultPreview from './assets/AssetGraph/DucklakeResultPreview.svelte'
 	import DataTestsResult from './DataTestsResult.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
@@ -32,6 +30,7 @@
 	import Alert from './common/alert/Alert.svelte'
 	import AutoDataTable from './table/AutoDataTable.svelte'
 	import Markdown from 'svelte-exmarkdown'
+	import { markdownProse } from './markdownProse'
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
 
@@ -39,6 +38,8 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'
+	import ChartResult from './display/ChartResult.svelte'
+	import { isChartResult } from './display/displayCatalog'
 	import DownloadCsv from './table/DownloadCsv.svelte'
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
@@ -53,6 +54,11 @@
 	import DOMPurify from 'dompurify'
 	import MarkupApprovalGate from './MarkupApprovalGate.svelte'
 	import type { MarkupTrust } from './apps/markupTrust'
+	import AgentResultDisplay from './AgentResultDisplay.svelte'
+	import AgentStreamDisplay from './AgentStreamDisplay.svelte'
+	import AgentTrace from './AgentTrace.svelte'
+	import { isAgentStream, parseAgentErrorMessages, parseAgentResult } from './aiAgentResult'
+	import { buildAgentTrace } from './agentTrace'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -84,6 +90,8 @@
 		| 'map'
 		| 'nondisplayable'
 		| 'pdf'
+		| 'aiagent'
+		| 'chart'
 		| undefined
 	let resultKind: ResultKind = $state()
 	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
@@ -93,7 +101,10 @@
 	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
 	/** Kinds whose markup pulls subresources: DOMPurify stops scripting but keeps
 	 * `<img src>` and SVG `<image href>`, and `map` tiles are requests by
-	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing.
+	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing,
+	 * or render through a component that is itself inert on the public page —
+	 * `aiagent` is the second case, via `GfmMarkdown`, which is why it renders
+	 * markdown yet is not listed while `markdown` still is.
 	 * Inert only on the public page, which promises to issue no requests. */
 	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
 	let length = $state(1)
@@ -109,6 +120,12 @@
 		filename?: string | undefined
 		disableExpand?: boolean
 		jobId?: string | undefined
+		/**
+		 * Which run this result belongs to. Separate from `jobId`, which the replay
+		 * page withholds so nothing fetches: the agent views still have to tell one
+		 * run from the next, or a second one continues the first one's fold.
+		 */
+		runKey?: string | undefined
 		workspaceId?: string | undefined
 		hideAsJson?: boolean
 		noControls?: boolean
@@ -134,6 +151,7 @@
 		filename = undefined,
 		disableExpand = false,
 		jobId = undefined,
+		runKey = undefined,
 		workspaceId = undefined,
 		hideAsJson = false,
 		noControls = false,
@@ -153,6 +171,16 @@
 		growVertical = false
 	}: Props = $props()
 	let s3FileDisplayRawMode = $state(false)
+	/** What a max-iterations failure got through before it gave up, if this is one.
+	 *  Empty for a run that failed before the worker tagged anything, and for one
+	 *  that predates the tags reaching this payload at all — in which case the
+	 *  section is not rendered rather than heading an empty box. */
+	let agentErrorTrace = $derived.by(() => {
+		const messages = parseAgentErrorMessages(result)
+		if (!messages) return undefined
+		const entries = buildAgentTrace(messages)
+		return entries.length > 0 ? entries : undefined
+	})
 
 	// Build the image/PDF source URL for an S3 object. When `appPath` is set
 	// (deployed app view) the read is authorized on-behalf of the app author via
@@ -228,7 +256,7 @@
 	)
 	let resultDownloadHref = $derived(
 		resultApiPath
-			? `${base}/api${resultApiPath}`
+			? `/api${resultApiPath}`
 			: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`
 	)
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
@@ -292,6 +320,17 @@
 					return 'materialized'
 				}
 
+				// Classified before the size caps below: an agent's answer stays small
+				// however long its conversation grows, so a run with a long trace
+				// must not fall back to the JSON tree that hides the answer inside it.
+				// `largeObject` is still set honestly, so switching to JSON gets the
+				// same too-big handling as any other oversized result.
+				if (parseAgentResult(result)) {
+					is_render_all = false
+					largeObject = roughSizeOfObject(result) > DISPLAY_MAX_SIZE
+					return 'aiagent'
+				}
+
 				is_render_all =
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
@@ -342,7 +381,11 @@
 				}
 
 				if (keys.length != 0) {
-					if (
+					// Only a chart the catalog accepts: any other `{ chart }` result stays JSON. The
+					// catalog caps its rows, so it is exempt from the display size limit.
+					if (keys.length == 1 && keys[0] === 'chart' && isChartResult(result)) {
+						return 'chart'
+					} else if (
 						keys.length == 1 &&
 						[...IMG_KINDS, 'html', 'map', 'pdf', 'file', 'error'].includes(keys[0])
 					) {
@@ -730,7 +773,13 @@
 		<div class="flex items-center gap-2 text-secondary text-xs">
 			<Loader2 class="animate-spin" size={14} /> Streaming result
 		</div>
-		<ResultStreamDisplay {result_stream} />
+		{#if isAgentStream(result_stream)}
+			<!-- An agent streams one JSON event per line, so the raw stream is a wall of
+			     event objects rather than the answer being written. -->
+			<AgentStreamDisplay raw={result_stream} streamKey={runKey ?? jobId} />
+		{:else}
+			<ResultStreamDisplay {result_stream} />
+		{/if}
 	</div>
 {:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
@@ -813,7 +862,6 @@
 							{workspaceId}
 							{jobId}
 							{nodeId}
-							{base}
 							{result}
 							{disableTooltips}
 							on:open-drawer={() => openDrawer()}
@@ -866,6 +914,8 @@
 							{@html renderResultMarkup(result.html)}
 						{/if}
 					</div>
+				{:else if !forceJson && resultKind === 'chart'}
+					<ChartResult chart={result.chart} />
 				{:else if !forceJson && resultKind === 'map'}
 					<div class="h-full" data-interactive>
 						<MapResult
@@ -972,6 +1022,16 @@
 						{/if}
 						{@render children?.()}
 					</div>
+					{#if agentErrorTrace}
+						<!-- A run stopped by max_iterations fails, so the error above is what it
+						     returned. What it managed to do rides inside that error and is the
+						     whole reason to look at such a run, so it is added under the error
+						     rather than replacing it. -->
+						<div class="flex flex-col gap-1 pt-4 w-full min-w-0">
+							<span class="text-emphasis text-xs font-semibold">Trace</span>
+							<AgentTrace entries={agentErrorTrace} {workspaceId} />
+						</div>
+					{/if}
 					{#if !isTest && language === 'bun'}
 						<div class="pt-20"></div>
 						<Alert size="xs" type="info" title="Seeing an odd error?">
@@ -1051,11 +1111,15 @@
 							/>
 							{#if showMaterializedPreview}
 								<div class="border rounded-md h-80 min-h-0 overflow-hidden">
-									<DucklakeResultPreview
-										assetUri={m.materialized}
-										partition={m.partition}
-										class="h-full"
-									/>
+									<!-- Dynamic: the DuckDB preview reaches ~450 modules (data table editor, low-code
+									     components), and every page that shows a job result imports this file. -->
+									{#await import('./assets/AssetGraph/DucklakeResultPreview.svelte') then DucklakeResultPreview}
+										<DucklakeResultPreview.default
+											assetUri={m.materialized}
+											partition={m.partition}
+											class="h-full"
+										/>
+									{/await}
 								</div>
 							{/if}
 						</div>
@@ -1228,8 +1292,29 @@
 							{/each}
 						</div>
 					</div>
+				{:else if !forceJson && resultKind === 'aiagent'}
+					{@const agentResult = parseAgentResult(result)}
+					{#if agentResult}
+						<AgentResultDisplay result={agentResult} {workspaceId} runKey={runKey ?? jobId}>
+							{#snippet structuredOutput(output)}
+								<DisplayResult
+									noControls
+									hideAsJson
+									result={output}
+									{markupTrust}
+									{filename}
+									{disableExpand}
+									{jobId}
+									{nodeId}
+									{workspaceId}
+									{appPath}
+									growVertical
+								/>
+							{/snippet}
+						</AgentResultDisplay>
+					{/if}
 				{:else if !forceJson && resultKind === 'markdown'}
-					<div class="prose-xs dark:prose-invert !list-disc !list-outside">
+					<div class={markdownProse.sm}>
 						<Markdown md={result?.md ?? result?.markdown} />
 					</div>
 				{:else if largeObject || hasBigInt}

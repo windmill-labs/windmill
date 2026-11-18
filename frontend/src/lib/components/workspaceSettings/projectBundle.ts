@@ -148,6 +148,8 @@ function runnableRef(node: Record<string, any>): Ref | undefined {
 	if (!isRunnableByPath(node as any) || typeof node.path !== 'string') return undefined
 	if (node.runType === 'flow') return { kind: 'flow', path: node.path }
 	if (node.runType === 'script') return { kind: 'script', path: node.path }
+	// A saved agent is an `ai_agent` resource.
+	if (node.runType === 'agent') return { kind: 'resource', path: node.path }
 	return undefined // hubscript -> external hub, ignored
 }
 
@@ -172,18 +174,25 @@ export function extractAppRefs(value: any): Ref[] {
 }
 
 /**
- * Build the relocation map. Internal paths (`f/<slug>/...`) map to themselves
- * and are reserved first; external paths relocate to `f/<slug>/<name>` (`_2`/`_3`…
- * on collision). Input is sorted so suffix assignment is deterministic.
+ * Build the relocation map. Paths under the source folder (`f/<sourceFolder>/...`,
+ * possibly nested like `hub/billing`) keep their sub-path under `f/<slug>/` and are
+ * reserved first; other paths relocate to `f/<slug>/<name>` (`_2`/`_3`… on
+ * collision). Input is sorted so suffix assignment is deterministic.
  */
-export function buildPathMap(paths: Iterable<string>, slug: string): Map<string, string> {
+export function buildPathMap(
+	paths: Iterable<string>,
+	slug: string,
+	sourceFolder: string = slug
+): Map<string, string> {
 	const map = new Map<string, string>()
 	const used = new Set<string>()
 	const sorted = [...new Set(paths)].sort()
+	const sourcePrefix = `f/${sourceFolder}/`
 	for (const p of sorted) {
-		if (classifyPath(p, slug) === 'internal') {
-			map.set(p, p)
-			used.add(p)
+		if (p.startsWith(sourcePrefix)) {
+			const kept = `f/${slug}/${p.slice(sourcePrefix.length)}`
+			map.set(p, kept)
+			used.add(kept)
 		}
 	}
 	for (const old of sorted) {
@@ -236,6 +245,89 @@ export function rewriteVarRefsInValue(value: any, map: Map<string, string>): any
  */
 export function extractTriggerConfigResourceRefs(config: any): string[] {
 	return extractScriptRefs(JSON.stringify(config ?? {})).map((r) => r.path)
+}
+
+/**
+ * Whether a value reaches a resource, in either spelling a rewrite has to handle: a
+ * `$res:`/`res://` token embedded in content, or the bare path standing alone as a string
+ * the way trigger configs hold it (`kafka_resource_path: "f/slug/db"`).
+ *
+ * Matching the parsed structure rather than its serialization is what keeps
+ * `f/slug/db` out of `$res:f/slug/db_prod`.
+ */
+export function referencesResourcePath(value: unknown, path: string): boolean {
+	const walk = (v: any): boolean => {
+		if (typeof v === 'string') {
+			if (v === path) return true
+			RES_TOKEN_RE.lastIndex = 0
+			let m: RegExpExecArray | null
+			while ((m = RES_TOKEN_RE.exec(v)) !== null) if (m[1] === path) return true
+			return false
+		}
+		if (Array.isArray(v)) return v.some(walk)
+		if (v && typeof v === 'object') return Object.values(v).some(walk)
+		return false
+	}
+	return walk(value)
+}
+
+/**
+ * Whether a `$res:`/`res://` token for this path survives anywhere in the value — the one
+ * spelling the rewriters relocate, and so the only one whose survival means a rewrite did
+ * not take. A bare path is deliberately not matched: nothing here moves one, so its presence
+ * says nothing about whether the rewrite worked.
+ */
+export function holdsResourceToken(value: unknown, path: string): boolean {
+	const walk = (v: any): boolean => {
+		if (typeof v === 'string') {
+			RES_TOKEN_RE.lastIndex = 0
+			let m: RegExpExecArray | null
+			while ((m = RES_TOKEN_RE.exec(v)) !== null) if (m[1] === path) return true
+			return false
+		}
+		if (Array.isArray(v)) return v.some(walk)
+		if (v && typeof v === 'object') return Object.values(v).some(walk)
+		return false
+	}
+	return walk(value)
+}
+
+/**
+ * Whether the text names the resource somewhere no rewriter reaches — a path written on its
+ * own rather than inside a `$res:` token, the way `getResource("f/proj/db")` does. The
+ * tokens are stripped first so the ones a rewrite would move do not count, and the match is
+ * bounded so `f/proj/db` is not found inside `f/proj/db_prod`.
+ */
+export function textHoldsBarePath(text: string, path: string): boolean {
+	const withoutTokens = text.replace(RES_TOKEN_RE, '')
+	const boundary = /[\w\-./]/
+	for (let i = withoutTokens.indexOf(path); i !== -1; i = withoutTokens.indexOf(path, i + 1)) {
+		const before = withoutTokens[i - 1] ?? ''
+		const after = withoutTokens[i + path.length] ?? ''
+		if (!boundary.test(before) && !boundary.test(after)) return true
+	}
+	return false
+}
+
+/**
+ * Whether anything the project ships points at one of its own resources.
+ *
+ * A project declares two kinds of resource. One is referenced — an app pins `$res:` for a
+ * script argument, a trigger names it — and the project does not work until it holds a
+ * credential. The other is minted from a `resource-<type>` input schema: it names a type
+ * a script accepts, nothing points at it, and a standalone run picks a resource in the
+ * argument picker instead. Only the first kind is worth asking anyone to fill in.
+ *
+ * The `resources` list is excluded from the walk because a stub's own declaration carries
+ * its path, which would make every stub look referenced.
+ */
+export function projectReferencesResource(bundle: ProjectExport, path: string): boolean {
+	const { resources: _resources, ...rest } = bundle as any
+	if (referencesResourcePath(rest, path)) return true
+	// A script that reads the resource by name rather than through a `$res:` token still needs
+	// it filled in. Asked about is the safe side of this answer: the cost of a wrong yes is a
+	// row nobody had to act on, and of a wrong no a credential nobody was told to set up.
+	return textHoldsBarePath(JSON.stringify(rest ?? {}), path)
 }
 
 /**
@@ -555,7 +647,8 @@ export async function buildProjectBundle(
 	slug: string,
 	deps: BundleDeps,
 	extraResourcePaths: string[] = [],
-	extraVarPaths: string[] = []
+	extraVarPaths: string[] = [],
+	sourceFolder: string = slug
 ): Promise<ProjectBundle> {
 	const fetched = new Map<string, FetchedItem>()
 	const queued = new Set<string>()
@@ -616,7 +709,7 @@ export async function buildProjectBundle(
 
 	const fetchedItems = [...fetched.values()]
 	const itemPaths = fetchedItems.map((it) => it.path)
-	const map = buildPathMap([...itemPaths, ...resourcePaths, ...varPaths], slug)
+	const map = buildPathMap([...itemPaths, ...resourcePaths, ...varPaths], slug, sourceFolder)
 
 	const items: BundledItem[] = fetchedItems.map((it) => {
 		const rewritten: BundledItem = { ...it, newPath: map.get(it.path) ?? it.path }

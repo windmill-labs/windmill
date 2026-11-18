@@ -11,7 +11,7 @@
 <svg
 	id="Bun"
 	xmlns="http://www.w3.org/2000/svg"
-	viewBox="0 0 80 70"
+	viewBox="-3.124 -7.968 86.25 86.25"
 	width={`${width}px`}
 	height={`${height}px`}
 	><title>Bun Logo</title><path

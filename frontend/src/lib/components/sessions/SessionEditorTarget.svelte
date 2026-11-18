@@ -3,11 +3,17 @@
 	import { Loader2 } from 'lucide-svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
 	import type { SessionRuntime, SessionTargetKind } from './sessionRuntime.svelte'
 	import { useUserDraftSync, type DraftSyncCodec } from './useUserDraftSync.svelte'
+	import { recordHandEdit } from './sessionHandEdits.svelte'
 	import { makeFlowCodec, makeScriptCodec, makeRawAppCodec } from './sessionDraftCodecs'
 	import { itemDisplayName } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
+	import { setEditorStoragePath } from '../editorStoragePathContext'
+	import { setOperatingWorkspace } from '../operatingWorkspace.svelte'
+	import DraftSyncConflictModal from '../common/confirmationModal/DraftSyncConflictModal.svelte'
 
 	let {
 		runtime,
@@ -18,7 +24,9 @@
 		editor,
 		onNavigate,
 		isActiveSession = true,
-		isActiveTab = true
+		isActiveTab = true,
+		newRawApp = false,
+		isNew = undefined
 	}: {
 		runtime: SessionRuntime
 		kind: SessionTargetKind
@@ -41,6 +49,11 @@
 		 * tab must not, else chat actions resolve to the wrong item's path.
 		 */
 		isActiveTab?: boolean
+		/** A raw app the new-app builder just started: when nothing exists at `path` yet
+		 * the editor opens on the starter template. */
+		newRawApp?: boolean
+		/** Whether the item is still the template a new-item builder started it on. */
+		isNew?: () => boolean
 	} = $props()
 
 	// Mark this subtree as the session side panel: editors below detect the
@@ -50,6 +63,11 @@
 	// component instance keeps the first runtime's manager — so descendants may
 	// rely on its presence, not its identity.
 	setContext('aiChatManager', runtime.manager)
+	setOperatingWorkspace(() => workspaceId)
+
+	// This tab's storage path, for the editor below: several tabs are mounted at
+	// once and only this one knows which item each is open on.
+	setEditorStoragePath(() => path)
 
 	// This tab's own editor cell (per (kind, path)); several tabs can be live at once.
 	const cell = $derived(
@@ -61,10 +79,24 @@
 	)
 	const slot = $derived(cell.slot)
 
-	function triggerLoad(): Promise<void> {
-		if (kind === 'flow') return runtime.loadFlow(workspaceId, path)
-		if (kind === 'script') return runtime.loadScript(workspaceId, path)
-		return runtime.loadRawApp(workspaceId, path)
+	function triggerLoad(force = false): Promise<void> {
+		if (kind === 'flow') return runtime.loadFlow(workspaceId, path, force)
+		if (kind === 'script') return runtime.loadScript(workspaceId, path, force)
+		return runtime.loadRawApp(workspaceId, path, force, false, newRawApp)
+	}
+
+	// The loaders prefer a local draft to the server's, so the refused edit goes first. Sync stays
+	// off through the reload: saving what was just loaded would bump the draft's timestamp and
+	// get the other writer's next autosave refused.
+	async function loadFromServer(): Promise<void> {
+		UserDraft.stopSync(kind, path, { workspace: workspaceId })
+		UserDraftDbSyncer.dropPending({ workspace: workspaceId, itemKind: kind, path })
+		UserDraft.forgetLocal(kind, path, { workspace: workspaceId })
+		try {
+			await triggerLoad(true)
+		} finally {
+			armRestartOnFirstInteraction(workspaceId, kind, path)
+		}
 	}
 
 	function buildCodec(): DraftSyncCodec<any> {
@@ -112,7 +144,8 @@
 			workspace: workspaceId,
 			itemKind: kind,
 			storagePath: path,
-			effectivePath: effectivePath()
+			effectivePath: effectivePath(),
+			isNew: isNew?.() ?? false
 		})
 		return () => UserDraft.clearLiveEditorDraft(kind, { workspace: workspaceId, storagePath: path })
 	})
@@ -121,7 +154,9 @@
 		path: () => path,
 		workspace: () => workspaceId,
 		ready: () => slot.loadedPath === path,
-		codec: () => codec
+		codec: () => codec,
+		// A hand edit is the session's change as much as a chat edit is, so its changes bar lists it.
+		onSaved: (itemKind, p) => recordHandEdit(runtime.sessionId, itemKind, p)
 	})
 
 	// Stamp the tab's friendly label once this editor's cell knows how to name the
@@ -171,6 +206,18 @@
 		<Loader2 size={20} class="animate-spin" />
 	</div>
 {/snippet}
+
+{#if isActiveSession}
+	<!-- Not only the visible tab: a conflict in a hidden one also refuses a move of the session. -->
+	<DraftSyncConflictModal
+		query={{ workspace: workspaceId, itemKind: kind, path }}
+		onLoadFromServer={loadFromServer}
+		getLocalDraft={() =>
+			$state.snapshot(
+				codec.storeToDraft(UserDraft.get(kind, path, { workspace: workspaceId }) as any)
+			)}
+	/>
+{/if}
 
 {#if slot.notFound && slot.loadedPath !== path}
 	<!-- notFound-on-mismatch: the requested target 404'd. Covers first load and a

@@ -10,7 +10,7 @@
 <!-- #1cb35c with #004b16 shading per Linode's own packages/manager/src/assets/logo/logo.svg in linode/manager @3e53c92,
 	 the last revision before the Akamai rebrand dropped it. The keyline path stays unfilled so it follows currentColor
 	 instead of the source's near-black #231f20. -->
-<svg {width} {height} viewBox="0 0 256 307" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-39.455 -13.955 334.909 334.909" xmlns="http://www.w3.org/2000/svg">
 	<path
 		fill="#004b16"
 		d="m66.766 141.595-12.64-83.896L2.919 26.102l15.254 78.884zM78.75 231.81l-8.063-59.49-45.543-37.698 11.767 58.836zm-36.173-13.292 8.063 44.67 38.788 40.315-5.448-45.544zm115.71-13.73-19.938-14.817s-.284 5.306-.817 5.666l-14.546 10.242 15.907 13.074.927 14.873 18.903 15.417zm60.253-43.472-3.596 41.893-13.401-8.825s1.477-21.181 1.47-21.192c-.077-.142-25.822-17.433-25.822-17.433l.817-19.285z"

@@ -12,16 +12,22 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
 use std::fmt::Debug;
-use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes,
+    composed::check_new_hub_paths,
+    ApiAuthed,
+};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    runnable_ref::RunnableRef,
     trigger_history::{self, TriggerHistoryEvent, TriggerOperation, TriggerSource},
     user_drafts::{
-        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
-        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, delete_draft_only_for_path, delete_own_draft_for_path,
+        fetch_draft_only_list_rows, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
+        WithDraftQuery,
     },
-    utils::{paginate, Pagination, StripPath},
+    utils::{check_proper_path, paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -96,14 +102,14 @@ pub trait TriggerCrud: Send + Sync + 'static {
     const DEPLOYMENT_NAME: &'static str;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[];
     const IS_ALLOWED_ON_CLOUD: bool;
-    /// Whether enabling this trigger in a fork while the parent has the same
-    /// path enabled is a real conflict (shared upstream resource). True for
+    /// Whether enabling this trigger in a fork while an ancestor workspace has
+    /// the same path is a real conflict (shared upstream resource). True for
     /// listener-based kinds where two consumers compete (Kafka group, PG slot,
     /// SQS queue, etc.) and for Websocket where both subscribers fire on every
     /// broadcast. False for kinds whose upstream identifier is implicitly
     /// workspace-scoped at runtime (HTTP routes, Email local_part — clones for
     /// the non-workspaced sub-case are filtered out, so any cloned row is
-    /// already collision-free vs. the parent).
+    /// already collision-free vs. its ancestors).
     const FORK_CONFLICT_ON_ENABLE: bool = true;
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject;
@@ -134,6 +140,13 @@ pub trait TriggerCrud: Send + Sync + 'static {
         _workspace_id: &str,
     ) -> Result<()> {
         Ok(())
+    }
+
+    /// The runnables this kind's config names besides its target and error handler, read from
+    /// JSON: a request serializes, and a stored row's `to_jsonb` reads, under the same field names.
+    /// A path that does not parse is left out, as it never runs.
+    fn config_runnables(_config: &serde_json::Value) -> Vec<RunnableRef> {
+        Vec::new()
     }
 
     fn scope_domain_name() -> &'static str {
@@ -264,6 +277,22 @@ pub trait TriggerCrud: Send + Sync + 'static {
     }
 
     async fn set_trigger_mode_extra_action(&self, _: &mut PgConnection) -> Result<()> {
+        Ok(())
+    }
+
+    /// Authorize a mode transition, for kinds where attaching a listener is itself privileged
+    /// rather than merely a write on the row — a trigger authenticating as the instance instead of
+    /// through a workspace resource, say. Create and update authorize their own config, but a row
+    /// can also arrive by being cloned into a workspace fork, so the transition needs its own
+    /// check. Runs before the mode is written; the default adds no authorization.
+    async fn authorize_set_trigger_mode(
+        &self,
+        _authed: &ApiAuthed,
+        _tx: &mut PgConnection,
+        _workspace_id: &str,
+        _path: &str,
+        _mode: &TriggerMode,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -459,6 +488,28 @@ pub trait TriggerCrud: Send + Sync + 'static {
     }
 }
 
+fn trigger_runnables<T: TriggerCrud>(trigger: &serde_json::Value) -> Vec<RunnableRef> {
+    let str_field = |name| trigger.get(name).and_then(|v| v.as_str());
+    let is_flow = trigger
+        .get("is_flow")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let mut runnables = T::config_runnables(trigger);
+    runnables
+        .extend(str_field("script_path").and_then(|p| RunnableRef::from_path(p, is_flow).ok()));
+    runnables.extend(
+        str_field("error_handler_path").and_then(|p| RunnableRef::from_path(p, false).ok()),
+    );
+    runnables
+}
+
+/// The runnables a trigger save names, for `check_new_hub_paths`.
+pub fn trigger_save_runnables<T: TriggerCrud>(
+    trigger: &TriggerData<T::TriggerConfigRequest>,
+) -> Result<Vec<RunnableRef>> {
+    Ok(trigger_runnables::<T>(&serde_json::to_value(trigger)?))
+}
+
 /// Append this mutation to `trigger_history`, diffing the row at `path` against
 /// `before`.
 ///
@@ -530,6 +581,7 @@ async fn create_trigger<T: TriggerCrud>(
             &new_trigger.base.path
         )
     })?;
+    check_proper_path(&new_trigger.base.path)?;
 
     if *CLOUD_HOSTED && !T::IS_ALLOWED_ON_CLOUD {
         return Err(Error::BadRequest(format!(
@@ -538,9 +590,14 @@ async fn create_trigger<T: TriggerCrud>(
         )));
     }
 
+    new_trigger.error_handling.validate()?;
+    new_trigger.base.normalize_script_path()?;
+
     handler
         .validate_new(&db, &workspace_id, &new_trigger.config)
         .await?;
+    let new = trigger_save_runnables::<T>(&new_trigger)?;
+    check_new_hub_paths(&new, &[], &authed, &db, &workspace_id).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -571,6 +628,11 @@ async fn create_trigger<T: TriggerCrud>(
             new_trigger.base.preserve_permissioned_as = Some(true);
         }
     }
+
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; a trigger's email is derived from it at execution).
+    let resolved_permissioned_as = new_trigger.base.resolve_permissioned_as(&authed);
+    windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
 
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         new_trigger.base.permissioned_as.as_deref(),
@@ -670,12 +732,18 @@ async fn list_triggers<T: TriggerCrud>(
     // Best-effort: the editor's TriggerData shape overlaps T::Trigger but a per-kind
     // config can deviate, so drop a row on deserialize failure rather than fail the list.
     if query.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && query.page.unwrap_or(0) == 0
         && query.path.is_none()
         && query.is_flow.is_none()
         && query.path_start.is_none()
         && query.label.is_none()
+        && windmill_common::workspaces::operator_can_draft(
+            &db,
+            &workspace_id,
+            &authed,
+            T::user_draft_item_kind(),
+        )
+        .await?
     {
         let draft_only_rows = fetch_draft_only_list_rows(
             &db,
@@ -793,10 +861,17 @@ async fn update_trigger<T: TriggerCrud>(
             &edit_trigger.base.path
         )
     })?;
+    if edit_trigger.base.path != path {
+        check_proper_path(&edit_trigger.base.path)?;
+    }
+
+    edit_trigger.error_handling.validate()?;
+    edit_trigger.base.normalize_script_path()?;
 
     handler
         .validate_edit(&db, &workspace_id, &edit_trigger.config, path)
         .await?;
+    let new_runnables = trigger_save_runnables::<T>(&edit_trigger)?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -825,6 +900,12 @@ async fn update_trigger<T: TriggerCrud>(
 
     let new_path = edit_trigger.base.path.to_string();
     let labels = edit_trigger.base.labels.clone();
+
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; a trigger's email is derived from it at execution).
+    let resolved_permissioned_as = edit_trigger.base.resolve_permissioned_as(&authed);
+    windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
+
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         edit_trigger.base.permissioned_as.as_deref(),
         edit_trigger.base.preserve_permissioned_as.unwrap_or(false),
@@ -834,6 +915,17 @@ async fn update_trigger<T: TriggerCrud>(
 
     let before =
         trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
+    check_new_hub_paths(
+        &new_runnables,
+        &before
+            .as_ref()
+            .map(trigger_runnables::<T>)
+            .unwrap_or_default(),
+        &authed,
+        &db,
+        &workspace_id,
+    )
+    .await?;
 
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
@@ -959,6 +1051,18 @@ async fn delete_trigger<T: TriggerCrud>(
         .await?;
 
     if !deleted {
+        drop(tx);
+        if delete_draft_only_for_path(
+            &db,
+            &workspace_id,
+            T::user_draft_item_kind(),
+            path,
+            &authed.email,
+        )
+        .await?
+        {
+            return Ok(format!("Draft-only trigger '{}' deleted", path));
+        }
         return Err(Error::NotFound(format!(
             "Trigger not found at path: {}",
             path
@@ -1051,52 +1155,12 @@ async fn exists_trigger<T: TriggerCrud>(
 #[derive(serde::Deserialize)]
 struct SetTriggerModePayload {
     mode: TriggerMode,
-    /// When true, bypass the parent-state warning that would otherwise reject
-    /// enabling a trigger that's already enabled in the parent workspace.
-    /// The frontend sets this after the user confirms the duplicate-execution
-    /// dialog. See windmill-trigger/src/handler.rs::set_trigger_mode for the
-    /// full check.
+    /// When true, bypass the fork-conflict warning that would otherwise reject
+    /// enabling a trigger an ancestor workspace also has at this path. The
+    /// frontend sets this after the user confirms the duplicate-execution
+    /// dialog. See `set_trigger_mode` for the full check.
     #[serde(default)]
     force: bool,
-}
-
-/// Returns the parent workspace id when this workspace is a fork *and* the
-/// parent has a row at the same trigger path. Used to gate enabling a trigger
-/// in a fork behind an explicit `force=true` confirmation: the fork's row was
-/// cloned from the parent, so its upstream identifier (Kafka group, PG slot,
-/// SQS queue URL, etc.) is shared by construction. The risk is independent of
-/// the parent's current `mode`: if the parent is enabled, the two listeners
-/// compete; if it's disabled, the fork can destructively take over shared
-/// state (e.g. advance the PG WAL, claim an MQTT client_id) before the parent
-/// re-enables. Either way, the user should be asked to confirm.
-async fn parent_has_trigger(
-    tx: &mut PgConnection,
-    table_name: &str,
-    workspace_id: &str,
-    path: &str,
-) -> Result<Option<String>> {
-    let parent: Option<String> =
-        sqlx::query_scalar("SELECT parent_workspace_id FROM workspace WHERE id = $1")
-            .bind(workspace_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .flatten();
-    let Some(parent_id) = parent else {
-        return Ok(None);
-    };
-    let exists: Option<bool> = sqlx::query_scalar(&format!(
-        "SELECT EXISTS(SELECT 1 FROM {} WHERE workspace_id = $1 AND path = $2)",
-        table_name
-    ))
-    .bind(&parent_id)
-    .bind(path)
-    .fetch_one(&mut *tx)
-    .await?;
-    Ok(if exists == Some(true) {
-        Some(parent_id)
-    } else {
-        None
-    })
 }
 
 async fn set_trigger_mode<T: TriggerCrud>(
@@ -1113,25 +1177,35 @@ async fn set_trigger_mode<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     // Block transitioning a trigger in a fork to any mode that attaches a
-    // listener (Enabled or Suspended) when the parent has the same path,
+    // listener (Enabled or Suspended) when an ancestor has the same path,
     // unless the caller passes force=true. Suspended still keeps the
     // listener attached — it just stops auto-running queued jobs — so a
     // suspended fork would still split Kafka events / share a PG slot
-    // with the parent. The cloned upstream identifier is shared by
-    // construction; the risk is independent of the parent's current mode.
-    // Skipped for kinds where the upstream identifier is already
-    // workspace-scoped at runtime (HTTP, Email).
+    // with the ancestor. The risk is independent of the ancestor's current
+    // mode: enabled, the two listeners compete; disabled, the fork can
+    // destructively take over shared state (advance the PG WAL, claim an
+    // MQTT client_id) before it re-enables. Skipped for kinds where the
+    // upstream identifier is already workspace-scoped at runtime (HTTP, Email).
     if T::FORK_CONFLICT_ON_ENABLE && payload.mode != TriggerMode::Disabled && !payload.force {
-        if let Some(parent_id) =
-            parent_has_trigger(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?
+        if let Some(ancestor_id) = windmill_common::workspaces::nearest_fork_ancestor_having(
+            &mut *tx,
+            T::TABLE_NAME,
+            &workspace_id,
+            path,
+        )
+        .await?
         {
             return Err(Error::BadRequest(format!(
                 "fork-conflict:{}:{}",
                 T::TRIGGER_TYPE,
-                parent_id
+                ancestor_id
             )));
         }
     }
+
+    handler
+        .authorize_set_trigger_mode(&authed, &mut *tx, &workspace_id, path, &payload.mode)
+        .await?;
 
     let before =
         trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;

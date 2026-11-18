@@ -1,5 +1,5 @@
 //comment this line and last to dev
-export function wmillTsDev(port: number) { return `
+export function wmillTsDev() { return `
 let reqs: Record<string, any> = {}
 let ws: WebSocket | null = null
 let wsReady: Promise<void>
@@ -10,7 +10,7 @@ function initWebSocket() {
         wsReadyResolve = resolve
     })
 
-    ws = new WebSocket('ws://localhost:${port}')
+    ws = new WebSocket((window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host)
 
     ws.onopen = () => {
         console.log('[wmill] WebSocket connected')
@@ -115,8 +115,8 @@ export const backend = new Proxy(
     {},
     {
         get(_, runnable_id: string) {
-            return (v: any) => {
-                return doRequest('backend', { runnable_id, v })
+            return (v: any, opts?: { memoryId?: string }) => {
+                return doRequest('backend', { runnable_id, v, memoryId: opts?.memoryId })
             }
         }
     })
@@ -125,8 +125,8 @@ export const backendAsync = new Proxy(
     {},
     {
         get(_, runnable_id: string) {
-            return (v: any) => {
-                return doRequest('backendAsync', { runnable_id, v })
+            return (v: any, opts?: { memoryId?: string }) => {
+                return doRequest('backendAsync', { runnable_id, v, memoryId: opts?.memoryId })
             }
         }
     })

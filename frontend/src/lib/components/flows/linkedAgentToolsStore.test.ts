@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	clearLinkedAgentTools,
 	getLinkedAgentTools,
+	linkedModulesForAgent,
 	linkedToolsScope,
 	migrateLinkedAgentToolsScope,
 	releaseLinkedToolsScope,
@@ -26,7 +27,7 @@ function freshScope(name = 'flow') {
 function fillPastCap(exclude: string) {
 	for (let i = 0; i <= MAX_SCOPES; i++) {
 		const filler = linkedToolsScope('filler', `${exclude}-${seq}-${i}`)
-		setLinkedAgentTools(filler, 'm', [tool(`f${i}`)])
+		setLinkedAgentTools(filler, 'm', [tool(`f${i}`)], 'u/admin/a')
 	}
 }
 
@@ -34,15 +35,15 @@ describe('linkedAgentToolsStore', () => {
 	it('keeps each scope module map separate', () => {
 		const a = freshScope()
 		const b = freshScope()
-		setLinkedAgentTools(a, 'step', [tool('x')])
-		setLinkedAgentTools(b, 'step', [tool('y')])
+		setLinkedAgentTools(a, 'step', [tool('x')], 'u/admin/a')
+		setLinkedAgentTools(b, 'step', [tool('y')], 'u/admin/a')
 		expect(getLinkedAgentTools(a, 'step').map((t) => t.id)).toEqual(['x'])
 		expect(getLinkedAgentTools(b, 'step').map((t) => t.id)).toEqual(['y'])
 	})
 
 	it('evicts an unretained scope once past the cap', () => {
 		const victim = freshScope()
-		setLinkedAgentTools(victim, 'step', [tool('x')])
+		setLinkedAgentTools(victim, 'step', [tool('x')], 'u/admin/a')
 		fillPastCap(victim)
 		expect(getLinkedAgentTools(victim, 'step')).toEqual([])
 	})
@@ -50,7 +51,7 @@ describe('linkedAgentToolsStore', () => {
 	// A run viewer holds one scope per mounted nested job; those must not evict what is on screen.
 	it('never evicts a retained scope', () => {
 		const held = freshScope()
-		setLinkedAgentTools(held, 'step', [tool('x')])
+		setLinkedAgentTools(held, 'step', [tool('x')], 'u/admin/a')
 		retainLinkedToolsScope(held)
 		fillPastCap(held)
 		expect(getLinkedAgentTools(held, 'step').map((t) => t.id)).toEqual(['x'])
@@ -63,7 +64,7 @@ describe('linkedAgentToolsStore', () => {
 		const held: string[] = []
 		for (let i = 0; i <= MAX_SCOPES; i++) {
 			const scope = linkedToolsScope('retained', `${seq}-${i}`)
-			setLinkedAgentTools(scope, 'step', [tool(`t${i}`)])
+			setLinkedAgentTools(scope, 'step', [tool(`t${i}`)], 'u/admin/a')
 			retainLinkedToolsScope(scope)
 			held.push(scope)
 		}
@@ -84,7 +85,7 @@ describe('linkedAgentToolsStore', () => {
 	it('carries tools across a rename without evicting the new scope', () => {
 		const from = freshScope('old')
 		const to = freshScope('new')
-		setLinkedAgentTools(from, 'step', [tool('x')])
+		setLinkedAgentTools(from, 'step', [tool('x')], 'u/admin/a')
 		retainLinkedToolsScope(from)
 		migrateLinkedAgentToolsScope(from, to)
 		expect(getLinkedAgentTools(to, 'step').map((t) => t.id)).toEqual(['x'])
@@ -98,13 +99,13 @@ describe('linkedAgentToolsStore', () => {
 		const held: string[] = []
 		for (let i = 0; i < MAX_SCOPES; i++) {
 			const scope = linkedToolsScope('rename-fill', `${seq}-${i}`)
-			setLinkedAgentTools(scope, 'step', [tool(`t${i}`)])
+			setLinkedAgentTools(scope, 'step', [tool(`t${i}`)], 'u/admin/a')
 			retainLinkedToolsScope(scope)
 			held.push(scope)
 		}
 		const from = freshScope('before')
 		const to = freshScope('after')
-		setLinkedAgentTools(from, 'step', [tool('x')])
+		setLinkedAgentTools(from, 'step', [tool('x')], 'u/admin/a')
 		retainLinkedToolsScope(from)
 
 		migrateLinkedAgentToolsScope(from, to)
@@ -121,10 +122,39 @@ describe('linkedAgentToolsStore', () => {
 
 	it('clears one module without disturbing its siblings', () => {
 		const scope = freshScope()
-		setLinkedAgentTools(scope, 'a', [tool('x')])
-		setLinkedAgentTools(scope, 'b', [tool('y')])
+		setLinkedAgentTools(scope, 'a', [tool('x')], 'u/admin/a')
+		setLinkedAgentTools(scope, 'b', [tool('y')], 'u/admin/a')
 		clearLinkedAgentTools(scope, 'a')
 		expect(getLinkedAgentTools(scope, 'a')).toEqual([])
 		expect(getLinkedAgentTools(scope, 'b').map((t) => t.id)).toEqual(['y'])
+	})
+
+	// A deploy has to refresh every step showing the agent it wrote, so this index is what makes the
+	// difference between one step's nodes updating and all of them.
+	describe('linkedModulesForAgent', () => {
+		it('finds every module linked to one agent, and no others', () => {
+			const scope = freshScope()
+			setLinkedAgentTools(scope, 'a', [tool('x')], 'u/admin/one')
+			setLinkedAgentTools(scope, 'b', [tool('y')], 'u/admin/one')
+			setLinkedAgentTools(scope, 'c', [tool('z')], 'u/admin/other')
+			expect(linkedModulesForAgent(scope, 'u/admin/one').sort()).toEqual(['a', 'b'])
+			expect(linkedModulesForAgent(scope, 'u/admin/other')).toEqual(['c'])
+		})
+
+		it('reads a $res-prefixed link and a bare path as the same agent', () => {
+			const scope = freshScope()
+			setLinkedAgentTools(scope, 'a', [tool('x')], '$res:u/admin/one')
+			expect(linkedModulesForAgent(scope, 'u/admin/one')).toEqual(['a'])
+		})
+
+		it('drops a module that was cleared, and stays scoped', () => {
+			const scope = freshScope()
+			const other = freshScope()
+			setLinkedAgentTools(scope, 'a', [tool('x')], 'u/admin/one')
+			setLinkedAgentTools(other, 'a', [tool('x')], 'u/admin/one')
+			clearLinkedAgentTools(scope, 'a')
+			expect(linkedModulesForAgent(scope, 'u/admin/one')).toEqual([])
+			expect(linkedModulesForAgent(other, 'u/admin/one')).toEqual(['a'])
+		})
 	})
 })

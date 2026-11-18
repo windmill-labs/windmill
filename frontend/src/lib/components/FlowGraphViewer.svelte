@@ -10,10 +10,12 @@
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { dfs } from './flows/dfs'
-	import { workspaceStore } from '$lib/stores'
 	import { untrack } from 'svelte'
 	import { publishLinkedAgentTools } from './flows/flowState'
 	import { linkedToolsScope } from './flows/linkedAgentToolsStore.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		flow: {
@@ -35,6 +37,9 @@
 		hideDefaultInputs?: boolean
 		provideTriggerContext?: boolean
 		fillAvailableHeight?: boolean
+		/** Cap the canvas at the available height, so a tall flow pans inside it rather than
+		 * adding a scrollbar next to the page's. Only applies with `fillAvailableHeight`. */
+		capToAvailableHeight?: boolean
 	}
 
 	let {
@@ -45,12 +50,13 @@
 		noGraph = false,
 		triggerNode = false,
 		stepDetail = $bindable(undefined),
-		workspace = $workspaceStore,
+		workspace = $operatingWorkspace,
 		minHeight = 400,
 		noBorder = false,
 		hideDefaultInputs = false,
 		provideTriggerContext = false,
-		fillAvailableHeight = false
+		fillAvailableHeight = false,
+		capToAvailableHeight = false
 	}: Props = $props()
 
 	let availableHeight = $state(0)
@@ -67,6 +73,14 @@
 
 	const dispatch = createEventDispatcher()
 
+	// A bucket of this viewer's own, never the editor's. Both are keyed by (workspace, flow path), so
+	// a viewer mounted over the flow being edited — the version-history drawer, which renders the
+	// same path — would otherwise publish its deployed tools into the editor's bucket and replace the
+	// drafted tool nodes there. The editor's graph has to keep showing the tools a preview would
+	// actually run, and nothing republishes when the drawer closes. `FlowStatusViewerInner` scopes
+	// itself the same way, with `job:<id>`.
+	let linkedToolsPath = $derived(`view:${flow?.path ?? ''}`)
+
 	// This read-only viewer doesn't run initFlowState, so linked agents' tools would otherwise never
 	// resolve. Resolve them for display, keyed by module id. Best-effort: publishLinkedAgentTools
 	// swallows access errors and publishes [], so an inaccessible agent simply shows no tool nodes
@@ -80,7 +94,15 @@
 			for (const m of modules) {
 				const value = m?.value as { type?: string; agent?: string } | undefined
 				if (value?.type === 'aiagent' && value.agent) {
-					publishLinkedAgentTools(value.agent, ws, linkedToolsScope(ws, flow?.path), m.id)
+					// Without the draft: this viewer shows a deployed flow or a past run, both of which
+					// used the deployed agent.
+					publishLinkedAgentTools(
+						value.agent,
+						ws,
+						linkedToolsScope(ws, linkedToolsPath),
+						m.id,
+						false
+					)
 				}
 			}
 		})
@@ -101,8 +123,13 @@
 				earlyStop={flow?.value?.skip_expr !== undefined}
 				cache={flow?.value?.cache_ttl !== undefined}
 				path={flow?.path}
+				{linkedToolsPath}
 				{download}
 				minHeight={fillAvailableHeight ? Math.max(minHeight, availableHeight) : minHeight}
+				maxHeight={fillAvailableHeight && capToAvailableHeight
+					? Math.max(minHeight, availableHeight)
+					: undefined}
+				fitOnLoad={fillAvailableHeight && capToAvailableHeight}
 				{workspace}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}

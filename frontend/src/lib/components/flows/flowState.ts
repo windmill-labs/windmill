@@ -5,6 +5,7 @@ import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import { isFlowModuleTool, agentToolToFlowModule, type AgentTool } from './agentToolUtils'
 import { linkedToolsScope, setLinkedAgentTools } from './linkedAgentToolsStore.svelte'
+import { fetchAgentWithDraft, normalizeAgentRef } from './linkedAgentDrafts'
 import { loadFlowModuleState } from './flowStateUtils.svelte'
 import { emptyFlowModuleState } from './utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -90,10 +91,15 @@ async function mapFlowModule(
 			// the graph can render its tool nodes. They are display-only (their inputs are edited in
 			// the step panel, which infers schemas itself), so no per-tool module state is loaded —
 			// resource tool ids are not flow-unique and must not key into the flow state.
-			await publishLinkedAgentTools(agentRef, workspace, scope, flowModule.id)
+			// Drafts included: every caller of `initFlowState` is a flow editor, where the graph has
+			// to show the tools a test would run. Read-only viewers publish for themselves.
+			await publishLinkedAgentTools(agentRef, workspace, scope, flowModule.id, true)
 		} else {
+			// Shape-checked because `tools` is JSON-authored: throwing here would skip the agent's
+			// own state below, leaving it with no schema rather than with no tool schemas.
+			const tools = Array.isArray(value.tools) ? value.tools : []
 			await Promise.all(
-				(value.tools ?? []).filter(isFlowModuleTool).map(async (tool) => {
+				tools.filter(isFlowModuleTool).map(async (tool) => {
 					modulesState[tool.id] = await loadFlowModuleState(agentToolToFlowModule(tool), workspace)
 				})
 			)
@@ -116,13 +122,19 @@ export async function publishLinkedAgentTools(
 	agentRef: string,
 	workspace: string | undefined,
 	scope: string,
-	moduleId: string
+	moduleId: string,
+	/** Resolve from the agent's unsaved draft when there is one. Editors pass true so the graph
+	 *  shows the tool set a test would run; read-only viewers pass false, since a run they are
+	 *  displaying used the deployed agent. Required rather than defaulted: an editor call site that
+	 *  forgets it republishes the deployed tools over the drafted ones, which reads as the graph
+	 *  spontaneously reverting. */
+	withDraft: boolean
 ) {
 	const genKey = `${scope}:${moduleId}`
 	const gen = claimLinkedToolsFetch(scope, moduleId)
-	const tools = await resolveLinkedAgentTools(agentRef, workspace)
+	const tools = await resolveLinkedAgentTools(agentRef, workspace, withDraft)
 	if (linkedToolFetchGen.get(genKey) === gen) {
-		setLinkedAgentTools(scope, moduleId, tools)
+		setLinkedAgentTools(scope, moduleId, tools, agentRef)
 	}
 }
 
@@ -152,12 +164,27 @@ export function claimLinkedToolsFetch(scope: string, moduleId: string): number {
 // resource is missing or inaccessible so a broken link never stalls the flow load.
 export async function resolveLinkedAgentTools(
 	agentRef: string,
-	workspace?: string
+	workspace: string | undefined,
+	withDraft: boolean
 ): Promise<AgentTool[]> {
 	const ws = workspace ?? get(workspaceStore)
 	if (!ws) return []
-	const path = agentRef.replace(/^\$res:/, '').replace(/^res:\/\//, '')
+	const path = normalizeAgentRef(agentRef)
 	try {
+		if (withDraft) {
+			try {
+				const { response, draft } = await fetchAgentWithDraft(path, ws)
+				const value = (draft?.args ?? response.value) as { tools?: AgentTool[] } | undefined
+				return (value?.tools ?? []) as AgentTool[]
+			} catch {
+				// The draft read failed for any reason. This is a display, not a run, so fall through to
+				// the deployed tools rather than showing an agent with none: an empty node list reads as
+				// "the agent lost its tools" instead of "we could not reach the server". The paths that
+				// act on a draft — the previews and the deploy dialog — surface the failure instead.
+				// Not rethrowing anything here: the outer catch turns every throw into `[]`, so a
+				// rethrow would skip the very fallback this exists for.
+			}
+		}
 		const res = await ResourceService.getResource({ workspace: ws, path })
 		return ((res.value as { tools?: AgentTool[] } | undefined)?.tools ?? []) as AgentTool[]
 	} catch {

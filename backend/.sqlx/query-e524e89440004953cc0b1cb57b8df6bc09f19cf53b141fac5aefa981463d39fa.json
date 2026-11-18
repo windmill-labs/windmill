@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ws.workspace_id AS \"workspace_id!\", dt.key AS \"datatable!\"\n               FROM workspace_settings ws\n               CROSS JOIN LATERAL jsonb_each(COALESCE(ws.datatable->'datatables', '{}'::jsonb)) dt\n               WHERE EXISTS (\n                   SELECT 1 FROM (VALUES ('reference'), ('governed_by')) k(link)\n                   WHERE dt.value->k.link->>'workspace_id' = $1\n                     AND dt.value->k.link->>'datatable' = $2\n               )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "datatable!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "e524e89440004953cc0b1cb57b8df6bc09f19cf53b141fac5aefa981463d39fa"
+}

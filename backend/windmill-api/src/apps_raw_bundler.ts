@@ -6,7 +6,7 @@
  * The build itself is `wmill app bundle`, the same one `wmill app push` runs, so
  * an app deployed through the API is compiled exactly as the CLI and the editor
  * compile it — entry point, virtual `wmill` module, `/ui/` shared-UI resolution
- * and the Svelte/Vue plugins included. Reimplementing any of that here would be
+ * and the Svelte plugin included. Reimplementing any of that here would be
  * a third bundler to keep in step with the other two.
  */
 declare const __wmillAppPolicy: {
@@ -17,15 +17,21 @@ declare const __wmillAppPolicy: {
 }
 
 export async function main(
-	files: Record<string, string>,
-	shared_ui: Record<string, string> | undefined,
+	// The app's data comes as JSON text so that the worker leaves the `$var:`/`$res:`
+	// references in it alone: see `json_text_arg` in `apps_raw_bundle.rs`.
+	files_json: string,
+	shared_ui_json: string,
 	cli_command: string[],
 	// Set unless the server was told to build with a specific command.
 	prefer_installed_cli: boolean | undefined,
 	// The app's `value.runnables`, whose policy is derived here for the same
 	// reason the bundle is built here: it has to match what the editor writes.
-	runnables: Record<string, unknown> | undefined
+	runnables_json: string
 ): Promise<{ js_gz: string; css_gz: string; triggerables_v2: Record<string, unknown> }> {
+	const files: Record<string, string> = JSON.parse(files_json)
+	const shared_ui: Record<string, string> = JSON.parse(shared_ui_json)
+	const runnables: Record<string, unknown> | null = JSON.parse(runnables_json)
+
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
 
@@ -135,7 +141,7 @@ export async function main(
 	const nonEmpty = (v: unknown) => typeof v === 'string' && v.length > 0
 	// The prefixes `execute_component` resolves a run against; anything else is a
 	// grant no run can match.
-	const RUN_TYPES = ['script', 'flow', 'hubscript']
+	const RUN_TYPES = ['script', 'flow', 'hubscript', 'agent']
 	const malformed = Object.entries(runnables ?? {})
 		.filter(([, r]) => r != null)
 		.filter(([, r]) => {

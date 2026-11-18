@@ -8,7 +8,13 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg {width} {height} viewBox="0 0 250 250.23" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-11.489 -11.374 272.978 272.978"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<defs>
 		<radialGradient
 			id="ifs-symbol-gradient"

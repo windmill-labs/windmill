@@ -1,20 +1,26 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
-	import type { NativeServiceName } from '$lib/gen/types.gen'
+	import type { NativeServiceName, TriggerMode } from '$lib/gen/types.gen'
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
 	import { sendUserToast } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { Eye, Pen, RefreshCw, Trash } from 'lucide-svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { goto } from '$lib/navigation'
+	import { isNewTabClick } from '$lib/navigation'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type TriggerW = ExtendedNativeTrigger & { marked?: any }
 
@@ -25,9 +31,10 @@
 		onEdit?: (trigger: TriggerW) => void
 		onRecreate?: (trigger: TriggerW) => void
 		onSync?: () => Promise<void>
+		onUpdate?: () => void
 	}
 
-	let { service, triggers = [], loading = false, onEdit, onRecreate }: Props = $props()
+	let { service, triggers = [], loading = false, onEdit, onRecreate, onUpdate }: Props = $props()
 
 	const serviceConfig = $derived(getServiceConfig(service))
 	let deleteConfirmationOpen = $state(false)
@@ -45,13 +52,36 @@
 		isDeleting = false
 	}
 
+	async function onToggleMode(trigger: TriggerW, mode: TriggerMode): Promise<boolean> {
+		const enabled = mode === 'enabled'
+		try {
+			await NativeTriggerService.setNativeTriggerEnabled({
+				workspace: $operatingWorkspace!,
+				serviceName: service,
+				externalId: trigger.external_id,
+				requestBody: { enabled }
+			})
+		} catch (err: any) {
+			sendUserToast(
+				`Failed to ${enabled ? 'enable' : 'disable'} trigger: ${err.body ?? err.message}`,
+				true
+			)
+			return false
+		}
+		sendUserToast(
+			`${enabled ? 'Enabled' : 'Disabled'} ${serviceConfig?.serviceDisplayName} trigger ${trigger.external_id}`
+		)
+		onUpdate?.()
+		return true
+	}
+
 	async function confirmDeleteTrigger() {
 		if (!triggerToDelete) return
 
 		isDeleting = true
 		try {
 			await NativeTriggerService.deleteNativeTrigger({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId: triggerToDelete.external_id
 			})
@@ -81,6 +111,7 @@
 			{#each triggers as trigger (trigger.external_id)}
 				{@const isFlow = trigger.is_flow}
 				{@const href = `${isFlow ? '/flows/get' : '/scripts/get'}/${trigger.script_path}`}
+				{@const canEdit = editRights.canEditItem('trigger', trigger.script_path, {})}
 				<div
 					class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 				>
@@ -88,8 +119,11 @@
 						<RowIcon kind={isFlow ? 'flow' : 'script'} />
 
 						<a
-							href="#{trigger.external_id}"
-							onclick={() => onEdit?.(trigger)}
+							href="#{encodeURIComponent(trigger.external_id)}"
+							onclick={(e) => {
+								if (isNewTabClick(e)) return
+								onEdit?.(trigger)
+							}}
 							class="min-w-0 grow hover:underline decoration-gray-400"
 						>
 							<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
@@ -132,13 +166,21 @@
 						</a>
 
 						<div class="flex gap-2 items-center justify-end">
+							<TriggerModeToggle
+								canWrite={canEdit}
+								title={$triggerLock}
+								triggerMode={trigger.enabled ? 'enabled' : 'disabled'}
+								onToggleMode={(mode) => onToggleMode(trigger, mode)}
+								hideToggleLabels
+								hideDropdown
+							/>
 							<Button
 								on:click={() => onEdit?.(trigger)}
 								unifiedSize="md"
-								startIcon={{ icon: Pen }}
+								startIcon={{ icon: canEdit ? Pen : Eye }}
 								variant="subtle"
 							>
-								Edit
+								{canEdit ? 'Edit' : 'View'}
 							</Button>
 							<Dropdown
 								size="md"
@@ -146,14 +188,14 @@
 									{
 										displayName: `View ${isFlow ? 'Flow' : 'Script'}`,
 										icon: Eye,
-										action: () => {
-											goto(href)
-										}
+										href
 									},
 									{
 										displayName: 'Delete',
 										type: 'delete' as const,
 										icon: Trash,
+										disabled: !canEdit,
+										tooltip: $triggerLock,
 										action: () => openDeleteConfirmation(trigger)
 									}
 								]}
@@ -169,6 +211,8 @@
 								size="xs"
 								variant="subtle"
 								startIcon={{ icon: RefreshCw }}
+								disabled={!!$triggerLock}
+								title={$triggerLock}
 								on:click={() => onRecreate?.(trigger)}
 							>
 								Recreate

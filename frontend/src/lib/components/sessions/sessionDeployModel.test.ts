@@ -101,6 +101,15 @@ describe('buildDeployItems', () => {
 		expect(items[0].hasDraft).toBe(true)
 	})
 
+	it("a pipeline's deployed scripts fold into its one row", () => {
+		const bundle = maskKey('data_pipeline', 'f/crm/data_pipeline')
+		const node = maskKey('script', 'f/crm/clean')
+		const mask = new Set([bundle, node])
+		const items = buildDeployItems({ draftItems: [], mask, existingKeys: new Set([bundle, node]) })
+		expect(items.map((i) => i.key)).toEqual([bundle])
+		expect(maskOnlyCandidates({ draftItems: [], mask }).map((c) => c.key)).toEqual([bundle])
+	})
+
 	it('maskOnlyCandidates returns keys not covered by a draft', () => {
 		const cands = maskOnlyCandidates({
 			draftItems: [draft('script', 'u/a/draft')],

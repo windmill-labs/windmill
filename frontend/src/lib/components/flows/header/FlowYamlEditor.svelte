@@ -86,6 +86,9 @@
 			if (parsed['on_behalf_of'] !== undefined) {
 				flowStore.val.on_behalf_of = parsed['on_behalf_of']
 			}
+			if (parsed['job_token_scopes'] !== undefined) {
+				flowStore.val.job_token_scopes = parsed['job_token_scopes']
+			}
 			flowStore.val.value = parsed.value
 			flowStore.val.schema = parsed.schema
 			flowStore.val.tag = parsed.tag

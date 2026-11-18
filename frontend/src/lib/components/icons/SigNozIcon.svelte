@@ -8,7 +8,13 @@
 </script>
 
 <!-- #FF5E19 -> #FF2929 radial gradient per signoz.io/img/SigNozLogo-orange.svg. SigNoz ships no reversed variant; the tile mark is used unchanged on light and dark. -->
-<svg {width} {height} viewBox="0 0.5 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-0.955 -0.455 22.909 22.909"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<defs>
 		<radialGradient
 			id="signoz-tile"

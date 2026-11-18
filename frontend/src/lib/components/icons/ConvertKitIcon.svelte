@@ -12,7 +12,7 @@
 	class="text-[#1E1E1E] dark:text-[#F2EFE9]"
 	{width}
 	{height}
-	viewBox="0 0 24 24"
+	viewBox="-1.091 -1.091 26.182 26.182"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<g transform="translate(0 6.5802) scale(.0418514)">

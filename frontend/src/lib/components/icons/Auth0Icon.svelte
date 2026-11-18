@@ -26,7 +26,7 @@
 	role="img"
 	{width}
 	{height}
-	viewBox="0 0 19.7865 24"
+	viewBox="-3.198 -1.091 26.182 26.182"
 	fill={color ?? 'currentColor'}
 	xmlns="http://www.w3.org/2000/svg"
 	class={twMerge('text-[#232220] dark:text-[#FFFFFF]', clazz)}

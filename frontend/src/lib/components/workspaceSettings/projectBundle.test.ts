@@ -16,6 +16,8 @@ import {
 	collectExportVarPaths,
 	extractTriggerConfigResourceRefs,
 	extractVarRefsFromValue,
+	projectReferencesResource,
+	textHoldsBarePath,
 	type ProjectExport,
 	type FetchedItem,
 	type ItemRef
@@ -126,6 +128,20 @@ describe('buildPathMap', () => {
 		const m = buildPathMap(['f/proj/a/x', 'f/proj/b/x'], 'proj')
 		expect(m.get('f/proj/a/x')).toBe('f/proj/a/x')
 		expect(m.get('f/proj/b/x')).toBe('f/proj/b/x')
+	})
+	it('keeps the sub-path of every item in a nested source folder', () => {
+		const m = buildPathMap(
+			['f/hub/billing/charge', 'f/hub/billing/utils/format', 'f/hub/billing/stripe/format'],
+			'billing',
+			'hub/billing'
+		)
+		expect(m.get('f/hub/billing/charge')).toBe('f/billing/charge')
+		expect(m.get('f/hub/billing/utils/format')).toBe('f/billing/utils/format')
+		expect(m.get('f/hub/billing/stripe/format')).toBe('f/billing/stripe/format')
+		// The same for a top-level folder whose name is not its slug.
+		expect(buildPathMap(['f/my_tools/a/x'], 'my-tools', 'my_tools').get('f/my_tools/a/x')).toBe(
+			'f/my-tools/a/x'
+		)
 	})
 	it('relocates an external onto a suffix when its leaf collides with an internal path', () => {
 		const m = buildPathMap(['f/proj/db', 'u/admin/db'], 'proj')
@@ -865,5 +881,48 @@ describe('flow_env and preprocessor_module', () => {
 		expect(out.preprocessor_module.value.path).toBe('f/proj/preproc')
 		expect(out.flow_env.SLACK).toBe('$res:f/proj/slack')
 		expect(out.flow_env.PLAIN).toBe('not-a-ref')
+	})
+})
+
+describe('projectReferencesResource', () => {
+	/**
+	 * A project declares one resource per `resource-<type>` input schema as well as one per
+	 * `$res:` reference, so an app pinning `f/proj/google_calendar` for a script whose schema
+	 * says `resource-gcal` ships both it and an unreferenced `f/proj/gcal`. Only the pinned
+	 * one has to hold a credential for the project to work.
+	 */
+	const bundle = {
+		project: { slug: 'proj', name: 'Proj', summary: '', readme: null },
+		scripts: [{ path: 'f/proj/send', content: 'const c = "$res:f/proj/google_calendar"' }],
+		flows: [],
+		apps: [],
+		resources: [
+			{ path: 'f/proj/gcal', resource_type: 'gcal' },
+			{ path: 'f/proj/google_calendar', resource_type: 'gcal' },
+			{ path: 'f/proj/db', resource_type: 'postgresql' }
+		],
+		triggers: [{ path: 'f/proj/ingest', config: { postgres_resource_path: 'f/proj/db' } }]
+	} as unknown as ProjectExport
+
+	it("sees a $res: token and a trigger's bare path, and not a stub nothing points at", () => {
+		expect(projectReferencesResource(bundle, 'f/proj/google_calendar')).toBe(true)
+		expect(projectReferencesResource(bundle, 'f/proj/db')).toBe(true)
+		// Declared only because a script's input schema names the type.
+		expect(projectReferencesResource(bundle, 'f/proj/gcal')).toBe(false)
+	})
+})
+
+describe('textHoldsBarePath', () => {
+	// Gates three deletion decisions, and its two directions cost differently: a false yes
+	// keeps a stub nobody needed, a false no deletes one something still reads.
+	const P = 'f/proj/db'
+	it.each([
+		['a token only', `const c = "$res:${P}"`, false],
+		['a path written in code', `await getResource("${P}")`, true],
+		['both spellings', `"$res:${P}"; getResource("${P}")`, true],
+		['a longer path that starts the same', `await getResource("${P}_prod")`, false],
+		['the same path inside a longer token', `"$res:${P}_prod"`, false]
+	])('%s', (_label, text, expected) => {
+		expect(textHoldsBarePath(text, P)).toBe(expected)
 	})
 })

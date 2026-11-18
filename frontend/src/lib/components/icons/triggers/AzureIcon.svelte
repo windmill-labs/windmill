@@ -16,7 +16,7 @@
 	xmlns="http://www.w3.org/2000/svg"
 	width={`${size}px`}
 	height={`${size}px`}
-	viewBox="0 0 24 24"
+	viewBox="-1.041 0.951 26.131 26.131"
 	fill={color ?? 'currentColor'}
 	class={clazz}
 >

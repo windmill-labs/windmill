@@ -46,17 +46,67 @@ export function getFlowPrompt(): string {
 
 // Helper for resource & variable authoring
 export function getResourcePrompt(): string {
-  return prompts.RESOURCES_BASE;
+  return [
+    prompts.RESOURCES_BASE
+  ].filter(Boolean).join('\n\n');
 }
 
-// Helper for raw app authoring (chat consumers)
-export function getRawAppPrompt(): string {
-  return prompts.RAW_APP_BASE;
+// Helper for AI agent authoring
+export function getAgentPrompt(): string {
+  return [
+    prompts.AGENT_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for raw app authoring (chat consumers). Inline backend runnables are
+// ordinary Windmill jobs, so the reference has to carry the SDK the runnable
+// calls — without it an agent invents client functions and hand-rolls HTTP.
+// Only one SDK is returned: both would double an already large tool result.
+export function getRawAppPrompt(language?: string): string {
+  const sdkPrompt = PY_SDK_LANGUAGES.includes(language ?? '')
+    ? prompts.SDK_PYTHON
+    : prompts.SDK_TYPESCRIPT;
+
+  return [
+    prompts.RAW_APP_BASE,
+    sdkPrompt
+  ].filter(Boolean).join('\n\n');
 }
 
 // Helper for data pipeline authoring (chat consumers)
 export function getPipelinePrompt(): string {
-  return prompts.PIPELINE_BASE;
+  return [
+    prompts.PIPELINE_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for rich results: tables, charts and the other shapes a return value renders as
+export function getDisplayPrompt(): string {
+  return [
+    prompts.DISPLAY_RESULTS_BASE,
+    prompts.DISPLAY_CATALOG
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for answering a task with code run as a preview, then saved and reused
+export function getCodeModePrompt(): string {
+  return [
+    prompts.CODE_MODE_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for data table schema changes, migrations and permissions (chat consumers)
+export function getDatatablePrompt(): string {
+  return [
+    prompts.DATATABLE_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for the workspace settings document (chat consumers)
+export function getWorkspaceSettingsPrompt(): string {
+  return [
+    prompts.WORKSPACE_SETTINGS_BASE
+  ].filter(Boolean).join('\n\n');
 }
 
 // Helper to get the datatable SQL SDK reference (wmill.datatable()).

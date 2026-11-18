@@ -18,7 +18,7 @@
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 128 128"
+	viewBox="-1.455 -1.455 130.909 130.909"
 	enable-background="new 0 0 128 128"
 	xml:space="preserve"
 >

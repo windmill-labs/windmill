@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import {
 		ArrowRight,
+		Bot,
 		Boxes,
 		Calendar,
 		Database,
@@ -28,14 +29,17 @@
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
-	import { runToolDisplayAction } from './createdResourceActions.svelte'
+	import {
+		hasToolDisplayActionHandler,
+		runToolDisplayAction
+	} from './createdResourceActions.svelte'
 	import type { CreatedResourceTriggerKind, ToolDisplayAction } from './shared'
 
 	interface Props {
 		actions: ToolDisplayAction[]
 	}
 
-	type ActionCardKey = 'schedule' | 'resource' | 'variable' | CreatedResourceTriggerKind
+	type ActionCardKey = 'schedule' | 'resource' | 'agent' | 'variable' | CreatedResourceTriggerKind
 	type ActionCardConfig = {
 		title: string
 		icon: any
@@ -48,6 +52,7 @@
 	const actionCardConfigs: Record<ActionCardKey, ActionCardConfig> = {
 		schedule: { title: 'Schedule', icon: Calendar },
 		resource: { title: 'Resource', icon: Package },
+		agent: { title: 'Agent', icon: Bot },
 		variable: { title: 'Variable', icon: KeyRound },
 		http: { title: 'HTTP trigger', icon: Route },
 		websocket: { title: 'WebSocket trigger', icon: Unplug },
@@ -122,17 +127,21 @@
 					<div class="truncate text-xs font-semibold text-primary">{card.title}</div>
 					<div class="truncate text-2xs text-secondary">{card.subtitle}</div>
 				</div>
-				<Button
-					size="xs"
-					variant="default"
-					title={action.label}
-					loading={runningActionId === action.id}
-					disabled={runningActionId !== undefined && runningActionId !== action.id}
-					startIcon={{ icon: card.buttonIcon }}
-					onClick={() => handleAction(action)}
-				>
-					Open
-				</Button>
+				<!-- open_created_resource is serviced only by the sessions page's tabs, so elsewhere
+				     the card stands alone as a record of what the tool created. -->
+				{#if hasToolDisplayActionHandler(action.type)}
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						title={action.label}
+						loading={runningActionId === action.id}
+						disabled={runningActionId !== undefined && runningActionId !== action.id}
+						startIcon={{ icon: card.buttonIcon }}
+						onClick={() => handleAction(action)}
+					>
+						Open
+					</Button>
+				{/if}
 			</div>
 		{/each}
 	</div>

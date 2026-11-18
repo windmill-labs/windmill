@@ -9,7 +9,12 @@
 
 <!-- #000000 plate, #FFFFFF glyph per Recraft's press-kit "Icon White" mark (https://www.recraft.ai/press-releases).
 	The plated mark carries its own background: recraft.ai serves it to prefers-color-scheme light and dark alike — not a theme pair. -->
-<svg {width} {height} viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-45.455 -45.455 1090.909 1090.909"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<g clip-path="url(#recraft-clip0_14044_7953)">
 		<path d="M1000 0H0V1000H1000V0Z" fill="black" />
 		<path

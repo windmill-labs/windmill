@@ -8,7 +8,7 @@
 </script>
 
 <!-- #ED2024 → #FF8F1C per paylocity.com design-system CSS (.styleBGBrandGradient). -->
-<svg {width} {height} viewBox="0 0 144 144" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-6.545 -6.545 157.091 157.091" xmlns="http://www.w3.org/2000/svg">
 	<g clip-path="url(#paylocity-clip0_442_16449)">
 		<path d="M144 0H0V144H144V0Z" fill="url(#paylocity-paint0_linear_442_16449)" />
 		<path

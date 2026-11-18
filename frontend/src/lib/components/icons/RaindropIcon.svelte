@@ -9,7 +9,7 @@
 
 <!-- #1988E0 (with #2CD4ED / #0DB4E2 / #3169FF / #3153FF) on both themes per
 	app.raindrop.io/assets/icon_raw.svg and raindrop.io icon_128.png. Full-colour mark, no reversed variant published. -->
-<svg {width} {height} viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-2.182 -2.182 52.364 52.364" xmlns="http://www.w3.org/2000/svg">
 	<defs>
 		<path
 			id="icon_raw-a"

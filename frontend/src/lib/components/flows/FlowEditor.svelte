@@ -2,6 +2,9 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
+	import { agentEditorTarget, type AgentEditorTarget } from './agentEditorStore.svelte'
+	import AgentEditorModal from './content/AgentEditorModal.svelte'
+	import { repointLinkedAgent } from './linkedAgentDrafts'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
@@ -14,7 +17,7 @@
 	import { useFlowPanelMode } from './flowPanelMode.svelte'
 	import { useFlowPanelPlacementTelemetry } from './flowEditorTelemetry'
 
-	import { writable } from 'svelte/store'
+	import { get, writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import type { Flow, Job } from '$lib/gen'
@@ -35,17 +38,25 @@
 	import { Button } from '../common'
 	import { MousePointerClick, X } from 'lucide-svelte'
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
-	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
-	import { userStore } from '$lib/stores'
-	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const { flowStore, selectionManager, pathStore, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+	// Flow paths repeat across workspaces, and a session keeps every tab it has visited alive, so two
+	// editors can hold the same path at once. Both halves are needed to tell them apart.
+	let editorWorkspace = $derived(opWorkspace?.() ?? $operatingWorkspace)
+	function targetWorkspace(t: AgentEditorTarget): string | undefined {
+		return t.workspace ?? $operatingWorkspace
+	}
+
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
 
 	interface Props {
 		loading: boolean
 		disableStaticInputs?: boolean
-		disableTutorials?: boolean
 		disableAi?: boolean
 		disableSettings?: boolean
 		disabledFlowInputs?: boolean
@@ -62,9 +73,7 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
-		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
-		toggleAiChat?: () => void
 		sessionOpen?: OpenInSessionSource
 		localModuleStates?: Record<string, GraphModuleState>
 		testModuleStates?: ModulesTestStates
@@ -89,7 +98,6 @@
 	let {
 		loading,
 		disableStaticInputs = false,
-		disableTutorials = false,
 		disableAi = false,
 		disableSettings = false,
 		disabledFlowInputs = false,
@@ -104,9 +112,7 @@
 		highlightArg,
 		localModuleStates = {},
 		testModuleStates = undefined,
-		aiChatOpen,
 		showFlowAiButton,
-		toggleAiChat,
 		sessionOpen,
 		isOwner,
 		onTestFlow,
@@ -231,7 +237,19 @@
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig,
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined),
-		inModalPanel: () => panelMode === 'modal'
+		// The agent editor is a dialog over the same graph, so a connect started inside it has the
+		// same closure hazard as one started from the modal panel. Only this flow's own, on the same
+		// rule the mount below claims one by: a session keeps every visited tab alive, and a target
+		// belonging to another of them is not a dialog over this graph.
+		inModalPanel: () => {
+			if (panelMode === 'modal') return true
+			const t = agentEditorTarget()
+			return (
+				t !== undefined &&
+				t.host?.flowPath === get(pathStore) &&
+				targetWorkspace(t) === editorWorkspace
+			)
+		}
 	})
 
 	// Read by graph step items (VirtualItem) to show a per-step "explore" hint on hover,
@@ -276,8 +294,8 @@
 		aiChatManager.flowOptions = options
 	})
 
-	// The step exists but is empty, so name it: a GLOBAL-mode request carries no
-	// implicit "current step" the way the old SCRIPT-mode generateStep did.
+	// The step exists but is empty, so name it: a GLOBAL-mode request carries no implicit
+	// "current step".
 	function stepInstructionsPrompt(moduleId: string, instructions: string): string {
 		return `Write the code for step \`${moduleId}\` of the flow open in the editor:\n\n${instructions}`
 	}
@@ -369,7 +387,6 @@
 						bind:this={flowModuleSchemaMap}
 						controlsPosition={compactGraphOverlay ? 'bottom' : 'top'}
 						{disableStaticInputs}
-						{disableTutorials}
 						{disableAi}
 						{disableSettings}
 						{smallErrorHandler}
@@ -378,14 +395,9 @@
 						on:reload
 						on:generateStep={({ detail }) => {
 							// The step is already inserted; the prompt describes what it should
-							// contain. Hand it to a session opened on that step rather than the
-							// docked chat, which sessions leave unmounted. Sent on arrival: the
+							// contain. Hand it to a session opened on that step. Sent on arrival: the
 							// user already said what they wanted in the description field.
-							if (
-								!sessionScopedManager &&
-								sessionOpen &&
-								prefersSessionHandoff($userStore?.operator)
-							) {
+							if (!sessionScopedManager && sessionOpen) {
 								void openSourceInSession(sessionOpen, {
 									previewParams: { selected: detail.moduleId },
 									seedPrompt: stepInstructionsPrompt(detail.moduleId, detail.instructions),
@@ -397,24 +409,15 @@
 							// Not `generateStep` — that forces the request into SCRIPT mode, and
 							// changeMode is persistent, so it would strand the session outside
 							// GLOBAL. Global mode writes step code through set_flow_module_code.
-							if (sessionScopedManager) {
-								sessionScopedManager.sendOrQueue(
-									stepInstructionsPrompt(detail.moduleId, detail.instructions)
-								)
-								return
-							}
-							if (!aiChatManager.open) {
-								aiChatManager.openChat()
-							}
-							aiChatManager.generateStep(detail.moduleId, detail.lang, detail.instructions)
+							sessionScopedManager?.sendOrQueue(
+								stepInstructionsPrompt(detail.moduleId, detail.instructions)
+							)
 						}}
 						{onTestUpTo}
 						{onEditInput}
 						{localModuleStates}
 						{testModuleStates}
-						{aiChatOpen}
 						{showFlowAiButton}
-						{toggleAiChat}
 						{sessionOpen}
 						{isOwner}
 						{onTestFlow}
@@ -524,3 +527,13 @@
 		{/if}
 	{/snippet}
 </Disposable>
+
+<!-- Mounted here rather than in the panel, which is keyed on the selection and would take the
+     dialog down with it the moment the graph selection moved. Claims only agents opened from this
+     flow: a session keeps every visited tab alive, and each would otherwise build its own editor
+     over the same draft. -->
+<AgentEditorModal
+	enableAi={!disableAi}
+	owns={(t) => t.host?.flowPath === $pathStore && targetWorkspace(t) === editorWorkspace}
+	onRenamed={(from, to) => repointLinkedAgent(flowStore.val.value, from, to)}
+/>

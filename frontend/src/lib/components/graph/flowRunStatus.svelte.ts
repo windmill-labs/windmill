@@ -17,6 +17,8 @@ export class FlowRunStatus {
 	#moduleStates = new SvelteMap<string, GraphModuleState>()
 	flowJob = $state.raw<Job | undefined>(undefined)
 	suspendStatus = $state.raw<SuspendStatus>({})
+	/** Whether the graph draws a run, as opposed to a flow definition with no run states. */
+	showsRun = $state(false)
 
 	getModuleState(id: string | undefined): GraphModuleState | undefined {
 		return id == undefined ? undefined : this.#moduleStates.get(id)

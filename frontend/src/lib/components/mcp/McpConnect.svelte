@@ -8,7 +8,6 @@
 	import McpServerOAuthConnect from './McpServerOAuthConnect.svelte'
 	import OauthScopes from '$lib/components/OauthScopes.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
-	import { base } from '$lib/base'
 	import { onDestroy, untrack } from 'svelte'
 	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { MCP_REGISTRY, findMcpEntry, findMcpEntryByUrl } from './registry'
@@ -27,9 +26,12 @@
 		/** Required: a caller that forgot it would create the connection in whichever
 		 * workspace the ui happens to be showing, not the one it operates on. */
 		workspace: string
+		/** Off where the surface around it already draws a card — a popover panel —
+		 * so the two do not stack a border and a background on each other. */
+		bordered?: boolean
 	}
 
-	let { onConnected, onCancel, workspace }: Props = $props()
+	let { onConnected, onCancel, workspace, bordered = true }: Props = $props()
 
 	let ws = $derived(workspace)
 	// Any URL is connectable; a suggestion is a shortcut that also pins how the
@@ -129,13 +131,6 @@
 	// it is offered outright only once detection says nothing here can sign in.
 	let canSignIn = $derived(
 		oauthAppReady || (canDiscover && !!$enterpriseLicense && discoveryFoundOAuth !== false)
-	)
-	// The action button names the credential, not the outcome, so the path field
-	// says what clicking it will leave behind.
-	let pathNote = $derived(
-		canSignIn && !showToken
-			? 'Signing in saves the connection at this path, as an'
-			: 'The connection is saved at this path, as an'
 	)
 	// Why the token field is the only way in, said where the token is asked for.
 	let tokenNote = $derived(
@@ -283,27 +278,21 @@
 		if (!t) return
 		const { workspace, path } = t
 		try {
-			let account: number | undefined = undefined
-			if (res?.expires_in != undefined) {
-				account = Number(
-					await OauthService.createAccount({
-						workspace,
-						requestBody: {
-							refresh_token: res.refresh_token ?? '',
-							expires_in: res.expires_in,
-							client: t.client,
-							scopes: t.scopes
-						}
-					})
-				)
-			}
 			await upsertSecretVariable({
 				workspace,
 				path,
 				value: res.access_token,
 				resourcePath: path,
 				isOauth: true,
-				account
+				account:
+					res?.expires_in != undefined
+						? {
+								refresh_token: res.refresh_token ?? '',
+								expires_in: res.expires_in,
+								client: t.client,
+								scopes: t.scopes
+							}
+						: undefined
 			})
 			await createMcpResource(t, `$var:${path}`)
 			sendUserToast(`Connected ${t.label}`)
@@ -338,7 +327,11 @@
 	}
 </script>
 
-<div class="border rounded p-4 bg-surface-tertiary flex flex-col gap-4">
+<div
+	class={bordered
+		? 'border rounded p-4 bg-surface-tertiary flex flex-col gap-4'
+		: 'flex flex-col gap-4'}
+>
 	<div class="flex justify-between items-center">
 		<span class="text-sm font-semibold text-emphasis">Connect an MCP server</span>
 		{#if onCancel}
@@ -442,10 +435,14 @@
 		{/if}
 
 		<Label label="Save MCP connection to">
+			<!-- The path decides who gets the connection, and its token with it: the backend
+			     reads both off the path (`u/<name>` is that user's, `f/<folder>` is everyone
+			     with read on the folder), so this is the one place to say so. -->
 			<span class="text-xs text-secondary">
-				{pathNote}
+				Under <span class="font-mono">u/{$userStore?.username ?? 'you'}</span> it is yours alone; in
+				a folder, everyone in it can use the connection and its token. Saved as an
 				<a
-					href="{base}/resources?workspace={ws}"
+					href="/resources?workspace={ws}"
 					target="_blank"
 					rel="noopener noreferrer"
 					class="text-accent hover:underline inline-flex items-center gap-1"

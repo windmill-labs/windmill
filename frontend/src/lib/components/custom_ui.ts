@@ -9,7 +9,6 @@ export type FlowBuilderWhitelabelCustomUi = {
 		export?: boolean
 		history?: boolean
 		aiBuilder?: boolean
-		tutorials?: boolean
 		diff?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
@@ -37,6 +36,8 @@ export type FlowBuilderWhitelabelCustomUi = {
 	languages?: (SupportedLanguage | 'docker' | 'bunnative')[]
 	scriptFork?: boolean
 	scriptEdit?: boolean
+	/** Set to false to hide the inline step's "Save to workspace" button. */
+	saveToWorkspace?: boolean
 	tagEdit?: boolean
 	editorBar?: EditorBarUi
 	downloadLogs?: boolean
@@ -45,6 +46,10 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagLabel?: string
 	aiAgent?: boolean
 	aiSandbox?: boolean
+	/** Set to false so no AI feature can add, change or remove the flow's inputs (its schema): the
+	 * step input fill ("Fill inputs" and the per-input suggestion) only uses existing flow
+	 * inputs, and the flow AI chat cannot edit the schema. */
+	aiFlowInputs?: boolean
 	suggestIntegration?: boolean
 	suggestScript?: boolean
 	// Default timeout (in seconds) prefilled when enabling a custom step timeout.

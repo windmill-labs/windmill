@@ -1,10 +1,14 @@
 import { describe, expect, it } from "bun:test";
+import { loadCases } from "./cases";
 import {
   validateAppState,
   validateCliWorkspace,
   validateGlobalState,
+  validatePipelineRun,
   validateScriptState,
+  validateAssistantExpectations,
   validateToolExpectations,
+  validateDisplayBlocks,
 } from "./validators";
 
 describe("validateScriptState", () => {
@@ -38,6 +42,113 @@ describe("validateScriptState", () => {
       name: "script exports entrypoint",
       passed: false,
     });
+  });
+});
+
+describe("validateAssistantExpectations", () => {
+  it("checks assistant mentions across the whole run, not just the last turn", () => {
+    const run = {
+      success: true,
+      actual: {},
+      assistantMessageCount: 2,
+      toolCallCount: 0,
+      toolsUsed: [],
+      skillsInvoked: [],
+      assistantText: "Wired the app up.\nThe flow HAS TO BE DEPLOYED before the app works.",
+    };
+
+    const checks = validateAssistantExpectations({
+      run,
+      assistantExpect: {
+        requiredMentionsAnyOf: [["must be deployed", "has to be deployed"], ["never said"]],
+        forbiddenMentions: ["WM_TOKEN"],
+      },
+    });
+
+    expect(checks.map((c) => c.passed)).toEqual([true, false, true]);
+  });
+
+  it("rejects a deploy claim that names the app instead of the flow", () => {
+    const checks = validateAssistantExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 0,
+        toolsUsed: [],
+        skillsInvoked: [],
+        assistantText: "Built both. The app must be deployed before the button works.",
+      },
+      assistantExpect: {
+        requiredMentionsAnyOf: [["deploy the flow", "flow must be deployed"]],
+      },
+    });
+
+    expect(checks.map((c) => c.passed)).toEqual([false]);
+  });
+
+  it("fails instead of passing green when the mode reports no assistant text", () => {
+    const checks = validateAssistantExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 0,
+        toolsUsed: [],
+        skillsInvoked: [],
+      },
+      assistantExpect: { forbiddenMentions: ["WM_TOKEN"] },
+    });
+
+    expect(checks.map((c) => c.passed)).toEqual([false]);
+  });
+});
+
+// The matcher is a plain substring test, so its failure mode is accepting an answer it should
+// reject. The real alternatives are therefore exercised against wrong answers rather than
+// eyeballed, and read out of global.yaml so an edit there cannot silently loosen them.
+describe("global-app-triggers-flow deploy expectation", () => {
+  const run = (assistantText: string) => ({
+    success: true,
+    actual: {},
+    assistantMessageCount: 1,
+    toolCallCount: 0,
+    toolsUsed: [],
+    skillsInvoked: [],
+    assistantText,
+  });
+
+  const passes = async (assistantText: string) => {
+    const cases = await loadCases("global");
+    const target = cases.find((c) => c.id === "global-app-triggers-flow");
+    if (!target?.assistantExpect) throw new Error("case or its assistantExpect is missing");
+    const checks = validateAssistantExpectations({
+      run: run(assistantText),
+      assistantExpect: target.assistantExpect,
+    });
+    return checks.every((c) => c.passed);
+  };
+
+  // Deploying is impossible in eval mode and the judge only sees drafts, so a claim of
+  // having deployed is a hallucination this case has to reject, not evidence of success.
+  it.each([
+    ["names the app as what needs deploying", "Built both. The app must be deployed before the button works."],
+    ["claims the deploy is already done", "All set — done deploying the flow, everything works now."],
+    ["claims it deployed the flow itself", "I deployed the flow for you, so the button works."],
+    ["reports a completed deploy after the fact", "After deploying the flow, I clicked the button and it returns the greeting."],
+    ["reports a completed deploy instrumentally", "I fixed it by deploying the flow; everything works now."],
+    ["says nothing about deploying", "Built the flow and the app. The button calls the flow."],
+  ])("rejects an answer that %s", async (_label, text) => {
+    expect(await passes(text)).toBe(false);
+  });
+
+  it.each([
+    ["you'll need to deploy the flow before the app's button will work"],
+    ["the flow has to be deployed first; the app can stay a draft"],
+    ["once the flow is deployed, the button will work in the preview"],
+    ["want me to deploy just the flow? the app stays a draft"],
+  ])("accepts a correct answer: %s", async (text) => {
+    expect(await passes(text)).toBe(true);
   });
 });
 
@@ -116,6 +227,43 @@ describe("validateToolExpectations", () => {
       name: "create_schedule.path avoids rejected prefixes",
       passed: false,
       details: 'rejected prefixes: schedules/; values: "schedules/greet_user_daily"',
+    });
+  });
+
+  // A resource reference shares its prefix with a wrong sibling path, and the mock
+  // never resolves it, so only exact matching separates the two.
+  it("rejects a resource reference whose path merely shares the prefix", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["test_run_script"],
+        toolCallDetails: [
+          {
+            name: "test_run_script",
+            arguments: { args: { gh_auth: "$res:f/evals/global/github_main_backup" } },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [
+          {
+            tool: "test_run_script",
+            field: "args.gh_auth",
+            stringEqualsAnyOf: ["$res:f/evals/global/github_main"],
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "test_run_script.args.gh_auth matches an accepted value",
+      passed: false,
+      details:
+        'accepted values: $res:f/evals/global/github_main; values: "$res:f/evals/global/github_main_backup"',
     });
   });
 
@@ -248,6 +396,32 @@ describe("validateToolExpectations", () => {
     const nonEmptyCheck = checks.find((c) => c.name.includes("is filled in on every call"));
     expect(nonEmptyCheck?.passed).toBe(false);
     expect(nonEmptyCheck?.details).toContain("blank on 1 of 2");
+  });
+
+  it("requires sharedByAtLeast calls to carry one value, not merely a value each", () => {
+    const run = (ids: (string | undefined)[]) =>
+      validateToolExpectations({
+        run: {
+          success: true,
+          actual: {},
+          assistantMessageCount: 1,
+          toolCallCount: ids.length,
+          toolsUsed: ["test_run_flow"],
+          toolCallDetails: ids.map((memory_id) => ({
+            name: "test_run_flow",
+            arguments: { path: "f/chat", memory_id },
+          })),
+          skillsInvoked: [],
+        },
+        toolExpect: {
+          toolCallArgs: [{ tool: "test_run_flow", field: "memory_id", sharedByAtLeast: 2 }],
+        },
+      }).find((c) => c.name.includes("is shared by at least 2 calls"))?.passed;
+
+    expect(run(["a", "b"])).toBe(false);
+    expect(run(["a"])).toBe(false);
+    expect(run([undefined, undefined])).toBe(false);
+    expect(run(["rejected", "a", "a"])).toBe(true);
   });
 
   it("passes nonEmpty when every call filled the field", () => {
@@ -447,6 +621,62 @@ describe("validateToolExpectations", () => {
       passed: false,
       details: "tools used: patch_app_file",
     });
+  });
+});
+
+describe("validatePipelineRun", () => {
+  const spec = {
+    folder: "shop",
+    queries: [
+      {
+        name: "daily",
+        sql: "SELECT * FROM dl.orders_daily",
+        rowCount: 2,
+        includesValues: [2, 25, "2026-10-30"],
+      },
+    ],
+  };
+
+  it("fails a node no root reached, even when its table holds the right rows", () => {
+    const checks = validatePipelineRun(spec, {
+      nodes: [
+        { path: "f/shop/ingest", ran: true, success: true },
+        { path: "f/shop/daily", ran: false },
+      ],
+      queries: [
+        {
+          name: "daily",
+          rows: [
+            { day: "2026-10-30T00:00:00", n: 2, revenue: 25 },
+            { day: "2026-10-31T00:00:00", n: 3, revenue: 32.5 },
+          ],
+        },
+      ],
+    });
+    const failed = checks.filter((c) => !c.passed).map((c) => c.name);
+    expect(failed).toEqual(["pipeline node f/shop/daily runs and succeeds"]);
+  });
+
+  it("fails a rollup started directly next to the ingest, even when it succeeded", () => {
+    const checks = validatePipelineRun(
+      { ...spec, queries: [], maxRoots: 1 },
+      {
+        roots: ["f/shop/ingest", "f/shop/daily"],
+        nodes: [
+          { path: "f/shop/ingest", ran: true, success: true },
+          { path: "f/shop/daily", ran: true, success: true },
+        ],
+        queries: [],
+      },
+    );
+    const failed = checks.filter((c) => !c.passed).map((c) => c.name);
+    expect(failed).toEqual(["at most 1 pipeline node(s) start the pipeline"]);
+  });
+
+  it("asserts nothing when the run was skipped", () => {
+    expect(validatePipelineRun(spec, { skipped: "no storage", nodes: [], queries: [] })).toEqual(
+      [],
+    );
   });
 });
 
@@ -1142,5 +1372,21 @@ describe("validateCliWorkspace", () => {
       passed: false,
       details: "firstSkillIndex=0; firstMutationIndex=none",
     });
+  });
+});
+
+describe("validateDisplayBlocks", () => {
+  const fence = (value: unknown) => "```wm-display\n" + JSON.stringify(value) + "\n```";
+  const chart = { chart: { type: "bar", data: [{ day: "Mon", n: 4 }], x: "day", y: "n" } };
+
+  it("requires every block to validate against the display catalog", () => {
+    const ok = validateDisplayBlocks(`Here:\n${fence(chart)}`, "required");
+    expect(ok.every((c) => c.passed)).toBe(true);
+    const bad = validateDisplayBlocks(
+      `${fence(chart)}\n${fence({ chart: { ...chart.chart, y: "missing" } })}`,
+      "required"
+    );
+    expect(bad.every((c) => c.passed)).toBe(false);
+    expect(validateDisplayBlocks("plain prose", "required").every((c) => c.passed)).toBe(false);
   });
 });

@@ -12,7 +12,7 @@
 	class="text-[#000000] dark:text-[#FFFFFF]"
 	{width}
 	{height}
-	viewBox="0 0 700.000000 700.000000"
+	viewBox="-30.326 -30.326 760.654 760.654"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<metadata> Created by potrace 1.11, written by Peter Selinger 2001-2013 </metadata>

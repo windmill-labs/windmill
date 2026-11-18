@@ -458,6 +458,8 @@ export async function deployItem(
           path,
           requestBody: {
             ...flow,
+            // Sent even when unset: the backend keeps a restriction an omitted field leaves out.
+            job_token_scopes: flow.job_token_scopes ?? null,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
             // Usernames are per-workspace, so the source's principal names nobody in
@@ -471,6 +473,8 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             ...flow,
+            // Sent even when unset: the backend keeps a restriction an omitted field leaves out.
+            job_token_scopes: flow.job_token_scopes ?? null,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
             // Usernames are per-workspace, so the source's principal names nobody in
@@ -498,6 +502,7 @@ export async function deployItem(
         requestBody: {
           ...script,
           lock: script.lock,
+          job_token_scopes: script.job_token_scopes ?? null,
           parent_hash: parentHash,
           preserve_on_behalf_of: preserveOnBehalfOf,
           on_behalf_of_email: onBehalfOf,
@@ -506,10 +511,23 @@ export async function deployItem(
         },
       });
     } else if (kind === "app" || kind === "raw_app") {
-      const app = await provider.getAppByPath({
+      const rawApp = await provider.getAppByPath({
         workspace: workspaceFrom,
         path,
       });
+      // See the flow branch: a source-workspace principal is never valid here, and the
+      // policy carries the app's in `on_behalf_of`. Clearing it lets the backend derive
+      // the target's own from the address. A group travels as its synthetic
+      // `group-*@windmill.dev` address, which an admin-created account holding it would
+      // win: known and accepted, see `users::permissioned_as_from_email` in the backend.
+      const app = {
+        ...rawApp,
+        policy: {
+          ...rawApp.policy,
+          on_behalf_of: undefined,
+          on_behalf_of_email: onBehalfOf,
+        },
+      };
       if (alreadyExists) {
         if (app.raw_app) {
           const secret = await provider.getPublicSecretOfLatestVersionOfApp({
@@ -584,11 +602,19 @@ export async function deployItem(
         }
       }
     } else if (kind === "variable") {
-      const variable = await provider.getVariable({
+      // An external secret reference is copied as the reference, never as the value it resolves to.
+      let variable = await provider.getVariable({
         workspace: workspaceFrom,
         path,
-        decryptSecret: true,
+        decryptSecret: false,
       });
+      if (variable.is_secret && !variable.value?.startsWith("$external:")) {
+        variable = await provider.getVariable({
+          workspace: workspaceFrom,
+          path,
+          decryptSecret: true,
+        });
+      }
       if (alreadyExists) {
         await provider.updateVariable({
           workspace: workspaceTo,
@@ -598,6 +624,9 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            labels: variable.labels,
+            // `null` clears; absent would keep the target's stored date.
+            value_valid_until: variable.value_valid_until ?? null,
           },
           alreadyEncrypted: false,
         });
@@ -609,6 +638,8 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            labels: variable.labels,
+            value_valid_until: variable.value_valid_until ?? null,
           },
         });
       }
@@ -617,14 +648,27 @@ export async function deployItem(
         workspace: workspaceFrom,
         path,
       });
+      let value = resource.value ?? "";
+      // An agent's value carries the principal it runs as, as a trigger's row does: the source's
+      // names nobody in the target, so it is replaced by the chosen one or dropped, leaving the
+      // backend to make it the deployer's.
+      const agent = resource.resource_type === "ai_agent" && typeof value === "object";
+      if (agent) {
+        const { on_behalf_of: _, ...rest } = value;
+        value = onBehalfOf ? { ...rest, on_behalf_of: onBehalfOf } : rest;
+      }
+      const agentPreserve = agent ? { preserve_on_behalf_of: preserveOnBehalfOf } : {};
       if (alreadyExists) {
         await provider.updateResource({
           workspace: workspaceTo,
           path,
           requestBody: {
             path,
-            value: resource.value ?? "",
+            value,
+            resource_type: resource.resource_type,
             description: resource.description ?? "",
+            labels: resource.labels,
+            ...agentPreserve,
           },
         });
       } else {
@@ -632,9 +676,11 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             path,
-            value: resource.value ?? "",
+            value,
             resource_type: resource.resource_type,
             description: resource.description ?? "",
+            labels: resource.labels,
+            ...agentPreserve,
           },
         });
       }
@@ -650,6 +696,11 @@ export async function deployItem(
           requestBody: {
             schema: rt.schema,
             description: rt.description ?? "",
+            is_fileset: rt.is_fileset ?? false,
+            // An omitted extension or name is left unchanged, so an unset one is sent as null
+            // to clear what the target has.
+            format_extension: rt.format_extension ?? null,
+            display_name: rt.display_name ?? null,
           },
         });
       } else {
@@ -659,6 +710,9 @@ export async function deployItem(
             name: rt.name,
             schema: rt.schema,
             description: rt.description ?? "",
+            is_fileset: rt.is_fileset,
+            format_extension: rt.format_extension,
+            display_name: rt.display_name,
           },
         });
       }
@@ -673,9 +727,13 @@ export async function deployItem(
           workspace: workspaceTo,
           name,
           requestBody: {
+            display_name: folder.display_name,
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
+            // A folder stores cleared labels as NULL and reads back without the field, so an
+            // absent value has to be sent as [] or the target keeps labels the source removed.
+            labels: folder.labels ?? [],
           },
         });
       } else {
@@ -683,9 +741,11 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             name,
+            display_name: folder.display_name,
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
+            labels: folder.labels,
           },
         });
       }
@@ -867,7 +927,9 @@ export async function getItemValue(
       return {
         summary: flow.summary,
         description: flow.description,
+        schema: flow.schema,
         value: flow.value,
+        job_token_scopes: flow.job_token_scopes ?? null,
       };
     } else if (kind === "script") {
       const script = await provider.getScriptByPath({ workspace, path });
@@ -876,7 +938,9 @@ export async function getItemValue(
         lock: script.lock,
         schema: script.schema,
         summary: script.summary,
+        description: script.description,
         language: script.language,
+        job_token_scopes: script.job_token_scopes ?? null,
       };
     } else if (kind === "app" || kind === "raw_app") {
       return await provider.getAppByPath({ workspace, path });
@@ -886,13 +950,33 @@ export async function getItemValue(
         path,
         decryptSecret: true,
       });
-      return variable.value;
+      return {
+        value: variable.value,
+        is_secret: variable.is_secret,
+        description: variable.description,
+        value_valid_until: variable.value_valid_until ?? undefined,
+      };
     } else if (kind === "resource") {
       const resource = await provider.getResource({ workspace, path });
-      return resource.value;
+      let value = resource.value;
+      // Each workspace resolves its own agent identity, which a deploy never copies.
+      if (resource.resource_type === "ai_agent" && value) {
+        const { on_behalf_of: _, ...rest } = value;
+        value = rest;
+      }
+      return {
+        value,
+        description: resource.description,
+        resource_type: resource.resource_type,
+      };
     } else if (kind === "resource_type") {
       const rt = await provider.getResourceType({ workspace, path });
-      return rt.schema;
+      return {
+        schema: rt.schema,
+        description: rt.description,
+        format_extension: rt.format_extension,
+        is_fileset: rt.is_fileset,
+      };
     } else if (kind === "folder") {
       const folder = await provider.getFolder({
         workspace,
@@ -900,6 +984,7 @@ export async function getItemValue(
       });
       return {
         name: folder.name,
+        display_name: folder.display_name,
         owners: folder.owners,
         extra_perms: folder.extra_perms,
         summary: folder.summary,
@@ -974,7 +1059,8 @@ function stripTriggerOrScheduleRuntimeFields(row: unknown): unknown {
 
 /**
  * Fetch the on_behalf_of value for a deployable item.
- * Returns an email for flows/scripts/apps, or undefined if not applicable.
+ * Returns an email for flows/scripts/apps, a principal (u/username, g/group) for
+ * triggers/schedules and agents, or undefined if not applicable.
  */
 export async function getOnBehalfOf(
   provider: DeployProvider,
@@ -992,6 +1078,12 @@ export async function getOnBehalfOf(
     } else if (kind === "app" || kind === "raw_app") {
       const app = await provider.getAppByPath({ workspace, path });
       return app.policy?.on_behalf_of_email;
+    } else if (kind === "resource") {
+      // Only an agent runs as anyone, and like a trigger it records the principal.
+      const resource = await provider.getResource({ workspace, path });
+      return resource.resource_type === "ai_agent"
+        ? resource.value?.on_behalf_of
+        : undefined;
     } else if (kind === "schedule") {
       const schedule = await provider.getSchedule({ workspace, path });
       return schedule.permissioned_as;

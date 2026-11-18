@@ -12,7 +12,7 @@
 	class="text-[#000000] dark:text-[#00D639]"
 	{width}
 	{height}
-	viewBox="0 0 31 54"
+	viewBox="-13.778 -2.436 58.449 58.449"
 	fill="currentColor"
 	xmlns="http://www.w3.org/2000/svg"
 >

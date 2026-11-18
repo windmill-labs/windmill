@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::flows::FlowValue;
+use crate::flows::{FlowValue, Suspend};
 
 const MINUTES: Duration = Duration::from_secs(60);
 const HOURS: Duration = MINUTES.saturating_mul(60);
@@ -41,6 +41,23 @@ pub struct FlowStatus {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_id: Option<Uuid>,
+    /// Set at push on a branch/loop sub-flow whose enclosing flow had no `flow_env`, own or
+    /// inherited, so the worker can skip the ancestor walk for it. `false` only means unknown:
+    /// the worker then walks the ancestors as usual.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_inherited_flow_env: bool,
+    /// On a root flow: the steps, at any depth, that failed and that the flow went past
+    /// because of `continue_on_error`. Capped at `MAX_CONTINUED_ON_ERROR` entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub continued_on_error: Vec<ContinuedOnError>,
+}
+
+pub const MAX_CONTINUED_ON_ERROR: i32 = 100;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ContinuedOnError {
+    pub id: String,
+    pub job: Uuid,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -185,6 +202,7 @@ struct UntaggedFlowStatusModule {
     flow_jobs: Option<Vec<Uuid>>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
     flow_jobs_duration: Option<FlowJobsDuration>,
+    flow_jobs_labels: Option<Vec<Option<String>>>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
@@ -193,7 +211,7 @@ struct UntaggedFlowStatusModule {
     failed_retries: Option<Vec<Uuid>>,
     skipped: Option<bool>,
     agent_actions: Option<Vec<AgentAction>>,
-    agent_actions_success: Option<Vec<bool>>,
+    agent_actions_success: Option<Vec<Option<bool>>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -213,6 +231,31 @@ pub enum AgentAction {
     },
     Message {},
     WebSearch {},
+    /// The agent is parked until someone approves or rejects these calls of tools that require
+    /// it; it is answered once its `agent_actions_success` entry is written. `call_id` is the
+    /// first call's, and names the request.
+    Approval {
+        call_id: String,
+        calls: Vec<ApprovalCall>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
+    /// The agent is parked until someone answers its question, the same way.
+    Question {
+        call_id: String,
+        question: String,
+        /// Answers the model proposes; a free-text answer is always possible.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        choices: Vec<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        multi_select: bool,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ApprovalCall {
+    pub function_name: String,
+    pub arguments: serde_json::Value,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -244,6 +287,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
@@ -254,7 +299,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
     Success {
         id: String,
@@ -266,6 +311,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -276,7 +323,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
     Failure {
         id: String,
@@ -288,13 +335,15 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         failed_retries: Vec<Uuid>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
 }
 
@@ -342,6 +391,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 branchall: untagged.branchall,
                 parallel: untagged.parallel.unwrap_or(false),
@@ -360,6 +410,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
@@ -377,6 +428,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
                 agent_actions: untagged.agent_actions,
@@ -404,6 +456,21 @@ pub enum JobResult {
 }
 
 impl FlowStatusModule {
+    /// Whether this completed step's suspend gate could block and never opened (it timed out or
+    /// was disapproved): `approvers` is written when the gate opens, and is the only record of it
+    /// that outlives the run, since its resume_job rows are deleted with its queue row.
+    pub fn suspend_gate_never_opened(&self, suspend: Option<&Suspend>) -> bool {
+        let Some(suspend) = suspend else {
+            return false;
+        };
+        if suspend.required_events.unwrap_or(0) == 0
+            || suspend.continue_on_disapprove_timeout.unwrap_or(false)
+        {
+            return false;
+        }
+        matches!(self, FlowStatusModule::Success { skipped: false, approvers, .. } if approvers.is_empty())
+    }
+
     pub fn job(&self) -> Option<Uuid> {
         match self {
             FlowStatusModule::WaitingForPriorSteps { .. } => None,
@@ -438,6 +505,15 @@ impl FlowStatusModule {
             FlowStatusModule::InProgress { flow_jobs_success, .. } => flow_jobs_success.clone(),
             FlowStatusModule::Success { flow_jobs_success, .. } => flow_jobs_success.clone(),
             FlowStatusModule::Failure { flow_jobs_success, .. } => flow_jobs_success.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn flow_jobs_labels(&self) -> Option<Vec<Option<String>>> {
+        match self {
+            FlowStatusModule::InProgress { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            FlowStatusModule::Success { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            FlowStatusModule::Failure { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
             _ => None,
         }
     }
@@ -511,7 +587,7 @@ impl FlowStatusModule {
         }
     }
 
-    pub fn agent_actions_success(&self) -> Option<Vec<bool>> {
+    pub fn agent_actions_success(&self) -> Option<Vec<Option<bool>>> {
         match self {
             FlowStatusModule::InProgress { agent_actions_success, .. } => {
                 agent_actions_success.clone()
@@ -568,6 +644,8 @@ impl FlowStatus {
             stream_job: None,
             chat_input_enabled: f.chat_input_enabled,
             memory_id: None,
+            no_inherited_flow_env: false,
+            continued_on_error: vec![],
         }
     }
 

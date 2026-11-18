@@ -153,6 +153,10 @@ impl From<anyhow::Error> for Error {
 impl From<sqlx::Error> for Error {
     #[track_caller]
     fn from(e: sqlx::Error) -> Self {
+        if crate::db::is_stale_cached_plan(&e) {
+            tracing::warn!("a schema change invalidated cached statements, reopening the database connections: {e}");
+            crate::db::retire_connections_opened_before_now();
+        }
         Self::SqlErr { error: e, location: prettify_location(std::panic::Location::caller()) }
     }
 }
@@ -272,7 +276,10 @@ fn format_db_error(message: &str, detail: Option<&str>, hint: Option<&str>) -> S
     msg
 }
 
-fn error_source_chain(e: &dyn std::error::Error) -> String {
+/// `e` followed by each of its sources, `: `-separated. The result is meant for
+/// users, and a `reqwest::Error` renders its request URL: never pass one built
+/// from a URL carrying credentials in its userinfo.
+pub fn error_source_chain(e: &dyn std::error::Error) -> String {
     let mut msg = e.to_string();
     let mut source = e.source();
     while let Some(cause) = source {
@@ -282,9 +289,9 @@ fn error_source_chain(e: &dyn std::error::Error) -> String {
     msg
 }
 
-impl IntoResponse for Error {
-    fn into_response(self) -> axum::response::Response {
-        let status = match self {
+impl Error {
+    pub fn status_code(&self) -> axum::http::StatusCode {
+        match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) | Self::PermissionDenied(_) => axum::http::StatusCode::FORBIDDEN,
@@ -294,13 +301,23 @@ impl IntoResponse for Error {
             | Self::JsonErr(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             Self::BadGateway(_) => axum::http::StatusCode::BAD_GATEWAY,
-            Self::Generic(status_code, _) => status_code,
+            Self::Generic(status_code, _) => *status_code,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-        };
+        }
+    }
+}
+
+impl IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        let status = self.status_code();
 
         let e = &self;
 
-        if matches!(status, axum::http::StatusCode::NOT_FOUND) {
+        // A refused turn is as expected as a miss: the chat follows the turn that refused it.
+        if matches!(
+            status,
+            axum::http::StatusCode::NOT_FOUND | axum::http::StatusCode::CONFLICT
+        ) {
             tracing::warn!(message = e.to_string());
         } else {
             tracing::error!(message = e.to_string(), error = ?e);

@@ -14,7 +14,7 @@
 	contentClasses="p-4 flex flex-col w-80 pt-8 bg-surface"
 >
 	{#snippet trigger()}
-		<Button variant="accent" unifiedSize="md" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
+		<Button variant="accent" unifiedSize="sm" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
 			Filters
 		</Button>
 	{/snippet}

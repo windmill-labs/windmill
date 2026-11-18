@@ -26,17 +26,22 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { Popover } from '$lib/components/meltComponents'
 	import { CaptureService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import { triggerIconMap } from './utils'
 	import { formatDateShort } from '$lib/utils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
-	import { base } from '$lib/base'
 	import Description from '$lib/components/Description.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { FlaskConical } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	// Saving a capture config is a trigger write the server refuses to a withdrawn operator, so
+	// every capture kind locks here rather than each editor passing it down.
+	const triggerLock = useTriggerLock()
 
 	interface Props {
 		disabled?: boolean | undefined
@@ -139,7 +144,7 @@
 			if (!captureInfo.path) return
 
 			const captures = await CaptureService.listCaptures({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				runnableKind: captureInfo.isFlow ? 'flow' : 'script',
 				path: captureInfo.path,
 				triggerKind: captureType,
@@ -167,7 +172,7 @@
 
 			try {
 				const captures = await CaptureService.listCaptures({
-					workspace: $workspaceStore!,
+					workspace: $operatingWorkspace!,
 					runnableKind: captureInfo.isFlow ? 'flow' : 'script',
 					path: captureInfo.path,
 					triggerKind: captureType,
@@ -213,7 +218,7 @@
 		try {
 			isLoadingBigPayload = true
 			const fullCapture = await CaptureService.getCapture({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				id: capture.id
 			})
 
@@ -287,7 +292,7 @@
 							<Button
 								size="xs"
 								on:click={() => dispatch('captureToggle', {})}
-								{disabled}
+								disabled={disabled || !!$triggerLock}
 								variant={captureInfo.active ? 'default' : 'accent-secondary'}
 								selected={captureInfo.active}
 								startIcon={captureInfo.active
@@ -325,12 +330,14 @@
 								<div
 									class={twMerge(
 										'absolute top-0 left-0 w-full text-center',
-										disabled === true ? 'text-red-600 dark:text-red-400' : ''
+										disabled === true && !$triggerLock ? 'text-red-600 dark:text-red-400' : ''
 									)}
 									in:fade={{ duration: 100, delay: 50 }}
 									out:fade={{ duration: 50 }}
 								>
-									{#if disabled === true}
+									{#if $triggerLock}
+										{$triggerLock}.
+									{:else if disabled === true}
 										Enter a valid configuration to start capturing.
 									{:else}
 										{@render description?.()}
@@ -455,7 +462,6 @@
 
 			{#if displayResult && toolbarLocation === 'external'}
 				<DisplayResultControlBar
-					{base}
 					result={selectedCapture?.main_args}
 					disableTooltips={false}
 					on:open-drawer={() => {

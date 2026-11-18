@@ -15,7 +15,7 @@
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
+	viewBox="-3.356 -3.356 175.04 175.04"
 	fill="none"
 	style="enable-background:new 0 0 270 270; fill:currentcolor;"
 >

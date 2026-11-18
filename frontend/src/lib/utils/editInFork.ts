@@ -1,6 +1,8 @@
-import { base } from '$lib/base'
 import { get } from 'svelte/store'
+import { canFork } from '$lib/roleCapabilities'
+import type { RoleCapabilities } from '$lib/gen'
 import {
+	roleCapabilities,
 	userStore,
 	userWorkspaces,
 	workspaceStore,
@@ -17,21 +19,20 @@ import { updateDevWorkspaceModal } from '$lib/utils/editInForkModal.svelte'
 export type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
 
 /**
- * Whether to show the "edit in fork / dev workspace" affordance. Allowed when forking isn't disabled,
- * when the user can bypass the forking rule (workspace admins, mirroring `canCreateFork`), OR when the
- * current workspace has a canonical dev to route to — routing into an existing dev workspace creates
- * no fork, so it survives a locked prod that has `DisableWorkspaceForking` set. User identity is read
- * non-reactively (it's stable within a session); reactivity comes from the workspace args.
+ * Whether to show the "edit in fork / dev workspace" affordance. Allowed when the user may create a
+ * fork, OR when the current workspace has a canonical dev to route to — routing into an existing dev
+ * workspace creates no fork, so it survives a locked prod that has `DisableWorkspaceForking` set.
+ * Never for a role without `code`, which has nothing to edit at the other end either way. User
+ * identity is read non-reactively (it's stable within a session); reactivity comes from the
+ * workspace args.
  */
 export function editInForkAllowed(
 	currentWorkspaceId: string | undefined,
 	allWorkspaces: UserWorkspace[]
 ): boolean {
-	return (
-		!isRuleActive('DisableWorkspaceForking') ||
-		canUserBypassRuleKind('DisableWorkspaceForking', get(userStore)) ||
-		!!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
-	)
+	const caps = get(roleCapabilities)
+	if (!caps.code) return false
+	return canCreateFork(get(userStore), caps) || !!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
 }
 
 /** Label for the affordance: "Edit in <dev name>" when routed to a canonical dev, else "Edit in fork". */
@@ -43,12 +44,26 @@ export function editInForkLabel(
 	return dev ? `Edit in ${dev.name}` : 'Edit in fork'
 }
 
+/** One line under `editInForkLabel` for a menu entry, saying where the edit happens. */
+export function editInForkDescription(
+	itemType: ItemType,
+	currentWorkspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): string {
+	const kind = itemType === 'raw_app' ? 'app' : itemType
+	const dev = findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	return dev
+		? `Open this ${kind} in the ${dev.name} dev workspace`
+		: `Edit this ${kind} in a forked workspace, then deploy the changes back`
+}
+
 /**
- * Whether the user may CREATE a new fork of the current workspace: forking not disabled, or the user
- * can bypass the rule (workspace admins). Keeps the "Fork workspace" entry available to admins as the
- * last-resort escape hatch on a locked prod.
+ * Whether the user may CREATE a new fork of the current workspace: their role holds `fork`, and
+ * either forking isn't disabled or they can bypass the rule (workspace admins). Keeps the "Fork
+ * workspace" entry available to admins as the last-resort escape hatch on a locked prod.
  */
-export function canCreateFork(user: UserExt | undefined): boolean {
+export function canCreateFork(user: UserExt | undefined, caps: RoleCapabilities): boolean {
+	if (!canFork(caps)) return false
 	return (
 		!isRuleActive('DisableWorkspaceForking') ||
 		canUserBypassRuleKind('DisableWorkspaceForking', user)
@@ -58,27 +73,33 @@ export function canCreateFork(user: UserExt | undefined): boolean {
 function editPathFor(itemType: ItemType, itemPath: string): string {
 	switch (itemType) {
 		case 'script':
-			return `${base}/scripts/edit/${itemPath}`
+			return `/scripts/edit/${itemPath}`
 		case 'flow':
-			return `${base}/flows/edit/${itemPath}`
+			return `/flows/edit/${itemPath}`
 		case 'app':
-			return `${base}/apps/edit/${itemPath}`
+			return `/apps/edit/${itemPath}`
 		case 'raw_app':
-			return `${base}/apps_raw/edit/${itemPath}`
+			return `/apps_raw/edit/${itemPath}`
 	}
 }
 
-export function buildForkEditUrl(itemType: ItemType, itemPath: string): string {
+export function buildForkEditUrl(
+	itemType: ItemType,
+	itemPath: string,
+	prodWorkspace?: string
+): string {
 	// When the current ("prod") workspace has a canonical dev workspace, edits are funneled there.
-	const dev = findCanonicalDevWorkspace(get(workspaceStore), get(userWorkspaces))
+	const dev = findCanonicalDevWorkspace(prodWorkspace ?? get(workspaceStore), get(userWorkspaces))
 	return dev
 		? devWorkspaceEditUrl(itemType, itemPath, dev.id)
-		: forkWorkspaceUrl(itemType, itemPath)
+		: forkWorkspaceUrl(itemType, itemPath, prodWorkspace)
 }
 
-/** Fork-creation flow, coming back to the item's editor once the fork exists. */
-export function forkWorkspaceUrl(itemType: ItemType, itemPath: string): string {
-	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPathFor(itemType, itemPath))}`
+/** Fork-creation flow, coming back to the item's editor once the fork exists. It forks the
+ * workspace the page loads in, so a caller acting on another one names it. */
+export function forkWorkspaceUrl(itemType: ItemType, itemPath: string, workspace?: string): string {
+	const from = workspace ? `&workspace=${encodeURIComponent(workspace)}` : ''
+	return `/user/fork_workspace?rd=${encodeURIComponent(editPathFor(itemType, itemPath))}${from}`
 }
 
 /** The item's editor in the dev workspace — the target `buildForkEditUrl` produces when a dev exists. */
@@ -154,7 +175,7 @@ export async function onEditInForkClick(
 	e: Event | undefined,
 	itemType: ItemType,
 	itemPath: string,
-	{ hasHref = false }: { hasHref?: boolean } = {}
+	{ hasHref = false, prodWorkspace }: { hasHref?: boolean; prodWorkspace?: string } = {}
 ): Promise<void> {
 	const click = e as MouseEvent | undefined
 	if (
@@ -162,10 +183,10 @@ export async function onEditInForkClick(
 		(click?.ctrlKey || click?.metaKey || click?.shiftKey || click?.altKey || click?.button)
 	)
 		return
-	const target = currentDevWorkspace()
+	const target = currentDevWorkspace(prodWorkspace)
 	if (!target) {
 		// Nothing to probe: the destination is the fork-creation flow, which the anchor already points at.
-		if (!hasHref) await goto(forkWorkspaceUrl(itemType, itemPath))
+		if (!hasHref) await goto(forkWorkspaceUrl(itemType, itemPath, prodWorkspace))
 		return
 	}
 	e?.preventDefault()
@@ -208,7 +229,7 @@ export async function openEditInFork(
 	const target = currentDevWorkspace(prodWorkspace)
 	if (!target) {
 		// No dev workspace to probe for: the destination is the fork-creation flow.
-		if (!window.open(forkWorkspaceUrl(itemType, itemPath))) {
+		if (!window.open(forkWorkspaceUrl(itemType, itemPath, prodWorkspace))) {
 			sendUserToast('Allow popups to fork this workspace', true)
 		}
 		return

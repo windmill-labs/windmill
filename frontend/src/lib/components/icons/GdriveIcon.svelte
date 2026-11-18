@@ -9,7 +9,13 @@
 
 <!-- #3186ff per https://www.gstatic.com/images/branding/productlogos/drive_2026/v2/web/192px.svg, Google's own product-logo CDN; paths and gradient stops are verbatim.
 	 Google forbids modifying its logos "in any way, including changing the color", so this stays full-colour with no per-theme pair. -->
-<svg {width} {height} viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="5.182 4.244 181.636 181.636"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<mask
 		id="gdrive-mask"
 		width="168"

@@ -26,7 +26,7 @@ use windmill_common::{
     global_settings::{
         load_value_from_global_settings, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
     },
-    utils::{parse_npmrc_registry, StripPath},
+    utils::{parse_npmrc_registry, RegistryAuth, StripPath},
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -149,7 +149,7 @@ pub fn workspaced_service() -> Router {
 
 fn build_registry_request(
     url: &str,
-    auth_token: &Option<String>,
+    auth: &Option<RegistryAuth>,
     registry_base_url: &str,
 ) -> Result<reqwest::RequestBuilder> {
     let parsed_url =
@@ -166,8 +166,17 @@ fn build_registry_request(
     }
 
     let mut req = HTTP_CLIENT.get(url);
-    if let Some(token) = auth_token {
-        req = req.bearer_auth(token);
+    // A packument may point a tarball at another port or plain http on the same host;
+    // credentials, often a real password, only go to the registry's own origin.
+    if parsed_url.origin() != parsed_base.origin() {
+        return Ok(req);
+    }
+    match auth {
+        Some(RegistryAuth::Bearer(token)) => req = req.bearer_auth(token),
+        Some(RegistryAuth::Basic(credentials)) => {
+            req = req.header(header::AUTHORIZATION, format!("Basic {credentials}"))
+        }
+        None => {}
     }
     Ok(req)
 }
@@ -308,12 +317,12 @@ lazy_static::lazy_static! {
 async fn fetch_package_json(
     db: &sqlx::Pool<sqlx::Postgres>,
     package: &str,
-) -> Result<(Arc<JsonValue>, String, Option<String>)> {
-    let (registry_url, auth_token) = get_npm_registry(db)
+) -> Result<(Arc<JsonValue>, String, Option<RegistryAuth>)> {
+    let (registry_url, auth) = get_npm_registry(db)
         .await?
         .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
-    let document = fetch_package_json_from(&registry_url, &auth_token, package).await?;
-    Ok((document, registry_url, auth_token))
+    let document = fetch_package_json_from(&registry_url, &auth, package).await?;
+    Ok((document, registry_url, auth))
 }
 
 /// The same fetch against a registry the caller has already resolved.
@@ -325,7 +334,7 @@ async fn fetch_package_json(
 /// immutable, so that survives switching back.
 async fn fetch_package_json_from(
     registry_url: &str,
-    auth_token: &Option<String>,
+    auth: &Option<RegistryAuth>,
     package: &str,
 ) -> Result<Arc<JsonValue>> {
     let registry_url = registry_url.to_string();
@@ -340,7 +349,7 @@ async fn fetch_package_json_from(
 
     tracing::info!("Fetching package metadata from: {}", package_url);
 
-    let response = build_registry_request(&package_url, auth_token, &registry_url)?
+    let response = build_registry_request(&package_url, auth, &registry_url)?
         .header(header::ACCEPT, ABBREVIATED_PACKUMENT)
         .send()
         .await
@@ -380,7 +389,7 @@ async fn tarball_response(
     package: &str,
     version: &str,
     registry_url: &str,
-    auth_token: &Option<String>,
+    auth: &Option<RegistryAuth>,
 ) -> Result<reqwest::Response> {
     let tarball_url = package_json
         .get("versions")
@@ -390,7 +399,7 @@ async fn tarball_response(
         .and_then(|t| t.as_str())
         .ok_or_else(|| Error::NotFound(format!("Tarball not found for {}@{}", package, version)))?;
 
-    let response = build_registry_request(tarball_url, auth_token, registry_url)?
+    let response = build_registry_request(tarball_url, auth, registry_url)?
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to download tarball: {}", e)))?;
@@ -411,9 +420,9 @@ async fn fetch_tarball(
     package: &str,
     version: &str,
     registry_url: &str,
-    auth_token: &Option<String>,
+    auth: &Option<RegistryAuth>,
 ) -> Result<axum::body::Bytes> {
-    tarball_response(package_json, package, version, registry_url, auth_token)
+    tarball_response(package_json, package, version, registry_url, auth)
         .await?
         .bytes()
         .await
@@ -642,10 +651,10 @@ async fn get_package_file(
         Some(content) => content,
         // Not a file a type request asks for, so it was never kept: walk the archive for it
         None => {
-            let (package_json, registry_url, auth_token) =
+            let (package_json, registry_url, auth) =
                 fetch_package_json(&db, &package).await?;
             let archive =
-                fetch_tarball(&package_json, &package, &version, &registry_url, &auth_token)
+                fetch_tarball(&package_json, &package, &version, &registry_url, &auth)
                     .await?;
             let path = target.clone();
             blocking(move || read_one_entry(&archive, &path))
@@ -668,13 +677,13 @@ async fn get_package_tarball(
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> Result<Response> {
     let (package, version) = parse_package_and_version(package_version_path.to_path())?;
-    let (package_json, registry_url, auth_token) = fetch_package_json(&db, &package).await?;
+    let (package_json, registry_url, auth) = fetch_package_json(&db, &package).await?;
     let response = tarball_response(
         &package_json,
         &package,
         &version,
         &registry_url,
-        &auth_token,
+        &auth,
     )
     .await?;
 
@@ -693,11 +702,11 @@ async fn get_package_tarball(
         .into_response())
 }
 
-/// Get the npm registry URL and optional auth token from global settings.
+/// Get the npm registry URL and optional credentials from global settings.
 /// Checks the `npmrc` setting first, then falls back to `npm_config_registry`.
 async fn get_npm_registry(
     db: &sqlx::Pool<sqlx::Postgres>,
-) -> Result<Option<(String, Option<String>)>> {
+) -> Result<Option<(String, Option<RegistryAuth>)>> {
     let npmrc = load_value_from_global_settings(db, NPMRC_SETTING)
         .await?
         .and_then(|v| v.as_str().map(|s| s.to_string()));
@@ -716,7 +725,7 @@ async fn get_npm_registry(
         let (url, token) = if s.contains(":_authToken=") {
             let parts: Vec<&str> = s.split(":_authToken=").collect();
             let url = parts[0].to_string();
-            let token = parts.get(1).map(|t| t.to_string());
+            let token = parts.get(1).map(|t| RegistryAuth::Bearer(t.to_string()));
             (url, token)
         } else {
             (s.clone(), None)
@@ -941,7 +950,7 @@ async fn cached_package(
 ) -> Result<PackageFiles> {
     // Resolving the registry is a settings read; the packument behind it is a round trip,
     // and a version already on disk needs neither, so it is fetched only on a miss.
-    let (registry_url, auth_token) = get_npm_registry(db)
+    let (registry_url, auth) = get_npm_registry(db)
         .await?
         .ok_or_else(|| Error::BadRequest("No private npm registry configured".to_string()))?;
 
@@ -963,9 +972,9 @@ async fn cached_package(
     }
 
     // The same snapshot the cache key came from, not a second read of the setting.
-    let package_json = fetch_package_json_from(&registry_url, &auth_token, package).await?;
+    let package_json = fetch_package_json_from(&registry_url, &auth, package).await?;
     let archive =
-        fetch_tarball(&package_json, package, version, &registry_url, &auth_token).await?;
+        fetch_tarball(&package_json, package, version, &registry_url, &auth).await?;
 
     let target = dir.clone();
     let extracted = blocking(move || {

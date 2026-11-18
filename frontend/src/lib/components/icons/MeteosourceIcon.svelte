@@ -8,7 +8,7 @@
 </script>
 
 <!-- #FAD961 -> #F76B1C gradient per the logo in the meteosource.com site header (no brand page published). -->
-<svg {width} {height} viewBox="-0.5 2.5 40 28" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-1.806 -4.806 42.614 42.614" xmlns="http://www.w3.org/2000/svg">
 	<defs>
 		<linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="meteosource-logo-meteosource-a">
 			<stop stop-color="#FAD961" offset="0%"></stop>

@@ -16,6 +16,8 @@
 		defaultDatatable?: string | undefined
 		/** Default schema for new tables */
 		defaultSchema?: string | undefined
+		/** The role the app uses each data table through, by data table name */
+		roles?: Record<string, string>
 		onAdd?: () => void
 		onRemove?: (index: number) => void
 		onSelect?: (ref: DataTableRef, index: number) => void
@@ -31,6 +33,7 @@
 		dataTableRefs = [],
 		defaultDatatable = undefined,
 		defaultSchema = undefined,
+		roles = undefined,
 		onAdd,
 		onRemove,
 		onSelect,
@@ -95,6 +98,7 @@
 			<DefaultDatabaseSelector
 				datatable={defaultDatatable}
 				schema={defaultSchema}
+				{roles}
 				onChange={onDefaultChange}
 			/>
 		{/if}
@@ -124,6 +128,14 @@
 				<div class="flex items-center gap-1.5 px-1 py-1 text-2xs text-tertiary">
 					<Database size={12} class="shrink-0" />
 					<span class="font-medium truncate">{datatableName}</span>
+					{#if roles?.[datatableName]}
+						<span
+							class="truncate font-mono"
+							title="The app's queries on this data table run as this role"
+						>
+							as {roles[datatableName]}
+						</span>
+					{/if}
 					{#if isDefaultDatatable}
 						<span title="Default datatable">
 							<Star size={10} class="shrink-0 text-primary" />

@@ -133,6 +133,70 @@ describe("variable", () => {
     });
   });
 
+  test("push clears value_valid_until when the key is dropped from the file", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const path = `f/test/expiry_var_${uniqueId}`;
+
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path,
+            value: "original_value",
+            is_secret: false,
+            description: "Expiring",
+            value_valid_until: "2027-03-15T08:00:00Z",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+      const created = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${path}`
+      );
+      expect((await created.json()).value_valid_until).toBe("2027-03-15T08:00:00Z");
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\n`,
+        "utf-8"
+      );
+      await mkdir(join(tempDir, "f", "test"), { recursive: true });
+      // No value_valid_until: the CLI must send an explicit null to clear it.
+      await writeFile(
+        join(tempDir, `${path}.variable.yaml`),
+        `value: "original_value"\nis_secret: false\ndescription: "Expiring"\n`,
+        "utf-8"
+      );
+
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `${path}**`],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${path}`
+      );
+      expect(apiResp.status).toEqual(200);
+      const varData = await apiResp.json();
+      expect(varData.value_valid_until ?? null).toBeNull();
+
+      // A clear that did not land leaves the diff pending, so push success is not proof.
+      const secondPush = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `${path}**`],
+        tempDir
+      );
+      expect(secondPush.code).toEqual(0);
+      expect(secondPush.stdout).toContain("0 changes to apply");
+    });
+  });
+
   test("add creates secret by default and preserves fields on update", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
@@ -359,6 +423,126 @@ describe("variable", () => {
       );
       expect(content).toContain("pull_test_value");
       expect(content).toContain("is_secret: false");
+    });
+  });
+
+  test("extra_perms round-trips and pushes via /acls/* without rewriting the variable", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const varPath = `f/test/perms_var_${uniqueId}`;
+
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: varPath,
+            value: "perms_test_value",
+            is_secret: false,
+            description: "Variable for extra_perms test",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      const aclResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/acls/add/variable/${varPath}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ owner: "g/all", write: true }),
+        }
+      );
+      expect(aclResp.status).toBeLessThan(300);
+      await aclResp.text();
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "${varPath}**"\nexcludes: []\n`,
+        "utf-8"
+      );
+
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      const localPath = join(tempDir, `${varPath}.variable.yaml`);
+      const pulled = await readFile(localPath, "utf-8");
+      expect(pulled).toContain("extra_perms:");
+      expect(pulled).toContain("g/all: true");
+
+      const beforeResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      const before = await beforeResp.json();
+
+      // Perm-only edit: downgrade the grant to read.
+      await writeFile(
+        localPath,
+        pulled.replace("g/all: true", "g/all: false"),
+        "utf-8"
+      );
+
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      const afterResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      const after = await afterResp.json();
+      expect(after.extra_perms).toEqual({ "g/all": false });
+      // Routed through /acls/* rather than update_variable, so the row itself
+      // is untouched.
+      expect(after.edited_at).toEqual(before.edited_at);
+      expect(after.value).toEqual("perms_test_value");
+
+      // A yaml with no extra_perms field at all is "no opinion": a checkout
+      // that predates ACL sync must never revoke UI-managed grants.
+      await writeFile(
+        localPath,
+        `description: "Variable for extra_perms test"\nvalue: perms_test_value\nis_secret: false\n`,
+        "utf-8"
+      );
+      const noOpinionResult = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir
+      );
+      expect(noOpinionResult.code).toEqual(0);
+
+      const noOpinionApiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      expect((await noOpinionApiResp.json()).extra_perms).toEqual({
+        "g/all": false,
+      });
+
+      // An owner present remotely but absent from a *present* map is revoked —
+      // the one direction that can destroy a grant.
+      await writeFile(
+        localPath,
+        `description: "Variable for extra_perms test"\nvalue: perms_test_value\nis_secret: false\nextra_perms: {}\n`,
+        "utf-8"
+      );
+      const revokeResult = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir
+      );
+      expect(revokeResult.code).toEqual(0);
+
+      const finalResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${varPath}`
+      );
+      const final = await finalResp.json();
+      expect(final.extra_perms).toEqual({});
     });
   });
 });

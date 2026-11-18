@@ -2,10 +2,10 @@
 	import WorkspaceDiffDrawer from './WorkspaceDiffDrawer.svelte'
 	import { ArrowRight, GitFork, Pencil } from 'lucide-svelte'
 	import { userWorkspaces } from '$lib/stores'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import { useSessionDeployModel } from './sessionDeployModel.svelte'
 	import type { DeployItem } from './sessionDeployModel'
+	import type { DeployResult } from '$lib/utils_workspace_deploy'
 
 	// Session "Edits" drawer. Builds the deploy model over the session
 	// workspace's drafts and hands it to WorkspaceDiffDrawer, which renders the
@@ -19,7 +19,10 @@
 		keys,
 		onDataChanged,
 		onItemDeployed,
-		onItemDiscarded
+		onItemDiscarded,
+		deployPipeline,
+		readOnly = false,
+		agentPaths
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
@@ -36,6 +39,12 @@
 		 *  drops it. */
 		onItemDeployed?: (item: DeployItem) => void
 		onItemDiscarded?: (item: DeployItem) => void
+		/** Forwarded to the deploy model: deploys a pipeline folder's draft bundle. */
+		deployPipeline?: (folder: string) => Promise<DeployResult>
+		/** Forwarded to the deploy model: the session is in Use. */
+		readOnly?: boolean
+		/** Resource rows that are agents, which get the agent's icon and editor. */
+		agentPaths?: Set<string>
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -51,7 +60,9 @@
 		mask: keys,
 		onDataChanged,
 		onItemDeployed,
-		onItemDiscarded
+		onItemDiscarded,
+		deployPipeline,
+		readOnly
 	}))
 
 	// Editor URL for a row (every item lives in the session workspace).
@@ -62,8 +73,12 @@
 		if (item.deployKind === 'script') return `/scripts/edit/${path}?workspace=${ws}`
 		if (item.deployKind === 'app') return `/apps/edit/${path}?workspace=${ws}`
 		if (item.deployKind === 'raw_app') return `/apps_raw/edit/${path}?workspace=${ws}`
+		if (isAgent(item)) return `/agents/edit/${path}?workspace=${ws}`
 		return undefined
 	}
+
+	const isAgent = (item: DeployItem) =>
+		item.agent || (item.deployKind === 'resource' && (agentPaths?.has(item.path) ?? false))
 
 	const title = 'Edited during session'
 
@@ -84,8 +99,10 @@
 	{model}
 	{title}
 	{editUrlFor}
+	iconKindFor={(item) => (isAgent(item) ? 'agent' : undefined)}
 	{compareSessionHref}
 	workspaceLabel={ws?.name ?? workspaceId}
+	reviewWorkspaceId={workspaceId}
 >
 	{#snippet titleExtra()}
 		<div class="flex items-center gap-1.5 text-xs text-secondary min-w-0">
@@ -95,7 +112,11 @@
 					{ws?.name ?? workspaceId}
 				</span>
 				{#if ws?.is_dev_workspace}
-					<Badge color="indigo" small>{devBadgeText(ws.dev_workspace_label)}</Badge>
+					<DevWorkspaceBadge
+						label={ws.dev_workspace_label}
+						color={ws.color}
+						fallbackColor="indigo"
+					/>
 				{/if}
 				<ArrowRight class="w-3 h-3 shrink-0 text-tertiary" />
 				<span class="font-medium truncate" title={parentWs?.name ?? parentWorkspaceId}>

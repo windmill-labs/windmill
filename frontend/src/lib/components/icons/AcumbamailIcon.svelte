@@ -8,7 +8,7 @@
 </script>
 
 <!-- #149ED7 per Acumbamail's own isotype SVG, /static/favico/Acumbamail/favicon-32.svg on acumbamail.com. -->
-<svg {width} {height} viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-1.455 -1.455 34.909 34.909" xmlns="http://www.w3.org/2000/svg">
 	<defs>
 		<clipPath id="acumbamail-clippath">
 			<path

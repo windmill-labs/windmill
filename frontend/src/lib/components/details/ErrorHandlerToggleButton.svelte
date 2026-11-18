@@ -2,58 +2,36 @@
 	import { Bell, BellOff } from 'lucide-svelte'
 
 	import { Button } from '$lib/components/common'
-	import { FlowService, ScriptService } from '$lib/gen'
-	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '../Tooltip.svelte'
+	import { toggleWorkspaceErrorHandler } from './errorHandlerToggle'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
-		kind: 'script' | 'flow';
-		scriptOrFlowPath: string;
-		errorHandlerMuted: boolean | undefined;
-		iconOnly?: boolean;
+		kind: 'script' | 'flow'
+		scriptOrFlowPath: string
+		errorHandlerMuted: boolean | undefined
+		iconOnly?: boolean
+		unifiedSize?: 'xs' | 'sm' | 'md' | 'lg'
 	}
 
 	let {
 		kind,
 		scriptOrFlowPath,
 		errorHandlerMuted = $bindable(),
-		iconOnly = true
-	}: Props = $props();
+		iconOnly = true,
+		unifiedSize = 'md'
+	}: Props = $props()
 
 	async function toggleErrorHandler(): Promise<void> {
-		if ($workspaceStore !== undefined) {
-			try {
-				if (kind === 'flow') {
-					await FlowService.toggleWorkspaceErrorHandlerForFlow({
-						workspace: $workspaceStore,
-						path: scriptOrFlowPath,
-						requestBody: {
-							muted: !errorHandlerMuted
-						}
-					})
-				} else {
-					await ScriptService.toggleWorkspaceErrorHandlerForScript({
-						workspace: $workspaceStore,
-						path: scriptOrFlowPath,
-						requestBody: {
-							muted: !errorHandlerMuted
-						}
-					})
-				}
-			} catch (error) {
-				sendUserToast(
-					`Error while toggling Workspace Error Handler: ${error.body || error.message}`,
-					true
-				)
-				return
-			}
-			errorHandlerMuted = !errorHandlerMuted
-			sendUserToast(
-				errorHandlerMuted ? 'Workspace error handler muted' : 'Workspace error handler active',
-				false
-			)
-		}
+		const next = await toggleWorkspaceErrorHandler(
+			$operatingWorkspace,
+			kind,
+			scriptOrFlowPath,
+			errorHandlerMuted
+		)
+		if (next !== undefined) errorHandlerMuted = next
 	}
 </script>
 
@@ -61,7 +39,7 @@
 	title={errorHandlerMuted === undefined || !errorHandlerMuted
 		? 'Disable workspace error handler for this script'
 		: 'Enable workspace error handler for this script'}
-	unifiedSize="md"
+	{unifiedSize}
 	on:click={toggleErrorHandler}
 	variant="subtle"
 	startIcon={{

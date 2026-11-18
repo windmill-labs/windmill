@@ -10,7 +10,7 @@
 <svg
 	width={size}
 	height={size}
-	viewBox="0 0 24 24"
+	viewBox="0.186 0.186 23.676 23.676"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 	stroke="currentColor"

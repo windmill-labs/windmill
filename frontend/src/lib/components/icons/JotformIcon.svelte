@@ -11,7 +11,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="0 0 25 28"
+	viewBox="-2.743 -1.216 30.485 30.485"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 	class="text-[#0A1551] dark:text-[#FFFFFF]"

@@ -1,14 +1,15 @@
-import { goto as svelteGoto } from '$app/navigation'
-import { base as svelteBase } from '$app/paths'
-import { serializeParam } from '$lib/svelte5UtilsKit.svelte'
+import { goto } from '$app/navigation'
+import { serializeParam } from '$lib/utils/serializeParam'
 
-export function goto(path: string, options = {}) {
-	if (svelteBase == '' || path.startsWith('?')) {
-		return svelteGoto(path, options)
-	} else {
-		const fullPath = path.startsWith(svelteBase) ? path : `${svelteBase}${path}`
-		return svelteGoto(fullPath, options)
-	}
+export { goto }
+
+/**
+ * Whether the browser handles a click on an `<a href>` itself, opening it elsewhere (new tab,
+ * new window, download): a modified or non-primary click. A link whose `onclick` also opens
+ * something in place (a drawer) must skip that work then.
+ */
+export function isNewTabClick(e: MouseEvent): boolean {
+	return e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0
 }
 
 /**
@@ -16,8 +17,7 @@ export function goto(path: string, options = {}) {
  * as the pages write them (via `serializeParam`) so `useUrlSyncedFilterInstance`
  * round-trips them back into filter state. Nullish/empty values are dropped; when
  * `validKeys` is provided, unknown keys are dropped too (structured output guarantees
- * shape, not truth). Returns an un-prefixed app path — pass it to `goto`, which adds
- * the SvelteKit base.
+ * shape, not truth). Returns an app path to pass to `goto`.
  */
 export function buildFilterUrl(
 	pathname: string,

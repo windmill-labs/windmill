@@ -1,30 +1,51 @@
 import {
 	ASSETS_PATH,
 	AUDIT_LOGS_PATH,
+	isPageKey,
 	FOLDERS_PATH,
 	GROUPS_PATH,
+	isPreviewListPath,
+	isRunsListPath,
+	pageItemForListPath,
+	pageItemListPath,
+	pageItemPageHref,
+	pageItemUrl,
 	pageKey,
-	pageHref,
+	parsePageItemRoute,
+	parsePipelineRoute,
+	parseHistoricalScriptEdit,
 	parsePreviewItemRoute,
 	RESOURCES_PATH,
 	RUNS_PATH,
 	SCHEDULES_PATH,
-	stripBase,
+	barePath,
+	agentPagePath,
 	VARIABLES_PATH,
 	WORKSPACE_SETTINGS_PATH,
 	triggerLabelForPath,
 	TRIGGER_PAGES,
+	type PageItemRef,
+	type PreviewItemMode,
 	type PreviewItemRoute,
 	type TriggerKind
 } from './previewPaths'
+import type { UserWorkspace } from '$lib/stores'
+import { capabilitiesIn, type CapabilitiesUser, type VisibilityKey } from '$lib/roleCapabilities'
 // Re-exported so the preview code that already reads locations through this module keeps
 // one import, while a caller needing only a path can reach for the leaf instead.
 export {
+	isPageKey,
+	pageItemListPath,
+	pageItemUrl,
 	pageKey,
-	pageHref,
+	parseHistoricalScriptEdit,
+	parsePageItemRoute,
+	parsePipelineRoute,
 	parsePreviewItemRoute,
-	stripBase,
+	barePath,
 	TRIGGER_PAGES,
+	type PageItemRef,
+	type PreviewItemMode,
 	type PreviewItemRoute,
 	type TriggerKind
 }
@@ -48,7 +69,6 @@ import { buildVariablesFilterSchema } from '$lib/components/variables/variablesF
 import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 import { buildAssetsFilterSchema } from '$lib/components/assets/assetsFilter'
 import { COMPARE_ITEMS_PARAM } from './modifiedItemsMask'
-import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
@@ -65,25 +85,74 @@ export type ArtifactVersionTarget = number | 'latest'
  * an iframe URL. */
 export type PreviewTarget =
 	| { type: 'page'; href: string; label: string }
-	| { type: 'item'; item: WorkspaceItem }
+	// `mode` picks the side of the item to land on; omitted means Edit, so every
+	// caller that predates the View side keeps opening the editor. `version` pins the
+	// View side to one deployed version, in the query so the tab's identity stays the
+	// item's path rather than becoming the version's own hash.
+	// `pendingRunId` hands this tab a chat tool call parked on a run form: the deployed page
+	// shows that form, and Run there answers the call instead of starting a job of its own.
+	// In the query for the same reason as `version` — the tab stays the item's, and the call
+	// is a property of this tab rather than of the item. The id alone: what the call proposed
+	// is read off the chat, since a tab's url is persisted with the session and those
+	// arguments can hold file bytes and secrets typed into the form.
+	| {
+			type: 'item'
+			item: WorkspaceItem
+			mode?: PreviewItemMode
+			version?: string
+			pendingRunId?: string
+	  }
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
+	| { type: 'runform'; toolCallId: string; label: string }
+	| { type: 'pageitem'; ref: PageItemRef }
 
-export type PreviewPage = { label: string; path: string; icon: DrillIcon }
+/**
+ * Which side of an item to open when the opener is showing the reader something
+ * that already exists, rather than something it just wrote: the deployed page,
+ * unless nothing is deployed there and the editor is all the item has.
+ *
+ * The openers that follow a write (`open_preview`, the write-result preview card)
+ * pass `'edit'` themselves — the item they mean may well be deployed, and its
+ * deployed page is precisely not what the reader asked to see.
+ */
+export function previewModeFor(item: Pick<WorkspaceItem, 'draftOnly'>): PreviewItemMode {
+	return item.draftOnly ? 'edit' : 'view'
+}
+
+export type PreviewPage = {
+	label: string
+	path: string
+	icon: DrillIcon
+	/** The role visibility flag that shows the page, as the sidebar reads it. */
+	visibilityKey?: VisibilityKey
+	adminOnly?: boolean
+}
+
+/** Whether `page` loads for `user` rather than showing its "not available" state. An unknown
+ * user is held to the workspace entry's role, and kept off the admin-only pages. */
+export function previewPageAllowed(
+	page: PreviewPage,
+	user: CapabilitiesUser | undefined,
+	workspace: UserWorkspace | undefined
+): boolean {
+	if (page.adminOnly) return !!user && (!!user.is_admin || !!user.is_super_admin)
+	return !page.visibilityKey || capabilitiesIn(user, workspace).visibility[page.visibilityKey]
+}
 
 // Core workspace-level destinations the preview can route to. Intentionally
 // curated — the main pages, not every trigger sub-page (those live behind
 // EE/feature gating in SidebarContent and aren't worth duplicating here).
 export const PREVIEW_PAGES: PreviewPage[] = [
 	{ label: 'Home', path: '/', icon: Home },
-	{ label: 'Runs', path: RUNS_PATH, icon: Play },
-	{ label: 'Variables', path: VARIABLES_PATH, icon: DollarSign },
-	{ label: 'Resources', path: RESOURCES_PATH, icon: Boxes },
-	{ label: 'Schedules', path: SCHEDULES_PATH, icon: Calendar },
-	{ label: 'Assets', path: ASSETS_PATH, icon: Database },
-	{ label: 'Folders', path: FOLDERS_PATH, icon: FolderOpen },
-	{ label: 'Groups', path: GROUPS_PATH, icon: Users },
-	{ label: 'Workspace settings', path: WORKSPACE_SETTINGS_PATH, icon: Settings },
-	{ label: 'Audit logs', path: AUDIT_LOGS_PATH, icon: ScrollText }
+	{ label: 'Runs', path: RUNS_PATH, icon: Play, visibilityKey: 'runs' },
+	{ label: 'Variables', path: VARIABLES_PATH, icon: DollarSign, visibilityKey: 'variables' },
+	{ label: 'Resources', path: RESOURCES_PATH, icon: Boxes, visibilityKey: 'resources' },
+	{ label: 'Schedules', path: SCHEDULES_PATH, icon: Calendar, visibilityKey: 'schedules' },
+	{ label: 'Assets', path: ASSETS_PATH, icon: Database, visibilityKey: 'assets' },
+	{ label: 'Folders', path: FOLDERS_PATH, icon: FolderOpen, visibilityKey: 'folders' },
+	{ label: 'Groups', path: GROUPS_PATH, icon: Users, visibilityKey: 'groups' },
+	{ label: 'Workspace settings', path: WORKSPACE_SETTINGS_PATH, icon: Settings, adminOnly: true },
+	{ label: 'Audit logs', path: AUDIT_LOGS_PATH, icon: ScrollText, visibilityKey: 'audit_logs' }
 ]
 
 // The Compare & Deploy review page. Kept out of PREVIEW_PAGES (it's not a picker
@@ -108,12 +177,32 @@ const DRAWER_ANCHOR_PAGES = [SCHEDULES_PATH, VARIABLES_PATH, RESOURCES_PATH] as 
 export function drawerAnchorFor(location: string): string | undefined {
 	const hashAt = location.indexOf('#')
 	if (hashAt < 0) return undefined
-	const route = stripBase(location)
+	const route = barePath(location)
 	const known =
 		(DRAWER_ANCHOR_PAGES as readonly string[]).includes(route) ||
 		Object.values(TRIGGER_PAGES).some((p) => p.path === route)
 	if (!known) return undefined
 	return location.slice(hashAt + 1).replace(/^\/resource\//, '') || undefined
+}
+
+/** The item a list-page location deep-links, as a tab of its own: a session edits these
+ * in process, so the list page's drawer is never where one belongs. */
+export function pageItemForLocation(location: string): PageItemRef | undefined {
+	const anchor = drawerAnchorFor(location)
+	if (!anchor) return undefined
+	let path: string
+	try {
+		path = decodeURIComponent(anchor)
+	} catch {
+		return undefined
+	}
+	return pageItemForListPath(location, path)
+}
+
+/** A location with a deep-linked row replaced by that row's own tab; any other unchanged. */
+export function pageItemLocation(location: string): string {
+	const ref = pageItemForLocation(location)
+	return ref ? pageItemUrl(ref) : location
 }
 
 // Query params the preview host injects into an iframe URL (`nomenubar` hides the nav,
@@ -123,9 +212,9 @@ const INJECTED_PARAMS = ['nomenubar', 'workspace'] as const
 /** Drop the params the preview host injects, so a location observed in the frame can be
  * compared with the one that was commanded (which never carries them). */
 export function canonicalizeObservedLoc(loc: string): string {
-	// An artifact is a scheme, not a path — `new URL` would happily parse it and hand
-	// back a pathname with the scheme gone.
-	if (parseArtifactRoute(loc)) return loc
+	// An artifact or a run form is a scheme, not a path — `new URL` would happily parse it
+	// and hand back a pathname with the scheme gone.
+	if (parseArtifactRoute(loc) || parseRunFormRoute(loc) || parsePageItemRoute(loc)) return loc
 	try {
 		const u = new URL(loc, 'http://_')
 		for (const p of INJECTED_PARAMS) u.searchParams.delete(p)
@@ -174,9 +263,14 @@ function pageRequestParamTable(): Record<string, readonly string[]> {
 	})
 }
 
+// The page whose filters a path takes: one item's runs filter as every run does.
+function filterPageOf(path: string): string {
+	return isRunsListPath(path) ? RUNS_PATH : path
+}
+
 /** The query params a request can set on `path` — empty for a page that takes none. */
 export function pageRequestParams(path: string): readonly string[] {
-	return pageRequestParamTable()[stripBase(path)] ?? []
+	return pageRequestParamTable()[filterPageOf(barePath(path))] ?? []
 }
 
 /** What a preview location means, read against the page it points at. */
@@ -196,13 +290,24 @@ export type PreviewLocation = {
 export function describeLocation(loc: string): PreviewLocation {
 	const artifact = parseArtifactRoute(loc)
 	if (artifact) return { identity: `artifact:${artifact.id}`, view: '', anchor: '' }
+	const runForm = parseRunFormRoute(loc)
+	// Identity is the call, never the label: that carries the script's summary, so folding it
+	// in would open a second tab for the same form whenever the summary differed.
+	if (runForm) return { identity: `runform:${runForm.toolCallId}`, view: '', anchor: '' }
+	const pageItem = parsePageItemRoute(loc)
+	if (pageItem) return { identity: pageItemUrl(pageItem), view: '', anchor: '' }
+	// Keyed by its hash: as a bare path it would claim the live editor's tab on the same script.
+	const historical = parseHistoricalScriptEdit(loc)
+	if (historical) {
+		return { identity: `/scripts/edit/${historical.path}@${historical.hash}`, view: '', anchor: '' }
+	}
 	const canonical = canonicalizeObservedLoc(loc)
-	const path = stripBase(canonical)
+	const path = barePath(canonical)
 	const bare = canonical.split('#')[0]
 	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
 	return {
 		identity: path,
-		view: requestedParams(query, pageRequestParamTable()[path]),
+		view: requestedParams(query, pageRequestParamTable()[filterPageOf(path)]),
 		anchor: drawerAnchorFor(canonical) ?? ''
 	}
 }
@@ -235,7 +340,7 @@ export function showsView(observed: string, commanded: string): boolean {
 	const y = describeLocation(commanded)
 	if (x.identity !== y.identity || x.anchor !== y.anchor) return false
 	if (x.view === y.view) return true
-	const seeded = PAGE_SEEDED_PARAMS[x.identity]
+	const seeded = PAGE_SEEDED_PARAMS[filterPageOf(x.identity)]
 	if (!seeded?.length) return false
 	// Both views come out of `requestedParams` already sorted and encoded, so they compare
 	// as strings once the seeded params are dropped. One direction only: the page may add
@@ -317,6 +422,15 @@ export function previewLocationContext(loc: string): {
 	location: string
 	open?: string
 } {
+	// Told as its list page with the item open, the shape the model already reads for a row
+	// whose drawer is open — which is all a page item tab is to it.
+	const pageItem = parsePageItemRoute(loc)
+	if (pageItem) {
+		return {
+			...previewLocationContext(pageItemListPath(pageItem)),
+			open: promptSafe(pageItem.path)
+		}
+	}
 	const { identity, anchor } = describeLocation(loc)
 	const bare = canonicalizeObservedLoc(loc).split('#')[0]
 	const query = bare.includes('?') ? bare.slice(bare.indexOf('?') + 1) : ''
@@ -340,10 +454,10 @@ export function previewLocationContext(loc: string): {
 	}
 }
 
-// Match a base-stripped preview pathname to a known page, for breadcrumb
+// Match a preview pathname to a known page, for breadcrumb
 // labelling + picker highlight. Exact match; '/' only matches home.
 export function matchPreviewPage(path: string): PreviewPage | undefined {
-	const clean = stripBase(path)
+	const clean = barePath(path)
 	return PREVIEW_PAGES.find((p) => p.path === clean)
 }
 
@@ -353,7 +467,7 @@ export function matchPreviewPage(path: string): PreviewPage | undefined {
  * matched — they take the generic path in `SessionPreviewTabs.open`, which
  * dedupes on the location ignoring the hash and re-points the tab it finds. */
 export function matchReusablePage(href: string): PreviewPage | undefined {
-	if (stripBase(href) === COMPARE_PAGE.path) return COMPARE_PAGE
+	if (barePath(href) === COMPARE_PAGE.path) return COMPARE_PAGE
 	return matchPreviewPage(href)
 }
 
@@ -363,17 +477,35 @@ export function matchReusablePage(href: string): PreviewPage | undefined {
 export function previewLocationLabel(url: string): string {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return artifact.name || 'Artifact'
+	const runForm = parseRunFormRoute(url)
+	if (runForm) return runForm.label || 'Run form'
+	const pageItem = parsePageItemRoute(url)
+	if (pageItem) return pageItem.path.split('/').pop() || pageItem.path
 	const page = matchReusablePage(url)
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
 	if (trigger) return trigger
-	const run = stripBase(url).match(/^\/run\/([^/?#]+)/)
-	if (run) return `Run ${decodeURIComponent(run[1]).slice(0, 8)}`
+	const run = parseRunRoute(url)
+	// Job ids are time-ordered, so runs started moments apart share their head.
+	if (run) return `Run ${run.jobId.slice(-8)}`
+	// The runs of one item, as a detail page's Runs button links them.
+	const itemRuns = barePath(url).match(/^\/runs\/(.+)$/)
+	if (itemRuns) return `Runs · ${decodeURIComponent(itemRuns[1]).split('/').pop()}`
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) return pipelineFolder
+	const historical = parseHistoricalScriptEdit(url)
+	if (historical) return `${historical.path.split('/').pop()} @ ${historical.hash.slice(0, 8)}`
 	const parsed = parsePreviewItemRoute(url)
 	if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
-	return stripBase(url)
+	const agent = barePath(url).match(/^\/agents\/(?:edit|get)\/(.+)$/)
+	if (agent) {
+		let path = agent[1]
+		try {
+			path = decodeURIComponent(path)
+		} catch {}
+		return path.split('/').pop() || path
+	}
+	return barePath(url)
 }
 
 /** The friendly display leaf for a preview tab, or `undefined` to fall back to
@@ -418,14 +550,6 @@ export function parsePreviewSelectedId(url: string): string | undefined {
 	}
 }
 
-// A `/pipeline/<folder>` route is the data-pipeline graph editor for that folder
-// (the folder is a single path segment, not a workspace item path). The bare
-// `/pipeline` list page is not an editor. Returns the folder name, or null.
-export function parsePipelineRoute(fullPath: string): string | null {
-	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
-	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
-}
-
 // The id (before the query) is the artifact's stable routing identity; the name rides in the
 // hash so the tab strip labels it without a store lookup, and the version in the query so the
 // tab persists it.
@@ -441,6 +565,50 @@ export function parseArtifactRoute(
 		name: m[3] ? decodeURIComponent(m[3]) : '',
 		version: version > 0 ? version : undefined
 	}
+}
+
+// A chat run form, addressed by the tool call it belongs to. A scheme rather than a path
+// for the same reason as artifacts: this tab mounts a component, so there is no page for a
+// frame to load, and the label rides in the hash so the strip names it without a lookup.
+export function parseRunFormRoute(url: string): { toolCallId: string; label: string } | null {
+	const m = url.match(/^runform:([^?#]+)(?:#(.*))?$/)
+	if (!m) return null
+	return {
+		toolCallId: decodeURIComponent(m[1]),
+		label: m[2] ? decodeURIComponent(m[2]) : ''
+	}
+}
+
+/** The chat tool call a viewer tab was opened to answer, read off the tab's url. A deployed
+ * page tab is still the item's tab — only the call rides in its query — so this is how a tab
+ * says which call it is carrying, and re-pointing it anywhere drops the answer. */
+export function pendingRunIdOf(url: string): string | undefined {
+	const slot = resolvePreviewTab(url)
+	if (slot.kind !== 'viewer') return undefined
+	return new URL(url, 'http://x').searchParams.get('pending_run') ?? undefined
+}
+
+/** The run a `/run/<id>` location shows, in the workspace its query names (the opener's,
+ * when it names none). */
+export function parseRunRoute(
+	url: string
+): { jobId: string; workspace?: string; viewToken: boolean } | null {
+	const m = barePath(url).match(/^\/run\/([^/?#]+)$/)
+	if (!m) return null
+	try {
+		const query = new URL(url, 'http://_').searchParams
+		return {
+			jobId: decodeURIComponent(m[1]),
+			workspace: query.get('workspace') || undefined,
+			viewToken: query.has('view_token')
+		}
+	} catch {
+		return null
+	}
+}
+
+export function runFormUrl(toolCallId: string, label: string): string {
+	return `runform:${encodeURIComponent(toolCallId)}#${encodeURIComponent(label)}`
 }
 
 export function artifactUrl(id: string, name: string, version?: number): string {
@@ -459,34 +627,93 @@ export const artifactKey = (id: string) => `artifact:${id}`
 
 export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 
-// How a preview tab should render: as an in-process live editor or an iframe
-// fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
-// its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the
-// data-pipeline graph editor (single, shared runtime.pipelineEditorState — `path`
-// is the folder); everything else (static pages, regular drag-and-drop apps, any
-// other route) stays an iframe.
+// How a preview tab should render: as an in-process live editor, the deployed
+// item's view page, or an iframe fallback. An item of a wrappable kind (script,
+// flow, raw app) mounts its per-(kind,path) cell editor on `/edit/` and its viewer
+// on `/get/`; a `/pipeline/<folder>` route mounts the data-pipeline graph editor of
+// that folder (`path` is the folder); the list page of a page item kind mounts that
+// list, and so does the runs list; a `/run/<id>` route without a share token mounts that
+// run's page; everything
+// else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
+	| { kind: 'viewer'; viewerKind: SessionTargetKind | 'agent'; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
+	| { kind: 'runform'; toolCallId: string }
+	| { kind: 'pageitem'; ref: PageItemRef }
+	| { kind: 'pagelist'; path: string }
+	| { kind: 'run'; jobId: string; workspace?: string }
 	| { kind: 'iframe' }
+
+/** Whether a tab on this slot shows a page, framed or mounted in process, and so has a
+ * location to stamp as the chat's ACTIVE PREVIEW. Editors register as the ACTIVE EDITOR. */
+export function slotShowsPage(kind: PreviewSlot['kind']): boolean {
+	return (
+		kind === 'iframe' ||
+		kind === 'pageitem' ||
+		kind === 'pagelist' ||
+		kind === 'run' ||
+		kind === 'viewer'
+	)
+}
 
 export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return { kind: 'artifact', id: artifact.id, version: artifact.version }
+	const runForm = parseRunFormRoute(url)
+	if (runForm) return { kind: 'runform', toolCallId: runForm.toolCallId }
+	const pageItem = parsePageItemRoute(url)
+	if (pageItem) return { kind: 'pageitem', ref: pageItem }
+	const route = barePath(url)
+	if (isPreviewListPath(route)) return { kind: 'pagelist', path: route }
+	const run = parseRunRoute(url)
+	// A share link's token authorizes every request of the window that installs it, so a run
+	// opened through one keeps a frame of its own rather than lending the token to the session.
+	if (run && !run.viewToken) {
+		return { kind: 'run', jobId: run.jobId, ...(run.workspace && { workspace: run.workspace }) }
+	}
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
 	}
-	const route = parsePreviewItemRoute(url)
-	if (!route) return { kind: 'iframe' }
-	const editorKind: SessionTargetKind | undefined =
-		route.kind === 'script'
+	// An agent's deployed page; its editor is the resource tab, which hosts it in process.
+	const agent = agentPagePath(url)
+	if (agent !== undefined) return { kind: 'viewer', viewerKind: 'agent', path: agent }
+	const item = parsePreviewItemRoute(url)
+	if (!item || parseHistoricalScriptEdit(url)) return { kind: 'iframe' }
+	const itemKind: SessionTargetKind | undefined =
+		item.kind === 'script'
 			? 'script'
-			: route.kind === 'flow'
+			: item.kind === 'flow'
 				? 'flow'
-				: route.kind === 'app' && route.raw_app
+				: item.kind === 'app' && item.raw_app
 					? 'raw_app'
 					: undefined
-	if (!editorKind) return { kind: 'iframe' }
-	return { kind: 'editor', editorKind, path: route.itemPath }
+	if (!itemKind) return { kind: 'iframe' }
+	if (item.mode === 'view') return { kind: 'viewer', viewerKind: itemKind, path: item.itemPath }
+	return { kind: 'editor', editorKind: itemKind, path: item.itemPath }
+}
+
+/** The full workspace page showing what a tab shows ("Open in workspace"), or undefined when
+ * there is none. Every tab kind answers here, so a new one cannot fall through to its url being
+ * navigated as a path — an artifact or page item url is a scheme, not a route. */
+export function workspacePageHref(location: string): string | undefined {
+	const slot = resolvePreviewTab(location)
+	switch (slot.kind) {
+		case 'artifact':
+		case 'runform':
+			return undefined
+		case 'pageitem':
+			return pageItemPageHref(slot.ref)
+		case 'editor':
+		case 'viewer':
+		case 'pagelist':
+		case 'run':
+		case 'iframe':
+			return location
+		default: {
+			const unhandled: never = slot
+			return unhandled
+		}
+	}
 }

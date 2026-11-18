@@ -39,7 +39,7 @@ const sampleContext: PipelineContext = {
 }
 
 function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
-	helpers: { pipeline: PipelineAIChatHelpers }
+	helpers: { pipelines: () => PipelineAIChatHelpers[] }
 	calls: Record<string, any[]>
 } {
 	const calls: Record<string, any[]> = {}
@@ -50,6 +50,8 @@ function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
 			return ret
 		}
 	const pipeline: PipelineAIChatHelpers = {
+		getFolder: () => sampleContext.folder,
+		hasDrafts: () => false,
 		getPipelineContext: () => sampleContext,
 		getNodeBody: async (path: string) => {
 			calls.getNodeBody = [...(calls.getNodeBody ?? []), [path]]
@@ -59,15 +61,20 @@ function makeHelpers(overrides: Partial<PipelineAIChatHelpers> = {}): {
 			calls.proposeNode = [...(calls.proposeNode ?? []), [input]]
 			return { path: input.path, detectedReads: [], detectedWrites: [] }
 		},
-		editNode: async (path, content) => {
-			calls.editNode = [...(calls.editNode ?? []), [path, content]]
-			return { detectedReads: [], detectedWrites: [] }
+		editNode: async (path, content, summary) => {
+			calls.editNode = [...(calls.editNode ?? []), [path, content, summary]]
+			return { summary: summary ?? 'Existing summary', detectedReads: [], detectedWrites: [] }
 		},
 		removeProposedNode: record('removeProposedNode'),
+		unconfiguredTriggers: async () => [],
+		setNodeTrigger: async (path, kind, config) => {
+			calls.setNodeTrigger = [...(calls.setNodeTrigger ?? []), [path, kind, config]]
+			return { path: `${path}_${kind}`, replaced: false }
+		},
 		testNode: async () => 'job-123',
 		...overrides
 	}
-	return { helpers: { pipeline }, calls }
+	return { helpers: { pipelines: () => [pipeline] }, calls }
 }
 
 describe('pipeline tools', () => {
@@ -78,6 +85,7 @@ describe('pipeline tools', () => {
 			'get_pipeline_graph',
 			'read_pipeline_node',
 			'remove_pipeline_node',
+			'set_pipeline_trigger',
 			'test_pipeline_node'
 		])
 	})
@@ -96,24 +104,124 @@ describe('pipeline tools', () => {
 
 	it('build_pipeline_node forwards to proposeNode and does not deploy', async () => {
 		const { helpers, calls } = makeHelpers()
+		const modified: string[] = []
 		const out = await toolByName('build_pipeline_node').fn({
 			args: {
 				path: 'f/analytics/clean',
 				language: 'bun',
+				summary: 'Test node',
 				content: '// pipeline\nexport async function main() {}',
 				output_kind: 'ducklake'
 			},
 			workspace: 'w',
 			helpers,
-			toolCallbacks: noopCallbacks(),
+			toolCallbacks: {
+				...noopCallbacks(),
+				onItemModified: (kind, path) => modified.push(`${kind}:${path}`)
+			},
 			toolId: 't'
 		})
+		// The session tracks the folder's draft bundle, the unit it deploys.
+		expect(modified).toEqual(['data_pipeline:f/analytics/data_pipeline'])
 		expect(calls.proposeNode?.[0]?.[0]).toMatchObject({
 			path: 'f/analytics/clean',
 			language: 'bun',
 			outputKind: 'ducklake'
 		})
 		expect(out).toContain('not deployed')
+	})
+
+	it('build_pipeline_node attaches declared triggers, and flags one left unset', async () => {
+		const { helpers, calls } = makeHelpers({ unconfiguredTriggers: async () => ['kafka'] })
+		const out = await toolByName('build_pipeline_node').fn({
+			args: {
+				path: 'f/analytics/ingest',
+				language: 'python3',
+				summary: 'Test node',
+				content: '# pipeline\n# on schedule\n# on kafka\ndef main():\n    return 1',
+				triggers: [{ kind: 'schedule', config: { schedule: '0 0 6 * * *', timezone: 'UTC' } }]
+			},
+			workspace: 'w',
+			helpers,
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+		expect(calls.setNodeTrigger?.[0]).toEqual([
+			'f/analytics/ingest',
+			'schedule',
+			{ args: {}, enabled: true, schedule: '0 0 6 * * *', timezone: 'UTC' }
+		])
+		expect(out).toContain("schedule 'f/analytics/ingest_schedule'")
+		expect(out).toContain('ACTION REQUIRED')
+		expect(out).toContain('set_pipeline_trigger')
+	})
+
+	it('build_pipeline_node rejects an invalid trigger config before staging the node', async () => {
+		const { helpers, calls } = makeHelpers()
+		await expect(
+			toolByName('build_pipeline_node').fn({
+				args: {
+					path: 'f/analytics/ingest',
+					language: 'python3',
+					summary: 'Test node',
+					content: '# pipeline\n# on schedule\ndef main():\n    return 1',
+					triggers: [{ kind: 'schedule', config: { timezone: 'UTC' } }]
+				},
+				workspace: 'w',
+				helpers,
+				toolCallbacks: noopCallbacks(),
+				toolId: 't'
+			})
+		).rejects.toThrow(/schedule/)
+		expect(calls.proposeNode).toBeUndefined()
+	})
+
+	it('build_pipeline_node keeps and records the node when a trigger fails to attach', async () => {
+		const { helpers, calls } = makeHelpers({
+			setNodeTrigger: async () => {
+				throw new Error('path taken')
+			}
+		})
+		const modified: string[] = []
+		const out = await toolByName('build_pipeline_node').fn({
+			args: {
+				path: 'f/analytics/ingest',
+				language: 'python3',
+				content: '# pipeline\n# on schedule\ndef main():\n    return 1',
+				summary: 'Ingest',
+				triggers: [{ kind: 'schedule', config: { schedule: '0 0 6 * * *', timezone: 'UTC' } }]
+			},
+			workspace: 'w',
+			helpers,
+			toolCallbacks: {
+				...noopCallbacks(),
+				onItemModified: (kind, path) => modified.push(`${kind}:${path}`)
+			},
+			toolId: 't'
+		})
+		expect(calls.proposeNode).toHaveLength(1)
+		expect(modified).toEqual(['data_pipeline:f/analytics/data_pipeline'])
+		expect(out).toContain('path taken')
+	})
+
+	it('build_pipeline_node refuses a trigger the content does not declare, before staging', async () => {
+		const { helpers, calls } = makeHelpers()
+		await expect(
+			toolByName('build_pipeline_node').fn({
+				args: {
+					path: 'f/analytics/ingest',
+					language: 'python3',
+					content: '# pipeline\ndef main():\n    return 1',
+					summary: 'Ingest',
+					triggers: [{ kind: 'schedule', config: { schedule: '0 0 6 * * *', timezone: 'UTC' } }]
+				},
+				workspace: 'w',
+				helpers,
+				toolCallbacks: noopCallbacks(),
+				toolId: 't'
+			})
+		).rejects.toThrow(/on schedule/)
+		expect(calls.proposeNode).toBeUndefined()
 	})
 
 	it('build_pipeline_node reports the inferred asset lineage', async () => {
@@ -125,7 +233,12 @@ describe('pipeline tools', () => {
 			})
 		})
 		const out = await toolByName('build_pipeline_node').fn({
-			args: { path: 'f/analytics/clean', language: 'duckdb', content: '-- pipeline' },
+			args: {
+				path: 'f/analytics/clean',
+				language: 'duckdb',
+				content: '-- pipeline',
+				summary: 'Test node'
+			},
 			workspace: 'w',
 			helpers,
 			toolCallbacks: noopCallbacks(),
@@ -140,7 +253,12 @@ describe('pipeline tools', () => {
 			proposeNode: async (input) => ({ path: input.path, detectedReads: [], detectedWrites: [] })
 		})
 		const out = await toolByName('build_pipeline_node').fn({
-			args: { path: 'f/analytics/clean', language: 'duckdb', content: '-- pipeline' },
+			args: {
+				path: 'f/analytics/clean',
+				language: 'duckdb',
+				content: '-- pipeline',
+				summary: 'Test node'
+			},
 			workspace: 'w',
 			helpers,
 			toolCallbacks: noopCallbacks(),
@@ -164,6 +282,34 @@ describe('pipeline tools', () => {
 		expect(calls.editNode?.[0]?.[1]).toContain('const x = 42')
 	})
 
+	it('edit_pipeline_node renames a node by summary alone, and asks for one when missing', async () => {
+		const body = { language: 'bun' as const, content: 'const x = 1\n' }
+		const { helpers, calls } = makeHelpers({ getNodeBody: async () => body })
+		const run = (args: Record<string, unknown>) =>
+			toolByName('edit_pipeline_node').fn({
+				args: { path: 'f/analytics/orders', ...args },
+				workspace: 'w',
+				helpers,
+				toolCallbacks: noopCallbacks(),
+				toolId: 't'
+			})
+		await run({ summary: 'Clean orders' })
+		expect(calls.editNode?.[0]).toEqual(['f/analytics/orders', body.content, 'Clean orders'])
+
+		const bare = makeHelpers({
+			getNodeBody: async () => body,
+			editNode: async () => ({ summary: '', detectedReads: [], detectedWrites: [] })
+		})
+		const out = await toolByName('edit_pipeline_node').fn({
+			args: { path: 'f/analytics/orders', old_string: 'x = 1', new_string: 'x = 2' },
+			workspace: 'w',
+			helpers: bare.helpers,
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+		expect(out).toContain('has no summary')
+	})
+
 	it('edit_pipeline_node surfaces a clear error when old_string is absent', async () => {
 		const { helpers } = makeHelpers({
 			getNodeBody: async () => ({ language: 'bun', content: 'const x = 1\n' })
@@ -182,7 +328,7 @@ describe('pipeline tools', () => {
 	it('mutation tools fail clearly when no pipeline editor is registered', async () => {
 		await expect(
 			toolByName('build_pipeline_node').fn({
-				args: { path: 'f/a/b', language: 'bun', content: 'x' },
+				args: { path: 'f/a/b', language: 'bun', content: 'x', summary: 'Test node' },
 				workspace: 'w',
 				helpers: {},
 				toolCallbacks: noopCallbacks(),
@@ -191,14 +337,114 @@ describe('pipeline tools', () => {
 		).rejects.toThrow(/No pipeline editor is open/)
 	})
 
+	it('remove_pipeline_node drops the pipeline from the changes once its last draft goes', async () => {
+		const run = async (hasDrafts: boolean) => {
+			const { helpers } = makeHelpers({ hasDrafts: () => hasDrafts })
+			const log: string[] = []
+			await toolByName('remove_pipeline_node').fn({
+				args: { path: 'f/analytics/clean' },
+				workspace: 'w',
+				helpers,
+				toolCallbacks: {
+					...noopCallbacks(),
+					onItemModified: (kind, path) => log.push(`modified ${kind}:${path}`),
+					onItemDiscarded: (kind, path) => log.push(`discarded ${kind}:${path}`)
+				},
+				toolId: 't'
+			})
+			return log
+		}
+		expect(await run(false)).toEqual(['discarded data_pipeline:f/analytics/data_pipeline'])
+		expect(await run(true)).toEqual(['modified data_pipeline:f/analytics/data_pipeline'])
+	})
+
 	it('test_pipeline_node requires confirmation', () => {
 		expect(toolByName('test_pipeline_node').requiresConfirmation).toBe(true)
 	})
 })
 
+describe('pipeline tools with several editors open', () => {
+	function editorFor(folder: string, built: string[]): PipelineAIChatHelpers {
+		return {
+			...makeHelpers().helpers.pipelines()[0],
+			getFolder: () => folder,
+			getPipelineContext: () => ({ ...sampleContext, folder }),
+			proposeNode: async (input) => {
+				built.push(`${folder}:${input.path}`)
+				return { path: input.path, detectedReads: [], detectedWrites: [] }
+			}
+		}
+	}
+	const call = (name: string, args: any, editors: PipelineAIChatHelpers[]) =>
+		toolByName(name).fn({
+			args,
+			workspace: 'w',
+			helpers: { pipelines: () => editors },
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+
+	it('remounts an opened folder whose editor another tab replaced', async () => {
+		const built: string[] = []
+		const mounted: PipelineAIChatHelpers[] = []
+		const ensured: string[] = []
+		await toolByName('build_pipeline_node').fn({
+			args: {
+				path: 'f/sales/clean',
+				language: 'bun',
+				content: '// pipeline',
+				summary: 'Test node'
+			},
+			workspace: 'w',
+			helpers: {
+				pipelines: () => mounted,
+				pipelineFolders: () => ['sales'],
+				ensurePipeline: async (folder: string) => {
+					ensured.push(folder)
+					mounted.push(editorFor(folder, built))
+					return mounted[0]
+				}
+			},
+			toolCallbacks: noopCallbacks(),
+			toolId: 't'
+		})
+		expect(ensured).toEqual(['sales'])
+		expect(built).toEqual(['sales:f/sales/clean'])
+	})
+
+	it('routes a node to the editor of its folder', async () => {
+		const built: string[] = []
+		const editors = [editorFor('crm', built), editorFor('sales', built)]
+		await call(
+			'build_pipeline_node',
+			{ path: 'f/sales/clean', language: 'bun', content: '// pipeline', summary: 'Test node' },
+			editors
+		)
+		expect(built).toEqual(['sales:f/sales/clean'])
+		await expect(
+			call(
+				'build_pipeline_node',
+				{ path: 'f/other/clean', language: 'bun', content: '// pipeline', summary: 'Test node' },
+				editors
+			)
+		).rejects.toThrow(/open_preview\(kind="pipeline", path="other"\)/)
+	})
+
+	it('get_pipeline_graph needs the folder only when it is ambiguous', async () => {
+		const editors = [editorFor('crm', []), editorFor('sales', [])]
+		await expect(call('get_pipeline_graph', {}, editors)).rejects.toThrow(/pass the folder/)
+		expect(
+			JSON.parse(await call('get_pipeline_graph', { folder: 'f/sales' }, editors))
+		).toMatchObject({ folder: 'sales' })
+		expect(JSON.parse(await call('get_pipeline_graph', {}, [editors[0]]))).toMatchObject({
+			folder: 'crm'
+		})
+	})
+})
+
 describe('getPipelinePromptSection', () => {
 	it('names the active folder and the direct-draft workflow', () => {
-		const section = getPipelinePromptSection(sampleContext)
+		const section = getPipelinePromptSection([sampleContext.folder])
 		expect(section).toContain('/pipeline/analytics')
 		expect(section).toContain('build_pipeline_node')
 		expect(section).toContain('directly as unsaved drafts')

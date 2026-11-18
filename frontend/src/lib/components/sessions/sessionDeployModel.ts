@@ -1,7 +1,7 @@
 import type { UserDraftItemKind } from '$lib/gen'
 import type { DraftItem } from '$lib/workspaceDrafts.svelte'
 import type { Kind } from '$lib/utils_deployable'
-import { maskKey } from './modifiedItemsMask'
+import { foldedIntoPipelineRow, maskKey } from './modifiedItemsMask'
 
 // Unified item model for the session Review & Deploy surface. This is the pure,
 // UI-free core: every item the session touched is either a pending **draft** or
@@ -67,6 +67,8 @@ export interface DeployItem {
 	/** Legacy workspace-level draft (drives discard's `legacy` flag). */
 	legacy: boolean
 	rawApp: boolean
+	/** A resource draft that is an AI agent's; unknown for a row with no draft. */
+	agent?: boolean
 }
 
 export interface BuildInput {
@@ -112,7 +114,8 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 			mine: it.mine,
 			canWrite: it.can_write,
 			legacy: it.legacy_draft,
-			rawApp: it.raw_app
+			rawApp: it.raw_app,
+			agent: it.kind === 'resource' && it.resource_type === 'ai_agent'
 		})
 	}
 
@@ -128,6 +131,7 @@ export function buildDeployItems(input: BuildInput): DeployItem[] {
 			if (sep < 0) continue
 			const udk = k.slice(0, sep) as UserDraftItemKind
 			const path = k.slice(sep + 1)
+			if (foldedIntoPipelineRow(mask, udk, path)) continue
 			seen.add(k)
 			out.push({
 				key: k,
@@ -172,6 +176,7 @@ export function maskOnlyCandidates(
 		if (sep < 0) continue
 		const udk = k.slice(0, sep) as UserDraftItemKind
 		const path = k.slice(sep + 1)
+		if (foldedIntoPipelineRow(mask, udk, path)) continue
 		out.push({ key: k, draftKind: udk, deployKind: deployKindOf(udk, udk === 'raw_app'), path })
 	}
 	return out
@@ -193,6 +198,21 @@ export function badgeCounts(items: DeployItem[]): Record<BadgeKind, number> {
 	const out: Record<BadgeKind, number> = { draft: 0, deployed: 0 }
 	for (const it of items) out[badgeOf(it)]++
 	return out
+}
+
+/** The bar's edits token: drafts while any is pending, else the deployed count. */
+export function editsToken(counts: Record<BadgeKind, number>): { label: string; class: string } {
+	return counts.draft > 0
+		? {
+				label: `${counts.draft} draft${counts.draft === 1 ? '' : 's'}`,
+				class:
+					'!bg-indigo-100 !text-indigo-800 hover:!bg-indigo-200 dark:!bg-indigo-700/40 dark:!text-indigo-100 dark:hover:!bg-indigo-600/40'
+			}
+		: {
+				label: `${counts.deployed} deployed`,
+				class:
+					'!bg-green-100 !text-green-700 hover:!bg-green-200 dark:!bg-green-700/40 dark:!text-green-100 dark:hover:!bg-green-600/40'
+			}
 }
 
 // ── Action ──────────────────────────────────────────────────────────────────

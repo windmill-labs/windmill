@@ -21,7 +21,7 @@ export function normalizeRawAppData(value: Record<string, any>): AppDraftValue['
 		}
 	}
 	if (value.data) {
-		return value.data
+		return { ...value.data, tables: Array.isArray(value.data.tables) ? value.data.tables : [] }
 	}
 	if (value.datatables) {
 		return { ...DEFAULT_RAW_APP_DATA, tables: value.datatables }
@@ -48,6 +48,7 @@ export function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
 		data: normalizeRawAppData(value),
 		policy: app.policy ?? fallback?.policy,
 		custom_path: app.custom_path ?? fallback?.custom_path,
+		labels: app.labels ?? fallback?.labels,
 		// Pin the fork base: a deployed app exposes `versions` (head = last); an
 		// existing draft already carries `parent_version` — preserve it.
 		parent_version:

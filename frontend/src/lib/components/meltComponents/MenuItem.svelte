@@ -2,8 +2,11 @@
 	import { melt } from '@melt-ui/svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import { onCustomEvent } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
+		/** The menu stays open after a click on this item, for a setting whose effect shows in it. */
+		keepOpen?: boolean
 		aiId?: string | undefined
 		aiDescription?: string | undefined
 		href?: string | undefined
@@ -19,6 +22,7 @@
 	}
 
 	let {
+		keepOpen = false,
 		aiId = undefined,
 		aiDescription = undefined,
 		href = undefined,
@@ -66,6 +70,13 @@
 		bind:this={buttonRef}
 		onclick={onClick}
 		use:melt={$item}
+		use:onCustomEvent={{
+			event: 'm-click',
+			// Cancelling melt's own click event skips its close; the click itself still runs.
+			handler: (e: Event) => {
+				if (keepOpen) e.preventDefault()
+			}
+		}}
 		use:triggerableByAI={{
 			id: aiId,
 			description: aiDescription,

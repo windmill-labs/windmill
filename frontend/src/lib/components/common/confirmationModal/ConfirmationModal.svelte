@@ -23,6 +23,17 @@
 		/** Tailwind z-index class for the modal root. Override to stack this modal
 		 * above another modal that's already open (both default to `z-[9999]`). */
 		zIndexClass?: string
+		/** Render into `body` instead of where this component sits. Needed when an ancestor
+		 * creates a stacking context the dialog has to escape — a drawer paints over the page
+		 * whatever the dialog's z-index, and a `transform`, `filter` or `overflow` on the way
+		 * up confines it. Off by default: it moves the dialog out of its DOM position, so opt
+		 * in per call site rather than assuming every caller wants it. */
+		alwaysPortal?: boolean
+		/** For a notice with nothing to decide: the confirm button is the only one. */
+		hideCancel?: boolean
+		/** A third way out, drawn between Cancel and the confirm button. */
+		extraAction?: Snippet
+		cancelVariant?: 'default' | 'subtle'
 		children?: Snippet
 		onConfirmed?: () => void | Promise<void>
 		onCanceled?: () => void
@@ -40,6 +51,10 @@
 		id,
 		trashbin = false,
 		zIndexClass = 'z-[9999]',
+		alwaysPortal = false,
+		hideCancel = false,
+		extraAction,
+		cancelVariant = 'default',
 		children,
 		onConfirmed,
 		onCanceled
@@ -57,6 +72,8 @@
 	const hostActive = overlayHostActive()
 
 	const dispatch = createEventDispatcher()
+
+	let extraActionEl = $state<HTMLElement>()
 
 	function onKeyDown(event: KeyboardEvent) {
 		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
@@ -83,6 +100,9 @@
 					// A popover needs Enter both to open from its trigger and to choose from its
 					// content, so leave it alone whether or not it is open.
 					if (popover) return
+					// Focused, the extra action's button takes Enter itself: confirming here would do
+					// the opposite of what it says.
+					if (extraActionEl?.contains(event.target as Node)) return
 					event.stopPropagation()
 					event.preventDefault()
 					if (loading || confirmDisabled) break
@@ -109,7 +129,6 @@
 	const theme = {
 		danger: {
 			Icon: AlertTriangle,
-			color: 'red',
 			classes: {
 				icon: 'text-red-500 dark:text-red-400',
 				iconWrapper: 'bg-red-100 dark:bg-red-800/50'
@@ -118,7 +137,6 @@
 
 		reload: {
 			Icon: RefreshCcw,
-			color: 'dark',
 			classes: {
 				icon: 'text-blue-700 dark:text-blue-300',
 				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
@@ -129,7 +147,6 @@
 		// an import. The confirm button stays a plain accent (see `destructive` below).
 		info: {
 			Icon: Info,
-			color: 'blue',
 			classes: {
 				icon: 'text-blue-700 dark:text-blue-300',
 				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
@@ -141,7 +158,11 @@
 
 <svelte:window onkeydowncapture={onKeyDown} />
 
-<ConditionalPortal condition={!!hostEl} target={hostEl} class="contents">
+<ConditionalPortal
+	condition={alwaysPortal || !!hostEl}
+	target={hostEl}
+	class={hostEl ? 'contents' : undefined}
+>
 	{#if open}
 		<div
 			transition:fadeFast|local
@@ -161,7 +182,11 @@
 				<div class="flex min-h-full items-center justify-center p-4">
 					<div
 						class={classNames(
-							'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
+							// `w-full max-w-lg` unprefixed, not `sm:`-only: below 640px the panel would
+							// otherwise be sized by its content's min-content width, and since the
+							// wrapper centres it without scrolling, anything wider than the viewport
+							// gets clipped on both sides with the left half unreachable.
+							'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all w-full max-w-lg sm:my-8 sm:p-6',
 							open
 								? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
 								: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
@@ -169,13 +194,21 @@
 					>
 						<div class="flex">
 							{#if showIcon}
+								<!-- shrink-0: the badge is a flex item whose min-content width is the
+								     24px icon, so without it a narrow dialog squeezes the circle into a
+								     24x48 oval instead of wrapping the text beside it. -->
 								<div
-									class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
+									class={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
 								>
 									<Icon class={theme[type].classes.icon} />
 								</div>
 							{/if}
-							<div class={twMerge('ml-0 text-left flex-1 ', showIcon ? 'ml-4' : '')}>
+							<!-- min-w-0: `flex-1` alone keeps `min-width: auto`, so a body containing
+							     one long unbreakable string (a path list, a URL) sizes this column by
+							     that string and pushes it out of the panel — and any `truncate` inside
+							     never engages. -->
+
+							<div class={twMerge('ml-0 text-left flex-1 min-w-0', showIcon ? 'ml-4' : '')}>
 								<h3 class="text-lg font-medium text-primary">
 									{title}
 								</h3>
@@ -194,8 +227,7 @@
 							<Button
 								disabled={loading || confirmDisabled}
 								on:click={() => (dispatch('confirmed'), onConfirmed?.())}
-								color={theme[type].color}
-								size="sm"
+								unifiedSize="sm"
 								shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
 								variant="accent"
 								destructive={type === 'danger'}
@@ -205,15 +237,20 @@
 								{/if}
 								<span class="min-w-20">{confirmationText} </span>
 							</Button>
-							<Button
-								disabled={loading}
-								on:click={() => (dispatch('canceled'), onCanceled?.())}
-								variant="default"
-								size="sm"
-								shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
-							>
-								Cancel
-							</Button>
+							{#if extraAction}
+								<div bind:this={extraActionEl}>{@render extraAction()}</div>
+							{/if}
+							{#if !hideCancel}
+								<Button
+									disabled={loading}
+									on:click={() => (dispatch('canceled'), onCanceled?.())}
+									variant={cancelVariant}
+									unifiedSize="sm"
+									shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
+								>
+									Cancel
+								</Button>
+							{/if}
 						</div>
 					</div>
 				</div>

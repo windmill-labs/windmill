@@ -178,18 +178,18 @@ fn omission_hint(input_schema: &Map<String, Value>, item_type: &str) -> Option<S
     ))
 }
 
-/// Create an MCP Tool from a ToolableItem
+/// Create an MCP Tool named `path` from a ToolableItem
 ///
 /// The resources_cache should be pre-populated with all resource types
 /// that may be referenced by the item's schema.
 pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     item: &T,
+    path: String,
     backend: &B,
     resources_cache: &HashMap<String, Vec<ResourceInfo>>,
     resources_types: &[ResourceType],
 ) -> Tool {
     let is_hub = item.is_hub();
-    let path = item.get_transformed_path();
     let item_type = item.item_type();
     let mut description = format!(
         "This is a {} named `{}` with the following description: `{}`.{}",
@@ -208,6 +208,11 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     );
 
     let schema = item.get_schema();
+    if let Some(prompt) = schema.prompt_for_ai() {
+        description.push_str(&format!(
+            " Its author gave these instructions for choosing the arguments: {prompt}"
+        ));
+    }
     let schema_obj =
         backend.transform_schema_for_resources(&schema, resources_cache, resources_types);
 
@@ -281,6 +286,31 @@ mod tests {
         .as_object()
         .unwrap()
         .clone()
+    }
+
+    #[test]
+    fn prompt_for_ai_is_read_but_kept_out_of_the_input_schema() {
+        let schema: SchemaType = serde_json::from_value(json!({
+            "type": "object",
+            "properties": { "query": { "type": "string" } },
+            "prompt_for_ai": "  Prefer short queries.  ",
+        }))
+        .unwrap();
+
+        assert_eq!(schema.prompt_for_ai(), Some("Prefer short queries."));
+        assert!(serde_json::to_value(&schema)
+            .unwrap()
+            .get("prompt_for_ai")
+            .is_none());
+
+        // A non-string value must not cost the tool its inputs.
+        let odd: SchemaType = serde_json::from_value(json!({
+            "properties": { "query": { "type": "string" } },
+            "prompt_for_ai": 3,
+        }))
+        .unwrap();
+        assert_eq!(odd.prompt_for_ai(), None);
+        assert!(odd.properties.contains_key("query"));
     }
 
     #[test]

@@ -16,11 +16,10 @@ use tokio::time::timeout;
 // Re-export proxy env-var snapshots so callers (including EE modules)
 // can keep importing them via `crate::{NO_PROXY, HTTP_PROXY, HTTPS_PROXY}`.
 use windmill_common::client::AuthedClient;
-use windmill_common::db::UserDbWithAuthed;
-use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::InlineScriptTarget;
 use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
+use windmill_common::jobs::MODULES_ARG;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
 use windmill_common::otel_oss::{
     otel_incr_worker_execution_count, otel_incr_worker_started,
@@ -46,7 +45,7 @@ use windmill_common::{
     utils::{create_directory_async, WarnAfterExt},
     worker::{
         is_allowed_file_location, make_pull_query, write_file, Connection, HttpClient,
-        EXIT_AFTER_N_JOBS, MAX_TIMEOUT, MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR,
+        EXIT_AFTER_N_JOBS, MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR,
         ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
     },
     worker_group_job_stats::JobStatsMap,
@@ -83,6 +82,7 @@ use windmill_queue::DedicatedWorkerJob;
 use windmill_queue::FlowRunners;
 use windmill_queue::MiniCompletedJob;
 use windmill_queue::PulledJobResultToJobErr;
+use windmill_queue::ValidableJson;
 
 use uuid::Uuid;
 
@@ -156,7 +156,7 @@ use crate::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
         tally_unfinished_dependency_deploy,
     },
-    worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
+    worker_utils::{insert_ping, mark_worker_draining, queue_vacuum, update_worker_ping_full},
 };
 
 #[cfg(feature = "rust")]
@@ -216,6 +216,8 @@ lazy_static::lazy_static! {
     pub static ref PY311_CACHE_DIR: String = format!("{}python_3_11", *ROOT_CACHE_DIR);
     pub static ref PY312_CACHE_DIR: String = format!("{}python_3_12", *ROOT_CACHE_DIR);
     pub static ref PY313_CACHE_DIR: String = format!("{}python_3_13", *ROOT_CACHE_DIR);
+    pub static ref PY314_CACHE_DIR: String = format!("{}python_3_14", *ROOT_CACHE_DIR);
+    pub static ref PY315_CACHE_DIR: String = format!("{}python_3_15", *ROOT_CACHE_DIR);
 
     pub static ref TAR_JAVA_CACHE_DIR: String = format!("{}tar/java", *ROOT_CACHE_DIR);
 
@@ -260,6 +262,7 @@ const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
+const NSJAIL_CONFIG_PROBE_CONTENT: &str = include_str!("../nsjail/probe.config.proto");
 
 const WORKER_SHELL_NAP_TIME_DURATION: u64 = 15;
 const WORKER_SHELL_INITIAL_NAP_TIME_DURATION: u64 = 5;
@@ -276,6 +279,16 @@ const VACUUM_PERIOD: u32 = 10000;
 // const DROP_CACHE_PERIOD: u32 = 1000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
+
+/// Dedicated subprocess tasks still running. A killed worker's result processor keeps receiving
+/// until this reaches zero: the main loop waits for the processor before it waits for those
+/// tasks, which send the results of the jobs they drain.
+pub static LIVE_DEDICATED_TASKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Dedicated subprocesses that have reported they are up, counted over the life of the process.
+pub static STARTED_DEDICATED_PROCESSES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 /// Per-language OTEL tracing proxy configuration.
 /// Default languages are configured in frontend instanceSettings.ts
@@ -334,6 +347,14 @@ pub struct PowershellRepo {
     pub pat: String,
 }
 
+/// Runs nsjail in a form gVisor (runsc) accepts, see `nsjail_compat`.
+pub static NSJAIL_GVISOR_COMPAT: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+    std::env::var("NSJAIL_GVISOR_COMPAT")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false)
+});
+
 lazy_static::lazy_static! {
 
     static ref SLEEP_QUEUE_BASE: u64 = std::env::var("SLEEP_QUEUE")
@@ -353,6 +374,15 @@ lazy_static::lazy_static! {
 
 
     pub static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(false);
+
+    /// Runs Bun scripts' dependency installs (bun and `//npm`) outside nsjail even when
+    /// sandboxing is on, for a worker whose installs need host files the install jail
+    /// does not mount (keys for private git dependencies, a package cache outside HOME).
+    /// The run step stays jailed; the installs' lifecycle scripts see the worker again.
+    pub static ref DISABLE_BUN_INSTALL_SANDBOX: bool = std::env::var("DISABLE_BUN_INSTALL_SANDBOX")
     .ok()
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
@@ -490,15 +520,18 @@ lazy_static::lazy_static! {
                     );
                 }
 
-                tracing::error!(
-                    "unshare test command failed (exit code: {}). stderr: '{}'. flags: '{}'. \
-                    Unshare isolation will NOT be available. \
-                    If job_isolation is set to 'unshare' in Instance Settings, jobs will run without isolation. \
-                    Common causes: user namespaces disabled (sysctl kernel.unprivileged_userns_clone=0), \
-                    max_user_namespaces=0, or missing privileges (--mount-proc requires privileged mode).",
-                    output.status,
-                    stderr.trim(),
-                    flags
+                log_isolation_probe_failure(
+                    unshare_requested(),
+                    &format!(
+                        "unshare test command failed (exit code: {}). stderr: '{}'. flags: '{}'. \
+                        Unshare isolation will NOT be available. \
+                        If job_isolation is set to 'unshare' in Instance Settings, jobs will run without isolation. \
+                        Common causes: user namespaces disabled (sysctl kernel.unprivileged_userns_clone=0), \
+                        max_user_namespaces=0, or missing privileges (--mount-proc requires privileged mode).",
+                        output.status,
+                        stderr.trim(),
+                        flags
+                    ),
                 );
                 None
             },
@@ -517,17 +550,17 @@ lazy_static::lazy_static! {
                     }
                 }
 
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    tracing::error!(
-                        "unshare binary not found in PATH. Unshare isolation will NOT be available. \
-                        Install the util-linux package to enable unshare isolation."
-                    );
+                let msg = if e.kind() == std::io::ErrorKind::NotFound {
+                    "unshare binary not found in PATH. Unshare isolation will NOT be available. \
+                    Install the util-linux package to enable unshare isolation."
+                        .to_string()
                 } else {
-                    tracing::error!(
+                    format!(
                         "Failed to execute unshare test command: {}. Unshare isolation will NOT be available.",
                         e
-                    );
-                }
+                    )
+                };
+                log_isolation_probe_failure(unshare_requested(), &msg);
                 None
             }
         }
@@ -536,42 +569,58 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_AVAILABLE: Option<String> = {
         let nsjail_path = NSJAIL_PATH.as_str();
 
-        let test_result = std::process::Command::new(nsjail_path)
-            .arg("--help")
-            .output();
-
-        match test_result {
+        match probe_nsjail(nsjail_path) {
             Ok(output) if output.status.success() => {
-                tracing::info!("nsjail available at: {}", nsjail_path);
+                tracing::info!(
+                    "nsjail available at: {}{}",
+                    nsjail_path,
+                    if *NSJAIL_GVISOR_COMPAT { " (NSJAIL_GVISOR_COMPAT)" } else { "" }
+                );
                 Some(nsjail_path.to_string())
             },
             Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                tracing::error!(
-                    "nsjail test failed (exit code: {}). stderr: '{}'. path: '{}'. \
-                    Nsjail sandboxing will NOT be available. \
-                    nsjail should be included in all standard windmill images. \
-                    If job_isolation is set to 'nsjail_sandboxing' in Instance Settings, jobs will fail.",
+                let msg = format!(
+                    "nsjail could not run a test jail (exit code: {}). stderr: '{}'. path: '{}'. \
+                    Nsjail sandboxing will NOT be available: the worker reports its job isolation \
+                    without nsjail, and jobs that require nsjail fail. Under gVisor (runsc), see \
+                    NSJAIL_GVISOR_COMPAT.",
                     output.status,
-                    stderr.trim(),
+                    String::from_utf8_lossy(&output.stderr).trim(),
                     nsjail_path
+                );
+                // Most workers never jail anything, and most containers cannot.
+                if is_sandboxing_enabled() {
+                    tracing::error!("{msg}");
+                } else {
+                    tracing::info!("{msg}");
+                }
+                None
+            },
+            Err(NsjailProbeError::Setup(e)) => {
+                log_isolation_probe_failure(
+                    is_sandboxing_enabled(),
+                    &format!(
+                        "Could not prepare the nsjail test jail: {}. Nsjail sandboxing will NOT be available.",
+                        e
+                    ),
                 );
                 None
             },
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    tracing::error!(
+            Err(NsjailProbeError::Start(e)) => {
+                let msg = if e.kind() == std::io::ErrorKind::NotFound {
+                    format!(
                         "nsjail not found at '{}'. Nsjail sandboxing will NOT be available. \
                         If using a custom image, ensure nsjail is installed.",
                         nsjail_path
-                    );
+                    )
                 } else {
-                    tracing::error!(
+                    format!(
                         "Failed to execute nsjail test at '{}': {}. Nsjail sandboxing will NOT be available.",
                         nsjail_path,
                         e
-                    );
-                }
+                    )
+                };
+                log_isolation_probe_failure(is_sandboxing_enabled(), &msg);
                 None
             }
         }
@@ -680,9 +729,6 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or_else(|| 5);
 
-    pub static ref MAX_TIMEOUT_DURATION: Duration = Duration::from_secs(*MAX_TIMEOUT);
-
-
     pub static ref GLOBAL_CACHE_INTERVAL: u64 = std::env::var("GLOBAL_CACHE_INTERVAL")
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
@@ -713,7 +759,7 @@ lazy_static::lazy_static! {
     /// registry configuration.
     pub static ref TRUSTED_HOST: Option<String> = non_empty_env("PY_TRUSTED_HOST").or_else(|| non_empty_env("PIP_TRUSTED_HOST"));
     pub static ref INDEX_CERT: Option<String> = non_empty_env("PY_INDEX_CERT").or_else(|| non_empty_env("PIP_INDEX_CERT"));
-    pub static ref NATIVE_CERT: bool = non_empty_env("PY_NATIVE_CERT").or_else(|| non_empty_env("UV_NATIVE_TLS")).map(|flag| flag == "true").unwrap_or(false);
+    pub static ref NATIVE_CERT: bool = non_empty_env("PY_NATIVE_CERT").or_else(|| non_empty_env("UV_SYSTEM_CERTS")).or_else(|| non_empty_env("UV_NATIVE_TLS")).map(|flag| flag == "true").unwrap_or(false);
     /// uv's HTTP request timeout (seconds). The uv invocations use env_clear(), so a
     /// UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
     /// Only forwarded when set; otherwise uv keeps its own default. Lets operators
@@ -953,13 +999,304 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
-pub fn is_sandboxing_enabled() -> bool {
-    if !*DISABLE_NSJAIL {
-        return true;
+/// The registry overrides of a workspace, empty when it has none.
+///
+/// One snapshot: registry settings reload under running jobs, so a caller whose cache key
+/// has to agree with the registry values it used reads both from here rather than calling
+/// [`workspace_registry_cache_suffix`] and a `read_ee_registry_*` helper separately.
+pub async fn workspace_registry_overrides(
+    w_id: &str,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let registries = WORKSPACE_REGISTRIES.read().await;
+    registries
+        .as_ref()
+        .and_then(|m| m.get(w_id))
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The name a build artifact is cached under, derived from `base` — the runnable's own
+/// cache-key input — and its inline modules.
+///
+/// `write_module_files` puts module content in the job dir where the build inlines it into
+/// the artifact, so a name without it serves one runnable's modules to another whose main
+/// content and lockfile match — across workspaces, the cache being global.
+///
+/// Only the path and content may name the artifact, because they are all the build reads.
+/// `ScriptModule::lock` especially must stay out: deploy regenerates it *after* the parent
+/// has prebuilt, so naming it would strand every prebuilt artifact.
+pub(crate) fn artifact_cache_name(
+    base: String,
+    modules: Option<&std::collections::HashMap<String, ScriptModule>>,
+) -> String {
+    let Some(modules) = modules.filter(|m| !m.is_empty()) else {
+        // Byte-identical to the name a module-free runnable had before modules entered this,
+        // so its cached artifacts stay reachable. A pre-fix multi-file runnable also stored
+        // here, so one of those stays reachable too — accepted over invalidating every cache,
+        // and once this ships nothing can be stored here with module content in it again.
+        return windmill_common::utils::calculate_hash(&base);
+    };
+    let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    // `base` ends in caller-supplied bytes (a preview brings its own lockfile), so it is
+    // sealed to a fixed width before the module block is appended — raw, a crafted lockfile
+    // could spell out another runnable's block and reach its slot.
+    let mut keyed = format!(
+        "{}:modules:{}",
+        windmill_common::utils::calculate_hash(&base),
+        entries.len()
+    );
+    for (path, module) in entries {
+        // Both length-prefixed, else `{"a": "bc"}` and `{"ab": "c"}` encode alike.
+        keyed.push_str(&format!(
+            ":{}:{path}:{}:{}",
+            path.len(),
+            module.content.len(),
+            module.content,
+        ));
     }
-    match get_job_isolation() {
-        JobIsolationLevel::NsjailSandboxing => true,
+    // Its own namespace: `calculate_hash` emits hex, so however a module-free runnable
+    // crafts its content and lockfile it can never land on a module-bearing name.
+    format!("mod-{}", windmill_common::utils::calculate_hash(&keyed))
+}
+
+/// Runs `/bin/true` in a jail built like a job's, through the same spawn path, so a worker
+/// whose runtime lets nsjail start but not jail (a container without the privileges, gVisor)
+/// does not report nsjail isolation.
+enum NsjailProbeError {
+    /// The probe could not be prepared: nothing is known about nsjail.
+    Setup(std::io::Error),
+    /// nsjail itself could not be executed.
+    Start(std::io::Error),
+}
+
+fn probe_nsjail(nsjail_path: &str) -> Result<std::process::Output, NsjailProbeError> {
+    // A fresh private directory: the worker runs what this config says, as itself.
+    let dir = std::env::temp_dir().join(format!("windmill-nsjail-probe-{}", uuid::Uuid::new_v4()));
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&dir).map_err(NsjailProbeError::Setup)?;
+    let output = (|| {
+        std::fs::write(
+            dir.join("probe.config.proto"),
+            NSJAIL_CONFIG_PROBE_CONTENT.replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )
+        .map_err(NsjailProbeError::Setup)?;
+        let mut cmd = std::process::Command::new(nsjail_path);
+        cmd.current_dir(&dir)
+            .env_clear()
+            .env("PATH", PATH_ENV.as_str())
+            .args(["--config", "probe.config.proto"]);
+        if *NSJAIL_GVISOR_COMPAT {
+            crate::nsjail_compat::apply(&cmd).map_err(NsjailProbeError::Setup)?;
+        }
+        cmd.output().map_err(NsjailProbeError::Start)
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    output
+}
+
+pub fn is_sandboxing_enabled() -> bool {
+    sandboxing_enabled_by(*DISABLE_NSJAIL, get_job_isolation())
+}
+
+/// A `no_network` job loses its network only through the fresh network namespace its
+/// nsjail run step is given, so a run step that would not be jailed is refused rather
+/// than run with the worker's network. `jailed` is the executor's own decision to jail.
+pub fn check_no_network_jailed(
+    no_network: bool,
+    jailed: bool,
+) -> windmill_common::error::Result<()> {
+    no_network_refusal(no_network, jailed, NSJAIL_AVAILABLE.is_some())
+}
+
+fn no_network_refusal(
+    no_network: bool,
+    jailed: bool,
+    nsjail_available: bool,
+) -> windmill_common::error::Result<()> {
+    if !no_network || (jailed && nsjail_available) {
+        return Ok(());
+    }
+    let reason = if jailed {
+        "nsjail is not available on this worker"
+    } else {
+        "this job would not run in an nsjail sandbox: add the `sandbox` annotation, or enable \
+        nsjail sandboxing for the instance"
+    };
+    Err(windmill_common::error::Error::ExecutionErr(format!(
+        "Script has the `no_network` annotation, which removes the network from its nsjail \
+        sandbox, but {reason}. Refusing to run it with network."
+    )))
+}
+
+/// Whether a script asks for a run step without network, which only nsjail provides. A
+/// dedicated worker runs its script outside nsjail, so it leaves such a script to the
+/// regular executor.
+pub fn runs_no_network_in_jail(language: Option<ScriptLang>, content: &str) -> bool {
+    match language {
+        Some(ScriptLang::Python3) => {
+            windmill_common::worker::PythonAnnotations::parse(content).no_network
+        }
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
+            let annotation = windmill_common::worker::TypeScriptAnnotations::parse(content);
+            annotation.no_network && !annotation.native
+        }
         _ => false,
+    }
+}
+
+/// Refuses a `no_network` job that imports another workspace script its run step would fetch
+/// from the API, which it cannot reach. Without this the fetch fails inside the script, where
+/// Python's loader falls back to an empty namespace module and the error names something else.
+/// `imports` are workspace paths; the job's own module files (keyed relative to
+/// `script_path`'s folder) are on disk and need no fetch.
+pub fn check_no_network_imports(
+    imports: impl IntoIterator<Item = String>,
+    script_path: &str,
+    modules: Option<&HashMap<String, ScriptModule>>,
+    fetched_by: &str,
+) -> windmill_common::error::Result<()> {
+    let dir = script_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
+    let local: Vec<String> = modules
+        .into_iter()
+        .flat_map(|m| m.keys())
+        .map(|key| {
+            let stem = key.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(key);
+            if dir.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{dir}/{stem}")
+            }
+        })
+        .collect();
+    let fetched = imports.into_iter().find(|import| {
+        !local
+            .iter()
+            .any(|l| l == import || l.starts_with(&format!("{import}/")))
+    });
+    match fetched {
+        None => Ok(()),
+        Some(import) => Err(windmill_common::error::Error::ExecutionErr(format!(
+            "Script has the `no_network` annotation but imports the workspace script \
+            `{import}`, which {fetched_by} fetches from the Windmill API while the script runs, \
+            and the script has no network. Remove `no_network`, or copy that code into the \
+            script."
+        ))),
+    }
+}
+
+/// Drops `WM_TOKEN` from a `no_network` run step's env: it is useless without network, and
+/// the script could still hand it out through its result.
+pub fn strip_no_network_token(
+    reserved_variables: &mut std::collections::HashMap<String, String>,
+    no_network: bool,
+) {
+    if no_network {
+        reserved_variables.remove("WM_TOKEN");
+    }
+}
+
+/// `clone_newnet` for a run step's nsjail profile.
+pub fn nsjail_clone_newnet(no_network: bool) -> &'static str {
+    if no_network {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+/// Whether job runs get the worker's proxy settings. Dependency installs always do: they read
+/// [`PROXY_ENVS`] directly, so a group that turns the proxy off for jobs still installs through it.
+pub fn passes_proxy_to_jobs() -> bool {
+    !WORKER_CONFIG.load().disable_job_proxy
+}
+
+/// [`PROXY_ENVS`] as a job run sees them; see [`passes_proxy_to_jobs`].
+pub fn job_proxy_envs() -> Vec<(&'static str, String)> {
+    if passes_proxy_to_jobs() {
+        PROXY_ENVS.clone()
+    } else {
+        vec![]
+    }
+}
+
+/// [`get_proxy_envs_for_lang`] for a run step. A `no_network` one reaches no proxy, the
+/// OTel tracing proxy included, so it gets only the trace context.
+pub async fn get_run_proxy_envs(
+    lang: &ScriptLang,
+    job_kind: JobKind,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+    no_network: bool,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    if no_network {
+        return Ok(get_otel_context_envs(job_id));
+    }
+    get_proxy_envs_for_lang(lang, job_kind, job_id, w_id, conn).await
+}
+
+#[cfg(test)]
+mod no_network_tests {
+    use super::{check_no_network_imports, no_network_refusal, runs_no_network_in_jail};
+    use windmill_common::scripts::ScriptLang;
+
+    #[test]
+    fn no_network_runs_only_in_an_available_jail() {
+        assert!(no_network_refusal(false, false, false).is_ok());
+        assert!(no_network_refusal(true, true, true).is_ok());
+        assert!(no_network_refusal(true, false, true).is_err());
+        assert!(no_network_refusal(true, true, false).is_err());
+        assert!(no_network_refusal(true, false, false).is_err());
+    }
+
+    #[test]
+    fn no_network_refuses_only_imports_it_would_fetch() {
+        let modules = std::collections::HashMap::from([(
+            "lib/util.py".to_string(),
+            windmill_common::scripts::ScriptModule {
+                content: String::new(),
+                lock: None,
+                language: ScriptLang::Python3,
+            },
+        )]);
+        let check = |imports: &[&str]| {
+            check_no_network_imports(
+                imports.iter().map(|s| s.to_string()),
+                "u/admin/main",
+                Some(&modules),
+                "Python",
+            )
+        };
+        assert!(check(&["u/admin/lib/util", "u/admin/lib"]).is_ok());
+        let err = check(&["u/admin/lib/util", "u/admin/helper"]).unwrap_err();
+        assert!(err.to_string().contains("`u/admin/helper`"), "{err}");
+    }
+
+    #[test]
+    fn dedicated_workers_leave_jailed_no_network_scripts() {
+        let py = Some(ScriptLang::Python3);
+        let bun = Some(ScriptLang::Bun);
+        assert!(runs_no_network_in_jail(
+            py,
+            "# no_network\ndef main(): pass"
+        ));
+        assert!(!runs_no_network_in_jail(py, "def main(): pass"));
+        assert!(runs_no_network_in_jail(
+            bun,
+            "// no_network\nexport function main() {}"
+        ));
+        // Native scripts take their network away inside the isolate.
+        assert!(!runs_no_network_in_jail(
+            bun,
+            "//native\n//no_network\nexport function main() {}"
+        ));
     }
 }
 
@@ -967,13 +1304,87 @@ pub fn is_sandboxing_enabled() -> bool {
 /// ENABLE_UNSHARE_PID forces unshare regardless of the global setting.
 /// FAVOR_UNSHARE_PID uses unshare only when the global setting is not set.
 pub fn is_unshare_enabled() -> bool {
-    if *ENABLE_UNSHARE_PID {
-        return true;
+    unshare_enabled_by(*ENABLE_UNSHARE_PID, *FAVOR_UNSHARE_PID, get_job_isolation())
+}
+
+fn unshare_enabled_by(enable: bool, favor: bool, job_isolation: JobIsolationLevel) -> bool {
+    enable
+        || match job_isolation {
+            JobIsolationLevel::Unshare => true,
+            JobIsolationLevel::Undefined => favor,
+            _ => false,
+        }
+}
+
+fn sandboxing_enabled_by(disable_nsjail: bool, job_isolation: JobIsolationLevel) -> bool {
+    !disable_nsjail || job_isolation == JobIsolationLevel::NsjailSandboxing
+}
+
+/// FAVOR_UNSHARE_PID counts as asking for unshare even when the job_isolation setting
+/// overrides it, as the startup check in `run_worker` does.
+fn unshare_requested() -> bool {
+    unshare_requested_by(*ENABLE_UNSHARE_PID, *FAVOR_UNSHARE_PID, get_job_isolation())
+}
+
+fn unshare_requested_by(enable: bool, favor: bool, job_isolation: JobIsolationLevel) -> bool {
+    unshare_enabled_by(enable, favor, job_isolation) || favor
+}
+
+/// A failed isolation probe is an error only on a worker that asked for that isolation: most
+/// workers (a default docker-compose native worker among them) never do, and cannot get it.
+/// The job_isolation setting is applied before the probes run, and a later change to it logs
+/// its own error when the isolation it names is unavailable.
+fn isolation_probe_failure_level(requested: bool) -> tracing::Level {
+    if requested {
+        tracing::Level::ERROR
+    } else {
+        tracing::Level::WARN
     }
-    match get_job_isolation() {
-        JobIsolationLevel::Unshare => true,
-        JobIsolationLevel::Undefined => *FAVOR_UNSHARE_PID,
-        _ => false,
+}
+
+fn log_isolation_probe_failure(requested: bool, msg: &str) {
+    if isolation_probe_failure_level(requested) == tracing::Level::ERROR {
+        tracing::error!("{msg}");
+    } else {
+        tracing::warn!(
+            "{msg} Isolation was not requested for this worker, so this is not an error."
+        );
+    }
+}
+
+#[cfg(test)]
+mod isolation_probe_level_tests {
+    use super::*;
+    use tracing::Level;
+    use JobIsolationLevel::*;
+
+    fn unshare_level(enable: bool, favor: bool, iso: JobIsolationLevel) -> Level {
+        isolation_probe_failure_level(unshare_requested_by(enable, favor, iso))
+    }
+
+    fn nsjail_level(disable_nsjail: bool, iso: JobIsolationLevel) -> Level {
+        isolation_probe_failure_level(sandboxing_enabled_by(disable_nsjail, iso))
+    }
+
+    #[test]
+    fn unrequested_isolation_warns() {
+        // Stock worker: no isolation env vars, job_isolation unset or none.
+        for iso in [Undefined, None] {
+            assert_eq!(unshare_level(false, false, iso), Level::WARN);
+            assert_eq!(nsjail_level(true, iso), Level::WARN);
+        }
+        assert_eq!(unshare_level(false, false, NsjailSandboxing), Level::WARN);
+        assert_eq!(nsjail_level(true, Unshare), Level::WARN);
+    }
+
+    #[test]
+    fn requested_isolation_errors() {
+        assert_eq!(unshare_level(true, false, None), Level::ERROR);
+        assert_eq!(unshare_level(false, true, Undefined), Level::ERROR);
+        assert_eq!(unshare_level(false, true, None), Level::ERROR);
+        assert_eq!(unshare_level(false, false, Unshare), Level::ERROR);
+        assert_eq!(nsjail_level(false, None), Level::ERROR);
+        assert_eq!(nsjail_level(true, NsjailSandboxing), Level::ERROR);
     }
 }
 
@@ -1062,12 +1473,12 @@ pub async fn get_proxy_envs_for_lang(
     {
         envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
     } else {
-        envs = PROXY_ENVS.clone();
+        envs = job_proxy_envs();
     }
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     {
         let _ = (lang, job_kind, w_id, conn);
-        envs = PROXY_ENVS.clone();
+        envs = job_proxy_envs();
     }
     envs.extend(get_otel_context_envs(job_id));
     Ok(envs)
@@ -1089,7 +1500,7 @@ async fn get_otel_tracing_proxy_envs(
                 This job's HTTP requests will not be traced.";
             tracing::warn!("{}", reason);
             append_logs(job_id, w_id, format!("\n[warning] {reason}\n"), conn).await;
-            return Ok(PROXY_ENVS.clone());
+            return Ok(job_proxy_envs());
         }
     };
     let proxy_url = format!("http://127.0.0.1:{}", port);
@@ -1679,7 +2090,8 @@ pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 #[derive(Clone)]
 pub enum JobCompletedSender {
     Sql(SqlJobCompletedSender),
-    Http(HttpClient),
+    /// The worker name keys the job outcome counters an agent worker reports in its pings.
+    Http(HttpClient, Option<Arc<str>>),
     NeverUsed,
 }
 
@@ -1691,6 +2103,12 @@ impl JobCompletedSender {
     pub fn set_worker_killpill(&mut self, killpill_tx: KillpillSender) {
         if let Self::Sql(sql) = self {
             sql.worker_killpill_tx = Some(killpill_tx);
+        }
+    }
+
+    pub fn set_worker_name(&mut self, worker_name: &str) {
+        if let Self::Http(_, name) = self {
+            *name = Some(worker_name.into());
         }
     }
 
@@ -1748,7 +2166,7 @@ impl JobCompletedSender {
                 let result = Self::new_job_completed_sender_sql(buffer_size);
                 (result.0, Some(result.1))
             }
-            Connection::Http(client) => (Self::Http(client.clone()), None),
+            Connection::Http(client) => (Self::Http(client.clone(), None), None),
         }
     }
 
@@ -1757,6 +2175,15 @@ impl JobCompletedSender {
     }
 
     pub async fn send_job(&self, jc: JobCompleted, wait_for_capacity: bool) -> anyhow::Result<()> {
+        self.send_job_inner(jc, wait_for_capacity, true).await
+    }
+
+    async fn send_job_inner(
+        &self,
+        jc: JobCompleted,
+        wait_for_capacity: bool,
+        record_outcome: bool,
+    ) -> anyhow::Result<()> {
         match self {
             Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
                 if wait_for_capacity {
@@ -1773,8 +2200,15 @@ impl JobCompletedSender {
                     anyhow::anyhow!("Failed to send job completed to background processor")
                 })
             }
-            Self::Http(client) => {
+            Self::Http(client, worker_name) => {
+                // An agent worker's completion is processed on the server, so its outcome is
+                // counted here, with the same `wm_failure` override the result processor applies.
+                let failed = jc.canceled_by.is_none()
+                    && (!jc.success || jc.result.result_metadata().wm_failure.is_some());
                 crate::agent_workers::send_result(client, jc).await?;
+                if let (true, Some(worker_name)) = (record_outcome, worker_name) {
+                    windmill_common::worker_job_stats::record_job_outcome(worker_name, failed);
+                }
                 Ok(())
             }
             Self::NeverUsed => {
@@ -1803,7 +2237,7 @@ impl JobCompletedSender {
                         .await
                 }
             }
-            Self::Http(_) => {
+            Self::Http(..) => {
                 tracing::error!("Sending job completed to http client, this should not happen");
                 Ok(())
             }
@@ -1823,7 +2257,7 @@ impl JobCompletedSender {
                 killpill_tx.send(())?;
                 Ok(())
             }
-            Self::Http(_) => {
+            Self::Http(..) => {
                 tracing::error!("Sending kill to http client, this should not happen");
                 Ok(())
             }
@@ -1964,6 +2398,7 @@ pub fn create_span_with_name(
         root_job = field::Empty,
         workspace_id = %arc_job.workspace_id,
         worker = %worker_name,
+        worker_group = %*WORKER_GROUP,
         hostname = field::Empty,
         tag = %arc_job.tag,
         language = field::Empty,
@@ -2115,6 +2550,7 @@ pub fn log_context_for_job(
         job_id: Some(arc_job.id.to_string()),
         workspace_id: Some(arc_job.workspace_id.clone()),
         worker: Some(worker_name.to_string()),
+        worker_group: Some(WORKER_GROUP.clone()),
         tag: Some(arc_job.tag.clone()),
         job_kind: Some(arc_job.kind.as_str().to_string()),
         created_by: Some(arc_job.created_by.clone()),
@@ -2124,7 +2560,10 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
+        trigger_kind: arc_job
+            .trigger_kind
+            .as_ref()
+            .map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),
@@ -2147,6 +2586,7 @@ pub async fn handle_all_job_kind_error(
     authed_client: &AuthedClient,
     job: MiniCompletedJob,
     err: Error,
+    canceled: bool,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
@@ -2154,6 +2594,9 @@ pub async fn handle_all_job_kind_error(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
+    // These jobs fail before reaching the result processor, so their outcome is counted here
+    // for both connection kinds; a job canceled before it ran is not held against the worker.
+    windmill_common::worker_job_stats::record_job_outcome(worker_name, !canceled);
     match conn {
         Connection::Sql(db) => {
             handle_job_error(
@@ -2176,7 +2619,7 @@ pub async fn handle_all_job_kind_error(
         }
         Connection::Http(_) => {
             job_completed_tx
-                .send_job(
+                .send_job_inner(
                     JobCompleted {
                         preprocessed_args: None,
                         job: job,
@@ -2185,6 +2628,7 @@ pub async fn handle_all_job_kind_error(
                         ))),
                         result_columns: None,
                         mem_peak: 0,
+                        resource_usage: None,
                         canceled_by: None,
                         success: false,
                         cached_res_path: None,
@@ -2195,6 +2639,7 @@ pub async fn handle_all_job_kind_error(
                         flow_runners: None,
                         done_tx: None,
                     },
+                    false,
                     false,
                 )
                 .await
@@ -2276,6 +2721,7 @@ fn start_interactive_worker_shell(
     job_completed_tx: JobCompletedSender,
     base_internal_url: String,
     worker_dir: String,
+    unreported_job: Arc<std::sync::Mutex<Option<(Uuid, String)>>>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let started_at = Instant::now();
@@ -2361,6 +2807,8 @@ fn start_interactive_worker_shell(
                         precomputed_agent_info: precomputed_bundle,
                         flow_runners,
                     } = extract_job_and_perms(job, &conn).await;
+
+                    *unreported_job.lock().unwrap() = Some((job.id, job.workspace_id.clone()));
 
                     let authed_client = AuthedClient::new(
                         base_internal_url.to_owned(),
@@ -2556,19 +3004,11 @@ pub async fn run_worker(
     killpill_tx: KillpillSender,
     base_internal_url: &str,
 ) {
-    #[cfg(not(feature = "enterprise"))]
-    if is_sandboxing_enabled() {
-        tracing::warn!(
-            worker = %worker_name, hostname = %hostname,
-            "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
-        );
-    }
-
     // Force UNSHARE_PATH and NSJAIL_AVAILABLE initialization now for clear startup logging
     let _ = &*UNSHARE_PATH;
     let _ = &*NSJAIL_AVAILABLE;
 
-    if (is_unshare_enabled() || *FAVOR_UNSHARE_PID) && UNSHARE_PATH.is_none() {
+    if unshare_requested() && UNSHARE_PATH.is_none() {
         tracing::error!(
             worker = %worker_name, hostname = %hostname,
             "Worker is configured to use unshare isolation (FAVOR_UNSHARE_PID={}, job_isolation={:?}) \
@@ -2648,9 +3088,13 @@ pub async fn run_worker(
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     let mut reported_ip = cached_ip();
-    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, conn)
+    let reclaimed = insert_ping(hostname, &worker_name, reported_ip, true, conn)
         .await
         .expect("initial ping could be sent");
+    let previous_jobs_executed = reclaimed.jobs_executed;
+    if let Some(job_stats) = reclaimed.job_stats {
+        windmill_common::worker_job_stats::restore_job_stats(&worker_name, job_stats);
+    }
 
     #[cfg(feature = "prometheus")]
     let uptime_metric = if METRICS_ENABLED.load(Ordering::Relaxed) {
@@ -2854,6 +3298,11 @@ pub async fn run_worker(
     // Only jobs run by this process count towards EXIT_AFTER_N_JOBS: the point is the age of
     // the environment, not the lifetime total.
     let mut jobs_executed_in_env: u64 = 0;
+    // The job poller only records a job in `worker_ping` once it has run for a poll interval, so
+    // the main-loop ping reports the last pulled job for shorter ones. The interactive shell runs
+    // jobs under this worker's name too and must set the same slot, or the ping would overwrite a
+    // shell job its poller recorded with an older main-loop job. Sent once, then left to the poller.
+    let unreported_job: Arc<std::sync::Mutex<Option<(Uuid, String)>>> = Default::default();
 
     let is_dedicated_worker: bool = {
         let config = WORKER_CONFIG.load();
@@ -2928,6 +3377,7 @@ pub async fn run_worker(
 
     let (mut job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
     job_completed_tx.set_worker_killpill(killpill_tx.clone());
+    job_completed_tx.set_worker_name(&worker_name);
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
@@ -2971,6 +3421,7 @@ pub async fn run_worker(
             job_completed_tx.clone(),
             base_internal_url.to_owned(),
             worker_dir.clone(),
+            unreported_job.clone(),
         );
 
         Some(it_shell)
@@ -3010,6 +3461,17 @@ pub async fn run_worker(
             *WORKER_GROUP,
             WORKER_CONFIG.load()
         );
+    }
+    if WORKER_CONFIG.load().fairness_reserve {
+        tracing::info!(
+            worker = %worker_name, hostname = %hostname,
+            "fairness reserve worker: pulls only while a workspace is overloaded, and only other workspaces' jobs"
+        );
+        if !windmill_common::worker::WORKSPACE_FAIRNESS_ENABLED
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            tracing::warn!("fairness reserve worker stays idle: workspace fairness is off");
+        }
     }
 
     // Dedicated workers wait for the init script before installing their dependencies, so it has to
@@ -3089,6 +3551,31 @@ pub async fn run_worker(
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
+    // The loop below only sees the killpill once the running job is done, which is too late
+    // for that job to learn its worker is going away.
+    {
+        let mut killpill_rx = killpill_rx.resubscribe();
+        let conn = conn.clone();
+        let worker_name = worker_name.clone();
+        tokio::spawn(async move {
+            if matches!(
+                killpill_rx.recv().await,
+                Err(broadcast::error::RecvError::Closed)
+            ) {
+                return;
+            }
+            for attempt in 1..=3 {
+                match mark_worker_draining(&conn, &worker_name).await {
+                    Ok(()) => return,
+                    Err(e) => {
+                        tracing::warn!(worker = %worker_name, "failed to mark worker as draining (attempt {attempt}/3): {e:#}");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        });
+    }
+
     loop {
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
         if last_processing_duration_secs > 5 {
@@ -3164,7 +3651,7 @@ pub async fn run_worker(
             // which costs at most the last job's id here: no job of this worker is in flight at this
             // point in the loop, and the next one refills them.
             if ip_just_resolved && conn.as_sql().is_none() {
-                if let Err(e) = insert_ping(hostname, &worker_name, ip, &conn).await {
+                if let Err(e) = insert_ping(hostname, &worker_name, ip, false, &conn).await {
                     tracing::warn!(
                         worker = %worker_name, hostname = %hostname,
                         "failed to re-register with the resolved external IP: {e}"
@@ -3174,6 +3661,7 @@ pub async fn run_worker(
 
             let read_cgroups =
                 *REFRESH_CGROUP_READINGS && last_reading.elapsed().as_secs() > NUM_SECS_READINGS;
+            let last_job = unreported_job.lock().unwrap().take();
             update_worker_ping_full(
                 &conn,
                 read_cgroups,
@@ -3183,6 +3671,7 @@ pub async fn run_worker(
                 &mut occupancy_metrics,
                 &killpill_tx,
                 ip,
+                last_job.as_ref().map(|(id, w_id)| (*id, w_id.as_str())),
             )
             .await;
 
@@ -3351,6 +3840,10 @@ pub async fn run_worker(
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
+            } else if WORKER_CONFIG.load().paused {
+                // Checked after the same-worker channel: a flow this worker already runs
+                // still needs it for its remaining same-worker steps.
+                Ok(None)
             } else {
                 match &conn {
                     Connection::Sql(db) => {
@@ -3360,7 +3853,7 @@ pub async fn run_worker(
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
                             || last_suspend_first.elapsed().as_secs_f64() > 5.0
-                            || crate::result_processor::WAC_SUSPEND_READY
+                            || windmill_common::wac::WAC_SUSPEND_READY
                                 .swap(false, Ordering::Relaxed);
 
                         if suspend_first {
@@ -3401,7 +3894,8 @@ pub async fn run_worker(
                             .map_err(error::Error::from)
                             .and_then(|r| r)
                             {
-                                pulled_job_res.error_while_preprocessing = Some(e.to_string());
+                                pulled_job_res.error_while_preprocessing =
+                                    Some(e.to_string().into());
                             }
                         }
 
@@ -3517,6 +4011,7 @@ pub async fn run_worker(
 
                 last_executed_job = None;
                 jobs_executed += 1;
+                *unreported_job.lock().unwrap() = Some((job.id, job.workspace_id.clone()));
                 let mut dirties_env = dirties_worker_env(
                     job.kind,
                     &job.tag,
@@ -3532,22 +4027,43 @@ pub async fn run_worker(
                     job.kind,
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
-                    if !dedicated_workers.is_empty() {
-                        let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
-                            // For flow steps inside branches/loops, runnable_path includes
-                            // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
-                            // worker map is keyed by flow_root/step_id (e.g. f/flow/a).
-                            // When nesting segments are present, use flow_root + flow_step_id
-                            // to construct the correct key.
-                            let key =
-                                if let Some(flow_root) = crate::common::extract_flow_root(path) {
+                    // A job carrying a pre-run error never runs its code: it only has to be
+                    // pulled so `handle_queued_job` can fail it. Both hand-off paths below
+                    // dispatch by path and return before that check, so a job sent down them
+                    // would run with whatever arguments survived the failure.
+                    let fails_before_running = job.pre_run_error.is_some();
+                    // A dedicated worker or flow runner runs every job it gets with its own
+                    // unscoped worker token, so a job with a restricted token runs here, with the
+                    // token minted for it, whichever tag brought it.
+                    let restricted = job.job_token_scopes.is_some();
+
+                    if !dedicated_workers.is_empty() && !fails_before_running && !restricted {
+                        let dedicated_worker_tx = job
+                            .runnable_path
+                            .as_ref()
+                            .and_then(|path| {
+                                // For flow steps inside branches/loops, runnable_path includes
+                                // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
+                                // worker map is keyed by flow_root/step_id (e.g. f/flow/a).
+                                // When nesting segments are present, use flow_root + flow_step_id
+                                // to construct the correct key.
+                                let key = if let Some(flow_root) =
+                                    crate::common::extract_flow_root(path)
+                                {
                                     let step_id = job.flow_step_id.as_deref().unwrap_or("");
                                     format!("{}:{}/{}", job.workspace_id, flow_root, step_id)
                                 } else {
                                     format!("{}:{}", job.workspace_id, path)
                                 };
-                            dedicated_workers.get(&key)
-                        });
+                                dedicated_workers.get(&key)
+                            })
+                            .or_else(|| {
+                                dedicated_workers.get(&crate::common::flow_script_step_runner_key(
+                                    &job.tag,
+                                    job.flow_step_id.as_deref()?,
+                                    job.runnable_id?,
+                                ))
+                            });
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {
                             let dedicated_job = DedicatedWorkerJob {
                                 job: Arc::new(job.job()),
@@ -3577,7 +4093,9 @@ pub async fn run_worker(
                         NextJob::Http(_) => None,
                     };
 
-                    if let Some(flow_runners) = flow_runners {
+                    if let Some(flow_runners) =
+                        flow_runners.filter(|_| !fails_before_running && !restricted)
+                    {
                         let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
                         if let Some(key) = key_o {
                             if let Some(flow_runner_tx) = flow_runners.runners.get(&key) {
@@ -3616,6 +4134,7 @@ pub async fn run_worker(
                                         error::Error::InternalErr(format!(
                                             "failed to send jobs to flow runners: {e:?}"
                                         )),
+                                        false,
                                         Some(&same_worker_tx),
                                         &worker_dir,
                                         &worker_name,
@@ -3657,6 +4176,7 @@ pub async fn run_worker(
                                 result: Arc::new(empty_result()),
                                 result_columns: None,
                                 mem_peak: 0,
+                                resource_usage: None,
                                 cached_res_path: None,
                                 token: "".to_string(),
                                 canceled_by: None,
@@ -3808,15 +4328,14 @@ pub async fn run_worker(
 
                     let arc_job = Arc::new(job);
 
-                    windmill_common::sensitive_log_masks::register_running_job(arc_job.id);
-
                     let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
                     let log_ctx = log_context_for_job(&arc_job, &worker_name, Some(hostname));
 
                     let job_result = windmill_common::log_context::with_log_context(
                         log_ctx,
                         async {
-                            let result = handle_queued_job(
+                            // Keep large job-phase futures boxed to limit debug polling frames.
+                            let result = Box::pin(handle_queued_job(
                                 arc_job.clone(),
                                 raw_code,
                                 raw_lock,
@@ -3837,7 +4356,7 @@ pub async fn run_worker(
                                 flow_runners,
                                 #[cfg(feature = "benchmark")]
                                 &mut bench,
-                            )
+                            ))
                             .await;
                             record_job_span_status(&result);
                             result
@@ -3896,11 +4415,13 @@ pub async fn run_worker(
                                     .await;
                                 }
                             }
+                            let canceled = arc_job.canceled_by.is_some();
                             handle_all_job_kind_error(
                                 &conn,
                                 &authed_client,
                                 MiniCompletedJob::from(arc_job),
                                 err,
+                                canceled,
                                 Some(&same_worker_tx),
                                 &worker_dir,
                                 &worker_name,
@@ -3923,8 +4444,6 @@ pub async fn run_worker(
                         }
                         _ => {}
                     }
-
-                    windmill_common::sensitive_log_masks::unregister_running_job(job_id);
 
                     #[cfg(feature = "prometheus")]
                     if let Some(duration) = _timer.map(|x| x.stop_and_record()) {
@@ -4074,6 +4593,19 @@ pub async fn run_worker(
     if let Some(send_result) = send_result {
         if let Err(e) = send_result.await {
             tracing::error!("error in awaiting send_result process: {e:?}")
+        }
+    }
+
+    // The last ping can run before the processor recorded the final jobs; a worker restarting
+    // under this name restores whatever the row holds, so write the drained counters.
+    if let (Some(db), Some(job_stats)) = (
+        conn.as_sql(),
+        windmill_common::worker_job_stats::job_stats_snapshot(&worker_name),
+    ) {
+        if let Err(e) =
+            windmill_common::worker::set_worker_job_stats_query(&worker_name, &job_stats, db).await
+        {
+            tracing::error!(worker = %worker_name, "failed to persist final job stats: {e:#}");
         }
     }
 
@@ -4357,6 +4889,8 @@ pub enum StepFailureKind {
     /// leaves state worth pinning to: in the first case that worker is gone, in the second the
     /// flow's own bookkeeping is what just broke.
     Unrecoverable,
+    /// The flow was cancelled by its wall-clock `timeout`: nothing may run but its failure module.
+    FlowTimeout,
 }
 
 impl StepFailureKind {
@@ -4460,6 +4994,30 @@ async fn detect_and_store_runtime_assets_from_job_args(
     }
 }
 
+/// Holds a job's entry in the log-masking registry for as long as it executes, so
+/// that secrets it fetches can be registered against it, and masks the job's own
+/// token from the start: `$WM_TOKEN` stays valid well past the run, and a script
+/// that echoes it would otherwise leave a live credential in the persisted logs.
+///
+/// Lives here rather than at the call sites so that every way of running a job —
+/// the poller, the interactive worker shell, an inline AI agent tool — is covered
+/// by construction.
+struct RunningJobMasks(Uuid);
+
+impl RunningJobMasks {
+    fn register(job_id: Uuid, token: &str) -> Self {
+        windmill_common::sensitive_log_masks::register_running_job(job_id);
+        windmill_common::sensitive_log_masks::register_secret_for_job(job_id, token);
+        RunningJobMasks(job_id)
+    }
+}
+
+impl Drop for RunningJobMasks {
+    fn drop(&mut self) {
+        windmill_common::sensitive_log_masks::unregister_running_job(self.0);
+    }
+}
+
 pub async fn handle_queued_job(
     job: Arc<MiniPulledJob>,
     raw_code: Option<String>,
@@ -4481,7 +5039,20 @@ pub async fn handle_queued_job(
     flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<JobOutcome> {
+    let _masks = RunningJobMasks::register(job.id, &client.token);
+
     if job.canceled_by.is_some() {
+        // An AI agent cancelled while parked ends here, never reaching the handler that marks its
+        // background calls still running as failed.
+        if job.kind == JobKind::AIAgent {
+            if let (Some(parent_job), Some(db)) = (job.parent_job.as_ref(), conn.as_sql()) {
+                if let Err(e) =
+                    crate::ai::utils::fail_unfinished_action_successes(&db, parent_job).await
+                {
+                    tracing::error!("Failed to close the background calls of {}: {e}", job.id);
+                }
+            }
+        }
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
     if let Some(e) = &job.pre_run_error {
@@ -4593,7 +5164,7 @@ pub async fn handle_queued_job(
     let cached_res_path = if job.cache_ttl.is_some() {
         match conn {
             Connection::Sql(db) => {
-                Some(cached_result_path(db, &client, &job, preview_data.as_ref()).await)
+                Some(cached_result_path(db, &client, &job, preview_data.as_ref()).await?)
             }
             Connection::Http(_) => None,
         }
@@ -4625,6 +5196,7 @@ pub async fn handle_queued_job(
                             result,
                             result_columns: None,
                             mem_peak: 0,
+                            resource_usage: None,
                             canceled_by: None,
                             success: true,
                             cached_res_path: None,
@@ -4698,13 +5270,17 @@ pub async fn handle_queued_job(
         };
 
         // Skip verbose job header for WAC v2 replays (checkpoint has completed steps)
-        let is_wac_replay = if let Connection::Sql(db) = conn {
-            crate::wac_executor::load_checkpoint(db, &job.id)
-                .await
-                .map(|c| !c.completed_steps.is_empty())
-                .unwrap_or(false)
-        } else {
-            false
+        let is_wac_replay = match conn {
+            Connection::Sql(db)
+                if crate::wac_executor::lang_supports_wac_v2(job.script_lang)
+                    && !job.kind.is_dependency() =>
+            {
+                crate::wac_executor::load_checkpoint(db, &job.id)
+                    .await
+                    .map(|c| !c.completed_steps.is_empty())
+                    .unwrap_or(false)
+            }
+            _ => false,
         };
 
         if !is_wac_replay {
@@ -4899,6 +5475,7 @@ pub async fn handle_queued_job(
                         hostname,
                         killpill_rx,
                         &mut has_stream,
+                        job_completed_tx.clone(),
                     ))
                     .await
                 }
@@ -4969,6 +5546,8 @@ pub async fn handle_queued_job(
 
         let cjob = MiniCompletedJob::from(job.to_owned());
         drop(job);
+        // Taken ahead of the returns below so that none of them leaves the entry behind.
+        let cpu_time_ms = crate::handle_child::take_job_cpu_time_ms(&cjob.id);
         //it's a test job, no need to update the db
         if cjob.workspace_id == "" {
             return Ok(JobOutcome::Completed);
@@ -4985,14 +5564,27 @@ pub async fn handle_queued_job(
             .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
         {
             // WAC v2 job suspended while waiting for child jobs — don't complete it
+            // Only a worker with a database connection flushes the rollup.
+            if let Connection::Sql(_) = conn {
+                windmill_common::runnable_job_stats::accumulate_runnable_round(
+                    &cjob.workspace_id,
+                    cjob.kind,
+                    cjob.runnable_path.as_deref(),
+                    &WORKER_GROUP,
+                    started.elapsed().as_millis() as i64,
+                    cpu_time_ms,
+                );
+            }
             return Ok(JobOutcome::Completed);
         }
+        crate::resource_metrics::record_job_memory_peak(&cjob.tag, mem_peak);
         process_result(
             cjob,
             result.map(|x| Arc::new(x)),
             job_dir,
             job_completed_tx,
             mem_peak,
+            cpu_time_ms,
             canceled_by,
             cached_res_path,
             &client.token,
@@ -5026,8 +5618,8 @@ pub fn build_envs(
         hm
     };
 
-    for (k, v) in PROXY_ENVS.iter() {
-        envs.insert(k.to_string(), v.clone());
+    for (k, v) in job_proxy_envs() {
+        envs.insert(k.to_string(), v);
     }
 
     Ok(envs)
@@ -5108,7 +5700,7 @@ async fn try_validate_schema(
                             code,
                             language,
                             job.script_entrypoint_override.clone(),
-                        )? {
+                        ).await? {
                             Ok(Some(schema_validator_from_main_arg_sig(&sig)))
                         } else {
                             Err(anyhow!("Job was expected to validate the arguments schema, but no schema was provided and couldn't be inferred from the script for language `{language:?}`. Try removing schema validation for this job").into())
@@ -5305,6 +5897,7 @@ async fn handle_code_execution_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    let _custom_timeout = crate::common::RunningJobCustomTimeout::register(job.id, job.timeout);
     let script_hash = || {
         job.runnable_id
             .ok_or_else(|| Error::internal_err("expected script hash"))
@@ -5453,15 +6046,24 @@ async fn handle_code_execution_job(
         None => job,
     };
 
-    // For preview jobs, extract modules from args._MODULES if not already set
-    let modules = modules_from_data.clone().or_else(|| {
-        job.args.as_ref().and_then(|args| {
-            args.get("_MODULES").and_then(|raw| {
-                serde_json::from_str::<std::collections::HashMap<String, ScriptModule>>(raw.get())
-                    .ok()
-            })
-        })
-    });
+    // Whatever is here is what gets written to the job dir and built in, so the agent-worker
+    // server precomputing a cache name has to resolve modules the same way
+    // (`windmill-api-agent-workers`, `get_code_and_lock`). `push` stores `_MODULES` for a
+    // preview only, from its `RawCode`; a job queued by a server predating that may still carry
+    // a caller's, and honoring it on a deployed runnable would run caller code as that runnable
+    // (and as its `on_behalf_of` identity).
+    let modules_from_args;
+    let modules = if modules_from_data.is_some() {
+        modules_from_data
+    } else {
+        modules_from_args = job
+            .args
+            .as_ref()
+            .filter(|_| job.kind == JobKind::Preview)
+            .and_then(|args| args.get(MODULES_ARG))
+            .and_then(|raw| serde_json::from_str(raw.get()).ok());
+        &modules_from_args
+    };
 
     try_validate_schema(
         job,
@@ -5474,7 +6076,7 @@ async fn handle_code_execution_job(
     .await?;
 
     let language = language.clone();
-    run_language_executor(
+    let result = Box::pin(run_language_executor(
         job,
         conn,
         client,
@@ -5496,17 +6098,120 @@ async fn handle_code_execution_job(
         envs,
         codebase,
         lock,
-        &modules,
+        modules,
         false,
         in_pipeline,
-    )
-    .await
+    ))
+    .await;
+    record_declared_warehouse_write(job, conn, code, &result).await;
+    result
+}
+
+/// Record the outcome of a `// materialize manual dbt://<warehouse>/<schema>/<name>`
+/// declaration, the way the DuckDB executor records a DuckLake target.
+///
+/// Nothing generates warehouse DDL, so the script issues its own write and this
+/// is the only thing that turns it into a `materialized_partition` row — the
+/// relation's last writer on the run page and the graph. Language-agnostic on
+/// purpose — the DuckLake write engine is DuckDB's, this declaration is anyone's
+/// — except dbt's own, which is refused at deploy.
+///
+/// Best-effort, and it can be: the cascade fans out from the deploy-time `asset`
+/// rows, not from this one, so a lost row costs the relation its last writer and
+/// nothing else. It must not fail a job whose write already landed.
+///
+/// Shares the reach of every other runtime pipeline annotation, which is this
+/// function's caller: a job handed to a dedicated worker or a flow runner never
+/// passes through it, so — exactly as `// partitioned` is not resolved there —
+/// such a run performs its write and records no row.
+async fn record_declared_warehouse_write(
+    job: &MiniPulledJob,
+    conn: &Connection,
+    code: &str,
+    result: &error::Result<Box<RawValue>>,
+) {
+    use windmill_common::materialization::{
+        MaterializationStatus, RecordMaterializationRequest, UNPARTITIONED,
+    };
+    // A DEPLOYED script only. The annotation is a deploy-time contract — `manual`,
+    // a three-segment relation, a configured warehouse — checked in
+    // `create_script_internal`, which also required write access to the path. A
+    // preview, hub or inline-flow body reaches this function without any of that,
+    // so honouring it there would let `jobs:run` alone restamp any relation's last
+    // writer from a script that never touched it.
+    if job.kind != JobKind::Script {
+        return;
+    }
+    // Cheap guard: the annotation scan is skipped for the overwhelming majority
+    // of jobs, which carry no `materialize` line at all.
+    if !code.contains("materialize") {
+        return;
+    }
+    let Some(m) = windmill_parser::asset_parser::parse_pipeline_annotations(code)
+        .materialize
+        .filter(|m| m.target_kind == windmill_parser::asset_parser::AssetKind::Dbt)
+    else {
+        return;
+    };
+    // The slice this run wrote, resolved once upstream (`resolve_partition_for_job`)
+    // and carried in the args the cascade reads too, so a partitioned producer
+    // records the same identity everything else propagates.
+    let partition = job
+        .args
+        .as_ref()
+        .and_then(|a| a.0.get(windmill_common::partition::PARTITION_ARG))
+        .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+        .unwrap_or_else(|| UNPARTITIONED.to_string());
+    let (status, error) = match result {
+        Ok(_) => (MaterializationStatus::Materialized, None),
+        Err(e) => (MaterializationStatus::Failed, Some(e.to_string())),
+    };
+    let recorded = match conn {
+        Connection::Sql(db) => windmill_common::materialization::record_materialization(
+            db,
+            &job.workspace_id,
+            windmill_common::assets::AssetKind::Dbt,
+            &m.target_path,
+            &partition,
+            status,
+            None,
+            None,
+            Some(job.id),
+            error.as_deref(),
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("{e:#}")),
+        Connection::Http(client) => {
+            crate::agent_workers::record_materialization_from_agent_http(
+                client,
+                &job.workspace_id,
+                &RecordMaterializationRequest {
+                    asset_kind: windmill_common::assets::AssetKind::Dbt,
+                    asset_path: m.target_path.clone(),
+                    partition,
+                    status,
+                    snapshot_id: None,
+                    row_count: None,
+                    job_id: Some(job.id),
+                    error,
+                    schema: None,
+                },
+            )
+            .await
+        }
+    };
+    if let Err(e) = recorded {
+        tracing::warn!(
+            "recording the materialization of dbt://{} failed: {e:#}",
+            m.target_path
+        );
+    }
 }
 
 /// True when `path` contains only `Normal`/`CurDir` components, i.e. it cannot
 /// escape the directory it is joined onto (no `..`, no absolute root, no Windows
 /// drive prefix).
-fn is_contained_relative_path(path: &str) -> bool {
+pub(crate) fn is_contained_relative_path(path: &str) -> bool {
     use std::path::Component;
     std::path::Path::new(path)
         .components()
@@ -5646,9 +6351,104 @@ mod write_module_files_tests {
     use super::*;
     use std::collections::HashMap;
     use windmill_common::scripts::ScriptLang;
+    use windmill_common::utils::calculate_hash;
 
     fn module(content: &str) -> ScriptModule {
         ScriptModule { content: content.to_string(), language: ScriptLang::Python3, lock: None }
+    }
+
+    /// Every language's artifact cache name funnels module content through this, so an
+    /// ambiguous encoding puts two different runnables back on one name.
+    #[test]
+    fn artifact_name_cannot_be_re_cut_into_another_module_map() {
+        fn name(entries: &[(&str, &str)]) -> String {
+            let map: HashMap<String, ScriptModule> = entries
+                .iter()
+                .map(|(p, c)| (p.to_string(), module(c)))
+                .collect();
+            artifact_cache_name("base".to_string(), Some(&map))
+        }
+
+        // Naive `path + content` concatenation renders both of these as "abc".
+        assert_ne!(name(&[("a", "bc")]), name(&[("ab", "c")]));
+        // Splitting one module into two must not read back as the joined one.
+        assert_ne!(name(&[("a", "b"), ("c", "d")]), name(&[("ac", "bd")]));
+        // Iteration order of the map must not move the name.
+        assert_eq!(
+            name(&[("a", "1"), ("b", "2")]),
+            name(&[("b", "2"), ("a", "1")])
+        );
+    }
+
+    /// A module-free runnable must keep the exact name it had before modules entered the
+    /// derivation, or upgrading strands every artifact already in the cache.
+    #[test]
+    fn artifact_name_is_unchanged_without_modules() {
+        assert_eq!(
+            artifact_cache_name("code+lock".to_string(), None),
+            calculate_hash("code+lock")
+        );
+        assert_eq!(
+            artifact_cache_name("code+lock".to_string(), Some(&HashMap::new())),
+            calculate_hash("code+lock")
+        );
+    }
+
+    /// A preview brings its own source and lockfile, so a module-free runnable picks its
+    /// whole `base`. Module-bearing names live in their own namespace precisely so that no
+    /// crafted `base` can be made to land on one.
+    #[test]
+    fn a_module_free_runnable_cannot_forge_a_module_bearing_name() {
+        let modules = HashMap::from([("h.ts".to_string(), module("evil"))]);
+        let victim = artifact_cache_name("code+lock".to_string(), Some(&modules));
+
+        // `calculate_hash` emits hex, so the namespace is unreachable however `base` is
+        // chosen — including by feeding it the victim's own name.
+        assert!(victim.starts_with("mod-"));
+        assert_ne!(artifact_cache_name(victim.clone(), None), victim);
+        assert!(!artifact_cache_name("anything".to_string(), None).starts_with("mod-"));
+    }
+
+    /// The `mod-` namespace separates module-free from module-bearing, and nothing separates
+    /// two module-bearing runnables — only the seal does. Unsealed, `base` is variable-width,
+    /// so the split between it and the module block is ambiguous and a preview (which brings
+    /// its own source *and* lockfile) can absorb part of another runnable's block.
+    #[test]
+    fn a_module_bearing_runnable_cannot_absorb_another_ones_block() {
+        let victim = artifact_cache_name(
+            "V".to_string(),
+            Some(&HashMap::from([(
+                "h.ts".to_string(),
+                module(":modules:1:1:a:1:b"),
+            )])),
+        );
+        // Byte-identical to the victim's without the seal: the forger's `base` spells out the
+        // victim's leading block, leaving its own single module to supply the tail.
+        let forged = artifact_cache_name(
+            "V:modules:1:4:h.ts:18:".to_string(),
+            Some(&HashMap::from([("a".to_string(), module("b"))])),
+        );
+
+        assert_ne!(victim, forged);
+    }
+
+    /// Deploy fills a module's lock in after the parent has prebuilt, so a name that moved
+    /// with it would leave every prebuilt artifact unreachable by the runs it was built for.
+    #[test]
+    fn artifact_name_ignores_the_lock_deploy_fills_in_later() {
+        let prebuild = artifact_cache_name(
+            "base".to_string(),
+            Some(&HashMap::from([("h.ts".to_string(), module("x"))])),
+        );
+
+        let mut locked = module("x");
+        locked.lock = Some("{}\n//bun.lock\n<empty>".to_string());
+        let after_deploy = artifact_cache_name(
+            "base".to_string(),
+            Some(&HashMap::from([("h.ts".to_string(), locked)])),
+        );
+
+        assert_eq!(prebuild, after_deploy);
     }
 
     #[test]
@@ -6030,8 +6830,12 @@ pub async fn run_language_executor(
         )
         .await;
 
-        let reserved_variables =
+        let mut reserved_variables =
             get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+        // Same reason as in `build_nativets_env_code`.
+        if windmill_common::worker::TypeScriptAnnotations::parse(&code).no_network {
+            reserved_variables.remove("WM_TOKEN");
+        }
 
         let env_code = format!(
             "const process = {{ env: {{}} }};\nconst BASE_URL = '{base_internal_url}';\nconst BASE_INTERNAL_URL = '{base_internal_url}';\nprocess.env['BASE_URL'] = BASE_URL;process.env['BASE_INTERNAL_URL'] = BASE_INTERNAL_URL;\n{}",
@@ -6065,7 +6869,8 @@ pub async fn run_language_executor(
             occupancy_metrics,
             has_stream,
         ))
-        .await?;
+        .await
+        .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
         return Ok(result);
     }
 
@@ -6161,7 +6966,8 @@ mount {{
             | ScriptLang::Bun
             | ScriptLang::Bunnative
             | ScriptLang::Nativets
-            | ScriptLang::Go => "//",
+            | ScriptLang::Go
+            | ScriptLang::Php => "//",
             _ => "",
         };
         let raw_mounts = windmill_worker_volumes::parse_volume_annotations(&code, comment_prefix);
@@ -6199,7 +7005,10 @@ mount {{
     if !volume_mounts.is_empty() {
         let vol_summary: Vec<String> = volume_mounts
             .iter()
-            .map(|v| format!("'{}' -> {}", v.name, v.target))
+            .map(|v| {
+                let mode = if v.read_only { " (read-only)" } else { "" };
+                format!("'{}' -> {}{mode}", v.name, v.target)
+            })
             .collect();
         append_logs(
             &job.id,
@@ -6214,7 +7023,7 @@ mount {{
         .await;
 
         if let Connection::Sql(db) = conn {
-            volume_setup = crate::volume_oss::setup_volumes_sql_worker(
+            volume_setup = Box::pin(crate::volume_oss::setup_volumes_sql_worker(
                 &volume_mounts,
                 db,
                 &job.workspace_id,
@@ -6227,10 +7036,10 @@ mount {{
                 language,
                 &mut envs,
                 &mut shared_mount,
-            )
+            ))
             .await?;
         } else if let Connection::Http(http) = conn {
-            volume_setup = crate::volume_oss::setup_volumes_http_worker(
+            volume_setup = Box::pin(crate::volume_oss::setup_volumes_http_worker(
                 &volume_mounts,
                 http,
                 &job.workspace_id,
@@ -6243,7 +7052,7 @@ mount {{
                 language,
                 &mut envs,
                 &mut shared_mount,
-            )
+            ))
             .await?;
         }
     }
@@ -6380,6 +7189,7 @@ mount {{
                 envs,
                 occupancy_metrics,
                 maybe_lock,
+                modules.as_ref(),
             ))
             .await
         }
@@ -6509,6 +7319,7 @@ mount {{
                     worker_name,
                     envs,
                     occupancy_metrics,
+                    modules.as_ref(),
                 ))
                 .await
             }
@@ -6567,6 +7378,7 @@ mount {{
                 worker_name,
                 envs,
                 occupancy_metrics,
+                modules.as_ref(),
             ))
             .await
         }
@@ -6631,6 +7443,7 @@ mount {{
                     worker_name,
                     envs,
                     occupancy_metrics,
+                    modules: modules.as_ref(),
                 }))
                 .await
             }
@@ -6735,7 +7548,7 @@ mount {{
 
         if let Some(ref vol_client) = volume_setup.client {
             if let Connection::Sql(db) = conn {
-                crate::volume_oss::sync_volumes_sql_worker(
+                Box::pin(crate::volume_oss::sync_volumes_sql_worker(
                     &volume_setup.states,
                     &volume_setup.writable,
                     vol_client,
@@ -6745,13 +7558,13 @@ mount {{
                     worker_name,
                     conn,
                     result.is_ok(),
-                )
+                ))
                 .await;
             }
         }
 
         if let Connection::Http(http) = conn {
-            crate::volume_oss::sync_volumes_http_worker(
+            Box::pin(crate::volume_oss::sync_volumes_http_worker(
                 &volume_setup.states,
                 &volume_setup.writable,
                 http,
@@ -6760,7 +7573,7 @@ mount {{
                 worker_name,
                 conn,
                 result.is_ok(),
-            )
+            ))
             .await;
         }
 
@@ -6795,7 +7608,7 @@ mount {{
     result
 }
 
-pub fn parse_sig_of_lang(
+pub async fn parse_sig_of_lang(
     code: &str,
     language: Option<&ScriptLang>,
     main_override: Option<String>,
@@ -6830,10 +7643,9 @@ pub fn parse_sig_of_lang(
             ScriptLang::DuckDb => Some(windmill_parser_sql::parse_duckdb_sig(code)?),
             ScriptLang::OracleDB => Some(windmill_parser_sql::parse_oracledb_sig(code)?),
             #[cfg(feature = "php")]
-            ScriptLang::Php => Some(windmill_parser_php::parse_php_signature(
-                code,
-                main_override,
-            )?),
+            ScriptLang::Php => {
+                Some(crate::php_executor::parse_php_signature(code, main_override).await?)
+            }
             #[cfg(not(feature = "php"))]
             ScriptLang::Php => None,
             #[cfg(feature = "rust")]
@@ -6869,6 +7681,33 @@ pub fn parse_sig_of_lang(
     })
 }
 
+/// Inline runs happen outside any worker's job loop, so they get no job dir from it. Executors
+/// write there (DuckDB's spill and result files), so each run needs its own: an empty one
+/// resolves to `/`, shared by every concurrent run and unwritable to a non-root server.
+/// Removed on drop: no job loop owns it, and the run's future is dropped mid-await when the
+/// HTTP client disconnects.
+struct InlineJobDir(String);
+
+impl Drop for InlineJobDir {
+    fn drop(&mut self) {
+        let dir = std::mem::take(&mut self.0);
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn_blocking(move || std::fs::remove_dir_all(dir));
+            }
+            Err(_) => {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+}
+
+async fn create_inline_job_dir() -> error::Result<InlineJobDir> {
+    let job_dir = format!("{}/inline/{}", *WINDMILL_DIR, Uuid::new_v4());
+    tokio::fs::create_dir_all(&job_dir).await?;
+    Ok(InlineJobDir(job_dir))
+}
+
 pub fn init_worker_internal_server_inline_utils(
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: String,
@@ -6877,7 +7716,7 @@ pub fn init_worker_internal_server_inline_utils(
         base_internal_url,
         killpill_rx: Arc::new(killpill_rx),
         run_inline_preview_script: Arc::new(|params| {
-            let job = MiniPulledJob::new_inline(
+            let mut job = MiniPulledJob::new_inline(
                 params.workspace_id,
                 params.args,
                 params.created_by,
@@ -6889,6 +7728,8 @@ pub fn init_worker_internal_server_inline_utils(
                 "inline_preview".to_string(),
                 Some(params.lang),
             );
+            job.permissioned_as_end_user_email = params.end_user_email;
+            job.viewer_data_access = Some(params.viewer_data_access);
             Box::pin(async move {
                 let mut mem_peak: i32 = -1;
                 let mut canceled_by: Option<CanceledBy> = None;
@@ -6897,13 +7738,14 @@ pub fn init_worker_internal_server_inline_utils(
                 let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
                 let mut has_stream: bool = false;
                 let mut killpill_rx = params.killpill_rx;
+                let job_dir = create_inline_job_dir().await?;
 
                 run_language_executor(
                     &job,
                     &params.conn,
                     &params.client,
                     None,
-                    &params.job_dir,
+                    &job_dir.0,
                     &params.worker_dir,
                     &mut mem_peak,
                     &mut canceled_by,
@@ -6930,37 +7772,15 @@ pub fn init_worker_internal_server_inline_utils(
         run_inline_script: Arc::new(|params: RunInlineScriptFnParams| {
             Box::pin(async move {
                 let (script_hash, runnable_path) = match params.target {
-                    InlineScriptTarget::Path(ref path) => {
-                        let db = params
-                            .conn
-                            .as_sql()
-                            .ok_or_else(|| {
-                                error::Error::InternalErr(
-                                    "run_inline_script by path requires a SQL connection"
-                                        .to_string(),
-                                )
-                            })?
-                            .clone();
-                        let authed_ref = params.user_db.as_ref().map(|(_, a)| a.to_authed_ref());
-                        let user_db_authed =
-                            params.user_db.as_ref().zip(authed_ref.as_ref()).map(
-                                |((udb, _), ar)| UserDbWithAuthed { db: udb.clone(), authed: ar },
-                            );
-                        let script_hash_info = get_latest_deployed_hash_for_path(
-                            user_db_authed,
-                            db,
-                            &params.workspace_id,
-                            path,
-                        )
-                        .await?;
-                        (ScriptHash(script_hash_info.hash), Some(path.clone()))
+                    InlineScriptTarget::Path { ref path, hash } => {
+                        (ScriptHash(hash), Some(path.clone()))
                     }
                     InlineScriptTarget::Hash(hash) => (ScriptHash(hash), None),
                 };
                 let content_info =
                     get_script_content_by_hash(&script_hash, &params.workspace_id, &params.conn)
                         .await?;
-                let job = MiniPulledJob::new_inline(
+                let mut job = MiniPulledJob::new_inline(
                     params.workspace_id,
                     params.args,
                     params.created_by,
@@ -6972,6 +7792,7 @@ pub fn init_worker_internal_server_inline_utils(
                     "inline_run".to_string(),
                     content_info.language,
                 );
+                job.permissioned_as_end_user_email = params.end_user_email;
                 let mut mem_peak: i32 = -1;
                 let mut canceled_by: Option<CanceledBy> = None;
                 let mut column_order: Option<Vec<String>> = None;
@@ -6979,13 +7800,14 @@ pub fn init_worker_internal_server_inline_utils(
                 let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
                 let mut has_stream: bool = false;
                 let mut killpill_rx = params.killpill_rx;
+                let job_dir = create_inline_job_dir().await?;
 
                 run_language_executor(
                     &job,
                     &params.conn,
                     &params.client,
                     None,
-                    &params.job_dir,
+                    &job_dir.0,
                     &params.worker_dir,
                     &mut mem_peak,
                     &mut canceled_by,

@@ -12,7 +12,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="7.056 3 37.35 45"
+	viewBox="1.186 0.955 49.091 49.091"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"

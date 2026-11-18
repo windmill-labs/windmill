@@ -29,14 +29,17 @@ export type InsertKind =
 	| 'approval'
 	| 'end'
 	| 'aiagent'
+	| 'aidecision'
 	| 'mcpTool'
 	| 'websearchTool'
+	| 'questionTool'
 	| 'aiAgentTool'
+	| 'aiDecisionTool'
 
 export type InlineScript = {
 	language: RawScript['language']
 	kind: Script['kind']
-	subkind: 'pgsql' | 'flow' | 'claudesandbox'
+	subkind: 'pgsql' | 'flow' | 'claudesandbox' | 'pisandbox'
 	summary?: string
 	instructions?: string
 }
@@ -58,6 +61,8 @@ export type GraphEventHandlers = {
 		inlineScript?: InlineScript
 		script?: PathScript
 		flow?: { path: string; summary: string }
+		/** Saved `ai_agent` resource the inserted agent step links to, for `kind: 'aiagent'`. */
+		agentPath?: string
 		isPreprocessor?: boolean
 	}) => void
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void

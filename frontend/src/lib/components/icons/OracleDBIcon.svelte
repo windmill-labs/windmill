@@ -13,7 +13,7 @@
 	{width}
 	id="svg3430"
 	version="1.1"
-	viewBox="0 0 24 24"
+	viewBox="-0.017 -0.064 24.035 24.035"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<path

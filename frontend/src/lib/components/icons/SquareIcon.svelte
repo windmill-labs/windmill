@@ -16,7 +16,7 @@
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 30 30"
+	viewBox="2.983 2.983 24.035 24.035"
 	style="fill:currentcolor;"
 >
 	<path

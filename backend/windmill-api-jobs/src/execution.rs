@@ -23,23 +23,30 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use windmill_api_auth::{check_scopes, get_scope_tags, ApiAuthed};
+use windmill_audit::{
+    audit_oss::{audit_log_many, AuditAuthorable},
+    ActionKind,
+};
 use windmill_common::{
     db::{UserDB, UserDbWithAuthed},
     error::{self, Error},
-    flow_conversations::{add_message_to_conversation_tx, MessageType},
+    flow_conversations::{
+        add_message_to_conversation_tx, message_attachments, MessageExtras, MessageType,
+    },
+    flows::Retry,
     get_latest_flow_version_info_for_path,
     jobs::{
         check_tag_available_for_workspace_internal, format_result, script_path_to_payload,
-        JobPayload,
+        ChosenBy, JobPayload,
     },
+    runnable_ref::RunnableRef,
     triggers::TriggerMetadata,
     users::username_to_permissioned_as,
-    utils::StripPath,
     FlowVersionInfo, DB,
 };
 use windmill_queue::{
-    cancel_job, get_result_and_success_by_id_from_flow, push, PushArgs, PushArgsOwned,
-    PushIsolationLevel,
+    cancel_job, check_tag_available_for_push, get_result_and_success_by_id_from_flow,
+    parse_result_object, push, tag_reads_args, PushArgs, PushArgsOwned, PushIsolationLevel,
 };
 
 use crate::types::RunJobQuery;
@@ -48,7 +55,27 @@ use crate::types::RunJobQuery;
 // Tag / license checks
 // ---------------------------------------------------------------------------
 
+/// `args` must be the ones the job is pushed with, see [`windmill_queue::check_tag_available_for_push`].
 pub async fn check_tag_available_for_workspace(
+    db: &DB,
+    w_id: &str,
+    tag: &Option<String>,
+    args: &PushArgs<'_>,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
+        let tags = get_scope_tags(authed);
+        // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
+        let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
+        check_tag_available_for_push(db, w_id, tag, args, is_super_admin, tags).await
+    } else {
+        Ok(())
+    }
+}
+
+/// [`check_tag_available_for_workspace`] for a tag filled in from values nothing can check yet,
+/// such as a flow's preprocessor output: only an entry spelled exactly like it admits it.
+pub async fn check_tag_as_written_available_for_workspace(
     db: &DB,
     w_id: &str,
     tag: &Option<String>,
@@ -56,9 +83,202 @@ pub async fn check_tag_available_for_workspace(
 ) -> error::Result<()> {
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         let tags = get_scope_tags(authed);
-        check_tag_available_for_workspace_internal(db, w_id, tag, &authed.email, tags).await
+        // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
+        let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
+        check_tag_available_for_workspace_internal(
+            db,
+            w_id,
+            tag,
+            None,
+            std::future::ready(w_id.to_string()),
+            is_super_admin,
+            tags,
+        )
+        .await
     } else {
         Ok(())
+    }
+}
+
+/// Clears a `parent_job` / `root_job` the caller cannot claim. They identify the pushed job
+/// (`WM_FLOW_JOB_ID`, `WM_ROOT_FLOW_JOB_ID`, the OIDC token's flow path), so only a job's own
+/// `WM_TOKEN` may name that job or its ancestors, and a workspace admin any job of the workspace.
+/// Cleared rather than refused: the SDKs send them from inside a job whatever token they hold.
+pub async fn drop_unclaimable_run_lineage(
+    db: &DB,
+    w_id: &str,
+    run_query: &mut RunJobQuery,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    let referenced: Vec<Uuid> = [run_query.parent_job, run_query.root_job]
+        .into_iter()
+        .flatten()
+        .collect();
+    let unclaimable = unclaimable_run_lineage(db, w_id, referenced, authed).await?;
+    for field in [&mut run_query.parent_job, &mut run_query.root_job] {
+        if field.is_some_and(|id| unclaimable.contains(&id)) {
+            tracing::warn!(
+                "ignoring parent_job/root_job {field:?} that {} cannot claim in {w_id}",
+                authed.username
+            );
+            *field = None;
+        }
+    }
+    Ok(())
+}
+
+/// Applies the run's `retry` policy by handing `push` a one-step-flow request, which it
+/// materializes as a native retryable `Script`.
+pub fn with_run_retry(
+    run_query: &RunJobQuery,
+    payload: JobPayload,
+    args: &PushArgs<'_>,
+    tag: &Option<String>,
+) -> error::Result<JobPayload> {
+    let Some(retry) = run_query.retry.as_deref() else {
+        return Ok(payload);
+    };
+    // Retry attempts are always pushed visible to the owner, which would leak a private run.
+    if run_query.invisible_to_owner.unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "retry cannot be combined with invisible_to_owner".to_string(),
+        ));
+    }
+    let retry: Retry = serde_json::from_str(retry)
+        .map_err(|e| Error::BadRequest(format!("invalid retry policy: {e}")))?;
+    let JobPayload::ScriptHash {
+        hash,
+        path,
+        cache_ttl,
+        cache_ignore_s3_path,
+        language,
+        priority,
+        apply_preprocessor,
+        debouncing_settings,
+        concurrency_settings,
+        ..
+    } = payload
+    else {
+        return Err(Error::BadRequest(
+            "retry is only supported for workspace scripts".to_string(),
+        ));
+    };
+    // A failed attempt keeps its raw args and the retry re-push skips the preprocessor, so
+    // every retry would call `main` with un-preprocessed input.
+    if apply_preprocessor {
+        return Err(Error::BadRequest(
+            "retry is not supported for a script with a preprocessor unless skip_preprocessor is set"
+                .to_string(),
+        ));
+    }
+    Ok(JobPayload::SingleStepFlow {
+        path,
+        hash: Some(hash),
+        flow_version: None,
+        language: Some(language),
+        args: HashMap::from(args),
+        retry: Some(retry),
+        error_handler_path: None,
+        error_handler_args: None,
+        skip_handler: None,
+        cache_ttl,
+        cache_ignore_s3_path,
+        priority,
+        tag_override: tag.clone(),
+        trigger_path: None,
+        apply_preprocessor,
+        concurrency_settings,
+        debouncing_settings,
+    })
+}
+
+/// The jobs of `referenced` that `authed` cannot claim as its own run lineage: anything but the
+/// token's own job and that job's `parent_job`, `root_job` and `flow_innermost_root_job`, or for
+/// a workspace admin anything outside the workspace. A restricted job token never gets the admin
+/// latitude: its flow-run routes trust this lineage (`job_in_same_flow_run`), so a claimed
+/// unrelated run would escape its scopes.
+pub async fn unclaimable_run_lineage(
+    db: &DB,
+    w_id: &str,
+    mut referenced: Vec<Uuid>,
+    authed: &ApiAuthed,
+) -> error::Result<Vec<Uuid>> {
+    referenced.sort();
+    referenced.dedup();
+    if let Some(token_job) = authed.job_id {
+        referenced.retain(|id| *id != token_job);
+        if !referenced.is_empty() {
+            if let Some(lineage) = sqlx::query!(
+                "SELECT parent_job, root_job, flow_innermost_root_job FROM v2_job
+                WHERE id = $1 AND workspace_id = $2",
+                token_job,
+                w_id
+            )
+            .fetch_optional(db)
+            .await?
+            {
+                let ancestors = [
+                    lineage.parent_job,
+                    lineage.root_job,
+                    lineage.flow_innermost_root_job,
+                ];
+                referenced.retain(|id| !ancestors.contains(&Some(*id)));
+            }
+        }
+    }
+    if referenced.is_empty() {
+        return Ok(referenced);
+    }
+    let restricted_job_token = authed.job_id.is_some() && authed.scopes.is_some();
+    let in_workspace = if authed.is_admin && !restricted_job_token {
+        sqlx::query_scalar!(
+            "SELECT id FROM v2_job WHERE id = ANY($1) AND workspace_id = $2",
+            &referenced,
+            w_id,
+        )
+        .fetch_all(db)
+        .await?
+    } else {
+        vec![]
+    };
+    referenced.retain(|id| !in_workspace.contains(id));
+    Ok(referenced)
+}
+
+/// `WM_END_USER_EMAIL` of a run started through a `/jobs/run*` route. `WM_EMAIL` names the
+/// runnable's `on_behalf_of` identity when it has one, so this is the only place the caller's
+/// address reaches the job. A job's own `WM_TOKEN` passes on the end user of that job, and a run
+/// a trigger fired has no end user.
+pub async fn run_end_user_email(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    trigger: Option<&TriggerMetadata>,
+) -> error::Result<Option<String>> {
+    if trigger.is_some() {
+        return Ok(None);
+    }
+    match authed.job_id {
+        Some(job_id) => Ok(windmill_common::auth::get_job_perms(db, &job_id, w_id)
+            .await?
+            .and_then(|p| p.end_user_email)),
+        None => Ok(Some(authed.email.clone())),
+    }
+}
+
+/// [`run_end_user_email`] of an inline run of the caller's own code, and whether its data table
+/// connections are made as that end user: they are when the calling job's are, since the code is
+/// that job's own.
+pub async fn run_inline_preview_end_user(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+) -> error::Result<(Option<String>, bool)> {
+    match authed.job_id {
+        Some(job_id) => Ok(windmill_common::auth::get_job_perms(db, &job_id, w_id)
+            .await?
+            .map_or((None, false), |p| (p.end_user_email, p.viewer_data_access))),
+        None => Ok((Some(authed.email.clone()), false)),
     }
 }
 
@@ -83,11 +303,15 @@ pub async fn check_license_key_valid() -> error::Result<()> {
 pub async fn cancel_jobs(
     jobs: Vec<Uuid>,
     db: &DB,
-    username: &str,
+    author: &(impl AuditAuthorable + Sync),
     w_id: &str,
     force_cancel: bool,
 ) -> error::JsonResult<Vec<Uuid>> {
+    let username = author.username();
     let mut uuids = vec![];
+    // A job that completed before its turn is reported back like the others but was not
+    // cancelled, so it gets no audit entry.
+    let mut audited = vec![];
     tracing::info!("Cancelling jobs: {:?}", jobs);
     let mut tx = db.begin().await?;
     let trivial_jobs =  sqlx::query!("INSERT INTO v2_job_completed AS cj
@@ -125,6 +349,14 @@ pub async fn cancel_jobs(
     )
     .execute(&mut *tx)
     .await?;
+    // These jobs leave the queue without having run: their concurrency keys go, so that none
+    // stays first in its key's line, and none counts as a run in a time window.
+    sqlx::query!(
+        "DELETE FROM concurrency_key WHERE job_id = any($1) AND ended_at IS NULL",
+        &trivial_jobs,
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     for job_id in jobs.into_iter() {
@@ -133,7 +365,7 @@ pub async fn cancel_jobs(
         }
         match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
             let tx = db.begin().await?;
-            let (tx, _) = cancel_job(
+            let (tx, cancelled) = cancel_job(
                 username,
                 None,
                 job_id.clone(),
@@ -145,13 +377,14 @@ pub async fn cancel_jobs(
             )
             .await?;
             tx.commit().await?;
-            Ok::<_, anyhow::Error>(())
+            Ok::<_, anyhow::Error>(cancelled)
         })
         .await
         {
             Ok(result) => match result {
-                Ok(_) => {
+                Ok(cancelled) => {
                     uuids.push(job_id);
+                    audited.extend(cancelled);
                 }
                 Err(e) => {
                     tracing::error!("Failed to cancel job {:?}: {:?}", job_id, e);
@@ -166,7 +399,26 @@ pub async fn cancel_jobs(
         }
     }
 
+    audited.extend(trivial_jobs.iter().copied());
     uuids.extend(trivial_jobs);
+
+    // The cancels are committed by now: failing here would report them as not done.
+    if let Err(e) = audit_log_many(
+        db,
+        author,
+        if force_cancel {
+            "jobs.force_cancel"
+        } else {
+            "jobs.cancel"
+        },
+        ActionKind::Delete,
+        w_id,
+        &audited.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+    )
+    .await
+    {
+        tracing::error!("Failed to write audit entries for cancelled jobs in {w_id}: {e:#}");
+    }
 
     Ok(Json(uuids))
 }
@@ -325,7 +577,7 @@ pub async fn run_wait_result_internal(
                     SELECT
                         result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                         result_columns,
-                        status = 'success' AS \"success!\"
+                        status IN ('success', 'skipped') AS \"success!\"
                     FROM
                         v2_job_completed
                     WHERE
@@ -371,16 +623,167 @@ pub async fn run_wait_result_internal(
     }
 }
 
-pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result<Response> {
-    let composite_result = serde_json::from_str::<WindmillCompositeResult>(result.get());
+/// Content types a workspace without a paid plan may serve on Windmill Cloud: data, never a
+/// document a browser renders as a page (HTML, SVG, XML, PDF, JS, ...).
+const PLAIN_CONTENT_TYPES: [&str; 9] = [
+    "application/json",
+    "application/x-ndjson",
+    "text/plain",
+    "text/csv",
+    "text/calendar",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+];
+
+/// `windmill_headers` a workspace without a paid plan may not set on Windmill Cloud. Each turns
+/// our domain into something other than a data API: a redirect, a file download, a native login
+/// prompt, or a cookie or cleared site data on it. `Content-Type` is checked by value instead:
+/// set there it overrides the JSON body's own.
+const PAID_ONLY_HEADERS: [&str; 6] = [
+    "location",
+    "refresh",
+    "content-disposition",
+    "www-authenticate",
+    "set-cookie",
+    "clear-site-data",
+];
+
+fn content_type_allowed(ct: &str) -> bool {
+    // A browser reads a comma-separated Content-Type as a list and uses its last valid type,
+    // so `text/plain, text/html` renders as HTML.
+    if ct.contains(',') {
+        return false;
+    }
+    let media_type = ct.split(';').next().unwrap_or("").trim();
+    PLAIN_CONTENT_TYPES
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case(media_type))
+}
+
+fn content_type_hint(ct: &str) -> String {
+    let ct = ct.to_ascii_lowercase();
+    if ct.contains(',') {
+        "Set a single content type.".to_string()
+    } else if ct.contains("svg") {
+        "Render the image as image/png instead.".to_string()
+    } else {
+        format!(
+            "Allowed content types are {}.",
+            PLAIN_CONTENT_TYPES.join(", ")
+        )
+    }
+}
+
+/// Why serving this composite result would make our domain serve a web page, a redirect or one
+/// of [`PAID_ONLY_HEADERS`], which a free cloud workspace may not do, with how to fix it.
+/// `None` when it serves data only.
+fn paid_plan_refusal(
+    status_code: Option<u16>,
+    content_type: Option<&str>,
+    headers: Option<&HashMap<String, String>>,
+) -> Option<String> {
+    if let Some(c) = status_code.filter(|c| (300..400).contains(c)) {
+        return Some(format!(
+            "windmill_status_code {c} is a redirect. Return the URL in the result instead."
+        ));
+    }
+    if let Some(ct) = content_type.filter(|ct| !content_type_allowed(ct)) {
+        return Some(format!(
+            "windmill_content_type \"{ct}\" is not allowed. {}",
+            content_type_hint(ct)
+        ));
+    }
+    for (k, v) in headers.into_iter().flatten() {
+        let name = k.trim();
+        if name.eq_ignore_ascii_case("content-type") {
+            if !content_type_allowed(v) {
+                return Some(format!(
+                    "windmill_headers \"{k}: {v}\" is not allowed. {}",
+                    content_type_hint(v)
+                ));
+            }
+        } else if PAID_ONLY_HEADERS
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(name))
+        {
+            let hint = if ["location", "refresh"]
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case(name))
+            {
+                " Return the URL in the result instead."
+            } else {
+                ""
+            };
+            return Some(format!("windmill_headers \"{k}\" is not allowed.{hint}"));
+        }
+    }
+    None
+}
+
+/// [`result_to_response`] for a response served over HTTP, with the workspace's plan applied.
+/// The plan is looked up only for a result that needs it, so a plan lookup failure never
+/// holds up an ordinary response. Callers must already have authorized the request for `w_id`
+/// and the job that produced `result`.
+pub async fn result_to_http_response(
+    db: &DB,
+    w_id: &str,
+    result: Box<RawValue>,
+    success: bool,
+) -> error::Result<Response> {
+    let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
+    let needs_plan = composite_result.as_ref().is_some_and(|c| {
+        paid_plan_refusal(
+            c.windmill_status_code,
+            c.windmill_content_type.as_deref(),
+            c.windmill_headers.as_ref(),
+        )
+        .is_some()
+    });
+    let rich_responses_allowed =
+        !needs_plan || windmill_common::workspaces::paid_features_allowed(db, w_id).await?;
+    composite_to_response(composite_result, result, success, rich_responses_allowed)
+}
+
+/// Shapes a job result into a response. `rich_responses_allowed: false` refuses a result that
+/// [`paid_plan_refusal`] refuses; HTTP callers get it from [`result_to_http_response`].
+pub fn result_to_response(
+    result: Box<RawValue>,
+    success: bool,
+    rich_responses_allowed: bool,
+) -> error::Result<Response> {
+    let composite_result = parse_result_object::<WindmillCompositeResult>(result.get());
+    composite_to_response(composite_result, result, success, rich_responses_allowed)
+}
+
+fn composite_to_response(
+    composite_result: Option<WindmillCompositeResult>,
+    result: Box<RawValue>,
+    success: bool,
+    rich_responses_allowed: bool,
+) -> error::Result<Response> {
     match composite_result {
-        Ok(WindmillCompositeResult {
+        Some(WindmillCompositeResult {
             windmill_status_code,
             windmill_content_type,
             windmill_headers,
             windmill_content_transfer_encoding,
             result: result_value,
         }) => {
+            if !rich_responses_allowed {
+                if let Some(reason) = paid_plan_refusal(
+                    windmill_status_code,
+                    windmill_content_type.as_deref(),
+                    windmill_headers.as_ref(),
+                ) {
+                    return Err(Error::BadRequest(format!(
+                        "The job ran, but its response was refused: {reason} Web pages, \
+                         redirects and some response headers require a paid plan on Windmill \
+                         Cloud: upgrade this workspace in Workspace Settings > Premium plans."
+                    )));
+                }
+            }
             if windmill_content_type.is_none()
                 && windmill_status_code.is_none()
                 && windmill_headers.is_none()
@@ -414,17 +817,53 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
 
             let mut headers = HeaderMap::new();
 
+            // A reverse proxy consumes hop-by-hop headers instead of forwarding them and
+            // drops every header named by `Connection`, so a script could use one to strip
+            // the sandbox headers this function adds before they reach the browser.
+            const HOP_BY_HOP_HEADERS: [&str; 9] = [
+                "connection",
+                "keep-alive",
+                "proxy-authenticate",
+                "proxy-authorization",
+                "proxy-connection",
+                "te",
+                "trailer",
+                "transfer-encoding",
+                "upgrade",
+            ];
+
             if let Some(windmill_headers) = windmill_headers {
                 for (k, v) in windmill_headers {
                     let k = HeaderName::from_str(k.as_str()).map_err(|err| {
                         Error::internal_err(format!("Invalid header name {k}: {err}"))
                     })?;
+                    if HOP_BY_HOP_HEADERS.contains(&k.as_str()) {
+                        return Err(Error::ExecutionErr(format!(
+                            "windmill_headers cannot set the hop-by-hop header \"{k}\""
+                        )));
+                    }
                     let v = HeaderValue::from_str(v.as_str()).map_err(|err| {
                         Error::internal_err(format!("Invalid header value {v}: {err}"))
                     })?;
                     headers.insert(k, v);
                 }
             }
+
+            // The script controls the content type and body, and run_wait_result and sync
+            // HTTP routes are reachable by top-level GET navigation with the session cookie:
+            // sandbox the document into an opaque origin so HTML can never run with the
+            // viewer's session. Inserted after `wm_headers` so a script cannot override it.
+            headers.insert(
+                http::header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
+            headers.insert(
+                http::header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static(
+                    "sandbox allow-scripts allow-forms allow-popups \
+                     allow-popups-to-escape-sandbox allow-downloads allow-modals",
+                ),
+            );
 
             if let Some(content_type) = windmill_content_type {
                 let serialized_json_result = result_value
@@ -514,7 +953,7 @@ pub async fn run_wait_result(
     )
     .await?;
 
-    result_to_response(result, success)
+    result_to_http_response(db, w_id, result, success).await
 }
 
 // ---------------------------------------------------------------------------
@@ -590,11 +1029,31 @@ pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::R
 // Flow run helpers
 // ---------------------------------------------------------------------------
 
+/// Record the run's memory id, and make the run the one turn that holds it: a run started with a
+/// memory id a still-queued run holds is refused with a 409, so two turns never write the same
+/// memory over each other. A holder whose agent parked hands the turn over instead. For a chat flow, call it after `handle_chat_conversation_messages`,
+/// whose refusal names the running turn the way the chat follows it.
 pub async fn set_flow_memory_id(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
     job_id: Uuid,
     memory_id: Uuid,
 ) -> error::Result<()> {
+    if let Some(refused) = claim_memory_turn(tx, w_id, memory_id, job_id).await? {
+        let error = if refused.parked {
+            "another run with this memory_id is waiting, but has steps after its AI agent, so it \
+             cannot hand its conversation over. Wait for it, or pass `take_over=true` to stop it \
+             and run this one instead."
+        } else {
+            "another run with this memory_id is still running. Wait for it, or pass \
+             `take_over=true` to stop it and run this one instead."
+        };
+        return Err(Error::Generic(
+            StatusCode::CONFLICT,
+            serde_json::json!({ "error": error, "running_turn": { "job_id": refused.holder } })
+                .to_string(),
+        ));
+    }
     sqlx::query!(
         "UPDATE v2_job_status
          SET flow_status = jsonb_set(
@@ -611,16 +1070,246 @@ pub async fn set_flow_memory_id(
     Ok(())
 }
 
-/// Apply flow-specific query parameters after job creation
-pub async fn process_flow_run_query_params(
+/// A claim refused: the queued run that holds the memory id, and whether its agent is parked
+/// where the run cannot hand its conversation over.
+struct RefusedClaim {
+    holder: Uuid,
+    parked: bool,
+}
+
+/// Make `job_id` the holder of the memory id, or return the queued run that holds it and cannot
+/// hand it over.
+///
+/// Lock, then look, in separate statements: under read committed, a statement that waited on a
+/// row lock still evaluates its subqueries with the snapshot it started with, so a single upsert
+/// checking the queue would miss the holder that committed while it waited.
+async fn claim_memory_turn(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    memory_id: Uuid,
     job_id: Uuid,
+) -> error::Result<Option<RefusedClaim>> {
+    // A claim the monitor deletes while this waits on it is gone, not held: insert again.
+    for _ in 0..3 {
+        let inserted = sqlx::query_scalar!(
+            "INSERT INTO ai_memory_turn (workspace_id, memory_id, job_id) VALUES ($1, $2, $3)
+             ON CONFLICT (workspace_id, memory_id) DO NOTHING RETURNING job_id",
+            w_id,
+            memory_id,
+            job_id
+        )
+        .fetch_optional(&mut **tx)
+        .await?;
+        if inserted.is_some() {
+            return Ok(None);
+        }
+        let claim = sqlx::query!(
+            "SELECT job_id, handed_jobs FROM ai_memory_turn
+             WHERE workspace_id = $1 AND memory_id = $2 FOR UPDATE",
+            w_id,
+            memory_id
+        )
+        .fetch_optional(&mut **tx)
+        .await?;
+        let Some((holder, unadopted)) = claim.map(|c| (c.job_id, c.handed_jobs)) else {
+            continue;
+        };
+        let queued = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1) AS "queued!""#,
+            holder
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+        let handed_jobs = if queued {
+            match hand_over_parked_turn(tx, holder).await? {
+                Some(jobs) => Some(jobs),
+                None => {
+                    let parked = sqlx::query_scalar!(
+                        r#"SELECT EXISTS (SELECT 1 FROM ai_agent_checkpoint c
+                             JOIN v2_job_queue q ON q.id = c.job_id JOIN v2_job j ON j.id = c.job_id
+                             WHERE (j.parent_job = $1 OR j.root_job = $1)
+                               AND q.suspend > 0 AND q.suspend_until IS NOT NULL) AS "parked!""#,
+                        holder
+                    )
+                    .fetch_one(&mut **tx)
+                    .await?;
+                    return Ok(Some(RefusedClaim { holder, parked }));
+                }
+            }
+        } else {
+            // Jobs handed to the ended run and never adopted: cancelled, as the monitor does
+            // for a claim it deletes, rather than dropped with the row.
+            if let Some(unadopted) = &unadopted {
+                windmill_common::flow_conversations::cancel_unadopted_handed_jobs(
+                    &mut **tx, unadopted,
+                )
+                .await?;
+            }
+            None
+        };
+        sqlx::query!(
+            "UPDATE ai_memory_turn SET job_id = $3, handed_jobs = $4
+             WHERE workspace_id = $1 AND memory_id = $2",
+            w_id,
+            memory_id,
+            job_id,
+            handed_jobs
+        )
+        .execute(&mut **tx)
+        .await?;
+        return Ok(None);
+    }
+    Err(Error::internal_err(format!(
+        "Could not claim memory id {memory_id}: its claim kept being released"
+    )))
+}
+
+/// A run whose agent parked has given its answer or waits on a person, so a new turn continues
+/// the conversation rather than being refused. The parked agent is woken to end with what it has,
+/// any open approval or question dropped, and its background jobs are returned by flow step id
+/// for the new run's agent to adopt. `None` when there is no such agent.
+///
+/// Only an agent that is the run's last top-level step, where the run is at: after it the run
+/// ends, so nothing of it can write the memory or the chat beside the new turn. A step after it,
+/// or one in a parallel branch, would. `refuse_running_turn` holds the same condition.
+///
+/// Zeroing `suspend` under the row lock is what keeps the monitor's wake and an answer from
+/// resuming the old turn as well: both only act on a row still parked.
+async fn hand_over_parked_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    holder: Uuid,
+) -> error::Result<Option<serde_json::Value>> {
+    let parked = sqlx::query!(
+        r#"UPDATE v2_job_queue q SET suspend = 0
+         FROM ai_agent_checkpoint c, v2_job j, v2_job_status s
+         WHERE c.job_id = q.id AND j.id = q.id AND j.parent_job = $1 AND s.id = $1
+           AND (s.flow_status->>'step')::int = jsonb_array_length(s.flow_status->'modules') - 1
+           AND s.flow_status->'modules'->-1->>'job' = q.id::text
+           AND q.suspend > 0 AND q.suspend_until IS NOT NULL
+         RETURNING q.id, j.flow_step_id, c.checkpoint->'background' AS "background""#,
+        holder
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    if parked.is_empty() {
+        return Ok(None);
+    }
+    let ids: Vec<Uuid> = parked.iter().map(|p| p.id).collect();
+    sqlx::query!(
+        "UPDATE ai_agent_checkpoint
+         SET checkpoint = jsonb_set(checkpoint, '{handed_over}', 'true'), waiting_on = '{}'
+         WHERE job_id = ANY($1)",
+        &ids
+    )
+    .execute(&mut **tx)
+    .await?;
+    let jobs = parked
+        .into_iter()
+        .filter_map(|p| Some((p.flow_step_id?, p.background?)))
+        .collect::<serde_json::Map<_, _>>();
+    Ok(Some(serde_json::Value::Object(jobs)))
+}
+
+/// How long `take_over_memory_turn` waits for the stopped run to leave the queue: an agent step's
+/// cancel grace period, plus the time its worker takes to notice the cancel.
+const TAKE_OVER_WAIT: std::time::Duration = std::time::Duration::from_secs(40);
+
+/// With `take_over`, stop the run that holds the memory id so this one can claim it: cancel it,
+/// then wait for it to leave the queue, which its agents spend saving what they have to memory.
+/// Only who started that run, or an admin, can stop it, and a restricted token only with an
+/// unconfined `jobs:cancel` grant: the memory id is not confined to the flow being run.
+pub async fn take_over_memory_turn(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    flow_path: &str,
     run_query: &RunJobQuery,
 ) -> error::Result<()> {
-    if let Some(memory_id) = run_query.memory_id {
-        set_flow_memory_id(tx, job_id, memory_id).await?;
+    if !run_query.take_over.unwrap_or(false) {
+        return Ok(());
     }
-    Ok(())
+    let Some(memory_id) = run_query.memory_key(w_id, flow_path) else {
+        return Err(Error::BadRequest("take_over needs a memory_id".to_string()));
+    };
+    let scopes = authed.scopes.as_deref();
+    if scopes.is_some()
+        && !(windmill_api_auth::scopes::has_job_cancel_grant(scopes)
+            && windmill_api_auth::scopes::job_cancel_path_confinement(scopes).is_none())
+    {
+        return Err(Error::NotAuthorized(
+            "take_over needs a token that can cancel any job (`jobs:cancel`)".to_string(),
+        ));
+    }
+    let holder = sqlx::query!(
+        "SELECT t.job_id, j.created_by, j.tag FROM ai_memory_turn t
+         JOIN v2_job_queue q ON q.id = t.job_id
+         JOIN v2_job j ON j.id = t.job_id
+         WHERE t.workspace_id = $1 AND t.memory_id = $2",
+        w_id,
+        memory_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some((job_id, created_by, tag)) = holder.map(|h| (h.job_id, h.created_by, h.tag)) else {
+        return Ok(());
+    };
+    // A token confined to tags reads, and so cancels, only jobs on them.
+    if get_scope_tags(authed).is_some_and(|tags| !tags.contains(&tag.as_str())) {
+        return Err(Error::NotAuthorized(format!(
+            "the running turn is on tag {tag}, which this token cannot reach"
+        )));
+    }
+    if created_by != authed.username && !authed.is_admin {
+        return Err(Error::NotAuthorized(
+            "only who started the running turn, or an admin, can take it over".to_string(),
+        ));
+    }
+    let (tx, _) = windmill_queue::cancel_job(
+        &authed.username,
+        Some("taken over by a new run".to_string()),
+        job_id,
+        w_id,
+        db.begin().await?,
+        db,
+        false,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+    windmill_audit::audit_oss::audit_log(
+        db,
+        authed,
+        "jobs.cancel",
+        ActionKind::Delete,
+        w_id,
+        Some(&job_id.to_string()),
+        None,
+    )
+    .await?;
+
+    let deadline = std::time::Instant::now() + TAKE_OVER_WAIT;
+    loop {
+        let queued = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1) AS "queued!""#,
+            job_id
+        )
+        .fetch_one(db)
+        .await?;
+        if !queued {
+            return Ok(());
+        }
+        if std::time::Instant::now() > deadline {
+            return Err(Error::Generic(
+                StatusCode::CONFLICT,
+                serde_json::json!({
+                    "error": "the running turn was cancelled but has not stopped yet; retry shortly",
+                    "running_turn": { "job_id": job_id },
+                })
+                .to_string(),
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
 }
 
 pub async fn handle_chat_conversation_messages(
@@ -630,10 +1319,48 @@ pub async fn handle_chat_conversation_messages(
     flow_path: &str,
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+    job_id: Uuid,
+    is_test: bool,
+    // The run's args, for the files the message carried.
+    args: &HashMap<String, Box<serde_json::value::RawValue>>,
 ) -> error::Result<()> {
-    let memory_id = run_query.memory_id.ok_or_else(|| {
+    file_chat_turn(
+        tx,
+        &authed.username,
+        authed.is_admin,
+        w_id,
+        flow_path,
+        run_query,
+        user_message_raw,
+        job_id,
+        is_test,
+        args,
+    )
+    .await
+}
+
+/// [`handle_chat_conversation_messages`] for a conversation owned by `owner`, which need not be a
+/// user: an anonymous app visitor's is owned by `ANONYMOUS_CONVERSATION_OWNER`.
+pub async fn file_chat_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    owner: &str,
+    is_admin: bool,
+    w_id: &str,
+    flow_path: &str,
+    run_query: &RunJobQuery,
+    user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+    job_id: Uuid,
+    is_test: bool,
+    args: &HashMap<String, Box<serde_json::value::RawValue>>,
+) -> error::Result<()> {
+    // Names the query parameter rather than the field: it is not a flow argument, and
+    // supplying it as one is the first thing tried on reading `memory_id is required`.
+    let memory_id = run_query.memory_key(w_id, flow_path).ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
-            "memory_id is required for chat-enabled flows".to_string(),
+            "memory_id is required for chat-enabled flows. Pass it as the `memory_id` query \
+             parameter, not as a flow argument: it names the conversation the turn belongs to, \
+             so a fresh UUID starts one and reusing a UUID continues it."
+                .to_string(),
         )
     })?;
 
@@ -654,20 +1381,27 @@ pub async fn handle_chat_conversation_messages(
         tx,
         w_id,
         flow_path,
-        &authed.username,
+        owner,
+        is_admin,
         &user_message,
         memory_id,
+        is_test,
     )
     .await?;
 
+    // The run this message started. The row keeps the files the message carried as
+    // references; its args are the only record of every other flow input, and nothing
+    // written later points at them: an assistant row holds the AI agent step's job.
     add_message_to_conversation_tx(
         tx,
         memory_id,
-        None,
+        Some(job_id),
+        job_id,
         &user_message,
         MessageType::User,
         None,
         true,
+        Some(&MessageExtras { attachments: message_attachments(args), ..Default::default() }),
     )
     .await?;
 
@@ -691,6 +1425,9 @@ pub async fn run_flow<'c>(
     bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(db, w_id, &mut run_query, authed).await?;
+    take_over_memory_turn(db, authed, w_id, flow_path, &run_query).await?;
     let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
@@ -701,12 +1438,29 @@ pub async fn run_flow<'c>(
         chat_input_enabled,
         early_return,
         labels,
+        job_token_scopes,
         ..
     } = flow_version_info;
 
-    let tag = run_query.tag.clone().or(tag);
+    let flow_tag = tag;
+    let tag = run_query.tag.clone().or(flow_tag.clone());
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    let apply_preprocessor =
+        !run_query.skip_preprocessor.unwrap_or(false) && has_preprocessor.unwrap_or(false);
 
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    if !apply_preprocessor || run_query.tag.is_some() {
+        check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    }
+    // `push` drops the tag of a flow whose preprocessor runs, and the worker then puts the flow on
+    // its own tag filled in from the preprocessor's output, after this caller's identity is gone.
+    // So that tag is the one to check, and an `$args[...]` in it is judged as written.
+    if apply_preprocessor {
+        if flow_tag.as_deref().is_some_and(tag_reads_args) {
+            check_tag_as_written_available_for_workspace(&db, &w_id, &flow_tag, &authed).await?;
+        } else {
+            check_tag_available_for_workspace(&db, &w_id, &flow_tag, &push_args, &authed).await?;
+        }
+    }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let return_tx = tx_o.is_some();
@@ -722,7 +1476,7 @@ pub async fn run_flow<'c>(
         (
             &obo.email,
             obo.permissioned_as.clone(),
-            None,
+            authed.mcp_client.is_some().then(|| authed.clone().into()),
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
     } else {
@@ -734,6 +1488,8 @@ pub async fn run_flow<'c>(
         )
     };
 
+    let end_user_email = run_end_user_email(db, w_id, authed, trigger.as_ref()).await?;
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -742,11 +1498,11 @@ pub async fn run_flow<'c>(
             path: flow_path.to_string(),
             dedicated_worker,
             version,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
+            apply_preprocessor,
             labels,
+            job_token_scopes,
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -768,16 +1524,12 @@ pub async fn run_flow<'c>(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
-
-    // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_id {
-        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
-    }
 
     // Handle conversation messages for chat-enabled flows
     if chat_input_enabled.unwrap_or(false) {
@@ -788,8 +1540,16 @@ pub async fn run_flow<'c>(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
+            uuid,
+            false,
+            &args.args,
         )
         .await?;
+    }
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
+        set_flow_memory_id(&mut tx, w_id, uuid, memory_id).await?;
     }
 
     // If we were given a transaction, return it; otherwise commit it
@@ -821,7 +1581,7 @@ pub async fn run_flow_and_wait_result(
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
-) -> error::Result<Response> {
+) -> error::Result<(Box<RawValue>, bool)> {
     let (uuid, early_return, has_failure_module, _) = run_flow(
         authed,
         db,
@@ -836,7 +1596,7 @@ pub async fn run_flow_and_wait_result(
     )
     .await?;
 
-    run_wait_result(
+    run_wait_result_internal(
         &db,
         uuid,
         w_id,
@@ -857,7 +1617,7 @@ pub async fn push_flow_job_by_path_into_queue<'c>(
     tx_o: Option<sqlx::Transaction<'c, sqlx::Postgres>>,
     user_db: UserDB,
     w_id: String,
-    flow_path: StripPath,
+    flow: &RunnableRef,
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
@@ -870,7 +1630,7 @@ pub async fn push_flow_job_by_path_into_queue<'c>(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let flow_path = flow_path.to_path();
+    let flow_path = flow.path();
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
@@ -896,11 +1656,12 @@ pub async fn push_flow_job_by_path_into_queue<'c>(
 
 pub async fn push_script_job_by_path_into_queue<'c>(
     authed: ApiAuthed,
+    chosen_by: ChosenBy,
     db: DB,
     tx_o: Option<sqlx::Transaction<'c, sqlx::Postgres>>,
     user_db: UserDB,
     w_id: String,
-    script_path: StripPath,
+    script: &RunnableRef,
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
@@ -912,13 +1673,16 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let script_path = script_path.to_path();
+    let script_path = script.path();
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
+    let mut run_query = run_query;
+    drop_unclaimable_run_lineage(&db, &w_id, &mut run_query, &authed).await?;
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
         script_path_to_payload(
-            script_path,
+            script,
+            chosen_by.origin(authed.to_authed_ref()),
             Some(userdb_authed),
             db.clone(),
             &w_id,
@@ -929,7 +1693,9 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
+    check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
+    let job_payload = with_run_retry(&run_query, job_payload, &push_args, &tag)?;
 
     let return_tx = tx_o.is_some();
 
@@ -944,7 +1710,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         (
             on_behalf_of.email.as_str(),
             on_behalf_of.permissioned_as.clone(),
-            None,
+            authed.mcp_client.is_some().then(|| authed.clone().into()),
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
     } else {
@@ -956,12 +1722,14 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         )
     };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, trigger.as_ref()).await?;
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         authed.display_username(),
         email,
         permissioned_as,
@@ -988,9 +1756,10 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         },
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
@@ -1028,6 +1797,7 @@ mod result_to_response_tests {
                 r#"{{"wm_content_type":"application/pdf","wm_content_transfer_encoding":"base64","result":"{b64}"}}"#
             )),
             true,
+            true,
         )
         .expect("response");
 
@@ -1046,6 +1816,7 @@ mod result_to_response_tests {
                 r#"{"wm_content_type":"application/pdf","wm_content_transfer_encoding":"base64","result":"not valid base64!!"}"#,
             ),
             true,
+            true,
         );
         assert!(res.is_err(), "invalid base64 must not silently fall back");
     }
@@ -1059,6 +1830,7 @@ mod result_to_response_tests {
                 raw(&format!(
                     r#"{{"wm_content_type":"application/octet-stream","wm_content_transfer_encoding":"base64","result":{result}}}"#
                 )),
+                true,
                 true,
             );
             assert!(
@@ -1075,6 +1847,7 @@ mod result_to_response_tests {
                 r#"{"wm_content_type":"text/plain","wm_content_transfer_encoding":"gzip","result":"x"}"#,
             ),
             true,
+            true,
         );
         assert!(res.is_err());
     }
@@ -1083,6 +1856,7 @@ mod result_to_response_tests {
     async fn transfer_encoding_without_content_type_is_rejected() {
         let res = result_to_response(
             raw(r#"{"wm_content_transfer_encoding":"base64","result":"aGk="}"#),
+            true,
             true,
         );
         assert!(res.is_err());
@@ -1095,6 +1869,7 @@ mod result_to_response_tests {
         let resp = result_to_response(
             raw(r#"{"wm_content_type":"text/html","result":"<h1>hi</h1>"}"#),
             true,
+            true,
         )
         .expect("response");
 
@@ -1102,6 +1877,127 @@ mod result_to_response_tests {
             resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
             "text/html"
         );
+        assert_sandboxed(resp.headers());
         assert_eq!(body_bytes(resp).await, b"<h1>hi</h1>");
+    }
+
+    fn assert_sandboxed(headers: &HeaderMap) {
+        assert_eq!(
+            headers.get(http::header::X_CONTENT_TYPE_OPTIONS).unwrap(),
+            "nosniff"
+        );
+        let csp = headers
+            .get(http::header::CONTENT_SECURITY_POLICY)
+            .expect("content-security-policy")
+            .to_str()
+            .unwrap();
+        assert!(csp.starts_with("sandbox "), "csp: {csp}");
+        assert!(!csp.contains("allow-same-origin"), "csp: {csp}");
+    }
+
+    #[tokio::test]
+    async fn custom_headers_cannot_override_sandbox() {
+        // wm_headers is script-controlled: a content-type set there replaces the JSON
+        // one even without wm_content_type, and the sandbox headers must survive an
+        // attempt to override them.
+        let resp = result_to_response(
+            raw(
+                r#"{"wm_headers":{"content-type":"text/html","content-security-policy":"default-src *","x-content-type-options":"none"},"result":"<h1>hi</h1>"}"#,
+            ),
+            true,
+            true,
+        )
+        .expect("response");
+
+        assert_eq!(
+            resp.headers().get(http::header::CONTENT_TYPE).unwrap(),
+            "text/html"
+        );
+        assert_sandboxed(resp.headers());
+    }
+
+    #[tokio::test]
+    async fn hop_by_hop_custom_headers_are_rejected() {
+        // A proxy drops every header named by `Connection`, which would strip the
+        // sandbox headers on the way to the browser.
+        for name in ["connection", "Connection", "transfer-encoding", "upgrade"] {
+            let res = result_to_response(
+                raw(&format!(
+                    r#"{{"wm_content_type":"text/html","wm_headers":{{"{name}":"content-security-policy, x-content-type-options"}},"result":"<h1>hi</h1>"}}"#
+                )),
+                true,
+                true,
+            );
+            assert!(res.is_err(), "hop-by-hop header must be rejected: {name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn array_result_is_not_a_composite_response() {
+        let json = r#"[201,"text/html",null,null,"<h1>hi</h1>"]"#;
+        let resp = result_to_response(raw(json), true, true).expect("response");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(body_bytes(resp).await, json.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn pages_and_redirects_need_a_paid_plan() {
+        let refused = [
+            r#"{"wm_content_type":"text/html","result":"<h1>hi</h1>"}"#,
+            r#"{"wm_content_type":"TEXT/HTML; charset=utf-8","result":"<h1>hi</h1>"}"#,
+            r#"{"wm_content_type":"image/svg+xml","result":"<svg/>"}"#,
+            r#"{"wm_content_type":"application/pdf","result":"x"}"#,
+            r#"{"wm_status_code":302,"result":null}"#,
+            r#"{"wm_status_code":308,"result":null}"#,
+            r#"{"wm_headers":{"Location":"https://example.com"},"result":null}"#,
+            r#"{"wm_headers":{"refresh":"0;url=https://example.com"},"result":null}"#,
+            r#"{"wm_headers":{"Content-Type":"text/html"},"result":"<h1>hi</h1>"}"#,
+            r#"{"wm_content_type":"text/plain","wm_headers":{"Content-Disposition":"attachment; filename=\"x.exe\""},"result":"x"}"#,
+            r#"{"wm_status_code":401,"wm_headers":{"WWW-Authenticate":"Basic realm=\"login\""}}"#,
+            r#"{"wm_content_type":"text/plain; charset=utf-8, text/html","result":"<h1>hi</h1>"}"#,
+            r#"{"wm_headers":{"set-cookie":"token=x; Path=/"},"result":{"a":1}}"#,
+            r#"{"wm_headers":{"content-type":"image/svg+xml"},"result":"<svg/>"}"#,
+            r#"{"wm_headers":{"Clear-Site-Data":"\"cookies\""},"result":{"a":1}}"#,
+        ];
+        for json in refused {
+            let res = result_to_response(raw(json), true, false);
+            assert!(
+                matches!(res, Err(Error::BadRequest(_))),
+                "must be refused: {json}"
+            );
+            assert!(
+                result_to_response(raw(json), true, true).is_ok(),
+                "paid: {json}"
+            );
+        }
+
+        let allowed = [
+            r#"{"a":1}"#,
+            r#"{"wm_content_type":"application/json","result":{"a":1}}"#,
+            r#"{"wm_content_type":"text/plain; charset=utf-8","result":"hi"}"#,
+            r#"{"wm_content_type":"image/png","wm_content_transfer_encoding":"base64","result":"aGk="}"#,
+            r#"{"wm_status_code":201,"wm_headers":{"x-custom":"1"},"result":{"a":1}}"#,
+            r#"{"wm_status_code":400,"result":"bad"}"#,
+            r#"{"wm_headers":{"content-type":"image/gif"},"result":"R0lGODlh"}"#,
+        ];
+        for json in allowed {
+            assert!(
+                result_to_response(raw(json), true, false).is_ok(),
+                "must be allowed: {json}"
+            );
+        }
+
+        let Err(Error::BadRequest(msg)) = result_to_response(
+            raw(r#"{"wm_headers":{"content-type":"image/svg+xml"},"result":"<svg/>"}"#),
+            true,
+            false,
+        ) else {
+            panic!("svg must be refused");
+        };
+        assert!(
+            msg.contains("\"content-type: image/svg+xml\"") && msg.contains("image/png"),
+            "error must name the refused key and value and suggest a fix: {msg}"
+        );
     }
 }

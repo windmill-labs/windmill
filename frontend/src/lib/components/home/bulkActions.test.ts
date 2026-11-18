@@ -1,3 +1,4 @@
+import { FULL_CAPABILITIES } from '$lib/roleCapabilities'
 import { describe, it, expect } from 'vitest'
 import { blockedReason, movedPath, type BulkContext } from './bulkActions'
 import type { BulkItem } from './homeSelection.svelte'
@@ -15,13 +16,14 @@ function item(over: Partial<BulkItem> = {}): BulkItem {
 		archived: false,
 		draftOnly: false,
 		isDraft: false,
+		legacyDraft: false,
 		rawApp: false,
 		...over
 	}
 }
 
-const admin: BulkContext = { workspace: 'w', isAdmin: true }
-const member: BulkContext = { workspace: 'w', isAdmin: false }
+const admin: BulkContext = { workspace: 'w', isAdmin: true, caps: FULL_CAPABILITIES }
+const member: BulkContext = { workspace: 'w', isAdmin: false, caps: FULL_CAPABILITIES }
 
 // Each action's gate has to keep matching what the equivalent per-row menu entry
 // allows (common/table/{Script,Flow,App}Row.svelte, MoveDrawer.svelte) — a bulk
@@ -44,6 +46,17 @@ describe('blockedReason', () => {
 		expect(blockedReason('delete', item({ kind: 'app', canWrite: false }), member)).toBeDefined()
 	})
 
+	// The selection opens for any role with `code`, which may still lack apps.
+	it("refuses the kinds the member's role cannot author", () => {
+		const scripter = { ...member, caps: { ...FULL_CAPABILITIES, apps: 'none' as const } }
+		expect(blockedReason('delete', item({ kind: 'app' }), scripter)).toBeDefined()
+		expect(blockedReason('move', item({ kind: 'app', rawApp: true }), scripter)).toBeDefined()
+		expect(blockedReason('move', item({ kind: 'flow' }), scripter)).toBeUndefined()
+		const ownDraft = item({ kind: 'app', draftOnly: true })
+		expect(blockedReason('discard', ownDraft, scripter)).toBeUndefined()
+		expect(blockedReason('discard', { ...ownDraft, legacyDraft: true }, scripter)).toBeDefined()
+	})
+
 	it('requires ownership to move, and refuses archived rows', () => {
 		expect(blockedReason('move', item({ owner: false }), admin)).toBeDefined()
 		expect(blockedReason('move', item({ canWrite: false }), admin)).toBeDefined()
@@ -56,10 +69,21 @@ describe('blockedReason', () => {
 		expect(blockedReason('unarchive', item({ archived: false }), admin)).toBeDefined()
 	})
 
-	it('routes a draft-only row to discard, never to move/archive/delete', () => {
+	// AgentRow's delete is `disabled: !canWrite`; the server moves no resource draft.
+	it('gates an agent as its row does, and keeps a draft-only one in place', () => {
+		const agent = item({ kind: 'agent', owner: false })
+		expect(blockedReason('delete', agent, member)).toBeUndefined()
+		expect(blockedReason('delete', { ...agent, canWrite: false }, member)).toBeDefined()
+		expect(blockedReason('archive', agent, admin)).toBeDefined()
+		expect(blockedReason('move', item({ kind: 'agent', draftOnly: true }), admin)).toBeDefined()
+	})
+
+	it('lets a draft-only row move or discard, never archive/delete', () => {
 		const draftOnly = item({ draftOnly: true, isDraft: true })
 		expect(blockedReason('discard', draftOnly, admin)).toBeUndefined()
-		expect(blockedReason('move', draftOnly, admin)).toBeDefined()
+		// Moving one rewrites its own draft row (DraftService.moveDraft) — there is
+		// no deployed path, but there is somewhere for it to go.
+		expect(blockedReason('move', draftOnly, admin)).toBeUndefined()
 		expect(blockedReason('archive', draftOnly, admin)).toBeDefined()
 		expect(blockedReason('delete', draftOnly, admin)).toBeDefined()
 	})
@@ -74,5 +98,14 @@ describe('movedPath', () => {
 		expect(movedPath(item({ path: 'f/alpha/x' }), 'f/beta')).toBe('f/beta/x')
 		expect(movedPath(item({ path: 'f/alpha/sub/x' }), 'f/beta')).toBe('f/beta/sub/x')
 		expect(movedPath(item({ path: 'u/ana/x' }), 'f/beta')).toBe('f/beta/x')
+	})
+
+	it('names a draft-only row by what it displays, not the path it is parked at', () => {
+		const parked = item({
+			draftOnly: true,
+			path: 'u/ana/draft_9f3c',
+			displayPath: 'u/ana/my_script'
+		})
+		expect(movedPath(parked, 'f/beta')).toBe('f/beta/my_script')
 	})
 })

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_environment_state (workspace_id, script_path, environment, job_id,\n                                            manifest)\n         VALUES ($1, $2, 'main||analytics|wh', $3, '{}')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5c7260785ebcece2ddb04dc85d09b6a36c50d70e20c5a10310f75a39930db521"
+}

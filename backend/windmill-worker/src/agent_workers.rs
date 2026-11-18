@@ -64,16 +64,25 @@ pub async fn get_ducklake_from_agent_http(
         .await
 }
 
+/// An agent worker authenticates as infrastructure, not as the job's user, so the job id travels
+/// with the request: the server reads the job's owner from it and evaluates the data table's
+/// tenants against them. A worker predating this sends neither, and the server fails it closed on
+/// a data table under roles.
 #[allow(dead_code)]
 pub async fn get_datatable_resource_from_agent_http(
     client: &HttpClient,
     name: &str,
     w_id: &str,
+    role: Option<&str>,
+    job_id: &uuid::Uuid,
 ) -> anyhow::Result<serde_json::Value> {
+    let role_query = role
+        .map(|r| format!("&role={}", urlencoding::encode(r)))
+        .unwrap_or_default();
     client
         .get(&format!(
-            "/api/w/{}/agent_workers/get_datatable_resource/{}",
-            w_id, &name
+            "/api/w/{}/agent_workers/get_datatable_resource/{}?job_id={}{}",
+            w_id, &name, job_id, role_query
         ))
         .await
 }

@@ -424,6 +424,7 @@ interface Process {
     env: {
       WM_TOKEN: string;
       WM_WORKSPACE: string;
+      WM_ROOT_WORKSPACE: string;
       WM_EMAIL: string;
       WM_USERNAME: string;
       WM_BASE_URL: string;

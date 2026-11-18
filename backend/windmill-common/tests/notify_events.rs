@@ -360,6 +360,77 @@ async fn test_trigger_notify_workspace_key_change(db: Pool<Postgres>) {
     );
 }
 
+/// The address a job runs as is served from a process-local cache, so every change that can move
+/// a `(workspace, username)` -> email mapping has to reach the other replicas as an eviction.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_trigger_notify_user_email_change(db: Pool<Postgres>) {
+    let before_id = get_latest_event_id(&db).await.unwrap();
+
+    sqlx::query("UPDATE usr SET email = 'renamed@windmill.dev' WHERE workspace_id = 'test-workspace' AND username = 'test-user'")
+        .execute(&db)
+        .await
+        .expect("Failed to change email");
+
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
+    assert!(
+        events.iter().any(|e| e.channel == "notify_user_email_change"
+            && e.payload == "test-workspace:test-user"),
+        "email change should evict the key it moved"
+    );
+
+    // A superadmin outside their workspaces resolves through `password`, which names no
+    // workspace: the wildcard is the only way to reach that key. `super_admin` is half of what
+    // that fallback matches on, so losing it moves the mapping just as the address does.
+    for (label, stmt, expected_aliases) in [
+        (
+            "email change",
+            "UPDATE password SET email = 'sa2@windmill.dev' WHERE email = 'test@windmill.dev'",
+            // old address, new address, and the username that outlives both
+            vec!["test@windmill.dev", "sa2@windmill.dev", "test-user"],
+        ),
+        (
+            "demotion",
+            "UPDATE password SET super_admin = false WHERE email = 'sa2@windmill.dev'",
+            vec!["sa2@windmill.dev", "test-user"],
+        ),
+        (
+            "promotion",
+            "UPDATE password SET super_admin = true WHERE email = 'sa2@windmill.dev'",
+            vec!["sa2@windmill.dev", "test-user"],
+        ),
+        (
+            "deletion",
+            "DELETE FROM password WHERE email = 'sa2@windmill.dev'",
+            vec!["sa2@windmill.dev", "test-user"],
+        ),
+    ] {
+        let before_id = get_latest_event_id(&db).await.unwrap();
+        sqlx::query(stmt)
+            .execute(&db)
+            .await
+            .unwrap_or_else(|e| panic!("Failed to apply superadmin {label}: {e}"));
+
+        let events = poll_notify_events(&db, before_id)
+            .await
+            .expect("Should poll events");
+        // Every alias the principal can be spelled as, since `resolve_username_to_email`
+        // matches a `u/` principal against the username or the address.
+        let evicted: Vec<&str> = events
+            .iter()
+            .filter(|e| e.channel == "notify_user_email_change")
+            .filter_map(|e| e.payload.strip_prefix("*:"))
+            .collect();
+        for alias in expected_aliases {
+            assert!(
+                evicted.contains(&alias),
+                "superadmin {label} should evict {alias}, got {evicted:?}"
+            );
+        }
+    }
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_trigger_notify_token_invalidation(db: Pool<Postgres>) {
     // First insert a session token with token_hash and token_prefix
@@ -492,6 +563,8 @@ async fn test_trigger_notify_runnable_version_change_script(db: Pool<Postgres>) 
     let script_path = format!("f/test/script_{}", uuid::Uuid::new_v4());
     let script_hash: i64 = rand::random::<i64>().abs();
 
+    let before_insert_id = get_latest_event_id(&db).await.unwrap();
+
     sqlx::query(
         "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, kind)
          VALUES ('test-workspace', $1, $2, 'test', 'test', 'def main(): pass', 'test-user', 'python3', 'script')",
@@ -501,6 +574,20 @@ async fn test_trigger_notify_runnable_version_change_script(db: Pool<Postgres>) 
     .execute(&db)
     .await
     .expect("Failed to insert script");
+
+    // The deploy has to notify even though the version is not runnable yet: it is what makes the
+    // path -> hash caches suspect, and waiting for the lock UPDATE leaves them serving the
+    // previous version for a poll interval past the moment the new one becomes runnable.
+    let insert_events = poll_notify_events(&db, before_insert_id)
+        .await
+        .expect("Should poll events");
+    assert!(
+        insert_events
+            .iter()
+            .any(|e| e.channel == "notify_runnable_version_change"
+                && e.payload.starts_with("test-workspace:script:")),
+        "Should have notify_runnable_version_change event for a version deployed without a lock"
+    );
 
     let before_id = get_latest_event_id(&db).await.unwrap();
 

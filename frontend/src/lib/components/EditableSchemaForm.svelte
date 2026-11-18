@@ -3,11 +3,11 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService, type ScriptLang } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { type ScriptLang } from '$lib/gen'
 	import { Button } from './common'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
+	import type ItemPicker from './ItemPicker.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 	import { Pen, Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
@@ -19,6 +19,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import Toggle from './Toggle.svelte'
 	import {
 		DynamicInput,
@@ -35,6 +36,12 @@
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
 	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const roleCaps = useRoleCapabilities()
+	// Dynamic input functions are inline code a compose-only flow role cannot author.
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -42,6 +49,8 @@
 	interface Props {
 		schema: Schema | any
 		hiddenArgs?: string[]
+		/** Fields another part of the app owns: shown, but not renameable, deletable or retypeable. */
+		lockedArgs?: string[]
 		args?: Record<string, any>
 		shouldHideNoInputs?: boolean
 		noVariablePicker?: boolean
@@ -82,11 +91,15 @@
 		extraTab?: import('svelte').Snippet
 		schemaFormClassName?: string
 		onChange?: (args: Record<string, any>) => void
+		workspace?: string | undefined
+		/** The deployed flow an operator's dropdown previews read their options from. */
+		deployedFlowPath?: string
 	}
 
 	let {
 		schema = $bindable(),
 		hiddenArgs = [],
+		lockedArgs = [],
 		args = $bindable(undefined),
 		shouldHideNoInputs = false,
 		noVariablePicker = false,
@@ -119,8 +132,12 @@
 		runButton,
 		extraTab,
 		schemaFormClassName = undefined,
-		onChange = undefined
+		onChange = undefined,
+		workspace = undefined,
+		deployedFlowPath = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	$effect.pre(() => {
 		if (args == undefined) {
@@ -437,6 +454,7 @@
 							{hiddenArgs}
 							{disableDnd}
 							{onlyMaskPassword}
+							{workspace}
 							bind:args
 							on:click={(e) => {
 								opened = e.detail
@@ -453,11 +471,12 @@
 									order: e.detail
 								}
 							}}
-							helperScript={{
-								source: 'inline',
-								code: dynCode!,
-								lang: dynLang!
-							}}
+							helperScript={DynamicInput.flowHelperScript(
+								dynCode,
+								dynLang,
+								deployedFlowPath,
+								!$roleCaps.code
+							)}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
 							{diff}
@@ -470,7 +489,7 @@
 
 						{@render runButton?.()}
 
-						{#if dynamicFunctions.length > 0}
+						{#if dynamicFunctions.length > 0 && !composeOnlyFlows}
 							<Section
 								label="Dynamic input functions"
 								collapsable={true}
@@ -576,6 +595,7 @@
 						>
 							{#if keys.length > 0}
 								{#each keys as argName, i (argName)}
+									{@const locked = lockedArgs.includes(argName)}
 									<div>
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -594,7 +614,7 @@
 										>
 											<div class="flex flex-row gap-2 text-sm">
 												{argName}
-												{#if !uiOnly}
+												{#if !uiOnly && !locked}
 													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
 														<Popover placement="bottom-end" closeButton>
 															{#snippet trigger()}
@@ -643,7 +663,7 @@
 												<span class="text-red-500 text-xs"> Required </span>
 											{/if}
 
-											{#if !uiOnly}
+											{#if !uiOnly && !locked}
 												<button
 													class="delete-schema-field-button
 													rounded-full p-1 text-gray-500 bg-white
@@ -682,6 +702,7 @@
 															{isFlowInput}
 															{isAppInput}
 															{showSensitiveToggle}
+															{workspace}
 														>
 															{#snippet typeeditor()}
 																{#if isFlowInput || isAppInput}
@@ -689,6 +710,7 @@
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
 																			class="h-auto"
+																			disabled={lockedArgs.includes(opened ?? '')}
 																			bind:selected={
 																				() => computeSelected(schema.properties[opened ?? '']),
 																				(v) => {
@@ -796,7 +818,7 @@
 																				{#each typeOptions as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
-																				{#if showDynOpt}
+																				{#if showDynOpt && !composeOnlyFlows}
 																					{#each DYNAMIC_OPTIONS as x}
 																						<ToggleButton value={x[1]} label={x[0]} {item} />
 																					{/each}
@@ -809,6 +831,7 @@
 
 															{#if isFlowInput || isAppInput}
 																<FlowPropertyEditor
+																	{workspace}
 																	onDrawerClose={() => {
 																		dndType = generateRandomString()
 																	}}
@@ -895,40 +918,16 @@
 </div>
 
 {#if !noVariablePicker}
-	<ItemPicker
-		bind:this={itemPicker}
-		pickCallback={(path, _) => {
-			if (pickForField) {
-				if (args) {
-					args[pickForField] = '$var:' + path
-				}
+	<VariablePicker
+		bind:itemPicker
+		bind:variableEditor
+		workspace={ws}
+		onPick={(path) => {
+			if (pickForField && args) {
+				args[pickForField] = '$var:' + path
 			}
 		}}
-		itemName="Variable"
-		tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-		extraField="path"
-		loadItems={async () =>
-			(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
-				name: x.path,
-				...x
-			}))}
-	>
-		{#snippet submission()}
-			<div>
-				<Button
-					variant="default"
-					size="sm"
-					startIcon={{ icon: Plus }}
-					on:click={() => variableEditor?.initNew?.()}
-				>
-					New variable
-				</Button>
-			</div>
-		{/snippet}
-	</ItemPicker>
-
-	<VariableEditor bind:this={variableEditor} />
+	/>
 {/if}
 
 <style>

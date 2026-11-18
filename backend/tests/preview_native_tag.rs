@@ -76,6 +76,7 @@ async fn push_preview_and_get_row(
         None,
         None,
         None,
+        None,
     )
     .await
     .expect("push must succeed");

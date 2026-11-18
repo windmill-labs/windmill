@@ -1,13 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from '$lib/utils/uuid'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
-import { runChatLoop, truncateToToolPairedPrefix, type ChatLoopConfig } from './chatLoop'
+import {
+	closeInterruptedToolBatch,
+	runChatLoop,
+	sendsWebSearch,
+	truncateToToolPairedPrefix,
+	type ChatLoopConfig
+} from './chatLoop'
 import type { ReasoningProviderModel } from '../reasoningRegistry'
+import { OutputTokenLimitError } from './outputTokenLimit'
 
 const mocks = vi.hoisted(() => ({
 	getCompletion: vi.fn(),
 	parseOpenAICompletion: vi.fn(),
-	providerSupportsWebSearch: vi.fn(),
+	modelSupportsWebSearch: vi.fn(),
 	getOpenAIResponsesCompletion: vi.fn(),
 	parseOpenAIResponsesCompletion: vi.fn(),
 	buildPromptCacheKey: vi.fn(),
@@ -20,10 +27,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../lib', () => ({
 	getCompletion: mocks.getCompletion,
 	parseOpenAICompletion: mocks.parseOpenAICompletion,
-	providerSupportsWebSearch: mocks.providerSupportsWebSearch
+	modelSupportsWebSearch: mocks.modelSupportsWebSearch
 }))
 
-vi.mock('../reasoningRegistry', () => ({
+vi.mock('../reasoningRegistry', async (importOriginal) => ({
+	usesOpenAIResponsesApi: (await importOriginal<typeof import('../reasoningRegistry')>())
+		.usesOpenAIResponsesApi,
 	resolveRequestReasoning: mocks.resolveRequestReasoning,
 	resolveEffectiveReasoning: mocks.resolveEffectiveReasoning
 }))
@@ -87,8 +96,11 @@ function createConfig({
 describe('runChatLoop web search fallback', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockImplementation(
-			(provider) => provider === 'openai' || provider === 'anthropic'
+		mocks.modelSupportsWebSearch.mockImplementation(
+			(provider, model) =>
+				provider === 'openai' ||
+				provider === 'anthropic' ||
+				(provider === 'deepseek' && model === 'deepseek-v4-pro')
 		)
 		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 		mocks.parseOpenAICompletion.mockResolvedValue({
@@ -275,6 +287,118 @@ describe('runChatLoop web search fallback', () => {
 		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
 	})
 
+	it('sends the workspace search tools on the retry once the provider refuses its own', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const modelProvider: ReasoningProviderModel = {
+			provider: 'anthropic',
+			model: 'claude-3-5-sonnet-latest'
+		}
+		const searchWeb = {
+			def: { type: 'function', function: { name: 'search_web', parameters: {} } },
+			fn: vi.fn()
+		} as unknown as ChatLoopConfig['tools'][number]
+		const config = createConfig({ workspace, modelProvider })
+		Object.defineProperty(config, 'tools', {
+			get: () => (sendsWebSearch(workspace, modelProvider, true) ? [] : [searchWeb])
+		})
+
+		mocks.getAnthropicCompletion
+			.mockRejectedValueOnce(
+				Object.assign(new Error('Your organization must enable web search in the Claude Console'), {
+					status: 400,
+					error: { type: 'invalid_request_error' }
+				})
+			)
+			.mockResolvedValue({})
+
+		await runChatLoop(config)
+
+		const toolNames = (call: unknown[]) =>
+			(call[2] as { function: { name: string } }[]).map((t) => t.function.name)
+		expect(toolNames(mocks.getAnthropicCompletion.mock.calls[0])).toEqual([])
+		expect(toolNames(mocks.getAnthropicCompletion.mock.calls[1])).toEqual(['search_web'])
+	})
+
+	it('sends the workspace search tools when OpenAI falls back to Completions', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const searchWeb = {
+			def: { type: 'function', function: { name: 'search_web', parameters: {} } },
+			fn: vi.fn()
+		} as unknown as ChatLoopConfig['tools'][number]
+		let skipResponsesApi = false
+		const config = createConfig({ workspace })
+		config.onSkipResponsesApi = () => {
+			skipResponsesApi = true
+		}
+		Object.defineProperty(config, 'tools', {
+			get: () => (skipResponsesApi ? [searchWeb] : [])
+		})
+
+		mocks.getOpenAIResponsesCompletion.mockRejectedValueOnce(
+			new Error('Responses API is not enabled for this deployment')
+		)
+		mocks.getCompletion.mockResolvedValue({})
+
+		await runChatLoop(config)
+
+		const toolNames = (call: unknown[]) =>
+			(call[2] as { function: { name: string } }[]).map((t) => t.function.name)
+		expect(toolNames(mocks.getOpenAIResponsesCompletion.mock.calls[0])).toEqual([])
+		expect(toolNames(mocks.getCompletion.mock.calls[0])).toEqual(['search_web'])
+	})
+
+	it("sends DeepSeek's own search on its Responses API, and keeps the rest on Completions", async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const pro = { provider: 'deepseek', model: 'deepseek-v4-pro' } as const
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.getCompletion.mockResolvedValue({})
+
+		await runChatLoop(createConfig({ workspace, modelProvider: pro }))
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ webSearch: true })
+		)
+
+		// A skip recorded for an OpenAI deployment does not hold for DeepSeek's endpoint.
+		const afterOpenAISkip = createConfig({ workspace, modelProvider: pro })
+		afterOpenAISkip.skipResponsesApi = true
+		await runChatLoop(afterOpenAISkip)
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+
+		const searchOff = createConfig({ workspace, modelProvider: pro })
+		searchOff.webSearch = false
+		await runChatLoop(searchOff)
+		await runChatLoop(
+			createConfig({ workspace, modelProvider: { provider: 'deepseek', model: 'deepseek-flash' } })
+		)
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+		expect(mocks.getCompletion).toHaveBeenCalledTimes(2)
+	})
+
+	it('drops DeepSeek search for an endpoint that cannot serve its Responses request', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const pro = { provider: 'deepseek', model: 'deepseek-v4-pro' } as const
+		const searchWeb = {
+			def: { type: 'function', function: { name: 'search_web', parameters: {} } },
+			fn: vi.fn()
+		} as unknown as ChatLoopConfig['tools'][number]
+		const config = createConfig({ workspace, modelProvider: pro })
+		Object.defineProperty(config, 'tools', {
+			get: () => (sendsWebSearch(workspace, pro, true) ? [] : [searchWeb])
+		})
+		mocks.getOpenAIResponsesCompletion.mockRejectedValueOnce(
+			Object.assign(new Error('404 Not Found'), { status: 404 })
+		)
+		mocks.getCompletion.mockResolvedValue({})
+
+		await runChatLoop(config)
+
+		const toolNames = (call: unknown[]) =>
+			(call[2] as { function: { name: string } }[]).map((t) => t.function.name)
+		expect(toolNames(mocks.getCompletion.mock.calls[0])).toEqual(['search_web'])
+		expect(sendsWebSearch(workspace, pro, true)).toBe(false)
+	})
+
 	it('does not retry Anthropic request errors that only mention web search input', async () => {
 		const callbacks = createCallbacks()
 		const workspace = `workspace-${randomUUID()}`
@@ -301,7 +425,7 @@ describe('runChatLoop web search fallback', () => {
 describe('runChatLoop reasoning summary fallback', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
 		mocks.resolveRequestReasoning.mockReturnValue('high')
 		mocks.resolveEffectiveReasoning.mockReturnValue('high')
 		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
@@ -357,7 +481,7 @@ describe('runChatLoop reasoning summary fallback', () => {
 	})
 
 	it('composes with the web-search fallback when the errors arrive web-search first', async () => {
-		mocks.providerSupportsWebSearch.mockReturnValue(true)
+		mocks.modelSupportsWebSearch.mockReturnValue(true)
 		const onReasoningSummaryUnavailable = vi.fn()
 		const onWebSearchUnavailable = vi.fn()
 		const workspace = `workspace-${randomUUID()}`
@@ -428,7 +552,7 @@ describe('runChatLoop reasoning summary fallback', () => {
 describe('runChatLoop prompt cache key fallback', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
 		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
 		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
@@ -518,7 +642,7 @@ describe('runChatLoop lastIterationUsage', () => {
 
 		expect(result.lastIterationUsage).toEqual({ prompt: 1200, completion: 80, total: 1280 })
 		// the aggregate keeps summing across iterations
-		expect(result.tokenUsage).toEqual({ prompt: 2200, completion: 130, total: 2330 })
+		expect(result.tokenUsage).toMatchObject({ prompt: 2200, completion: 130, total: 2330 })
 	})
 
 	it('ignores empty usage reports and returns null when none are real', async () => {
@@ -535,6 +659,23 @@ describe('runChatLoop lastIterationUsage', () => {
 	})
 })
 
+describe('runChatLoop output token limit', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+	})
+
+	it('fails a truncated Responses iteration instead of replaying it on the Completions API', async () => {
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockRejectedValue(new OutputTokenLimitError())
+
+		await expect(
+			runChatLoop(createConfig({ workspace: `workspace-${randomUUID()}` }))
+		).rejects.toBeInstanceOf(OutputTokenLimitError)
+		expect(mocks.getCompletion).not.toHaveBeenCalled()
+	})
+})
+
 // Builders for the message shapes the chat loop accumulates.
 const assistant = (content: string): ChatCompletionMessageParam => ({ role: 'assistant', content })
 const assistantTools = (...ids: string[]): ChatCompletionMessageParam => ({
@@ -546,12 +687,57 @@ const assistantTools = (...ids: string[]): ChatCompletionMessageParam => ({
 		function: { name: 'do_thing', arguments: '{}' }
 	}))
 })
+describe('runChatLoop per-chat tool schemas', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({ shouldContinue: false, tokenUsage })
+	})
+
+	// The def `schemaFor` returns is the chat's own: it must be what the provider is sent and
+	// what the tool is dispatched with, while the shared tool object keeps its own.
+	it('sends and dispatches the def schemaFor returns, leaving the shared tool alone', async () => {
+		const base = { type: 'function', function: { name: 'dyn', parameters: {} } } as any
+		const perChat = {
+			type: 'function',
+			function: { name: 'dyn', parameters: { marked: 1 } }
+		} as any
+		const shared = { def: base, fn: async () => '', schemaFor: async () => perChat }
+
+		await runChatLoop({ ...createConfig({ workspace: `ws-${randomUUID()}` }), tools: [shared] })
+
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][2]).toEqual([perChat])
+		expect(mocks.parseOpenAIResponsesCompletion.mock.calls[0][4][0].def).toBe(perChat)
+		expect(shared.def).toBe(base)
+	})
+})
+
 const tool = (id: string): ChatCompletionMessageParam => ({
 	role: 'tool',
 	tool_call_id: id,
 	content: 'result'
 })
 const user = (content: string): ChatCompletionMessageParam => ({ role: 'user', content })
+
+describe('closeInterruptedToolBatch', () => {
+	it('keeps the answered half of a batch still executing, pairing the rest', () => {
+		// The model asked for two tools in one message; the first wrote a script
+		// (a real side effect) and the second is still going. Truncating would drop
+		// both, so the restored chat would not know the script exists.
+		const msgs = [assistantTools('a', 'b'), tool('a')]
+		expect(closeInterruptedToolBatch(msgs, 'stopped')).toEqual([
+			assistantTools('a', 'b'),
+			tool('a'),
+			{ role: 'tool', tool_call_id: 'b', content: 'stopped' }
+		])
+	})
+
+	it('leaves an already-paired transcript alone', () => {
+		const msgs = [assistantTools('a'), tool('a'), assistant('done')]
+		expect(closeInterruptedToolBatch(msgs, 'stopped')).toEqual(msgs)
+	})
+})
 
 describe('truncateToToolPairedPrefix', () => {
 	it('returns an empty array unchanged', () => {
@@ -607,7 +793,7 @@ describe('truncateToToolPairedPrefix', () => {
 describe('runChatLoop history sanitization', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
 		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
 		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
@@ -643,10 +829,48 @@ describe('runChatLoop history sanitization', () => {
 	})
 })
 
+describe('runChatLoop mid-turn messages', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+	})
+
+	// Ahead of a batch's tool results, the providers reject the request for an unanswered
+	// tool call; kept out of the history, the next request would no longer show it.
+	it('adds the message after the tool results, for the next request and the history', async () => {
+		const config = createConfig({
+			workspace: `workspace-${randomUUID()}`,
+			modelProvider: { provider: 'groq', model: 'llama-3.3-70b-versatile' }
+		})
+		config.maxIterations = 2
+		const midTurn = user('use Postgres instead')
+		config.takeMidTurnMessage = vi.fn().mockReturnValueOnce(midTurn)
+		mocks.getCompletion.mockResolvedValue({})
+		mocks.parseOpenAICompletion
+			.mockImplementationOnce(async (_completion, _callbacks, messages, addedMessages) => {
+				messages.push(assistantTools('call_1'), tool('call_1'))
+				addedMessages.push(assistantTools('call_1'), tool('call_1'))
+				return { shouldContinue: true, tokenUsage }
+			})
+			.mockResolvedValueOnce({ shouldContinue: false, tokenUsage })
+
+		const result = await runChatLoop(config)
+
+		expect(config.takeMidTurnMessage).toHaveBeenCalledTimes(1)
+		expect(mocks.getCompletion.mock.calls[1][0].slice(-3)).toEqual([
+			assistantTools('call_1'),
+			tool('call_1'),
+			midTurn
+		])
+		expect(result.addedMessages).toEqual([assistantTools('call_1'), tool('call_1'), midTurn])
+	})
+})
+
 describe('runChatLoop per-iteration vision gating', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
 		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 	})
 

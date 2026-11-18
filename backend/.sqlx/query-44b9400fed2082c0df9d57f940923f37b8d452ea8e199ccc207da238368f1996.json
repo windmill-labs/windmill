@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_free_token_daily_usage (day, cost_nanos, updated_at)\n         VALUES ($2::date, $1::bigint, now())\n         ON CONFLICT (day) DO UPDATE\n         SET cost_nanos = ai_free_token_daily_usage.cost_nanos + $1::bigint,\n             updated_at = now()\n         RETURNING cost_nanos",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cost_nanos",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "44b9400fed2082c0df9d57f940923f37b8d452ea8e199ccc207da238368f1996"
+}

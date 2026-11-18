@@ -22,8 +22,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, capitalize, create_args_and_out_file, get_reserved_variables,
-        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        OccupancyMetrics, DEV_CONF_NSJAIL,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars,
+        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry, GoBuildLimits, DISABLE_NUSER, GOPRIVATE, GOPROXY,
@@ -230,8 +230,15 @@ fn go_runtime_int32(v: &str) -> Option<i32> {
 
 /// Cache key of a Go build. The run path and the deploy-time prebuild must derive it the
 /// same way or the prebuilt binary is never found and gets rebuilt on first run.
-fn go_cache_key(code: &str, maybe_lock: &MaybeLock) -> String {
-    calculate_hash(&format!("{}{:?}v2", code, maybe_lock))
+fn go_cache_key(
+    code: &str,
+    maybe_lock: &MaybeLock,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    // A module whose path starts with `go/` lands inside the module dir this builds, so
+    // its content ends up in the binary the key names.
+    let base = format!("{}{:?}v2", code, maybe_lock);
+    crate::worker::artifact_cache_name(base, modules)
 }
 
 /// Install the deps, generate the entrypoint wrapper, `go build`, and push the binary to
@@ -459,9 +466,10 @@ pub async fn prebuild_go_binary(
     worker_name: &str,
     base_internal_url: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<Option<String>, Error> {
     let maybe_lock = MaybeLock::Resolved { lock: lock.to_string() };
-    let hash = go_cache_key(code, &maybe_lock);
+    let hash = go_cache_key(code, &maybe_lock, modules);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
     if crate::global_cache::exists_in_object_store(&remote_path).await {
         return Ok(None);
@@ -512,6 +520,7 @@ pub async fn handle_go_job(
     envs: HashMap<String, String>,
     occupation_metrics: &mut OccupancyMetrics,
     maybe_lock: MaybeLock,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
@@ -520,7 +529,7 @@ pub async fn handle_go_job(
         .create(&job_dir)
         .expect("could not create go job dir");
 
-    let hash = go_cache_key(inner_content, &maybe_lock);
+    let hash = go_cache_key(inner_content, &maybe_lock, modules);
     let bin_path = format!("{}/{hash}", *GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
     let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;
@@ -591,26 +600,10 @@ pub async fn handle_go_job(
     let child = if is_sandboxing_enabled() {
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_GO_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("#{DEV}", DEV_CONF_NSJAIL)
-                .replace(
-                    "{TMP_MOUNT_BLOCK}",
-                    &resolve_nsjail_tmp_mount_block(job_dir).await,
-                )
-                .replace("{TIMEOUT}", &nsjail_timeout),
-        )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
-            .envs(envs)
             .envs(reserved_variables)
             .envs(
                 get_proxy_envs_for_lang(
@@ -628,6 +621,22 @@ pub async fn handle_go_job(
             .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_GO_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                )
+                .replace("{TIMEOUT}", &nsjail_timeout)
+                .replace("{ENVARS}", &script_envars(&envs, &nsjail_cmd, &[])),
+        )?;
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         #[cfg(unix)]

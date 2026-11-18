@@ -3,16 +3,15 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { allTrue, computeShow, type DynamicInput } from '$lib/utils'
+	import { type DynamicInput } from '$lib/utils'
+	import { computeShow, quickjsSettled } from '$lib/utils/quickjsEval.svelte'
 	import { Button } from './common'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
+	import type ItemPicker from './ItemPicker.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
-	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { deepEqual } from 'fast-equals'
@@ -25,11 +24,16 @@
 	import type { ComponentCustomCSS } from './apps/types'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema: Schema | any
 		hiddenArgs?: string[]
 		schemaFieldTooltip?: Record<string, string>
+		/** Per-field warning, shown on hover of a warning icon next to the field name. */
+		schemaFieldWarnings?: Record<string, string>
 		args?: Record<string, any>
 		disabledArgs?: string[]
 		disabled?: boolean
@@ -82,6 +86,7 @@
 		schema = $bindable(),
 		hiddenArgs = [],
 		schemaFieldTooltip = {},
+		schemaFieldWarnings = {},
 		args = $bindable(undefined),
 		disabledArgs = [],
 		disabled = false,
@@ -121,7 +126,7 @@
 		actions: actions_render = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	const dispatch = createEventDispatcher()
 
@@ -224,7 +229,9 @@
 				continue
 			}
 			if (prop?.showExpr) {
-				if (computeShow(x.value, prop.showExpr, args)) {
+				const show = computeShow(prop.showExpr, args)
+				if (show === undefined) continue
+				if (show) {
 					hidden[x.value] = false
 				} else if (!hidden[x.value]) {
 					hidden[x.value] = true
@@ -269,11 +276,13 @@
 			for (const key in args) {
 				args[key]
 			}
+			quickjsSettled()
 		}
 		untrack(() => handleHiddenFields(schema, args ?? {}))
 	})
 	$effect.pre(() => {
-		isValid = allTrue(inputCheck ?? {})
+		// A field that left the schema keeps its last check here; it must not block validity.
+		isValid = keys.every((k) => !(k in inputCheck) || !!inputCheck[k])
 	})
 </script>
 
@@ -288,7 +297,14 @@
 <!-- {JSON.stringify(schema)} -->
 <div
 	class="w-full {className} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} {nestedClasses}"
-	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
+	use:dragHandleZone={dndConfig ?? {
+		items: [],
+		dragDisabled: true,
+		// A drag-disabled zone otherwise sets aria-disabled="true" on itself, which screen readers
+		// and Playwright apply to every field inside it.
+		autoAriaDisabled: true,
+		zoneTabIndex: -1
+	}}
 	onfinalize={bubble('finalize')}
 	onconsider={bubble('consider')}
 >
@@ -363,127 +379,123 @@
 							/>
 						</div>
 					{/if}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						class="flex flex-row items-center {largeGap ? 'pb-4' : 'pb-2'} "
-						onclick={() => {
-							dispatch('click', argName)
-						}}
-					>
-						{#if args && typeof args == 'object' && prop}
-							<!-- {argName}
-							{args == undefined}
-							{JSON.stringify(args?.[argName])} -->
-							{#if !hidden[argName]}
-								<ArgInput
-									{lightHeaderFont}
-									on:change={() => {
-										dispatch('change')
-									}}
-									on:nestedChange={() => {
-										dispatch('nestedChange')
-									}}
-									on:acceptChange={(e) => dispatch('acceptChange', e.detail)}
-									on:rejectChange={(e) => dispatch('rejectChange', e.detail)}
-									on:keydownCmdEnter={() => dispatch('keydownCmdEnter')}
-									{disablePortal}
-									{resourceTypes}
-									{prettifyHeader}
-									autofocus={i == 0 && autofocus ? true : null}
-									label={argName}
-									description={prop?.description}
-									bind:value={args[argName]}
-									type={prop?.type}
-									oneOf={prop?.oneOf}
-									required={schema?.required?.includes(argName)}
-									pattern={prop?.pattern}
-									bind:valid={inputCheck[argName]}
-									defaultValue={defaultValues?.[argName] ??
-										structuredClone($state.snapshot(prop?.default))}
-									enum_={dynamicEnums?.[argName] ?? prop?.enum}
-									format={prop?.format}
-									contentEncoding={prop?.contentEncoding}
-									customErrorMessage={prop?.customErrorMessage}
-									bind:properties={
-										() => prop?.properties,
-										(v) => {
-											if (prop) prop.properties = v
-										}
+					<!-- the padded row must stay inside this condition: rendering it for a hidden
+					     field leaves its padding behind as a gap ResizeTransitionWrapper measures -->
+					{#if args && typeof args == 'object' && prop && !hidden[argName]}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							class="flex flex-row items-center {largeGap ? 'pb-4' : 'pb-2'} "
+							onclick={() => {
+								dispatch('click', argName)
+							}}
+						>
+							<ArgInput
+								{lightHeaderFont}
+								on:change={() => {
+									dispatch('change')
+								}}
+								on:nestedChange={() => {
+									dispatch('nestedChange')
+								}}
+								on:acceptChange={(e) => dispatch('acceptChange', e.detail)}
+								on:rejectChange={(e) => dispatch('rejectChange', e.detail)}
+								on:keydownCmdEnter={() => dispatch('keydownCmdEnter')}
+								{disablePortal}
+								{resourceTypes}
+								{prettifyHeader}
+								autofocus={i == 0 && autofocus ? true : null}
+								label={argName}
+								description={prop?.description}
+								bind:value={args[argName]}
+								type={prop?.type}
+								oneOf={prop?.oneOf}
+								required={schema?.required?.includes(argName)}
+								pattern={prop?.pattern}
+								bind:valid={inputCheck[argName]}
+								defaultValue={defaultValues?.[argName] ??
+									structuredClone($state.snapshot(prop?.default))}
+								enum_={dynamicEnums?.[argName] ?? prop?.enum}
+								format={prop?.format}
+								contentEncoding={prop?.contentEncoding}
+								customErrorMessage={prop?.customErrorMessage}
+								bind:properties={
+									() => prop?.properties,
+									(v) => {
+										if (prop) prop.properties = v
 									}
-									bind:order={
-										() => prop?.order,
-										(v) => {
-											if (prop) prop.order = v
-										}
+								}
+								bind:order={
+									() => prop?.order,
+									(v) => {
+										if (prop) prop.order = v
 									}
-									nestedRequired={prop?.required}
-									itemsType={prop?.items}
-									disabled={disabledArgs.includes(argName) || disabled || prop?.disabled}
-									{compact}
-									{variableEditor}
-									{itemPicker}
-									bind:pickForField
-									password={linkedSecrets.includes(argName)}
-									extra={prop}
-									{showSchemaExplorer}
-									simpleTooltip={schemaFieldTooltip[argName]}
-									{onlyMaskPassword}
-									nullable={prop?.nullable}
-									title={prop?.title}
-									placeholder={prop?.placeholder}
-									orderEditable={dndConfig != undefined}
-									otherArgs={{ ...args, [argName]: undefined }}
-									{helperScript}
-									{lightHeader}
-									diffStatus={diff[argName] ?? undefined}
-									{nestedParent}
-									{shouldDispatchChanges}
-									{nestedClasses}
-									{appPath}
-									{computeS3ForceViewerPolicies}
-									{workspace}
-									{css}
-									{displayType}
-								>
-									{#snippet actions()}
-										{@render actions_render?.({ item })}
-										{#if linkedSecretCandidates?.includes(argName)}
-											<div class="relative">
-												<ToggleButtonGroup
-													selected={linkedSecrets.includes(argName) ? 'secret' : 'inlined'}
-													on:selected={(e) => {
-														if (e.detail === 'secret') {
-															if (!linkedSecrets.includes(argName)) {
-																linkedSecrets = [...linkedSecrets, argName]
-															}
-														} else {
-															linkedSecrets = linkedSecrets.filter((s) => s !== argName)
+								}
+								nestedRequired={prop?.required}
+								itemsType={prop?.items}
+								disabled={disabledArgs.includes(argName) || disabled || prop?.disabled}
+								{compact}
+								{variableEditor}
+								{itemPicker}
+								bind:pickForField
+								password={linkedSecrets.includes(argName)}
+								extra={prop}
+								{showSchemaExplorer}
+								simpleTooltip={schemaFieldWarnings[argName] ?? schemaFieldTooltip[argName]}
+								simpleTooltipWarning={argName in schemaFieldWarnings}
+								{onlyMaskPassword}
+								nullable={prop?.nullable}
+								title={prop?.title}
+								placeholder={prop?.placeholder}
+								orderEditable={dndConfig != undefined}
+								otherArgs={{ ...args, [argName]: undefined }}
+								{helperScript}
+								{lightHeader}
+								diffStatus={diff[argName] ?? undefined}
+								{nestedParent}
+								{shouldDispatchChanges}
+								{nestedClasses}
+								{appPath}
+								{computeS3ForceViewerPolicies}
+								{workspace}
+								{css}
+								{displayType}
+							>
+								{#snippet actions()}
+									{@render actions_render?.({ item })}
+									{#if linkedSecretCandidates?.includes(argName)}
+										<div class="relative">
+											<ToggleButtonGroup
+												selected={linkedSecrets.includes(argName) ? 'secret' : 'inlined'}
+												on:selected={(e) => {
+													if (e.detail === 'secret') {
+														if (!linkedSecrets.includes(argName)) {
+															linkedSecrets = [...linkedSecrets, argName]
 														}
-													}}
-												>
-													{#snippet children({ item })}
-														<ToggleButton
-															value="inlined"
-															label="Inlined"
-															tooltip="The value is inlined in the resource and thus has no special treatment."
-															{item}
-														/>
-														<ToggleButton
-															value="secret"
-															label="Secret"
-															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
-															{item}
-														/>
-													{/snippet}
-												</ToggleButtonGroup>
-											</div>{/if}
-									{/snippet}
-								</ArgInput>
-							{/if}
-							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-						{/if}
-					</div>
+													} else {
+														linkedSecrets = linkedSecrets.filter((s) => s !== argName)
+													}
+												}}
+											>
+												{#snippet children({ item })}
+													<ToggleButton
+														value="inlined"
+														label="Inlined"
+														tooltip="The value is inlined in the resource and thus has no special treatment."
+														{item}
+													/>
+													<ToggleButton
+														value="secret"
+														label="Secret"
+														tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
+														{item}
+													/>
+												{/snippet}
+											</ToggleButtonGroup>
+										</div>{/if}
+								{/snippet}
+							</ArgInput>
+						</div>
+					{/if}
 				{/if}
 			</ResizeTransitionWrapper>
 		{/each}
@@ -492,36 +504,14 @@
 	{/if}
 </div>
 {#if !noVariablePicker}
-	<ItemPicker
-		bind:this={itemPicker}
-		pickCallback={(path, _) => {
+	<VariablePicker
+		bind:itemPicker
+		bind:variableEditor
+		workspace={ws}
+		onPick={(path) => {
 			if (pickForField && args) {
 				args[pickForField] = '$var:' + path
 			}
 		}}
-		itemName="Variable"
-		tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-		extraField="path"
-		loadItems={async () =>
-			(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
-				name: x.path,
-				...x
-			}))}
-	>
-		{#snippet submission()}
-			<div>
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: Plus }}
-					on:click={() => variableEditor?.initNew?.()}
-				>
-					New variable
-				</Button>
-			</div>
-		{/snippet}
-	</ItemPicker>
-
-	<VariableEditor bind:this={variableEditor} workspace={ws} />
+	/>
 {/if}

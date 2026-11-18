@@ -6,10 +6,13 @@
 		validateCommonFields,
 		getServiceConfig,
 		getTemplatePath,
-		saveNativeTriggerFromCfg
+		saveNativeTriggerFromCfg,
+		setNativeConnectionContext
 	} from './utils'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import NativeConnectionPicker from './NativeConnectionPicker.svelte'
+	import { usedTriggerKinds } from '$lib/stores'
+	import { emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
 	import { Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -23,9 +26,15 @@
 	import GitHubTriggerForm from './services/github/GitHubTriggerForm.svelte'
 	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
 	import { handleConfigChange, type Trigger } from '$lib/components/triggers/utils'
+	import type { TriggerMode } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import type { Snippet } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const editRights = useEditRights()
 
 	interface Props {
 		service: NativeServiceName
@@ -101,12 +110,25 @@
 	let isFlow = $state(false)
 	let summary = $state('')
 	let externalId = $state<string | null>(null)
-	let can_write = $state(true)
+	let permsScriptPath = $state<string | undefined>(undefined)
+	// A verdict that does not come from a loaded trigger: a new one is writable, and a trigger
+	// that failed to load is not.
+	let writeVerdict = $state<boolean | undefined>(undefined)
+	// Derived, not snapshotted at load: the acting user's role arrives on its own schedule, and
+	// a trigger that loaded first would otherwise stay read-only until reopened.
+	const can_write = $derived(
+		writeVerdict === undefined && permsScriptPath !== undefined
+			? editRights.canEditItem('trigger', permsScriptPath, {})
+			: writeVerdict !== false && editRights.roleCanAuthor('trigger')
+	)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let loadError = $state<string | undefined>(undefined)
 	let externalError = $state<string | undefined>(undefined)
 	let retryEdit = $state<(() => void) | undefined>(undefined)
+	let enabled = $state(true)
+	let connectionPath = $state<string | undefined>(undefined)
+	setNativeConnectionContext(() => connectionPath)
 
 	export function openNew(
 		nis_flow?: boolean,
@@ -129,13 +151,16 @@
 		externalId = null
 		loadingConfig = false
 		loadingForm = false
-		can_write = true
+		writeVerdict = true
+		permsScriptPath = undefined
 		originalConfig = undefined
 		initialConfig = undefined
 		summary = ''
 		loadError = undefined
 		externalError = undefined
 		retryEdit = undefined
+		enabled = true
+		connectionPath = undefined
 	}
 
 	export function openRecreate(nativeTrigger: ExtendedNativeTrigger) {
@@ -156,13 +181,16 @@
 		externalId = null
 		loadingConfig = false
 		loadingForm = false
-		can_write = true
+		writeVerdict = true
+		permsScriptPath = undefined
 		originalConfig = undefined
 		initialConfig = undefined
 		summary = nativeTrigger.summary ?? ''
 		loadError = undefined
 		externalError = undefined
 		retryEdit = undefined
+		enabled = nativeTrigger.enabled
+		connectionPath = nativeTrigger.connection_path ?? undefined
 	}
 
 	export async function openEdit(
@@ -196,10 +224,12 @@
 		scriptPath = ''
 		initialScriptPath = ''
 		summary = ''
+		enabled = true
+		connectionPath = undefined
 
 		try {
 			const fullTrigger = await NativeTriggerService.getNativeTrigger({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId: externalIdOrPath
 			})
@@ -207,10 +237,13 @@
 			serviceConfig = (fullTrigger.service_config as Record<string, any>) || {}
 			scriptPath = fullTrigger.script_path
 			initialScriptPath = fullTrigger.script_path
-			can_write = canWrite(fullTrigger.script_path, {}, $userStore)
+			permsScriptPath = fullTrigger.script_path
+			writeVerdict = undefined
 			summary = fullTrigger.summary ?? ''
 			externalData = fullTrigger.external_data
 			externalError = fullTrigger.external_error ?? undefined
+			enabled = fullTrigger.enabled
+			connectionPath = fullTrigger.connection_path ?? undefined
 
 			// Apply default values if provided (for draft triggers)
 			if (defaultValues) {
@@ -224,7 +257,7 @@
 			// The service form is not rendered in the error state, so nothing else will ever
 			// clear its loading flag or narrow the permission left over from the last trigger.
 			loadingForm = false
-			can_write = false
+			writeVerdict = false
 			retryEdit = () => openEdit(externalIdOrPath, nis_flow, defaultValues)
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -238,7 +271,8 @@
 			script_path: scriptPath,
 			is_flow: isFlow,
 			service_config: serviceConfig,
-			summary: summary !== '' ? summary : undefined
+			summary: summary !== '' ? summary : undefined,
+			connection_path: connectionPath
 		}
 	}
 
@@ -283,7 +317,8 @@
 			loadingForm ||
 			!can_write ||
 			!hasChanged ||
-			loadError !== undefined
+			loadError !== undefined ||
+			(isNew && !connectionPath)
 	)
 	const saveCfg = $derived.by(getSaveCfg)
 
@@ -293,15 +328,43 @@
 		}
 	})
 
+	async function handleToggleMode(newMode: TriggerMode): Promise<boolean | void> {
+		if (isNew || !externalId) {
+			return false
+		}
+		const previous = enabled
+		const next = newMode === 'enabled'
+		enabled = next
+		try {
+			await NativeTriggerService.setNativeTriggerEnabled({
+				workspace: $operatingWorkspace!,
+				serviceName: service,
+				externalId,
+				requestBody: { enabled: next }
+			})
+		} catch (err: any) {
+			enabled = previous
+			sendUserToast(
+				`Failed to ${next ? 'enable' : 'disable'} trigger: ${err.body ?? err.message}`,
+				true
+			)
+			return false
+		}
+		sendUserToast(`${next ? 'Enabled' : 'Disabled'} ${serviceInfo?.serviceDisplayName} trigger`)
+	}
+
 	async function save(): Promise<void> {
 		loading = true
 		const saveCfg = getSaveCfg()
 		const newExternalId = await saveNativeTriggerFromCfg(
 			service,
 			externalId ?? '',
-			saveCfg,
+			// A recreate registers a fresh webhook under a new external id, so it would otherwise
+			// come back enabled: the create has to carry the pause, or the replacement is live
+			// before anything can pause it again.
+			isRecreate ? { ...saveCfg, enabled } : saveCfg,
 			!isNew,
-			$workspaceStore!,
+			$operatingWorkspace!,
 			usedTriggerKinds
 		)
 		if (newExternalId) {
@@ -311,7 +374,7 @@
 				if (isRecreate && oldExternalIdToDelete) {
 					try {
 						await NativeTriggerService.deleteNativeTrigger({
-							workspace: $workspaceStore!,
+							workspace: $operatingWorkspace!,
 							serviceName: service,
 							externalId: oldExternalIdToDelete
 						})
@@ -385,6 +448,7 @@
 		variant="accent"
 		on:click={save}
 		disabled={saveDisabled}
+		title={$triggerLock}
 		{loading}
 	>
 		Save
@@ -396,7 +460,7 @@
 		<TriggerEditorToolbar
 			{trigger}
 			permissions={loadingConfig || !can_write ? 'none' : 'create'}
-			mode="enabled"
+			mode={enabled ? 'enabled' : 'disabled'}
 			{allowDraft}
 			edit={!isNew}
 			isLoading={loading}
@@ -406,7 +470,7 @@
 			{onReset}
 			{onDelete}
 			{cloudDisabled}
-			onToggleMode={() => {}}
+			onToggleMode={handleToggleMode}
 			disableSuspendedMode={true}
 		/>
 	{/if}
@@ -481,7 +545,7 @@
 							bind:itemKind
 							kinds={['script']}
 							allowFlow={true}
-							allowEdit={!$userStore?.operator}
+							allowEdit={editRights.roleCanAuthor(itemKind)}
 							clearable
 						/>
 						{#if emptyString(scriptPath)}
@@ -503,6 +567,17 @@
 				</Section>
 			{/if}
 
+			{#if !loadingConfig}
+				<Section label="{serviceInfo?.serviceDisplayName} account">
+					<NativeConnectionPicker
+						{service}
+						bind:value={connectionPath}
+						locked={!isNew}
+						disabled={loading || !can_write}
+					/>
+				</Section>
+			{/if}
+
 			{#if loadingConfig}
 				<Section label="{serviceInfo?.serviceDisplayName} configuration">
 					<div class="flex items-center gap-2 text-secondary text-xs">
@@ -510,34 +585,39 @@
 						Loading configuration from {serviceInfo?.serviceDisplayName}...
 					</div>
 				</Section>
+			{:else if isNew && !connectionPath}
+				<!-- The pickers browse the service as the chosen account, so there is nothing to
+				     configure until one is chosen. -->
 			{:else if ServiceFormComponent}
-				<ServiceFormComponent
-					bind:loading={loadingForm}
-					bind:this={serviceFormRef}
-					bind:serviceConfig
-					bind:errors
-					{externalData}
-					disabled={loading || loadingConfig || !can_write}
-					path={scriptPath}
-					{isFlow}
-					token=""
-					triggerTokens={undefined}
-					scopes={[]}
-				/>
+				{#key connectionPath}
+					<ServiceFormComponent
+						bind:loading={loadingForm}
+						bind:this={serviceFormRef}
+						bind:serviceConfig
+						bind:errors
+						{externalData}
+						disabled={loading || loadingConfig || !can_write}
+						path={scriptPath}
+						{isFlow}
+						token=""
+						triggerTokens={undefined}
+						scopes={[]}
+					/>
+				{/key}
 			{:else}
 				<Section label="{serviceInfo?.serviceDisplayName} configuration">
 					<div class="text-red-500 text-xs space-y-2">
 						<div>Failed to load service configuration component for {service}.</div>
 						<div class="text-secondary">
-							Ensure your workspace has a connected {serviceInfo?.serviceDisplayName} integration.
+							Check that {serviceInfo?.serviceDisplayName} is configured in the integration trigger settings.
 						</div>
 						<Button
 							unifiedSize="xs"
 							variant="default"
-							href="/workspace_settings?tab=integrations"
+							href="/workspace_settings?tab=native_triggers"
 							target="_blank"
 						>
-							Manage integrations
+							Integration trigger settings
 						</Button>
 					</div>
 				</Section>

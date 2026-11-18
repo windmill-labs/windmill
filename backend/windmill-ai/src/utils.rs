@@ -88,30 +88,17 @@ pub fn ai_http_client_builder() -> reqwest::ClientBuilder {
 /// after the check (DNS-rebinding TOCTOU).
 ///
 /// Returns the shared pooled [`AI_HTTP_CLIENT`] unchanged when there is nothing
-/// to pin — an IP-literal host, or a deployment that opted into private AI
-/// endpoints via `ALLOW_PRIVATE_AI_BASE_URLS`. The same opt-out and error hint
-/// as `AIProvider::get_base_url` apply, so this is consistent with the
+/// to pin — an IP-literal host, or a host `ALLOW_PRIVATE_AI_BASE_URLS` allows
+/// by name or wholesale. The same allowlist and error hint as
+/// `AIProvider::get_base_url` apply, so this is consistent with the
 /// credential-time validation while additionally closing the connect-time window.
 pub async fn pinned_ai_client_for(
     url: &str,
 ) -> windmill_common::error::Result<std::borrow::Cow<'static, reqwest::Client>> {
     use std::borrow::Cow;
-    use windmill_common::error::{to_anyhow, Error};
-    use windmill_common::ssrf::SsrfValidationError;
+    use windmill_common::error::to_anyhow;
 
-    if *crate::ai_providers::ALLOW_PRIVATE_AI_BASE_URLS {
-        return Ok(Cow::Borrowed(&AI_HTTP_CLIENT));
-    }
-
-    let target = windmill_common::ssrf::validate_url_for_ssrf(url)
-        .await
-        .map_err(|e| match e {
-            e @ SsrfValidationError::Private { .. } => Error::BadRequest(format!(
-                "{e}. If you need to use private/internal AI endpoints, \
-                 set the ALLOW_PRIVATE_AI_BASE_URLS=true environment variable"
-            )),
-            e => Error::from(e),
-        })?;
+    let target = crate::ai_providers::validate_ai_url(url).await?;
 
     if target.pinned_addrs().is_empty() {
         return Ok(Cow::Borrowed(&AI_HTTP_CLIENT));

@@ -135,8 +135,10 @@ export async function pollJobWithQueueLogging(
       );
     }
 
+    // Errors back off to the slow interval: at the fast one, the consecutive
+    // error budget would be spent on a ~1s blip.
     const delayMs =
-      Date.now() - startedAt < fastPollDurationMs
+      consecutiveErrors === 0 && Date.now() - startedAt < fastPollDurationMs
         ? fastPollIntervalMs
         : slowPollIntervalMs;
     await new Promise((resolve) => setTimeout(resolve, delayMs));

@@ -12,7 +12,7 @@
 	class="text-[#141414] dark:text-[#FFFFFF]"
 	{width}
 	{height}
-	viewBox="0 0 36 28"
+	viewBox="-1.614 -5.368 38.735 38.735"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<path d="M2.17188 0H35.5293L18.6889 19.692L19.9551 7.56969L2.17188 0Z" fill="currentColor"

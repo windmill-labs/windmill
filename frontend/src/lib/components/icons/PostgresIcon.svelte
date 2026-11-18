@@ -9,7 +9,13 @@
 
 <!-- #336791 per the official 3-colour Slonik SVG on wiki.postgresql.org/wiki/Logo.
 	 The PostgreSQL trademark policy forbids recolouring the mark without prior approval. -->
-<svg {width} {height} viewBox="0 0 512 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-16.818 -16.818 547.636 547.636"
+	fill="currentColor"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<style>
 		.postgres-st2 {
 			fill: none;

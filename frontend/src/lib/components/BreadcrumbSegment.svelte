@@ -6,7 +6,7 @@ state — switching popovers relies on melt-ui's `closeOnOtherPopoverOpen` to
 close siblings.
 -->
 <script lang="ts">
-	import { ChevronRight } from 'lucide-svelte'
+	import BreadcrumbItemContent from './BreadcrumbItemContent.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import WorkspaceItemDrillPicker, {
 		type Scope
@@ -15,7 +15,8 @@ close siblings.
 
 	interface Props {
 		label: string
-		withChevron?: boolean
+		/** Leading glyph, e.g. the folder or user a path scope names. */
+		icon?: import('svelte').Snippet
 		extraClass?: string
 		disabled?: boolean
 		/** Where the picker lands when this segment is clicked. */
@@ -29,11 +30,13 @@ close siblings.
 		/** Load the picker's items from this workspace (session editors pass their
 		 * acting workspace); falls back to $workspaceStore inside the picker. */
 		workspaceId?: string
+		/** Where picking an item navigates; see `WorkspaceItemDrillPicker`. */
+		itemHref?: (item: WorkspaceItem) => string
 	}
 
 	let {
 		label,
-		withChevron = false,
+		icon,
 		extraClass = '',
 		disabled = false,
 		initialScope,
@@ -41,7 +44,8 @@ close siblings.
 		isCurrent = false,
 		currentItem,
 		onPick,
-		workspaceId
+		workspaceId,
+		itemHref
 	}: Props = $props()
 
 	let isOpen = $state(false)
@@ -71,8 +75,7 @@ close siblings.
 	{disabled}
 >
 	{#snippet trigger()}
-		{#if withChevron}<ChevronRight size={10} class="shrink-0" /><span class="truncate">{label}</span
-			>{:else}{label}{/if}
+		<BreadcrumbItemContent {label} {icon} />
 	{/snippet}
 	{#snippet content()}
 		<WorkspaceItemDrillPicker
@@ -80,6 +83,7 @@ close siblings.
 			{initialHighlight}
 			{currentItem}
 			{workspaceId}
+			{itemHref}
 			onPick={handlePick}
 		/>
 	{/snippet}

@@ -35,7 +35,7 @@
 	<Button
 		variant="subtle"
 		wrapperClasses="max-w-56"
-		unifiedSize="md"
+		unifiedSize="sm"
 		startIcon={{ icon: Pen }}
 		{href}
 		onClick={(e) => onEditInForkClick(e, itemType, path, { hasHref: true })}

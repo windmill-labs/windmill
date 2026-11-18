@@ -15,7 +15,7 @@
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 520 520"
+	viewBox="-23.636 -23.636 567.273 567.273"
 	style="fill:currentcolor;"
 >
 	<path d="M13.7,11.9v496.2h35.7V520H0V0h49.4v11.9H13.7z" />

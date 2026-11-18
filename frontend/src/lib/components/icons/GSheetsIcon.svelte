@@ -8,7 +8,13 @@
 </script>
 
 <!-- #0EBC5F / #0EBC5F per Google product logo sheets_2026q3 (gstatic productlogos, used on workspace.google.com/products/sheets). Google forbids recolouring its marks, so the same full-colour artwork is used on both themes. -->
-<svg {width} {height} viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-0.136 -0.136 192.273 192.273"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		fill="#009954"
 		d="M183.96 117.4c0 8.94 0 13.41-1.4 16.96a20 20 0 0 1-11.23 11.24c-3.55 1.4-8.02 1.4-16.97 1.4h-60.8c-8.94 0-13.41 0-16.96-1.4a20 20 0 0 1-11.23-11.24c-1.4-3.55-1.4-8.02-1.4-16.96V74.6c0-8.94 0-13.42 1.4-16.96A20 20 0 0 1 76.6 46.4C80.15 45 84.62 45 93.56 45h60.8c8.95 0 13.42 0 16.97 1.4a20 20 0 0 1 11.23 11.24c1.4 3.54 1.4 8.02 1.4 16.96z"

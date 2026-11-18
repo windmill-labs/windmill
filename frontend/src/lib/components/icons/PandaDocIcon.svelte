@@ -8,7 +8,7 @@
 </script>
 
 <!-- #248567 per the PandaDoc logo shipped on pandadoc.com (header logo SVG and favicon); white monogram on the green tile in both themes. -->
-<svg {width} {height} viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-2.909 -2.909 69.818 69.818" xmlns="http://www.w3.org/2000/svg">
 	<path
 		d="M62.125 0H1.875C.84 0 0 .84 0 1.875v60.25C0 63.16.84 64 1.875 64h60.25C63.16 64 64 63.16 64 62.125V1.875C64 .84 63.16 0 62.125 0z"
 		fill="#248567"

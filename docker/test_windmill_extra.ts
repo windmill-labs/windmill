@@ -121,6 +121,60 @@ async function testLspWebSocket(): Promise<void> {
 	})
 }
 
+async function testLspShellDiagnostics(): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			ws.close()
+			reject(new Error('no shellcheck diagnostics within 10s'))
+		}, 10000)
+
+		const ws = new WebSocket(`ws://${HOST}:${LSP_PORT}/ws/diagnostic`)
+		const send = (msg: object) => ws.send(JSON.stringify({ jsonrpc: '2.0', ...msg }))
+
+		ws.onopen = () => {
+			// Editors still send a linter definition; the server's own configuration
+			// applies, so the diagnostics below have to come from shellcheck.
+			send({
+				id: 1,
+				method: 'initialize',
+				params: {
+					capabilities: {},
+					initializationOptions: {
+						linters: { shellcheck: { command: 'true', sourceName: 'shellcheck' } },
+						filetypes: { shell: 'shellcheck' }
+					}
+				}
+			})
+			send({
+				method: 'textDocument/didOpen',
+				params: {
+					textDocument: {
+						uri: 'file:///tmp/monaco/test.sh',
+						languageId: 'shell',
+						version: 1,
+						text: '#!/bin/bash\necho "$unassigned"\n'
+					}
+				}
+			})
+		}
+
+		ws.onmessage = (event) => {
+			const msg = JSON.parse(event.data.toString())
+			if (msg.method !== 'textDocument/publishDiagnostics') return
+			clearTimeout(timeout)
+			ws.close()
+			const codes = msg.params.diagnostics.map((d: { code: string }) => d.code)
+			if (codes.includes('SC2154')) resolve()
+			else reject(new Error(`expected SC2154, got ${JSON.stringify(msg.params.diagnostics)}`))
+		}
+
+		ws.onerror = () => {
+			clearTimeout(timeout)
+			reject(new Error('LSP WebSocket connection failed'))
+		}
+	})
+}
+
 async function runLspTests(): Promise<boolean> {
 	log('\n=== LSP Service Tests (Port ' + LSP_PORT + ') ===')
 
@@ -132,6 +186,7 @@ async function runLspTests(): Promise<boolean> {
 	let passed = true
 	passed = (await runTest('LSP health check', testLspHealth)) && passed
 	passed = (await runTest('LSP WebSocket connection (pyright)', testLspWebSocket)) && passed
+	passed = (await runTest('LSP shell diagnostics', testLspShellDiagnostics)) && passed
 
 	return passed
 }
@@ -206,7 +261,11 @@ class DAPTestClient {
 	private events: DAPMessage[] = []
 	private output: string[] = []
 	private result: unknown = undefined
-	private eventHandlers = new Map<string, ((event: DAPMessage) => void)[]>()
+	private eventWaiters = new Map<string, ((event: DAPMessage) => void)[]>()
+	// An event that arrives before its waiter is registered is queued rather than dropped: the
+	// server sends 'initialized' right behind the 'initialize' response, and 'terminated' can
+	// land before the launch call the test awaits has even returned.
+	private bufferedEvents = new Map<string, DAPMessage[]>()
 
 	async connect(endpoint: string): Promise<void> {
 		const url = `ws://${HOST}:${DEBUGGER_PORT}${endpoint}`
@@ -273,9 +332,13 @@ class DAPTestClient {
 					this.result = msg.body.result
 				}
 
-				const handlers = this.eventHandlers.get(msg.event!) || []
-				for (const handler of handlers) {
-					handler(msg)
+				const waiters = this.eventWaiters.get(msg.event!)
+				if (waiters && waiters.length > 0) {
+					waiters.shift()!(msg)
+				} else {
+					const buffered = this.bufferedEvents.get(msg.event!) || []
+					buffered.push(msg)
+					this.bufferedEvents.set(msg.event!, buffered)
 				}
 			}
 		} catch {
@@ -313,23 +376,27 @@ class DAPTestClient {
 	}
 
 	waitForEvent(eventName: string, timeout = 10000): Promise<DAPMessage> {
+		const buffered = this.bufferedEvents.get(eventName)
+		if (buffered && buffered.length > 0) {
+			return Promise.resolve(buffered.shift()!)
+		}
+
 		return new Promise((resolve, reject) => {
+			const waiters = this.eventWaiters.get(eventName) || []
+			this.eventWaiters.set(eventName, waiters)
+
 			const timer = setTimeout(() => {
+				const idx = waiters.indexOf(handler)
+				if (idx >= 0) waiters.splice(idx, 1)
 				reject(new Error(`Timeout waiting for event: ${eventName}`))
 			}, timeout)
 
 			const handler = (event: DAPMessage) => {
 				clearTimeout(timer)
-				const handlers = this.eventHandlers.get(eventName) || []
-				const idx = handlers.indexOf(handler)
-				if (idx >= 0) handlers.splice(idx, 1)
 				resolve(event)
 			}
 
-			if (!this.eventHandlers.has(eventName)) {
-				this.eventHandlers.set(eventName, [])
-			}
-			this.eventHandlers.get(eventName)!.push(handler)
+			waiters.push(handler)
 		})
 	}
 
@@ -379,6 +446,7 @@ class DAPTestClient {
 		this.output = []
 		this.result = undefined
 		this.events = []
+		this.bufferedEvents.clear()
 	}
 }
 
