@@ -120,7 +120,6 @@ export type Trigger = {
 	path?: string
 	isDraft?: boolean
 	isPrimary?: boolean
-	canWrite?: boolean
 	id?: string
 	draftConfig?: Record<string, any>
 	captureConfig?: Record<string, any>

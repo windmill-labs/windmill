@@ -434,16 +434,13 @@
 		return !path.startsWith('u/') || path.startsWith('u/' + operatingUser.current?.username + '/')
 	}
 
-	const preFilteredItems = $derived(
-		triggers.filter(
-			(x) =>
-				(ownerFilter == undefined ||
-					(selectedFilterKind === 'trigger' ? x.path : x.script_path).startsWith(
-						ownerFilter + '/'
-					)) &&
-				filterItemsPathsBaseOnUserFilters(x)
-		)
-	)
+	function ownerPath(item: TriggerRow) {
+		return selectedFilterKind === 'trigger' ? item.path : item.script_path
+	}
+
+	// The owner filter applies last: the chips are how you switch owners, so the rows they are
+	// built from must not be narrowed to the selected one.
+	const preFilteredItems = $derived(triggers.filter((x) => filterItemsPathsBaseOnUserFilters(x)))
 
 	let lastWorkspace = untrack(() => $operatingWorkspace)
 	$effect.pre(() => {
@@ -457,14 +454,18 @@
 		Array.from(
 			new Set(
 				(filteredItems ?? [])
-					.map((x) => (selectedFilterKind === 'trigger' ? x.path : x.script_path))
+					.map(ownerPath)
 					.filter(Boolean)
 					.map((p) => p.split('/').slice(0, 2).join('/'))
 			)
 		).sort()
 	)
 
-	const items = $derived(filter !== '' ? filteredItems : preFilteredItems)
+	const items = $derived(
+		(filter !== '' ? filteredItems : preFilteredItems)?.filter(
+			(x) => ownerFilter == undefined || ownerPath(x).startsWith(ownerFilter + '/')
+		)
+	)
 
 	// A push delivery has no connection to report and no consumer to suspend: it is an endpoint.
 	function isLive(row: TriggerRow): boolean {
