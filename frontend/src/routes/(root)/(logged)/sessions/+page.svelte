@@ -1454,27 +1454,6 @@
 {/snippet}
 
 <style>
-	/* Draggable gutter between the chat and the preview: a real (layout-occupying)
-	   10px-wide grab zone, no overlap tricks that could cover the chat's scrollbar
-	   or the preview's edge. Transparent at rest; on hover the app-global
-	   `.splitpanes__splitter::after` grabber fades in. Uses a dedicated class, not
-	   the shared `.splitter-hidden`, which force-zeroes splitter opacity and would
-	   hide that grabber. */
-	:global(.splitpanes--vertical.session-splitter) > :global(.splitpanes__splitter) {
-		background-color: transparent !important;
-		border: none !important;
-		width: 10px !important;
-	}
-	/* Inset the global hover grabber from the pane's top/bottom edges so the line
-	   doesn't run the full height, and round its ends into a pill — a lighter,
-	   more contained hint. */
-	:global(.splitpanes--vertical.session-splitter) > :global(.splitpanes__splitter)::after {
-		top: 8px !important;
-		bottom: 8px !important;
-		height: auto !important;
-		border-radius: 9999px !important;
-	}
-
 	/* The full-screen switch is the preview panel expanding to the left over the chat column, so
 	   the panes' widths are animated — but only while that switch is in flight (`panes-animating`),
 	   since a splitter drag sets the same inline width and would trail the pointer. */
@@ -1483,12 +1462,5 @@
 		   `!important` to beat app.css's blanket `transition: none !important` on vertical panes,
 		   which is there so a splitter drag tracks the pointer exactly. */
 		transition: width var(--panes-move) cubic-bezier(0.33, 1, 0.68, 1) !important;
-	}
-
-	/* Collapsed preview: the pane is resized to 0 but stays mounted, so remove
-	   the gutter entirely — it would otherwise leave a dead 10px drag zone on the
-	   chat's right edge. */
-	:global(.splitpanes--vertical.splitter-off) > :global(.splitpanes__splitter) {
-		display: none !important;
 	}
 </style>

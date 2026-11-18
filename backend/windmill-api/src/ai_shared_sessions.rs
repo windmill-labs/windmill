@@ -39,6 +39,8 @@ pub fn workspaced_service() -> Router {
             post(share_session).layer(DefaultBodyLimit::max(SHARE_BODY_LIMIT)),
         )
         .route("/status", get(get_share_status))
+        .route("/list", get(list_shared_sessions))
+        .route("/opened/{id}", delete(forget_opened_session))
         .route("/set_public/{id}", post(set_public))
         .route("/delete/{id}", delete(unshare_session))
 }
@@ -75,12 +77,27 @@ struct SharedSession {
     snapshot: Box<RawValue>,
     /// Whether the caller may stop sharing it: its author, or a workspace admin.
     can_unshare: bool,
+    /// Whether the caller is its author.
+    mine: bool,
 }
 
 #[derive(Serialize)]
 struct ShareStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     share: Option<SharedSessionInfo>,
+}
+
+#[derive(Serialize)]
+struct SharedSessionListItem {
+    #[serde(flatten)]
+    info: SharedSessionInfo,
+    mine: bool,
+    /// The author's own session id, which means nothing to anyone else: sent to its author only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_id: Option<String>,
+    /// When the caller last opened someone else's share: what dates it in their list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    opened_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -230,6 +247,53 @@ async fn get_share_status(
     Ok(Json(ShareStatus { share }))
 }
 
+const LIST_LIMIT: i64 = 500;
+
+/// The caller's own shares and the ones they opened by link, most recently shared or opened
+/// first and without their snapshot. A share nobody sent the caller stays out of their list.
+async fn list_shared_sessions(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<SharedSessionListItem>> {
+    require_plain_user_token(&authed)?;
+    let rows = sqlx::query!(
+        "SELECT s.id, s.session_id, s.email, s.name, s.is_public, s.message_count, s.created_by,
+                s.shared_at, o.opened_at AS \"opened_at?\"
+         FROM ai_shared_session s
+         LEFT JOIN ai_shared_session_opened o ON o.share_id = s.id AND o.email = $2
+         WHERE s.workspace_id = $1 AND (s.email = $2 OR o.share_id IS NOT NULL)
+         ORDER BY COALESCE(o.opened_at, s.shared_at) DESC
+         LIMIT $3",
+        &w_id,
+        &authed.email,
+        LIST_LIMIT,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| {
+                let mine = row.email == authed.email;
+                SharedSessionListItem {
+                    mine,
+                    session_id: mine.then_some(row.session_id),
+                    opened_at: if mine { None } else { row.opened_at },
+                    info: SharedSessionInfo {
+                        id: row.id,
+                        name: row.name,
+                        is_public: row.is_public,
+                        message_count: row.message_count,
+                        created_by: row.created_by,
+                        shared_at: row.shared_at,
+                    },
+                }
+            })
+            .collect(),
+    ))
+}
+
 /// Only the author changes who can open their link; an admin may only take it down.
 async fn set_public(
     authed: ApiAuthed,
@@ -311,7 +375,27 @@ async fn get_shared_session(
         _ => return Err(not_found()),
     };
 
+    let mine = member.is_some_and(|a| row.email == a.email);
+    if let Some(reader) = member.filter(|_| !mine) {
+        // Reading must not depend on the sidebar entry being written.
+        if let Err(e) = sqlx::query!(
+            "INSERT INTO ai_shared_session_opened (share_id, email) VALUES ($1, $2)
+             ON CONFLICT (share_id, email) DO UPDATE SET opened_at = now()",
+            row.id,
+            &reader.email,
+        )
+        .execute(&db)
+        .await
+        {
+            tracing::warn!(
+                "Could not record that {} opened shared session {id}: {e}",
+                reader.email
+            );
+        }
+    }
+
     Ok(Json(SharedSession {
+        mine,
         can_unshare: member.is_some_and(|a| row.email == a.email || a.is_admin),
         snapshot: RawValue::from_string(row.snapshot).map_err(|e| {
             Error::internal_err(format!("Stored session snapshot is not valid JSON: {e}"))
@@ -325,6 +409,26 @@ async fn get_shared_session(
             shared_at: row.shared_at,
         },
     }))
+}
+
+/// Takes a share out of the caller's list. The share itself stays readable by link.
+async fn forget_opened_session(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> Result<String> {
+    require_plain_user_token(&authed)?;
+    sqlx::query!(
+        "DELETE FROM ai_shared_session_opened o
+         USING ai_shared_session s
+         WHERE o.share_id = s.id AND s.workspace_id = $1 AND o.share_id = $2 AND o.email = $3",
+        &w_id,
+        id,
+        &authed.email,
+    )
+    .execute(&db)
+    .await?;
+    Ok("Removed from your shared sessions".to_string())
 }
 
 async fn unshare_session(

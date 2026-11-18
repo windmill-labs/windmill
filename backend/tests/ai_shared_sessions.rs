@@ -118,3 +118,70 @@ async fn private_share_is_for_members_and_public_share_for_anyone(
 
     Ok(())
 }
+
+#[sqlx::test(fixtures("base"))]
+async fn a_share_is_listed_for_a_member_only_once_they_open_it(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let authed = format!("http://localhost:{port}/api/w/test-workspace/ai/shared_sessions");
+    let client = reqwest::Client::new();
+
+    let share: Value = client
+        .post(format!("{authed}/share"))
+        .header("Authorization", MEMBER)
+        .json(&json!({
+            "session_id": "session-1",
+            "name": "Debugging",
+            "message_count": 1,
+            "snapshot": { "messages": [], "artifacts": [] },
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let id = share["id"].as_str().unwrap().to_string();
+
+    let listed = |token: &'static str| {
+        let req = client
+            .get(format!("{authed}/list"))
+            .header("Authorization", token);
+        async move { anyhow::Ok(req.send().await?.json::<Vec<Value>>().await?) }
+    };
+
+    let mine = listed(MEMBER).await?;
+    assert_eq!(mine.len(), 1, "the author does not see their own share");
+    assert_eq!(mine[0]["session_id"], "session-1");
+    assert!(
+        listed(OTHER_MEMBER).await?.is_empty(),
+        "a share was listed for a member who never opened its link"
+    );
+
+    let resp = client
+        .get(format!(
+            "http://localhost:{port}/api/w/test-workspace/ai_u/shared_sessions/get/{id}"
+        ))
+        .header("Authorization", OTHER_MEMBER)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let opened = listed(OTHER_MEMBER).await?;
+    assert_eq!(opened.len(), 1, "opening the link did not list the share");
+    assert!(
+        opened[0].get("session_id").is_none(),
+        "the author's session id was sent to a reader"
+    );
+    assert!(opened[0]["opened_at"].is_string());
+
+    let resp = client
+        .delete(format!("{authed}/opened/{id}"))
+        .header("Authorization", OTHER_MEMBER)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert!(listed(OTHER_MEMBER).await?.is_empty());
+
+    Ok(())
+}
