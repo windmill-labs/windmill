@@ -1412,6 +1412,20 @@ components:
               items:
                 type: string
                 format: uuid
+        continued_on_error:
+          type: array
+          description: On a root flow, the steps at any depth that failed and that the flow went past because of continue_on_error (at most 100).
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              job:
+                type: string
+                format: uuid
+            required:
+              - id
+              - job
       required:
         - step
         - modules

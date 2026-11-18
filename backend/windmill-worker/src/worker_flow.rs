@@ -39,7 +39,7 @@ use windmill_common::client::AuthedClient;
 use windmill_common::db::Authed;
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::flow_status::{
-    ApprovalConditions, FlowJobDuration, FlowJobsDuration, FlowStatusModuleWParent,
+    ApprovalConditions, ContinuedOnError, MAX_CONTINUED_ON_ERROR, FlowJobDuration, FlowJobsDuration, FlowStatusModuleWParent,
     Iterator as FlowIterator, JobResult,
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
@@ -844,6 +844,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         add_time!(bench, "process module status START");
 
         let mut nresult = None;
+        let mut continued_on_error = None;
         let (inc_step_counter, new_status) = match module_status {
             FlowStatusModule::InProgress {
                 iterator,
@@ -1415,6 +1416,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         false
                     };
+                    if inc {
+                        continued_on_error = Some(ContinuedOnError {
+                            id: module_status.id(),
+                            job: *job_id_for_status,
+                        });
+                    }
                     if (stop_early && stop_early_err_msg.is_some()) || loop_exhausted_err.is_some()
                     {
                         // if stop_early with error message, we need to set explictely success to false as this function was called with success = true as the job succeeded
@@ -1612,6 +1619,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| Error::internal_err(format!("error while setting leaf jobs: {e:#}")))?;
+            }
+
+            // Written after the flow's own row, keeping the child-to-ancestor lock order of
+            // every flow completion.
+            if let (Some(entry), Some(flow_job)) = (continued_on_error, flow_job.as_ref()) {
+                record_continued_on_error(&mut tx, get_root_job_id(flow_job), entry).await?;
             }
 
             flow_job
@@ -2495,6 +2508,38 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
             })?;
         }
     }
+    Ok(())
+}
+
+/// Records on the root flow a step that failed and that its flow went past because of
+/// `continue_on_error`, so that the failure shows on the root run without expanding the
+/// subflow it happened in.
+async fn record_continued_on_error(
+    tx: &mut Transaction<'_, Postgres>,
+    root: Uuid,
+    entry: ContinuedOnError,
+) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_status
+         SET flow_status = JSONB_SET(
+             flow_status,
+             ARRAY['continued_on_error'],
+             COALESCE(flow_status->'continued_on_error', '[]'::jsonb) || JSONB_BUILD_ARRAY($2::jsonb)
+         )
+         WHERE id = $1
+           AND flow_status IS NOT NULL
+           AND JSONB_ARRAY_LENGTH(COALESCE(flow_status->'continued_on_error', '[]'::jsonb)) < $3",
+        root,
+        json!(entry),
+        MAX_CONTINUED_ON_ERROR,
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "error while recording continued_on_error on root flow {root}: {e:#}"
+        ))
+    })?;
     Ok(())
 }
 

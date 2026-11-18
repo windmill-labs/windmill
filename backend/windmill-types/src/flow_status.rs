@@ -46,6 +46,18 @@ pub struct FlowStatus {
     /// the worker then walks the ancestors as usual.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_inherited_flow_env: bool,
+    /// On a root flow: the steps, at any depth, that failed and that the flow went past
+    /// because of `continue_on_error`. Capped at `MAX_CONTINUED_ON_ERROR` entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub continued_on_error: Vec<ContinuedOnError>,
+}
+
+pub const MAX_CONTINUED_ON_ERROR: i32 = 100;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ContinuedOnError {
+    pub id: String,
+    pub job: Uuid,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -633,6 +645,7 @@ impl FlowStatus {
             chat_input_enabled: f.chat_input_enabled,
             memory_id: None,
             no_inherited_flow_env: false,
+            continued_on_error: vec![],
         }
     }
 

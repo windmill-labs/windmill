@@ -1470,6 +1470,8 @@
 	let totalEventsWaiting = $derived(
 		Object.values(suspendStatus?.val ?? {}).reduce((a, b) => a + (b?.nb ?? 0), 0)
 	)
+
+	let continuedOnError = $derived(job?.flow_status?.continued_on_error ?? [])
 </script>
 
 <JobLoader workspaceOverride={workspaceId} {noLogs} noCode bind:this={jobLoader} />
@@ -1484,6 +1486,36 @@
 		{:else}
 			<div class="h-8" />
 		{/if} -->
+		{#if !isListJob && continuedOnError.length > 0}
+			<Alert
+				type="warning"
+				size="xs"
+				title="{continuedOnError.length}{continuedOnError.length >= 100
+					? '+'
+					: ''} step{continuedOnError.length > 1
+					? 's'
+					: ''} failed, the flow continued because of continue on error"
+			>
+				<div class="flex flex-wrap gap-x-3 gap-y-1">
+					<!-- A failure raised before its step's job was created (e.g. a branch predicate
+					     error) carries the nil uuid, so entries are keyed by position. -->
+					{#each continuedOnError as failure, i (i)}
+						{#if isReplay || failure.job == '00000000-0000-0000-0000-000000000000'}
+							<span>{failure.id}</span>
+						{:else}
+							<a
+								rel="noreferrer"
+								target="_blank"
+								href={appendViewToken(`/run/${failure.job}?workspace=${job?.workspace_id}`)}
+							>
+								{failure.id}
+								<ExternalLink size={12} class="inline-block" />
+							</a>
+						{/if}
+					{/each}
+				</div>
+			</Alert>
+		{/if}
 		{#if isListJob}
 			{#if render}
 				<div class="w-full border rounded-sm bg-surface p-1 overflow-auto max-h-[90vh]">
