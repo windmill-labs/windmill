@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { Check, Loader2, Send, Wrench } from 'lucide-svelte'
+	import { Check, Globe, Loader2, Send, Wrench } from 'lucide-svelte'
 	import type { AgentTurn } from '$lib/components/recording/types'
 
 	/**
@@ -15,7 +15,8 @@
 		pending?: string
 		error?: string
 		saving?: boolean
-		onsend: (message: string) => void
+		/** Resolves to whether the message was answered; it is given back to retype otherwise. */
+		onsend: (message: string) => Promise<boolean>
 		/** Absent until the bundle is on the Hub: there is nothing to attach a recording to. */
 		onsave?: () => void
 	}
@@ -31,11 +32,13 @@
 
 	let draft = $state('')
 
-	function send() {
+	async function send() {
 		const message = draft.trim()
-		if (!message || pending !== undefined) return
+		if (!message || pending !== undefined || saving) return
 		draft = ''
-		onsend(message)
+		const answered = await onsend(message)
+		// A turn that failed is not in the conversation: hand the message back.
+		if (!answered && !draft) draft = message
 	}
 
 	const fmt = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`)
@@ -61,7 +64,9 @@
 				<div class="flex flex-wrap items-center gap-2 text-2xs text-secondary">
 					{#each turn.tool_calls as call, j (j)}
 						<span class="inline-flex items-center gap-1 font-mono">
-							<Wrench size={10} />{call.name}
+							{#if call.name === 'web_search'}<Globe size={10} />{:else}<Wrench
+									size={10}
+								/>{/if}{call.name}
 						</span>
 					{/each}
 				</div>
@@ -86,9 +91,7 @@
 			</div>
 		{/if}
 		{#if error}
-			<div class="rounded-md border border-red-300 bg-red-50 p-2 text-xs text-red-700">
-				{error}
-			</div>
+			<Alert type="error" size="xs" title="The agent did not answer">{error}</Alert>
 		{/if}
 	</div>
 
@@ -101,7 +104,7 @@
 				class="min-h-[60px]"
 				inputProps={{
 					placeholder: 'Message the agent',
-					disabled: pending !== undefined,
+					disabled: pending !== undefined || saving,
 					onkeydown: (e) => {
 						if (e.key === 'Enter' && !e.shiftKey) {
 							e.preventDefault()
@@ -114,7 +117,7 @@
 		<Button
 			variant="default"
 			startIcon={{ icon: Send }}
-			disabled={pending !== undefined || !draft.trim()}
+			disabled={pending !== undefined || saving || !draft.trim()}
 			onclick={send}
 		>
 			Send
@@ -134,7 +137,8 @@
 		</span>
 		<Button
 			variant="accent"
-			startIcon={{ icon: saving ? Loader2 : Check }}
+			startIcon={{ icon: Check }}
+			loading={saving}
 			disabled={!onsave || turns.length === 0 || pending !== undefined || saving}
 			onclick={() => onsave?.()}
 		>

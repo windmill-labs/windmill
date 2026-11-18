@@ -24841,6 +24841,7 @@ paths:
                   - flows
                   - apps
                   - resources
+                  - agents
                   - variables
                   - schedules
 

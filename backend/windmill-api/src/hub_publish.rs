@@ -521,11 +521,19 @@ async fn publish_agents(
 }
 
 // The demo of an agent is a recorded conversation, kept on the agent's row of the draft.
-// `recording: null` clears it.
+// Double-Option, as for the logo: `recording: null` clears it, and a body without the key
+// is refused rather than read as that.
 #[derive(Deserialize, Serialize)]
 struct AgentRecordingBody {
     path: String,
-    recording: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_explicit_recording")]
+    recording: Option<Option<serde_json::Value>>,
+}
+
+fn deserialize_explicit_recording<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Option<serde_json::Value>>, D::Error> {
+    Option::<serde_json::Value>::deserialize(d).map(Some)
 }
 
 async fn publish_agent_recording(
@@ -533,8 +541,16 @@ async fn publish_agent_recording(
     Path((_workspace, slug)): Path<(String, ProjectSlug)>,
     Json(body): Json<AgentRecordingBody>,
 ) -> Result<impl IntoResponse, Error> {
-    ctx.post(&format!("/projects/{}/agent_recording", slug), &body)
-        .await
+    let Some(recording) = body.recording else {
+        return Err(Error::BadRequest(
+            "recording field is required: an object to set it, or null to clear it".to_string(),
+        ));
+    };
+    ctx.post(
+        &format!("/projects/{}/agent_recording", slug),
+        &serde_json::json!({ "path": body.path, "recording": recording }),
+    )
+    .await
 }
 
 #[derive(Deserialize, Serialize)]

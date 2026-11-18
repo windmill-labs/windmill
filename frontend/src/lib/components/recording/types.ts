@@ -150,14 +150,13 @@ export type AgentToolCall = {
 	result?: unknown
 }
 
-/** One message to an agent and its answer. A turn is a run of the agent, which is a
- * one-step flow: `recording` keeps that run whole, replayable like any flow's. */
+/** One message to an agent, what it called, and its answer. The run behind a turn is not
+ * kept: it names who ran it and holds the agent as its workspace stores it. */
 export type AgentTurn = {
 	user_message: string
 	answer: string
 	duration_ms: number
 	tool_calls: AgentToolCall[]
-	recording?: FlowRecording
 }
 
 /** A recorded conversation with a saved AI agent (`ai_agent` resource): the demo of an

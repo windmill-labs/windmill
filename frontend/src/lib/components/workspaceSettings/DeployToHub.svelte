@@ -38,6 +38,7 @@
 		FolderTree,
 		Image as ImageIcon,
 		Info,
+		Bot,
 		LayoutDashboard,
 		Loader2,
 		Play,
@@ -1257,6 +1258,8 @@
 														<Code2 size={14} class="shrink-0 text-hint" />
 													{:else if u.kind === 'flow'}
 														<BarsStaggered size={14} class="shrink-0 text-hint" />
+													{:else if u.kind === 'agent'}
+														<Bot size={14} class="shrink-0 text-hint" />
 													{:else}
 														<LayoutDashboard size={14} class="shrink-0 text-hint" />
 													{/if}

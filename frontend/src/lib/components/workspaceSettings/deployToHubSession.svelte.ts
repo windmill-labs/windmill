@@ -10,6 +10,7 @@ import {
 } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { randomUUID } from '$lib/utils/uuid'
+import { isSuspended } from '$lib/components/agentRequest'
 import { sleep, emptySchema } from '$lib/utils'
 import {
 	buildProjectBundle,
@@ -305,6 +306,9 @@ export class DeployToHubSession {
 		// Invalidate any in-flight pipeline cascade poll so it stops on the next
 		// tick instead of polling to the timeout against a discarded session.
 		this.#pipelineRunTok++
+		// The same for a conversation being recorded, whose run would go on spending.
+		this.#agentTok++
+		this.#cancelAgentRun()
 	}
 
 	load() {
@@ -972,7 +976,7 @@ export class DeployToHubSession {
 			body: JSON.stringify(body)
 		})
 		const text = await res.text()
-		if (!res.ok) throw new Error(text)
+		if (!res.ok) throw Object.assign(new Error(text), { status: res.status })
 		try {
 			return JSON.parse(text)
 		} catch {
@@ -1187,7 +1191,9 @@ export class DeployToHubSession {
 			if (agents.length) mark('deployed')
 			return 0
 		} catch (e: any) {
-			if (agents.length === 0) return 0
+			// A Hub without the route has no agents to clear. Any other failure of the empty
+			// sync is real: agents removed here would stay on the Hub's draft.
+			if (agents.length === 0 && e?.status === 404) return 0
 			mark('failed', e?.message ?? String(e))
 			sendUserToast(`Agent sync failed: ${e?.message ?? e}`, true)
 			return 1
@@ -1849,38 +1855,55 @@ export class DeployToHubSession {
 
 	/** The agent being recorded, its conversation so far, and the turn in flight. */
 	agentTarget = $state<DeployItem | undefined>(undefined)
-	agentTurns = $state<(AgentTurn & { job_id: string })[]>([])
+	agentTurns = $state<AgentTurn[]>([])
 	agentPending = $state<string | undefined>(undefined)
 	agentError = $state<string | undefined>(undefined)
 	agentSaving = $state(false)
 	#agentMemoryId = ''
 	#agentTok = 0
+	/** The run answering the message in flight, to cancel if nobody waits for it any more. */
+	#agentJobId: string | undefined = undefined
 
 	openAgentRecord(it: DeployItem) {
 		this.#agentTok++
+		this.#cancelAgentRun()
 		this.agentTarget = it
 		this.agentTurns = []
 		this.agentPending = undefined
 		this.agentError = undefined
-		// A conversation of its own, so the demo never continues someone's real chat.
+		// A conversation of its own, so the demo never continues someone's real chat. It is
+		// still a real one: it shows in the recorder's chats with this agent.
 		this.#agentMemoryId = randomUUID()
 	}
 
 	closeAgentRecord = () => {
 		this.#agentTok++
+		this.#cancelAgentRun()
 		this.agentTarget = undefined
 		this.agentPending = undefined
 	}
 
-	/** Send one message: a run of the agent in the demo's conversation, waited for. */
-	sendAgentMessage = async (text: string) => {
+	/** Stop the run in flight, if any: it calls real tools and spends real tokens. */
+	#cancelAgentRun() {
+		const id = this.#agentJobId
+		this.#agentJobId = undefined
+		if (!id) return
+		void JobService.cancelQueuedJob({
+			workspace: this.workspace,
+			id,
+			requestBody: { reason: 'The Hub recording it was answering was closed' }
+		}).catch(() => {})
+	}
+
+	/** Send one message: a run of the agent in the demo's conversation, waited for.
+	 * True when the turn was recorded; the caller keeps the message otherwise. */
+	sendAgentMessage = async (text: string): Promise<boolean> => {
 		const it = this.agentTarget
 		const message = text.trim()
-		if (!it || !message || this.agentPending !== undefined) return
+		if (!it || !message || this.agentPending !== undefined || this.agentSaving) return false
 		const tok = this.#agentTok
 		this.agentPending = message
 		this.agentError = undefined
-		const started = Date.now()
 		try {
 			const jobId = await JobService.runAgent({
 				workspace: this.workspace,
@@ -1888,59 +1911,82 @@ export class DeployToHubSession {
 				memoryId: this.#agentMemoryId,
 				requestBody: { user_message: message }
 			})
-			const deadline = Date.now() + 15 * 60_000
+			if (tok !== this.#agentTok) {
+				// Closed while the run was being created: nobody is waiting for it.
+				this.#agentJobId = jobId
+				this.#cancelAgentRun()
+				return false
+			}
+			this.#agentJobId = jobId
+			const started = Date.now()
+			const deadline = started + 15 * 60_000
 			let interval = 500
 			while (Date.now() < deadline) {
-				if (tok !== this.#agentTok) return
 				const r = await JobService.getCompletedJobResultMaybe({
 					workspace: this.workspace,
 					id: jobId
 				})
-				if (tok !== this.#agentTok) return
+				if (tok !== this.#agentTok) return false
 				if (r.completed) {
+					this.#agentJobId = undefined
 					if (!r.success) {
 						const failure = (r.result as any)?.error?.message ?? r.result
 						this.agentError = (
 							typeof failure === 'string' ? failure : JSON.stringify(failure)
 						).slice(0, 600)
-						return
+						return false
 					}
 					this.agentTurns = [
 						...this.agentTurns,
 						{
 							user_message: message,
 							...readAgentTurn(r.result),
-							duration_ms: Date.now() - started,
-							job_id: jobId
+							duration_ms: Date.now() - started
 						}
 					]
-					return
+					return true
+				}
+				// An agent parked on an approval or a question waits for a person, for up to
+				// its own timeout: the recorder has no form for either, so say so and stop.
+				if (Date.now() - started > 3000) {
+					const job = await JobService.getJob({ workspace: this.workspace, id: jobId }).catch(
+						() => undefined
+					)
+					if (tok !== this.#agentTok) return false
+					if (job && isSuspended(job as any)) {
+						this.#cancelAgentRun()
+						this.agentError =
+							'The agent stopped to wait for an approval or an answer, which a recording cannot give. The run was cancelled: record a conversation that does not need one.'
+						return false
+					}
 				}
 				await sleep(interval)
+				if (tok !== this.#agentTok) return false
 				interval = Math.min(2000, interval * 1.5)
 			}
-			this.agentError = 'The agent did not answer within 15 minutes.'
+			this.#cancelAgentRun()
+			this.agentError = 'The agent did not answer within 15 minutes. The run was cancelled.'
+			return false
 		} catch (e: any) {
 			if (tok === this.#agentTok) this.agentError = `Failed to run the agent: ${e?.message ?? e}`
+			return false
 		} finally {
 			if (tok === this.#agentTok) this.agentPending = undefined
 		}
 	}
 
-	/** Save the conversation as the agent's Hub recording. Each turn keeps its run, so the
-	 * Hub can replay it step by step. Returns true on success. */
+	/** Save the conversation as the agent's Hub recording: the messages, the tools called and
+	 * the answers. Not the runs themselves, which hold what the Hub must not: who ran them and
+	 * the agent as this workspace stores it. Returns true when this agent's recording was
+	 * saved and it is still the one open. */
 	async saveAgentRecording(): Promise<boolean> {
 		const it = this.agentTarget
-		if (!it || this.agentTurns.length === 0 || this.agentSaving) return false
+		if (!it || this.agentTurns.length === 0 || this.agentSaving || this.agentPending !== undefined)
+			return false
+		const tok = this.#agentTok
 		this.agentSaving = true
 		try {
-			const turns: AgentTurn[] = []
-			for (const t of this.agentTurns) {
-				const { job_id, ...turn } = t
-				// A turn whose run cannot be read back still tells the conversation.
-				const run = await this.#buildAgentTurnRecording(it, job_id).catch(() => undefined)
-				turns.push({ ...turn, ...(run ? { recording: run } : {}) })
-			}
+			const turns = [...this.agentTurns]
 			const recording: AgentRecording = {
 				version: 1,
 				type: 'agent',
@@ -1955,24 +2001,13 @@ export class DeployToHubSession {
 			})
 			this.#patchItem(it.key, { rec: 'recorded' })
 			sendUserToast(`Conversation saved — ${turns.length} message${turns.length === 1 ? '' : 's'}`)
-			return true
+			return tok === this.#agentTok
 		} catch (e: any) {
 			sendUserToast(`Failed to save the conversation: ${e?.message ?? e}`, true)
 			return false
 		} finally {
 			this.agentSaving = false
 		}
-	}
-
-	// A turn is a run of the agent as a one-step flow, materialized on the job.
-	async #buildAgentTurnRecording(it: DeployItem, jobId: string) {
-		const root = (await JobService.getJob({ workspace: this.workspace, id: jobId })) as any
-		if (!root.raw_flow) return undefined
-		return await buildFlowRecording(this.workspace, jobId, it.path, {
-			value: root.raw_flow,
-			schema: { type: 'object', properties: {}, required: [] },
-			summary: it.summary ?? ''
-		})
 	}
 
 	/** Save a recorded raw-app session as that app's Hub recording. */
@@ -2256,8 +2291,15 @@ export function useDeployToHubSession(args: {
 	}
 }
 
-/** The answer and the tools called, read off an agent run's result (`{ output, messages }`).
- * A result of another shape is shown as it is rather than dropped. */
+/** The call a structured answer is given through: the answer itself, not a tool of the agent. */
+const STRUCTURED_OUTPUT_CALL = /^structured_output(_\d+)?$/
+
+/**
+ * One turn, read off the result of its run: the answer, and what the agent called to get
+ * there, in order. Tool calls are the model's own (`assistant.tool_calls`, each with the
+ * `tool` message answering it); a web search is a capability of the provider rather than a
+ * call, so the worker records it as a `tool` message tagged `web_search`.
+ */
 export function readAgentTurn(result: unknown): { answer: string; tool_calls: AgentToolCall[] } {
 	const r = result as { output?: unknown; messages?: any[] } | null
 	const text = (v: unknown) =>
@@ -2278,8 +2320,14 @@ export function readAgentTurn(result: unknown): { answer: string; tool_calls: Ag
 	}
 	const tool_calls: AgentToolCall[] = []
 	for (const m of messages) {
+		if (m?.role === 'tool' && m.agent_action?.type === 'web_search') {
+			tool_calls.push({ name: 'web_search' })
+			continue
+		}
 		if (m?.role !== 'assistant' || !Array.isArray(m.tool_calls)) continue
 		for (const c of m.tool_calls) {
+			const name = c?.function?.name ?? 'tool'
+			if (STRUCTURED_OUTPUT_CALL.test(name)) continue
 			const raw = c?.function?.arguments
 			let args: unknown = raw
 			if (typeof raw === 'string') {
@@ -2288,7 +2336,7 @@ export function readAgentTurn(result: unknown): { answer: string; tool_calls: Ag
 				} catch {}
 			}
 			tool_calls.push({
-				name: c?.function?.name ?? 'tool',
+				name,
 				args,
 				result: typeof c?.id === 'string' ? results.get(c.id) : undefined
 			})

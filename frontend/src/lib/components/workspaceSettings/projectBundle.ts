@@ -66,13 +66,6 @@ export function extractScriptRefs(content: string): Ref[] {
 	return out
 }
 
-/**
- * References inside a flow value:
- *  - inline rawscript code with `$res:` (resource)
- *  - static step inputs whose value is a `$res:` literal (resource)
- *  - `type: script` steps that reference a script by path (script)
- *  - `type: flow` steps that reference a sub-flow by path (flow)
- */
 /** A resource path written bare or as a `$res:` / `res://` token, without its prefix. */
 function bareResourcePath(ref: unknown): string | undefined {
 	if (typeof ref !== 'string') return undefined
@@ -96,6 +89,144 @@ function mcpResourcePath(tool: any): string | undefined {
 	return v?.tool_type === 'mcp' ? bareResourcePath(v.resource_path) : undefined
 }
 
+/** A whole-string `$res:PATH` / `res://PATH` value (prefix in group 1, path in group 2). */
+const RES_VALUE_RE = /^(\$res:|res:\/\/)(.+)$/
+
+/**
+ * Tool names a step enables are plain strings, and an MCP server goes by its bare resource
+ * path there: the list follows the server when it moves, or the worker, which matches names
+ * exactly, would silently drop it from the roster.
+ */
+function rewriteEnabledTools(inputTransforms: any, map: Map<string, string>): void {
+	const enabled = inputTransforms?.enabled_tools
+	if (enabled?.type !== 'static' || !Array.isArray(enabled.value)) return
+	enabled.value = enabled.value.map((name: unknown) =>
+		typeof name === 'string' ? (map.get(name) ?? name) : name
+	)
+}
+
+/**
+ * Every reference inside an agent's configuration: a saved agent's whole value, or the
+ * tool wiring (`tool_inputs`) a linked step lays over one. One walk serves both reading
+ * and rewriting (`resolve` is told each reference and may return its new path), so the two
+ * cannot disagree about what a reference is.
+ *
+ * Nothing here lists the fields a reference may sit in, on purpose. A saved agent is read
+ * unvalidated: the worker resolves its brain keys as arguments, whichever they are, its
+ * tools nest (an agent used as a tool, with tools of its own), and keys keep being added.
+ * So the whole value is walked, and a reference is recognised by its shape wherever it sits:
+ *  - a string that is a `$res:` reference as a whole, the only form the worker resolves in
+ *    an argument. A token inside a sentence (a prompt explaining the syntax) is prose.
+ *  - `$res:` tokens anywhere in a rawscript tool's `content`, as in a flow's inline code
+ *  - `{ type: 'script' | 'flow', path }`: a tool that runs a script or a flow
+ *  - `{ type: 'aiagent', agent }`: a tool linked to another saved agent
+ *  - `{ tool_type: 'mcp', resource_path }`: an MCP server
+ *
+ * The one place read differently is an input, where the worker reads one too: an entry of
+ * an `input_transforms` map, or of a tool's map under `tool_inputs`. There, a static
+ * `value` is an argument (only whole-string references count, so a JSON argument that
+ * looks like a tool is not one) and a JavaScript `expr` is code that is evaluated, never
+ * resolved. An object merely shaped like an input anywhere else is walked as configuration:
+ * the install check relies on this walk, and nothing may be hidden that way.
+ * `$var:` references are read by `extractVarRefsFromValue`, which walks every string.
+ */
+type AgentRefResolver = (kind: RefKind, path: string) => string | undefined
+type AgentWalkContext = 'config' | 'inputs' | 'toolInputs' | 'input' | 'data'
+
+function walkAgentConfig(value: any, resolve: AgentRefResolver): any {
+	const walk = (v: any, ctx: AgentWalkContext): any => {
+		if (typeof v === 'string') {
+			const m = RES_VALUE_RE.exec(v)
+			const next = m ? resolve('resource', m[2]) : undefined
+			return next !== undefined ? m![1] + next : v
+		}
+		if (Array.isArray(v)) return v.map((x) => walk(x, ctx === 'data' ? 'data' : 'config'))
+		if (!v || typeof v !== 'object') return v
+
+		const out: Record<string, any> = {}
+		for (const k of Object.keys(v)) {
+			let child: AgentWalkContext = 'config'
+			if (ctx === 'data') child = 'data'
+			else if (ctx === 'inputs') child = 'input'
+			else if (ctx === 'toolInputs') child = 'inputs'
+			else if (ctx === 'input' && v.type === 'static' && k === 'value') child = 'data'
+			else if (ctx === 'input' && v.type === 'javascript' && k === 'expr') {
+				out[k] = v[k]
+				continue
+			} else if (k === 'input_transforms') child = 'inputs'
+			else if (k === 'tool_inputs') child = 'toolInputs'
+			out[k] = walk(v[k], child)
+		}
+		// Shapes name things only where the worker reads configuration: not inside an
+		// argument, and not on the maps that merely hold inputs by name.
+		if (ctx !== 'config' && ctx !== 'input') return out
+
+		if ((v.type === 'script' || v.type === 'flow') && typeof v.path === 'string') {
+			out.path = resolve(v.type, v.path) ?? v.path
+		}
+		if (v.type === 'aiagent') {
+			const linked = linkedAgentPath(v)
+			const next = linked ? resolve('resource', linked) : undefined
+			if (next !== undefined) out.agent = withRefPrefix(v.agent, next)
+		}
+		if (v.tool_type === 'mcp') {
+			const mcp = bareResourcePath(v.resource_path)
+			const next = mcp ? resolve('resource', mcp) : undefined
+			if (next !== undefined) out.resource_path = withRefPrefix(v.resource_path, next)
+		}
+		if (v.type === 'rawscript' && typeof v.content === 'string') {
+			out.content = v.content.replace(RES_TOKEN_RE, (whole: string, path: string) => {
+				const next = resolve('resource', path)
+				return next !== undefined ? `$res:${next}` : whole
+			})
+		}
+		return out
+	}
+	return walk(value, 'config')
+}
+
+function collectAgentConfigRefs(
+	value: any,
+	add: (kind: RefKind, path: string) => void,
+	ctx: 'config' | 'toolInputs' = 'config'
+): void {
+	walkAgentConfig(ctx === 'toolInputs' ? { tool_inputs: value } : value, (kind, path) => {
+		add(kind, path)
+		return undefined
+	})
+}
+
+/** The rewrite matching `collectAgentConfigRefs`. Returns a copy. */
+function rewriteAgentConfig(
+	value: any,
+	map: Map<string, string>,
+	ctx: 'config' | 'toolInputs' = 'config'
+): any {
+	const resolve: AgentRefResolver = (_kind, path) => map.get(path)
+	if (ctx === 'toolInputs') return walkAgentConfig({ tool_inputs: value }, resolve).tool_inputs
+	const out = walkAgentConfig(value, resolve)
+	// A second pass, since it needs the tools' final paths: see `rewriteEnabledTools`.
+	const fixEnabled = (v: any) => {
+		if (Array.isArray(v)) v.forEach(fixEnabled)
+		else if (v && typeof v === 'object') {
+			if (v.type === 'aiagent') rewriteEnabledTools(v.input_transforms, map)
+			for (const k of Object.keys(v)) fixEnabled(v[k])
+		}
+	}
+	fixEnabled(out)
+	return out
+}
+
+/**
+ * References inside a flow value:
+ *  - inline rawscript code with `$res:` (resource)
+ *  - static step inputs whose value is a `$res:` literal (resource)
+ *  - `type: script` steps that reference a script by path (script)
+ *  - `type: flow` steps that reference a sub-flow by path (flow)
+ *  - on an `aiagent` step or tool: the saved agent it is linked to (resource, shipped whole
+ *    as an agent), its MCP servers (resource), and the tool wiring a linked step lays over
+ *    the agent's tools (`tool_inputs`)
+ */
 export function extractFlowRefs(value: any): Ref[] {
 	const out: Ref[] = []
 	const seen = new Set<string>()
@@ -123,6 +254,8 @@ export function extractFlowRefs(value: any): Ref[] {
 				const mcp = mcpResourcePath(tool)
 				if (mcp) add('resource', mcp)
 			}
+			// What a linked step binds on the agent's own tools, keyed by tool id.
+			collectAgentConfigRefs(v.tool_inputs, add, 'toolInputs')
 		}
 		if (typeof v.content === 'string') {
 			for (const r of extractScriptRefs(v.content)) add('resource', r.path)
@@ -429,6 +562,8 @@ export function rewriteFlowValue(value: any, map: Map<string, string>): any {
 					}
 				}
 			}
+			if (v.tool_inputs) v.tool_inputs = rewriteAgentConfig(v.tool_inputs, map, 'toolInputs')
+			rewriteEnabledTools(v.input_transforms, map)
 		}
 		if (typeof v.content === 'string') v.content = rewriteContent(v.content, map)
 		const it = v.input_transforms
@@ -490,39 +625,24 @@ export function rewriteRawAppContent(content: string, map: Map<string, string>):
 	return JSON.stringify(rewriteAppValue(parsed, map))
 }
 
-// A saved agent (`ai_agent` resource value) reaches the rest of the workspace the way an AI
-// agent step does: its tools run scripts by path, their static inputs and its provider hold
-// `$res:` references. Viewing it as the one-step flow a run makes of it lets the flow
-// extractor and rewriter do the work, so both stay the single definition of what a tool
-// can reference.
-function agentAsFlow(value: any): any {
-	return {
-		modules: [
-			{
-				id: 'agent',
-				value: {
-					type: 'aiagent',
-					tools: Array.isArray(value?.tools) ? value.tools : [],
-					input_transforms: { provider: { type: 'static', value: value?.provider ?? null } }
-				}
-			}
-		]
-	}
-}
-
+// A saved agent (`ai_agent` resource value). Its whole value is walked rather than a list of
+// known fields: see `collectAgentConfigRefs`.
 export function extractAgentRefs(value: any): Ref[] {
-	return extractFlowRefs(agentAsFlow(value))
+	const out: Ref[] = []
+	const seen = new Set<string>()
+	collectAgentConfigRefs(value, (kind, path) => {
+		const key = `${kind}:${path}`
+		if (!seen.has(key)) {
+			seen.add(key)
+			out.push({ kind, path })
+		}
+	})
+	return out
 }
 
 export function rewriteAgentValue(value: any, map: Map<string, string>): any {
 	if (!value || typeof value !== 'object') return value
-	const step = rewriteFlowValue(agentAsFlow(value), map)?.modules?.[0]?.value
-	const out = { ...value }
-	if (Array.isArray(value.tools)) out.tools = step?.tools ?? value.tools
-	if (value.provider !== undefined) {
-		out.provider = step?.input_transforms?.provider?.value ?? value.provider
-	}
-	return out
+	return rewriteAgentConfig(value, map)
 }
 
 // ---------------------------------------------------------------------------
@@ -581,8 +701,8 @@ export function buildRetargetMap(
 	return map
 }
 
-// Internal-or-external variable paths referenced by the export's flows, apps and
-// triggers. Scripts carry no variable args. Raw apps hold their structure in the
+// Internal-or-external variable paths referenced by the export's flows, apps,
+// triggers and agents. Scripts carry no variable args. Raw apps hold their structure in the
 // `value.raw` JSON string.
 export function collectExportVarPaths(bundle: ProjectExport): string[] {
 	const out = new Set<string>()
@@ -738,7 +858,9 @@ function varRefsForFetched(item: FetchedItem): string[] {
 }
 
 // Walks the transitive closure: scripts referenced by path are pulled in
-// recursively, resources become empty stubs, hub refs stay external.
+// recursively, resources become empty stubs, hub refs stay external. A referenced
+// `ai_agent` resource is the exception: it is pulled in as an agent, whole, with what
+// its own tools reference.
 export async function buildProjectBundle(
 	seed: ItemRef[],
 	slug: string,
@@ -770,6 +892,23 @@ export async function buildProjectBundle(
 		if (!types.has(path)) types.set(path, deps.resolveResourceType(path))
 		return types.get(path)!
 	}
+	// Agents among `paths`, as items to fetch. Asked once per path, whoever named it first:
+	// a trigger's resource is checked like one an item references.
+	const promoted = new Set<string>()
+	const agentsAmong = async (paths: string[]): Promise<ItemRef[]> => {
+		const fresh = [...new Set(paths)].filter((p) => !promoted.has(p))
+		for (const p of fresh) promoted.add(p)
+		const found = await Promise.all(fresh.map(typeOf))
+		const out: ItemRef[] = []
+		fresh.forEach((path, i) => {
+			const key = refKey('agent', path)
+			if (found[i] === 'ai_agent' && !queued.has(key)) {
+				queued.add(key)
+				out.push({ kind: 'agent', path })
+			}
+		})
+		return out
+	}
 
 	// Refs at the same BFS depth are independent: fetch each level concurrently.
 	let level: ItemRef[] = []
@@ -780,6 +919,7 @@ export async function buildProjectBundle(
 			level.push(s)
 		}
 	}
+	level.push(...(await agentsAmong([...resourcePaths])))
 	while (level.length > 0) {
 		const results = await Promise.all(
 			level.map(async (ref) => ({ ref, item: await deps.fetchItem(ref) }))
@@ -795,7 +935,7 @@ export async function buildProjectBundle(
 			for (const r of refsForFetched(item)) {
 				if (classifyPath(r.path, slug) === 'hub') continue
 				if (r.kind === 'resource') {
-					if (!resourcePaths.has(r.path)) newResources.push(r.path)
+					newResources.push(r.path)
 					resourcePaths.add(r.path)
 				} else if (r.kind === 'script' || r.kind === 'flow') {
 					const key = refKey(r.kind, r.path)
@@ -810,14 +950,7 @@ export async function buildProjectBundle(
 			// materializes them as placeholders). Variables are never hub-hosted.
 			for (const p of varRefsForFetched(item)) varPaths.add(p)
 		}
-		const newTypes = await Promise.all(newResources.map(typeOf))
-		newResources.forEach((path, i) => {
-			const key = refKey('agent', path)
-			if (newTypes[i] === 'ai_agent' && !queued.has(key)) {
-				queued.add(key)
-				next.push({ kind: 'agent', path })
-			}
-		})
+		next.push(...(await agentsAmong(newResources)))
 		level = next
 	}
 

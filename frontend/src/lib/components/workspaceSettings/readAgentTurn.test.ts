@@ -61,3 +61,36 @@ describe('readAgentTurn with background tools', () => {
 		expect(turn.tool_calls.map((c) => c.name)).toEqual(['render'])
 	})
 })
+
+describe('readAgentTurn with calls that are not tools of the agent', () => {
+	it('does not show the structured answer as a tool call', () => {
+		const turn = readAgentTurn({
+			output: { city: 'Paris' },
+			messages: [
+				{ role: 'user', content: 'Where?' },
+				{ role: 'assistant', tool_calls: [call('s', 'structured_output', { city: 'Paris' })] },
+				{ role: 'tool', tool_call_id: 's', content: 'Successfully ran structured_output tool' }
+			]
+		})
+		expect(turn.tool_calls).toEqual([])
+		expect(JSON.parse(turn.answer)).toEqual({ city: 'Paris' })
+	})
+
+	it('shows a web search, in the order it happened', () => {
+		const turn = readAgentTurn({
+			output: 'Found.',
+			messages: [
+				{ role: 'user', content: 'Look it up, then check the order.' },
+				{
+					role: 'tool',
+					content: 'Used websearch tool successfully',
+					agent_action: { type: 'web_search' }
+				},
+				{ role: 'assistant', tool_calls: [call('a', 'get_order', { id: 1 })] },
+				{ role: 'tool', tool_call_id: 'a', content: 'shipped' },
+				{ role: 'assistant', content: 'Found.' }
+			]
+		})
+		expect(turn.tool_calls.map((c) => c.name)).toEqual(['web_search', 'get_order'])
+	})
+})
