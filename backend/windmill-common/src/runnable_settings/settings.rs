@@ -179,6 +179,7 @@ impl super::private_mod::RunnableSettingsTraitInternal for RetrySettings {
         "exponential_seconds",
         "exponential_random_factor",
         "retry_if_expr",
+        "exponential_multiplier_float",
     ];
     fn bind_arguments<'a>(&'a self, q: Q<'a>) -> Q<'a> {
         q.bind(&self.constant_attempts)
@@ -188,6 +189,7 @@ impl super::private_mod::RunnableSettingsTraitInternal for RetrySettings {
             .bind(&self.exponential_seconds)
             .bind(&self.exponential_random_factor)
             .bind(&self.retry_if_expr)
+            .bind(&self.exponential_multiplier_float)
     }
 }
 impl super::RunnableSettingsTrait for RetrySettings {}

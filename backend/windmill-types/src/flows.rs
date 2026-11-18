@@ -492,10 +492,8 @@ impl Retry {
             Some(Duration::from_secs(constant.seconds as u64))
         } else if previous_attempts - constant.attempts < exponential.attempts {
             let exp = previous_attempts.saturating_add(1) as u32;
-            // multiplier is a float (see ExponentialDelay), so compute the delay in
-            // f64 and reduce it to whole seconds only at the end — by rounding, not
-            // truncating: 0.29 * 100 is 28.999999999999996 in f64, and truncating
-            // that would schedule 28s.
+            // Rounded to whole seconds only at the end, and rounded rather than truncated:
+            // 0.29 * 100 is 28.999999999999996 in f64.
             let mut secs =
                 exponential.multiplier * (exponential.seconds.saturating_pow(exp) as f64);
             if let Some(random_factor) = exponential.random_factor {
@@ -547,9 +545,8 @@ pub struct ConstantDelay {
 #[serde(default)]
 pub struct ExponentialDelay {
     pub attempts: u32,
-    /// Multiplier applied to `seconds ^ failures`. A float so fractional and
-    /// sub-1 multipliers (e.g. 0.4) are accepted rather than rejected at parse
-    /// time (see #5691).
+    /// Multiplier applied to `seconds ^ failures`; fractional values (e.g. 0.4) are allowed.
+    #[serde(serialize_with = "serialize_multiplier")]
     pub multiplier: f64,
     pub seconds: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -559,6 +556,17 @@ pub struct ExponentialDelay {
 impl Default for ExponentialDelay {
     fn default() -> Self {
         Self { attempts: 0, multiplier: 1.0, seconds: 0, random_factor: None }
+    }
+}
+
+/// An integral multiplier is written as an integer: flow values are written back after the
+/// dependency job, and `3.0` would diff against the `3` every existing flow holds. It also
+/// keeps those values readable by workers that still parse the multiplier as an integer.
+fn serialize_multiplier<S: serde::Serializer>(m: &f64, s: S) -> Result<S::Ok, S::Error> {
+    if m.fract() == 0.0 && m.abs() < 9_007_199_254_740_992.0 {
+        s.serialize_i64(*m as i64)
+    } else {
+        s.serialize_f64(*m)
     }
 }
 
@@ -1761,6 +1769,15 @@ mod tests {
         });
         let retry: Retry = serde_json::from_value(input.clone()).unwrap();
         assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+    }
+
+    #[test]
+    fn exponential_retry_multiplier_round_trips_unchanged() {
+        for m in [json!(3), json!(0.5), json!(2.25)] {
+            let input = json!({ "exponential": { "attempts": 2, "multiplier": m, "seconds": 4 } });
+            let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+        }
     }
 
     #[test]
