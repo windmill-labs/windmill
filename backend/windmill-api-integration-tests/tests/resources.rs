@@ -763,6 +763,83 @@ async fn test_resource_cache_handles_job_context(db: Pool<Postgres>) -> anyhow::
 /// Without an embeddings index the resource type search reads the table, so it has to apply the
 /// same scope as the index: the workspace's own types and the global ones in `admins`, never
 /// another workspace's.
+/// The installation serves a non-admin only the URL an admin last saved on an
+/// app-backed resource, so a write by anyone else must never move the approval.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_github_app_repo_approval_follows_admin_writes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::git_sync_oss::is_github_app_repo_approved;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/resources",
+        server.addr.port()
+    );
+    let path = "u/test-user-2/repo";
+    let (approved, other) = (
+        "https://github.com/o/r.git",
+        "https://github.com/o/other.git",
+    );
+    let value = |url: &str| json!({"value": {"url": url, "is_github_app": true}});
+    let post = |token: &'static str, url: String, body: serde_json::Value| async move {
+        let resp = client()
+            .post(url)
+            .bearer_auth(token)
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert!(resp.status().is_success(), "{}", resp.text().await.unwrap());
+    };
+    let is_approved = |url: &'static str| {
+        let db = db.clone();
+        async move {
+            is_github_app_repo_approved(&db, "test-workspace", path, url)
+                .await
+                .unwrap()
+        }
+    };
+
+    let mut create = value(approved);
+    create["path"] = json!(path);
+    create["resource_type"] = json!("git_repository");
+    post("SECRET_TOKEN_2", format!("{base}/create"), create).await;
+    assert!(
+        !is_approved(approved).await,
+        "a non-admin's own write approves nothing"
+    );
+
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update/{path}"),
+        json!({"description": "ok"}),
+    )
+    .await;
+    assert!(is_approved(approved).await);
+
+    post(
+        "SECRET_TOKEN_2",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
+    assert!(
+        !is_approved(other).await,
+        "a non-admin repointing it is not approved"
+    );
+    assert!(is_approved(approved).await);
+
+    post(
+        "SECRET_TOKEN",
+        format!("{base}/update_value/{path}"),
+        value(other),
+    )
+    .await;
+    assert!(is_approved(other).await && !is_approved(approved).await);
+    Ok(())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_resource_type_search_without_embeddings(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
