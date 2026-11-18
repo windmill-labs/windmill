@@ -396,9 +396,10 @@
 		}
 
 		// The attempt picked on the graph lives in the top states only: the step's own viewer does
-		// not hold it, so its writes must not drop it.
+		// not hold it, so its writes must not drop it. A copy: the same `newValue` is written to the
+		// viewer's own states too, and a pick left there would be written back over the next one.
 		if (!('selectedAttempt' in newValue) && moduleState[key]?.selectedAttempt != undefined) {
-			newValue.selectedAttempt = moduleState[key].selectedAttempt
+			newValue = { ...newValue, selectedAttempt: moduleState[key].selectedAttempt }
 		}
 
 		if (moduleState[key]?.selectedForLoopSetManually) {

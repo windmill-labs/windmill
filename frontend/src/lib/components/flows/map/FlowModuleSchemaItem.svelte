@@ -19,7 +19,11 @@
 	import { replaceId } from '../flowStore.svelte'
 	import FlowModuleSchemaItemViewer from './FlowModuleSchemaItemViewer.svelte'
 	import StepSettingsBar, { type RetryAttempts } from './StepSettingsBar.svelte'
-	import { emitUiIntent } from '$lib/components/copilot/chat/flow/uiIntents'
+	import {
+		emitUiIntent,
+		moduleIntentComponentId
+	} from '$lib/components/copilot/chat/flow/uiIntents'
+	import { findModuleInFlow } from '../flowTree'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
@@ -309,7 +313,12 @@
 						? (key) => {
 								flowGraphContext?.selectionManager?.selectId(id, { openPanel: true })
 								// Kept by the store until the step's panel mounts and reads it.
-								emitUiIntent({ kind: 'open_module_tab', componentId: `flow-${id}`, tab: key })
+								const mod = flowStore?.val ? findModuleInFlow(flowStore.val.value, id) : null
+								emitUiIntent({
+									kind: 'open_module_tab',
+									componentId: moduleIntentComponentId(mod?.value.type, id),
+									tab: key
+								})
 							}
 						: undefined}
 				/>
