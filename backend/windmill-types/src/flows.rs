@@ -1113,6 +1113,10 @@ pub enum FlowModuleValue {
         parallelism: Option<InputTransform>,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        /// Evaluated once per iteration, with `flow_input.iter` set, into the text the run
+        /// viewers show for that iteration. Never fails the iteration.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        iteration_label: Option<InputTransform>,
     },
     WhileloopFlow {
         modules: Vec<FlowModule>,
@@ -1239,6 +1243,7 @@ struct UntaggedFlowModuleValue {
     tool_inputs: Option<HashMap<String, HashMap<String, InputTransform>>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
+    iteration_label: Option<InputTransform>,
     max_iterations: Option<u32>,
     max_duration_secs: Option<u32>,
     #[serde(flatten)]
@@ -1282,6 +1287,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 parallel: untagged.parallel.unwrap_or(false),
                 parallelism: untagged.parallelism,
                 squash: untagged.squash,
+                iteration_label: untagged.iteration_label,
             }),
             "whileloopflow" => Ok(FlowModuleValue::WhileloopFlow {
                 modules: untagged

@@ -810,14 +810,95 @@ async fn mint_vertex_oidc_token(
 #[derive(Clone, Debug)]
 pub struct ExpiringProviderCredentials {
     credentials: ProviderCredentials,
+    policy: ModelPolicy,
     expires_at: std::time::Instant,
     instance_ai_config_revision: Option<u64>,
 }
 
+/// The models a request served with the effective AI config's own key may ask one provider
+/// for. The UI only offers what the settings enable; this holds a direct API caller to it.
+#[derive(Clone, Debug, Default)]
+pub struct ModelPolicy {
+    models: std::collections::HashSet<String>,
+}
+
+/// The only fields of a proxied body that are read; the body itself is forwarded unchanged.
+#[derive(Deserialize)]
+struct ProxiedModel {
+    model: String,
+    models: Option<Box<RawValue>>,
+    fallbacks: Option<Box<RawValue>>,
+}
+
+impl ModelPolicy {
+    fn new(config: &AIConfig, provider: &AIProvider) -> Self {
+        let enabled = config
+            .providers
+            .as_ref()
+            .and_then(|providers| providers.get(provider))
+            .into_iter()
+            .flat_map(|p| p.models.iter());
+        // Settings allow picking these without enabling them in the provider's list.
+        let picked = [
+            &config.default_model,
+            &config.metadata_model,
+            &config.code_completion_model,
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|m| &m.provider == provider)
+        .map(|m| &m.model);
+        // The browser sends a legacy `x/thinking` entry as `x`.
+        let models = enabled
+            .chain(picked)
+            .map(|m| m.strip_suffix("/thinking").unwrap_or(m).to_string())
+            .collect();
+        Self { models }
+    }
+
+    fn check_model(&self, model: &str) -> Result<()> {
+        if self.models.contains(model) {
+            Ok(())
+        } else {
+            Err(Error::BadRequest(format!(
+                "model \"{model}\" is not enabled for this workspace"
+            )))
+        }
+    }
+
+    /// A body-less GET (a model listing) passes; any other request must be a JSON object
+    /// naming an enabled model.
+    fn check_body(&self, method: &Method, body: &Bytes) -> Result<()> {
+        if method == Method::GET && body.is_empty() {
+            return Ok(());
+        }
+        let parsed: ProxiedModel = serde_json::from_slice(body).map_err(|e| {
+            Error::BadRequest(format!(
+                "with the workspace's AI key, the request body must be a JSON object with a string \"model\": {e}"
+            ))
+        })?;
+        // Gateways fall back to the models listed here (OpenRouter `models`, LiteLLM
+        // `fallbacks`), which would run unchecked.
+        for (field, value) in [("models", &parsed.models), ("fallbacks", &parsed.fallbacks)] {
+            if value.is_some() {
+                return Err(Error::BadRequest(format!(
+                    "\"{field}\" (fallback models) is not supported with the workspace's AI key"
+                )));
+            }
+        }
+        self.check_model(&parsed.model)
+    }
+}
+
 impl ExpiringProviderCredentials {
-    fn new(credentials: ProviderCredentials, instance_ai_config_revision: Option<u64>) -> Self {
+    fn new(
+        credentials: ProviderCredentials,
+        policy: ModelPolicy,
+        instance_ai_config_revision: Option<u64>,
+    ) -> Self {
         Self {
             credentials,
+            policy,
             expires_at: std::time::Instant::now() + std::time::Duration::from_secs(60),
             instance_ai_config_revision,
         }
@@ -1022,16 +1103,17 @@ async fn configured_credentials(
     db: &DB,
     w_id: &str,
     provider: &AIProvider,
-) -> Result<Option<ProviderCredentials>> {
+) -> Result<Option<(ProviderCredentials, ModelPolicy)>> {
     let cache_key = (w_id.to_string(), provider.clone());
     if let Some(cached) = AI_REQUEST_CACHE.get(&cache_key).filter(|c| !c.is_expired()) {
-        return Ok(Some(cached.credentials));
+        return Ok(Some((cached.credentials, cached.policy)));
     }
     let Some((mut ai_config, resource_workspace, instance_ai_config_revision)) =
         effective_ai_config(db, w_id).await?
     else {
         return Ok(None);
     };
+    let policy = ModelPolicy::new(&ai_config, provider);
     let provider_config = ai_config
         .providers
         .as_mut()
@@ -1055,9 +1137,13 @@ async fn configured_credentials(
         resolve_provider_credentials(provider, db, &resource_workspace, resource, None).await?;
     AI_REQUEST_CACHE.insert(
         cache_key,
-        ExpiringProviderCredentials::new(credentials.clone(), instance_ai_config_revision),
+        ExpiringProviderCredentials::new(
+            credentials.clone(),
+            policy.clone(),
+            instance_ai_config_revision,
+        ),
     );
-    Ok(Some(credentials))
+    Ok(Some((credentials, policy)))
 }
 
 fn parse_ai_resource(
@@ -1624,7 +1710,7 @@ async fn complete(
 ) -> JsonResult<CompleteResponse> {
     let not_configured =
         || Error::BadRequest("AI is not configured for this workspace".to_string());
-    let model = match request.model {
+    let mut model = match request.model {
         Some(model) => model,
         None => effective_ai_config(&db, &w_id)
             .await?
@@ -1637,15 +1723,19 @@ async fn complete(
                 )
             })?,
     };
+    if let Some(base) = model.model.strip_suffix("/thinking") {
+        model.model = base.to_string();
+    }
     if model.provider.is_decision_provider() {
         return Err(Error::BadRequest(format!(
             "{:?} serves decision models, which answer typed questions rather than messages",
             model.provider
         )));
     }
-    let mut credentials = configured_credentials(&db, &w_id, &model.provider)
+    let (mut credentials, policy) = configured_credentials(&db, &w_id, &model.provider)
         .await?
         .ok_or_else(not_configured)?;
+    policy.check_model(&model.model)?;
     #[cfg(feature = "bedrock")]
     resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
     resolve_anthropic_federated_credentials(&db, &w_id, &authed, &mut credentials).await?;
@@ -1923,7 +2013,8 @@ async fn proxy(
             )
             .await?;
         }
-        if let Some(credentials) = configured_credentials(&db, &w_id, &provider).await? {
+        if let Some((credentials, policy)) = configured_credentials(&db, &w_id, &provider).await? {
+            policy.check_body(&method, &body)?;
             break 'cred credentials;
         }
         // Nothing configured: fall back to Windmill's free AI tier (EE-only) if a lent
@@ -2222,15 +2313,27 @@ mod tests {
         AI_REQUEST_CACHE.clear();
         AI_REQUEST_CACHE.insert(
             ("workspace-a".to_string(), AIProvider::OpenAI),
-            ExpiringProviderCredentials::new(sample_provider_credentials(), None),
+            ExpiringProviderCredentials::new(
+                sample_provider_credentials(),
+                ModelPolicy::default(),
+                None,
+            ),
         );
         AI_REQUEST_CACHE.insert(
             ("workspace-a".to_string(), AIProvider::Anthropic),
-            ExpiringProviderCredentials::new(sample_provider_credentials(), None),
+            ExpiringProviderCredentials::new(
+                sample_provider_credentials(),
+                ModelPolicy::default(),
+                None,
+            ),
         );
         AI_REQUEST_CACHE.insert(
             ("workspace-b".to_string(), AIProvider::OpenAI),
-            ExpiringProviderCredentials::new(sample_provider_credentials(), None),
+            ExpiringProviderCredentials::new(
+                sample_provider_credentials(),
+                ModelPolicy::default(),
+                None,
+            ),
         );
         #[cfg(feature = "bedrock")]
         let assumed_role_key = {
@@ -2267,12 +2370,41 @@ mod tests {
     }
 
     #[test]
+    fn configured_key_serves_only_enabled_models() {
+        let config: AIConfig = serde_json::from_value(serde_json::json!({
+            "providers": {
+                "openai": {"resource_path": "r", "models": ["gpt-4o"]},
+                "anthropic": {"resource_path": "r", "models": ["claude-x"]}
+            },
+            "default_model": {"provider": "openai", "model": "picked/thinking"}
+        }))
+        .unwrap();
+        let policy = ModelPolicy::new(&config, &AIProvider::OpenAI);
+        let check = |body: serde_json::Value| {
+            policy.check_body(&Method::POST, &Bytes::from(body.to_string()))
+        };
+
+        let refused = check(serde_json::json!({"model": "claude-x"})).unwrap_err();
+        assert!(refused.to_string().contains("\"claude-x\" is not enabled"));
+        assert!(check(serde_json::json!({"model": "picked"})).is_ok());
+        assert!(policy.check_body(&Method::GET, &Bytes::new()).is_ok());
+        assert!(policy.check_body(&Method::POST, &Bytes::new()).is_err());
+        assert!(check(serde_json::json!({"model": "gpt-4o", "models": ["other"]})).is_err());
+        assert!(check(serde_json::json!({"model": "gpt-4o", "fallbacks": ["other"]})).is_err());
+        assert!(check(serde_json::json!({"messages": []})).is_err());
+        assert!(policy
+            .check_body(&Method::POST, &Bytes::from_static(b"--boundary"))
+            .is_err());
+    }
+
+    #[test]
     fn instance_backed_cache_entries_expire_when_revision_changes() {
         let _guard = TEST_LOCK.lock().unwrap();
         AI_REQUEST_CACHE.clear();
 
         let cached = ExpiringProviderCredentials::new(
             sample_provider_credentials(),
+            ModelPolicy::default(),
             Some(current_instance_ai_config_revision()),
         );
         assert!(!cached.is_expired());

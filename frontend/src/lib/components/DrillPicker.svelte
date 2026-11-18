@@ -579,7 +579,12 @@ leaves and ignores the current scope.
 						{secondary ?? leaf.secondary}
 					</div>
 				{:else}
-					<div class="text-xs text-primary font-normal font-mono truncate">
+					<div
+						class="text-xs text-primary font-normal truncate {secondary === undefined &&
+						leaf.plainLabel
+							? ''
+							: 'font-mono'}"
+					>
 						{secondary ?? leaf.label}
 					</div>
 				{/if}
@@ -660,7 +665,11 @@ leaves and ignores the current scope.
 	{#if scope.length > 0 && !isSearching}
 		<button
 			type="button"
-			class="flex items-center gap-1.5 w-full text-left px-3 py-1 text-xs font-medium font-mono text-secondary bg-surface-secondary/20 hover:bg-surface-hover transition-colors"
+			class="flex items-center gap-1.5 w-full text-left px-3 py-1 text-xs font-medium {headerChain.every(
+				(b) => b.plainLabel
+			)
+				? ''
+				: 'font-mono'} text-secondary bg-surface-secondary/20 hover:bg-surface-hover transition-colors"
 			onmousedown={(e) => e.preventDefault()}
 			onclick={goUp}
 			title={headerLabel}
@@ -734,9 +743,10 @@ leaves and ignores the current scope.
 							role="option"
 							aria-selected={isHl}
 							data-nav-key={entry.key}
-							class="flex items-center gap-1.5 w-full text-left px-3 py-1.5 text-xs font-medium font-mono text-emphasis transition-colors {isHl
-								? 'bg-surface-hover'
-								: ''}"
+							class="flex items-center gap-1.5 w-full text-left px-3 py-1.5 text-xs font-medium {entry
+								.node.plainLabel
+								? ''
+								: 'font-mono'} text-emphasis transition-colors {isHl ? 'bg-surface-hover' : ''}"
 							onmousedown={(e) => e.preventDefault()}
 							onclick={() => drill(entry)}
 							onmouseenter={() => setHoverHighlight(entry.key)}

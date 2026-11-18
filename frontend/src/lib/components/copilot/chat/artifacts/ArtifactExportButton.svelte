@@ -5,6 +5,7 @@
 	import { artifactFilename, artifactMimeType, type ArtifactKind } from './artifactsDB'
 	import { artifactHtmlFile } from './artifactExport'
 	import { printArtifact } from './printArtifact'
+	import { hasUntrustedImages } from '../untrustedImages'
 
 	interface Props {
 		name: string
@@ -16,6 +17,8 @@
 	}
 
 	let { name, kind, content, disabled = false, iconOnly = false }: Props = $props()
+
+	const untrustedImages = hasUntrustedImages()
 
 	let copied = $state(false)
 	async function copyRaw() {
@@ -43,7 +46,9 @@
 		},
 		// Markdown only: an html artifact already downloads as .html, and printing it would run its
 		// scripts in this origin.
-		...(kind === 'md'
+		// No .html for someone else's artifact: the file draws its mermaid here and keeps its
+		// images' outside URLs, which the shared viewer blocks.
+		...(kind === 'md' && !untrustedImages
 			? [
 					{
 						label: 'Download as .html',
@@ -55,11 +60,15 @@
 								artifactMimeType('html')
 							),
 						disabled
-					},
+					}
+				]
+			: []),
+		...(kind === 'md'
+			? [
 					{
 						label: 'Download as PDF',
 						icon: FileDown,
-						onClick: () => printArtifact(name, content),
+						onClick: () => printArtifact(name, content, { untrustedImages }),
 						disabled
 					}
 				]

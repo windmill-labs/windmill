@@ -294,17 +294,16 @@ pub async fn create_many_http_triggers(
             .validate_new(&db, &w_id, &new_http_trigger.config)
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
-        let (new, can_name_hub) =
-            trigger_save_runnables::<HttpTrigger>(new_http_trigger, &authed, &db, &w_id).await?;
-        windmill_api_auth::composed::check_new_hub_paths(&new, &[], can_name_hub).map_err(
-            |err| match err {
+        let new = trigger_save_runnables::<HttpTrigger>(new_http_trigger)?;
+        windmill_api_auth::composed::check_new_hub_paths(&new, &[], &authed, &db, &w_id)
+            .await
+            .map_err(|err| match err {
                 Error::PermissionDenied(msg) => Error::PermissionDenied(format!(
                     "Error occurred for HTTP route at route path: {}, error: {msg}",
                     new_http_trigger.config.route_path
                 )),
                 err => err,
-            },
-        )?;
+            })?;
 
         let route_path_key =
             check_if_route_exist(&db, &new_http_trigger.config, &w_id, None).await?;
