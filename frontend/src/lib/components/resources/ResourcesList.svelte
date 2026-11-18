@@ -112,7 +112,9 @@
 	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceType[] | undefined = $state()
-	let resourceCounts: Record<string, number> = $state({})
+	// undefined while the counts are unknown (not loaded, or the request failed), so a type is
+	// never shown as having 0 resources it was not counted for
+	let resourceCounts: Record<string, number> | undefined = $state(undefined)
 	let tab = $state<'workspace' | 'types' | 'states' | 'cache' | 'theme'>('workspace')
 	let currentResources = $derived(
 		tab == 'cache'
@@ -334,10 +336,12 @@
 	async function loadResources(): Promise<void> {
 		const isLatestCount = loads.counts.start()
 		ResourceService.listResourceCountsByType({ workspace: $operatingWorkspace! })
-			.catch(() => [])
+			.then(
+				(counts) => Object.fromEntries(counts.map((c) => [c.resource_type, c.count])),
+				() => undefined
+			)
 			.then((counts) => {
-				if (isLatestCount())
-					resourceCounts = Object.fromEntries(counts.map((c) => [c.resource_type, c.count]))
+				if (isLatestCount()) resourceCounts = counts
 			})
 		const result = await loadResourceInternal('workspace', undefined, 'cache,state,app_theme')
 		if (result) resources = result
@@ -1592,7 +1596,7 @@
 													</span>
 												</div>
 											</Cell>
-											<Cell>{resourceCounts[name] ?? 0}</Cell>
+											<Cell>{resourceCounts ? (resourceCounts[name] ?? 0) : '-'}</Cell>
 											<Cell last actions>
 												{#if !canWrite}
 													<!-- Badge is inline-flex, so it needs a right-aligning wrapper to sit
