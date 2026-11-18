@@ -174,7 +174,7 @@
 			<div
 				title={annotationTitle}
 				class={twMerge(
-					'absolute z-10 left-0 -top-5 center-center text-primary',
+					'absolute z-10 left-0 -top-4 center-center text-2xs font-normal text-secondary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
 				)}
 			>
@@ -191,20 +191,6 @@
 					flowJobs={flowJobs.flowJobs}
 					selected={flowJobs.selected}
 					selectedManually={flowJobs.selectedManually}
-				/>
-			</div>
-		{:else if attempts && !insertable}
-			<!-- Left of the duration and of a subflow's expand button. -->
-			<div class="absolute right-20 z-50 -top-5">
-				<FlowJobsMenu
-					{moduleId}
-					id={mod.id}
-					{onSelectedIteration}
-					flowJobsSuccess={attempts.flowJobsSuccess}
-					flowJobs={attempts.flowJobs}
-					selected={attempts.selected}
-					selectedManually={false}
-					label="attempt"
 				/>
 			</div>
 		{/if}
@@ -289,6 +275,15 @@
 			{:else}
 				<FlowModuleSchemaItem
 					{retries}
+					attempts={attempts && !insertable
+						? {
+								jobs: attempts.flowJobs,
+								success: attempts.flowJobsSuccess,
+								selected: attempts.selected,
+								moduleId,
+								onSelectedIteration
+							}
+						: undefined}
 					{editMode}
 					{moduleAction}
 					{menuItems}

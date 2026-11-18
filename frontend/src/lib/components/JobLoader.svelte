@@ -415,6 +415,8 @@
 		syncIteration = 0
 		errorIteration = 0
 		currentId = testId
+		// Else turning logs back on fetches the previously watched job's logs into this one.
+		lastCompletedJobId = undefined
 		scriptProgress = undefined
 		notfound = false
 		loadError = undefined

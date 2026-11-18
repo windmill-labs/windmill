@@ -205,9 +205,7 @@
 						: state?.flow_jobs?.length) +
 					'/' +
 					(state?.iteration_total ?? '?')
-				: attempts
-					? `Attempt: ${attempts.selected + 1}/${attempts.flowJobs.length}`
-					: ''}
+				: ''}
 			nodeState={state?.skipped ? '_Skipped' : type}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}

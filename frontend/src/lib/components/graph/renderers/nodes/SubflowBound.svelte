@@ -2,7 +2,11 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
-	import FlowJobsMenu from '$lib/components/flows/map/FlowJobsMenu.svelte'
+	import StepSettingsBar, {
+		type RetryAttempts
+	} from '$lib/components/flows/map/StepSettingsBar.svelte'
+	import { RefreshCw } from 'lucide-svelte'
+	import type { StepSettingView } from '$lib/components/flows/flowStepSettings'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { Minimize2 } from 'lucide-svelte'
 	import type { SubflowBoundN } from '../../graphBuilder.svelte'
@@ -19,39 +23,39 @@
 	const { selectionManager } = getGraphContext()
 	const flowRunStatus = getFlowRunStatusContext()
 
-	// An expanded subflow step is drawn as these bounds, so its start carries the step's attempt
-	// picker, as a loop's node keeps its iteration picker while its body shows.
-	let attempts = $derived.by(() => {
-		if (id !== data.subflowId) return undefined
-		const state = flowRunStatus?.getModuleState(data.subflowId)
-		const jobs = state?.attempt_jobs
+	// An expanded subflow step is drawn as these bounds, so its start carries the step's retry
+	// badge, which the collapsed node would otherwise show.
+	// The bounds carry no step definition, so only the retries the run recorded are shown.
+	const retrySetting: StepSettingView = {
+		key: 'retries',
+		label: 'Retries',
+		tooltip: 'Retries',
+		icon: RefreshCw,
+		configured: true,
+		summary: { text: '', state: 'configured' }
+	}
+	let stepState = $derived(
+		id === data.subflowId ? flowRunStatus?.getModuleState(data.subflowId) : undefined
+	)
+	let attempts: RetryAttempts | undefined = $derived.by(() => {
+		const jobs = stepState?.attempt_jobs
 		if (!jobs?.length) return undefined
-		const shown = state?.selectedAttempt ? jobs.indexOf(state.selectedAttempt) : -1
+		const shown = stepState?.selectedAttempt ? jobs.indexOf(stepState.selectedAttempt) : -1
 		return {
 			jobs,
-			success: state?.attempt_jobs_success ?? [],
-			selected: shown >= 0 ? shown : jobs.length - 1
+			success: stepState?.attempt_jobs_success ?? [],
+			selected: shown >= 0 ? shown : jobs.length - 1,
+			moduleId: data.subflowId,
+			onSelectedIteration: (detail) => data.eventHandlers.selectedIteration(detail)
 		}
 	})
 </script>
 
 <NodeWrapper>
 	{#snippet children({ darkMode })}
-		{#if attempts}
-			<div class="absolute z-10 left-0 -top-5 center-center text-primary">
-				Attempt: {attempts.selected + 1}/{attempts.jobs.length}
-			</div>
-			<div class="absolute right-20 z-50 -top-5">
-				<FlowJobsMenu
-					moduleId={data.subflowId}
-					id={data.subflowId}
-					onSelectedIteration={(detail) => data.eventHandlers.selectedIteration(detail)}
-					flowJobs={attempts.jobs}
-					flowJobsSuccess={attempts.success}
-					selected={attempts.selected}
-					selectedManually={false}
-					label="attempt"
-				/>
+		{#if attempts || stepState?.retries}
+			<div class="absolute right-0 top-[calc(100%+3px)] z-10 flex flex-row text-sm">
+				<StepSettingsBar settings={[retrySetting]} retries={stepState?.retries} {attempts} />
 			</div>
 		{/if}
 		<VirtualItem
