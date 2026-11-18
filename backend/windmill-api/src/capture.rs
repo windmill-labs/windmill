@@ -573,11 +573,11 @@ async fn set_config(
     // trigger's, so the URL takes the trigger save's Hub rule. A capture keeps nothing to compare.
     #[cfg(feature = "websocket")]
     if matches!(nc.trigger_kind, TriggerKind::Websocket) {
-        use windmill_api_auth::composed::{can_name_hub, check_new_hub_paths};
+        use windmill_api_auth::composed::check_new_hub_paths;
         use windmill_trigger::TriggerCrud;
         let config = serde_json::to_value(&nc.trigger_config)?;
         let new = windmill_trigger_websocket::WebsocketTrigger::config_runnables(&config);
-        check_new_hub_paths(&new, &[], can_name_hub(&new, &authed, &db, &w_id).await?)?;
+        check_new_hub_paths(&new, &[], &authed, &db, &w_id).await?;
     }
 
     let mut tx = user_db.begin(&authed).await?;

@@ -180,8 +180,7 @@
 	)
 	function kindItems(current: string | undefined) {
 		const showInstance = instanceAvailable || current === 'instance'
-		const showExternal =
-			externalAvailable || current === 'external_instance'
+		const showExternal = externalAvailable || current === 'external_instance'
 		const labels = managedInstanceLabels(
 			instanceAvailable || anyInstanceRow,
 			externalAvailable || anyExternalRow
@@ -442,7 +441,7 @@
 						</Label>
 						<Label
 							label="Database"
-							class="flex-1 min-w-96"
+							class="flex-1 basis-96 min-w-0"
 							tooltip="The database where the data is stored."
 						>
 							{#if dataTable.reference}
@@ -457,7 +456,7 @@
 									</Tooltip>
 								</div>
 							{:else}
-								<div class="flex gap-2">
+								<div class="flex flex-wrap gap-2">
 									<div class="relative">
 										{#if dataTable.database.resource_type === 'instance'}
 											<Tooltip
@@ -491,7 +490,7 @@
 											class="w-44"
 										/>
 									</div>
-									<div class="flex items-center gap-1 w-80 relative">
+									<div class="flex items-center gap-1 w-80 max-w-full relative">
 										{#if dataTable.database.resource_type === 'external_instance'}
 											<ExternalInstanceDbSelect
 												class="flex-1"

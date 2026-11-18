@@ -83,6 +83,24 @@ async function itemExists(kind: Kind, path: string, workspace: string): Promise<
 	return pipelines.some((p) => p.folder === folder)
 }
 
+/** The session's edits as its bar lists them, read once. */
+export async function readDeployItems(
+	workspaceId: string,
+	mask: Set<string>
+): Promise<DeployItem[]> {
+	const draftItems = await getDraftItems(workspaceId)
+	const keys = await Promise.all(
+		maskOnlyCandidates({ draftItems, mask }).map((c) =>
+			itemExists(c.deployKind, c.path, workspaceId).then(
+				(exists) => (exists ? c.key : null),
+				() => null
+			)
+		)
+	)
+	const existingKeys = new Set(keys.filter((k): k is string => !!k))
+	return buildDeployItems({ draftItems, mask, existingKeys })
+}
+
 /** Resolves which mask-only candidates still exist in the session workspace
  *  (deployed) vs are gone (discarded drafts / deleted items) — the
  *  `existingKeys` input of `buildDeployItems`. Undefined while resolving, so
