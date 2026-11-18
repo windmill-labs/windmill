@@ -155,8 +155,9 @@ struct OutputLine {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn send_job_signal(child: &dyn TokioChildWrapper, sig: Signal) {
     // Under the ProcessGroup wrap this is a killpg on the group recorded at spawn, so a
-    // wrapper that does not forward signals (unshare, tini, sh) cannot shield the job.
-    // Without it (DISABLE_PROCESS_GROUP) it signals the direct child only.
+    // wrapper that does not forward signals (unshare --fork, sh) cannot shield the job.
+    // It stops at a wrapper that starts its own group (tini, nsjail without
+    // skip_setsid), which must forward it. Without the wrap it signals the child only.
     if let Err(e) = child.signal(sig as i32) {
         tracing::debug!("failed to send {sig} to the job process: {e}");
     }
@@ -387,7 +388,11 @@ pub async fn handle_child(
         // when the kill could not be confirmed. SIGINT and SIGTERM are only sent where the
         // sends below are compiled in: elsewhere an exit during their wait is unsignaled.
         let unix_signal = |s: &'static str| {
-            if cfg!(any(target_os = "linux", target_os = "macos")) { s } else { "none" }
+            if cfg!(any(target_os = "linux", target_os = "macos")) {
+                s
+            } else {
+                "none"
+            }
         };
         let kill = async {
             if child.id().is_some() {
