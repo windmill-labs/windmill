@@ -34,8 +34,7 @@
 	let rtToLoad: string | undefined = $state('')
 	/** `fill` connects into a resource that already exists, instead of creating one; filling an
 	 *  OAuth resource reconnects it in place. `scopes` are requested on top of the defaults.
-	 *  `workspaceApp` connects through the workspace's OAuth app even when it serves triggers
-	 *  only. */
+	 *  `workspaceApp` connects through the workspace's OAuth app when it has one, as triggers do. */
 	export async function open(
 		rt?: string,
 		fill?: string,

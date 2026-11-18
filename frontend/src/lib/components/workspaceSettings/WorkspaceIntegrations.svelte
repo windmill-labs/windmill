@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { superadmin, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -11,8 +11,6 @@
 	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
 	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
 	import {
-		OauthService,
-		ResourceService,
 		WorkspaceIntegrationService,
 		type NativeServiceName,
 		type NativeTriggerConnection
@@ -21,15 +19,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import NativeConnectionPicker from '$lib/components/triggers/native/NativeConnectionPicker.svelte'
-	import {
-		NATIVE_TRIGGER_SERVICES,
-		workspaceAppRedirectUri
-	} from '$lib/components/triggers/native/utils'
-	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import {
-		resourceTypeDisplayName,
-		setResourceTypeDisplayNames
-	} from '$lib/components/resourceTypeDisplay'
+	import { workspaceAppRedirectUri } from '$lib/components/triggers/native/utils'
 
 	interface WorkspaceIntegration {
 		service_name: string
@@ -39,7 +29,6 @@
 			base_url: string
 			instance_shared?: boolean
 			redirect_uri?: string
-			for_resources?: boolean
 		} | null
 	}
 
@@ -59,7 +48,7 @@
 		nextcloud: {
 			name: 'nextcloud',
 			displayName: 'Nextcloud',
-			description: 'Resources and file triggers',
+			description: 'File events',
 			icon: NextcloudIcon,
 			docsUrl: 'https://www.windmill.dev/docs/integrations/nextcloud',
 			setupInstructions: [
@@ -71,7 +60,7 @@
 		google: {
 			name: 'google',
 			displayName: 'Google',
-			description: 'Google Workspace resources, and Drive and Calendar triggers',
+			description: 'Drive and Calendar changes',
 			icon: GoogleIcon,
 			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#google-triggers',
 			requiresBaseUrl: false,
@@ -88,7 +77,7 @@
 		github: {
 			name: 'github',
 			displayName: 'GitHub',
-			description: 'Resources and repository triggers',
+			description: 'Repository events',
 			icon: GithubIcon,
 			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#github-triggers',
 			requiresBaseUrl: false,
@@ -111,25 +100,6 @@
 		Object.fromEntries(Object.keys(supportedServices).map((s) => [s, false]))
 	)
 	let instanceSharingAvailable = $state<Record<string, boolean>>({})
-	/** Instance OAuth clients of the services without a card of their own. */
-	let otherInstanceClients = $state<string[]>([])
-
-	async function loadOtherInstanceClients() {
-		const listed = new Set(Object.values(NATIVE_TRIGGER_SERVICES).map((s) => s.resourceType))
-		if ($workspaceStore) {
-			ResourceService.listResourceType({ workspace: $workspaceStore })
-				.then(setResourceTypeDisplayNames)
-				.catch(() => {})
-		}
-		try {
-			otherInstanceClients = (await OauthService.listOauthConnects())
-				.filter((c) => c.has_shared_credentials && !listed.has(c.name) && c.name != 'supabase_wizard')
-				.map((c) => c.name)
-				.sort()
-		} catch {
-			otherInstanceClients = []
-		}
-	}
 	let confirmationModal = createAsyncConfirmationModal()
 
 	async function loadIntegrations() {
@@ -321,26 +291,6 @@
 		)
 	}
 
-	async function useForResources(serviceName: string) {
-		if (!$workspaceStore) return
-		const displayName = supportedServices[serviceName]?.displayName
-		const confirmed = await confirmationModal.ask({
-			title: `Use the ${displayName} app for resources too?`,
-			confirmationText: 'Use for resources',
-			children: `New ${displayName} resources, and reconnected ones, will connect through the workspace's app instead of the instance's. Existing resources keep the app they were connected with. This can't be turned off.`
-		})
-		if (!confirmed) return
-		try {
-			await WorkspaceIntegrationService.useNativeTriggerAppForResources({
-				workspace: $workspaceStore,
-				serviceName: serviceName as NativeServiceName
-			})
-			await loadIntegrations()
-		} catch (err: any) {
-			sendUserToast(`Failed to update the ${displayName} app: ${err.body ?? err.message}`, true)
-		}
-	}
-
 	function getIntegrationByService(serviceName: string): WorkspaceIntegration | null {
 		return integrations.find((integration) => integration.service_name === serviceName) || null
 	}
@@ -349,15 +299,14 @@
 		if ($workspaceStore) {
 			loadIntegrations()
 			checkInstanceSharing()
-			loadOtherInstanceClients()
 		}
 	})
 </script>
 
 <div class="flex flex-col">
 	<SettingsPageHeader
-		title="OAuth apps"
-		description="Choose the OAuth app each service connects through: the workspace's own, or the instance's. Resources and triggers for that service connect through it. Members connect their own account, or create triggers with the shared account, and each trigger acts as the account it was created with."
+		title="Integration triggers"
+		description="Configure the OAuth app of each service. Members connect their own account when creating a trigger, or use the shared account, and each trigger acts as the account it was created with."
 		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
 
@@ -369,43 +318,6 @@
 		</div>
 	{:else}
 		<div class="space-y-4">
-			<div class="border border-light rounded-md p-4 bg-surface-tertiary flex flex-col gap-3">
-				<div class="flex items-center gap-3">
-					<div class="flex flex-col flex-1 min-w-0">
-						<div class="text-sm font-semibold text-emphasis">Instance OAuth clients</div>
-						<div class="text-xs text-secondary">Resources for these services connect through them</div>
-					</div>
-					{#if $superadmin}
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							href="/#superadmin-settings?tab=oauth"
-						>
-							Manage instance OAuth clients
-						</Button>
-					{/if}
-				</div>
-				{#if otherInstanceClients.length > 0}
-					<div class="flex flex-wrap gap-x-4 gap-y-2">
-						{#each otherInstanceClients as client}
-							<div class="flex items-center gap-1.5 text-xs text-primary">
-								<IconedResourceType name={client} silent width="16px" height="16px" />
-								{resourceTypeDisplayName(client)}
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="text-xs text-primary">
-						The instance has no OAuth client for services beyond those below.
-					</div>
-				{/if}
-				{#if !$superadmin}
-					<div class="text-xs text-secondary">
-						To connect another service through OAuth, ask an instance admin to add its client.
-					</div>
-				{/if}
-			</div>
-
 			{#each Object.entries(supportedServices) as [serviceName, config]}
 				{@const integration = getIntegrationByService(serviceName)}
 				{@const workspaceApp = hasWorkspaceApp(integration)}
@@ -458,33 +370,16 @@
 
 					{#if !workspaceApp && !usesInstanceApp}
 						<div class="text-xs text-primary">
-							Not configured. Members can't connect {config.displayName} accounts yet.
+							Not configured. Members can't create {config.displayName} triggers yet.
 						</div>
 					{:else}
-						{@const triggersOnly =
-							workspaceApp &&
-							!integration?.oauth_data?.for_resources &&
-							instanceSharingAvailable[serviceName]}
 						<div class="flex items-start gap-1.5 text-xs text-primary">
 							<Check size={14} class="shrink-0 mt-0.5" />
 							<span>
 								{workspaceApp ? 'Configured in workspace.' : 'Configured by instance.'}
-								{triggersOnly ? 'Triggers' : 'Resources and triggers'} connect through this app.
+								Members connect their own {config.displayName} account when they create a trigger.
 							</span>
 						</div>
-
-						{#if triggersOnly}
-							<Alert
-								type="info"
-								title="Resources connect through the instance's app"
-								actions={[
-									{ label: 'Also use for resources', onClick: () => useForResources(serviceName) }
-								]}
-							>
-								This app was set up for triggers only. New {config.displayName} resources can connect
-								through it too. Existing resources keep the app they were connected with.
-							</Alert>
-						{/if}
 
 						{#if serviceName === 'nextcloud' && !workspaceConnection}
 							<Alert
@@ -496,7 +391,7 @@
 						{/if}
 
 						<div class="flex flex-col gap-1">
-							<div class="text-xs font-semibold text-emphasis">Shared account for triggers</div>
+							<div class="text-xs font-semibold text-emphasis">Shared account</div>
 							<div class="text-xs text-secondary">
 								Members can create triggers as this account and pick from what it can access,
 								without seeing its token.
