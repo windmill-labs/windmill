@@ -124,6 +124,7 @@
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import AppLinksModal from '$lib/components/itemSettings/AppLinksModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
+	import DefaultSuperadminBanner from '$lib/components/DefaultSuperadminBanner.svelte'
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, onMount, setContext, tick, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
@@ -1705,6 +1706,14 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				     skipped when the menu is hidden — that is an embed or an OAuth callback,
 				     where the announcement would land inside someone else's page. -->
 				<InstanceBanner />
+			{/if}
+			{#if $superadmin && !menuHidden && !devOnly}
+				<div
+					class={classNames('shrink-0', sidebarTransitionClass)}
+					style:padding-left="{useDrawer ? 0 : railWidth}rem"
+				>
+					<DefaultSuperadminBanner />
+				</div>
 			{/if}
 			{#if $userStore?.is_service_account}
 				<div
