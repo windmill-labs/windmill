@@ -6,7 +6,10 @@
 	import type { Snippet } from 'svelte'
 
 	interface Props {
-		inputSelected: 'history' | 'captures' | 'saved' | 'ai' | undefined
+		/** `pending_run` is the odd one: the others report where the arguments in the form came
+		 * from and undo that substitution on reject, while this one reports a chat tool call
+		 * waiting on the form and declines it. */
+		inputSelected: 'history' | 'captures' | 'saved' | 'ai' | 'pending_run' | undefined
 		labelColor?: string
 		className?: string
 		acceptButton?: Snippet
@@ -26,23 +29,28 @@
 		)}
 	>
 		<p class={twMerge(classes['info'].descriptionClass, 'text-xs px-2', labelColor)}>
-			Using {inputSelected === 'history'
-				? 'historic'
-				: inputSelected === 'captures'
-					? 'captures'
-					: inputSelected === 'ai'
-						? 'AI generated'
-						: 'saved'} input arguments
+			{#if inputSelected === 'pending_run'}
+				The agent wants to run this
+			{:else}
+				Using {inputSelected === 'history'
+					? 'historic'
+					: inputSelected === 'captures'
+						? 'captures'
+						: inputSelected === 'ai'
+							? 'AI generated'
+							: 'saved'} input arguments
+			{/if}
 		</p>
 		{#if acceptButton}
 			{@render acceptButton()}
 		{/if}
 		<Button
-			color="light"
-			size="xs2"
+			unifiedSize="2xs"
+			variant="subtle"
+			tone="info"
 			startIcon={{ icon: X }}
 			shortCut={{ key: 'esc', withoutModifier: true }}
-			on:click={onReject}
+			onClick={onReject}
 		/>
 	</div>
 </div>

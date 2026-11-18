@@ -1,42 +1,36 @@
+<!-- Four-colour mark per Google Cloud's official icon library (cloud.google.com/icons, core-products-icons.zip). Google publishes no reversed variant, so the same mark is used on both themes. -->
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg xmlns="http://www.w3.org/2000/svg" {width} {height} viewBox="0 0 24 24"
-	><defs
-		><style>
-			.cls-1 {
-				fill: #aecbfa;
-			}
-			.cls-1,
-			.cls-2,
-			.cls-3 {
-				fill-rule: evenodd;
-			}
-			.cls-2 {
-				fill: #669df6;
-			}
-			.cls-3 {
-				fill: #4285f4;
-			}
-		</style></defs
-	><title>Icon_24px_BigQuery_Color</title><g data-name="Product Icons"
-		><g
-			><path class="cls-1" d="M6.73,10.83v2.63A4.91,4.91,0,0,0,8.44,15.2V10.83Z" /><path
-				class="cls-2"
-				d="M9.89,8.41v7.53A7.62,7.62,0,0,0,11,16,8,8,0,0,0,12,16V8.41Z"
-			/><path class="cls-1" d="M13.64,11.86v3.29a5,5,0,0,0,1.7-1.82V11.86Z" /><path
-				class="cls-3"
-				d="M17.74,16.32l-1.42,1.42a.42.42,0,0,0,0,.6l3.54,3.54a.42.42,0,0,0,.59,0l1.43-1.43a.42.42,0,0,0,0-.59l-3.54-3.54a.42.42,0,0,0-.6,0"
-			/><path
-				class="cls-2"
-				d="M11,2a9,9,0,1,0,9,9,9,9,0,0,0-9-9m0,15.69A6.68,6.68,0,1,1,17.69,11,6.68,6.68,0,0,1,11,17.69"
-			/></g
-		></g
-	></svg
->
+<svg xmlns="http://www.w3.org/2000/svg" {width} {height} viewBox="0.636 0.636 512.727 512.727">
+	<path
+		fill="#34a853"
+		d="M311.9,418.9c-8.8,0-16-7.2-16-16v-145.8c0-8.8,7.2-16,16-16s16,7.2,16,16v145.8c0,8.8-7.2,16-16,16h0Z"
+	/>
+	<path
+		fill="#34a853"
+		d="M147.6,418.9c-8.8,0-16-7.2-16-16v-200.5c0-8.8,7.2-16,16-16s16,7.2,16,16v200.5c0,8.8-7.2,16-16,16Z"
+	/>
+	<path
+		fill="#34a853"
+		d="M229.8,437.4c-8.8,0-16-7.2-16-16V147.6c0-8.8,7.2-16,16-16s16,7.2,16,16v273.7c0,8.8-7.2,16-16,16h0Z"
+	/>
+	<path
+		fill="#fbbc04"
+		d="M229.8,437.4c-114.5,0-207.6-93.1-207.6-207.6h32c0,96.8,78.8,175.6,175.6,175.6s175.6-78.8,175.6-175.6h32c0,114.5-93.1,207.6-207.6,207.6h0Z"
+	/>
+	<path
+		fill="#ea4335"
+		d="M437.4,229.8h-32c0-96.8-78.8-175.6-175.6-175.6S54.1,132.9,54.1,229.8H22.1c0-114.5,93.2-207.7,207.7-207.7s207.6,93.1,207.6,207.6h0Z"
+	/>
+	<path
+		fill="#4285f4"
+		d="M487.4,464.8l-100-100c32.3-37.6,49.9-85,49.9-135.1s-21.6-107.6-60.8-146.8l-22.6,22.6c33.2,33.2,51.4,77.3,51.4,124.2s-18.3,90.9-51.5,124.1h0c-5,5-7.5,7-11.8,10.8l122.8,122.8c3.1,3.1,7.2,4.7,11.3,4.7h0c4.1,0,8.2-1.6,11.3-4.7,6.2-6.2,6.2-16.4,0-22.6h0Z"
+	/>
+</svg>

@@ -3,6 +3,13 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { FlowNodeColorClasses } from '$lib/components/graph'
 	import { twMerge } from 'tailwind-merge'
+	import { getContext } from 'svelte'
+	import { AGENT_STEP_ID } from '../conversations/agentEditorChat'
+
+	// Detached mode (sessions): a step's editor is hidden until asked for, so add the
+	// hint to the name tooltip. Provided by FlowEditor; absent (=> false) elsewhere.
+	const stepExploreHint = getContext<(() => boolean) | undefined>('flowGraphStepExploreHint')
+	const showExploreHint = $derived(stepExploreHint?.() ?? false)
 
 	let iconWidth: number = $state(0)
 	let idBadgeWidth: number | undefined = $state(undefined)
@@ -55,12 +62,16 @@
 			<div>
 				<div>{label}</div>
 				{#if path != ''}<div>{path}</div>{/if}
+				{#if showExploreHint}
+					<div class="mt-1 text-tertiary">double click, or click again, to explore</div>
+				{/if}
 			</div>
 		{/snippet}
 	</Popover>
 
 	<div class="flex items-center space-x-2 relative" bind:clientWidth={idBadgeWidth}>
-		{#if id && id !== 'preprocessor' && !id.startsWith('failure') && !id.startsWith('subflow:')}
+		<!-- A saved agent's run is that one step, already named by the run page. -->
+		{#if id && id !== 'preprocessor' && id !== AGENT_STEP_ID && !id.startsWith('failure') && !id.startsWith('subflow:')}
 			<Badge
 				color="transparent"
 				class="border-none"

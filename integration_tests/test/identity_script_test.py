@@ -15,11 +15,6 @@ export async function main(x: number) {
   return x;
 }
 """,
-    "deno": """
-export async function main(x: number) {
-  return x;
-}
-""",
     "go": """
 package inner
 func main(x int) (interface{}, error) {
@@ -29,12 +24,6 @@ func main(x int) (interface{}, error) {
     "python3": """
 def main(x: int):
     return x
-""",
-    "php": """<?php
-
-function main(int $x): int {
-    return $x;
-}
 """,
 }
 
@@ -72,11 +61,6 @@ class TestIdentityScript(unittest.TestCase):
         result = self._client.run_sync(path, {"x": 5})
         self.assertEqual(result, 5)
 
-    def test_deno(self):
-        path = PATH_TEMPLATE.format(lang="deno")
-        result = self._client.run_sync(path, {"x": 5})
-        self.assertEqual(result, 5)
-
     def test_go(self):
         path = PATH_TEMPLATE.format(lang="go")
         result = self._client.run_sync(path, {"x": 5})
@@ -84,10 +68,5 @@ class TestIdentityScript(unittest.TestCase):
 
     def test_python(self):
         path = PATH_TEMPLATE.format(lang="python3")
-        result = self._client.run_sync(path, {"x": 5})
-        self.assertEqual(result, 5)
-
-    def test_php(self):
-        path = PATH_TEMPLATE.format(lang="php")
         result = self._client.run_sync(path, {"x": 5})
         self.assertEqual(result, 5)

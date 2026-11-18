@@ -3,29 +3,36 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { emptySchema, type StateStore } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
+	import type { FlowEditorContext } from '../types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let flowEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
 
-	export async function openDrawer(path: string, cb: () => void): Promise<void> {
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
+
+	export async function openDrawer(path: string, cb: () => void, stepId?: string): Promise<void> {
 		flowPath = path
 		flow = undefined
 		loading = true
 		callback = cb
+		selectedStepId = stepId
 		flowEditorDrawer?.openDrawer?.()
 
 		try {
 			const backendFlow = await FlowService.getFlowByPath({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				path
 			})
 
@@ -33,7 +40,7 @@
 
 			flow = backendFlow
 
-			await initFlow(flow, flowStore, flowStateStore)
+			await initFlow(flow, flowStore, flowStateStore, opWs)
 			loading = false
 		} catch (error: any) {
 			console.error('Failed to load flow:', error)
@@ -43,6 +50,7 @@
 
 	let callback: (() => void) | undefined = undefined
 	let flowPath: string = $state('')
+	let selectedStepId: string | undefined = $state(undefined)
 	let flow: Flow | undefined = $state(undefined)
 	let savedFlow: Flow | undefined = $state(undefined)
 	let loading = $state(true)
@@ -62,6 +70,14 @@
 	const flowStateStore: StateStore<FlowState> = $state({ val: {} })
 
 	let diffDrawer: DiffDrawer | undefined = $state()
+	let flowBuilder: FlowBuilder | undefined = $state(undefined)
+
+	// Follow the drawer's own selection, which the user may have moved since it opened.
+	let editHref = $derived.by(() => {
+		const stepId = flowBuilder?.getSelectedId() ?? selectedStepId
+		const selected = stepId ? `?selected=${encodeURIComponent(stepId)}` : ''
+		return `/flows/edit/${flowPath}${selected}`
+	})
 </script>
 
 <Drawer bind:this={flowEditorDrawer} size="100%">
@@ -83,11 +99,13 @@
 			</div>
 		{:else if flow}
 			<FlowBuilder
+				bind:this={flowBuilder}
 				{flowStore}
 				{flowStateStore}
 				initialPath={flowPath}
+				autosaveWorkspace={opWs}
 				newFlow={false}
-				selectedId="settings-metadata"
+				selectedId={selectedStepId ?? 'settings-metadata'}
 				loading={false}
 				bind:savedFlow
 				{diffDrawer}
@@ -111,10 +129,10 @@
 		{#snippet actions()}
 			<Button
 				variant="default"
-				on:click={() => {
-					window.open(`/flows/edit/${flowPath}`, '_blank', 'noopener,noreferrer')
-					flowEditorDrawer?.closeDrawer()
-				}}
+				href={editHref}
+				target="_blank"
+				rel="noopener noreferrer"
+				onClick={() => flowEditorDrawer?.closeDrawer()}
 				startIcon={{ icon: ExternalLink }}
 			>
 				Edit in new tab & close drawer

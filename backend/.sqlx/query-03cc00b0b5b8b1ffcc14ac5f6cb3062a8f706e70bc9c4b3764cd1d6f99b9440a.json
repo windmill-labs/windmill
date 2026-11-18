@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\nINSERT INTO concurrency_counter(concurrency_id, job_uuids)\nVALUES ($1, '{}'::jsonb)\nON CONFLICT (concurrency_id)\nDO UPDATE SET job_uuids = concurrency_counter.job_uuids\nRETURNING (SELECT COUNT(*)\n           FROM jsonb_object_keys(job_uuids) AS keys(key)\n           WHERE key <> $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "03cc00b0b5b8b1ffcc14ac5f6cb3062a8f706e70bc9c4b3764cd1d6f99b9440a"
+}

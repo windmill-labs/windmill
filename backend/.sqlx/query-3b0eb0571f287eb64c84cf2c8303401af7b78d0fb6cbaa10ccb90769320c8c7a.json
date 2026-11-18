@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             COUNT(*) FILTER (WHERE slack_command_script IS NOT NULL)::BIGINT AS \"slack!\",\n             COUNT(*) FILTER (WHERE teams_command_script IS NOT NULL)::BIGINT AS \"teams!\"\n           FROM workspace_settings",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "slack!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "teams!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "3b0eb0571f287eb64c84cf2c8303401af7b78d0fb6cbaa10ccb90769320c8c7a"
+}

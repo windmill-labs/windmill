@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM token WHERE token_prefix = 'GONE_TOKEN'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "3a0ac41e645225bbe54b83f246500ca014154e76eb322646e7e4e753b6420acd"
+}

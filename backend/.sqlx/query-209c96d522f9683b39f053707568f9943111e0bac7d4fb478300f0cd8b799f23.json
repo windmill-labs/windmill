@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             COUNT(*) FILTER (WHERE dt.value->>'migrations_enabled' = 'true')::BIGINT AS \"enabled!\",\n             COUNT(*) FILTER (WHERE dt.value->>'migrations_enabled' = 'false')::BIGINT AS \"disabled!\",\n             COUNT(*) FILTER (WHERE dt.value->>'migrations_enabled' IS NULL)::BIGINT AS \"unset!\"\n           FROM workspace_settings ws,\n                LATERAL jsonb_each(ws.datatable->'datatables') dt\n           WHERE jsonb_typeof(ws.datatable->'datatables') = 'object'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "enabled!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "disabled!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "unset!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "209c96d522f9683b39f053707568f9943111e0bac7d4fb478300f0cd8b799f23"
+}

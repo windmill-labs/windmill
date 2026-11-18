@@ -11,7 +11,7 @@
 	interface Props {
 		disabled?: boolean
 		selectedRepository?: string | undefined
-		accountId: string
+		installationId: number
 		initialRepositories: Repository[]
 		totalCount: number
 		perPage: number
@@ -23,7 +23,7 @@
 	let {
 		disabled = false,
 		selectedRepository = $bindable(),
-		accountId,
+		installationId,
 		initialRepositories,
 		totalCount,
 		perPage,
@@ -67,8 +67,8 @@
 				page: nextPage
 			})
 
-			// Find the matching installation and get its repositories
-			const installation = installations.find((inst) => inst.account_id === accountId)
+			// Match on installation_id: several installations can share one account_id
+			const installation = installations.find((inst) => inst.installation_id === installationId)
 
 			if (installation?.repositories) {
 				// Append new repos to existing ones
@@ -95,8 +95,8 @@
 				}))}
 				placeholder="Select repository..."
 				clearable
-				disabled={disabled}
-				bind:filterText={filterText}
+				{disabled}
+				bind:filterText
 				bind:value={selectedRepository}
 			/>
 			{#if hasMoreRepos}

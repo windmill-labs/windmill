@@ -10,15 +10,19 @@
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { type TriggerKind } from '../triggers'
 	import { CaptureService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { type CaptureTriggerKind } from '$lib/gen'
 	import CaptureButton from '$lib/components/triggers/CaptureButton.svelte'
 	import InfiniteList from '../InfiniteList.svelte'
 	import { isObject, sendUserToast } from '$lib/utils'
 	import SchemaPickerRow from '$lib/components/schema/SchemaPickerRow.svelte'
 	import type { Capture } from '$lib/gen'
-	import { AwsIcon, MqttIcon } from '../icons'
+	import AwsIcon from '../icons/AwsIcon.svelte'
+	import MqttIcon from '../icons/MqttIcon.svelte'
+	import AmqpIcon from '../icons/AmqpIcon.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		path: string
@@ -33,6 +37,9 @@
 		limitPayloadSize?: boolean
 		noBorder?: boolean
 		captureActiveIndicator?: boolean | undefined
+		// Workspace to scope capture list/get/delete calls to. Defaults to the operating
+		// workspace (see `useOperatingWorkspace`).
+		workspace?: string
 	}
 
 	let {
@@ -47,8 +54,11 @@
 		fullHeight = true,
 		limitPayloadSize = false,
 		noBorder = false,
-		captureActiveIndicator = undefined
+		captureActiveIndicator = undefined,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let selected: number | undefined = $state(undefined)
 	let testKind: 'preprocessor' | 'main' = $state('main')
@@ -94,7 +104,7 @@
 	function initLoadCaptures(kind: 'preprocessor' | 'main' = testKind) {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const captures = await CaptureService.listCaptures({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				runnableKind: isFlow ? 'flow' : 'script',
 				path: path ?? '',
 				triggerKind: captureType,
@@ -114,7 +124,7 @@
 						payloadData: 'Too big to display here, select to view',
 						getFullCapture: () =>
 							CaptureService.getCapture({
-								workspace: $workspaceStore!,
+								workspace: ws!,
 								id: capture.id
 							})
 					}
@@ -148,7 +158,7 @@
 
 		const deleteInputFn = async (id: any) => {
 			await CaptureService.deleteCapture({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				id
 			})
 		}
@@ -211,6 +221,7 @@
 		websocket: Unplug,
 		kafka: KafkaIcon,
 		mqtt: MqttIcon,
+		amqp: AmqpIcon,
 		sqs: AwsIcon,
 		postgres: DatabaseIcon,
 		gcp: GoogleCloudIcon

@@ -17,6 +17,26 @@ import { subtractDaysFromDateString } from '$lib/utils'
 import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
 import type { Timeframe } from './timeframes'
 import { allowWildcards as _allowWildcards, type RunsFilterInstance } from './runsFilter'
+import { scanJobWindows } from './jobsWindowScan'
+
+// windmill_common::utils::MAX_PER_PAGE: the server silently caps per_page at this value
+const MAX_PER_PAGE = 10000
+
+// How long a listing may run before a scan by time windows starts alongside it. A filter
+// matching fewer jobs than the page holds walks the whole history to find that out, which the
+// server stops after its statement timeout, with nothing to show for it.
+const WINDOW_SCAN_AFTER_MS = 4000
+
+const EPOCH = new Date(0).toISOString()
+
+interface JobsQuery {
+	completedBefore?: string | null
+	completedAfter?: string | null
+	createdBefore?: string
+	createdAfter?: string
+	createdAfterQueue?: string
+	perPage?: number
+}
 
 export function computeJobKinds(jobKindsCat: string | null): string {
 	if (jobKindsCat == 'all') {
@@ -75,7 +95,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
 	let success = $derived(filters?.status ?? null)
+	let isQueueOnly = $derived(success == 'running' || success == 'suspended' || success == 'waiting')
 	let showSkipped = $derived(filters?.show_skipped ?? false)
+	let resolutionFilter = $derived(filters?.resolved ?? 'all')
 	let showSchedules = $derived(!filters?.job_trigger_kind?.includes('!schedule'))
 	let showFutureJobs = $derived(filters?.show_future_jobs ?? true)
 	let resultFilter = $derived(filters?.result)
@@ -98,6 +120,13 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let loadingExtra = $state(false)
 	let lastFetchWentToEnd = $state(true)
 	let batchProgress = $state<{ loaded: number; total: number } | null>(null)
+	let scanProgress = $state<{ scannedTo: string; fraction: number } | null>(null)
+	let activeScan: CancelablePromise<boolean> | undefined
+	// The page being listed, single request or scan. Only the filter-change load is otherwise
+	// tracked for cancellation, and a page left running writes into whatever listing replaces its own.
+	let activePage: CancelablePromise<boolean> | undefined
+	// Queue-only views list no completed job, and concurrency-key views go through another endpoint.
+	let canScanWindows = $derived(!isQueueOnly && (concurrencyKey == null || concurrencyKey === ''))
 
 	let completedJobs: CompletedJob[] | undefined = $state()
 	let externalJobs: Job[] | undefined = $state()
@@ -114,6 +143,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	function onParamChanges() {
 		resetJobs()
 		slowStreamIntervalId = setInterval(() => {
+			if (scanProgress) return
 			sendUserToast(
 				'Loading is taking a long time...',
 				'warning',
@@ -123,11 +153,16 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			)
 		}, 15000)
 		let promise = loadJobsIntern(true)
-		if (perPage > 25) {
+		if (perPage > 25 && !canScanWindows) {
 			promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
-				sendUserToast('Loading jobs is taking longer than expected...', 'warning', [
-					{ label: 'Stream by batches of 25', callback: () => restreamWithSmallBatches() }
-				])
+				const noStartDate = timeframe?.computeMinMax().minTs == null
+				sendUserToast(
+					(success == 'failure' || success == 'canceled') && noStartDate
+						? `Loading ${success == 'failure' ? 'failed' : 'canceled'} jobs with no start date scans the full job history. Set a time range to speed it up.`
+						: 'Loading jobs is taking longer than expected...',
+					'warning',
+					[{ label: 'Stream by batches of 25', callback: () => restreamWithSmallBatches() }]
+				)
 			})
 		}
 		promise = CancelablePromiseUtils.finallyDo(promise, () => {
@@ -149,6 +184,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		paramChangePromise?.cancel()
 		resetJobs()
 		slowStreamIntervalId = setInterval(() => {
+			if (scanProgress) return
 			sendUserToast(
 				'Loading is taking a long time...',
 				'warning',
@@ -186,8 +222,20 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		loading = true
 		loadingExtra = true
 		const batchSize = Math.min(perPage, 1000)
-		await loadExtraJobsBatch(batchSize)
-		loadingExtra = false
+		try {
+			await loadExtraJobsBatch(batchSize)
+		} catch (e) {
+			if (!(e instanceof CancelError)) throw e
+		} finally {
+			loadingExtra = false
+		}
+	}
+
+	// Mirrors when list_completed_jobs_query sorts by completed_at. A created_at cursor does not
+	// bound that index scan, so each batch would rescan from the newest job, and skip jobs created
+	// after the cursor but completed before it.
+	function sortsByCompletedAt(minTs: string | null, maxTs: string | null): boolean {
+		return minTs != null || maxTs != null || success == 'failure' || success == 'canceled'
 	}
 
 	function loadExtraJobsBatch(batchSize: number): CancelablePromise<void> {
@@ -195,45 +243,221 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			lastFetchWentToEnd = true
 			return CancelablePromiseUtils.pure<void>(undefined as void)
 		}
-		const lastJob = jobs[jobs.length - 1]
-		const ts = lastJob.created_at
-		if (!ts) {
+		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
+		const byCompletedAt =
+			jobs[jobs.length - 1].type === 'CompletedJob' && sortsByCompletedAt(minTs, maxTs)
+		const sortKey = (j: Job) =>
+			byCompletedAt ? (j.type === 'CompletedJob' ? j.completed_at : undefined) : j.created_at
+		const cursorTs = sortKey(jobs[jobs.length - 1])
+		if (!cursorTs) {
 			lastFetchWentToEnd = true
 			return CancelablePromiseUtils.pure<void>(undefined as void)
 		}
-		const cursorTs = new Date(new Date(ts).getTime() - 1).toISOString()
-		const minTs = timeframe?.computeMinMax().minTs ?? null
+		// Inclusive cursor at the API's microsecond precision: jobs sharing the boundary timestamp (e.g.
+		// a bulk cancel) are refetched rather than skipped, and the page grows by those already listed,
+		// up to the server's MAX_PER_PAGE. Once the listed part of the group fills that cap, the cursor
+		// steps just below the group, dropping its remainder instead of ending the list early.
+		const tied = jobs.filter((j) => sortKey(j) === cursorTs).length
+		const stepOver = tied >= MAX_PER_PAGE
+		const cursor = stepOver ? new Date(new Date(cursorTs).getTime() - 1).toISOString() : cursorTs
+		const pageSize = stepOver ? batchSize : Math.min(batchSize + tied, MAX_PER_PAGE)
 		return CancelablePromiseUtils.map(
-			fetchJobs(null, minTs, undefined, cursorTs, batchSize),
-			(olderJobs) => {
-				jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
-				if (extendedJobs) {
-					extendedJobs.jobs = jobs ?? []
-					extendedJobs = extendedJobs
+			fetchPage(
+				{
+					byCompletedAt,
+					before: cursor,
+					after: minTs,
+					pageSize,
+					query: byCompletedAt
+						? { completedBefore: cursor, completedAfter: minTs, perPage: pageSize }
+						: { completedAfter: minTs, createdBefore: cursor, perPage: pageSize }
+				},
+				(olderJobs) => {
+					jobs = updateWithNewJobs(olderJobs, jobs ?? [])
+					if (extendedJobs) {
+						extendedJobs.jobs = jobs ?? []
+						extendedJobs = extendedJobs
+					}
+					computeCompletedJobs()
 				}
-				computeCompletedJobs()
-				lastFetchWentToEnd = (olderJobs?.length ?? 0) < batchSize
+			),
+			(wentToEnd) => {
+				lastFetchWentToEnd = wentToEnd
 				loading = false
 			}
 		)
 	}
 
-	function fetchJobs(
-		completedBefore: string | null,
-		completedAfter: string | null,
-		createdAfterQueue: string | undefined,
-		createdBefore?: string,
-		perPageOverride?: number
-	): CancelablePromise<Job[]> {
+	// Lists one page of jobs older than `before`, handing them to `onJobs` as they arrive, and
+	// resolves to whether the listing reached the end of the range. `query` is the whole page in
+	// one request. When that is slow, the page is also listed by time windows, and whichever
+	// completes it first wins: the server runs an abandoned request to its timeout regardless, so
+	// dropping it for the scan would only throw away an answer already being paid for.
+	function fetchPage(
+		page: {
+			byCompletedAt: boolean
+			before: string | null
+			after: string | null
+			pageSize: number
+			withQueue?: boolean
+			query: JobsQuery
+		},
+		onJobs: (jobs: Job[]) => void
+	): CancelablePromise<boolean> {
+		if (!canScanWindows || _args.skip) {
+			return CancelablePromiseUtils.map(fetchJobs(page.query), (res) => {
+				onJobs(res)
+				return res.length < page.pageSize
+			})
+		}
+		const fetched = new CancelablePromise<boolean>((resolve, reject, onCancel) => {
+			const single = listJobs(page.query)
+			let scan: CancelablePromise<boolean> | undefined
+			onCancel(() => {
+				clearTimeout(timer)
+				single.cancel()
+				scan?.cancel()
+			})
+			// Either side failing leaves the page to the other: it is lost only once both have.
+			let scanError: any
+			let singleError: any
+			const giveUp = (e: any, wentToEnd: boolean) => {
+				sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
+				console.error(e)
+				onJobs([])
+				resolve(wentToEnd)
+			}
+			const timer = setTimeout(() => {
+				scan = scanWindows(page, onJobs)
+				scan.then(
+					(wentToEnd) => {
+						resolve(wentToEnd)
+						single.cancel()
+					},
+					(e) => {
+						if (e instanceof CancelError) return reject(e)
+						scanError = e
+						if (singleError) giveUp(scanError, false)
+					}
+				)
+			}, WINDOW_SCAN_AFTER_MS)
+			single.then(
+				(res) => {
+					clearTimeout(timer)
+					onJobs(res)
+					resolve(res.length < page.pageSize)
+					scan?.cancel()
+				},
+				(e: any) => {
+					if (e instanceof CancelError) return
+					if (!scan) {
+						clearTimeout(timer)
+						giveUp(e, true)
+						return
+					}
+					// Once the scan runs, the single request failing is the expected server timeout.
+					singleError = e
+					if (scanError) giveUp(scanError, false)
+				}
+			)
+		})
+		activePage?.cancel()
+		activePage = fetched
+		const done = () => {
+			if (activePage === fetched) activePage = undefined
+		}
+		fetched.then(done, done)
+		return fetched
+	}
+
+	function scanWindows(
+		page: {
+			byCompletedAt: boolean
+			before: string | null
+			after: string | null
+			pageSize: number
+			withQueue?: boolean
+		},
+		onJobs: (jobs: Job[]) => void
+	): CancelablePromise<boolean> {
+		const workspace = currentWorkspace
+		const scan = scanJobWindows({
+			before: page.before,
+			after: page.after,
+			pageSize: page.pageSize,
+			oldest: async () =>
+				(await JobService.getOldestJob({ workspace, allWorkspaces: allWorkspaces || undefined }))
+					.created_at,
+			fetchWindow: (w) => {
+				// Only the first window of a listing that started at the newest job carries the queue.
+				// A created_before excludes it from the others, and bounds no completed job out of a
+				// completed_at window since a job is created before it completes.
+				const withQueue = page.withQueue && w.before == page.before
+				return listJobs(
+					page.byCompletedAt
+						? {
+								completedBefore: w.before,
+								completedAfter: w.after,
+								createdBefore: withQueue ? undefined : w.before,
+								createdAfterQueue: page.after ?? undefined,
+								perPage: w.limit
+							}
+						: {
+								createdBefore: w.before,
+								createdAfter: w.after,
+								// created_after would bound the queue too, hiding older jobs still in it
+								createdAfterQueue: withQueue ? EPOCH : undefined,
+								perPage: w.limit
+							}
+				)
+			},
+			onWindow: (res, scannedTo, fraction) => {
+				if (activeScan !== scan) return
+				scanProgress = { scannedTo, fraction }
+				onJobs(res)
+			}
+		})
+		activeScan?.cancel()
+		activeScan = scan
+		scanProgress = { scannedTo: page.before ?? new Date().toISOString(), fraction: 0 }
+		onJobs([])
+		const done = () => {
+			if (activeScan === scan) {
+				activeScan = undefined
+				scanProgress = null
+			}
+		}
+		scan.then(done, done)
+		return scan
+	}
+
+	function fetchJobs(q: JobsQuery, onError?: () => void): CancelablePromise<Job[]> {
 		if (_args.skip) return CancelablePromiseUtils.pure<Job[]>([])
+		return CancelablePromiseUtils.catchErr(listJobs(q), (e) => {
+			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
+			onError?.()
+			sendUserToast(`Could not load jobs: ${e.body ?? e.message}`, true)
+			console.error(e)
+			return CancelablePromiseUtils.pure<Job[]>([])
+		})
+	}
+
+	function listJobs({
+		completedBefore,
+		completedAfter,
+		createdBefore,
+		createdAfter,
+		createdAfterQueue,
+		perPage: perPageOverride
+	}: JobsQuery): CancelablePromise<Job[]> {
 		loadingFetch = true
 		let scriptPathStart = folder == null || folder === '' ? undefined : `f/${folder}/`
 		let scriptPathExact = path == null || path === '' ? undefined : path
-		let isQueueOnly = success == 'running' || success == 'suspended' || success == 'waiting'
 		let isCompletedOnly = success == 'success' || success == 'failure' || success == 'canceled'
 		let promise = JobService.listJobs({
 			workspace: currentWorkspace,
-			createdBefore: createdBefore ?? undefined,
+			createdBefore,
+			createdAfter,
 			completedBefore: isQueueOnly ? undefined : (completedBefore ?? undefined),
 			completedAfter: isQueueOnly ? undefined : (completedAfter ?? undefined),
 			createdBeforeQueue: isQueueOnly ? (completedBefore ?? undefined) : undefined,
@@ -256,6 +480,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						? false
 						: undefined,
 			isSkipped: showSkipped ? undefined : false,
+			resolved:
+				resolutionFilter === 'resolved'
+					? true
+					: resolutionFilter === 'unresolved'
+						? false
+						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent: jobKindsCat != 'all' ? true : undefined,
 			label: label == null || label === '' ? undefined : label,
@@ -280,15 +510,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			broadFilter,
 			excludesEntrypointOverride: excludesEntrypointOverride ? true : undefined
 		})
-		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
-			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
-			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
-			console.error(e)
-			return CancelablePromiseUtils.pure<Job[]>([])
-		})
-		CancelablePromiseUtils.pipe(promise, () => {
+		const settled = () => {
 			loadingFetch = false
-		})
+		}
+		promise.then(settled, settled)
 		return promise
 	}
 
@@ -318,6 +543,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			status: success == 'failure' || success == 'canceled' ? success : undefined,
 			running: success == 'running' ? true : undefined,
 			isSkipped: showSkipped ? undefined : false,
+			resolved:
+				resolutionFilter === 'resolved'
+					? true
+					: resolutionFilter === 'unresolved'
+						? false
+						: undefined,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			label: label == null || label === '' ? undefined : label,
 			tag: tag == null || tag === '' ? undefined : tag,
@@ -347,11 +578,16 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	async function loadJobs(reset: boolean, shouldGetCount?: boolean): Promise<void> {
 		if (reset) resetJobs()
-		await loadJobsIntern(shouldGetCount)
+		try {
+			await loadJobsIntern(shouldGetCount)
+		} catch (e) {
+			if (!(e instanceof CancelError)) throw e
+		}
 	}
 
 	function stopBatchLoading(): void {
 		paramChangePromise?.cancel()
+		activePage?.cancel()
 		if (slowStreamIntervalId) {
 			clearInterval(slowStreamIntervalId)
 			slowStreamIntervalId = undefined
@@ -362,6 +598,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	}
 
 	function resetJobs() {
+		activePage?.cancel()
 		jobs = undefined
 		completedJobs = undefined
 		externalJobs = undefined
@@ -381,6 +618,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		overrideBatchSize?: number
 	): CancelablePromise<void> {
 		const { minTs, maxTs } = timeframe?.computeMinMax() ?? { minTs: null, maxTs: null }
+		listLoadedAt = new Date(Date.now() - 5 * 60_000).toISOString()
 		if (shouldGetCount) {
 			getCount()
 		}
@@ -397,15 +635,35 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 				batchProgress = { loaded: 0, total: perPage }
 			}
 			currentBatchSize = batchSize
-			let slowBatchToastShown = false
-			let firstFetchPromise = fetchJobs(
-				maxTs,
-				extendedMinTs ?? null,
-				extendedMinTs,
-				undefined,
-				batchSize
+			// The windowed scan streams a slow listing by itself, whatever the batch size.
+			let slowBatchToastShown = canScanWindows
+			let firstJobs: Job[] = []
+			let firstFetchPromise = fetchPage(
+				{
+					byCompletedAt: sortsByCompletedAt(minTs, maxTs),
+					before: maxTs,
+					after: extendedMinTs ?? null,
+					pageSize: batchSize,
+					withQueue: true,
+					query: {
+						completedBefore: maxTs,
+						completedAfter: extendedMinTs ?? null,
+						createdAfterQueue: extendedMinTs,
+						perPage: batchSize
+					}
+				},
+				(newJobs) => {
+					firstJobs = updateWithNewJobs(newJobs, firstJobs)
+					extendedJobs = { jobs: firstJobs, obscured_jobs: [] } as ExtendedJobs
+
+					// Filter on minTs here and not in the backend
+					// to get enough data for the concurrency graph
+					jobs = sortMinDate(minTs, firstJobs)
+					externalJobs = []
+					computeCompletedJobs()
+				}
 			)
-			if (isBatched && batchSize > 1) {
+			if (isBatched && batchSize > 1 && !slowBatchToastShown) {
 				firstFetchPromise = CancelablePromiseUtils.onTimeout(firstFetchPromise, 4000, () => {
 					if (!slowBatchToastShown) {
 						slowBatchToastShown = true
@@ -417,15 +675,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					}
 				})
 			}
-			let p = CancelablePromiseUtils.map(firstFetchPromise, (newJobs) => {
-				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
-
-				// Filter on minTs here and not in the backend
-				// to get enough data for the concurrency graph
-				jobs = sortMinDate(minTs, newJobs)
-				externalJobs = []
-				computeCompletedJobs()
-				lastFetchWentToEnd = newJobs.length < batchSize
+			let p = CancelablePromiseUtils.map(firstFetchPromise, (wentToEnd) => {
+				lastFetchWentToEnd = wentToEnd
 				loading = false
 				if (isBatched) {
 					batchProgress = { loaded: jobs?.length ?? 0, total: perPage }
@@ -516,6 +767,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	}
 
 	let lastQueueTs: string | undefined = undefined
+	let listLoadedAt: string | null = null
 
 	async function syncer() {
 		if (loadingFetch) {
@@ -562,7 +814,42 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					loading = true
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
-						newJobs = await fetchJobs(maxTs, minTs ?? completedTs, queueTs)
+						// With no completed job to anchor on, each refresh would repeat the initial
+						// unbounded scan of completed jobs, possibly the one that just timed out. Not for
+						// queue-only views: fetchJobs turns this into the queue's created_at bound, hiding
+						// older jobs that suspend or come due. The margin absorbs browser/database skew.
+						let failed = false
+						// Taken before the request: the list can be reloaded while it is in flight,
+						// and only rows that were queued when it was sent can be judged by its answer.
+						// A created_after bound on the queue half could leave out older listed rows.
+						const queuedAtRequest =
+							!_args.skip && !isQueueOnly && maxTs == null && queueTs == null
+								? new Set(jobs.filter((x) => x.type == 'QueuedJob').map((x) => x.id))
+								: new Set<string>()
+						newJobs = await fetchJobs(
+							{
+								completedBefore: maxTs,
+								completedAfter: minTs ?? completedTs ?? (isQueueOnly ? null : listLoadedAt),
+								createdAfterQueue: queueTs
+							},
+							() => (failed = true)
+						)
+						// One statement returns every matching queued job (uncapped below MAX_PER_PAGE;
+						// a maxTs makes it completed-only), so a queued row in neither half left the
+						// queue unseen, e.g. completed as skipped while skipped jobs are hidden.
+						// Otherwise it would stay as "Waiting executor" until a reload.
+						if (!failed && queuedAtRequest.size > 0 && jobs) {
+							const returned = new Set(newJobs.map((x) => x.id))
+							const queuedReturned = newJobs.filter((x) => x.type == 'QueuedJob').length
+							const gone = new Set([...queuedAtRequest].filter((id) => !returned.has(id)))
+							if (gone.size > 0 && queuedReturned < MAX_PER_PAGE) {
+								const keep = (x: Job) => !(x.type == 'QueuedJob' && gone.has(x.id))
+								jobs = jobs.filter(keep)
+								if (extendedJobs) {
+									extendedJobs.jobs = extendedJobs.jobs.filter(keep)
+								}
+							}
+						}
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
 						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, minTs ?? completedTs)
@@ -671,6 +958,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			slowStreamIntervalId = undefined
 		}
 		paramChangePromise?.cancel()
+		activePage?.cancel()
 	})
 	$effect(() => {
 		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilterInstance])
@@ -721,6 +1009,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		},
 		get currentBatchSize() {
 			return currentBatchSize
+		},
+		get scanProgress() {
+			return scanProgress
 		},
 		get queue_count() {
 			return queue_count

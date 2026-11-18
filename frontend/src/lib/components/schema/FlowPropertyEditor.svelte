@@ -51,6 +51,7 @@
 		onDrawerClose?: () => void
 		hideCatalogPicker?: boolean | undefined
 		hideRawInput?: boolean | undefined
+		workspace?: string | undefined
 	}
 
 	let {
@@ -77,7 +78,8 @@
 		displayWebhookWarning = true,
 		onDrawerClose = undefined,
 		hideCatalogPicker = $bindable(undefined),
-		hideRawInput = $bindable(undefined)
+		hideRawInput = $bindable(undefined),
+		workspace = undefined
 	}: Props = $props()
 
 	let isS3Field = $derived(
@@ -272,6 +274,7 @@
 				{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
 				<div class="ml-1">
 					<EditableSchemaDrawer
+						{workspace}
 						onClose={() => {
 							onDrawerClose?.()
 						}}
@@ -317,6 +320,7 @@
 				</ToggleButtonGroup>
 				{#if customObjectSelected === 'editor'}
 					<EditableSchemaDrawer
+						{workspace}
 						bind:schema={
 							() => {
 								return {
@@ -379,6 +383,7 @@
 				{disabled}
 				{nullable}
 				{variableEditor}
+				{workspace}
 				compact
 				noMargin
 			/>

@@ -10,11 +10,13 @@ After making changes, run the appropriate checks and fix all errors before consi
 | Enterprise code (`*_ee.rs`) | `cargo check --features enterprise,private` | Also do EE PR workflow (see `docs/enterprise.md`) |
 | Enterprise + license-gated code | `cargo check --features enterprise,private,license` | When the feature requires a valid license key |
 | Kafka trigger code | `cargo check --features kafka` | |
+| DuckDB executor code | `cargo check -p windmill-worker --features duckdb` | `duckdb_executor.rs` (and its `#[cfg(test)]` tests) only compile with this flag — a plain check/test silently skips them |
 | Native trigger code | `cargo check --features native_trigger` | |
 | Parquet code | `cargo check --features parquet` | |
 | Multiple gated modules | `cargo check --features enterprise,parquet` | Combine only the flags you need |
 | API route changes | `cargo check` | Then update `openapi.yaml` and run `npm run generate-backend-client` |
 | Database migrations | `cargo check` | Test migration applies cleanly with `sqlx migrate run` |
+| The `sqlx` dependency (version bump, `[patch.crates-io]` entries, fork rebase) | `cargo test -p windmill-common --test sqlx_begin_cancel_safe -- --ignored` | Windmill runs a patched `sqlx`: upstream's `Pool::begin` is not cancel-safe on Postgres, and a cancelled one poisons the pooled connection for 30 minutes. Losing the patch still compiles, so this ignored test is the only thing that notices. `backend/Cargo.toml` has the detail |
 
 **Never** use `--features all_sqlx_features` — it compiles everything and is very slow. Check `backend/Cargo.toml` `[features]` to find the right flags.
 
@@ -27,6 +29,7 @@ After all code changes are done, run `./update_sqlx.sh` from `backend/` to regen
 | When | Command | Time |
 |---|---|---|
 | During iteration | `npm run check:fast` | ~2s |
+| During iteration | `npm run lint` (oxlint, `.oxlintrc.json`) | <1s |
 | Final PR validation | `npm run check` | ~50s |
 | After backend API changes | `npm run generate-backend-client` first | |
 
@@ -38,6 +41,7 @@ After all code changes are done, run `./update_sqlx.sh` from `backend/` to regen
 | Modified Flow structures | Also update `openflow.openapi.yaml` |
 | Changed DB schema | Update `backend/summarized_schema.txt` if needed |
 | Enterprise file changes | Companion PR in `windmill-ee-private` (see `docs/enterprise.md`) |
+| Changed a hook in `.claude/hooks/` | `bash .claude/hooks/test-hooks.sh` — pins which commands prompt |
 
 ## When to Write Tests
 

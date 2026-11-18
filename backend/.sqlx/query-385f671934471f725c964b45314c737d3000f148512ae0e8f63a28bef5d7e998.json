@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr (workspace_id, email, username, is_admin, role)\n         VALUES ('other-workspace', 'test@windmill.dev', 'test-user', true, 'Admin')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "385f671934471f725c964b45314c737d3000f148512ae0e8f63a28bef5d7e998"
+}

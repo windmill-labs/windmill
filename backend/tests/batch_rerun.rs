@@ -29,12 +29,21 @@ const FLOW_VERSION: i64 = 2222222222;
 /// Mark a queued job as completed with success — needed so it's eligible for
 /// `list_selected_job_groups` / `batch_rerun_jobs` (both join `v2_job_completed`).
 async fn complete_job(db: &Pool<Postgres>, job_id: Uuid) -> anyhow::Result<()> {
+    complete_job_with_status(db, job_id, "success").await
+}
+
+async fn complete_job_with_status(
+    db: &Pool<Postgres>,
+    job_id: Uuid,
+    status: &str,
+) -> anyhow::Result<()> {
     sqlx::query(
         "INSERT INTO v2_job_completed (workspace_id, id, result, status, duration_ms, started_at, completed_at)
-         VALUES ($1, $2, '{}'::jsonb, 'success', 0, now(), now())",
+         VALUES ($1, $2, '{}'::jsonb, $3::job_status, 0, now(), now())",
     )
     .bind(WORKSPACE)
     .bind(job_id)
+    .bind(status)
     .execute(db)
     .await?;
     Ok(())
@@ -53,6 +62,7 @@ fn script_payload() -> JobPayload {
         concurrency_settings: ConcurrencySettings::default().into(),
         debouncing_settings: DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     }
 }
 
@@ -63,6 +73,7 @@ fn flow_payload() -> JobPayload {
         apply_preprocessor: false,
         version: FLOW_VERSION,
         labels: None,
+        job_token_scopes: None,
     }
 }
 
@@ -71,6 +82,7 @@ fn ssf_script_payload(hash: Option<ScriptHash>, retry: Option<Retry>) -> JobPayl
         path: SCRIPT_PATH.to_string(),
         hash,
         flow_version: None,
+        language: None,
         args: Default::default(),
         retry,
         error_handler_path: None,
@@ -92,6 +104,7 @@ fn ssf_flow_payload() -> JobPayload {
         path: FLOW_PATH.to_string(),
         hash: None,
         flow_version: Some(FLOW_VERSION),
+        language: None,
         args: Default::default(),
         retry: None,
         error_handler_path: None,
@@ -610,6 +623,102 @@ async fn list_groups_ssf_flow_has_schema_via_path(db: Pool<Postgres>) -> anyhow:
     assert!(
         s.schema.is_some(),
         "flow-wrapped SSF schema falls back to latest by path"
+    );
+    Ok(())
+}
+
+/// A member who may run the script but cannot see another user's run of it must not
+/// be able to rerun that run: the rerun would hand them a job carrying its args.
+#[sqlx::test(fixtures("base", "batch_rerun"))]
+async fn batch_rerun_denies_invisible_source_job(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let member = windmill_api_client::create_client(
+        &format!("http://localhost:{}", server.addr.port()),
+        "SECRET_TOKEN_2".to_string(),
+    );
+    // `false` is a read (run) grant, not a denial: test-user-2 can run the script.
+    sqlx::query("UPDATE script SET extra_perms = '{\"u/test-user-2\": false}' WHERE hash = $1")
+        .bind(SCRIPT_HASH)
+        .execute(&db)
+        .await?;
+
+    let original = push_completed(&db, script_payload(), vec![("name", json!("secret"))]).await?;
+
+    let results = batch_rerun(
+        &member,
+        json!({
+            "job_ids": [original],
+            "script_options_by_path": {},
+            "flow_options_by_path": {},
+        }),
+    )
+    .await?;
+    assert_eq!(results.len(), 1, "the denied job must be reported");
+    assert!(
+        results[0]
+            .as_ref()
+            .is_err_and(|e| e.starts_with("Permission denied")),
+        "rerun must be denied by the read gate: {:?}",
+        results[0]
+    );
+    let pushed: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM v2_job WHERE created_by = 'test-user-2'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(pushed, 0);
+    Ok(())
+}
+
+/// Re-running a failed or canceled job resolves it, pointing at the re-run, which is what lets
+/// "hide resolved" exclude it from the next batch. A success has nothing to resolve.
+#[sqlx::test(fixtures("base", "batch_rerun"))]
+async fn batch_rerun_resolves_failed_and_canceled_sources(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{}", server.addr.port()),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    let mut sources = vec![];
+    for status in ["success", "failure", "canceled"] {
+        let id = RunJob::from(script_payload())
+            .arg("name".to_string(), json!(status))
+            .push(&db)
+            .await;
+        complete_job_with_status(&db, id, status).await?;
+        sources.push(id);
+    }
+
+    let results = batch_rerun(
+        &client,
+        json!({
+            "job_ids": sources,
+            "script_options_by_path": {},
+            "flow_options_by_path": {},
+        }),
+    )
+    .await?;
+    assert!(results.iter().all(|r| r.is_ok()), "{results:?}");
+
+    let resolved: Vec<(String, String)> = sqlx::query_as(
+        "SELECT o.args->>'name', n.args->>'name'
+            FROM job_resolution r
+            JOIN v2_job o ON o.id = r.job_id
+            JOIN v2_job n ON r.note = 'Re-run as ' || n.id
+            ORDER BY 1",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        resolved,
+        vec![
+            ("canceled".to_string(), "canceled".to_string()),
+            ("failure".to_string(), "failure".to_string()),
+        ]
     );
     Ok(())
 }

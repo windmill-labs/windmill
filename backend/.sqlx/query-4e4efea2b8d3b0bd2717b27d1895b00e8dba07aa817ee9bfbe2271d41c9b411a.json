@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace SET is_dev_workspace = false WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4e4efea2b8d3b0bd2717b27d1895b00e8dba07aa817ee9bfbe2271d41c9b411a"
+}

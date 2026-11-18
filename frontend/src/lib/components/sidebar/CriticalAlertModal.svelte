@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { onMount, onDestroy } from 'svelte'
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
 	import { SettingService, type CriticalAlert } from '$lib/gen'
@@ -18,7 +16,6 @@
 	import List from '$lib/components/common/layout/List.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { BellOff, Bell, ExternalLink, Settings } from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import Notification from '$lib/components/common/alert/Notification.svelte'
 
 	interface Props {
@@ -35,26 +32,11 @@
 	let workspaceContext = $state(false)
 	let childRef: CriticalAlertModalInner | undefined = $state()
 
-	function setupApiFunctions(_ctx?) {
-		getCriticalAlerts = withSuperadminLogic(
-			SettingService.getCriticalAlerts,
-			SettingService.workspaceGetCriticalAlerts
-		)
-
-		acknowledgeCriticalAlert = withSuperadminLogic(
-			SettingService.acknowledgeCriticalAlert,
-			SettingService.workspaceAcknowledgeCriticalAlert
-		)
-
-		acknowledgeAllCriticalAlerts = withSuperadminLogic(
-			SettingService.acknowledgeAllCriticalAlerts,
-			SettingService.workspaceAcknowledgeAllCriticalAlerts
-		)
-	}
-
 	let checkForNewAlertsInterval: ReturnType<typeof setInterval>
 	let checkingForNewAlerts = false
 
+	// The returned closure reads workspaceContext / $workspaceStore / $devopsRole at
+	// call time, so the wrappers are stable and never need recreating.
 	const withSuperadminLogic = (superadminFunction, workspaceFunction) => {
 		return async (params = {}) => {
 			if (!$devopsRole || workspaceContext) {
@@ -68,18 +50,27 @@
 		}
 	}
 
-	type AckFn = (params?: {}) => Promise<any>
-	let getCriticalAlerts: AckFn | undefined = $state()
-	let acknowledgeCriticalAlert: AckFn | undefined = $state()
-	let acknowledgeAllCriticalAlerts: AckFn | undefined = $state()
-
-	setupApiFunctions()
+	let getCriticalAlerts = $derived(
+		withSuperadminLogic(SettingService.getCriticalAlerts, SettingService.workspaceGetCriticalAlerts)
+	)
+	let acknowledgeCriticalAlert = $derived(
+		withSuperadminLogic(
+			SettingService.acknowledgeCriticalAlert,
+			SettingService.workspaceAcknowledgeCriticalAlert
+		)
+	)
+	let acknowledgeAllCriticalAlerts = $derived(
+		withSuperadminLogic(
+			SettingService.acknowledgeAllCriticalAlerts,
+			SettingService.workspaceAcknowledgeAllCriticalAlerts
+		)
+	)
 
 	onMount(async () => {
 		await updateHasUnacknowledgedCriticalAlerts(false)
 		checkForNewAlertsInterval = setInterval(() => {
 			updateHasUnacknowledgedCriticalAlerts(true)
-		}, 15000)
+		}, 30000)
 	})
 
 	onDestroy(() => {
@@ -173,13 +164,10 @@
 		await acknowledgeCriticalAlert?.({ id })
 		updateHasUnacknowledgedCriticalAlerts()
 	}
-	run(() => {
-		setupApiFunctions(workspaceContext)
-	})
-	run(() => {
+	$effect(() => {
 		if ($isCriticalAlertsUIOpen) open = $isCriticalAlertsUIOpen
 	})
-	run(() => {
+	$effect(() => {
 		isCriticalAlertsUIOpen.set(open)
 	})
 </script>
@@ -197,10 +185,14 @@
 	{#snippet headerRight()}
 		<List horizontal>
 			{#if $superadmin || $userStore?.is_admin}
+				<!-- Portal to `body` (not the trigger) so toggle clicks don't bubble to the melt
+				     trigger and toggle the popover shut. `dropdown-portal` on the content root is a
+				     `portalDivs` marker, so the enclosing Modal2's clickOutside treats the whole
+				     popover surface — padding included — as inside a portal and stays open. -->
 				<Popover
 					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
-					portal="#mute-settings-button"
-					contentClasses="p-4"
+					portal="body"
+					contentClasses="p-4 dropdown-portal"
 				>
 					{#snippet trigger()}
 						<div id="mute-settings-button">
@@ -246,8 +238,8 @@
 			{#if $superadmin}
 				<Popover
 					floatingConfig={{ strategy: 'fixed', placement: 'bottom-end' }}
-					portal="#settings-button"
-					contentClasses="p-4"
+					portal="body"
+					contentClasses="p-4 dropdown-portal"
 				>
 					{#snippet trigger()}
 						<div id="settings-button">
@@ -262,7 +254,7 @@
 								<Button
 									size="xs"
 									color="light"
-									href="{base}/?workspace=admins#superadmin-settings"
+									href="/?workspace=admins#superadmin-settings"
 									target="_blank"
 								>
 									<div class="w-full">
@@ -277,7 +269,7 @@
 								<Button
 									size="xs"
 									color="light"
-									href="{base}/workspace_settings?tab=error_handler"
+									href="/workspace_settings?tab=error_handler"
 									target="_blank"
 								>
 									Workspace Critical Alert Settings <ExternalLink size="16" />
@@ -290,7 +282,7 @@
 				<Button
 					size="xs"
 					variant="default"
-					href="{base}/workspace_settings?tab=error_handler"
+					href="/workspace_settings?tab=error_handler"
 					target="_blank"
 				>
 					<List horizontal justify="between" gap="sm">
@@ -304,6 +296,7 @@
 
 	<CriticalAlertModalInner
 		bind:workspaceContext
+		{muteSettings}
 		{numUnacknowledgedCriticalAlerts}
 		{updateHasUnacknowledgedCriticalAlerts}
 		{getCriticalAlerts}

@@ -1,7 +1,6 @@
-import type { Schema } from './common'
-import { AppService, FlowService, type Flow, type Script } from './gen'
-import { encodeState } from './utils'
+import { AppService, FlowService, type Script } from './gen'
 import hubPathsData from './hubPaths.json'
+import { encodeState } from './utils'
 import {
 	replacePlaceholderForSignatureScriptTemplate,
 	SIGNATURE_TEMPLATE_FLOW_HUB_ID,
@@ -11,22 +10,6 @@ import {
 export const DEFAULT_HUB_BASE_URL = 'https://hub.windmill.dev'
 export const PRIVATE_HUB_MIN_VERSION = 10_000_000
 
-export function scriptToHubUrl(
-	content: string,
-	summary: string,
-	description: string,
-	kind: Script['kind'],
-	language: Script['language'],
-	schema: Schema | any,
-	lock: string | undefined,
-	hubBaseUrl: string
-): URL {
-	const url = new URL(hubBaseUrl + '/scripts/add')
-	url.hash = encodeState({ content, summary, description, kind, language, schema, lock })
-
-	return url
-}
-
 export const HubScript = {
 	SIGNATURE_TEMPLATE: SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH
 } as const
@@ -34,6 +17,32 @@ export const HubScript = {
 export const HubFlow = {
 	SIGNATURE_TEMPLATE: SIGNATURE_TEMPLATE_FLOW_HUB_ID
 } as const
+
+/**
+ * The Hub's script submission form, prefilled with this script. The Hub decodes the
+ * hash, so the code never reaches its server until the user submits. Flows and apps
+ * reach the Hub inside a project, published from a folder, so only scripts have this.
+ */
+export function scriptToHubUrl(
+	script: Pick<
+		Script,
+		'content' | 'summary' | 'description' | 'kind' | 'language' | 'schema' | 'lock'
+	>,
+	hubBaseUrl: string
+): URL {
+	const { content, summary, kind, language, schema } = script
+	const url = new URL(hubBaseUrl + '/scripts/add')
+	url.hash = encodeState({
+		content,
+		summary,
+		description: script.description ?? '',
+		kind,
+		language,
+		schema,
+		lock: script.lock ?? ''
+	})
+	return url
+}
 
 export function replaceScriptPlaceholderWithItsValues(id: string, content: string) {
 	switch (id) {
@@ -65,32 +74,6 @@ export async function loadHubApps() {
 	}
 }
 
-export function flowToHubUrl(flow: Flow, hubBaseUrl: string): URL {
-	const url = new URL(hubBaseUrl + '/flows/add')
-	const openFlow = {
-		value: flow.value,
-		summary: flow.summary,
-		description: flow.description,
-		schema: flow.schema
-	}
-	url.searchParams.append('flow', encodeState(openFlow))
-	return url
-}
-
-export function appToHubUrl(staticApp: any, hubBaseUrl: string): URL {
-	const url = new URL(hubBaseUrl + '/apps/add')
-	url.searchParams.append('app', encodeState(staticApp))
-	return url
-}
-
-export function rawAppToHubUrl(hubBaseUrl: string, summary?: string): URL {
-	const url = new URL(hubBaseUrl + '/raw_apps/add')
-	if (summary) {
-		url.searchParams.append('summary', summary)
-	}
-	return url
-}
-
 type HubPaths = {
 	gitSyncTest: string
 	gitInitRepo: string
@@ -103,6 +86,8 @@ type HubPaths = {
 	teamsErrorHandler: string
 	teamsRecoveryHandler: string
 	teamsSuccessHandler: string
+	slackVariableExpirationHandler: string
+	teamsVariableExpirationHandler: string
 	emailErrorHandler: string
 	cloneRepoToS3forGitRepoViewer: string
 	appReport: string

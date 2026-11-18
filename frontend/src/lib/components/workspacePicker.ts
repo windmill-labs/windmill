@@ -1,26 +1,48 @@
-import type { Flow, ListableApp, Script } from '$lib/gen'
-
-export type WorkspaceItemKind = 'flow' | 'script' | 'app'
+export type WorkspaceItemKind = 'flow' | 'script' | 'app' | 'agent'
 
 export type WorkspaceItem = {
 	path: string
 	summary: string
 	kind: WorkspaceItemKind
 	raw_app?: boolean
+	/** User-typed friendly path for a draft-only item parked at a
+	 * `…/draft_<uuid>` storage path (the backend lists' `draft_path`).
+	 * Display-only: `path` stays the storage key and is what URLs and
+	 * dedupe must use — routing to the friendly path 404s. */
+	draftPath?: string
+	/** Nothing is deployed at this path: the row exists only because the
+	 * listers were asked for `include_draft_only`. Decides which side of an
+	 * item a picker opens, so it must be invalidated on deploy — a stale
+	 * `true` sends the reader to the editor of something they just shipped. */
+	draftOnly?: boolean
+	/** The authed user has a draft for this item. True for a draft-only item too,
+	 * so read it with `draftOnly` to tell "nothing deployed" from "deployed, with
+	 * edits pending". */
+	hasDraft?: boolean
+	/** The item's own sharing, which `canEditItem` reads with the folder rules. */
+	extraPerms?: Record<string, boolean>
+}
+
+/** Path to display (and group by) in pickers: the friendly draft path when
+ * the item has one, else the real path. */
+export function workspaceItemDisplayPath(item: Pick<WorkspaceItem, 'path' | 'draftPath'>): string {
+	return item.draftPath ?? item.path
 }
 
 /** Display label for kinds — used in the picker rows and search section headers. */
 export const KIND_LABEL: Record<WorkspaceItemKind, string> = {
 	flow: 'Flows',
 	script: 'Scripts',
-	app: 'Apps'
+	app: 'Apps',
+	agent: 'Agents'
 }
 
 /** Lowercase variant — matches the editor breadcrumb style. */
 export const KIND_LABEL_LOWER: Record<WorkspaceItemKind, string> = {
 	flow: 'flows',
 	script: 'scripts',
-	app: 'apps'
+	app: 'apps',
+	agent: 'agents'
 }
 
 /** Composite keys used for keyboard nav and `initialHighlight`. The picker and
@@ -34,19 +56,30 @@ export const leafKeyFor = (k: WorkspaceItemKind, path: string) => `leaf:${k}:${p
 export function editPathFor(item: WorkspaceItem): string {
 	if (item.kind === 'flow') return `/flows/edit/${item.path}`
 	if (item.kind === 'script') return `/scripts/edit/${item.path}`
+	if (item.kind === 'agent') return `/agents/edit/${item.path}`
 	return item.raw_app ? `/apps_raw/edit/${item.path}` : `/apps/edit/${item.path}`
+}
+
+/** The deployed-version page for an item, the `/get/` counterpart of {@link editPathFor}. */
+export function viewPathFor(item: WorkspaceItem): string {
+	if (item.kind === 'flow') return `/flows/get/${item.path}`
+	if (item.kind === 'script') return `/scripts/get/${item.path}`
+	if (item.kind === 'agent') return `/agents/get/${item.path}`
+	return item.raw_app ? `/apps_raw/get/${item.path}` : `/apps/get/${item.path}`
 }
 
 type WorkspaceCache = {
 	flow?: WorkspaceItem[]
 	script?: WorkspaceItem[]
 	app?: WorkspaceItem[]
+	agent?: WorkspaceItem[]
 }
 
 /** Module-level session cache. Persists across picker mounts within a single
- * page session. NOT invalidated automatically — call `invalidate()` after
- * creating/deleting an item if the picker may be opened again before a full
- * reload. */
+ * page session so cached kinds render on the first frame. Pickers revalidate
+ * once per mount via `loadKind(..., { revalidate: true })`, so stale entries
+ * self-heal on the next open; call `invalidate()` after creating/deleting an
+ * item when even a brief flash of the stale list must be avoided. */
 const cache = new Map<string, WorkspaceCache>()
 const inflight = new Map<string, Promise<WorkspaceItem[]>>()
 /** Bumped by `invalidate()`. Each in-flight `loadKind` captures the version
@@ -56,7 +89,7 @@ const cacheVersion = new Map<string, number>()
 
 const cacheKey = (workspace: string, kind: WorkspaceItemKind) => `${workspace}:${kind}`
 
-const KINDS: WorkspaceItemKind[] = ['flow', 'script', 'app']
+const KINDS: WorkspaceItemKind[] = ['flow', 'script', 'app', 'agent']
 
 function bumpVersion(workspace: string, kind: WorkspaceItemKind) {
 	const k = cacheKey(workspace, kind)
@@ -87,17 +120,20 @@ export function invalidate(workspace: string, kind?: WorkspaceItemKind) {
 
 export async function loadKind(
 	workspace: string,
-	kind: WorkspaceItemKind
+	kind: WorkspaceItemKind,
+	opts?: { revalidate?: boolean }
 ): Promise<WorkspaceItem[]> {
 	const existing = cache.get(workspace)?.[kind]
-	if (existing) return existing
+	if (existing && !opts?.revalidate) return existing
 	const key = cacheKey(workspace, kind)
+	// An in-flight fetch is already hitting the network, so it satisfies a
+	// revalidate request too.
 	const flying = inflight.get(key)
 	if (flying) return flying
 
 	const startVersion = cacheVersion.get(key) ?? 0
 	const promise = (async () => {
-		const { ScriptService, FlowService, AppService } = await import('$lib/gen')
+		const { ScriptService, FlowService, AppService, ResourceService } = await import('$lib/gen')
 		let items: WorkspaceItem[]
 		if (kind === 'flow') {
 			const flows = await FlowService.listFlows({
@@ -105,10 +141,14 @@ export async function loadKind(
 				includeDraftOnly: true,
 				withoutDescription: true
 			})
-			items = flows.map((f: Flow) => ({
+			items = flows.map((f) => ({
 				path: f.path,
 				summary: f.summary ?? '',
-				kind: 'flow' as const
+				kind: 'flow' as const,
+				draftPath: f.draft_path,
+				draftOnly: f.draft_only ?? false,
+				hasDraft: f.is_draft ?? false,
+				extraPerms: f.extra_perms
 			}))
 		} else if (kind === 'script') {
 			const scripts = await ScriptService.listScripts({
@@ -116,21 +156,45 @@ export async function loadKind(
 				includeDraftOnly: true,
 				withoutDescription: true
 			})
-			items = scripts.map((s: Script) => ({
+			items = scripts.map((s) => ({
 				path: s.path,
 				summary: s.summary ?? '',
-				kind: 'script' as const
+				kind: 'script' as const,
+				draftPath: s.draft_path,
+				draftOnly: s.draft_only ?? false,
+				hasDraft: s.is_draft ?? false,
+				extraPerms: s.extra_perms
+			}))
+		} else if (kind === 'agent') {
+			const agents = await ResourceService.listResource({
+				workspace,
+				resourceType: 'ai_agent',
+				includeDraftOnly: true,
+				perPage: 1000
+			})
+			items = agents.map((a) => ({
+				path: a.path,
+				summary: a.description ?? '',
+				kind: 'agent' as const,
+				draftPath: a.draft_path,
+				draftOnly: a.draft_only ?? false,
+				hasDraft: a.is_draft ?? false,
+				extraPerms: a.extra_perms
 			}))
 		} else {
 			const apps = await AppService.listApps({
 				workspace,
 				includeDraftOnly: true
 			})
-			items = apps.map((a: ListableApp) => ({
+			items = apps.map((a) => ({
 				path: a.path,
 				summary: a.summary ?? '',
 				kind: 'app' as const,
-				raw_app: a.raw_app ?? false
+				raw_app: a.raw_app ?? false,
+				draftPath: a.draft_path,
+				draftOnly: a.draft_only ?? false,
+				hasDraft: a.is_draft ?? false,
+				extraPerms: a.extra_perms
 			}))
 		}
 		// Only commit if the cache version hasn't changed since we started —

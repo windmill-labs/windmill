@@ -9,6 +9,14 @@ import { GlobalOptions } from "../../types.ts";
 import { runCatalogQuery } from "../../utils/catalog.ts";
 import { psql as psqlDatatable } from "./psql.ts";
 import { serve as serveDatatable } from "./serve.ts";
+import {
+  createMigration,
+  listLocalMigrations,
+  pushLocalMigrations,
+  rollbackMigrations,
+  runMigrations,
+  validateLocalMigrations,
+} from "../datatable_migrations.ts";
 
 const DEFAULT_DATATABLE_NAME = "main";
 
@@ -41,6 +49,211 @@ async function run(
   await runCatalogQuery(opts, "datatable", name, sql);
 }
 
+function migrateNew(
+  opts: GlobalOptions & { datatable?: string; schemas?: string },
+  name: string,
+) {
+  const schemas = (opts.schemas ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  createMigration(opts.datatable ?? DEFAULT_DATATABLE_NAME, name, schemas);
+}
+
+async function migrateUp(
+  opts: GlobalOptions & { datatable?: string; schema?: string },
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
+  // Reject malformed local migrations (duplicate timestamps, orphan downs) before
+  // pushing — the same check `wmill sync push` runs — so a duplicate timestamp
+  // can't silently overwrite one migration on upsert.
+  const errors = validateLocalMigrations(new Set([dt]));
+  if (errors.length > 0) {
+    log.error(
+      "Invalid datatable migrations, aborting:\n" +
+        errors.map((e) => `  - ${e}`).join("\n"),
+    );
+    process.exit(1);
+  }
+  // Push any locally-created/edited migration files first (without running
+  // them), so `migrate up` works even before a `wmill sync push`.
+  await pushLocalMigrations(workspace.workspaceId, dt);
+  await runMigrations(workspace.workspaceId, dt, opts.schema);
+}
+
+async function migrateDown(opts: GlobalOptions & { datatable?: string }) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
+  await rollbackMigrations(workspace.workspaceId, dt);
+}
+
+async function migrateStatus(
+  opts: GlobalOptions & { datatable?: string; json?: boolean },
+) {
+  if (opts.json) log.setSilent(true);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
+  const status = await wmill.getDatatableMigrationsStatus({
+    workspace: workspace.workspaceId,
+    datatableName: dt,
+  });
+  // `migrate up` pushes local files before running, so they count as pending too.
+  const remote = new Set(status.migrations.map((m) => m.timestamp));
+  const migrations: {
+    timestamp: number;
+    name: string;
+    status: string;
+    schemas?: string[];
+  }[] = [
+    ...status.migrations,
+    ...listLocalMigrations(dt)
+      .filter((m) => !remote.has(m.timestamp))
+      .map((m) => ({ ...m, status: "local" })),
+  ].sort((a, b) => a.timestamp - b.timestamp);
+
+  if (opts.json) {
+    console.log(JSON.stringify({ ...status, migrations }));
+    return;
+  }
+  if (!status.enabled) {
+    log.info(`Migrations are not enabled on datatable '${dt}'`);
+    return;
+  }
+  if (status.error) {
+    log.warn(`Could not read applied migrations on '${dt}': ${status.error}`);
+  }
+  if (migrations.length === 0) {
+    log.info(`No migrations on datatable '${dt}'`);
+    return;
+  }
+  const label: Record<string, string> = {
+    not_run: "pending",
+    local: "pending (not pushed)",
+  };
+  new Table()
+    .header(["Timestamp", "Name", "Status", "Schemas"])
+    .padding(2)
+    .border(true)
+    .body(
+      migrations.map((m) => [
+        String(m.timestamp),
+        m.name,
+        label[m.status] ?? m.status,
+        m.status === "local"
+          ? ""
+          : (m.schemas?.join(", ") ?? "whole database"),
+      ]),
+    )
+    .render();
+}
+
+const migrateCommand = new Command()
+  .description("manage datatable migrations")
+  .command("new", "scaffold a new migration (.up.sql / .down.sql files)")
+  .arguments("<name:string>")
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .option(
+    "-s --schemas <schemas:string>",
+    "Comma-separated schemas the migration changes, written as its `-- schemas` line. Without it the migration applies to the whole database and every later migration waits for it",
+  )
+  .action(migrateNew as any)
+  .command(
+    "up",
+    "apply all pending migrations to the main datatable (or one via --datatable)",
+  )
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .option(
+    "--schema <schema:string>",
+    "Apply only the pending migrations that declare this schema; refused while an earlier overlapping migration is pending",
+  )
+  .action(migrateUp as any)
+  .command(
+    "down",
+    "roll back the most recent migration on the main datatable (or one via --datatable)",
+  )
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .action(migrateDown as any)
+  .command(
+    "status",
+    "show applied and pending migrations on the main datatable (or one via --datatable)",
+  )
+  .option(
+    "-d --datatable <datatable:string>",
+    "Target datatable (default: main)",
+  )
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(migrateStatus as any);
+
+type DataTableResourceType = "postgresql" | "instance" | "external_instance";
+
+async function create(
+  opts: GlobalOptions & { resource?: string; force?: boolean },
+  name?: string,
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const dtName = name ?? DEFAULT_DATATABLE_NAME;
+
+  const existing = await wmill.listDataTables({
+    workspace: workspace.workspaceId,
+  });
+  if (existing.some((d) => d.name === dtName)) {
+    throw new Error(`Datatable '${dtName}' already exists in this workspace`);
+  }
+  // edit_datatable_config replaces the whole settings object, and fork
+  // metadata on existing datatables can't be read back through the API —
+  // so only touch a non-empty config when explicitly asked to.
+  if (existing.length > 0 && !opts.force) {
+    throw new Error(
+      `Workspace already has datatable(s): ${existing
+        .map((d) => d.name)
+        .join(", ")}. Re-run with --force to add '${dtName}' ` +
+        "(note: fork metadata on existing datatables is not preserved)",
+    );
+  }
+
+  const datatables: Record<
+    string,
+    { database: { resource_type: DataTableResourceType; resource_path?: string } }
+  > = {};
+  for (const d of existing) {
+    datatables[d.name] = {
+      database: {
+        resource_type: d.resource_type as DataTableResourceType,
+        resource_path: d.resource_path ?? undefined,
+      },
+    };
+  }
+  datatables[dtName] = opts.resource
+    ? { database: { resource_type: "postgresql", resource_path: opts.resource } }
+    : { database: { resource_type: "instance", resource_path: "datatable_db" } };
+
+  await wmill.editDataTableConfig({
+    workspace: workspace.workspaceId,
+    requestBody: { settings: { datatables } },
+  });
+  log.info(
+    `Datatable '${dtName}' created (${
+      opts.resource
+        ? `postgresql resource ${opts.resource}`
+        : "instance-backed"
+    }). Scripts can now use datatable://${dtName}.`,
+  );
+}
+
 async function serve(
   opts: GlobalOptions & { port?: number; host?: string; password?: string },
 ) {
@@ -69,6 +282,21 @@ const command = new Command()
     "Output only the final result as JSON. Useful for scripting.",
   )
   .action(run as any)
+  .command("migrate", migrateCommand)
+  .command(
+    "create",
+    "register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>",
+  )
+  .arguments("[name:string]")
+  .option(
+    "--resource <resource:string>",
+    "Back the datatable with an existing postgresql resource path instead of the instance database",
+  )
+  .option(
+    "--force",
+    "Allow adding to a workspace that already has datatables (fork metadata on existing ones is not preserved)",
+  )
+  .action(create as any)
   .command(
     "serve",
     "Serve all datatables as a Postgres-wire endpoint (psql, DBeaver, pgAdmin); the client picks the datatable via the database name in its connection string",

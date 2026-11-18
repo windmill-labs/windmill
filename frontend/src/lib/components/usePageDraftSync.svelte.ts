@@ -30,6 +30,11 @@ export interface PageDraftSyncOptions<V = unknown> {
 	 *  `draftValuesEqual` so it can't disagree with the "unsaved changes"
 	 *  banner. Return false for draft-only items (no deployed baseline). */
 	discardIf?: (val: V) => boolean
+	/** Seeds the cell on first acquire without POSTing (the syncer's seed
+	 *  guard swallows it). Use when the value is already in hand at mount (an
+	 *  embedder providing the item) instead of assigning `draft` after load.
+	 *  Pass a STABLE reference (read it under `untrack`). */
+	defaultValue?: V
 }
 
 export interface PageDraftSync<V> {
@@ -57,6 +62,7 @@ export function usePageDraftSync<V = unknown>(opts: PageDraftSyncOptions<V>): Pa
 		path: opts.path(),
 		workspace: opts.workspace(),
 		canBeDisabled: true,
+		defaultValue: opts.defaultValue,
 		discardIf: opts.discardIf
 	}))
 

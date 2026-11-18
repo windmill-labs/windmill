@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM resource WHERE workspace_id = $1 AND path = ANY($2) AND resource_type = 'ai_agent'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "307d5b797e51122dbf087e5dc9f33235a349731828d500c74a28b577469e2624"
+}

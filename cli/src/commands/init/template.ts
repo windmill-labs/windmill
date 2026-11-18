@@ -1,3 +1,5 @@
+import { VERSION } from "../../core/constants.ts";
+
 /**
  * Configuration option descriptor — each entry IS a JSON Schema property
  * with extra metadata for template rendering and reference table display.
@@ -10,7 +12,8 @@
  * Adding a new option:
  *   1. Add an entry to CONFIG_REFERENCE with JSON Schema type fields + description
  *   2. Add template rendering hints (section, commented, templateValue, etc.)
- *   3. `wmill init` (YAML template), `wmill config` (table), and wmill.schema.json all update automatically
+ *   3. `wmill init` (YAML template) and `wmill config` (table) update automatically
+ *   4. Regenerate wmill.schema.json: `bun generate-schema.ts`
  */
 export interface ConfigOption {
   // --- JSON Schema fields (kept when generating schema) ---
@@ -77,8 +80,8 @@ const WORKSPACE_CONFIG_SCHEMA = {
  */
 export const CONFIG_REFERENCE: ConfigOption[] = [
   // ── Core ──────────────────────────────────────────────────────────────
-  { name: "defaultTs", type: "string", enum: ["bun", "deno"], default: "bun", description: "Default TypeScript runtime for new scripts",
-    inlineComment: "bun or deno" },
+  { name: "defaultTs", type: "string", enum: ["bun", "deno"], default: "bun", description: "TypeScript runtime of a plain .ts script (bun when absent)",
+    skipInTemplate: true },
   { name: "includes", type: "array", items: { type: "string" }, default: '["f/**"]', description: "Glob patterns for files to include in sync",
     templateValue: '\n  - "f/**"', inlineComment: 'use ** for all, f/** for folder-scoped' },
   { name: "extraIncludes", type: "array", items: { type: "string" }, default: "[]", description: "Additional glob patterns merged with includes (useful in workspace overrides)",
@@ -97,6 +100,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   { name: "skipApps", type: "boolean", default: "false", description: "Skip syncing apps" },
   { name: "skipFolders", type: "boolean", default: "false", description: "Skip syncing folders" },
   { name: "skipWorkspaceDependencies", type: "boolean", default: "false", description: "Skip syncing workspace dependencies" },
+  { name: "skipDatatableMigrations", type: "boolean", default: "false", description: "Skip syncing data table SQL migrations" },
 
   { name: "includeSchedules", type: "boolean", default: "false", description: "Include schedules in sync",
     commented: true, templateValue: "true", groupNote: "Uncomment to include these (excluded by default):" },
@@ -108,6 +112,9 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     commented: true, templateValue: "true" },
   { name: "includeSettings", type: "boolean", default: "false", description: "Include workspace settings in sync",
     commented: true, templateValue: "true" },
+  { name: "includeDatatablePermissions", type: "boolean", default: "false",
+    description: "With includeSettings, also sync each data table's roles and who may connect as them",
+    commented: true, templateValue: "true" },
   { name: "includeKey", type: "boolean", default: "false", description: "Include encryption key in sync",
     commented: true, templateValue: "true" },
 
@@ -115,6 +122,8 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   { name: "parallel", type: "integer", default: "(unset)", description: "Number of parallel operations during sync",
     section: "Sync behavior", commented: true, templateValue: "4" },
   { name: "locksRequired", type: "boolean", default: "false", description: "Require lock files for all scripts",
+    commented: true, templateValue: "true" },
+  { name: "dedupeLockfiles", type: "boolean", default: "false", description: "Share one lockfile per workspace dependency file (locks/<depfile>.lock), instead of an identical .script.lock per script",
     commented: true, templateValue: "true" },
   { name: "lint", type: "boolean", default: "false", description: "Run linting before push",
     commented: true, templateValue: "true" },
@@ -137,6 +146,8 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
       type: "object",
       properties: {
         relative_path: { type: "string", description: "Path to the codebase directory" },
+        extra_digest_paths: { type: "array", items: { type: "string" }, description: "Paths outside relative_path that scripts import, relative to wmill.yaml; hashed recursively" },
+        per_script_digest: { type: "boolean", description: "Redeploy a script only when a file it bundles changes, instead of on any change under relative_path. Each push bundles every script of the codebase once to find its inputs, so every one of them must bundle. Files a script reads at runtime rather than imports are not covered: list them in extra_digest_paths" },
         includes: { type: "array", items: { type: "string" }, description: "Glob patterns for files to include in bundle" },
         excludes: { type: "array", items: { type: "string" }, description: "Glob patterns for files to exclude from bundle" },
         format: { type: "string", enum: ["cjs", "esm"], description: "Bundle output format" },
@@ -156,6 +167,8 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     example: [
       "# codebases:",
       '#   - relative_path: ./shared          # path to the codebase',
+      '#     # extra_digest_paths: ["../packages/utils/src"] # imported paths outside relative_path, hashed recursively (skip node_modules/dist)',
+      "#     # per_script_digest: true          # redeploy a script only when a file it bundles changes",
       '#     includes: ["**/*.ts"]            # files to include in bundle',
       '#     excludes: ["node_modules/**"]    # files to exclude',
       '#     format: esm                      # bundle format: "cjs" or "esm"',
@@ -180,8 +193,12 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     additionalProperties: WORKSPACE_CONFIG_SCHEMA,
     section: "Workspace bindings",
     sectionNote: "Map workspace names to Windmill instances and override settings per workspace.\nThe key is a human-friendly workspace name. gitBranch and workspaceId default to the key name.",
-    templateValue: "\n  {{BRANCH}}: {}",
+    // Empty ` {}`, not a live `<name>: {}` stub: a stub has no baseUrl yet
+    // counts as a configured workspace, breaking auto-selection and making a
+    // later `workspace bind` ambiguous. The example stays commented.
+    templateValue: " {}",
     example: [
+      "  # {{BRANCH}}:",
       "{{BASEURL_LINE}}",
       "{{WORKSPACE_ID_LINE}}",
       "    # gitBranch: main                        # git branch (defaults to workspace name)",
@@ -245,10 +262,16 @@ function yamlKey(s: string): string {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
+// Absolute and pinned to this CLI's release tag: nothing copies the schema next
+// to the user's wmill.yaml (nor into the npm package), and the tag's schema lists
+// exactly the options this CLI version accepts.
+export const WMILL_SCHEMA_URL =
+  `https://raw.githubusercontent.com/windmill-labs/windmill/v${VERSION}/cli/wmill.schema.json`;
+
 export function generateCommentedTemplate(branchName?: string, binding?: BranchBinding, bindings?: WorkspaceBinding[]): string {
   const branch = yamlKey(branchName ?? "main");
   const lines: string[] = [
-    "# yaml-language-server: $schema=wmill.schema.json",
+    `# yaml-language-server: $schema=${WMILL_SCHEMA_URL}`,
     "# wmill.yaml — Windmill CLI configuration",
     '# Full reference: run "wmill config"',
     "",

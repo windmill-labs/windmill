@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO git_sync_pr_check_head (workspace_id, repo_resource_path, pr_number, head_sha)\n         VALUES ($1, $2, $3, $4)\n         ON CONFLICT (workspace_id, repo_resource_path, pr_number)\n         DO UPDATE SET head_sha = EXCLUDED.head_sha, checked_at = now(), started = false\n         WHERE $6\n            OR ((git_sync_pr_check_head.head_sha <> EXCLUDED.head_sha\n                 OR (NOT git_sync_pr_check_head.started\n                     AND git_sync_pr_check_head.checked_at < now() - interval '10 minutes'))\n                AND ($5::timestamptz IS NULL OR git_sync_pr_check_head.checked_at < $5))\n         RETURNING 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Varchar",
+        "Timestamptz",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0b75b5efd2574e50a26d518b3f91d51f81536859c4aca5afd6c3a9d797bc45f2"
+}

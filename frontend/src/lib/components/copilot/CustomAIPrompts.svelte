@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AIMode, getVisibleAIModes } from './chat/AIChatManager.svelte'
+	import { AIMode } from './chat/AIChatManager.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Label from '../Label.svelte'
@@ -18,7 +18,7 @@
 	} = $props()
 
 	let selectedAiMode = $state<AIMode>(AIMode.ASK)
-	let visibleModes = $derived(getVisibleAIModes())
+	const visibleModes = Object.values(AIMode)
 </script>
 
 <div class="flex flex-col gap-2">

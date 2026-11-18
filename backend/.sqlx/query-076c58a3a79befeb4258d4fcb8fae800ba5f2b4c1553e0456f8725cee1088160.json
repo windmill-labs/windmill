@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT content, lock, language AS \"language: ScriptLang\", envs, codebase IS NOT NULL AS \"has_codebase!\", hash, job_token_scopes IS NOT NULL AS \"restricted!\", dedicated_worker IS TRUE AS \"dedicated!\" FROM script WHERE path = $1 AND workspace_id = $2 AND\n                            archived = false AND lock IS not NULL AND lock_error_logs IS NULL ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "lock",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "language: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby",
+                "rlang",
+                "dbt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "envs",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "has_codebase!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "restricted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "dedicated!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      null,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "076c58a3a79befeb4258d4fcb8fae800ba5f2b4c1553e0456f8725cee1088160"
+}

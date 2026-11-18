@@ -1,18 +1,19 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #777bb3 per php.net/images/logos/new-php-logo.svg (php.net/download-logos.php). Official logo, CC BY-SA 4.0: keep it verbatim and credit Colin Viebrock rather than recolouring. -->
 <svg
 	{height}
 	{width}
 	id="svg3430"
 	version="1.1"
-	viewBox="0 0 711.20123 383.5975"
+	viewBox="-21.72 -185.522 754.641 754.641"
 	xml:space="preserve"
 	xmlns="http://www.w3.org/2000/svg"
 >

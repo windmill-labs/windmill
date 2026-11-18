@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT COALESCE(dev_workspace_label, 'dev') as \"label!\"\n           FROM workspace\n           WHERE parent_workspace_id = $1 AND is_dev_workspace AND NOT deleted",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "label!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ba6ffe7fb86878e23f69e9c7636b4da42c00d072a908412a214ab231df784b8f"
+}

@@ -85,5 +85,23 @@ export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
   query<T = any>(sql: string, ...params: any[]): SqlStatement<T>;
 }
 
-export declare function datatable(name: string): DatatableSqlTemplateFunction;
+export interface DatatableOptions {
+    role?: string;
+}
+export declare function datatable(name?: string, opts?: DatatableOptions): DatatableSqlTemplateFunction;
 export declare function ducklake(name: string): SqlTemplateFunction;
+
+export interface DucklakeMaterializeOptions {
+  ducklake?: string;
+  table: string;
+  selectSql: string;
+  partition?: string;
+  uniqueKey?: string;
+  partitionCol?: string;
+}
+export declare function upsertPartition(
+  opts: DucklakeMaterializeOptions,
+): SqlStatement<any>;
+export declare function appendPartition(
+  opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,
+): SqlStatement<any>;

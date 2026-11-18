@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT canceled_by IS NOT NULL FROM v2_job_queue WHERE id = $1 AND workspace_id = $2 AND running",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "58ea7e2c6b07ffc7ab7387b2ebb542cba3a5532c64a9594d2e0ccdf21dee90d0"
+}

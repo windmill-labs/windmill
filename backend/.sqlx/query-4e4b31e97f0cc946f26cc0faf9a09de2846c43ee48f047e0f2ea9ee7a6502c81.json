@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (\n               SELECT h.sha FROM git_sync_synced_head h\n               WHERE h.workspace_id = $1 AND h.repo_resource_path = $4 AND h.branch = $3\n               ORDER BY h.synced_at DESC LIMIT 1\n           ) = $2 AND NOT EXISTS (\n               SELECT 1\n               FROM v2_job_queue q\n               JOIN v2_job j ON j.id = q.id\n               WHERE q.workspace_id = $1\n                 AND j.kind = 'deploymentcallback'\n                 AND j.args->'__git_sync_auto_pull'->>'branch' = $3\n                 AND j.args->'__git_sync_auto_pull'->>'repo_resource_path'\n                     IN ($4, '$res:' || $4)\n           ) AND NOT EXISTS (\n               SELECT 1\n               FROM v2_job_queue q\n               JOIN v2_job j ON j.id = q.id\n               WHERE q.workspace_id = $1\n                 AND j.kind IN ('dependencies', 'flowdependencies', 'appdependencies')\n           ) as \"ready\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ready",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4e4b31e97f0cc946f26cc0faf9a09de2846c43ee48f047e0f2ea9ee7a6502c81"
+}

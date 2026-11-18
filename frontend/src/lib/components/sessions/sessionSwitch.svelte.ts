@@ -1,0 +1,262 @@
+import { get } from 'svelte/store'
+import { goto } from '$lib/navigation'
+import { workspaceStore } from '$lib/stores'
+import {
+	blankHomeDraft,
+	createSession,
+	holdSessionUntilStarted,
+	homeDraft,
+	homeStarterSession,
+	opensOnHome,
+	selectSession,
+	sessionInCurrentFamily,
+	sessionLastActivityAt,
+	sessionPageHref,
+	sessionState,
+	setSessionAutoSend,
+	setNewSessionWorkspace,
+	setSessionDraftPrompt,
+	setSessionPendingWorkspace,
+	setSessionWorkingIn,
+	showOnHome,
+	syncWorkspaceTo,
+	type Session,
+	type SessionTarget
+} from './sessionState.svelte'
+import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
+import { fixupUrlAfterWorkspaceSwitch } from '../sidebar/workspaceSwitchUrl'
+import { homeComposerContext } from './homeComposerContext.svelte'
+// Type-only: erased at compile time, so the component graph stays out of this
+// navigation seam (see the dynamic import in openEditorInSession).
+import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
+import type { AppDomSelectorElement } from '../copilot/chat/context'
+import { presetScopeFor } from '../copilot/chat/workingScope'
+
+// `seedDomElement` rides only with `autoSend`: it is the chip of the prompt being sent.
+// `untilStarted` keeps the session out of storage until the user starts it, for an item that
+// is kept on its own (a new app's draft) and so loses nothing when the session goes.
+type SeedOpts = {
+	seedPrompt?: string
+	autoSend?: boolean
+	seedDomElement?: AppDomSelectorElement
+	untilStarted?: boolean
+}
+
+// The session last opened, on its page or in Home's composer. Plain module state: a
+// reload forgets it, and the family's most recently used session stands in.
+let lastSessionId: string | undefined
+
+/** Where a navigation landed: a session's page records the session, for the sessions
+ * page to resume when it is opened without one. */
+export function noteArrival(url: URL): void {
+	if (url.pathname.startsWith('/sessions')) {
+		lastSessionId = url.searchParams.get('session') ?? lastSessionId
+	}
+}
+
+// The session last opened, else the family's most recently used one. Scoped to the
+// family: reviving another family's session would pull its scope into this one.
+function resumableSession(): Session | undefined {
+	const usable = (s: Session) => !s.archived && sessionInCurrentFamily(s)
+	const last = sessionState.sessions.find((s) => s.id === lastSessionId)
+	if (last && usable(last)) return last
+	return sessionState.sessions
+		.filter((s) => usable(s) && !s.transient)
+		.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))[0]
+}
+
+/** The sessions page opened on no session of this family: the session to resume on its
+ * page, or in Home's composer for an unsent draft, else a blank draft there. `replace` for
+ * the sessions page's own redirects, where Back must not return to the URL that bounced
+ * here. */
+export async function resumeAiSessions(opts?: { replace?: boolean }): Promise<void> {
+	const session = resumableSession()
+	if (!session || opensOnHome(session)) {
+		await toHome((session ?? blankHomeDraft()).id, opts)
+		return
+	}
+	selectSession(session.id)
+	await goto(sessionPageHref(session.id), { replaceState: opts?.replace ?? false })
+}
+
+// A plain session starts on Home, and an unsent draft is shown there rather than on a
+// page of its own.
+async function toHome(id: string, opts?: { replace?: boolean; flash?: boolean }): Promise<void> {
+	lastSessionId = id
+	const onHome = typeof window !== 'undefined' && window.location.pathname === '/'
+	// The draft already on screen is focused where it is: rebuilding the composer would fold it
+	// to one line and open it again under the user's eyes.
+	if (onHome && homeComposerContext.holds(id)) {
+		homeComposerContext.focus()
+		if (opts?.flash) homeComposerContext.flash()
+		return
+	}
+	showOnHome(id, { focus: true, flash: opts?.flash })
+	// `goto` has no same-URL short-circuit, so navigating from Home would push a
+	// duplicate history entry; showOnHome already remounts the composer there.
+	if (onHome) return
+	await goto('/', { replaceState: opts?.replace ?? false })
+}
+
+/** New session: Home's composer, focused and outlined for a moment. It acts on the header's
+ * workspace, switched to `workspaceId` first when given. An unsent draft of that family is
+ * shown again rather than replaced by a blank: the sidebar does not list it, so a blank would
+ * strand it. */
+export async function openNewSession(workspaceId?: string): Promise<void> {
+	if (workspaceId && workspaceId !== get(workspaceStore)) {
+		// Home's current draft stays where it is: the switch must not take it along.
+		homeDraft.id = undefined
+		syncWorkspaceTo(workspaceId)
+		// Home may be open already, under a URL naming the workspace just left: a reload would
+		// switch back to it and take the new draft along.
+		await fixupUrlAfterWorkspaceSwitch(workspaceId)
+	}
+	await toHome(homeStarterSession().id, { flash: true })
+}
+
+/** An unsent draft, opened in Home's composer. `replace` for a redirect off the sessions
+ * page, where Back must not return to the URL that bounced here. */
+export async function openDraftOnHome(id: string, opts?: { replace?: boolean }): Promise<void> {
+	await toHome(id, opts)
+}
+
+/** Where to go once the session on screen is gone (archived, deleted, not in this browser):
+ * Home, showing whichever draft it would pick anyway. */
+export async function leaveForHome(opts?: { replace?: boolean }): Promise<void> {
+	homeDraft.id = undefined
+	homeDraft.requests++
+	if (typeof window !== 'undefined' && window.location.pathname === '/') return
+	await goto('/', { replaceState: opts?.replace ?? false })
+}
+
+// Open a fresh AI session showing an editor (flow/script/raw_app) in its preview,
+// then route to its page. The preview loads the item from its live draft,
+// so the caller MUST persist any unsaved edits first (e.g. save a draft) for the
+// preview to reflect the live state. `workspaceId` scopes the session to the
+// editor's workspace (instead of createSession's root default) so it opens the
+// same flow/script the user was editing. `previewParams` ride on the tab URL to
+// tell the previewed editor where to open (a flow's `selected` step).
+export async function openEditorInSession(
+	target: SessionTarget,
+	workspaceId?: string,
+	previewParams?: Record<string, string>,
+	opts?: SeedOpts
+): Promise<void> {
+	await openInSession(
+		withPreviewParams(sessionTargetHref(target), previewParams),
+		workspaceId,
+		opts,
+		presetScopeFor(target.path)
+	)
+}
+
+// Open a fresh AI session showing an in-app href in its preview: a workspace
+// page (Runs, a trigger list), which is not an editable item and so has no
+// SessionTarget, or a location captured as the user left it.
+export async function openPageInSession(
+	href: string,
+	workspaceId?: string,
+	opts?: SeedOpts
+): Promise<void> {
+	await openInSession(href, workspaceId, opts)
+}
+
+async function openInSession(
+	url: string | undefined,
+	workspaceId?: string,
+	opts?: SeedOpts,
+	workingIn?: string[]
+): Promise<void> {
+	await goto(await sessionHrefFor(url, workspaceId, opts, workingIn))
+}
+
+/** A fresh session's page, with an editor in its preview. For a `load` that sends the
+ * user there by redirect, where a `goto` would start a second navigation. */
+export function editorSessionHref(
+	target: SessionTarget,
+	workspaceId?: string,
+	previewParams?: Record<string, string>,
+	opts?: Pick<SeedOpts, 'untilStarted'>
+): Promise<string> {
+	return sessionHrefFor(
+		withPreviewParams(sessionTargetHref(target), previewParams),
+		workspaceId,
+		opts,
+		presetScopeFor(target.path)
+	)
+}
+
+async function sessionHrefFor(
+	url: string | undefined,
+	workspaceId?: string,
+	opts?: SeedOpts,
+	workingIn?: string[]
+): Promise<string> {
+	// Seed the fresh session's preview with a single tab on `url` so it opens
+	// straight onto what the caller wants (resetSessionPreviewTabs also writes
+	// through a live runtime if one already exists for this id).
+	const session = createSession()
+	if (opts?.untilStarted) {
+		holdSessionUntilStarted(session.id)
+		if (workspaceId) setNewSessionWorkspace(session.id, workspaceId)
+	} else if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
+	// A reused blank may carry a scope picked on it; the item's folder, or none, replaces it.
+	setSessionWorkingIn(session.id, workingIn, workingIn ? 'preset' : undefined)
+	if (opts?.seedPrompt) {
+		setSessionDraftPrompt(session.id, opts.seedPrompt)
+		if (opts.autoSend) setSessionAutoSend(session.id, opts.seedDomElement)
+	}
+	if (url) {
+		// Dynamic import: a static one would drag the runtime's heavy graph
+		// (chat manager → monaco) into this thin navigation seam, breaking its
+		// node-run unit tests.
+		const { resetSessionPreviewTabs } = await import('./sessionRuntime.svelte')
+		resetSessionPreviewTabs(session.id, url)
+	}
+	selectSession(session.id)
+	return sessionPageHref(session.id)
+}
+
+// Open an editor's own hand-off, running its `beforeOpen` (which persists the
+// draft the preview loads) first. Callers that drive the hand-off imperatively
+// go through this rather than `openEditorInSession` so they cannot skip that
+// step; `OpenInSessionButton` is the declarative equivalent.
+export async function openSourceInSession(
+	source: OpenInSessionSource,
+	overrides?: { previewParams?: Record<string, string> } & SeedOpts
+): Promise<void> {
+	await source.beforeOpen?.()
+	const opts = {
+		seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
+		autoSend: overrides?.autoSend ?? source.autoSend,
+		seedDomElement: overrides?.seedDomElement,
+		untilStarted: overrides?.untilStarted
+	}
+	if (source.target) {
+		await openEditorInSession(
+			source.target,
+			source.workspaceId,
+			overrides?.previewParams ?? source.previewParams,
+			opts
+		)
+		return
+	}
+	const href = source.page?.()
+	if (href) await openPageInSession(href, source.workspaceId, opts)
+}
+
+// Open a fresh session on no particular item, with `prompt` pre-filled in the
+// composer. For entry points that carry a question rather than a target (the
+// global search's "Ask AI"). Always a new session, so the seed cannot overwrite
+// a prompt the user has already typed into another one.
+export async function startSessionWithPrompt(
+	prompt: string,
+	opts?: { autoSend?: boolean }
+): Promise<void> {
+	const session = createSession()
+	setSessionDraftPrompt(session.id, prompt)
+	// An empty prompt has nothing to send; leave the composer focused instead.
+	if (opts?.autoSend && prompt.trim()) setSessionAutoSend(session.id)
+	selectSession(session.id)
+	await goto(sessionPageHref(session.id))
+}

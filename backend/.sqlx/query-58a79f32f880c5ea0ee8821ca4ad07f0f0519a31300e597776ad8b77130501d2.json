@@ -1,0 +1,63 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT script_path, table_path, kind, name, expr, filter FROM data_metric dm WHERE dm.workspace_id = $1 AND ($2::text IS NULL OR dm.table_path = $2) AND ($3::text IS NULL OR dm.script_path = $3 OR dm.script_path LIKE $4) AND ($6::text IS NULL OR (dm.table_path, dm.kind, dm.name, dm.script_path) > ($6, $7, $8, $9)) AND ( $10 OR dm.script_path = ANY($11) OR EXISTS ( SELECT 1 FROM unnest($12::text[]) AS pfx WHERE dm.script_path = pfx OR left(dm.script_path, length(pfx) + 1) = pfx || '/' ) ) AND EXISTS ( SELECT 1 FROM script s WHERE s.workspace_id = dm.workspace_id AND s.path = dm.script_path AND s.archived = false AND s.deleted = false ) ORDER BY dm.table_path, dm.kind, dm.name, dm.script_path LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "table_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "expr",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "filter",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "58a79f32f880c5ea0ee8821ca4ad07f0f0519a31300e597776ad8b77130501d2"
+}

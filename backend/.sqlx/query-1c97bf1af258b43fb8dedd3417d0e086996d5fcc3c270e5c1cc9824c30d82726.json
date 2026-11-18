@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE usr SET workspace_role = $1, operator = $2 WHERE username = $3 AND workspace_id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Bool",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1c97bf1af258b43fb8dedd3417d0e086996d5fcc3c270e5c1cc9824c30d82726"
+}

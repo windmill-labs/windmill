@@ -153,6 +153,10 @@ impl From<anyhow::Error> for Error {
 impl From<sqlx::Error> for Error {
     #[track_caller]
     fn from(e: sqlx::Error) -> Self {
+        if crate::db::is_stale_cached_plan(&e) {
+            tracing::warn!("a schema change invalidated cached statements, reopening the database connections: {e}");
+            crate::db::retire_connections_opened_before_now();
+        }
         Self::SqlErr { error: e, location: prettify_location(std::panic::Location::caller()) }
     }
 }
@@ -247,9 +251,47 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
     From::from(e)
 }
 
-impl IntoResponse for Error {
-    fn into_response(self) -> axum::response::Response {
-        let status = match self {
+/// Render a `tokio_postgres` error for a user-facing message.
+///
+/// The pinned rust-postgres build prints only the error *kind* in its `Display`
+/// impl, so `format!("{e}")` on one of these yields the useless `db error` and
+/// drops the Postgres message. Interpolate errors from a `tokio_postgres::Client`
+/// through this instead.
+pub fn pg_error_message(e: &tokio_postgres::Error) -> String {
+    match e.as_db_error() {
+        Some(db_err) => format_db_error(db_err.message(), db_err.detail(), db_err.hint()),
+        // Non-database failures (io, tls, protocol) keep their message in the cause.
+        None => error_source_chain(e),
+    }
+}
+
+fn format_db_error(message: &str, detail: Option<&str>, hint: Option<&str>) -> String {
+    let mut msg = message.to_string();
+    if let Some(detail) = detail {
+        msg.push_str(&format!(" ({detail})"));
+    }
+    if let Some(hint) = hint {
+        msg.push_str(&format!(". Hint: {hint}"));
+    }
+    msg
+}
+
+/// `e` followed by each of its sources, `: `-separated. The result is meant for
+/// users, and a `reqwest::Error` renders its request URL: never pass one built
+/// from a URL carrying credentials in its userinfo.
+pub fn error_source_chain(e: &dyn std::error::Error) -> String {
+    let mut msg = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        msg.push_str(&format!(": {cause}"));
+        source = cause.source();
+    }
+    msg
+}
+
+impl Error {
+    pub fn status_code(&self) -> axum::http::StatusCode {
+        match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) | Self::PermissionDenied(_) => axum::http::StatusCode::FORBIDDEN,
@@ -259,13 +301,23 @@ impl IntoResponse for Error {
             | Self::JsonErr(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             Self::BadGateway(_) => axum::http::StatusCode::BAD_GATEWAY,
-            Self::Generic(status_code, _) => status_code,
+            Self::Generic(status_code, _) => *status_code,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-        };
+        }
+    }
+}
+
+impl IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        let status = self.status_code();
 
         let e = &self;
 
-        if matches!(status, axum::http::StatusCode::NOT_FOUND) {
+        // A refused turn is as expected as a miss: the chat follows the turn that refused it.
+        if matches!(
+            status,
+            axum::http::StatusCode::NOT_FOUND | axum::http::StatusCode::CONFLICT
+        ) {
             tracing::warn!(message = e.to_string());
         } else {
             tracing::error!(message = e.to_string(), error = ?e);
@@ -418,5 +470,57 @@ mod tests {
         // Rust `Debug` syntax.
         let rendered = Error::JsonErr(v).to_string();
         assert_eq!(rendered, "[\n  1,\n  2,\n  3\n]");
+    }
+
+    #[test]
+    fn db_error_renders_message_with_detail_and_hint() {
+        assert_eq!(
+            super::format_db_error("permission denied for schema public", None, None),
+            "permission denied for schema public"
+        );
+        assert_eq!(
+            super::format_db_error("insert violates foreign key", Some("Key (id)=(1)"), None),
+            "insert violates foreign key (Key (id)=(1))"
+        );
+        assert_eq!(
+            super::format_db_error(
+                "column does not exist",
+                None,
+                Some("Perhaps you meant \"b\"")
+            ),
+            "column does not exist. Hint: Perhaps you meant \"b\""
+        );
+    }
+
+    #[test]
+    fn non_db_error_walks_the_source_chain() {
+        #[derive(Debug)]
+        struct Layer(&'static str, Option<Box<Layer>>);
+        impl std::fmt::Display for Layer {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.0)
+            }
+        }
+        impl std::error::Error for Layer {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                self.1
+                    .as_ref()
+                    .map(|c| c.as_ref() as &(dyn std::error::Error + 'static))
+            }
+        }
+
+        // The pinned rust-postgres build renders only the kind, so everything
+        // actionable is in the causes: they must all reach the message.
+        let err = Layer(
+            "error connecting to server",
+            Some(Box::new(Layer(
+                "tcp connect error",
+                Some(Box::new(Layer("timed out", None))),
+            ))),
+        );
+        assert_eq!(
+            super::error_source_chain(&err),
+            "error connecting to server: tcp connect error: timed out"
+        );
     }
 }

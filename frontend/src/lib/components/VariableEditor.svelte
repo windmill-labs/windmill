@@ -1,33 +1,90 @@
 <script lang="ts">
-	import { VariableService, WorkspaceService } from '$lib/gen'
-	import { createEventDispatcher, untrack } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { VariableService, WorkspaceService, type ListableVariable } from '$lib/gen'
+	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
+	import {
+		clearPageDrawerAnchor,
+		pageDrawerSessionSource,
+		setPageDrawerAnchor
+	} from './sessions/pageDrawerSession'
+	import { VARIABLES_PATH } from './sessions/previewPaths'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { canWrite } from '$lib/utils'
+	import { canEditItem } from '$lib/editRights'
+	import { userWorkspaces } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { Save } from 'lucide-svelte'
 	import VariableForm from './VariableForm.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { resource } from 'runed'
-	import { getUserExt } from '$lib/user'
-	import type { UserExt } from '$lib/stores'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import { UserDraft, draftValuesEqual, type UserDraftHandle } from '$lib/userDraft.svelte'
 	import LocalDraftBanner from './LocalDraftBanner.svelte'
+	import DraftConflictAlert from './DraftConflictAlert.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { useDraftConflictSession } from '$lib/draftConflictSession.svelte'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { isExternalRef } from '$lib/externalSecretRef'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const dispatch = createEventDispatcher()
 
+	// Subset of VariableDraftState (copilot/chat/global/workspaceItems.ts) — the same
+	// localStorage rows back both, so a field this shape omits is dropped on save.
 	type VariableState = {
 		path: string
 		variable: { value: string; is_secret: boolean; description: string }
 		labels: string[] | undefined
 		wsSpecific: boolean
+		value_valid_until?: string
 	}
+
+	// The deployed baseline every dirty check and save diff runs against: a field it
+	// leaves out reads as unchanged, so its edits are never sent.
+	function deployedVariableState(v: ListableVariable): VariableState {
+		return {
+			path: v.path,
+			variable: {
+				value: v.value ?? '',
+				is_secret: v.is_secret,
+				description: v.description ?? ''
+			},
+			labels: v.labels ?? undefined,
+			wsSpecific: v.ws_specific ?? false,
+			value_valid_until: v.value_valid_until ?? undefined
+		}
+	}
+
+	// The "current" workspace this editor defaults New/Edit actions to. Session
+	// editors pass their acting workspace so secrets are created/updated there
+	// rather than in the navigation workspace.
+	let {
+		workspace = undefined,
+		inline = false,
+		onClose = undefined,
+		onSaved = undefined
+	}: {
+		workspace?: string
+		/** Render in place, filling the parent, with no drawer or close button — for a host
+		 * that gives the editor a whole pane. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
+		/** Fires once a save lands, with the path the variable now lives at in `workspace` —
+		 * not in the workspace-specific version selected, which can be another's. */
+		onSaved?: (path: string) => void
+	} = $props()
+	// Sole ambient read in this file: the acting workspace is an input, and only its
+	// default comes from the navigation store.
+	let curWs = $derived(workspace ?? $operatingWorkspace)
 
 	let editPath: string | undefined = $state(undefined)
 
@@ -37,12 +94,16 @@
 	// releasing them on component teardown. `states` indexes the resulting
 	// handles by workspace ID for ergonomic lookup downstream.
 	let workspaceSpecs = $state<Array<{ ws: string; defaultValue: VariableState }>>([])
+	// Plain objects keyed by workspace id, so an id that is also an `Object.prototype` key
+	// (`constructor`, …) reads as already present and the variable never loads. Such ids are
+	// deliberately unsupported: too unlikely to be worth guarding every read.
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let extraPerms: Record<string, Record<string, boolean>> = $state({})
-	let perWsUser: Record<string, UserExt | undefined> = $state({})
+	let oauthLinked: Record<string, boolean> = $state({})
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
+	const acting = useActingUser(() => selected)
 
 	const handlesArray = UserDraft.useMany<VariableState>(() =>
 		workspaceSpecs.map((s) => ({
@@ -86,16 +147,145 @@
 	const MAX_VARIABLE_LENGTH = 10000
 	const edit = $derived(editPath !== undefined)
 	const initialPath = $derived(editPath ?? '')
+	// `selected`, not `curWs`: WsSpecificVersions re-points this drawer at another
+	// workspace's version of the variable, and the session must act on the one the
+	// user is looking at.
+	const sessionSource = $derived(
+		pageDrawerSessionSource(VARIABLES_PATH, editPath, selected ?? curWs)
+	)
 	const current = $derived(selected ? states[selected]?.draft : undefined)
-	const can_write = $derived.by(() => {
+	// `undefined` until the selected workspace's permissions and acting user have both
+	// landed — a pending verdict is neither a grant nor the denial the read-only alert
+	// announces, so the two must stay distinguishable.
+	const can_write: boolean | undefined = $derived.by(() => {
 		if (!selected || !edit) return true
 		const perms = extraPerms[selected]
-		if (!perms) return true
-		return canWrite(editPath ?? '', perms, perWsUser[selected] ?? $userStore)
+		if (!perms || !acting.resolved(selected)) return undefined
+		return canEditVariableIn(selected, perms)
 	})
+	function canEditVariableIn(ws: string, perms: Record<string, boolean>): boolean {
+		const user = acting.in(ws)
+		const caps = capabilitiesIn(
+			user,
+			$userWorkspaces.find((w) => w.id === ws)
+		)
+		return canEditItem('variable', editPath ?? '', perms, user, caps)
+	}
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
 	)
+
+	/** Scoped by `selected` so switching workspace-specific versions is a new session. Ended on top
+	 *  of that by every entry point and by the teardown, since reopening the same variable reuses
+	 *  this component. */
+	const conflictSession = useDraftConflictSession(() => selected)
+	function endEditingSession(): void {
+		conflictSession.end()
+	}
+	onDestroy(endEditingSession)
+	const resolvingConflict = $derived(conflictSession.busy)
+	/** The server refused this tab's autosave because the row moved under it: another tab, or the
+	 *  AI chat, which writes these drafts too. Nothing typed here reaches the server until the user
+	 *  picks a version, and the unsaved-changes banner says the opposite — that the edits are held
+	 *  as a draft — so without this they are told their work is safe while it is being dropped. */
+	const draftConflict = $derived(
+		edit && selected && editPath
+			? UserDraftDbSyncer.getConflict({
+					workspace: selected,
+					itemKind: 'variable',
+					path: editPath
+				}).conflict
+			: undefined
+	)
+
+	async function resolveDraftConflict(keepMine: boolean): Promise<void> {
+		const ws = selected
+		const p = editPath
+		if (!ws || !p || resolvingConflict) return
+		const query = { workspace: ws, itemKind: 'variable' as const, path: p }
+		const token = conflictSession.start()
+		const stillOurs = () => conflictSession.holds(token) && selected === ws
+		try {
+			if (keepMine) {
+				// Settle the key first: an ordinary autosave still queued would displace the forced
+				// write below, and being conditional it would be refused — so "Keep mine" would
+				// finish without keeping anything and leave the alert standing.
+				await UserDraftDbSyncer.quiesce(query)
+				// A resolution belongs to the session that started it. One that outlives its editor
+				// stops here rather than writing on: whatever replaced it — another session on the
+				// same draft, or its own resolution — owns the key now, and the edit this one was
+				// keeping is still parked for a later flush either way.
+				if (!stillOurs()) return
+				// A parked `null` is this tab's "no draft any more" — a discard, or an edit that
+				// landed back on the deployed value. Keeping that means removing the row, not
+				// writing the baseline back as a draft with no dirty banner to discard it through.
+				const parked = UserDraftDbSyncer.peekPending(query)
+				const mine = parked?.value === null ? null : $state.snapshot(states[ws]?.draft)
+				// Forced, so it goes over the row that refused us, and its response reseeds
+				// `last_sync` so the next ordinary save is conditional again.
+				if (mine !== undefined) await UserDraftDbSyncer.overwrite({ ...query, value: mine })
+				// Say so rather than leave the alert up with no explanation: a write displaced by
+				// something typed meanwhile can still lose the race.
+				if (UserDraftDbSyncer.getConflict(query).conflict) {
+					sendUserToast('Could not keep your version — try again', true)
+				}
+				return
+			}
+			// Settle the key BEFORE reading, so what comes back is the version the server is left
+			// holding: a write this tab started can still be in flight — a forced one it walked
+			// away from included — and a response fetched past it describes a version about to be
+			// replaced, which would then be seeded along with its already-stale `last_sync`.
+			// Nothing is given up by waiting; `quiesce` only stops the pipeline.
+			await UserDraftDbSyncer.quiesce(query)
+			if (!stillOurs()) return
+			// Read BEFORE giving anything up: until the server has answered, the refused payload is
+			// still the only copy of this tab's edit, and the conflict is still true.
+			const v = await VariableService.getVariable({
+				workspace: ws,
+				path: p,
+				decryptSecret: false,
+				getDraft: true
+			})
+			const deployedState = deployedVariableState(v)
+			// Everything below writes shared editor state, so first make sure it is still this
+			// variable's: the drawer stays closable while the read is out, and another variable
+			// opened meanwhile would otherwise get this one's baseline — and with it this one's
+			// path as its save target.
+			if (!stillOurs()) return
+			// Again, because the form stayed editable while the read was out: `quiesce` settles what
+			// is running when it is called, not the key for the rest of the resolution, so a
+			// keystroke since can have started a save of its own. Left running, its rejection lands
+			// after the baseline below and raises the conflict this just resolved.
+			await UserDraftDbSyncer.quiesce(query)
+			if (!stillOurs()) return
+			// Now, and not in `quiesce`: the refused payload belongs to the version being replaced,
+			// but until this point it was still the only copy of the edit, and a resolution that
+			// gave up before here has to leave it behind.
+			UserDraftDbSyncer.dropPending(query)
+			UserDraftDbSyncer.clearConflict(query)
+			initialStates[ws] = structuredClone(deployedState)
+			// Everything else the load path takes from this same response. The variable can have
+			// been deleted, recreated, or had its permissions changed while the conflict stood,
+			// and these decide create-vs-update and write access — so refreshing only what is
+			// displayed would leave those deciding on the version the user just replaced.
+			existedInitially[ws] = !(v as any).no_deployed
+			extraPerms[ws] = v.extra_perms ?? {}
+			oauthLinked[ws] = v.account != null
+			UserDraftDbSyncer.recordRemoteSync(query, (v as any).draft_saved_at)
+			UserDraft.seed(
+				'variable',
+				p,
+				((v as any).draft as VariableState | undefined) ?? deployedState,
+				{ workspace: ws }
+			)
+		} catch (e) {
+			// Nothing was given up above, so the conflict stands and the edit is still here to
+			// resolve again — which is the whole point of reading first.
+			sendUserToast(`Could not load the other version: ${e}`, true)
+		} finally {
+			conflictSession.finish(token)
+		}
+	}
 
 	// The list-page `*` hint is owned by UserDraftDbSyncer (set on save, cleared
 	// on delete). The editor only CLEARS it — a workspace at the deployed
@@ -119,9 +309,7 @@
 	// that case.
 	const selectedDirty = $derived(!!selected && dirtyWorkspaces.includes(selected))
 	const otherDirty = $derived(
-		dirtyWorkspaces.length == 1
-			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
-			: dirtyWorkspaces
+		dirtyWorkspaces.length == 1 ? dirtyWorkspaces.filter((ws) => ws !== curWs) : dirtyWorkspaces
 	)
 	const dirtyValid = $derived(
 		dirtyWorkspaces.every((ws) => {
@@ -137,7 +325,7 @@
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const perms = extraPerms[ws]
-			return !perms || canWrite(editPath ?? '', perms, perWsUser[ws] ?? $userStore)
+			return !perms || canEditVariableIn(ws, perms)
 		})
 	)
 
@@ -148,57 +336,61 @@
 		if (!ws || !p) return
 		if (ws in states) return
 		untrack(() => {
-			Promise.all([
-				VariableService.getVariable({
-					workspace: ws,
-					path: p,
-					decryptSecret: false,
-					getDraft: true
-				}),
-				getUserExt(ws)
-			]).then(([v, user]) => {
+			VariableService.getVariable({
+				workspace: ws,
+				path: p,
+				decryptSecret: false,
+				getDraft: true
+			}).then((v) => {
 				// `.draft` already holds the editor's `VariableState` shape.
 				const savedDraftState = (v as any).draft as VariableState | undefined
 				// Deployed baseline as the dirty-check reference, so the banner
 				// compares draft-vs-deployed and fires immediately when a draft exists.
-				const deployedState: VariableState = {
-					path: v.path,
-					variable: {
-						value: v.value ?? '',
-						is_secret: v.is_secret,
-						description: v.description ?? ''
-					},
-					labels: v.labels ?? undefined,
-					wsSpecific: v.ws_specific ?? false
-				}
-				// Open with the saved draft if present, else the deployed.
-				const s: VariableState = savedDraftState ?? deployedState
+				const deployedState = deployedVariableState(v)
+				// A refused save leaves this tab's own version parked. `.draft` is the version
+				// that refused it, so opening on that would quietly drop the edit the alert is
+				// about and leave "Keep mine" offering to keep the other one.
+				const conflictQuery = { workspace: ws, itemKind: 'variable' as const, path: p }
+				const refused = UserDraftDbSyncer.getConflict(conflictQuery).conflict
+					? UserDraftDbSyncer.peekPending(conflictQuery)
+					: undefined
+				// A parked `null` is this tab's "no draft any more", which on screen is the
+				// deployed value.
+				const refusedDraft = (refused?.value ?? undefined) as VariableState | undefined
+				// Open with this tab's refused version if there is one, else the saved draft,
+				// else the deployed.
+				const s: VariableState = refused
+					? (refusedDraft ?? deployedState)
+					: (savedDraftState ?? deployedState)
 				ensureHandle(ws, s)
 				initialStates[ws] = structuredClone(deployedState)
 				// Draft-only paths (`no_deployed`) have no row — saving must
 				// CREATE, not update (update 404s).
 				existedInitially[ws] = !(v as any).no_deployed
 				extraPerms[ws] = v.extra_perms ?? {}
-				perWsUser[ws] = user
+				oauthLinked[ws] = v.account != null
 			})
 		})
 	})
 
 	function reset() {
+		// A new session starts here, so anything still running for the last one is spent.
+		endEditingSession()
 		// Clearing workspaceSpecs triggers useMany's reconcile to release
 		// every acquired entry. The $derived `states` then collapses to {}.
 		workspaceSpecs = []
 		initialStates = {}
 		existedInitially = {}
 		extraPerms = {}
-		perWsUser = {}
+		oauthLinked = {}
 		pathError = ''
+		acting.forgetFailures()
 	}
 
 	export function initNew(): void {
 		reset()
 		editPath = undefined
-		const ws = $workspaceStore!
+		const ws = curWs!
 		const s: VariableState = {
 			path: '',
 			variable: { value: '', is_secret: true, description: '' },
@@ -215,8 +407,9 @@
 	export function editVariable(edit_path: string): void {
 		reset()
 		editPath = edit_path
-		selected = $workspaceStore!
+		selected = curWs!
 		drawer?.openDrawer()
+		setPageDrawerAnchor(VARIABLES_PATH, edit_path)
 	}
 
 	async function loadSecret(): Promise<void> {
@@ -233,8 +426,28 @@
 		form?.setCode(getV.value ?? '')
 	}
 
+	// Re-securing hides the deployed value again, back to the state before it was loaded.
+	// A value the user typed is theirs to keep: it is what the next save deploys.
+	function onSecretChange(isSecret: boolean): void {
+		if (!isSecret || !selected || !existedInitially[selected]) return
+		const s = states[selected]?.draft
+		const ini = initialStates[selected]
+		// A reference was never loaded, and its baseline is what tells save() to replace it.
+		if (!s || !ini?.variable.is_secret || isExternalRef(ini.variable.value)) return
+		if (s.variable.value !== '' && s.variable.value !== ini.variable.value) return
+		s.variable.value = ''
+		ini.variable.value = ''
+		form?.setCode('')
+	}
+
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
+		const savedPath = (curWs ? states[curWs]?.draft?.path : undefined) ?? editPath ?? ''
+		// Before the loop rewrites the baselines; once per save, not per workspace.
+		const expiryChanged = dirty.filter(
+			(ws) => initialStates[ws]?.value_valid_until !== states[ws].draft?.value_valid_until
+		)
+		const expiryNowSet = expiryChanged.some((ws) => !!states[ws].draft?.value_valid_until)
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
@@ -245,12 +458,20 @@
 						path: ini.path,
 						requestBody: {
 							path: ini.path != s.path ? s.path : undefined,
-							value: s.variable.value == '' ? undefined : s.variable.value,
+							// An empty value keeps the stored one only while the baseline is empty too
+							// (a secret never loaded): clearing a value or reference that was shown saves it empty.
+							value:
+								s.variable.value == '' && ini.variable.value == '' ? undefined : s.variable.value,
 							is_secret:
 								ini.variable.is_secret != s.variable.is_secret ? s.variable.is_secret : undefined,
 							description:
 								ini.variable.description != s.variable.description
 									? s.variable.description
+									: undefined,
+							// Tri-state: absent leaves the stored date alone, `null` clears it.
+							value_valid_until:
+								ini.value_valid_until != s.value_valid_until
+									? (s.value_valid_until ?? null)
 									: undefined,
 							labels: s.labels,
 							ws_specific: s.wsSpecific
@@ -264,6 +485,7 @@
 							value: s.variable.value,
 							is_secret: s.variable.is_secret,
 							description: s.variable.description,
+							value_valid_until: s.value_valid_until,
 							labels: s.labels,
 							ws_specific: s.wsSpecific
 						}
@@ -280,8 +502,14 @@
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
 			}
+			if (expiryChanged.length > 0) {
+				logFeatureUsage('variable_expiration', 'expiry_edited', {
+					key: expiryNowSet ? 'set' : 'cleared'
+				})
+			}
 			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
 			dispatch('create')
+			onSaved?.(savedPath)
 			drawer?.closeDrawer()
 		} catch (err) {
 			sendUserToast(`Could not save variable: ${err.body}`, true)
@@ -289,14 +517,48 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="50rem">
+{#if inline}
+	{@render content()}
+{:else}
+	<Drawer
+		bind:this={drawer}
+		size="50rem"
+		on:close={() => {
+			endEditingSession()
+			clearPageDrawerAnchor(VARIABLES_PATH)
+		}}
+	>
+		{@render content()}
+	</Drawer>
+{/if}
+
+{#snippet content()}
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
-		on:close={drawer?.closeDrawer}
+		bannerReserved={edit}
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		on:close={() => {
+			// Inline has no drawer to emit a close, so the session ends here instead.
+			if (inline) {
+				endEditingSession()
+				onClose?.()
+			} else {
+				drawer?.closeDrawer()
+			}
+		}}
 	>
 		{#snippet banner()}
+			{#if draftConflict}
+				<DraftConflictAlert
+					busy={resolvingConflict}
+					onReload={() => void resolveDraftConflict(false)}
+					onOverwrite={() => void resolveDraftConflict(true)}
+				/>
+			{/if}
 			<LocalDraftBanner
 				show={edit && selectedDirty}
+				reserveSpace={edit}
 				getDeployed={() => (selected ? initialStates[selected] : undefined)}
 				getCurrent={() => current}
 				onDiscard={() => {
@@ -308,8 +570,8 @@
 				disabled={!can_write}
 			/>
 		{/snippet}
-		<div class="flex flex-col gap-8">
-			{#if !can_write}
+		<div class="flex flex-col gap-8 pb-2">
+			{#if can_write === false}
 				<Alert type="warning" title="Only read access">
 					You only have read access to this resource and cannot edit it
 				</Alert>
@@ -321,7 +583,9 @@
 				</Alert>
 			{/if}
 
-			{#if current}
+			<!-- Held back until there is a verdict: rendering the form against a pending `can_write`
+			would flash read-only controls at someone who can in fact write. -->
+			{#if current && can_write !== undefined}
 				{#key current}
 					<VariableForm
 						bind:this={form}
@@ -330,23 +594,30 @@
 						bind:variable={current.variable}
 						bind:labels={current.labels}
 						bind:wsSpecific={current.wsSpecific}
+						bind:valueValidUntil={current.value_valid_until}
 						{initialPath}
 						deployTo={deployTo.current}
-						{can_write}
+						can_write={can_write === true}
 						{edit}
 						onLoadSecret={loadSecret}
+						{onSecretChange}
+						deployedSecret={!!selected &&
+							!!existedInitially[selected] &&
+							!!initialStates[selected]?.variable.is_secret}
+						deployedRef={!!selected &&
+							!!existedInitially[selected] &&
+							isExternalRef(initialStates[selected]?.variable.value ?? '')}
+						workspace={selected}
+						actingUser={acting.in(selected) ?? null}
+						oauthLinked={!!selected && !!oauthLinked[selected]}
 					/>
 				{/key}
 			{/if}
 		</div>
 		{#snippet actions()}
-			{#if edit && $workspaceStore}
-				<WsSpecificVersions
-					kind="variable"
-					workspaceId={$workspaceStore}
-					{initialPath}
-					bind:selected
-				/>
+			<OpenInSessionButton source={sessionSource} />
+			{#if edit && curWs}
+				<WsSpecificVersions kind="variable" workspaceId={curWs} {initialPath} bind:selected />
 			{/if}
 			<Button
 				on:click={save}
@@ -359,4 +630,4 @@
 			</Button>
 		{/snippet}
 	</DrawerContent>
-</Drawer>
+{/snippet}

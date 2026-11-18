@@ -1,78 +1,154 @@
+<script lang="ts" module>
+	import { lazyModule, prefetchLazyModulesWhenIdle } from '$lib/lazyModule.svelte'
+
+	const s3FilePickerModule = lazyModule(() => import('$lib/components/S3FilePicker.svelte'))
+	const createWorkspaceModule = lazyModule(
+		() => import('$lib/components/workspaceSettings/CreateWorkspaceInner.svelte')
+	)
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
+	import { isMac, type Item } from '$lib/utils'
 
 	import {
 		AppService,
 		AssetService,
 		FlowService,
 		OpenAPI,
+		ResourceService,
 		ScriptService,
 		SettingService,
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
-	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
+	import { capitalize, classNames, debounce, getModifierKey, sendUserToast } from '$lib/utils'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import {
+		isMenuHidden,
+		isSessionPreviewFrame,
+		rememberMenuHidden
+	} from '$lib/components/sessions/sessionMode.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
+	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
+	import SidebarUsage from '$lib/components/sidebar/SidebarUsage.svelte'
+	import SidebarScrollArea from '$lib/components/sidebar/SidebarScrollArea.svelte'
+	import AiChatsSection from '$lib/components/sidebar/AiChatsSection.svelte'
+	import FavoritesSection from '$lib/components/sidebar/FavoritesSection.svelte'
+	import AccountSetupBanner from '$lib/components/sidebar/AccountSetupBanner.svelte'
+	import FinishAccountSetup from '$lib/components/sidebar/FinishAccountSetup.svelte'
+	import { accountSetup } from '$lib/components/sidebar/accountSetup.svelte'
+	import { SIDEBAR_BG, SIDEBAR_BG_DARK } from '$lib/components/sidebar/sidebarChrome'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
+	import UpdateDevWorkspaceModal from '$lib/components/UpdateDevWorkspaceModal.svelte'
 	import {
 		enterpriseLicense,
-		isPremiumStore,
 		superadmin,
-		usageStore,
-		workspaceUsageStore,
 		userStore,
 		workspaceStore,
+		userWorkspaces,
+		usersWorkspaceStore,
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
+		hubBaseUrlKnown,
 		wsBaseUrlStore,
 		disableHubStore,
 		usedTriggerKinds,
 		devopsRole,
 		whitelabelNameStore,
 		globalDbManagerDrawer,
-		globalForkModal
+		instanceSettingsSelectedTab,
+		globalForkModal,
+		globalS3FilePickerExplorer,
+		nonMemberWorkspaces,
+		setNonMemberWorkspaces,
+		clearNonMemberWorkspaces,
+		roleCapabilities,
+		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
-	import { goto } from '$lib/navigation'
-	import UserSettings from '$lib/components/UserSettings.svelte'
-	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
+	import { goto, isNewTabClick } from '$lib/navigation'
+	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
+	import type UserSettings from '$lib/components/UserSettings.svelte'
+	import type SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/state'
-	import FavoriteMenu, {
+	import {
 		favoriteManager,
 		getFavoriteHref,
 		getFavoriteLabel
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
+	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
+	import {
+		PanelLeft,
+		PanelLeftClose,
+		PanelLeftOpen,
+		Play,
+		Search,
+		ArrowLeft,
+		Star,
+		MessagesSquare,
+		House
+	} from 'lucide-svelte'
+	import { homeRowLearned, sidebarPrefs } from '$lib/components/sidebar/sidebarPrefs.svelte'
+	import { Button } from '$lib/components/common'
+	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
+	import {
+		forgetLastSession,
+		optimisticUser,
+		readSessionHint,
+		rememberUser
+	} from '$lib/lastSession'
+	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
-	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
-	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
+	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
+	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
+	import ModeButtonFlash from '$lib/components/sidebar/ModeButtonFlash.svelte'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
+	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
+	import { BAR_HEIGHT_PX, pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
+	import type GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
+	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
-	import { migrateLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
+	import { createUsageResources, registerUsageResources } from '$lib/usage.svelte'
+	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
+	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
-	import { setContext, untrack } from 'svelte'
-	import { base } from '$app/paths'
-	import { Menubar } from '$lib/components/meltComponents'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
+	import AppLinksModal from '$lib/components/itemSettings/AppLinksModal.svelte'
+	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
+	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
+	import { onDestroy, onMount, setContext, tick, untrack } from 'svelte'
+	import { cubicOut } from 'svelte/easing'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
+	import {
+		isPreviewListPath,
+		parsePreviewItemRoute,
+		barePath
+	} from '$lib/components/sessions/previewPaths'
+	import { sidebarSessionsShown } from '$lib/components/sessions/sidebarList.svelte'
+	import { noteArrival } from '$lib/components/sessions/sessionSwitch.svelte'
+	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
+	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
+	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
-	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
+	import type S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
-	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
+	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
+	import { recordWorkspaceVisit } from '$lib/utils/recentWorkspaces'
+	import { homeSnapshotShown } from '$lib/homeSnapshot'
+	import { persistedValue } from '$lib/persistedResource.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -85,17 +161,201 @@
 
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
+	// Owned here because the logged-in layout is the app's lifetime: it outlives every
+	// in-app navigation, so the counters and tier resolve once per workspace rather than
+	// per mounting component, and no detached `$effect.root` is needed to hold them.
+	registerUsageResources(
+		createUsageResources({
+			workspace: () => $workspaceStore,
+			user: () => $userStore
+		})
+	)
 	let menuOpen = $state(false)
 	let globalSearchModal: GlobalSearchModal | undefined = $state(undefined)
-	let isCollapsed = $state(false)
+	// Persisted nav-rail collapse preference. A deliberate collapse writes to it —
+	// the manual toggle and a drag past the collapse threshold. The contextual
+	// auto-collapse (app-mode routes, narrow widths) mutates the in-memory
+	// `collapsedState` without persisting, so it stays transient and never gets
+	// "stuck" collapsed across reloads.
+	const collapsePref = useLocalStorageValue<boolean>('nav_menu_collapsed', false, 'boolean')
+	let collapsedState = $state(collapsePref.val)
+	// Operators never get the icon-only rail: their docked sidebar is always expanded (a sidebar
+	// they want out of the way is what detaching is for).
+	let isCollapsed = $derived(collapsedState && $roleCapabilities.code)
+	// Expand on hover: the icon rail widens over the page while the pointer is on it. The page
+	// keeps the icon rail's offset, so nothing beside the rail moves.
+	const hoverExpandPref = useLocalStorageValue<boolean>(
+		'nav_menu_expand_on_hover',
+		false,
+		'boolean'
+	)
+	let expandsOnHover = $derived(isCollapsed && hoverExpandPref.val)
+	let hoverExpandedState = $state(false)
+	let hoverExpanded = $derived(expandsOnHover && hoverExpandedState)
+
+	// Resizable desktop rail, sized in REM so it scales with the root font-size the
+	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px on screens
+	// ≥1760px (app.css), which grows the rem-based button content; a fixed-px rail would
+	// not grow with it and the content would overflow. SIDEBAR_MIN_REM is the default
+	// expanded width (the old w-52); the handle only widens from there. Dragging the
+	// pointer into the snap zone at the screen's left edge collapses the rail.
+	const SIDEBAR_MIN_REM = 13
+	const SIDEBAR_COLLAPSED_REM = 3
+	const SIDEBAR_SNAP_COLLAPSE_REM = 6
+	// Root font-size in px, used to convert the pointer's clientX (px) into rem.
+	function rootFontPx(): number {
+		if (!BROWSER) return 16
+		const px = parseFloat(getComputedStyle(document.documentElement).fontSize)
+		return Number.isFinite(px) && px > 0 ? px : 16
+	}
+	const widthPref = useLocalStorageValue<number>('nav_menu_width_rem', SIDEBAR_MIN_REM, 'number')
+	// A non-finite stored width (e.g. NaN from a corrupt entry) must never reach the
+	// `style:width` binding: `Math.max(13, NaN)` is NaN, which renders as the invalid
+	// `width: NaNrem` and collapses the fixed rail to content width, mangling every
+	// menu button. Clamp defensively.
+	function clampSidebarWidth(v: number): number {
+		return Number.isFinite(v) ? Math.max(SIDEBAR_MIN_REM, v) : SIDEBAR_MIN_REM
+	}
+	const initialSidebarWidth = clampSidebarWidth(widthPref.val)
+	let sidebarWidth = $state(initialSidebarWidth)
+	// Heal a corrupt stored value so it stops breaking the rail on every reload.
+	if (widthPref.val !== initialSidebarWidth) widthPref.val = initialSidebarWidth
+	let resizingSidebar = $state(false)
+	// Width (in rem) the content offset must track: the icon strip when collapsed,
+	// the user-chosen width otherwise.
+	let railWidth = $derived(isCollapsed ? SIDEBAR_COLLAPSED_REM : sidebarWidth)
+	// True for one transition's length after a drag crosses the snap zone's edge, so
+	// the collapse/expand eases before the rail goes back to tracking the pointer.
+	let sidebarSnapping = $state(false)
+	let sidebarSnapTimer: ReturnType<typeof setTimeout> | undefined
+	// Width transition shared by the rail and the content offset: none while a drag
+	// tracks the pointer 1:1, a plain ease for the toggle and the snap.
+	let sidebarTransitionClass = $derived(
+		resizingSidebar && !sidebarSnapping ? '' : 'transition-all duration-200 ease-in-out'
+	)
+	// The band spans two edges that different things move. Its left follows the rail, so it
+	// eases with it; its right follows a splitter the page owns (a session's side panel),
+	// which tracks the pointer. Easing that one leaves the band lying over the panel it is
+	// meant to stop beside — an empty strip across that panel's own header until it catches up.
+	let bandTransitionClass = $derived(
+		resizingSidebar && !sidebarSnapping ? '' : 'transition-[padding-left] duration-200 ease-in-out'
+	)
+	// Set while a drag is live so it can be torn down if the layout unmounts
+	// mid-drag (otherwise the window listeners would leak).
+	let stopSidebarResize: (() => void) | null = null
+
+	function startSidebarResize(e: PointerEvent) {
+		// One drag at a time: ignore a second concurrent pointer (multi-touch on the
+		// handle) so its window listeners can't outlive the first pointer's stop().
+		if (resizingSidebar) return
+		e.preventDefault()
+		const handle = e.currentTarget as HTMLElement
+		// Capture the pointer so events keep flowing to us even when the cursor
+		// crosses an iframe in the content area (app/session previews) — without
+		// this the drag silently stalls the moment it enters the iframe.
+		try {
+			handle.setPointerCapture(e.pointerId)
+		} catch {}
+		resizingSidebar = true
+		// Re-expanding a snap-collapsed rail restores the width it had before the drag.
+		const widthAtStart = sidebarWidth
+		const collapsedAtStart = collapsedState
+		// A rail widened by hover resizes the width it widens to and stays in its mode: it has no
+		// snap, since collapsing is what it does when the pointer leaves.
+		const hoverResize = hoverExpanded
+		// The rail is fixed at left:0, so the pointer's clientX is the width — in px.
+		// Convert to rem (the unit the rail is sized in) via the root font-size. The
+		// rail clamps at the min like a wall, until the pointer reaches the snap zone.
+		const onMove = (ev: PointerEvent) => {
+			const x = ev.clientX / rootFontPx()
+			if (hoverResize) {
+				sidebarWidth = Math.max(SIDEBAR_MIN_REM, x)
+				return
+			}
+			const collapse = x < SIDEBAR_SNAP_COLLAPSE_REM
+			// Operators have no icon-only rail to snap to, so the same gesture detaches
+			// instead: dragging the sidebar off the left edge puts it behind the handle.
+			// Detaching is not a resize, so the width the drag started from is what gets
+			// persisted — re-attaching restores the sidebar at the size it had.
+			if (collapse && !$roleCapabilities.code) {
+				sidebarWidth = widthAtStart
+				stop()
+				setDetached(true)
+				return
+			}
+			if (collapse !== collapsedState) {
+				collapsedState = collapse
+				sidebarSnapping = true
+				clearTimeout(sidebarSnapTimer)
+				sidebarSnapTimer = setTimeout(() => (sidebarSnapping = false), 200)
+			}
+			sidebarWidth = collapse ? widthAtStart : Math.max(SIDEBAR_MIN_REM, x)
+		}
+		// pointercancel (and unmount, via onDestroy) must clear the state too, or
+		// `resizingSidebar` sticks true — the overlay and handle highlight stay up
+		// and the window listeners leak.
+		const stop = () => {
+			if (!resizingSidebar) return
+			resizingSidebar = false
+			clearTimeout(sidebarSnapTimer)
+			sidebarSnapping = false
+			widthPref.val = sidebarWidth
+			if (collapsedState !== collapsedAtStart) collapsePref.val = collapsedState
+			window.removeEventListener('pointermove', onMove)
+			window.removeEventListener('pointerup', stop)
+			window.removeEventListener('pointercancel', stop)
+			try {
+				handle.releasePointerCapture(e.pointerId)
+			} catch {}
+			stopSidebarResize = null
+			if (hoverResize && !document.getElementById('sidebar')?.matches(':hover')) {
+				scheduleRailCollapse()
+			}
+		}
+		stopSidebarResize = stop
+		window.addEventListener('pointermove', onMove)
+		window.addEventListener('pointerup', stop)
+		window.addEventListener('pointercancel', stop)
+	}
+
+	onDestroy(() => stopSidebarResize?.())
+	onMount(prefetchLazyModulesWhenIdle)
+
+	// Let AI chat's 'navigate' link chips route through the app router without the
+	// tool layer importing $app/navigation.
+	$effect(() => {
+		const unregisterNavigate = registerToolDisplayActionHandler('navigate', (action) => {
+			if (action.type === 'navigate') goto(action.url)
+		})
+		return unregisterNavigate
+	})
 	let userSettings: UserSettings | undefined = $state()
 	let superadminSettings: SuperadminSettings | undefined = $state()
 	let menuHidden = $state(false)
 	let isDarkMode = useIsDarkMode()
 	let darkMode = $derived(isDarkMode.val)
 
-	const SIDEBAR_BG = '#F3F3F7'
-	const SIDEBAR_BG_DARK = '#1e232e'
+	let onSessionsPage = $derived(page.url.pathname.startsWith('/sessions'))
+	// A session's page points the bottom settings entry at the open session's own
+	// workspace. An unsent session hasn't committed one yet, so it falls back to
+	// the family root.
+	let sessionSettingsWorkspace = $derived.by(() => {
+		if (!onSessionsPage) return undefined
+		const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
+		return current?.workspace_id ?? $currentWorkspaceRootId ?? $workspaceStore ?? undefined
+	})
+	// Inside a session's preview iframe, whose rail keeps the workspace nav and no switch.
+	const embedded = BROWSER && window.self !== window.top
+
+	// A workspace that hid the assistant (`ai_config.copilot_disabled`) lists no sessions.
+	const sessionsShown = $derived(sidebarSessionsShown())
+
+	// The workspace AI config gates far more than chat (code completion, metadata generation,
+	// the "open in AI session" buttons). On the sessions route SessionWrapper loads the session's
+	// acting workspace instead, and both writing the global store would race.
+	$effect(() => {
+		if ($workspaceStore && !onSessionsPage) loadCopilot($workspaceStore)
+	})
 
 	if (page.status == 404) {
 		goto('/user/login')
@@ -109,7 +369,9 @@
 	}
 
 	function onQueryChangeAdminSettings() {
-		if (superadminSettings && page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+		const target = parseSuperadminSettingsHash(page.url.hash)
+		if (superadminSettings && target) {
+			if (target.tab) instanceSettingsSelectedTab.set(target.tab)
 			superadminSettings.openDrawer()
 		}
 	}
@@ -120,20 +382,72 @@
 			$workspaceStore = queryWorkspace
 		}
 
-		menuHidden =
-			page.url.searchParams.get('nomenubar') === 'true' ||
-			page.url.pathname.startsWith('/oauth/callback/')
+		// Pages read the same rule (a page whose only control lives in the band has to carry it
+		// itself where there is no band), so it is defined once in sessionMode.
+		rememberMenuHidden(page.url)
+		menuHidden = isMenuHidden(page.url)
 	}
+
+	// A remembered user is about to be rendered as (updateUserStore): the frames until then show
+	// nothing rather than flash "Loading user...". Known from the first render, which runs before
+	// the effect that sets the user.
+	let optimisticPending = $state(
+		(() => {
+			const ws = page.url.searchParams.get('workspace') ?? $workspaceStore
+			return !$userStore && !!ws && !!optimisticUser(ws)
+		})()
+	)
 
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
-			try {
-				sessionStorage.setItem('workspace', String(workspace))
-				localStorage.setItem('workspace', String(workspace))
-			} catch (e) {
-				console.error('Could not persist workspace to local storage', e)
+			// A preview iframe shares BOTH localStorage and sessionStorage with the
+			// top-level app (same-origin nested browsing contexts share the top-level
+			// session storage). Persisting its session-scoped workspace to either would
+			// clobber the workspace the user is actually navigating. Keep it in-memory
+			// only ($workspaceStore is still set from the ?workspace= param for the
+			// iframe's own API calls); the fork survives iframe reloads because the
+			// preview always reloads a URL that carries ?workspace= (see
+			// PreviewTabHost.reload). Only the top window owns the persisted keys.
+			if (!embedded) {
+				try {
+					sessionStorage.setItem('workspace', String(workspace))
+					localStorage.setItem('workspace', String(workspace))
+				} catch (e) {
+					console.error('Could not persist workspace to local storage', e)
+				}
+				recordWorkspaceVisit(String(workspace))
 			}
+			// Rendering as the user whoami last confirmed for this session saves its round trip on
+			// a reload; whoami below confirms or replaces them. See lastSession.ts for the binding.
+			// A task later, not now: setting the user here renders the whole page in this effect
+			// flush, ahead of the effects that send whoami and the page's other requests.
+			const last = $userStore ? undefined : optimisticUser(workspace)
+			optimisticPending = !!last
+			let answered = false
+			if (last) {
+				setTimeout(() => {
+					if (!answered && !$userStore && $workspaceStore === workspace) userStore.set(last)
+					optimisticPending = false
+				}, 0)
+			}
+			const sentWith = readSessionHint()
 			const user = await getUserExt(workspace)
+			answered = true
+			optimisticPending = false
+			// getUserExt resolves to undefined on failure, so a user is the only proof of a
+			// session: without it a cancelled SSO round trip would claim the "Last used" badge.
+			if (user) confirmPendingLoginMethod()
+			// Every workspace change starts a fetch without cancelling the one before it,
+			// so a slow response can land after a faster one for the workspace the user
+			// has since moved to. The store must describe the active workspace: letting a
+			// superseded response write would leave every role gate reading the one we left.
+			if ($workspaceStore !== workspace) {
+				return
+			}
+			// Before the user is set: the cache reads the session confirmation from its user-change
+			// hook, which runs as the user is set.
+			if (user) rememberUser(user, sentWith)
+			else forgetLastSession()
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
 			}
@@ -147,58 +461,344 @@
 			} catch (e) {
 				console.error('Could not persist username to local storage', e)
 			}
-			if (isCloudHosted() && user?.is_admin) {
-				isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
-			}
 		} else {
 			userStore.set(undefined)
 		}
 	}
 
+	// A job-detail navigation (/run/<id>) inside a preview tab should open the job in
+	// a NEW tab rather than navigate the current tab away from its page (e.g. clicking
+	// a job in the Runs tab keeps Runs put and opens the run beside it). Returns the
+	// href to open (nomenubar dropped — the preview host re-adds it) and a short label.
+	function previewRunTarget(url: URL | undefined): { href: string; label: string } | undefined {
+		if (!url) return undefined
+		const m = url.pathname.match(/\/run\/([^/?#]+)/)
+		if (!m) return undefined
+		const u = new URL(url.href)
+		u.searchParams.delete('nomenubar')
+		const id = decodeURIComponent(m[1])
+		return { href: u.pathname + u.search, label: `Run ${id.slice(0, 8)}` }
+	}
+
+	// Map a navigation target to the session editor it should open as a component,
+	// or undefined for anything without a live-editor wrapper (regular apps, pages,
+	// /get viewers). Only /edit routes — the wrappers are editors.
+	function previewEditorTarget(
+		url: URL | undefined
+	): { kind: 'script' | 'flow' | 'raw_app'; path: string } | undefined {
+		if (!url || !/\/(scripts|flows|apps_raw)\/edit\//.test(url.pathname)) return undefined
+		const route = parsePreviewItemRoute(url.pathname)
+		if (!route) return undefined
+		const kind =
+			route.kind === 'script'
+				? 'script'
+				: route.kind === 'flow'
+					? 'flow'
+					: route.raw_app
+						? 'raw_app'
+						: undefined
+		return kind ? { kind, path: route.itemPath } : undefined
+	}
+
 	beforeNavigate((navigation) => {
 		menuOpen = false
 
-		// Force page reload when navigating to /apps_raw/add or /apps_raw/edit
-		// This ensures the cross-origin isolation headers are fetched from the server
-		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
-		const toPath = navigation.to?.url.pathname
-		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
-			const currentPath = navigation.from?.url.pathname
-			// Reload if we're not on an apps_raw path, or if we're on /apps/get_raw/ (viewing a raw app)
-			// The /apps/get_raw/ path doesn't have cross-origin isolation headers, so we need to reload
-			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps_raw/get/')) {
+		// Inside a sessions-preview iframe, hand an editor-route navigation up to the
+		// parent so it mounts the in-process editor (sharing the session runtime)
+		// instead of booting a second, disconnected editor in this frame. Cancel so
+		// the heavy editor never mounts here at all.
+		if (isSessionPreviewFrame()) {
+			const target = previewEditorTarget(navigation.to?.url)
+			if (target) {
 				navigation.cancel()
-				window.location.href = navigation.to!.url.href
+				try {
+					window.parent.postMessage(
+						{ type: 'wm.session.openEditor', kind: target.kind, path: target.path },
+						window.location.origin
+					)
+				} catch {}
+				return
+			}
+			// A list page mounts in process too, where its rows open as tabs of their own.
+			const listUrl = navigation.to?.url
+			if (listUrl && isPreviewListPath(barePath(listUrl.pathname))) {
+				navigation.cancel()
+				const u = new URL(listUrl.href)
+				u.searchParams.delete('nomenubar')
+				u.searchParams.delete('workspace')
+				try {
+					window.parent.postMessage(
+						{ type: 'wm.session.openList', href: u.pathname + u.search + u.hash },
+						window.location.origin
+					)
+				} catch {}
+				return
+			}
+			const runTarget = previewRunTarget(navigation.to?.url)
+			if (runTarget) {
+				navigation.cancel()
+				try {
+					window.parent.postMessage(
+						{ type: 'wm.session.openRun', href: runTarget.href, label: runTarget.label },
+						window.location.origin
+					)
+				} catch {}
+				return
 			}
 		}
 	})
 
 	let innerWidth = $state(BROWSER ? window.innerWidth : 2000)
+	// The sidebar leaves the layout and becomes a card under the band's handle when it is
+	// detached, and below 768px, where a 13rem rail would take a third of the screen. One
+	// presentation for both: a phone gets the card the handle already opens, not a modal.
+	let useDrawer = $derived(innerWidth < 768 || navDetached.val)
+	// Hover opened the card, so the pointer leaving closes it — where there is a pointer to
+	// leave. A tap opened it on a touch screen, and it stays until it is dismissed.
+	const hoverPointer = BROWSER && window.matchMedia('(hover: hover)').matches
+	const peeksOnHover = $derived(useDrawer && hoverPointer)
+	// The peek card is a hover affordance, so it goes away when the pointer does — off the handle
+	// and off the card both. The delay is what lets the pointer cross the gap between them: they
+	// do not touch, and the leave of the one fires before the enter of the other.
+	const PEEK_CLOSE_DELAY_MS = 200
+	// Both the card and the band open menus, and a menu portals to `body` (overlayPortalTarget),
+	// so the pointer moving into one leaves the surface that opened it. A surface has to outlive
+	// its own menus or it slides out from under the one being read, so it holds while one is open,
+	// hovered or not: the way from a menu to its submenu crosses neither.
+	function menuIsOpen(): boolean {
+		return !!document.querySelector('[role="menu"]:not([hidden])')
+	}
+	// Sessions being selected for a batch action hold the surface the same way, until Done.
+	function holdsSurface(): boolean {
+		return menuIsOpen() || !!document.querySelector('[data-sessions-selecting]')
+	}
+	// Once its menus close, a surface the pointer is back on stays: its own leave closes it later.
+	function pointerOnSidebar(): boolean {
+		return !!document.querySelector(
+			'[data-nav-card]:hover, [data-nav-handle]:hover, #sidebar:hover'
+		)
+	}
+	// A click on the handle pins the card: it then outlives the pointer leaving. Only meaningful
+	// while open — every open from closed starts unpinned.
+	let menuPinned = $state(false)
+	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
+		if (!peeksOnHover || menuPinned) return
+		if (holdsSurface()) {
+			schedulePeekClose()
+			return
+		}
+		if (pointerOnSidebar()) return
+		menuOpen = false
+	}, PEEK_CLOSE_DELAY_MS)
+	// The close waits just long enough for the pointer to cross into a menu the rail opened.
+	const RAIL_HOVER_CLOSE_DELAY_MS = 80
+	const { debounced: scheduleRailCollapse, clearDebounce: cancelRailCollapse } = debounce(() => {
+		// A drag of the widened rail's edge ends outside it; the drag's end decides.
+		if (resizingSidebar) return
+		if (holdsSurface()) {
+			scheduleRailCollapse()
+			return
+		}
+		if (pointerOnSidebar()) return
+		hoverExpandedState = false
+	}, RAIL_HOVER_CLOSE_DELAY_MS)
+
+	// A page that owns the right edge from the top — a session's side panel — makes the band float
+	// and stop where that column starts, instead of running over it.
+	const floatBand = $derived(pageHeader.content?.barRightInset != null)
+
+	// The handle and the edge band both open the card this layout owns.
+	navHandleSlot.setOpener(
+		() => {
+			if (!menuOpen) menuPinned = false
+			menuOpen = true
+		},
+		{ schedule: schedulePeekClose, cancel: cancelPeekClose },
+		{
+			isOpen: () => menuOpen,
+			isPinned: () => menuPinned,
+			pin: () => (menuPinned = true),
+			close: () => (menuOpen = false)
+		}
+	)
+
+	// The open card is dismissed by any press on the page, and that press still reaches its target:
+	// a layer that caught it would cost every dismissal a second click. Only presses inside the page
+	// column count — the card itself and the menus it portals to `body` sit outside it — and the
+	// handle toggles the card itself. Capture phase, so a target that stops propagation still closes it.
+	let pageColumn: HTMLElement | undefined = $state()
+	function closeCardOnPagePress(e: PointerEvent) {
+		if (!menuOpen || !useDrawer) return
+		const target = e.target
+		if (!(target instanceof Element) || !pageColumn?.contains(target)) return
+		if (target.closest('[data-nav-handle]')) return
+		if (document.querySelector('[data-sessions-selecting]')) return
+		menuOpen = false
+	}
+	// A press inside an iframe (a session's preview) never reaches this window; focus moving into one does.
+	function closeCardOnFrameFocus() {
+		if (!menuOpen || !useDrawer) return
+		setTimeout(() => {
+			if (
+				document.activeElement instanceof HTMLIFrameElement &&
+				!document.querySelector('[data-sessions-selecting]')
+			)
+				menuOpen = false
+		})
+	}
+
+	const viewportOverlays = overlayStack()
+	function onWindowKeydown(e: KeyboardEvent) {
+		onSearchShortcutBeforeLoad(e)
+		// Cmd/Ctrl+\ (Notion's binding): Cmd+B is the raw app editor's file sidebar.
+		if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '\\') {
+			if (!$roleCapabilities.code || navDetached.val || innerWidth < 768) return
+			e.preventDefault()
+			setSidebarMode(isCollapsed ? 'expanded' : 'icons')
+			return
+		}
+		if (e.key !== 'Escape' || !menuOpen || !useDrawer) return
+		// Read now: the overlay this Esc closes is off the stack by the time the timeout runs.
+		if (viewportOverlays.val.length > 0) return
+		// This listener is attached before any drawer's or menu's, which mount later: wait for
+		// them, so an Esc that closes one of those leaves the card open.
+		setTimeout(() => {
+			if (e.defaultPrevented || document.querySelector('[role="menu"]:not([hidden])')) return
+			const focusInCard = !!document.activeElement?.closest('[data-nav-card]')
+			menuOpen = false
+			// The closed card is inert and would drop focus to `body`.
+			if (focusInCard) document.querySelector<HTMLElement>('[data-nav-handle] button')?.focus()
+		})
+	}
+
+	// Set once the user docks or detaches, so the rail that mounts from then on skips its
+	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`. Also set when the rail
+	// replaces the one in Home's snapshot (homeSnapshot.ts), which is already on screen.
+	let dockToggled = $state(homeSnapshotShown())
+	function setDetached(detached: boolean) {
+		dockToggled = true
+		menuOpen = false
+		navDetached.val = detached
+	}
+	type SidebarMode = 'expanded' | 'icons' | 'hover' | 'hidden'
+	function currentSidebarMode(): SidebarMode {
+		return navDetached.val
+			? 'hidden'
+			: expandsOnHover
+				? 'hover'
+				: isCollapsed
+					? 'icons'
+					: 'expanded'
+	}
+	function sidebarModeItems(withModes = true): Item[] {
+		const mode = currentSidebarMode()
+		const customize: Item = {
+			sectionTitle: withModes ? undefined : 'Sidebar',
+			displayName: 'Customize',
+			submenuItems: [
+				{
+					displayName: 'Favorites section',
+					icon: Star,
+					toggle: sidebarPrefs.favorites.val,
+					action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
+				},
+				{
+					displayName: 'AI chats section',
+					icon: MessagesSquare,
+					toggle: sidebarPrefs.aiChats.val,
+					action: () => (sidebarPrefs.aiChats.val = !sidebarPrefs.aiChats.val)
+				}
+			]
+		}
+		if (!withModes) return [customize]
+		return [
+			{
+				sectionTitle: 'Sidebar',
+				displayName: 'Expanded',
+				selected: mode === 'expanded',
+				action: () => setSidebarMode('expanded')
+			},
+			{
+				displayName: 'Collapsed',
+				shortcut: `${getModifierKey()}\\`,
+				selected: mode === 'icons',
+				hide: !$roleCapabilities.code,
+				action: () => setSidebarMode('icons')
+			},
+			{
+				displayName: 'Expand on hover',
+				selected: mode === 'hover',
+				hide: !$roleCapabilities.code,
+				action: () => setSidebarMode('hover')
+			},
+			{
+				displayName: 'Hidden, show on hover',
+				selected: mode === 'hidden',
+				action: () => setSidebarMode('hidden')
+			},
+			customize
+		]
+	}
+	navHandleSlot.setModeItems(() => sidebarModeItems())
+	function setSidebarMode(mode: SidebarMode) {
+		if (mode !== currentSidebarMode()) navHandleSlot.flashModeButton()
+		// The collapse preference is one key for both roles, and only a developer's rail reads it:
+		// an operator writing it would reset the icon rail they chose as a developer elsewhere.
+		if (mode !== 'hidden' && $roleCapabilities.code) {
+			collapsedState = mode !== 'expanded'
+			collapsePref.val = collapsedState
+			hoverExpandPref.val = mode === 'hover'
+		}
+		if (navDetached.val !== (mode === 'hidden')) setDetached(mode === 'hidden')
+	}
+	// Docking and detaching move and resize the rail itself between its docked box and the detached
+	// card's (top at the band's bottom edge, bottom and left insets, rounded corners); detaching
+	// also slides it off the left edge, where the closed card lives. No opacity: the rail never
+	// fades.
+	// The footer's mode button wears the rail's own row box — 32px square, 16px glyph — so it
+	// lines up with the links above it, collapsed or not.
+	const SIDEBAR_ICON_BUTTON =
+		'h-8 w-8 flex items-center justify-center rounded hover:bg-surface-hover flex-shrink-0'
+
+	const RAIL_MORPH_MS = 200
+	function railMorph(_node: HTMLElement, { offscreen }: { offscreen: boolean }) {
+		const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+		// The card is always the default width; a rail the user widened resizes to or from it.
+		const docked = railWidth
+		return {
+			duration: reduced ? 0 : RAIL_MORPH_MS,
+			easing: cubicOut,
+			css: (t: number, u: number) =>
+				`top:${u * BAR_HEIGHT_PX}px; bottom:${u * 8}px; left:${u * 4}px; border-radius:${u * 8}px; overflow:hidden;` +
+				`width:${SIDEBAR_MIN_REM + (docked - SIDEBAR_MIN_REM) * t}rem;` +
+				(offscreen ? `transform:translateX(calc(${-u} * (100% + 0.5rem)));` : '')
+		}
+	}
+	// Matches the edge band's `duration-200`, so the drawer opens as the tint finishes.
+	const EDGE_OPEN_DELAY_MS = 200
+	let edgeOpenTimer: ReturnType<typeof setTimeout> | undefined
 
 	function onLoad() {
 		loadFavorites()
-		loadUsage()
-		syncTutorialsTodos()
 		loadHubBaseUrl()
 		loadWsBaseUrl()
 		loadDisableHub()
 		loadUsedTriggerKinds()
 	}
 
-	async function loadUsage() {
-		if (isCloudHosted() && $workspaceStore) {
-			$usageStore = await UserService.getUsage()
-			$workspaceUsageStore = await WorkspaceService.getWorkspaceUsage({
-				workspace: $workspaceStore!
-			})
-		}
-	}
-
 	async function loadHubBaseUrl() {
-		$hubBaseUrlStore =
-			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
-			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
-			DEFAULT_HUB_BASE_URL
+		// A read that throws leaves the store on its seeded default, which names the public hub
+		// — so the flag, not the value, is what says the instance has answered. An instance that
+		// simply has no setting still answers: the chain falls through to the default.
+		try {
+			$hubBaseUrlStore =
+				((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
+				((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
+				DEFAULT_HUB_BASE_URL
+			$hubBaseUrlKnown = true
+		} catch (error) {
+			console.error('Could not read the hub URL:', error)
+		}
 	}
 
 	async function loadWsBaseUrl() {
@@ -213,23 +813,55 @@
 			((await SettingService.getGlobal({ key: 'disable_hub' })) as boolean) ?? false
 	}
 
+	// Home holds its Favorites and Recent shortcuts back until the favorites are in, so they are
+	// painted from the last answer as soon as the user is known: Home's first frame then has them,
+	// as the snapshot of it painted before boot (homeSnapshot.ts) does. Paths and summaries only.
+	const favoritesCache = persistedValue<typeof favoriteManager.current>('favorites', 1)
+	$effect(() => {
+		const workspace = $workspaceStore
+		if (!$userStore || !workspace) return
+		untrack(() => {
+			if (favoriteManager.loadedFor === workspace) return
+			const cached = favoritesCache.peek({ workspace })
+			if (!cached) return
+			favoriteManager.current = cached
+			favoriteManager.loadedFor = workspace
+		})
+	})
+
 	async function loadFavorites() {
-		const scripts = await ScriptService.listScripts({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true,
-			includeWithoutMain: true,
-			withoutDescription: true
-		})
-		const flows = await FlowService.listFlows({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true,
-			withoutDescription: true
-		})
-		const apps = await AppService.listApps({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true
-		})
-		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
+		const workspace = $workspaceStore ?? ''
+		try {
+			await loadFavoritesFor(workspace)
+		} catch (e) {
+			// `current` still holds another workspace's favorites, which `loadedFor` is about to
+			// vouch for as this one's.
+			if (favoriteManager.loadedFor !== workspace && ($workspaceStore ?? '') === workspace)
+				favoriteManager.current = []
+			throw e
+		} finally {
+			// Set on failure too: Home holds its shortcuts back until this says the favorites
+			// are in, and a failed read must not hold them back for good. Not once the workspace
+			// has changed: a slow load for the last one would name it and hide them in this one.
+			if (($workspaceStore ?? '') === workspace) favoriteManager.loadedFor = workspace
+		}
+	}
+
+	async function loadFavoritesFor(workspace: string) {
+		const sentWith = readSessionHint()
+		const [scripts, flows, apps, agents, assets] = await Promise.all([
+			ScriptService.listScripts({
+				workspace,
+				starredOnly: true,
+				includeWithoutMain: true,
+				withoutDescription: true
+			}),
+			FlowService.listFlows({ workspace, starredOnly: true, withoutDescription: true }),
+			AppService.listApps({ workspace, starredOnly: true }),
+			ResourceService.listResource({ workspace, resourceType: 'ai_agent', starredOnly: true }),
+			AssetService.listFavoriteAssets({ workspace })
+		])
+		if (($workspaceStore ?? '') !== workspace) return
 		favoriteManager.current = [
 			...scripts.map((s) => ({
 				label: s.summary || getFavoriteLabel(s.path, 'script'),
@@ -249,6 +881,12 @@
 				href: getFavoriteHref(f.path, 'app'),
 				kind: 'app' as const
 			})),
+			...agents.map((a) => ({
+				label: a.description || getFavoriteLabel(a.path, 'agent'),
+				path: a.path,
+				href: getFavoriteHref(a.path, 'agent'),
+				kind: 'agent' as const
+			})),
 			...assets.map((a) => ({
 				label: getFavoriteLabel(a.path, 'asset'),
 				path: a.path,
@@ -256,6 +894,7 @@
 				kind: 'asset' as const
 			}))
 		]
+		favoritesCache.save({ workspace }, favoriteManager.current, sentWith)
 	}
 
 	async function loadUsedTriggerKinds() {
@@ -268,6 +907,7 @@
 			nats_used,
 			sqs_used,
 			mqtt_used,
+			amqp_used,
 			gcp_used,
 			azure_used,
 			email_used,
@@ -295,6 +935,9 @@
 		if (mqtt_used) {
 			usedKinds.push('mqtt')
 		}
+		if (amqp_used) {
+			usedKinds.push('amqp')
+		}
 		if (sqs_used) {
 			usedKinds.push('sqs')
 		}
@@ -319,32 +962,27 @@
 		$usedTriggerKinds = usedKinds
 	}
 
-	function pathInAppMode(pathname: string | undefined): boolean {
-		if (!pathname) return false
-		return (
-			pathname.startsWith(base + '/apps') ||
-			pathname.startsWith(base + '/flows/add') ||
-			pathname.startsWith(base + '/flows/edit') ||
-			pathname.startsWith(base + '/scripts/add') ||
-			pathname.startsWith(base + '/scripts/edit')
-		)
-	}
+	// Not inside a preview iframe: it opens no session page of its own.
 	afterNavigate((n) => {
-		if (pathInAppMode(n.to?.url.pathname) && innerWidth >= 768) {
-			isCollapsed = true
-		}
+		if (!embedded && n.to) noteArrival(n.to.url)
 	})
 
+	// Narrow enough that the rail is in the way: collapse it, transiently (see `collapsedState`).
+	// The drawer widths below 768 are included — there the sidebar is a modal panel over the page,
+	// and a window that has been that narrow should come back to the icon rail rather than to a
+	// 13rem one it no longer has room for.
 	function changeCollapsed() {
-		if (innerWidth < 1248 && innerWidth >= 768 && !isCollapsed) {
-			isCollapsed = true
+		if (innerWidth < 1248 && !collapsedState) {
+			collapsedState = true
 		}
 	}
 
-	let devOnly = $derived(page.url.pathname.startsWith(base + '/scripts/dev'))
-	// Sessions own their own chat pane; suppress the global Ask-AI chat on the /sessions route
-	// so it doesn't render a second chat overlay on top of the session.
-	let inSessionRoute = $derived(page.url.pathname.startsWith(base + '/sessions'))
+	let devOnly = $derived(page.url.pathname.startsWith('/scripts/dev'))
+	// A devops user who belongs to no workspace has no `$userStore`, and would otherwise wait on
+	// "Loading user..." forever on the instance pages their role exists for.
+	let instanceOnlyView = $derived(
+		!$workspaceStore && !!$devopsRole && isInstanceRoute(page.url.pathname)
+	)
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -358,15 +996,67 @@
 			timeout = undefined
 		} else if (!u) {
 			timeout = setTimeout(async () => {
-				if (!$userStore && $workspaceStore) {
-					$userStore = await getUserExt($workspaceStore)
+				const ws = $workspaceStore
+				if (!$userStore && ws) {
+					const user = await getUserExt(ws)
+					// Recovers the workspace that was left without a role. A switch
+					// mid-flight has already started the fetch for the new one, so this
+					// answer describes the workspace we left.
+					if ($workspaceStore === ws) {
+						$userStore = user
+					}
 				}
 			}, 5000)
 		}
 	}
 
-	function openSearchModal(text?: string): void {
-		globalSearchModal?.openSearchWithPrefilledText(text)
+	// Sticky: once opened, a drawer stays mounted, so reopening it is instant.
+	let userSettingsRequested = $state(false)
+	let superadminSettingsRequested = $state(false)
+	$effect(() => {
+		if (page.url.hash.startsWith(USER_SETTINGS_HASH)) userSettingsRequested = true
+		if (parseSuperadminSettingsHash(page.url.hash)) superadminSettingsRequested = true
+	})
+	let dbManagerRequested = $state(false)
+	$effect(() => {
+		if (globalDbManagerDrawer.val?.open) dbManagerRequested = true
+	})
+
+	type OverlayStack = import('$lib/components/common/overlayHost.svelte').OverlayStack
+	// The modal is loaded on the first request, which is held here and replayed once it is
+	// bound. Only where the modal mounts (the markup's `{:else if $userStore}`): elsewhere
+	// the request would replay much later.
+	let searchModalRequested = $state(false)
+	let pendingSearchOpen: { text?: string; stack?: OverlayStack } | undefined = $state()
+	let searchModalMounts = $derived(page.status != 404 && !!$userStore)
+
+	function openSearchModal(text?: string, stack?: OverlayStack): void {
+		if (globalSearchModal) globalSearchModal.openSearchWithPrefilledText(text, stack)
+		else if (searchModalMounts) {
+			pendingSearchOpen = { text, stack }
+			searchModalRequested = true
+		}
+	}
+
+	$effect(() => {
+		if (globalSearchModal && pendingSearchOpen) {
+			const { text, stack } = pendingSearchOpen
+			pendingSearchOpen = undefined
+			untrack(() => globalSearchModal?.openSearchWithPrefilledText(text, stack))
+		}
+	})
+
+	// Ctrl/Cmd+K is what first loads the modal; once bound, the modal's own listener takes over.
+	function onSearchShortcutBeforeLoad(e: KeyboardEvent) {
+		if (
+			!globalSearchModal &&
+			searchModalMounts &&
+			(isMac() ? e.metaKey : e.ctrlKey) &&
+			e.key === 'k'
+		) {
+			e.preventDefault()
+			openSearchModal()
+		}
 	}
 
 	setContext('openSearchWithPrefilledText', openSearchModal)
@@ -401,7 +1091,15 @@
 			workspace,
 			skipSubscriptionFetch: true // won't load subscription status from stripe but only the past due status from db
 		})
-		if (premiumInfo.is_past_due) {
+		if (premiumInfo.is_canceled) {
+			// Its last month runs on a cap too, but nothing is unpaid: only speak up once it bites
+			if ((premiumInfo.usage ?? 0) > (premiumInfo.max_tolerated_executions ?? 0)) {
+				sendUserToast(
+					"Your team plan was canceled and this month's paid executions are used up. Jobs can run again on the free plan from the 1st, or subscribe again in the workspace settings.",
+					true
+				)
+			}
+		} else if (premiumInfo.is_past_due) {
 			if (
 				premiumInfo.max_tolerated_executions === undefined ||
 				(premiumInfo.usage ?? 0) > premiumInfo.max_tolerated_executions
@@ -432,20 +1130,105 @@
 		$workspaceStore
 		untrack(() => updateUserStore($workspaceStore))
 	})
+	// Bring back the AI sessions this browser lacks for the workspace family in view, once
+	// the local list is known (so nothing it has is fetched again) and the memberships have
+	// resolved (the family is derived from them).
+	$effect(() => {
+		const ws = $workspaceStore
+		const ready = sessionState.hydrated && $usersWorkspaceStore !== undefined
+		if (ready && ws) {
+			untrack(() => restoreSessionBackups(ws))
+		}
+	})
+	// While a fork is reachable, mirror its parent linkage to localStorage so a
+	// later reload landing on a now-deleted fork can return to the parent (see
+	// forkParentMemory + the deleted-fork recovery in the root layout).
+	$effect(() => {
+		const ws = $workspaceStore
+		const list = $userWorkspaces
+		const memberships = $usersWorkspaceStore?.workspaces
+		const resolvedFor = $nonMemberWorkspaces?.forWorkspace
+		const isSuperadmin = $superadmin
+		untrack(() => void resolveCurrentWorkspace(ws, list, memberships, resolvedFor, isSuperadmin))
+	})
+
+	// A superadmin can open a fork they aren't a member of, including a prefixless dev
+	// workspace, and only `getWorkspaceAsSuperAdmin` will hand back its lineage (see
+	// `nonMemberWorkspaces`). Membership is decided against the raw list, not
+	// `$userWorkspaces`: that one already carries what this resolves, so checking it
+	// would clear and re-fetch the entry on every pass.
+	async function resolveCurrentWorkspace(
+		ws: string | undefined,
+		list: typeof $userWorkspaces,
+		memberships: UserWorkspace[] | undefined,
+		resolvedFor: string | undefined,
+		isSuperadmin: string | false | undefined
+	): Promise<void> {
+		// Leaving every workspace (deleting the one you were in) has to drop the cache too:
+		// the other two paths below only fire once another workspace is open, and until then
+		// the workspace picker would keep offering the one that just went away.
+		if (!ws) {
+			clearNonMemberWorkspaces()
+			return
+		}
+		if (list.some((w) => w.id === ws)) {
+			recordForkParent(ws, list)
+		}
+		// Absence from a list that hasn't arrived yet says nothing about membership.
+		if (memberships == undefined || resolvedFor === ws) return
+		if (memberships.some((w) => w.id === ws)) {
+			clearNonMemberWorkspaces()
+			return
+		}
+		// This effect re-runs while a fetch is in flight, and no such pass can see the
+		// result yet.
+		if (!isSuperadmin || resolvingWorkspace === ws) return
+		resolvingWorkspace = ws
+		try {
+			const workspace = await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: ws })
+			const parentId = workspace.parent_workspace_id
+			// The fork UI names the parent, which a superadmin is just as likely not to be
+			// a member of. One hop only: nothing above the parent is displayed.
+			const parent =
+				parentId && !memberships.some((w) => w.id === parentId)
+					? await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: parentId })
+					: undefined
+			// A switch during the fetch already resolved (or cleared) the store for the
+			// workspace now open; this answer describes the one we left.
+			if ($workspaceStore !== ws) return
+			setNonMemberWorkspaces(ws, parent ? [workspace, parent] : [workspace])
+			if (parentId) {
+				rememberForkParent(ws, parentId)
+			}
+		} catch {
+			// Best-effort: if we can't resolve the workspace, recovery falls back to the
+			// workspace picker rather than the parent redirect.
+		} finally {
+			if (resolvingWorkspace === ws) {
+				resolvingWorkspace = undefined
+			}
+		}
+	}
+	let resolvingWorkspace: string | undefined = undefined
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
-	// One-shot UserDraft migration chain. `migrateLegacyUserDrafts` folds
-	// the legacy `flow` / `app-…` / `rawapp-…` LS keys into the
-	// `userdraft/w/{ws}/{kind}/{path}` format; `migrateUserDraftsToDb`
-	// then pushes those onto the server-side draft table and clears LS
-	// on success. The order matters — the second step only sees what
-	// the first one normalized.
+	// One-shot UserDraft migration. `purgeLegacyUserDrafts` drops the oldest
+	// workspace-blind `flow` / `app-…` / `rawapp-…` LS autosave keys (they
+	// can't be attributed to a workspace, so promoting them would mis-file
+	// drafts). `migrateUserDraftsToDb` then pushes the workspace-scoped
+	// `userdraft/w/{ws}/{kind}/{path}` keys — written by the editor with the
+	// correct workspace — onto the server-side draft table, clearing LS on
+	// success. `pruneMeaninglessDrafts` then clears the drafts an older, stricter
+	// comparison saved for changes nobody made; it runs after the upload so the
+	// entries that just landed are swept in the same pass.
 	$effect(() => {
-		if ($workspaceStore && $userStore) {
+		const ws = $workspaceStore
+		const email = $userStore?.email
+		if (ws && email) {
 			untrack(() => {
-				migrateLegacyUserDrafts($workspaceStore!)
-				void migrateUserDraftsToDb()
+				purgeLegacyUserDrafts()
+				void migrateUserDraftsToDb().then(() => pruneMeaninglessDrafts(ws, email))
 			})
 		}
 	})
@@ -458,11 +1241,6 @@
 	})
 	$effect(() => {
 		$workspaceStore && $userStore && untrack(() => loadDefaultScripts($workspaceStore!, $userStore))
-	})
-	$effect(() => {
-		if (isCollapsed && $userStore?.operator) {
-			isCollapsed = false
-		}
 	})
 	$effect(() => {
 		if (
@@ -497,337 +1275,437 @@
 	})
 
 	globalDbManagerDrawer.val = useDbManagerUriState()
+
+	let globalS3FilePicker: S3FilePicker | undefined = $state()
+	const globalS3FilePickerOpener = {
+		open: async (...args: Parameters<S3FilePicker['open']>) => {
+			await s3FilePickerModule.load()
+			await tick()
+			await globalS3FilePicker?.open(...args)
+		}
+	}
+	$effect(() => {
+		// `as any`: the component instance type is opaque in svelte2tsx context
+		// and does not match the store's structural type.
+		globalS3FilePickerExplorer.val = $workspaceStore ? (globalS3FilePickerOpener as any) : undefined
+	})
+
+	// Whether the account still has to set a password or connect a sign-in decides the
+	// banner above the nav and the modal below; asked once per page, shared by every reader.
+	$effect(() => {
+		if ($userStore) accountSetup.refresh()
+	})
 </script>
 
-<svelte:window bind:innerWidth />
+<svelte:window
+	bind:innerWidth
+	onkeydown={onWindowKeydown}
+	onpointerdowncapture={closeCardOnPagePress}
+	onblur={closeCardOnFrameFocus}
+/>
 
-<UserSettings bind:this={userSettings} showMcpMode={true} />
+<!-- A manifest's start_url replaces the URL a home-screen shortcut was added from, so only the
+console links it: shared pages (public apps, public runs, shared sessions, approval links) live
+outside this layout, and their shortcut must reopen the URL that is their credential. -->
+<svelte:head>
+	<link rel="manifest" href="/manifest.webmanifest" />
+	<meta name="apple-mobile-web-app-title" content="Windmill" />
+</svelte:head>
+
+<!-- Runs lifted to the top of the workspace nav. Excluded from SidebarContent (via
+     excludeMainLabels), as Home is, so neither is rendered twice. -->
+{#snippet quickLinks(collapsed: boolean)}
+	<MenuLink
+		class="!text-xs"
+		label="Runs"
+		href="/runs"
+		icon={Play}
+		disabled={!$roleCapabilities.visibility.runs}
+		isCollapsed={collapsed}
+		aiId="sidebar-menu-link-runs"
+		aiDescription="Button to navigate to runs"
+		onclick={(e) => {
+			if (isNewTabClick(e)) return
+			setTimeout(() => {
+				window.dispatchEvent(new Event('popstate'))
+			}, 100)
+		}}
+	/>
+{/snippet}
+
+<!-- In the rail's pinned footer, right above the plan usage, in both rails:
+     an account with no credentials of its own needs to see this wherever it is on the
+     page and however far the nav has scrolled, and the footer is where the rail already
+     keeps what is about the account rather than the workspace. -->
+{#snippet accountSetupBanner(collapsed: boolean)}
+	{#if accountSetup.pending}
+		<div class="px-2 pt-2">
+			<AccountSetupBanner isCollapsed={collapsed} />
+		</div>
+	{/if}
+{/snippet}
+
+<!-- Windmill brand mark anchoring the sidebar bottom (the header slot is taken
+     by the workspace picker). -->
+<!-- Operators get no "Collapsed": their docked sidebar is always expanded. -->
+{#snippet sidebarModeMenu(withModes: boolean)}
+	<span class="relative inline-flex">
+		<ModeButtonFlash />
+		<DropdownV2
+			placement="top-start"
+			fixedHeight={false}
+			class={SIDEBAR_ICON_BUTTON}
+			items={sidebarModeItems(withModes)}
+		>
+			{#snippet buttonReplacement()}
+				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
+				<span class="sr-only">Sidebar mode</span>
+			{/snippet}
+		</DropdownV2>
+	</span>
+{/snippet}
+
+<!-- Settings / instance section: the last section inside the nav's unified scroll area. -->
+{#snippet settingsMenu(collapsed: boolean)}
+	<div class="px-2">
+		<SettingsMenu
+			isCollapsed={collapsed}
+			workspaceSettingsTarget={sessionSettingsWorkspace}
+			numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+				? 0
+				: numUnacknowledgedCriticalAlerts}
+		/>
+	</div>
+{/snippet}
+
+<!-- The sidebar's one column, rendered in whichever shell the width calls for: the rail docked
+     at the left edge, or the same column as a panel over the page (`panel`) below 768px and
+     whenever the nav is detached. The shells differ, the sections do not, so a change to the
+     rail cannot miss the panel. -->
+{#snippet sidebarColumn(panel: boolean)}
+	{@const collapsed = panel ? false : isCollapsed && !hoverExpanded}
+	<div
+		class={twMerge(
+			'flex flex-col',
+			panel
+				? 'h-full w-52'
+				: 'flex-1 min-h-0 shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151] [html.github-dark_&]:shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))]'
+		)}
+		style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
+	>
+		{#if !panel}
+			<!-- Resize handle straddling the right edge: drag to resize, into the
+			     left snap zone to collapse, or out of it to expand. -->
+			<div
+				role="separator"
+				aria-orientation="vertical"
+				aria-label="Resize sidebar"
+				title="Drag to resize"
+				class={classNames(
+					'absolute inset-y-0 -right-0.5 w-1.5 cursor-col-resize z-50 transition-colors',
+					resizingSidebar ? '' : 'hover:bg-surface-hover'
+				)}
+				onpointerdown={startSidebarResize}
+			></div>
+		{/if}
+		<!-- Top row: Home, level with the page header's own row so the two read as one band.
+		     Home is one page for workspace and sessions alike. The workspace picker itself lives in that header,
+		     which is why nothing names the workspace here. -->
+		<div class="flex-shrink-0 px-2 h-12 flex flex-row items-center gap-0.5">
+			<div class="flex-1 min-w-0">
+				<!-- The brand is the way home, so it stands in for a Home icon and label. -->
+				<MenuLink
+					class="!text-xs"
+					label={($whitelabelNameStore ? capitalize($whitelabelNameStore) : 'Windmill') +
+						(homeRowLearned.val ? '' : ' / Home')}
+					hint="Go to Home"
+					href="/"
+					onclick={() => {
+						// A click on Home itself goes nowhere, so it teaches nothing.
+						if (page.url.pathname !== '/') homeRowLearned.val = true
+					}}
+					icon={WindmillIcon}
+					iconProps={{ white: darkMode, width: '16px', height: '16px' }}
+					hoverIcon={House}
+					hoverLabel="Home"
+					isCollapsed={collapsed}
+					aiId="sidebar-menu-link-home"
+					aiDescription="Button to navigate to home which contains all the user's scripts, flows and apps"
+				/>
+			</div>
+		</div>
+		<!-- Pulled up into the Home band's slack under its centred row (48px band, 32px rows), so
+		     the next row sits 2px under Home, as the nav's rows sit apart. Kept outside the scroll
+		     area: a negative margin inside it would clip that row. -->
+		<div class="flex flex-col flex-1 min-h-0 -mt-1.5">
+			<!-- Search stays with Home, above the list that scrolls. -->
+			<div class="flex-shrink-0 px-2 pb-0.5">
+				<MenuButton
+					stopPropagationOnClick={true}
+					on:click={() => openSearchModal()}
+					isCollapsed={collapsed}
+					icon={Search}
+					label="Search"
+					class="!text-xs"
+					shortcut={`${getModifierKey()}K`}
+				/>
+			</div>
+			<!-- The workspace nav: Runs → Settings scroll as ONE block with an
+			     overflow fade hint. The sections (Runs + workspace items / AI sessions /
+			     instance settings) are spaced by the scroll area's
+			     gap rather than each scrolling on its own. -->
+			<!-- Keyed to the mode rather than to `collapsed`: a scrollbar appearing as the rail opens on
+			     hover would shift the rows mid-animation. -->
+			<SidebarScrollArea
+				color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
+				hideScrollbar={!panel && isCollapsed}
+			>
+				<!-- Section 1: Runs, then the workspace items, spaced as one list. -->
+				<div class="flex flex-col gap-0.5">
+					<div class="px-2 flex flex-col gap-0.5">
+						{@render quickLinks(collapsed)}
+					</div>
+					<SidebarContent
+						isCollapsed={collapsed}
+						showSecondary={false}
+						excludeMainLabels={['Home', 'Runs']}
+						numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+							? 0
+							: numUnacknowledgedCriticalAlerts}
+					/>
+				</div>
+
+				<!-- The starred items, when the sidebar menu's Customize turns them on; hidden in the rail. -->
+				<div class="px-2 empty:hidden">
+					<FavoritesSection isCollapsed={collapsed} />
+				</div>
+
+				<!-- Section 2: AI sessions, one row each; collapsed, a menu of them. -->
+				{#if sessionsShown}
+					<div class="px-2">
+						<SessionPicker isCollapsed={collapsed} embedded />
+					</div>
+				{/if}
+
+				<!-- The flow and agent chats stored in the workspace, unless Customize turned them off. -->
+				{#if sidebarPrefs.aiChats.val}
+					<div class="px-2 empty:hidden">
+						<AiChatsSection isCollapsed={collapsed} />
+					</div>
+				{/if}
+			</SidebarScrollArea>
+		</div>
+
+		<!-- Section 3: instance settings, pinned under the scrolled lists: inside them, long
+		     session and chat lists pushed it out of view under the bottom fade. -->
+		<div class="flex-shrink-0 pt-2">
+			{@render settingsMenu(collapsed)}
+		</div>
+
+		<div class="flex-shrink-0">
+			{@render accountSetupBanner(collapsed)}
+			<SidebarUsage isCollapsed={collapsed} />
+		</div>
+
+		<!-- Below 768px the panel is the only shell there is, so there is no mode to pick: the
+		     menu holds Customize alone. -->
+		<!-- Where the card slides in on hover, the handle that slides it in holds this menu too. -->
+		{#if !panel || innerWidth < 768 || (navDetached.val && !hoverPointer)}
+			<div
+				class="flex-shrink-0 flex px-2 mt-1 mb-3.5 {collapsed
+					? 'flex-col items-start gap-1'
+					: 'flex-row items-center gap-1 h-8'}"
+			>
+				{@render sidebarModeMenu(!panel || innerWidth >= 768)}
+				<!-- One click between Expanded and Collapsed, as before the mode menu existed; only in
+				     those two modes, the others have no such pair. -->
+				{#if !panel && $roleCapabilities.code && !expandsOnHover}
+					<button
+						class={SIDEBAR_ICON_BUTTON}
+						title={`${isCollapsed ? 'Expand' : 'Collapse'} sidebar (${getModifierKey()}\\)`}
+						onclick={() => setSidebarMode(isCollapsed ? 'expanded' : 'icons')}
+					>
+						{#if isCollapsed}
+							<PanelLeftOpen size={16} class="flex-shrink-0 text-hint" />
+						{:else}
+							<PanelLeftClose size={16} class="flex-shrink-0 text-hint" />
+						{/if}
+						<span class="sr-only">{isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}</span>
+					</button>
+				{/if}
+			</div>
+		{:else if navDetached.val}
+			<!-- Without the footer the last row would sit on the card's bottom edge. -->
+			<div class="flex-shrink-0 h-3"></div>
+		{/if}
+	</div>
+{/snippet}
+
+<!-- The drawers and modals below are dynamic imports mounted on first open: this layout
+     wraps every workspace page, so a static import gates first paint, and a load on mount
+     competes with the page for bandwidth (several of them reach monaco). -->
+{#if userSettingsRequested}
+	{#await import('$lib/components/UserSettings.svelte') then UserSettings}
+		<UserSettings.default bind:this={userSettings} showMcpMode={true} />
+	{/await}
+{/if}
+{#if accountSetup.pending}
+	<FinishAccountSetup
+		bind:open={accountSetup.open}
+		email={$userStore?.email ?? ''}
+		onDone={() => accountSetup.refresh()}
+	/>
+{/if}
 <DraftMigrationErrorModal />
+<AppLinksModal />
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
-	<GlobalSearchModal bind:this={globalSearchModal} />
-	{#if $superadmin}
-		<SuperadminSettings bind:this={superadminSettings} />
+	{#if searchModalRequested}
+		{#await import('$lib/components/search/GlobalSearchModal.svelte') then GlobalSearchModal}
+			<GlobalSearchModal.default bind:this={globalSearchModal} />
+		{/await}
+	{/if}
+	{#if $superadmin && superadminSettingsRequested}
+		{#await import('$lib/components/SuperadminSettings.svelte') then SuperadminSettings}
+			<SuperadminSettings.default bind:this={superadminSettings} />
+		{/await}
 	{/if}
 	{#if mountModal}
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
 	{/if}
 	<div class="h-screen flex flex-col">
+		{#if resizingSidebar}
+			<!-- While dragging, this overlay gives the whole viewport the resize cursor
+			     and stops the pointer from selecting text or hovering content/iframes. -->
+			<div class="fixed inset-0 z-50 cursor-col-resize select-none"></div>
+		{/if}
 		{#if !menuHidden}
-			{#if !$userStore?.operator}
-				{#if innerWidth < 768}
+			{#if navDetached.val && hoverPointer && !menuOpen && !devOnly}
+				<!-- Edge band: the other way to reach a detached sidebar. It opens only once its
+				     tint has faded in, so a pointer brushing the screen edge does not open it. -->
+				<div
+					class="fixed inset-y-0 left-0 w-2 z-[4999] transition-colors duration-200 ease-out hover:bg-surface-accent-selected"
+					aria-hidden="true"
+					onmouseenter={() => {
+						clearTimeout(edgeOpenTimer)
+						edgeOpenTimer = setTimeout(() => navHandleSlot.open(), EDGE_OPEN_DELAY_MS)
+					}}
+					onmouseleave={() => {
+						clearTimeout(edgeOpenTimer)
+						schedulePeekClose()
+					}}
+				></div>
+			{/if}
+			{#if useDrawer}
+				<!-- `inert` while closed, not only `pointer-events-none`: the card stays mounted so it
+				     can slide rather than pop, and a card parked off the left edge still holds every
+				     one of its links in the tab order. -->
+				<div
+					class={classNames(
+						'relative',
+						menuOpen ? 'z-40' : 'pointer-events-none',
+						devOnly ? 'hidden' : ''
+					)}
+					inert={!menuOpen}
+					role="dialog"
+				>
+					<!-- The card floats over the page, inset and rounded. Over an app it is not: the app
+					     owns the window, and the sidebar revealed beside it reads as the panel the header
+					     sits on — flush to the left and bottom edges, square, with one border down its
+					     right side. -->
+					<!-- The frame spans the page only to position the card; it lets every press through
+					     (closeCardOnPagePress dismisses the card). -->
 					<div
 						class={classNames(
-							'relative',
-							menuOpen ? 'z-40' : 'pointer-events-none',
-							devOnly ? 'hidden' : ''
+							'fixed left-0 right-0 bottom-0 flex z-40 pointer-events-none',
+							'pl-1 pb-2'
 						)}
-						role="dialog"
-						aria-modal="true"
+						style:top="{navHandleSlot.cardTop}px"
 					>
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
+							data-nav-card
+							onmouseenter={() => {
+								cancelPeekClose()
+							}}
+							onmouseleave={() => {
+								schedulePeekClose()
+							}}
 							class={classNames(
-								'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300 z-40',
-
-								menuOpen ? 'opacity-100' : 'opacity-0'
+								'pointer-events-auto relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform shadow-lg overflow-hidden rounded-lg border',
+								menuOpen ? 'translate-x-0' : '-translate-x-[calc(100%+0.5rem)]'
 							)}
-						></div>
-
-						<div class="fixed inset-0 flex z-40">
-							<div
-								class={classNames(
-									'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform',
-									menuOpen ? 'translate-x-0' : '-translate-x-full'
-								)}
-							>
-								<div
-									class={classNames(
-										'absolute top-0 right-4 -mr-12 pt-2 ease-in-out duration-300',
-										menuOpen ? 'opacity-100' : 'opacity-0'
-									)}
-								>
-									<button
-										type="button"
-										onclick={() => {
-											menuOpen = !menuOpen
-										}}
-										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
-										aria-label="Close"
-									>
-										<svg
-											class="h-4 w-4 text-white"
-											xmlns="http://www.w3.org/2000/svg"
-											fill="none"
-											viewBox="0 0 24 24"
-											stroke-width="2"
-											stroke="currentColor"
-											aria-hidden="true"
-										>
-											<path
-												stroke-linecap="round"
-												stroke-linejoin="round"
-												d="M6 18L18 6M6 6l12 12"
-											/>
-										</svg>
-									</button>
-								</div>
-								<div
-									class="h-full flex flex-col"
-									style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
-								>
-									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-40">
-										<WindmillIcon white={darkMode} height="20px" width="20px" />
-										{#if $whitelabelNameStore}
-											{$whitelabelNameStore}
-										{:else}
-											Windmill
-										{/if}
-									</div>
-									<div class="px-2 py-4 border-y border-light dark:border-gray-700">
-										<Menubar>
-											{#snippet children({ createMenu })}
-												<WorkspaceMenu {createMenu} />
-												<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
-											{/snippet}
-										</Menubar>
-										<MenuButton
-											stopPropagationOnClick={true}
-											on:click={() => openSearchModal()}
-											isCollapsed={false}
-											icon={Search}
-											label="Search"
-											class="!text-xs"
-											shortcut={`${getModifierKey()}k`}
-										/>
-										<MenuButton
-											stopPropagationOnClick={true}
-											on:click={() => aiChatManager.toggleOpen()}
-											isCollapsed={false}
-											icon={WandSparkles}
-											iconProps={{
-												forceDarkMode: true
-											}}
-											label="Ask AI"
-											class="!text-xs"
-											iconClasses="!text-ai"
-											shortcut={`${getModifierKey()}L`}
-										/>
-									</div>
-
-									<!-- w-40 cap: the drawer is max-w-min, and long session titles
-									     (nowrap before truncation) would otherwise inflate its
-									     min-content width to the full text width. -->
-									<div class="w-40">
-										<SessionPicker isCollapsed={false} />
-									</div>
-
-									<SidebarContent
-										isCollapsed={false}
-										numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-											? 0
-											: numUnacknowledgedCriticalAlerts}
-									/>
-								</div>
-							</div>
-						</div>
-					</div>
-				{:else}
-					<div
-						id="sidebar"
-						class={classNames(
-							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
-							isCollapsed ? 'w-12' : 'w-40',
-							devOnly ? '!hidden' : ''
-						)}
-					>
-						<div
-							class="flex-1 flex flex-col min-h-0 h-screen border-r border-light dark:border-gray-700"
-							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
-							<button
-								onclick={() => {
-									goto('/')
-								}}
-							>
-								<div
-									class="flex-row flex-shrink-0 px-3.5 py-3.5 text-opacity-70 h-12 flex items-center gap-1.5"
-									class:w-40={!isCollapsed}
-								>
-									<div class:mr-1={!isCollapsed}>
-										<WindmillIcon white={darkMode} height="20px" width="20px" />
-									</div>
-									{#if !isCollapsed}
-										<div class="text-sm mt-0.5 text-emphasis">
-											{#if $whitelabelNameStore}{capitalize(
-													$whitelabelNameStore
-												)}{:else}Windmill{/if}
-										</div>
-									{/if}
-								</div>
-							</button>
-							<div class="px-2 py-4 border-y border-light dark:border-gray-700 flex flex-col gap-1">
-								<Menubar class="flex flex-col gap-1">
-									{#snippet children({ createMenu })}
-										<WorkspaceMenu {createMenu} {isCollapsed} />
-										<FavoriteMenu
-											{createMenu}
-											favoriteLinks={favoriteManager.current}
-											{isCollapsed}
-										/>
-									{/snippet}
-								</Menubar>
-								<MenuButton
-									stopPropagationOnClick={true}
-									on:click={() => openSearchModal()}
-									{isCollapsed}
-									icon={Search}
-									label="Search"
-									class="!text-xs"
-									shortcut={`${getModifierKey()}k`}
-								/>
-								<MenuButton
-									stopPropagationOnClick={true}
-									on:click={() => aiChatManager.toggleOpen()}
-									{isCollapsed}
-									icon={WandSparkles}
-									iconProps={{
-										forceDarkMode: true
-									}}
-									label="Ask AI"
-									class="!text-xs"
-									iconClasses="!text-ai"
-									shortcut={`${getModifierKey()}L`}
-								/>
-							</div>
-
-							<SessionPicker {isCollapsed} />
-
-							<SidebarContent
-								{isCollapsed}
-								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-									? 0
-									: numUnacknowledgedCriticalAlerts}
-							/>
-
-							<div class="flex-shrink-0 flex px-4 pb-3.5">
-								<button
-									onclick={() => {
-										isCollapsed = !isCollapsed
-									}}
-								>
-									<ArrowLeft
-										size={16}
-										class={classNames(
-											'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-secondary',
-											isCollapsed ? 'rotate-180' : 'rotate-0'
-										)}
-									/>
-								</button>
-							</div>
+							{@render sidebarColumn(true)}
 						</div>
 					</div>
-				{/if}
+				</div>
 			{:else}
-				<div class="absolute top-1 left-1 z5000">
-					<OperatorMenu favoriteLinks={favoriteManager.current} />
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					id="sidebar"
+					class={classNames(
+						dockToggled ? '' : 'wm-sidebar-in',
+						// The rail owns the full height of the left edge; the band starts to its right.
+						'flex flex-col fixed inset-y-0 z-40 ',
+						expandsOnHover && !resizingSidebar
+							? 'transition-[width] duration-100 ease-out'
+							: sidebarTransitionClass,
+						hoverExpanded ? 'shadow-lg' : '',
+						devOnly ? '!hidden' : ''
+					)}
+					style:width="{hoverExpanded ? sidebarWidth : railWidth}rem"
+					onmouseenter={() => {
+						if (!expandsOnHover || resizingSidebar) return
+						cancelRailCollapse()
+						hoverExpandedState = true
+					}}
+					onmouseleave={() => scheduleRailCollapse()}
+					in:railMorph={{ offscreen: false }}
+					out:railMorph={{ offscreen: true }}
+				>
+					{@render sidebarColumn(false)}
 				</div>
 			{/if}
-			<!-- Legacy menu -->
-			<div
-				class={classNames(
-					'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300',
-					'opacity-0 pointer-events-none'
-				)}
-			>
-				<div class={twMerge('fixed inset-0 flex ', '-z-0')}>
-					<div
-						class={classNames(
-							'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-100 transform',
-							'-translate-x-full'
-						)}
-					>
-						<div
-							class={classNames(
-								'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-100',
-								'opacity-0'
-							)}
-						>
-							<button
-								type="button"
-								onclick={() => {
-									// menuSlide = !menuSlide
-								}}
-								aria-label="Close"
-								class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
-							>
-								<svg
-									class="h-6 w-6 text-white"
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke-width="2"
-									stroke="currentColor"
-									aria-hidden="true"
-								>
-									<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-								</svg>
-							</button>
-						</div>
-						<div class="h-full" style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-							<div
-								class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-emphasis w-10"
-								class:w-40={!isCollapsed}
-							>
-								<WindmillIcon white={darkMode} height="20px" width="20px" />
-								{#if !isCollapsed}{#if $whitelabelNameStore}{capitalize(
-											$whitelabelNameStore
-										)}{:else}Windmill{/if}{/if}
-							</div>
-
-							<div class="px-2 py-4 space-y-2 border-y border-light dark:border-gray-700">
-								<Menubar>
-									{#snippet children({ createMenu })}
-										<WorkspaceMenu {createMenu} />
-										<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
-									{/snippet}
-								</Menubar>
-								<MenuButton
-									stopPropagationOnClick={true}
-									on:click={() => openSearchModal()}
-									{isCollapsed}
-									icon={Search}
-									label="Search"
-									class="!text-xs"
-									shortcut={`${getModifierKey()}k`}
-								/>
-								<MenuButton
-									stopPropagationOnClick={true}
-									on:click={() => aiChatManager.toggleOpen()}
-									{isCollapsed}
-									icon={WandSparkles}
-									iconProps={{
-										forceDarkMode: true
-									}}
-									label="Ask AI"
-									class="!text-xs"
-									iconClasses="!text-ai"
-									shortcut={`${getModifierKey()}L`}
-								/>
-							</div>
-
-							<SidebarContent
-								{isCollapsed}
-								numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-									? 0
-									: numUnacknowledgedCriticalAlerts}
-							/>
-						</div>
-					</div>
-				</div>
-			</div>
 		{/if}
-		<div class="flex flex-col h-full w-full">
+		<div bind:this={pageColumn} class="flex flex-col h-full w-full relative">
+			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
+			     resolves, and checks the license itself. -->
+			<InstanceUiSync />
+			<!-- `menuHidden` hides the workspace navigation, not the page: an embedded Runs or detail
+			     page keeps its own controls, which now live in this band and nowhere else. The band
+			     renders without its breadcrumb there, so the embed gains no workspace nav. -->
+			{#if !devOnly && (!menuHidden || pageHeader.actions.length > 0)}
+				{@const rightInset = pageHeader.content?.barRightInset}
+				{@const leftInset = useDrawer || menuHidden ? 0 : railWidth}
+				<!-- One element for every placement, styled rather than branched: a page registers its
+				     inset on mount, and swapping between two `{#if}` arms would destroy the band and
+				     build another one a frame later — a blink of no header, with the content sliding
+				     up into the gap and the workspace menu losing the trigger it hangs from.
+				     In flow, the band spans the content beside the rail. With an inset, a page owns
+				     the right edge from the top (a session's side panel): the band floats, stopping
+				     where that column starts, and the page pads its own content to clear it.
+				     The rail offset must be padding in both placements, never `left` in the floating one:
+				     a switch between placements (sessions with and without a side panel) would then ease
+				     the padding to or from zero and slide the whole breadcrumb across. -->
+				<div
+					class={classNames(
+						floatBand ? 'absolute top-0 left-0 z-30' : 'shrink-0',
+						bandTransitionClass
+					)}
+					style:right={floatBand ? `${rightInset ?? 0}px` : undefined}
+					style:padding-left="{leftInset}rem"
+				>
+					<PageHeaderBar navHidden={menuHidden} panelled={useDrawer} />
+				</div>
+			{/if}
+			{#if $enterpriseLicense && !menuHidden}
+				<!-- Announcements are an EE feature, so the component never mounts on CE. Also
+				     skipped when the menu is hidden — that is an embed or an OAuth callback,
+				     where the announcement would land inside someone else's page. -->
+				<InstanceBanner />
+			{/if}
 			{#if $userStore?.is_service_account}
 				<div
 					class="bg-yellow-100 dark:bg-yellow-900/50 border-b border-yellow-300 dark:border-yellow-700 px-4 py-2 text-sm text-yellow-800 dark:text-yellow-200 flex items-center justify-center gap-4 shrink-0"
@@ -861,37 +1739,103 @@
 					</button>
 				</div>
 			{/if}
-			<AiChatLayout
-				{children}
-				noPadding={devOnly}
-				disableAi={inSessionRoute}
-				{isCollapsed}
-				isMobile={innerWidth < 768}
-				onMenuOpen={() => {
-					menuOpen = true
-				}}
-			/>
+			<!-- The scroll lives here, below the page header: a page taller than the window scrolls
+			     inside this box, so the band stays on screen instead of leaving with the content. The
+			     desktop rail is fixed-positioned, so the content is offset by its width (in rem). -->
+			<div
+				id="content"
+				class={classNames('flex-1 min-h-0 flex flex-col overflow-y-auto', sidebarTransitionClass)}
+				style:padding-left="{devOnly || menuHidden || useDrawer ? 0 : railWidth}rem"
+			>
+				<div class="flex-1 min-h-0 flex flex-col">
+					{@render children?.()}
+				</div>
+			</div>
 		</div>
 	</div>
-{:else}
+{:else if instanceOnlyView}
+	<!-- No workspace means no sidebar: everything in it is workspace-scoped. The header bar
+	     stays, without its workspace part: pages register their toolbars there. -->
+	<div class="flex flex-col h-screen w-full bg-surface">
+		<div class="flex items-center pl-4 border-b shrink-0">
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				href="/user/workspaces"
+				startIcon={{ icon: ArrowLeft }}
+			>
+				Workspaces
+			</Button>
+			<div class="flex-1 min-w-0">
+				<PageHeaderBar navHidden />
+			</div>
+		</div>
+		<div class="flex-1 min-h-0 overflow-auto">
+			{@render children?.()}
+		</div>
+	</div>
+{:else if !optimisticPending}
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
-{#if $workspaceStore && globalDbManagerDrawer.val}
-	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
+{#if $workspaceStore && globalDbManagerDrawer.val && dbManagerRequested}
+	{#await import('$lib/components/DBManagerDrawer.svelte') then DBManagerDrawer}
+		<DBManagerDrawer.default uriState={globalDbManagerDrawer.val} />
+	{/await}
+{/if}
+
+{#if $workspaceStore && s3FilePickerModule.current}
+	{@const LoadedS3FilePicker = s3FilePickerModule.current.default}
+	<LoadedS3FilePicker bind:this={globalS3FilePicker} readOnlyMode allowDelete />
 {/if}
 
 <ForkConflictModal />
 
+<UpdateDevWorkspaceModal />
+
 <Modal2
 	title="Forking {$workspaceStore}"
 	target="#content"
-	fixedHeight="lg"
+	fixedHeight="adaptive"
 	fixedWidth="sm"
 	contentClasses="flex-col"
 	bind:isOpen={() => !!globalForkModal.val?.opened, (v) => !v && (globalForkModal.val = undefined)}
 >
 	{#if globalForkModal.val}
-		<CreateWorkspaceInner isFork onFinish={() => (globalForkModal.val = undefined)} />
+		{#await createWorkspaceModule.load() then { default: CreateWorkspaceInner }}
+			<CreateWorkspaceInner isFork inModal onFinish={() => (globalForkModal.val = undefined)} />
+		{/await}
 	{/if}
 </Modal2>
+
+<style>
+	/* The rail sliding in from the edge it lives on. This layout mounts when the app is entered —
+	   signup, the workspace picker and onboarding all sit outside it — so the animation plays on
+	   arrival, and on a hard reload of any page under it, but never on a navigation within the
+	   app. Paired with the home page's own fade, it reads as the workspace coming forward from
+	   behind whatever was on top of it. */
+	@keyframes wm-sidebar-in {
+		from {
+			opacity: 0;
+			transform: translateX(-12px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+
+	/* No forwards fill: a filled animation keeps `transform` animated after it ends, which makes
+	   the rail the containing block for every `position: fixed` descendant — the confirmation
+	   dialogs opened from the settings menu would be confined to the rail's column. The `to`
+	   keyframe equals the rail's resting style, so nothing changes visually when the fill drops. */
+	:global(#sidebar.wm-sidebar-in) {
+		animation: wm-sidebar-in 500ms ease-out;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:global(#sidebar.wm-sidebar-in) {
+			animation: none;
+		}
+	}
+</style>

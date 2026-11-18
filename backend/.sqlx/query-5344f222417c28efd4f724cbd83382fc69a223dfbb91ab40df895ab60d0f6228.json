@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT trigger_kind::text AS \"kind!\", COUNT(*)::BIGINT AS \"count!\"\n           FROM capture WHERE created_at > now() - interval '30 days' GROUP BY trigger_kind",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "5344f222417c28efd4f724cbd83382fc69a223dfbb91ab40df895ab60d0f6228"
+}

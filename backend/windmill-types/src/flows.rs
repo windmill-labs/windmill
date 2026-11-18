@@ -39,10 +39,19 @@ pub struct Flow {
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "is_none_or_false")]
     pub visible_to_runner_only: Option<bool>,
+    /// Derived from `on_behalf_of` on the read paths, not selected. Kept in
+    /// the response so clients written against the old shape keep working.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
     pub on_behalf_of_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Caps the scopes of the token minted for each job of this flow; `None` = unrestricted.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time. Not stored on the flow row.
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -93,6 +102,11 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Projected from the flow value so a list can mark a flow that opens as a
+    /// chat without fetching every flow's value.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_input_enabled: Option<bool>,
     /// True when the authed user has a draft for this flow (draft-only or layered
     /// over the deployed row). See ListableScript in scripts.rs.
     #[serde(default)]
@@ -127,10 +141,23 @@ pub struct NewFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both move
+    /// together under the same `preserve_on_behalf_of` gate and must name the same user
+    /// or group; `None` has it derived from that email rather than left unset.
+    pub on_behalf_of: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Absent keeps the deployed flow's value, so a client unaware of the setting cannot
+    /// drop a restriction by saving; `null` clears it.
+    #[sqlx(skip)]
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
     /// Caller-intent flag (set by the CLI / git sync): when true, deploying
     /// this flow must NOT delete an existing user draft at the same path.
     /// Transient — never persisted.
@@ -145,6 +172,66 @@ impl NewFlow {
     }
 }
 
+/// Body for updating an existing flow. Mirrors `NewFlow`, but `path` is optional: the
+/// flow to update is identified by the URL, so the body only needs `path` to rename it.
+/// This matches the `EditVariable` / `EditResource` / `EditApp` convention and lets a
+/// caller update in place without restating the path.
+#[derive(Debug, Deserialize)]
+pub struct EditFlow {
+    #[serde(default)]
+    pub path: Option<String>,
+    pub summary: String,
+    pub description: Option<String>,
+    #[serde(deserialize_with = "validate_flow_value")]
+    pub value: Box<RawValue>,
+    pub schema: Option<Schema>,
+    pub tag: Option<String>,
+    pub dedicated_worker: Option<bool>,
+    pub timeout: Option<i32>,
+    pub deployment_message: Option<String>,
+    pub visible_to_runner_only: Option<bool>,
+    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
+    pub preserve_on_behalf_of: Option<bool>,
+    pub ws_error_handler_muted: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
+    #[serde(default)]
+    pub skip_draft_deletion: Option<bool>,
+}
+
+impl EditFlow {
+    /// Resolve into a `NewFlow`, defaulting the target path to `current_path` (the flow's
+    /// URL path) when the body omits it. A body `path` that differs renames the flow.
+    pub fn into_new_flow(self, current_path: &str) -> NewFlow {
+        NewFlow {
+            path: self.path.unwrap_or_else(|| current_path.to_string()),
+            summary: self.summary,
+            description: self.description,
+            value: self.value,
+            schema: self.schema,
+            tag: self.tag,
+            dedicated_worker: self.dedicated_worker,
+            timeout: self.timeout,
+            deployment_message: self.deployment_message,
+            visible_to_runner_only: self.visible_to_runner_only,
+            on_behalf_of_email: self.on_behalf_of_email,
+            on_behalf_of: self.on_behalf_of,
+            preserve_on_behalf_of: self.preserve_on_behalf_of,
+            ws_error_handler_muted: self.ws_error_handler_muted,
+            labels: self.labels,
+            job_token_scopes: self.job_token_scopes,
+            skip_draft_deletion: self.skip_draft_deletion,
+        }
+    }
+}
+
 fn validate_retry(retry: &Retry, module_id: &str) -> anyhow::Result<()> {
     if retry.exponential.attempts > 0 && retry.exponential.seconds == 0 {
         return Err(anyhow::anyhow!(
@@ -153,6 +240,20 @@ fn validate_retry(retry: &Retry, module_id: &str) -> anyhow::Result<()> {
         ));
     }
     Ok(())
+}
+
+/// Script/sub-flow step references must be workspace paths (`u/`, `f/`, `g/`) or a hub
+/// reference (`hub/`). Empty is tolerated for intermediate/incomplete steps. This keeps
+/// absolute or local filesystem paths (e.g. `/tmp/.../ops/scripts/...` baked in by a
+/// `wmill sync push` from a feature-branch checkout) out of stored flows (#9751). Refuses a
+/// leading `/`, which `RunnableRef` tolerates, so stored paths keep the canonical spelling; it
+/// is not a substitute for the parse, which refuses some paths this accepts.
+fn is_workspace_runnable_path(path: &str) -> bool {
+    path.is_empty()
+        || path.starts_with("u/")
+        || path.starts_with("f/")
+        || path.starts_with("g/")
+        || path.starts_with("hub/")
 }
 
 fn validate_flow_value<'de, D>(deserializer: D) -> Result<Box<RawValue>, D::Error>
@@ -164,21 +265,38 @@ where
     let flow_value: FlowValue = serde_json::from_str(raw_value.get())
         .map_err(|e| serde::de::Error::custom(format!("Invalid flow value: {}", e)))?;
 
-    FlowModule::traverse_modules(&flow_value.modules, &mut |module| {
+    let mut validate_module = |module: &FlowModule| -> anyhow::Result<()> {
         if let Some(ref retry) = module.retry {
             validate_retry(retry, &module.id)?;
         }
-        return Ok(());
-    })
-    .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+        if let Ok(FlowModuleValue::Script { path, .. } | FlowModuleValue::Flow { path, .. }) =
+            module.get_value()
+        {
+            if !is_workspace_runnable_path(&path) {
+                return Err(anyhow::anyhow!(
+                    "step '{}' references '{}', which is not a workspace path (expected u/, \
+                     f/, g/ or hub/). Absolute or local filesystem paths are not allowed in \
+                     flow steps.",
+                    module.id,
+                    path
+                ));
+            }
+        }
+        Ok(())
+    };
 
-    if let Some(ref _failure_module) = flow_value.failure_module {
-        //add validation logic here for failure module
-    }
-
-    if let Some(ref _preprocessor_module) = flow_value.preprocessor_module {
-        //add validation logic here for preprocessor module
-    }
+    // The API is the authoritative guard (it can be called directly, bypassing the CLI), so
+    // it must cover every step that resolves a path: the main modules AND the failure /
+    // preprocessor modules (which can themselves be sub-flows/loops/branches).
+    let extra_modules: Vec<FlowModule> = flow_value
+        .failure_module
+        .iter()
+        .chain(flow_value.preprocessor_module.iter())
+        .map(|m| (**m).clone())
+        .collect();
+    FlowModule::traverse_modules(&flow_value.modules, &mut validate_module)
+        .and_then(|()| FlowModule::traverse_modules(&extra_modules, &mut validate_module))
+        .map_err(|e| serde::de::Error::custom(e.to_string()))?;
 
     Ok(raw_value)
 }
@@ -198,7 +316,8 @@ pub struct FlowValue {
     // When the flow runs on a custom worker tag, by default that tag is propagated to
     // (and overrides) every step, script and nested sub-flow. Set this to true to instead
     // let steps that declare their own non-empty tag run on it; steps without their own tag
-    // still inherit the flow's tag. Defaults to false to preserve the historical behavior.
+    // still inherit the flow's tag. A subflow without a tag of its own runs on the flow's tag and
+    // follows this setting too. Defaults to false to preserve the historical behavior.
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub preserve_step_tags: bool,
@@ -225,6 +344,8 @@ pub struct FlowValue {
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_secs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
 }
 
 impl FlowValue {
@@ -260,6 +381,8 @@ impl FlowValue {
                 | Flow { .. }
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
+                // Runs no script of its own.
+                AIDecision { .. } => {}
                 ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
                     Self::traverse_leafs(modules.iter().collect(), cb)?
                 }
@@ -267,8 +390,9 @@ impl FlowValue {
                     for tool in tools {
                         match &tool.value {
                             ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
-                            ToolValue::Mcp(_) => {}
-                            ToolValue::Websearch(_) => {}
+                            ToolValue::Mcp(_)
+                            | ToolValue::Websearch(_)
+                            | ToolValue::Question(_) => {}
                         }
                     }
                 }
@@ -419,6 +543,7 @@ pub struct ExponentialDelay {
     pub attempts: u32,
     pub multiplier: u16,
     pub seconds: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub random_factor: Option<i8>,
 }
 
@@ -446,6 +571,20 @@ pub struct Suspend {
     pub hide_cancel: Option<bool>,
     #[serde(skip_serializing_if = "false_or_empty")]
     pub continue_on_disapprove_timeout: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skin: Option<ApprovalSkin>,
+}
+
+/// How an approval request is presented, on the approval page and in Slack/Teams messages.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ApprovalSkin {
+    Minimal,
+    /// A skin this server does not know renders as the detailed one rather than failing to
+    /// deserialize the whole flow, so a flow authored against a newer version still runs.
+    #[default]
+    #[serde(other)]
+    Detailed,
 }
 
 fn false_or_empty(v: &Option<bool>) -> bool {
@@ -457,6 +596,9 @@ pub struct Mock {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_value: Option<serde_json::Value>,
+    /// Absent means every run, which is what a mock meant before the key existed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preview_only: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -504,6 +646,9 @@ pub struct FlowModule {
     pub pass_flow_input_directly: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debouncing: Option<DebouncingSettings>,
+    /// Caps the token of the jobs this step runs, on top of the flow's own restriction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -527,6 +672,8 @@ pub struct FlowModuleValueWithParallel {
 #[derive(Deserialize)]
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
+    pub max_iterations: Option<u32>,
+    pub max_duration_secs: Option<u32>,
     pub parallel: Option<bool>,
     #[serde(
         default,
@@ -581,6 +728,19 @@ impl FlowModule {
     pub fn is_simple(&self) -> bool {
         self.get_type()
             .is_ok_and(|x| x == "script" || x == "rawscript" || x == "flowscript")
+    }
+
+    /// Whether a between-steps-zombie step carrying this definition can be safely reused as
+    /// `Success` on restart (see restart-resolution reuse). Excludes steps whose completion
+    /// transition or arming carries semantics that reuse would silently skip: stop predicates
+    /// (`stop_after_if` / `stop_after_all_iters_if`, which decide whether downstream steps run),
+    /// `skip_if` (skipped-state and suspend arming), a `suspend` approval boundary, and `sleep`.
+    pub fn allows_zombie_reuse(&self) -> bool {
+        self.stop_after_if.is_none()
+            && self.stop_after_all_iters_if.is_none()
+            && self.skip_if.is_none()
+            && self.suspend.is_none()
+            && self.sleep.is_none()
     }
 
     pub fn get_type(&self) -> anyhow::Result<&str> {
@@ -694,6 +854,19 @@ impl InputTransform {
     pub fn new_javascript_expr(expr: &str) -> InputTransform {
         InputTransform::Javascript { expr: expr.to_owned() }
     }
+
+    /// Whether this transform fills its input. On an agent tool, an input it does not fill is
+    /// left to the model, which sees only those.
+    pub fn is_completed(&self) -> bool {
+        match self {
+            InputTransform::Static { value } => {
+                let val = value.get().trim();
+                !val.is_empty() && val != "null"
+            }
+            InputTransform::Javascript { expr } => !expr.trim().is_empty(),
+            InputTransform::Ai => false,
+        }
+    }
 }
 
 impl TryFrom<UntaggedInputTransform> for InputTransform {
@@ -762,7 +935,9 @@ pub struct Branch {
     pub modules: Vec<FlowModule>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modules_node: Option<FlowNodeId>,
-    #[serde(default = "default_true")]
+    // The worker reads an absent skip_failure as false (BranchWithSkipFailures),
+    // so a round-trip through this struct must not turn it into true.
+    #[serde(default)]
     pub skip_failure: bool,
     #[serde(default = "default_true")]
     pub parallel: bool,
@@ -774,20 +949,40 @@ pub struct AgentTool {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    /// Free-text description given to the AI to decide when and how to call this tool.
+    /// Overrides the description auto-derived from the underlying runnable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Caps the token of this tool's jobs, on top of the agent step's own restriction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
+    /// A person approves each call before it runs; the agent waits without holding a worker.
+    /// Flow module and MCP tools only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requires_approval: bool,
+    /// The agent is answered as soon as the tool's job starts, and gets its result in a later
+    /// message once it finishes. Only a flow module tool can run in the background.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
+    /// With `background` unset, the agent waits this many seconds for the tool's job, then is
+    /// answered as for a background tool. Flow module tools only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_after_secs: Option<u32>,
     pub value: ToolValue,
 }
 
-// Convert FlowModule -> AgentTool
-impl From<FlowModule> for AgentTool {
-    fn from(flow_module: FlowModule) -> Self {
+impl AgentTool {
+    /// Fold a `FlowModule` that went through dependency locking back into the tool it came from.
+    /// `description` has no `FlowModule` counterpart, so it must be carried over from the
+    /// existing tool: rebuilding an `AgentTool` from the module alone drops it on every deploy.
+    pub fn update_from_module(&mut self, flow_module: FlowModule) {
         let module_value = serde_json::from_str::<FlowModuleValue>(flow_module.value.get())
             .unwrap_or(FlowModuleValue::Identity);
 
-        AgentTool {
-            id: flow_module.id,
-            summary: flow_module.summary,
-            value: ToolValue::FlowModule(module_value),
-        }
+        self.id = flow_module.id;
+        self.summary = flow_module.summary;
+        self.job_token_scopes = flow_module.job_token_scopes;
+        self.value = ToolValue::FlowModule(module_value);
     }
 }
 
@@ -799,10 +994,10 @@ impl From<&AgentTool> for Option<FlowModule> {
                 id: tool.id.clone(),
                 value: to_raw_value(module_value),
                 summary: tool.summary.clone(),
+                job_token_scopes: tool.job_token_scopes.clone(),
                 ..Default::default()
             }),
-            ToolValue::Mcp(_) => None,
-            ToolValue::Websearch(_) => None,
+            ToolValue::Mcp(_) | ToolValue::Websearch(_) | ToolValue::Question(_) => None,
         }
     }
 }
@@ -813,6 +1008,7 @@ pub enum ToolValue {
     FlowModule(FlowModuleValue),
     Mcp(McpToolValue),
     Websearch(WebsearchToolValue),
+    Question(QuestionToolValue),
 }
 
 // Custom deserializer for backward compatibility with old flows
@@ -831,6 +1027,7 @@ impl<'de> Deserialize<'de> for ToolValue {
             FlowModule(FlowModuleValue),
             Mcp(McpToolValue),
             Websearch(WebsearchToolValue),
+            Question(QuestionToolValue),
         }
 
         if let Ok(tagged) = TaggedToolValue::deserialize(&content) {
@@ -838,6 +1035,7 @@ impl<'de> Deserialize<'de> for ToolValue {
                 TaggedToolValue::FlowModule(v) => ToolValue::FlowModule(v),
                 TaggedToolValue::Mcp(v) => ToolValue::Mcp(v),
                 TaggedToolValue::Websearch(v) => ToolValue::Websearch(v),
+                TaggedToolValue::Question(v) => ToolValue::Question(v),
             });
         }
 
@@ -862,6 +1060,14 @@ pub struct McpToolValue {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct WebsearchToolValue {}
+
+/// Lets the agent stop and wait for a person to answer a question it asks.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct QuestionToolValue {
+    /// Seconds to wait for an answer before the question is reported to the model as timed out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u32>,
+}
 
 fn is_none_or_empty_vec<T>(expr: &Option<Vec<T>>) -> bool {
     expr.is_none() || expr.as_ref().unwrap().is_empty()
@@ -907,6 +1113,10 @@ pub enum FlowModuleValue {
         parallelism: Option<InputTransform>,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        /// Evaluated once per iteration, with `flow_input.iter` set, into the text the run
+        /// viewers show for that iteration. Never fails the iteration.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        iteration_label: Option<InputTransform>,
     },
     WhileloopFlow {
         modules: Vec<FlowModule>,
@@ -916,6 +1126,10 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_iterations: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_duration_secs: Option<u32>,
     },
     BranchOne {
         branches: Vec<Branch>,
@@ -927,6 +1141,8 @@ pub enum FlowModuleValue {
         branches: Vec<Branch>,
         #[serde(default = "default_true")]
         parallel: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parallelism: Option<InputTransform>,
     },
     RawScript {
         #[serde(default)]
@@ -970,6 +1186,24 @@ pub enum FlowModuleValue {
         tag: Option<String>,
         #[serde(default, skip_serializing_if = "is_false")]
         omit_output_from_conversation: bool,
+        /// When set, the agent brain config (provider/model/system prompt/etc.) and tools are
+        /// resolved at runtime from this `ai_agent` resource path (hybrid linking). The module's
+        /// `input_transforms` then only carry the flow-local inputs: user_message,
+        /// user_attachments, enabled_tools and the history inputs memory_id and previous_messages.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent: Option<String>,
+        /// Binds an agent's tools to *this* flow's context, keyed by tool id then input key, without
+        /// mutating the shared resource. Overlaid onto the tools' `input_transforms` at runtime,
+        /// `agent` set or not: a step forked for editing keeps these until saved back or unlinked.
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        tool_inputs: HashMap<String, HashMap<String, InputTransform>>,
+    },
+    /// One call to a decision model (such as TypeSafe's Jev) answering the typed `questions` of its
+    /// `input_transforms` about a `state`. A flow branches on the answers with a `BranchOne`.
+    AIDecision {
+        input_transforms: HashMap<String, InputTransform>,
+        #[serde(skip_serializing_if = "is_none_or_empty")]
+        tag: Option<String>,
     },
 }
 
@@ -1005,8 +1239,13 @@ struct UntaggedFlowModuleValue {
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<AgentTool>>,
     omit_output_from_conversation: Option<bool>,
+    agent: Option<String>,
+    tool_inputs: Option<HashMap<String, HashMap<String, InputTransform>>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
+    iteration_label: Option<InputTransform>,
+    max_iterations: Option<u32>,
+    max_duration_secs: Option<u32>,
     #[serde(flatten)]
     concurrency_settings: ConcurrencySettingsWithCustom,
 }
@@ -1048,6 +1287,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 parallel: untagged.parallel.unwrap_or(false),
                 parallelism: untagged.parallelism,
                 squash: untagged.squash,
+                iteration_label: untagged.iteration_label,
             }),
             "whileloopflow" => Ok(FlowModuleValue::WhileloopFlow {
                 modules: untagged
@@ -1056,6 +1296,8 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(false),
                 squash: untagged.squash,
+                max_iterations: untagged.max_iterations,
+                max_duration_secs: untagged.max_duration_secs,
             }),
             "branchone" => Ok(FlowModuleValue::BranchOne {
                 branches: untagged
@@ -1071,6 +1313,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .branches
                     .ok_or_else(|| serde::de::Error::missing_field("branches"))?,
                 parallel: untagged.parallel.unwrap_or(true),
+                parallelism: untagged.parallelism,
             }),
             "rawscript" => Ok(FlowModuleValue::RawScript {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
@@ -1103,13 +1346,19 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
             "identity" => Ok(FlowModuleValue::Identity),
             "aiagent" => Ok(FlowModuleValue::AIAgent {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
-                tools: untagged
-                    .tools
-                    .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
+                // Tools default to empty: a linked agent (see `agent`) resolves its tools from
+                // the referenced resource, so the module itself may carry none.
+                tools: untagged.tools.unwrap_or_default(),
                 tag: untagged.tag,
                 omit_output_from_conversation: untagged
                     .omit_output_from_conversation
                     .unwrap_or(false),
+                agent: untagged.agent,
+                tool_inputs: untagged.tool_inputs.unwrap_or_default(),
+            }),
+            "aidecision" => Ok(FlowModuleValue::AIDecision {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                tag: untagged.tag,
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
@@ -1123,6 +1372,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     "rawscript",
                     "identity",
                     "aiagent",
+                    "aidecision",
                 ],
             )),
         }
@@ -1188,6 +1438,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             apply_preprocessor: None,
             pass_flow_input_directly: None,
             debouncing: None,
+            job_token_scopes: None,
         });
     }
 }
@@ -1196,6 +1447,20 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn edit_flow_defaults_path_from_url_and_renames_when_given() {
+        // An omitted body path resolves to the URL path; an explicit body path renames.
+        let ef: EditFlow =
+            serde_json::from_value(json!({ "summary": "s", "value": { "modules": [] } })).unwrap();
+        assert_eq!(ef.into_new_flow("f/team/my_flow").path, "f/team/my_flow");
+
+        let ef: EditFlow = serde_json::from_value(
+            json!({ "path": "f/team/renamed", "summary": "s", "value": { "modules": [] } }),
+        )
+        .unwrap();
+        assert_eq!(ef.into_new_flow("f/team/my_flow").path, "f/team/renamed");
+    }
 
     #[test]
     fn flow_value_ignores_notes_and_groups() {
@@ -1226,6 +1491,160 @@ mod tests {
         });
         let val: FlowValue = serde_json::from_value(input).unwrap();
         assert_eq!(val.modules.len(), 1);
+    }
+
+    #[test]
+    fn suspend_skin_unknown_value_falls_back_to_detailed() {
+        let skin_of = |skin: &str| {
+            let val: FlowValue = serde_json::from_value(json!({
+                "modules": [{
+                    "id": "a",
+                    "value": {"type": "identity"},
+                    "suspend": {"required_events": 1, "skin": skin}
+                }]
+            }))
+            .unwrap();
+            val.modules[0].suspend.as_ref().unwrap().skin
+        };
+        assert_eq!(skin_of("minimal"), Some(ApprovalSkin::Minimal));
+        assert_eq!(skin_of("not_a_skin_yet"), Some(ApprovalSkin::Detailed));
+    }
+
+    #[test]
+    fn agent_tool_keeps_description_through_locking() {
+        // #10244: the dependency job rebuilds each tool from its locked FlowModule; the
+        // tool description lives only on AgentTool and must survive that round-trip.
+        let mut tool: AgentTool = serde_json::from_value(json!({
+            "id": "b",
+            "summary": "my_tool",
+            "description": "when to call me",
+            "value": {
+                "tool_type": "flowmodule",
+                "type": "rawscript",
+                "content": "def main(): return 1",
+                "language": "python3",
+                "input_transforms": {}
+            }
+        }))
+        .unwrap();
+
+        let mut locked: FlowModule = Option::<FlowModule>::from(&tool).unwrap();
+        locked.value = to_raw_value(&json!({
+            "type": "rawscript",
+            "content": "def main(): return 1",
+            "language": "python3",
+            "lock": "# py: 3.11",
+            "input_transforms": {}
+        }));
+        tool.update_from_module(locked);
+
+        assert_eq!(tool.description.as_deref(), Some("when to call me"));
+        assert_eq!(tool.summary.as_deref(), Some("my_tool"));
+        assert!(serde_json::to_string(&tool.value)
+            .unwrap()
+            .contains("# py: 3.11"));
+    }
+
+    #[test]
+    fn flow_rejects_absolute_step_path() {
+        // #9751: an absolute local path baked into a step must be rejected on deploy.
+        let bad = json!({
+            "path": "f/test/flow",
+            "summary": "",
+            "value": { "modules": [{
+                "id": "validate_onboard_target",
+                "value": {
+                    "type": "script",
+                    "path": "/tmp/tmp.X/f/ops/scripts/clean_device/pre_clean",
+                    "input_transforms": {}
+                }
+            }]}
+        });
+        let err = serde_json::from_value::<NewFlow>(bad)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("not a workspace path"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("validate_onboard_target"),
+            "error should name the step: {err}"
+        );
+    }
+
+    #[test]
+    fn flow_rejects_absolute_step_path_in_nested_module() {
+        let bad = json!({
+            "path": "f/test/flow",
+            "summary": "",
+            "value": { "modules": [{
+                "id": "loop",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": {"type": "javascript", "expr": "[1]"},
+                    "modules": [{
+                        "id": "inner",
+                        "value": {"type": "script", "path": "/abs/path", "input_transforms": {}}
+                    }]
+                }
+            }]}
+        });
+        let err = serde_json::from_value::<NewFlow>(bad)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("not a workspace path"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn flow_rejects_absolute_path_in_failure_and_preprocessor_modules() {
+        for slot in ["failure_module", "preprocessor_module"] {
+            // Build the value with the slot as an explicit (interpolated) key.
+            let mut value = serde_json::Map::new();
+            value.insert("modules".to_string(), json!([]));
+            value.insert(
+                slot.to_string(),
+                json!({
+                    "id": slot,
+                    "value": {"type": "script", "path": "/abs/path", "input_transforms": {}}
+                }),
+            );
+            let bad = json!({ "path": "f/test/flow", "summary": "", "value": value });
+            let err = serde_json::from_value::<NewFlow>(bad)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("not a workspace path"),
+                "{slot} should be validated, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn flow_accepts_workspace_step_paths() {
+        for p in [
+            "f/ops/scripts/x",
+            "u/me/y",
+            "g/grp/z",
+            "hub/123/foo",
+            "", // tolerated for incomplete steps
+        ] {
+            let ok = json!({
+                "path": "f/test/flow",
+                "summary": "",
+                "value": { "modules": [{
+                    "id": "a",
+                    "value": {"type": "script", "path": p, "input_transforms": {}}
+                }]}
+            });
+            assert!(
+                serde_json::from_value::<NewFlow>(ok).is_ok(),
+                "path {p:?} should be accepted"
+            );
+        }
     }
 
     #[test]
@@ -1316,6 +1735,55 @@ mod tests {
         // A fully-default retry serializes to an empty object.
         let empty = serde_json::to_value(&Retry::default()).unwrap();
         assert_eq!(empty, json!({}));
+    }
+
+    #[test]
+    fn exponential_retry_without_random_factor_omits_it() {
+        // A non-default exponential retry with no random_factor must not gain
+        // random_factor:null on a round-trip (the flow-dependencies job writes
+        // that value back to flow.yaml, and the CLI linter rejects null).
+        let input = json!({ "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2 } });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+
+        // A set random_factor still round-trips.
+        let input = json!({
+            "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2, "random_factor": 10 }
+        });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+    }
+
+    #[test]
+    fn branch_without_skip_failure_keeps_failing_the_flow() {
+        // An absent skip_failure means "a failing branch fails the flow" to the
+        // worker and the flow editor; a round-trip must preserve that.
+        let input = json!({
+            "type": "branchall",
+            "branches": [{ "modules": [] }, { "modules": [], "skip_failure": true }]
+        });
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&val).unwrap();
+        let reparsed: FlowModuleWithBranches = serde_json::from_value(output).unwrap();
+        let skips: Vec<bool> = reparsed
+            .branches
+            .iter()
+            .map(|b| b.skip_failure.unwrap_or(false))
+            .collect();
+        assert_eq!(skips, vec![false, true]);
+    }
+
+    #[test]
+    fn branchall_parallelism_round_trips() {
+        // Deploying a flow re-serializes every module value; a dropped cap would start
+        // every branch at once.
+        let input = json!({ "type": "branchall", "branches": [], "parallelism": 2 });
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&val).unwrap();
+        assert_eq!(
+            output["parallelism"],
+            json!({ "type": "static", "value": 2 })
+        );
     }
 
     #[test]

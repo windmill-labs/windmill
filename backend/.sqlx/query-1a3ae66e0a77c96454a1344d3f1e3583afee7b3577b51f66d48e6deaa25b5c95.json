@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE concurrency_key ck\n            SET place = q.scheduled_for, tag = q.tag, priority = COALESCE(q.priority, -32768)\n            FROM v2_job_queue q\n            WHERE ck.job_id = $1 AND q.id = $1 AND ck.place IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1a3ae66e0a77c96454a1344d3f1e3583afee7b3577b51f66d48e6deaa25b5c95"
+}

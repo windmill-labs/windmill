@@ -15,14 +15,18 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
+	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { page } from '$app/state'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { discardDraftAfterDeploy, runResetToDeployed } from '$lib/userDraftToast'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
+	import { schemaAsEditorMounts } from '$lib/scriptEditorSchema'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
+	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -67,9 +71,10 @@
 	// Page-level draft orchestration: autosave handle (re-keyed on nav via
 	// `draftPath`), live-editor-draft registry, `recordRemoteSync`, removal.
 	// `draftSync.draft` stays a stable lvalue for `bind:script`.
-	/** Deployed script this load (with `parent_hash` grafted to match the
-	 * unedited draft seed), the baseline the autosave `discardIf` compares
-	 * against. `undefined` for draft-only paths so they never self-destruct. */
+	/** Deployed script this load (with the same `parent_hash` the draft seed
+	 * carries, so an unedited draft compares equal), the baseline the autosave
+	 * `discardIf` compares against. `undefined` for draft-only paths so they
+	 * never self-destruct. */
 	let deployedBaseline = $state<EditableScript | undefined>(undefined)
 
 	const draftSync = usePageDraftSync<EditableScript>({
@@ -104,6 +109,11 @@
 	 *  (our draft is behind the latest deploy). Cleared between loads to re-fire. */
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
+	/** The hash the draft forked from, and the deployed head — the script
+	 *  equivalent of the flow/app version pair. Behind ⇔ the two differ. */
+	let draftBaseHash = $state<string | undefined>(undefined)
+	let deployedHeadHash = $state<string | undefined>(undefined)
+	let deployedBy = $state<string | undefined>(undefined)
 
 	// Remounts ScriptBuilder on nav: false while a reload runs, true once data is
 	// ready. A synchronous `{#key}` swap instead races Monaco's init against the
@@ -116,17 +126,26 @@
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadScriptToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	async function loadScript(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadScriptToken
 		fullyLoaded = false
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		// `?new_draft=true` (from `/scripts/add`'s redirect): a fresh, never-saved
 		// `u/{user}/draft_{uuid}` path. Skip the backend fetch (would 404) and seed
 		// empty. `path` AND `initialPath` must both be '' so the Path widget's
 		// `initPath` calls `reset()`, generating the friendly `<adj>_<kind>` name;
 		// any non-empty value is parsed verbatim. Empty `initialPath` also opens the
-		// metadata drawer. Strip the single-use flag last.
-		if (page.url.searchParams.get('new_draft') === 'true') {
+		// metadata drawer. The flag is stripped only once the first save lands.
+		// Once the draft is persisted this session (autosave or "Open in AI
+		// session"'s forcePersist), a stale `?new_draft` — e.g. carried back by
+		// exiting a session to the remembered nav route — falls through to the
+		// normal load instead of re-seeding empty over the saved draft.
+		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'script', draftPath)) {
 			// Suspend autosave across the bootstrap: both the seed and
 			// ScriptBuilder's `initContent` are programmatic writes that must not
 			// post as the user's first edit. ScriptBuilder lifts it in
@@ -139,9 +158,11 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			draftBaseHash = undefined
+			deployedHeadHash = undefined
+			deployedBy = undefined
 			// Brand-new script: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
-			// Capture every seeding param BEFORE stripping the URL flag.
 			const templatePath = page.url.searchParams.get('template')
 			const hubPath = page.url.searchParams.get('hub')
 			const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
@@ -150,9 +171,14 @@
 			// path into the forker's namespace and passes it here.
 			const pathParam = page.url.searchParams.get('seed_path')
 			const urlScript = decodeUrlScript()
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
+			// Keep `?new_draft=true` until the backend confirms the first autosave,
+			// so a refresh before any edit re-seeds here instead of 404-ing on the
+			// never-persisted `draft_{uuid}` path.
+			cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+				workspace: $workspaceStore!,
+				itemKind: 'script',
+				path: draftPath
+			})
 			// One-shot YAML/JSON import handoff via $importScriptStore. Consume +
 			// clear; imported content is non-empty so ScriptBuilder's template
 			// bootstrap (guarded on `content == ''`) leaves it untouched.
@@ -264,6 +290,10 @@
 			renderEditor = true
 			return
 		}
+		// Falling through with `?new_draft=true` still set means the draft is
+		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
+		// flag so it doesn't linger in the URL / remembered nav route.
+		stripNewDraftFlag()
 		if (hash) {
 			const scriptByHash = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
@@ -282,6 +312,27 @@
 				getDraft
 			})
 			if (tok !== loadScriptToken) return
+			// A draft-only script has no page for Home's card to open.
+			if (!backendScript.no_deployed) {
+				recentItems.record($workspaceStore!, {
+					kind: 'script',
+					path: backendScript.path,
+					summary: backendScript.summary,
+					via: 'edit'
+				})
+			}
+			// The editor re-infers the schema as soon as it mounts, so a baseline
+			// taken from the raw stored schema would flag every unedited open of a
+			// script whose stored schema differs from what this parser emits.
+			const baselineSchema = backendScript.no_deployed
+				? undefined
+				: await schemaAsEditorMounts(
+						backendScript.language,
+						backendScript.content ?? '',
+						backendScript.schema,
+						backendScript.kind
+					)
+			if (tok !== loadScriptToken) return
 			// Backend only computes `other_drafts_users` when `getDraft`. Don't clobber
 			// the known list on a `getDraft:false` reload (e.g. reset-to-deployed, which
 			// discards only OUR draft and must keep other users' drafts visible).
@@ -292,38 +343,104 @@
 			// timestamp the backend can stale-check. `undefined` (no draft) clears
 			// it, making the next save take the "first push" branch.
 			draftSync.recordRemoteSync(backendScript.draft_saved_at as string | undefined)
-			if (backendScript.is_draft) {
-				loadedFromDraft = true
-			}
+			// Per-response, NOT sticky: navigating to another path in the same editor
+			// must reset this, else a later no-own-draft load wrongly enters overlay.
+			const hasOwnDraft = !!backendScript.is_draft
+			loadedFromDraft = hasOwnDraft
 			// Pass both timestamps through for DraftEditorModals' staleness compare:
 			// `created_at` is the latest deploy, `draft_saved_at` the draft's save.
 			draftSavedAt = backendScript.draft_saved_at as string | undefined
 			deployedAt = backendScript.created_at as string | undefined
+			deployedBy = backendScript.created_by as string | undefined
 			// Layer the draft (`.draft`, if any) over the deployed payload at the
 			// field level: the draft supplies editor state (content, summary, …),
 			// the deployed supplies metadata it lacks (hash, version markers).
 			const { draft: draftFromBackend, ...deployedScript } = backendScript as any
+			// Exact staleness, preferred over the timestamps: a draft carried across
+			// a move keeps its old save time while the move mints a fresh deploy, so
+			// the timestamps alone would call every carried draft stale.
+			draftBaseHash = backendScript.draft_base
+			// A draft-only script has no deployed hash to be behind: what comes back
+			// under `hash` is then the draft's own value, not a head.
+			deployedHeadHash = backendScript.no_deployed
+				? undefined
+				: (backendScript.hash as string | undefined)
 			const effectiveScript: EditableScript = draftFromBackend
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)
 			savedScript = structuredClone($state.snapshot(effectiveScript))
+			// The draft's base is the version it forked from and only the user moves it
+			// (by discarding or rebasing). A draft keeps the base it has, unknown included
+			// (staleness then falls back to the timestamps); seeding the head over it here
+			// would let the next autosave persist the head as the base, so a draft behind
+			// the deploy would read as up to date after one open. Only a fresh checkout
+			// forks from the head.
+			const parentHash = topHash ?? (hasOwnDraft ? backendScript.draft_base : backendScript.hash)
 			// Baseline for the autosave `discardIf`: the deployed script with the
-			// same `parent_hash` graft the seed below applies, so the unedited
-			// draft compares equal. `undefined` when there's no deployed row.
+			// same `parent_hash` graft the seed below applies and the schema as the
+			// mounted editor holds it, so the unedited draft compares equal.
+			// `undefined` when there's no deployed row.
 			deployedBaseline = backendScript.no_deployed
 				? undefined
 				: structuredClone(
-						$state.snapshot({
-							...deployedScript,
-							parent_hash: topHash ?? backendScript.hash
-						})
+						$state.snapshot({ ...deployedScript, schema: baselineSchema, parent_hash: parentHash })
 					)
-			// `parent_hash` is grafted on so the editor's compile reuses the
-			// deployed lock. The first cell write after `acquireEntry` is swallowed
-			// by the syncer's seed guard, so this load doesn't POST.
-			draftSync.draft = {
-				...effectiveScript,
-				parent_hash: topHash ?? backendScript.hash
+			// "Load another user's draft" handoff: show their value over the
+			// deployed metadata. If WE already have a draft → overlay mode (never
+			// saved until the user confirms overwriting their own draft).
+			const pendingLoad = getDraft
+				? OtherUserDraftLoad.takePending($workspaceStore!, 'script', draftPath)
+				: undefined
+			// Revisiting a path whose overlay was never confirmed/reset (e.g. the user
+			// navigated away mid-load): drop the stale lock so editing our own draft
+			// works again.
+			if (!pendingLoad && OtherUserDraftLoad.isActive($workspaceStore!, 'script', draftPath)) {
+				OtherUserDraftLoad.clear($workspaceStore!, 'script', draftPath)
+			}
+			if (pendingLoad) {
+				const theirs = (pendingLoad.value as { parent_hash?: string })?.parent_hash
+				const loadedValue = {
+					...deployedScript,
+					...(pendingLoad.value as object),
+					parent_hash: theirs
+				} as EditableScript
+				// Their draft's base, not ours: the prompt and the deploy guard read these,
+				// and deploying their content on our base would claim a version it never
+				// forked from. A draft that has none keeps none — seeding `parentHash`
+				// (the head, when we have no draft here) would mark their older content as
+				// forked from the current deploy and silence the stale prompt.
+				if (theirs == null) {
+					delete (loadedValue as { parent_hash?: string }).parent_hash
+					// The autosave's `discardIf` baseline has to carry the same lineage as the
+					// value, or an unedited copy of their content never compares equal to the
+					// deployed one and the draft can never discard itself.
+					if (deployedBaseline) delete (deployedBaseline as { parent_hash?: string }).parent_hash
+				}
+				draftBaseHash = theirs
+				if (hasOwnDraft) {
+					OtherUserDraftLoad.beginOverlay({
+						workspace: $workspaceStore!,
+						itemKind: 'script',
+						path: draftPath,
+						ownerLabel: pendingLoad.ownerLabel,
+						loadedValue,
+						onResetToOwnDraft: () => loadScript({ getDraft: true })
+					})
+					// Seed so the bound value updates WITHOUT a POST (the lock would
+					// block it anyway, but seeding avoids tripping the edit prompt).
+					UserDraft.seed('script', draftPath, loadedValue, { workspace: $workspaceStore! })
+				} else {
+					// No own draft: adopt their value as ours (autosaves normally).
+					draftSync.draft = loadedValue
+				}
+			} else {
+				// `parent_hash` is grafted on so the editor's compile reuses the
+				// deployed lock. The first cell write after `acquireEntry` is swallowed
+				// by the syncer's seed guard, so this load doesn't POST.
+				draftSync.draft = {
+					...effectiveScript,
+					parent_hash: parentHash
+				}
 			}
 		}
 
@@ -405,11 +522,18 @@
 	itemKind="script"
 	path={page.params.path ?? ''}
 	{otherDraftsUsers}
+	draftOnly={(savedScript as any)?.no_deployed === true}
+	hasOwnDraft={loadedFromDraft}
 	onLoadFromServer={() => loadScript()}
 	getLocalDraft={() => draftSync.draft}
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
+	draftBaseVersion={draftBaseHash}
+	deployedHeadVersion={deployedHeadHash}
+	{deployedBy}
+	onViewDiff={() => scriptBuilder?.openDiffDrawer()}
+	onBeforeRelocate={() => scriptBuilder?.saveDraft()}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see restoreDeployed for the race.
 		if (!$workspaceStore) return
@@ -427,8 +551,28 @@
 {#if draftSync.draft && renderEditor}
 	<ScriptBuilder
 		bind:this={scriptBuilder}
+		ownsPageHeader
 		{initialPath}
 		userDraftPath={draftPath}
+		{draftBaseHash}
+		onTakeLatest={draftBaseHash
+			? async (shown?: string) => {
+					// The version the drawer showed as head: it offers this action only when it
+					// has one, and adopting the head this page loaded with would claim the
+					// draft is up to date with a version that may not be the latest.
+					const head = shown ?? deployedHeadHash
+					if (!draftSync.draft || !head || !$workspaceStore) return
+					draftSync.draft = { ...draftSync.draft, parent_hash: head }
+					// The baseline mirrors the draft's base so an unedited draft still
+					// compares equal and the autosave can discard it.
+					if (deployedBaseline) deployedBaseline = { ...deployedBaseline, parent_hash: head }
+					draftBaseHash = head
+					// The head this page knows moves with it, or the prompt reopens comparing
+					// the fresh base against the stale head, the two the wrong way round.
+					deployedHeadHash = head
+					await UserDraft.forcePersist('script', draftPath, { workspace: $workspaceStore })
+				}
+			: undefined}
 		bind:script={draftSync.draft}
 		template={builderTemplate}
 		{lockedLanguage}
@@ -449,6 +593,13 @@
 		onDeploy={(e) => {
 			// "Deploy & Stay here" / lib: stay on the editor (just confirm).
 			if (e.stay) {
+				// `e.hash` is the hash the create call returned, so it names this deploy's own
+				// version with nothing to attribute (unlike an app, which has to read its
+				// version back). The builder re-pinned the draft to it, so the pair moves
+				// here too: otherwise Diff offers Take latest against a head the draft is
+				// already on.
+				draftBaseHash = e.hash
+				deployedHeadHash = e.hash
 				sendUserToast('Deployed')
 				return
 			}
@@ -463,9 +614,7 @@
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
-		onSeeDetails={(e) => {
-			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
-		}}
+		seeDetailsHref={(path) => `/scripts/get/${path}?workspace=${$workspaceStore}`}
 		onNavigate={(item) => goto(editPathFor(item))}
 	/>
 {/if}

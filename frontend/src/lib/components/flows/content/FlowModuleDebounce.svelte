@@ -55,5 +55,4 @@
 	bind:max_total_debounces_amount
 	schema={flowStateStore.val[selectedId]?.schema}
 	placeholder={`$workspace/flow/<flow_path>-${flowModule.id}`}
-	size="xs"
 />

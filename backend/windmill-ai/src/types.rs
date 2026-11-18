@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
@@ -15,10 +16,11 @@ pub struct McpToolSource {
     pub resource_path: String,
 }
 
+use crate::vertex_workload_identity::VertexWorkloadIdentity;
 use crate::{
     ai_google::sanitize_schema_for_google,
     ai_providers::{empty_string_as_none, AIProvider},
-    credentials::ProviderCredentials,
+    credentials::{AnthropicFederation, ProviderCredentials},
 };
 use windmill_common::{db::DB, error::Error, flow_status::AgentAction, flows::FlowModule};
 use windmill_parser::Typ;
@@ -59,6 +61,14 @@ pub struct Tool {
     pub module: Option<FlowModule>,
     pub def: ToolDef,
     pub mcp_source: Option<McpToolSource>,
+    /// Each call waits for a person to approve it, without the agent holding a worker.
+    pub requires_approval: bool,
+    /// Set on the built-in question tool, which the worker answers by parking the agent until
+    /// someone answers or this many seconds pass.
+    pub question_timeout_secs: Option<u32>,
+    /// A flow module tool whose call is answered once its job is queued (`Some(0)`) or, unfinished,
+    /// this many seconds after; see `AgentTool::background`.
+    pub background_after_secs: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -78,15 +88,56 @@ impl Default for OutputType {
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Memory {
     Off,
-    Auto {
-        #[serde(default)]
+    Window {
+        #[serde(default, deserialize_with = "deserialize_null_as_zero")]
         context_length: usize,
-        #[serde(default)]
+    },
+    Compaction {
+        /// Overrides the window looked up from the model. Only a step the lookup cannot
+        /// serve — a Custom AI deployment, a model id not in the table — needs one, and
+        /// a value larger than the model actually serves lets the conversation overflow
+        /// before the summary is ever taken.
+        #[serde(default, deserialize_with = "deserialize_null_as_zero")]
+        context_window: usize,
+    },
+    /// Written before `window`. Its `memory_id` stays a fallback behind the run's memory id.
+    Auto {
+        #[serde(default, deserialize_with = "deserialize_null_as_zero")]
+        context_length: usize,
+        #[serde(default, deserialize_with = "deserialize_blank_as_none")]
         memory_id: Option<Uuid>,
     },
+    /// Written before a step had history inputs of its own, and read on its own where it remains.
     Manual {
         messages: Vec<OpenAIMessage>,
     },
+}
+
+// An editor form can leave `""` in a legacy baked id it never filled; it means no id rather than
+// failing every run of the step.
+fn deserialize_blank_as_none<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Uuid>, D::Error> {
+    match <Option<String> as serde::Deserialize>::deserialize(deserializer)? {
+        Some(id) if !id.trim().is_empty() => Uuid::parse_str(id.trim())
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        _ => Ok(None),
+    }
+}
+
+// A count the editor's number field was cleared of is stored as `null`, which `default` does not
+// cover; it reads as 0, memory off, rather than failing every run of the step.
+fn deserialize_null_as_zero<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<usize, D::Error> {
+    <Option<usize> as serde::Deserialize>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
+
+fn deserialize_present<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<serde_json::Value>, D::Error> {
+    <serde_json::Value as serde::Deserialize>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -103,6 +154,13 @@ struct AIAgentArgsRaw {
     streaming: Option<bool>,
     max_iterations: Option<usize>,
     memory: Option<Memory>,
+    // A null must stay distinguishable from an absent key: a step whose own memory id evaluates to
+    // nothing runs stateless instead of falling back to the run's memory id.
+    #[serde(default, deserialize_with = "deserialize_present")]
+    memory_id: Option<serde_json::Value>,
+    #[serde(default)]
+    previous_messages: Option<Vec<OpenAIMessage>>,
+    enabled_tools: Option<Vec<String>>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
     #[serde(default)]
@@ -123,6 +181,13 @@ pub struct AIAgentArgs {
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
     pub memory: Option<Memory>,
+    /// Memory id set on the step, overriding the run's. Empty when its expression produced none.
+    pub memory_id: Option<String>,
+    /// History supplied by the flow, replayed without reading or writing memory.
+    pub previous_messages: Option<Vec<OpenAIMessage>>,
+    /// Which of the agent's tools this run may call; `narrow_roster` holds what the names are and
+    /// what `None` means.
+    pub enabled_tools: Option<Vec<String>>,
     pub credentials_check: bool,
 }
 
@@ -135,12 +200,17 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
         });
 
         // Backward compatibility: if context_length is 0, use off mode
-        let memory = memory.map(|memory| {
-            if let Memory::Auto { context_length: 0, .. } = memory {
+        let memory = memory.map(|memory| match memory {
+            Memory::Auto { context_length: 0, .. } | Memory::Window { context_length: 0 } => {
                 Memory::Off
-            } else {
-                memory
             }
+            memory => memory,
+        });
+
+        let memory_id = raw.memory_id.map(|value| match value {
+            serde_json::Value::Null => String::new(),
+            serde_json::Value::String(s) => s.trim().to_string(),
+            value => value.to_string(),
         });
 
         AIAgentArgs {
@@ -155,6 +225,9 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             streaming: raw.streaming,
             max_iterations: raw.max_iterations,
             memory,
+            memory_id,
+            previous_messages: raw.previous_messages,
+            enabled_tools: raw.enabled_tools,
             credentials_check: raw.credentials_check.unwrap_or(false),
         }
     }
@@ -190,12 +263,46 @@ pub struct ProviderResource {
         deserialize_with = "empty_string_as_none"
     )]
     pub aws_session_token: Option<String>,
+    #[serde(
+        alias = "oidcRoleArn",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
+    pub oidc_role_arn: Option<String>,
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     pub platform: AIPlatform,
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    /// Set only by OAuth resources, which resolve to a token through a client
+    /// credentials exchange this crate does not perform.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub token_url: Option<String>,
+    /// Set only by `anthropic_federated` resources, which authenticate through
+    /// Workload Identity Federation with an OIDC token minted for the job.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub federation_rule_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub organization_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub service_account_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub workspace_id: Option<String>,
+    /// Set only by `vertex_ai_federated` resources, which authenticate to Vertex AI
+    /// through Google Cloud Workload Identity Federation.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub workload_identity_provider: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub service_account_email: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub workload_identity_audience: Option<String>,
+    /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub token: Option<String>,
+    /// The account of a `cloudflare` resource, which its Workers AI URL is built from.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub account_id: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -203,6 +310,10 @@ pub struct ProviderWithResource {
     pub kind: AIProvider,
     pub resource: ProviderResource,
     pub model: String,
+    /// Provider-native reasoning effort token (e.g. `low`, `high`, `none`).
+    /// Belongs to the model selection, so it rides on the provider config.
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
 }
 
 impl ProviderWithResource {
@@ -214,7 +325,21 @@ impl ProviderWithResource {
         &self.model
     }
 
+    /// The reasoning effort to thread to the provider, treating an empty string
+    /// (e.g. a cleared flow input) as unset.
+    pub fn get_reasoning_effort(&self) -> Option<&str> {
+        crate::providers::effective_reasoning_effort(
+            &self.model,
+            self.reasoning_effort.as_deref().filter(|s| !s.is_empty()),
+        )
+    }
+
     pub async fn get_base_url(&self, db: &DB) -> Result<String, Error> {
+        if self.kind == AIProvider::Cloudflare && self.resource.base_url.is_none() {
+            return crate::ai_providers::cloudflare_workers_ai_base_url(
+                self.resource.account_id.as_deref(),
+            );
+        }
         self.kind
             .get_base_url(self.resource.base_url.clone(), db)
             .await
@@ -225,8 +350,24 @@ impl ProviderWithResource {
     /// Callers must only pass resources that were already authorized for the
     /// current job/workspace; this helper does not perform access checks.
     pub async fn to_provider_credentials(&self, db: &DB) -> Result<ProviderCredentials, Error> {
+        let anthropic_federation = self.anthropic_federation()?;
+        let vertex_workload_identity = VertexWorkloadIdentity::from_resource(
+            &self.kind,
+            self.resource.workload_identity_provider.as_deref(),
+            self.resource.service_account_email.as_deref(),
+            self.resource.workload_identity_audience.as_deref(),
+        )?;
+        let platform = if vertex_workload_identity.is_some() {
+            AIPlatform::GoogleVertexAi
+        } else {
+            self.resource.platform.clone()
+        };
         let base_url = if self.kind == AIProvider::AWSBedrock {
             String::new()
+        } else if anthropic_federation.is_some() {
+            // The exchanged token is the job's identity, so it only ever goes to
+            // Anthropic: a resource cannot point it at another host.
+            crate::providers::anthropic::ANTHROPIC_API_BASE_URL.to_string()
         } else {
             self.get_base_url(db).await?
         };
@@ -234,7 +375,14 @@ impl ProviderWithResource {
         Ok(ProviderCredentials {
             provider: self.kind.clone(),
             base_url,
-            api_key: self.resource.api_key.clone(),
+            api_key: match self.kind {
+                AIProvider::Cloudflare => self
+                    .resource
+                    .api_key
+                    .clone()
+                    .or_else(|| self.resource.token.clone()),
+                _ => self.resource.api_key.clone(),
+            },
             access_token: None,
             organization_id: None,
             user: None,
@@ -242,9 +390,40 @@ impl ProviderWithResource {
             aws_access_key_id: self.resource.aws_access_key_id.clone(),
             aws_secret_access_key: self.resource.aws_secret_access_key.clone(),
             aws_session_token: self.resource.aws_session_token.clone(),
-            platform: self.resource.platform.clone(),
+            oidc_role_arn: self.resource.oidc_role_arn.clone(),
+            anthropic_federation,
+            vertex_workload_identity,
+            platform,
             custom_headers: self.resource.headers.clone(),
         })
+    }
+
+    /// The federation settings of an `anthropic_federated` resource, which only
+    /// `federation_rule_id` identifies; the other required fields are checked here.
+    fn anthropic_federation(&self) -> Result<Option<AnthropicFederation>, Error> {
+        let resource = &self.resource;
+        let Some(federation_rule_id) = resource.federation_rule_id.clone() else {
+            return Ok(None);
+        };
+        if self.kind != AIProvider::Anthropic {
+            return Err(Error::ExecutionErr(format!(
+                "An anthropic_federated resource can only be used with the Anthropic provider, not {:?}",
+                self.kind
+            )));
+        }
+        let required = |value: &Option<String>, name: &str| {
+            value.clone().ok_or_else(|| {
+                Error::ExecutionErr(format!(
+                    "The anthropic_federated resource needs {name} to be set"
+                ))
+            })
+        };
+        Ok(Some(AnthropicFederation {
+            federation_rule_id,
+            organization_id: required(&resource.organization_id, "organization_id")?,
+            service_account_id: required(&resource.service_account_id, "service_account_id")?,
+            workspace_id: resource.workspace_id.clone(),
+        }))
     }
 
     #[cfg(feature = "bedrock")]
@@ -312,11 +491,26 @@ impl TokenUsage {
         Self::new(input, output, total)
     }
 
-    /// Add cache token information
+    /// Records a cached prefix the provider counted *inside* `input_tokens`, which the
+    /// OpenAI-shaped ones do. The counts are kept only for the cost split.
     pub fn with_cache(mut self, read: Option<i32>, write: Option<i32>) -> Self {
         self.cache_read_input_tokens = read;
         self.cache_write_input_tokens = write;
         self
+    }
+
+    /// Records a cached prefix the provider reported *beside* `input_tokens` rather than
+    /// inside it, which Anthropic and Bedrock do. `input_tokens` is raised to the whole
+    /// prompt, so `input_tokens` means the same thing whatever served the request; the
+    /// cache counts stay as the subsets they have become, and the total follows.
+    pub fn with_cache_beside_input(mut self, read: Option<i32>, write: Option<i32>) -> Self {
+        let beside = read.unwrap_or(0).saturating_add(write.unwrap_or(0));
+        self.input_tokens = self.input_tokens.map(|input| input.saturating_add(beside));
+        self.total_tokens = match (self.input_tokens, self.output_tokens) {
+            (Some(input), Some(output)) => Some(input.saturating_add(output)),
+            _ => self.total_tokens.map(|total| total.saturating_add(beside)),
+        };
+        self.with_cache(read, write)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -355,6 +549,12 @@ pub struct AIAgentResult<'a> {
     pub messages: Vec<Message<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wm_stream: Option<String>,
+    /// The model's thinking across every iteration of the loop, in order, blank-line
+    /// separated. Present whenever the provider's parser surfaced any, whether or not
+    /// the step streams, so a downstream step never has to pick it out of `wm_stream`.
+    /// Absent when the model thought nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<TokenUsage>,
 }
@@ -365,6 +565,10 @@ pub struct AIAgentResult<'a> {
 pub enum StreamingEvent {
     /// Individual token from the AI response
     TokenDelta { content: String },
+    /// Individual token of the model's reasoning / thinking summary. Emitted
+    /// before the answer when reasoning is enabled; renderable as a "thinking"
+    /// affordance (thinking tokens bill regardless of whether they are shown).
+    ReasoningTokenDelta { content: String },
     /// Tool call has started
     ToolCall { call_id: String, function_name: String },
     /// Tool call arguments are complete
@@ -373,6 +577,9 @@ pub enum StreamingEvent {
     ToolExecution { call_id: String, function_name: String },
     /// Tool execution result
     ToolResult { call_id: String, function_name: String, result: String, success: bool },
+    /// The agent has answered and waits, without a worker, on tools still running in the
+    /// background: nothing more streams until one of them finishes and wakes it.
+    BackgroundWait,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -403,7 +610,7 @@ pub struct OpenAPISchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<OpenAPISchema>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<HashMap<String, Box<OpenAPISchema>>>,
+    pub properties: Option<IndexMap<String, Box<OpenAPISchema>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "oneOf")]
@@ -430,9 +637,9 @@ pub struct OpenAPISchema {
     #[serde(skip_serializing_if = "Option::is_none", rename = "$ref")]
     pub ref_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "$defs")]
-    pub defs: Option<HashMap<String, Box<OpenAPISchema>>>,
+    pub defs: Option<IndexMap<String, Box<OpenAPISchema>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub definitions: Option<HashMap<String, Box<OpenAPISchema>>>,
+    pub definitions: Option<IndexMap<String, Box<OpenAPISchema>>>,
 
     // Schema composition
     #[serde(skip_serializing_if = "Option::is_none", rename = "allOf")]
@@ -699,7 +906,7 @@ impl OpenAPISchema {
 
         // Merge properties (other's properties are added if key doesn't exist)
         if let Some(ref other_props) = other.properties {
-            let props = self.properties.get_or_insert_with(HashMap::new);
+            let props = self.properties.get_or_insert_with(IndexMap::new);
             for (key, value) in other_props {
                 props.entry(key.clone()).or_insert_with(|| value.clone());
             }
@@ -750,13 +957,13 @@ impl OpenAPISchema {
 
         // Merge $defs and definitions
         if let Some(ref other_defs) = other.defs {
-            let defs = self.defs.get_or_insert_with(HashMap::new);
+            let defs = self.defs.get_or_insert_with(IndexMap::new);
             for (key, value) in other_defs {
                 defs.entry(key.clone()).or_insert_with(|| value.clone());
             }
         }
         if let Some(ref other_definitions) = other.definitions {
-            let definitions = self.definitions.get_or_insert_with(HashMap::new);
+            let definitions = self.definitions.get_or_insert_with(IndexMap::new);
             for (key, value) in other_definitions {
                 definitions
                     .entry(key.clone())
@@ -851,7 +1058,90 @@ pub struct S3ObjectWithType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+
+    #[test]
+    fn a_federated_resource_resolves_its_federation_and_names_a_missing_field() {
+        let provider = |kind: &str, resource: &str| -> ProviderWithResource {
+            serde_json::from_str(&format!(
+                r#"{{"kind":"{kind}","model":"m","resource":{resource}}}"#
+            ))
+            .unwrap()
+        };
+        let federated = r#"{"federation_rule_id":"fdrl_x","organization_id":"org","service_account_id":"svac_x","workspace_id":""}"#;
+
+        assert_eq!(
+            provider("anthropic", federated)
+                .anthropic_federation()
+                .unwrap(),
+            Some(AnthropicFederation {
+                federation_rule_id: "fdrl_x".to_string(),
+                organization_id: "org".to_string(),
+                service_account_id: "svac_x".to_string(),
+                workspace_id: None,
+            })
+        );
+        let incomplete = provider(
+            "anthropic",
+            r#"{"federation_rule_id":"fdrl_x","organization_id":"org"}"#,
+        );
+        assert!(incomplete
+            .anthropic_federation()
+            .unwrap_err()
+            .to_string()
+            .contains("service_account_id"));
+        assert!(provider("openai", federated)
+            .anthropic_federation()
+            .is_err());
+        assert_eq!(
+            provider("anthropic", r#"{"api_key":"k","organization_id":"org"}"#)
+                .anthropic_federation()
+                .unwrap(),
+            None
+        );
+    }
+
+    /// The schema is part of the prompt prefix the provider caches on, so its keys must
+    /// serialize in the same order on every request.
+    #[test]
+    fn strict_schema_keeps_the_defined_property_order() {
+        let keys = [
+            "zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "kappa",
+        ];
+        let props = keys
+            .iter()
+            .map(|k| format!(r#""{k}":{{"type":"string"}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut schema: OpenAPISchema =
+            serde_json::from_str(&format!(r#"{{"type":"object","properties":{{{props}}}}}"#))
+                .unwrap();
+        schema.make_strict();
+
+        let value = serde_json::to_value(&schema).unwrap();
+        let serialized: Vec<&String> = value["properties"].as_object().unwrap().keys().collect();
+        assert_eq!(serialized, keys);
+        assert_eq!(value["required"], serde_json::json!(keys));
+    }
+
+    /// Whichever provider served the request, `input_tokens` has to end up meaning the
+    /// whole prompt. Leaving the Anthropic shape as reported under-states it by the
+    /// entire cached prefix, which is exactly what compaction has to notice.
+    #[test]
+    fn both_provider_cache_shapes_report_the_whole_prompt() {
+        // OpenAI-shaped: cached_tokens is already inside input_tokens.
+        let openai = TokenUsage::new(Some(1000), Some(10), Some(1010)).with_cache(Some(800), None);
+        assert_eq!(openai.input_tokens, Some(1000));
+        assert_eq!(openai.total_tokens, Some(1010));
+
+        // Anthropic-shaped: the cached prefix is reported beside input_tokens, and the
+        // total follows the prompt it is folded into.
+        let anthropic = TokenUsage::from_input_output(Some(200), Some(10))
+            .with_cache_beside_input(Some(5000), Some(300));
+        assert_eq!(anthropic.input_tokens, Some(5500));
+        assert_eq!(anthropic.total_tokens, Some(5510));
+        // Kept as the subsets they have become, for the cost split.
+        assert_eq!(anthropic.cache_read_input_tokens, Some(5000));
+    }
 
     /// Helper to create a simple string type schema
     fn string_schema() -> OpenAPISchema {
@@ -1098,7 +1388,7 @@ mod tests {
     #[test]
     fn test_make_strict_defs() {
         let def_schema = object_schema(vec![("prop", string_schema())]);
-        let mut defs = HashMap::new();
+        let mut defs = IndexMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
         let mut schema = OpenAPISchema { defs: Some(defs), ..Default::default() };
@@ -1124,7 +1414,7 @@ mod tests {
     #[test]
     fn test_make_strict_definitions() {
         let def_schema = object_schema(vec![("prop", string_schema())]);
-        let mut definitions = HashMap::new();
+        let mut definitions = IndexMap::new();
         definitions.insert("MyType".to_string(), Box::new(def_schema));
 
         let mut schema = OpenAPISchema { definitions: Some(definitions), ..Default::default() };
@@ -1378,7 +1668,7 @@ mod tests {
     #[test]
     fn test_flatten_all_of_preserves_defs() {
         let def_schema = object_schema(vec![("field", string_schema())]);
-        let mut defs = HashMap::new();
+        let mut defs = IndexMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
         let schema_with_defs = OpenAPISchema { defs: Some(defs), ..Default::default() };
@@ -1492,7 +1782,7 @@ mod tests {
             schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
             ..Default::default()
         };
-        let mut defs = HashMap::new();
+        let mut defs = IndexMap::new();
         defs.insert("MyType".to_string(), Box::new(def_schema));
 
         let mut schema = OpenAPISchema {

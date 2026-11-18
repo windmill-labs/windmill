@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte'
 	import { executeRunnable } from '../apps/components/helpers/executeRunnable'
 	import { userStore } from '$lib/stores'
 	import { waitJob } from '../waitJob'
 	import type { JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
 	import type { Runnable } from './rawAppPolicy'
+	import { RAW_APP_PREVIEW_RELAY, rawAppPreviewModules } from './utils'
 	import { undefinedIfEmpty } from '$lib/utils'
 
 	interface Props {
@@ -15,6 +17,27 @@
 		jobsById?: Record<string, JobById>
 		editor: boolean
 		workspace: string
+		/** Editor only: identity the previewed runnables run as (see `appPreviewOnBehalfOf`). */
+		previewOnBehalfOf?: string
+		/**
+		 * Restrict waitJob/getJob/streamJob to job ids launched by this app
+		 * instance (WIN-2006): a SANDBOXED bundle must not read arbitrary
+		 * workspace jobs through the credentialed bridge. Off for unsandboxed
+		 * renders — there the bundle holds the same credential as the bridge,
+		 * so gating adds nothing and would only break unsandboxed apps that
+		 * poll persisted or runnable-returned job ids.
+		 */
+		gateJobIds?: boolean
+		/**
+		 * Additional trusted message source beyond the bundle iframe: the
+		 * detached preview window opened from the editor ("open preview in a
+		 * separate window"). Its app bundle posts runnable requests to
+		 * `window.opener` (this window), so the bridge must accept its
+		 * `event.source` and reply to it. A getter so it tracks the live handle
+		 * without a reactive prop. Editor-only — the detached window runs the
+		 * same bundle, sandboxed or not, as the inline preview.
+		 */
+		extraSourceWindow?: () => Window | null | undefined
 	}
 
 	let {
@@ -24,16 +47,44 @@
 		jobs = $bindable([]),
 		jobsById = $bindable({}),
 		editor,
-		workspace
+		workspace,
+		previewOnBehalfOf,
+		gateJobIds = true,
+		extraSourceWindow
 	}: Props = $props()
 
+	// Job ids launched by this app instance — see `gateJobIds`.
+	const launchedJobs = new Set<string>()
+	// A stream resumed on every server timeout would otherwise outlive the app it answers.
+	let destroyed = false
+	onDestroy(() => (destroyed = true))
+
+	/** For a host that loads this component after the bundle may already have sent requests. */
+	export function handleMessage(event: MessageEvent) {
+		return listener(event)
+	}
+
 	let listener = async (event) => {
-		if (!iframe || event.source !== iframe.contentWindow) return
+		// Only accept messages from the bundle iframe (opaque origin) or the
+		// detached preview window we opened, so other frames/extensions can't
+		// drive the runnable bridge (WIN-2006). Reject unconditionally until the
+		// iframe is bound — never process a message from an unknown source.
+		const detachedWindow = extraSourceWindow?.()
+		const sourceWindow = event.source as Window | null
+		if (!iframe || !sourceWindow) return
+		if (sourceWindow !== iframe.contentWindow && sourceWindow !== detachedWindow) return
 
-		const data = event.data
+		// A sandboxed detached preview speaks through a same-origin relay, wrapped.
+		const data =
+			sourceWindow === detachedWindow && event.data?.type === RAW_APP_PREVIEW_RELAY
+				? event.data.data
+				: event.data
 
+		// Reply to whichever window sent the request (inline iframe or the
+		// detached preview), not a hardcoded target — otherwise the detached
+		// window's calls would hang waiting for a response routed elsewhere.
 		function respond(o: object) {
-			iframe?.contentWindow?.postMessage({ type: data.type + 'Res', ...o, reqId: data.reqId }, '*')
+			sourceWindow?.postMessage({ type: data.type + 'Res', ...o, reqId: data.reqId }, '*')
 		}
 		async function respondWithResult(uuid: string) {
 			let error = false
@@ -46,7 +97,7 @@
 				result = e
 			}
 
-			if (event.data.type == 'backend' || event.data.type == 'waitJob') {
+			if (data.type == 'backend' || data.type == 'waitJob') {
 				respond({ result, error })
 			}
 			if (editor) {
@@ -66,7 +117,7 @@
 			}
 			return result
 		}
-		if (event.data.type == 'backend' || event.data.type == 'backendAsync') {
+		if (data.type == 'backend' || data.type == 'backendAsync') {
 			const runnable_id = data.runnable_id
 			let runnable = runnables[runnable_id]
 			if (runnable) {
@@ -77,46 +128,67 @@
 						args[key] = `$ctx:${field.ctx}`
 					}
 				}
-				const uuid = await executeRunnable(
-					runnable,
-					workspace,
-					undefined,
-					$userStore?.username,
-					path,
-					runnable_id,
-					{
-						component: runnable_id,
-						args,
-						force_viewer_allow_user_resources: editor
-							? undefinedIfEmpty(
-									Object.keys(runnable?.fields ?? {}).filter(
-										(k) =>
-											runnable?.fields?.[k]?.type == 'user' &&
-											runnable?.fields?.[k]?.allowUserResources
+				let uuid: string
+				try {
+					uuid = await executeRunnable(
+						runnable,
+						workspace,
+						undefined,
+						$userStore?.username,
+						path,
+						runnable_id,
+						{
+							component: runnable_id,
+							args,
+							force_viewer_allow_user_resources: editor
+								? undefinedIfEmpty(
+										Object.keys(runnable?.fields ?? {}).filter(
+											(k) =>
+												runnable?.fields?.[k]?.type == 'user' &&
+												runnable?.fields?.[k]?.allowUserResources
+										)
 									)
-								)
-							: undefined,
-						force_viewer_one_of_fields: undefined,
-						force_viewer_static_fields: editor
-							? Object.fromEntries(
-									Object.entries(runnable?.fields ?? {})
-										.filter(([k, v]) => v.type == 'static')
-										.map(([k, v]) => [k, v?.['value']])
-								)
-							: undefined,
-						force_viewer_sensitive_inputs: editor
-							? undefinedIfEmpty(
-									Object.keys(runnable?.fields ?? {}).filter(
-										(k) => runnable?.fields?.[k]?.type == 'user' && runnable?.fields?.[k]?.sensitive
+								: undefined,
+							force_viewer_one_of_fields: undefined,
+							force_viewer_static_fields: editor
+								? Object.fromEntries(
+										Object.entries(runnable?.fields ?? {})
+											.filter(([k, v]) => v.type == 'static')
+											.map(([k, v]) => [k, v?.['value']])
 									)
-								)
-							: undefined,
-						force_viewer_delete_after_secs: editor ? runnable?.delete_after_secs : undefined
-					},
-					undefined
-				)
+								: undefined,
+							force_viewer_sensitive_inputs: editor
+								? undefinedIfEmpty(
+										Object.keys(runnable?.fields ?? {}).filter(
+											(k) =>
+												runnable?.fields?.[k]?.type == 'user' && runnable?.fields?.[k]?.sensitive
+										)
+									)
+								: undefined,
+							force_viewer_delete_after_secs: editor ? runnable?.delete_after_secs : undefined,
+							on_behalf_of: editor ? previewOnBehalfOf : undefined,
+							viewer_data_access: editor ? runnable?.viewer_data_access || undefined : undefined
+						},
+						undefined,
+						data.memoryId ? { memory_id: data.memoryId } : undefined,
+						editor ? rawAppPreviewModules(runnables, runnable_id) : undefined
+					)
+				} catch (e) {
+					// A run refused before it started still answers the app, which would otherwise
+					// wait for ever; the refusal's body says why (a 409 names the turn still running).
+					const body = (e as { body?: unknown })?.body
+					const message =
+						typeof body === 'string'
+							? body
+							: body
+								? JSON.stringify(body)
+								: String((e as Error)?.message ?? e)
+					respond({ result: { message }, error: true })
+					return
+				}
+				launchedJobs.add(uuid)
 				let job: JobById = { component: runnable_id, created_at: Date.now(), job: uuid }
-				if (event.data.type == 'backendAsync') {
+				if (data.type == 'backendAsync') {
 					let result = uuid
 					respond({ result })
 				}
@@ -133,106 +205,129 @@
 			} else {
 				console.error('No runnable found for', runnable_id)
 			}
-		} else if (event.data.type == 'waitJob') {
+		} else if (data.type == 'waitJob') {
+			if (gateJobIds && !launchedJobs.has(data.jobId)) {
+				respond({ result: { message: 'Unknown job' }, error: true })
+				return
+			}
 			await respondWithResult(data.jobId)
-		} else if (event.data.type == 'getJob') {
+		} else if (data.type == 'getJob') {
+			if (gateJobIds && !launchedJobs.has(data.jobId)) {
+				respond({ result: { message: 'Unknown job' }, error: true })
+				return
+			}
 			const job = await JobService.getJob({ workspace, id: data.jobId })
 			respond({ result: job })
-		} else if (event.data.type == 'streamJob') {
+		} else if (data.type == 'streamJob') {
 			// Stream job results using SSE
 			const jobId = data.jobId
 			const reqId = data.reqId
-			const params = new URLSearchParams()
-			params.set('fast', 'true')
-			params.set('only_result', 'true')
-
-			const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?${params.toString()}`
-			const eventSource = new EventSource(sseUrl)
-
-			eventSource.onmessage = (sseEvent) => {
-				try {
-					const update = JSON.parse(sseEvent.data)
-					const type = update.type
-
-					if (type === 'ping' || type === 'timeout') {
-						if (type === 'timeout') {
-							eventSource.close()
-						}
-						return
-					}
-
-					if (type === 'error') {
-						eventSource.close()
-						iframe?.contentWindow?.postMessage(
-							{
-								type: 'streamJobRes',
-								reqId,
-								error: true,
-								result: { message: update.error || 'SSE error' }
-							},
-							'*'
-						)
-						return
-					}
-
-					if (type === 'not_found') {
-						eventSource.close()
-						iframe?.contentWindow?.postMessage(
-							{
-								type: 'streamJobRes',
-								reqId,
-								error: true,
-								result: { message: 'Job not found' }
-							},
-							'*'
-						)
-						return
-					}
-
-					// Send stream update if there's new stream data
-					if (update.new_result_stream !== undefined) {
-						iframe?.contentWindow?.postMessage(
-							{
-								type: 'streamJobUpdate',
-								reqId,
-								new_result_stream: update.new_result_stream,
-								stream_offset: update.stream_offset
-							},
-							'*'
-						)
-					}
-
-					// Check if job is completed
-					if (update.completed) {
-						eventSource.close()
-						iframe?.contentWindow?.postMessage(
-							{
-								type: 'streamJobRes',
-								reqId,
-								error: false,
-								result: update.only_result
-							},
-							'*'
-						)
-					}
-				} catch (parseErr) {
-					console.warn('Failed to parse SSE data:', parseErr)
-				}
-			}
-
-			eventSource.onerror = (error) => {
-				console.warn('SSE stream error:', error)
-				eventSource.close()
-				iframe?.contentWindow?.postMessage(
-					{
-						type: 'streamJobRes',
-						reqId,
-						error: true,
-						result: { message: 'SSE connection error' }
-					},
+			if (gateJobIds && !launchedJobs.has(jobId)) {
+				sourceWindow?.postMessage(
+					{ type: 'streamJobRes', reqId, error: true, result: { message: 'Unknown job' } },
 					'*'
 				)
+				return
 			}
+			let lastOffset: number | undefined
+			const connect = (streamOffset?: number) => {
+				const params = new URLSearchParams()
+				params.set('fast', 'true')
+				params.set('only_result', 'true')
+				if (streamOffset !== undefined) params.set('stream_offset', String(streamOffset))
+
+				const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?${params.toString()}`
+				const eventSource = new EventSource(sseUrl)
+
+				eventSource.onmessage = (sseEvent) => {
+					try {
+						const update = JSON.parse(sseEvent.data)
+						const type = update.type
+
+						if (type === 'ping' || type === 'timeout') {
+							if (type === 'timeout') {
+								// The server ends every stream after a while; the job goes on, so it is resumed.
+								eventSource.close()
+								if (!destroyed) connect(lastOffset)
+							}
+							return
+						}
+
+						if (type === 'error') {
+							eventSource.close()
+							sourceWindow?.postMessage(
+								{
+									type: 'streamJobRes',
+									reqId,
+									error: true,
+									result: { message: update.error || 'SSE error' }
+								},
+								'*'
+							)
+							return
+						}
+
+						if (type === 'not_found') {
+							eventSource.close()
+							sourceWindow?.postMessage(
+								{
+									type: 'streamJobRes',
+									reqId,
+									error: true,
+									result: { message: 'Job not found' }
+								},
+								'*'
+							)
+							return
+						}
+
+						// Send stream update if there's new stream data
+						if (update.stream_offset !== undefined) lastOffset = update.stream_offset
+						if (update.new_result_stream !== undefined) {
+							sourceWindow?.postMessage(
+								{
+									type: 'streamJobUpdate',
+									reqId,
+									new_result_stream: update.new_result_stream,
+									stream_offset: update.stream_offset
+								},
+								'*'
+							)
+						}
+
+						// Check if job is completed
+						if (update.completed) {
+							eventSource.close()
+							sourceWindow?.postMessage(
+								{
+									type: 'streamJobRes',
+									reqId,
+									error: false,
+									result: update.only_result
+								},
+								'*'
+							)
+						}
+					} catch (parseErr) {
+						console.warn('Failed to parse SSE data:', parseErr)
+					}
+				}
+
+				eventSource.onerror = (error) => {
+					console.warn('SSE stream error:', error)
+					eventSource.close()
+					sourceWindow?.postMessage(
+						{
+							type: 'streamJobRes',
+							reqId,
+							error: true,
+							result: { message: 'SSE connection error' }
+						},
+						'*'
+					)
+				}
+			}
+			connect()
 		}
 	}
 </script>

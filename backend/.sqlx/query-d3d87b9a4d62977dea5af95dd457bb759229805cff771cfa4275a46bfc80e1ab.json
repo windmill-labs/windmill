@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job\n         SET args = CASE\n                      WHEN args ? 'partition'\n                      THEN $1 || jsonb_build_object('partition', args -> 'partition')\n                      ELSE $1\n                    END,\n             preprocessed = TRUE\n         WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d3d87b9a4d62977dea5af95dd457bb759229805cff771cfa4275a46bfc80e1ab"
+}

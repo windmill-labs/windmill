@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
 	import type { NextCloudEventType } from '$lib/gen/types.gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { getNextcloudSchema } from '../../utils'
+	import { getNextcloudSchema, useNativeConnection } from '../../utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const connectionPath = useNativeConnection()
 
 	interface Props {
 		serviceConfig: Record<string, any>
@@ -35,23 +38,27 @@
 
 	let availableEvents = $state<NextCloudEventType[]>([])
 	let serviceSchema = $state<any>(null)
+	let eventsError = $state<string | undefined>(undefined)
 
 	async function loadAvailableEvents() {
-		if (!$workspaceStore) {
+		if (!$operatingWorkspace) {
 			availableEvents = []
 			return
 		}
 
 		loading = true
+		eventsError = undefined
 		try {
 			const events = await NativeTriggerService.listNextCloudEvents({
-				workspace: $workspaceStore!
+				workspace: $operatingWorkspace!,
+				connectionPath: connectionPath()
 			})
 			availableEvents = events
 			serviceSchema = getNextcloudSchema(events)
 		} catch (err: any) {
 			console.error('Failed to load NextCloud events:', err)
-			sendUserToast(`Failed to load available events: ${err.body || err.message}`, true)
+			eventsError = err.body || err.message || String(err)
+			sendUserToast(`Failed to load available events: ${eventsError}`, true)
 			availableEvents = []
 		} finally {
 			loading = false
@@ -81,7 +88,7 @@
 	let externalDataApplied = $state(false)
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			loadAvailableEvents()
 		}
 	})
@@ -108,15 +115,17 @@
 		</div>
 	{:else if availableEvents.length === 0}
 		<div class="text-red-500 text-xs space-y-2">
-			<div
-				>No events available. Please ensure your workspace has a connected Nextcloud integration.</div
-			>
+			{#if eventsError}
+				<div class="break-words">Could not load the available events: {eventsError}</div>
+			{:else}
+				<div>No events available. Check that the selected Nextcloud account can reach the server.</div>
+			{/if}
 			<div class="flex gap-2">
 				<Button variant="default" on:click={loadAvailableEvents} {disabled}>
 					Retry loading events
 				</Button>
-				<Button variant="subtle" href="/workspace_settings?tab=integrations" target="_blank">
-					Manage integrations
+				<Button variant="subtle" href="/workspace_settings?tab=native_triggers" target="_blank">
+					Integration trigger settings
 				</Button>
 			</div>
 		</div>
@@ -131,8 +140,7 @@
 		/>
 	{:else}
 		<div class="text-secondary text-xs">
-			Please ensure Nextcloud workspace integration is connected to load available configuration
-			options.
+			Select a Nextcloud account to load the available configuration options.
 		</div>
 	{/if}
 </Section>

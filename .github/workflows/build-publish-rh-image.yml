@@ -11,7 +11,7 @@ jobs:
   build_ee:
     runs-on: ubicloud-standard-4
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
 
@@ -19,7 +19,7 @@ jobs:
         run: |
           echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
@@ -27,11 +27,11 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      - uses: depot/setup-action@v1
+      - uses: depot/setup-action@v1.7.2
 
       - name: Docker meta
         id: meta-ee-public
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5.10.0
         with:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-rhel9
@@ -41,7 +41,7 @@ jobs:
             type=sha
 
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -56,13 +56,14 @@ jobs:
           cp ./docker/RHEL9/Dockerfile ./Dockerfile
 
       - name: Build and push EE (multi-arch)
-        uses: depot/build-push-action@v1
+        uses: depot/build-push-action@v1.19.0
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             features=ee_rhel
+            WM_BUILD_VERSION=${{ github.sha }}
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
@@ -82,35 +83,35 @@ jobs:
           # Extract arm64 binary (include deps/ for hard link resolution)
           mkdir -p /tmp/arm64
           crane export --platform linux/arm64 ${{ steps.meta-ee-public.outputs.tags }} - \
-            | tar -xf - -C /tmp/arm64 windmill/target/release/ usr/src/app/libwindmill_duckdb_ffi_internal.so
+            | tar -xf - -C /tmp/arm64 windmill/target/release/ usr/src/app/windmill_duckdb_runner
           cp /tmp/arm64/windmill/target/release/windmill extracted/windmill-ee-arm64-rhel9
-          cp /tmp/arm64/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-arm64.so
+          cp /tmp/arm64/usr/src/app/windmill_duckdb_runner extracted/windmill_duckdb_runner-arm64
           rm -rf /tmp/arm64
 
           # Extract amd64 binary
           mkdir -p /tmp/amd64
           crane export --platform linux/amd64 ${{ steps.meta-ee-public.outputs.tags }} - \
-            | tar -xf - -C /tmp/amd64 windmill/target/release/ usr/src/app/libwindmill_duckdb_ffi_internal.so
+            | tar -xf - -C /tmp/amd64 windmill/target/release/ usr/src/app/windmill_duckdb_runner
           cp /tmp/amd64/windmill/target/release/windmill extracted/windmill-ee-amd64-rhel9
-          cp /tmp/amd64/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-amd64.so
+          cp /tmp/amd64/usr/src/app/windmill_duckdb_runner extracted/windmill_duckdb_runner-amd64
           rm -rf /tmp/amd64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: RHEL9-arm64 build
           path: extracted/windmill-ee-arm64-rhel9
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: RHEL9-amd64 build
           path: extracted/windmill-ee-amd64-rhel9
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: RHEL9-arm64 dynamic libraries build
-          path: extracted/libwindmill_duckdb_ffi_internal-arm64.so
+          path: extracted/windmill_duckdb_runner-arm64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: RHEL9-amd64 dynamic libraries build
-          path: extracted/libwindmill_duckdb_ffi_internal-amd64.so
+          path: extracted/windmill_duckdb_runner-amd64

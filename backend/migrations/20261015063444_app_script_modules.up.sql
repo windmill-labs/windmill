@@ -1,0 +1,1 @@
+ALTER TABLE app_script ADD COLUMN IF NOT EXISTS modules JSONB;

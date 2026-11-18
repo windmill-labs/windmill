@@ -10,7 +10,6 @@
 	import type { FlowEditorContext, OutputViewerJob } from './flows/types'
 	import { getContext } from 'svelte'
 	import { getStringError } from './copilot/chat/utils'
-	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
 
 	interface Props {
 		lang: Script['language']
@@ -23,7 +22,7 @@
 		testIsLoading?: boolean
 		disableMock?: boolean
 		disableHistory?: boolean
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) => void
 		loadingJob?: boolean
 		tagLabel?: string
 	}
@@ -80,8 +79,12 @@
 			bind:this={outputPickerInner}
 		>
 			{#snippet copilot_fix()}
-				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
-					<ScriptFix {lang} />
+				{@const stepError =
+					selectedJob?.type === 'CompletedJob' && !selectedJob.success
+						? getStringError(selectedJob.result)
+						: undefined}
+				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && stepError}
+					<ScriptFix {lang} error={stepError} jobId={selectedJob?.id} moduleId={mod.id} />
 				{/if}
 			{/snippet}
 		</OutputPickerInner>
@@ -95,15 +98,6 @@
 				tag={undefined}
 				customEmptyMessage="Using pinned data"
 				{tagLabel}
-			/>
-		{:else if mod.value.type === 'aiagent' && logJob?.type === 'CompletedJob'}
-			<AiAgentLogViewer
-				tools={mod.value.tools}
-				agentJob={{
-					...logJob,
-					type: 'CompletedJob'
-				}}
-				workspaceId={logJob.workspace_id}
 			/>
 		{:else}
 			<LogViewer

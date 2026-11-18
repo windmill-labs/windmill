@@ -34,10 +34,40 @@ export interface DraftItem {
 	legacy_draft: boolean
 	/** App is a raw app (deploys via the raw-app endpoints). Always false for non-apps. */
 	raw_app: boolean
+	/** A `resource` draft's type; `ai_agent` for an agent's. */
+	resource_type?: string
+	/** Current user may deploy/discard this draft — matches the server-side check.
+	 * Defaults to true when the field is absent (older backend) so a frontend
+	 * running ahead of the API doesn't disable every action; the deploy/discard
+	 * endpoints enforce permission regardless. */
+	can_write: boolean
+	/** Draft authors at this (path, kind); populated only for the shared
+	 * full-page-editor kinds (script/flow/app/raw_app). Feeds the badge circles. */
+	draft_users?: { username?: string | null }[]
+	/** The row is the current user's own draft (or the legacy no-owner row), so
+	 * they can deploy/discard it. Always true in the default listing; only the
+	 * `allUsers` listing surfaces other users' rows as `false` (view-only).
+	 * Defaults to true when the field is absent (older backend). */
+	mine: boolean
+	/** Server timestamp of the draft row, bumped on every draft update — a
+	 * reliable per-row change marker for caches keyed on draft content. */
+	created_at: string
+	/** Only set when listed with a `compareToWorkspace` (a fork comparing against
+	 * its parent): true when this draft is identical to the parent's — cloned in
+	 * on fork and never edited here. Undefined when no comparison was requested. */
+	unchanged_from_parent?: boolean
 }
 
-export async function getDraftItems(workspace: string): Promise<DraftItem[]> {
-	const rows = await DraftService.listDrafts({ workspace })
+export async function getDraftItems(
+	workspace: string,
+	allUsers: boolean = false,
+	compareToWorkspace?: string
+): Promise<DraftItem[]> {
+	const rows = await DraftService.listDrafts({
+		workspace,
+		allUsers: allUsers || undefined,
+		compareToWorkspace
+	})
 	return rows.map((r) => ({
 		kind: r.kind,
 		path: r.path,
@@ -45,7 +75,13 @@ export async function getDraftItems(workspace: string): Promise<DraftItem[]> {
 		draft_path: r.draft_path,
 		draft_only: r.draft_only,
 		legacy_draft: r.legacy_draft,
-		raw_app: r.kind === 'raw_app'
+		raw_app: r.kind === 'raw_app',
+		resource_type: r.resource_type,
+		can_write: r.can_write ?? true,
+		draft_users: r.draft_users,
+		mine: r.mine ?? true,
+		created_at: r.created_at,
+		unchanged_from_parent: r.unchanged_from_parent
 	}))
 }
 
@@ -56,6 +92,13 @@ const versions: Record<string, number> = $state({})
 export function invalidateWorkspaceDrafts(workspace: string | undefined): void {
 	if (!workspace) return
 	versions[workspace] = (versions[workspace] ?? 0) + 1
+}
+
+/** Current invalidation version for a workspace. Non-reactive read — callers
+ * compare it against a value captured earlier to detect Server-Draft mutations
+ * (any deploy/discard/draft write that called `invalidateWorkspaceDrafts`). */
+export function getWorkspaceDraftsVersion(workspace: string): number {
+	return versions[workspace] ?? 0
 }
 
 export interface WorkspaceDraftsHandle {
@@ -71,13 +114,17 @@ export interface WorkspaceDraftsHandle {
  * Re-fetches on mount, when `workspace` changes, and when
  * `invalidateWorkspaceDrafts(workspace)` is called while mounted.
  */
-export function useWorkspaceDrafts(workspace: () => string | undefined): WorkspaceDraftsHandle {
+export function useWorkspaceDrafts(
+	workspace: () => string | undefined,
+	allUsers: () => boolean = () => false,
+	compareToWorkspace: () => string | undefined = () => undefined
+): WorkspaceDraftsHandle {
 	const res = resource(
 		() => {
 			const ws = workspace()
-			return { ws, v: ws ? (versions[ws] ?? 0) : 0 }
+			return { ws, all: allUsers(), compare: compareToWorkspace(), v: ws ? (versions[ws] ?? 0) : 0 }
 		},
-		async ({ ws }) => (ws ? getDraftItems(ws) : [])
+		async ({ ws, all, compare }) => (ws ? getDraftItems(ws, all, compare) : [])
 	)
 	return {
 		get items() {

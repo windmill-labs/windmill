@@ -4,12 +4,17 @@
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
-		tabs: string[];
-		selectedIndex?: number;
-		maxReachedIndex?: number;
-		statusByStep?: Array<'success' | 'error' | 'pending'>;
-		hasValidations?: boolean;
-		allowStepNavigation?: boolean;
+		tabs: string[]
+		selectedIndex?: number
+		maxReachedIndex?: number
+		statusByStep?: Array<'success' | 'error' | 'pending'>
+		hasValidations?: boolean
+		allowStepNavigation?: boolean
+		/** Compact variant, for steering a dialog rather than a full page. */
+		small?: boolean
+		/** Steps this run does not go through, greyed out and not clickable — a step the
+		 *  chosen path skips rather than one not reached yet. */
+		disabledIndices?: number[]
 	}
 
 	let {
@@ -18,8 +23,10 @@
 		maxReachedIndex = -1,
 		statusByStep = [],
 		hasValidations = false,
-		allowStepNavigation = false
-	}: Props = $props();
+		allowStepNavigation = false,
+		small = false,
+		disabledIndices = []
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -63,26 +70,42 @@
 </script>
 
 <div class="flex justify-between">
-	<ol class="relative z-20 flex justify-between items-centers text-sm font-medium text-primary">
+	<ol
+		class={classNames(
+			'relative z-20 flex justify-between items-centers font-medium text-primary',
+			small ? 'text-xs' : 'text-sm'
+		)}
+	>
 		{#each tabs ?? [] as step, index}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			{@const disabled = disabledIndices.includes(index)}
 			<li
 				class={classNames(
-					'flex items-center gap-2 px-2 py-1 hover:bg-gray-1200 rounded-md m-0.5',
-					index <= maxReachedIndex || allowStepNavigation ? 'cursor-pointer' : 'cursor-not-allowed'
+					small
+						? 'flex items-center gap-1.5 px-1.5 py-0.5 hover:bg-gray-1200 rounded-md m-0.5'
+						: 'flex items-center gap-2 px-2 py-1 hover:bg-gray-1200 rounded-md m-0.5',
+					disabled
+						? 'cursor-not-allowed opacity-50'
+						: index <= maxReachedIndex || allowStepNavigation
+							? 'cursor-pointer'
+							: 'cursor-not-allowed'
 				)}
 				onclick={() => {
-					dispatch('click', { index })
+					if (!disabled) dispatch('click', { index })
 				}}
 			>
 				{#if statusByStep[index] === 'pending'}
-					<Loader2 class="h-6 w-6 animate-spin" />
+					<Loader2 class={classNames(small ? 'h-4 w-4' : 'h-6 w-6', 'animate-spin')} />
 				{:else}
 					<span
 						class={classNames(
-							'h-6 w-6 rounded-full flex items-center justify-center text-xs',
-							getStepColor(index, selectedIndex, statusByStep, maxReachedIndex)
+							small
+								? 'h-4 w-4 rounded-full flex items-center justify-center text-2xs'
+								: 'h-6 w-6 rounded-full flex items-center justify-center text-xs',
+							disabled
+								? 'bg-gray-200'
+								: getStepColor(index, selectedIndex, statusByStep, maxReachedIndex)
 						)}
 						class:font-bold={selectedIndex === index}
 					>
@@ -93,7 +116,11 @@
 				<span
 					class={classNames(
 						'hidden sm:block',
-						selectedIndex === index ? 'font-semibold text-primary' : 'font-normal text-primary'
+						disabled
+							? 'font-normal text-disabled'
+							: selectedIndex === index
+								? 'font-semibold text-primary'
+								: 'font-normal text-primary'
 					)}
 				>
 					{step}
@@ -101,7 +128,7 @@
 			</li>
 			{#if index !== (tabs ?? []).length - 1}
 				<li class="flex items-center">
-					<div class="h-0.5 w-4 bg-blue-200"></div>
+					<div class={classNames('h-0.5 bg-blue-200', small ? 'w-2' : 'w-4')}></div>
 				</li>
 			{/if}
 		{/each}

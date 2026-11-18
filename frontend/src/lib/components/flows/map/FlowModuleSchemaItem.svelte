@@ -4,23 +4,8 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { classNames, type Item, type StateStore } from '$lib/utils'
-	import {
-		Bed,
-		Database,
-		Gauge,
-		EllipsisVertical,
-		PhoneIncoming,
-		Repeat,
-		Square,
-		SkipForward,
-		Pin,
-		X,
-		Play,
-		Loader2,
-		TriangleAlert,
-		Timer,
-		Maximize2
-	} from 'lucide-svelte'
+	import { EllipsisVertical, Pin, X, Play, Loader2, TriangleAlert, Maximize2 } from 'lucide-svelte'
+	import type { StepSettingView } from '../flowStepSettings'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext } from '../types'
@@ -50,21 +35,21 @@
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
+
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		selected?: boolean
 		deletable?: boolean
 		moduleAction: ModuleActionInfo | undefined
-		retry?: boolean
-		cache?: boolean
-		earlyStop?: boolean
-		skip?: boolean
-		suspend?: boolean
-		sleep?: boolean
+		/** Configured settings to badge, from flowStepSettings. */
+		settings?: StepSettingView[]
 		mock?:
 			| {
 					enabled?: boolean
 					return_value?: unknown
+					preview_only?: boolean
 			  }
 			| undefined
 		bold?: boolean
@@ -72,19 +57,15 @@
 		label: string
 		path?: string
 		nodeState?: FlowNodeState
-		concurrency?: boolean
-		// TODO: Implement for this one. See how concurrency is implemented.
-		debouncing?: boolean
 		retries?: number | undefined
 		warningMessage?: string | undefined
-		isTrigger?: boolean
 		editMode?: boolean
 		alwaysShowOutputPicker?: boolean
 		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
 		icon?: import('svelte').Snippet
 		onTestUpTo?: ((id: string) => void) | undefined
 		inputTransform?: Record<string, any> | undefined
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
@@ -97,23 +78,15 @@
 		selected = false,
 		deletable = false,
 		moduleAction = undefined,
-		retry = false,
-		cache = false,
-		earlyStop = false,
-		skip = false,
-		suspend = false,
-		sleep = false,
+		settings = [],
 		mock = { enabled: false },
 		bold = false,
 		id = undefined,
 		label,
 		path = '',
 		nodeState,
-		concurrency = false,
-		debouncing = false,
 		retries = undefined,
 		warningMessage = undefined,
-		isTrigger = false,
 		editMode = false,
 		alwaysShowOutputPicker = false,
 		loopStatus = undefined,
@@ -159,6 +132,14 @@
 
 	let newId: string = $state(untrack(() => id) ?? '')
 
+	let mod = $derived(
+		id && flowStore?.val?.value ? dfsPreviousResults(id, flowStore.val, false)[0] : undefined
+	)
+	// A script step is tested as a script preview, which operators are refused: running the
+	// deployed runnable is left to "Test flow".
+	let builderCannotTestStep = $derived(
+		$roleCaps.flows === 'compose' && mod?.value.type === 'script'
+	)
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let hover = $state(false)
@@ -265,8 +246,6 @@
 {/if}
 
 {#if deletable && id && flowStore && outputPickerVisible}
-	{@const flowStoreVal = flowStore.val}
-	{@const mod = flowStoreVal?.value ? dfsPreviousResults(id, flowStoreVal, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
 		<ModuleTest
 			bind:this={moduleTest}
@@ -304,112 +283,23 @@
 			class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
 			style={`bottom: ${outputPickerBarOpen ? '-38px' : '-12px'}`}
 		>
-			{#if retry}
+			{#each settings as s (s.key)}
+				{@const Icon = s.icon}
 				<Popover notClickable>
 					<div
 						transition:fade|local={{ duration: 200 }}
 						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 					>
-						{#if retries}<span class="text-red-400 mr-2">{retries}</span>{/if}
-						<Repeat size={12} />
+						{#if s.key === 'retries' && retries}<span class="text-red-400 mr-2">{retries}</span
+							>{/if}
+						<Icon size={12} />
 					</div>
 					{#snippet text()}
-						Retries
+						{s.tooltip}
+						<span class={s.summary.mono ? 'font-mono' : ''}>· {s.summary.text}</span>
 					{/snippet}
 				</Popover>
-			{/if}
-
-			{#if concurrency}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Gauge size={12} />
-					</div>
-					{#snippet text()}
-						Concurrency Limits
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if debouncing}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Timer size={12} />
-					</div>
-					{#snippet text()}
-						Debouncing
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if cache}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Database size={12} />
-					</div>
-					{#snippet text()}
-						Cached
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if earlyStop}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Square size={12} />
-					</div>
-					{#snippet text()}
-						{isTrigger ? 'Stop early if there are no new events' : 'Early stop/break'}
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if skip}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<SkipForward size={12} />
-					</div>
-					{#snippet text()}
-						Skip
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if suspend}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<PhoneIncoming size={12} />
-					</div>
-					{#snippet text()}
-						Suspend
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if sleep}
-				<Popover notClickable>
-					<div
-						transition:fade|local={{ duration: 200 }}
-						class="center-center bg-surface rounded border border-gray-400 text-secondary px-1 py-0.5"
-					>
-						<Bed size={12} />
-					</div>
-					{#snippet text()}
-						Sleep
-					{/snippet}
-				</Popover>
-			{/if}
+			{/each}
 			{#if mock?.enabled}
 				<Popover notClickable>
 					<button
@@ -423,7 +313,7 @@
 						<Pin size={12} />
 					</button>
 					{#snippet text()}
-						Pinned
+						{mock.preview_only ? 'Pinned in test runs' : 'Pinned in every run'}
 					{/snippet}
 				</Popover>
 			{/if}
@@ -469,6 +359,7 @@
 							{onUpdateMock}
 							{path}
 							{loopStatus}
+							logsToggle
 							rightMargin
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
@@ -573,7 +464,7 @@
 			onmouseenter={() => (hover = true)}
 			onmouseleave={() => (hover = false)}
 		>
-			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible}
+			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible && !builderCannotTestStep}
 				<div class="bg-surface rounded-md" transition:fade={{ duration: 100 }} data-run-button={id}>
 					{#if !testIsLoading}
 						<Button
@@ -583,7 +474,7 @@
 							btnClasses="px-1 py-1.5 bg-surface"
 							on:click={() => {
 								outputPicker?.toggleOpen(true)
-								moduleTest?.loadArgsAndRunTest()
+								moduleTest?.runTestWithStepArgs()
 							}}
 							dropdownItems={[
 								{

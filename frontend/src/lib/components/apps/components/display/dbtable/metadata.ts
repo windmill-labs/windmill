@@ -1,5 +1,3 @@
-import { JobService, ResourceService } from '$lib/gen'
-
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { DbInput } from '$lib/components/dbTypes'
 import {
@@ -39,65 +37,42 @@ export async function loadTableMetaData(
 	const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 	const dbArg = getDatabaseArg(input)
 
-	// MySQL needs the database name for metadata queries
-	let databaseName: string | undefined
-	if (input.type === 'database' && input.resourceType === 'mysql') {
-		const resourceObj = (await ResourceService.getResourceValue({
+	// MySQL: the metadata query resolves the database name server-side (it falls
+	// back to `DATABASE()`), so we don't read the resource value client-side for it.
+	const content = makeMetadataMarker('LOAD_TABLE_METADATA', { table }, ducklake)
+
+	try {
+		const rows = (await runScriptAndPollResult({
 			workspace,
-			path: input.resourcePath
-		})) as any
-		databaseName = resourceObj?.database
-	}
+			requestBody: { language, content, args: dbArg }
+		})) as Record<string, any>[]
+		const result = rows.map(lowercaseKeys)
 
-	const content = makeMetadataMarker('LOAD_TABLE_METADATA', { table, databaseName }, ducklake)
-
-	const job = await JobService.runScriptPreview({
-		workspace,
-		requestBody: { language, content, args: dbArg }
-	})
-
-	const maxRetries = 8
-	let attempts = 0
-	while (attempts < maxRetries) {
-		try {
-			await new Promise((resolve) => setTimeout(resolve, 1000 * (attempts || 0.6)))
-
-			const testResult = (await JobService.getCompletedJob({
-				workspace,
-				id: job
-			})) as any
-
-			if (testResult.success) {
-				attempts = maxRetries
-
-				const result = testResult.result.map(lowercaseKeys)
-
-				// For Snowflake, fetch primary keys separately
-				if (
-					input.type === 'database' &&
-					(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
-				) {
-					const map: Record<string, TableMetadata> = { [table]: result }
-					await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace, table)
-					return map[table]
-				}
-
-				return result
-			} else {
-				attempts++
-			}
-		} catch (error) {
-			attempts++
+		// For Snowflake, fetch primary keys separately
+		if (
+			input.type === 'database' &&
+			(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
+		) {
+			const map: Record<string, TableMetadata> = { [table]: result }
+			await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace, table)
+			return map[table]
 		}
-	}
 
-	console.error('Failed to load table metadata after maximum retries.')
-	return undefined
+		return result
+	} catch (e) {
+		console.error('Failed to load table metadata', e)
+		sendUserToast('Error loading table metadata: ' + ((e as Error)?.message || e), true)
+		return undefined
+	}
 }
 
+/** Throws on failure without reporting it: every caller renders the error in its
+ * own pane, so toasting here would double-report it. */
 export async function loadAllTablesMetaData(
 	workspace: string | undefined,
-	input: DbInput
+	input: DbInput,
+	// Overrides the language's native worker tag.
+	tag?: string
 ): Promise<Record<string, TableMetadata> | undefined> {
 	if (!input || !workspace) return undefined
 
@@ -106,26 +81,14 @@ export async function loadAllTablesMetaData(
 		const dbArg = getDatabaseArg(input)
 		const ducklake = input.type === 'ducklake' ? input.ducklake : undefined
 
-		// MySQL needs the database name for metadata queries
-		let databaseName: string | undefined
-		if (input.type === 'database' && input.resourceType === 'mysql') {
-			const resourceObj = (await ResourceService.getResourceValue({
-				workspace,
-				path: input.resourcePath
-			})) as any
-			databaseName = resourceObj?.database
-		}
-
 		const language = getLanguageByResourceType(dbType)
-		const content = makeMetadataMarker(
-			'LOAD_TABLE_METADATA',
-			{ table: undefined, databaseName },
-			ducklake
-		)
+		// MySQL db name is resolved server-side via `DATABASE()` (see loadTableMetaData);
+		// no client-side resource-value read.
+		const content = makeMetadataMarker('LOAD_TABLE_METADATA', { table: undefined }, ducklake)
 
 		let result = (await runScriptAndPollResult({
 			workspace,
-			requestBody: { language, content, args: dbArg }
+			requestBody: { language, content, args: dbArg, tag }
 		})) as ({ table_name: string; schema_name?: string } & object)[]
 		const map: Record<string, TableMetadata> = {}
 
@@ -136,11 +99,11 @@ export async function loadAllTablesMetaData(
 			map[tableKey].push(col)
 		}
 
-		await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace)
+		await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace, undefined, tag)
 
 		return map
 	} catch (e) {
-		sendUserToast('Error loading tables metadata: ' + e, 'error')
+		console.error('Failed to load tables metadata', e)
 		throw e
 	}
 }
@@ -157,13 +120,14 @@ async function fetchAndAddSnowflakePrimaryKeysInMap(
 	map: Record<string, TableMetadata>,
 	input: DbInput,
 	workspace: string,
-	tableKey?: string
+	tableKey?: string,
+	tag?: string
 ) {
 	if (
 		input.type == 'database' &&
 		(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
 	) {
-		let pkResult = await fetchSnowflakePrimaryKeys(workspace, getDatabaseArg(input), tableKey)
+		let pkResult = await fetchSnowflakePrimaryKeys(workspace, getDatabaseArg(input), tableKey, tag)
 		for (const pk of pkResult) {
 			const pkTableKey = `${pk.schema_name}.${pk.table_name}`.toUpperCase()
 			// Also check the original casing and the provided tableKey
@@ -186,17 +150,19 @@ async function fetchAndAddSnowflakePrimaryKeysInMap(
 async function fetchSnowflakePrimaryKeys(
 	workspace: string,
 	dbArg: any,
-	tableKey?: string
+	tableKey?: string,
+	tag?: string
 ): Promise<SnowflakeShowPrimaryKeysResult[]> {
 	const payload: Record<string, unknown> = {}
 	if (tableKey) payload.table = tableKey
 	const content = makeMetadataMarker('SNOWFLAKE_PRIMARY_KEYS', payload, undefined)
-	return (await JobService.runScriptPreviewAndWaitResult({
+	return (await runScriptAndPollResult({
 		workspace,
 		requestBody: {
 			language: 'snowflake',
 			args: dbArg,
-			content
+			content,
+			tag
 		}
 	})) as SnowflakeShowPrimaryKeysResult[]
 }
@@ -226,7 +192,7 @@ export async function getDbSchemas(
 
 	let result: unknown
 	try {
-		result = await JobService.runScriptPreviewAndWaitResult({
+		result = await runScriptAndPollResult({
 			workspace,
 			requestBody: {
 				language: sqlScript.lang as Preview['language'],
@@ -259,7 +225,11 @@ export async function getDbSchemas(
 			const dbSchema = {
 				lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
 				schema,
-				publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
+				publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo,
+				// MySQL introspection selects `DATABASE() AS default_db_name`; carry it
+				// so the table picker can tell the default db apart from other visible
+				// schemas. Other dbs don't return it (stays undefined).
+				defaultDb: Array.isArray(result) ? (result[0] as any)?.default_db_name : undefined
 			}
 			return { ...dbSchema, stringified: stringifySchema(dbSchema) }
 		} else {
@@ -283,9 +253,7 @@ export async function getDbSchemas(
 
 export async function getTablesByResource(
 	schema: Partial<Record<string, DBSchema>>,
-	dbType: DbType | undefined,
-	dbPath: string,
-	workspace: string
+	dbType: DbType | undefined
 ): Promise<string[]> {
 	const s = Object.values(schema)?.[0]
 	switch (dbType) {
@@ -301,14 +269,15 @@ export async function getTablesByResource(
 			return paths
 		}
 		case 'mysql': {
-			const resourceObj = (await ResourceService.getResourceValue({
-				workspace,
-				path: dbPath.split('$res:')[1]
-			})) as any
+			// MySQL introspection lists DATABASE() plus any other visible non-system
+			// schemas. Show the default db's tables unprefixed and the rest as
+			// `db.table` — matching the pre-removal behavior (which matched the
+			// resource's `database`); `defaultDb` is the connection's DATABASE().
+			const defaultDb = s && 'defaultDb' in s ? s.defaultDb : undefined
 			const paths: string[] = []
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
-					if (key === resourceObj?.database) {
+					if (key === defaultDb) {
 						paths.push(`${subKey}`)
 					} else {
 						paths.push(`${key}.${subKey}`)
@@ -356,7 +325,7 @@ export async function getTablesByResource(
 			const paths: string[] = []
 			for (const key in s?.schema) {
 				for (const subKey in s.schema[key]) {
-					paths.push(`${subKey}`)
+					paths.push(key === 'main' ? `${subKey}` : `${key}.${subKey}`)
 				}
 			}
 

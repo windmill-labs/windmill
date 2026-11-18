@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # ── Minimal system deps ──────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \

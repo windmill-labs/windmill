@@ -1,13 +1,17 @@
-import type { ScriptLang } from '../../gen/types.gen'
+import type { ScriptLang, ScriptModule } from '../../gen/types.gen'
 import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
+import { stateSnapshot } from '$lib/stateSnapshot.svelte'
+import { appSourceToDraftValue, normalizeRawAppData } from './rawAppDraftValue'
+import { urlParamsToObject } from '$lib/utils/queryParams'
 
 // export type RunnableWithFields = any
 
 type RunnableWithInlineScript = RunnableWithFields & {
 	inlineScript?: InlineScript & { language: ScriptLang }
+	viewer_data_access?: boolean
 }
 export type Runnable = RunnableWithInlineScript | undefined
 
@@ -15,15 +19,186 @@ export type RawApp = {
 	files: string[]
 }
 
+function moduleExtension(language: ScriptLang | undefined): string | undefined {
+	if (language === 'bun' || language === 'bunnative') return 'ts'
+	if (language === 'python3') return 'py'
+	return undefined
+}
+
+/** Ids of the sibling runnables `content` imports as `./<id>` (TS) or `.<id>` (Python). */
+function siblingImports(content: string, ext: string): string[] {
+	const pattern =
+		ext === 'ts'
+			? /(?:from|import)\s*['"]\.\/([^'"/]+?)(?:\.ts)?['"]/g
+			: /^\s*from\s+\.([A-Za-z_]\w*)\s+import\b/gm
+	return Array.from(content.matchAll(pattern), (m) => m[1])
+}
+
+/**
+ * The app's other inline runnables that runnable `id` imports, directly or through one
+ * another, as the modules its preview ships with so those imports resolve to the
+ * editor's code. Deploy stores the same set on the runnable.
+ */
+export function rawAppPreviewModules(
+	runnables: Record<string, Runnable>,
+	id: string
+): Record<string, ScriptModule> | undefined {
+	const own = runnables[id]?.inlineScript
+	const ext = moduleExtension(own?.language)
+	if (!own || !ext) return undefined
+	const modules: Record<string, ScriptModule> = {}
+	const queue = siblingImports(own.content, ext)
+	while (queue.length > 0) {
+		const siblingId = queue.pop()!
+		const key = `${siblingId}.${ext}`
+		const inlineScript = runnables[siblingId]?.inlineScript
+		// `main.ts` is the Bun entrypoint's own file, so no module may take that name. The
+		// runnable itself is kept when a cycle reaches it: the entrypoint is not under its id.
+		if (key in modules || key === 'main.ts') continue
+		if (!inlineScript || moduleExtension(inlineScript.language) !== ext) continue
+		modules[key] = { content: inlineScript.content, language: inlineScript.language }
+		queue.push(...siblingImports(inlineScript.content, ext))
+	}
+	return Object.keys(modules).length > 0 ? modules : undefined
+}
+
+// Server-managed columns the deployed app row (getAppByPath) carries but the
+// editor's current value never does — leaving them in renders as spurious diff.
+const RAW_APP_DEPLOYED_METADATA_KEYS = [
+	'raw_app',
+	'id',
+	'created_at',
+	'created_by',
+	'versions',
+	'extra_perms',
+	'is_draft'
+] as const
+
+/**
+ * Normalize a raw-app value before a deployed-vs-current diff (or unsaved-change
+ * comparison). Three sources of spurious post-deploy diff:
+ *  - the deployed row carries server-managed columns (`raw_app`, timestamps, …)
+ *    that the editor's current value lacks;
+ *  - inline-script `lock`s are recomputed server-side at every deploy and the
+ *    editor clears them on edit, so the editor value and the freshly deployed
+ *    one always diverge on `lock` even though the user changed nothing there;
+ *  - the deployed value omits an empty `data` while the editor always carries
+ *    the default `{ tables: [] }`, so even an untouched app reads as changed.
+ * All three must be neutralized symmetrically on both sides. Returns a deep
+ * clone; never mutates the input (the current side is live editor state).
+ */
+export function stripRawAppDiffNoise<T extends Record<string, any>>(value: T): T {
+	const cloned = structuredClone(stateSnapshot(value)) as Record<string, any>
+	for (const key of RAW_APP_DEPLOYED_METADATA_KEYS) {
+		delete cloned[key]
+	}
+	// Runnables/data live under `.value` on a deployed row and on the editor's
+	// diff value alike, but a flat draft shape carries them top-level.
+	const source = cloned.value ?? cloned
+	const runnables = source.runnables
+	if (runnables && typeof runnables === 'object') {
+		for (const k of Object.keys(runnables)) {
+			const inlineScript = runnables[k]?.inlineScript
+			if (inlineScript && inlineScript.lock != undefined) {
+				inlineScript.lock = undefined
+			}
+		}
+	}
+	// Canonicalize `data` so an absent and a default-empty `data` compare equal.
+	source.data = normalizeRawAppData(source)
+	return cloned as T
+}
+
+/**
+ * Canonical raw-app value for diffing a *draft* against a *deployed* row. On top
+ * of the noise stripped by stripRawAppDiffNoise, the two also differ in shape: a
+ * deployed row nests its source under `value`, whereas a draft carries
+ * `files`/`runnables`/`data` at the top level. `appSourceToDraftValue` collapses
+ * both onto the same flat field set first. Use this for the session/compare
+ * draft diff so it matches the editor's Diff button (which shares
+ * stripRawAppDiffNoise).
+ */
+export function canonicalRawAppDiffValue(source: Record<string, any>) {
+	return stripRawAppDiffNoise(appSourceToDraftValue(source))
+}
+
+/** A boolean editor-layout preference (file sidebar, split with preview), owned and
+ * typically persisted by whoever passes it. */
+export type LayoutFlag = { val: boolean }
+
 export type RawAppRuntimeLogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
 export type RawAppRuntimeLogEntry = {
 	level: RawAppRuntimeLogLevel
 	message: string
 	ts: number
 }
-export type RawAppRuntimeLogRequester = (
-	limit: number
-) => Promise<RawAppRuntimeLogEntry[] | undefined>
+export type RawAppPreviewLogs = {
+	/** Console output of the rendered app; undefined when the preview document isn't loaded. */
+	entries: RawAppRuntimeLogEntry[] | undefined
+	/** Set while the latest UI Builder build failed. A failed build never reaches the preview
+	 * document, so its console cannot report it. */
+	buildError: string | undefined
+	/** Files were sent to the UI Builder and its build has not reported back in time. */
+	buildPending: boolean
+	buildLogs: string
+	/** The app is held back until the user answers its SDK permission prompt, so it is not running. */
+	sdkConsentPending: boolean
+}
+export type RawAppRuntimeLogRequester = (limit: number) => Promise<RawAppPreviewLogs>
+
+export const RAW_APP_BUILD_WAIT_MS = 20_000
+
+/** Whether files sent to the UI Builder have produced a build result yet, so a read made
+ * right after an edit waits for that edit's build instead of reporting the previous one.
+ * The UI Builder carries no build id: when edits land while a build runs, the result of
+ * the older build can settle the wait. */
+export function createRawAppBuildTracker(timeoutMs = RAW_APP_BUILD_WAIT_MS) {
+	// Stays set after a timed-out wait: the UI Builder never builds an app with no
+	// entrypoint, so a build may never report, and a later read must not call it done.
+	let pending = false
+	let generation = 0
+	let waiters: (() => void)[] = []
+	function release() {
+		const toRelease = waiters
+		waiters = []
+		toRelease.forEach((w) => w())
+	}
+	return {
+		get pending() {
+			return pending
+		},
+		/** Files were sent for a build; returns the generation to pass to `settle`. */
+		start(): number {
+			pending = true
+			return ++generation
+		},
+		/** A build reported. With `gen`, only settles if no edit was sent since. */
+		settle(gen?: number) {
+			if (gen !== undefined && gen !== generation) return
+			pending = false
+			release()
+		},
+		/** Ends every wait without settling, e.g. when the editor unmounts. */
+		release,
+		get generation() {
+			return generation
+		},
+		wait(): Promise<void> {
+			if (!pending) return Promise.resolve()
+			return new Promise((resolve) => {
+				const done = () => {
+					clearTimeout(timer)
+					resolve()
+				}
+				const timer = setTimeout(() => {
+					waiters = waiters.filter((w) => w !== done)
+					resolve()
+				}, timeoutMs)
+				waiters.push(done)
+			})
+		}
+	}
+}
 
 const RAW_APP_RUNTIME_LOG_LEVELS = new Set<RawAppRuntimeLogLevel>([
 	'log',
@@ -65,6 +240,35 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 	return lines.join('\n')
 }
 
+const BUILD_LOG_TAIL_LINES = 40
+const BUILD_LOG_TAIL_CHARS = 6000
+// Per-package install progress: dozens of lines per build that would crowd the errors out of the tail.
+const ROUTINE_INSTALL_LOG_LINE =
+	/^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
+
+export function formatBuildLogTailForChat(buildLogs: string): string {
+	// The bundler log accumulates every install and build since the editor opened.
+	const lines = buildLogs
+		.split('\n')
+		.filter((line) => line.trim() && !ROUTINE_INSTALL_LOG_LINE.test(line))
+		.slice(-BUILD_LOG_TAIL_LINES)
+	let tail = lines.join('\n')
+	while (tail.length > BUILD_LOG_TAIL_CHARS && lines.length > 1) {
+		lines.shift()
+		tail = lines.join('\n')
+	}
+	tail = tail.slice(-BUILD_LOG_TAIL_CHARS)
+	return tail ? `Recent bundler logs:\n${tail}` : 'No bundler logs yet.'
+}
+
+export function formatBuildFailureForChat(buildError: string, buildLogs: string): string {
+	return [
+		'The app build FAILED, so the preview is not running the current code. Fix these errors in the frontend files, then call get_app_runtime_logs again to confirm the build passes.',
+		`Build error:\n${buildError}`,
+		formatBuildLogTailForChat(buildLogs)
+	].join('\n\n')
+}
+
 export type RawAppRunSummary = {
 	job_id: string
 	component: string
@@ -75,70 +279,125 @@ export type RawAppRunSummary = {
 }
 export type RawAppRunsProvider = () => RawAppRunSummary[] | undefined
 
+/** Capture the live raw-app preview as a PNG data URL. Rejects when the preview
+ * isn't ready. Registered by the editor, dispatched by the session runtime for the
+ * global `take_screenshot` tool. */
+export type RawAppScreenshotRequester = () => Promise<string>
+
 export function formatAppRunsForChat(runs: RawAppRunSummary[]): string {
 	return JSON.stringify(runs, null, 2)
 }
 
-export function htmlContent(
+/** `sandbox` attribute of a sandbox-isolated app's frame, deployed or in the editor preview. */
+export const RAW_APP_SANDBOX_FLAGS =
+	'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-top-navigation'
+
+/** Envelope type for a sandboxed pop-out's relayed messages. */
+export const RAW_APP_PREVIEW_RELAY = 'wm:previewRelay'
+
+/** Where a sandboxed app's (shimmed) localStorage persists, per app. The editor
+ * preview has its own store, so testing in it never touches the deployed app's data. */
+export function rawAppStorageKey(workspace: string, path: string, preview = false): string {
+	return `wm_apps_localstorage:${preview ? 'p:' : ''}${workspace}:${path}`
+}
+
+export function readRawAppStorage(storeKey: string): Record<string, string> {
+	try {
+		return JSON.parse(localStorage.getItem(storeKey) || '{}')
+	} catch (_) {
+		return {}
+	}
+}
+
+/** Applies one `wm_ls_op` relayed by a sandboxed app's storage shim. */
+export function applyRawAppStorageOp(storeKey: string, d: any) {
+	try {
+		const s = readRawAppStorage(storeKey)
+		if (d.op === 'set') s[d.key] = String(d.value)
+		else if (d.op === 'remove') delete s[d.key]
+		else if (d.op === 'clear') for (const k in s) delete s[k]
+		localStorage.setItem(storeKey, JSON.stringify(s))
+	} catch (_) {}
+}
+
+/** A full-code app's `window.ctx`, on every path that runs one. `query` is the viewer
+ * page's, built as a low-code app's `ctx.query`, and `{}` rather than absent. */
+export function rawAppCtx(
+	user: unknown,
+	workspace: string | undefined,
+	path: string,
+	search: string
+) {
+	return {
+		ctx: user,
+		workspace,
+		path,
+		query: urlParamsToObject(new URLSearchParams(search), { stripReserved: true })
+	}
+}
+
+// The sandboxed (isolated) raw-app wrapper is generated server-side and served as
+// a sandboxed, opaque-origin document (see `get_raw_app_data` in the backend
+// `apps.rs`, WIN-2006) — a blob: URL cannot carry the `CSP: sandbox` response
+// header that enforces isolation, so the wrapper must come from the backend.
+//
+// The function below is used ONLY for the unsandboxed path (the default — the
+// publisher did not opt into sandbox isolation). It is loaded as a blob: URL —
+// same-origin with the SPA — so, with `allow-same-origin`, the bundle runs with
+// the viewer's full session. Crucially this is an in-memory blob, not a
+// real-origin endpoint, so it is not a URL an attacker can navigate a logged-in
+// victim to in order to gain isolation-bypassing access — the backend `.html`
+// document stays sandboxed whenever the publisher did opt in.
+export function unsandboxedRawAppHtml(
 	workspace: string,
-	secret: string | undefined,
+	secret: string,
 	ctx: any,
-	baseUrl: string = '',
-	initialHash: string = ''
+	baseUrl: string,
+	initialHash: string
 ) {
 	return `<!DOCTYPE html>
 <html>
 <head>
 	<meta charset="UTF-8" />
-	<title>App Preview</title>
+	<!-- Before the app's own stylesheet, so a bundle that wants a margin can still set one: the
+	     browser default of 8px would otherwise frame every app with a gap it never asked for. -->
+	<style>html, body { margin: 0; }</style>
 	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
 	<script>
-		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
-
-		// Sync hash with parent window for shareable URLs
-		(function() {
-			// Set initial hash from parent URL
+		window.ctx = ${ctx ? JSON.stringify(ctx).replace(/</g, '\\u003c') : 'undefined'};
+		(function () {
+			// Keep the parent URL hash in sync for shareable URLs.
+			function notifyParent() {
+				try {
+					if (window.parent !== window) {
+						window.parent.postMessage({ type: 'windmill:hashchange', hash: window.location.hash }, '*');
+					}
+				} catch (_) {}
+			}
 			var initialHash = ${JSON.stringify(initialHash)};
 			if (initialHash && initialHash !== '#' && !window.location.hash) {
-				history.replaceState(null, '', initialHash);
+				try { history.replaceState(null, '', initialHash); } catch (_) {}
 			}
-
-			// Notify parent when hash changes
-			function notifyParent() {
-				var hash = window.location.hash;
-				console.log('[HashSync] notifyParent called, hash:', hash);
-				if (window.parent !== window) {
-					window.parent.postMessage({
-						type: 'windmill:hashchange',
-						hash: hash
-					}, '*');
-				}
-			}
-
-			// Listen for hash changes
-			window.addEventListener('hashchange', function() {
-				console.log('[HashSync] hashchange event');
-				notifyParent();
-			});
-
-			// Also notify on pushState/replaceState
-			var originalPushState = history.pushState;
-			var originalReplaceState = history.replaceState;
-
-			history.pushState = function() {
-				console.log('[HashSync] pushState called with:', arguments[2]);
-				originalPushState.apply(this, arguments);
-				notifyParent();
-			};
-
-			history.replaceState = function() {
-				console.log('[HashSync] replaceState called with:', arguments[2]);
-				originalReplaceState.apply(this, arguments);
-				notifyParent();
-			};
-
-			// Notify parent of initial hash after load
+			window.addEventListener('hashchange', notifyParent);
+			var _ps = history.pushState, _rs = history.replaceState;
+			history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
+			history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
 			setTimeout(notifyParent, 0);
+
+			// The parent shows the app's document.title in its tab. This document has no
+			// <title> of its own: document.title reads the first one, so a placeholder would
+			// shadow the one a framework (React 19, react-helmet) appends.
+			var lastTitle = '';
+			new MutationObserver(function () {
+				var t = document.title;
+				if (t === lastTitle) return;
+				lastTitle = t;
+				try {
+					if (window.parent !== window) {
+						window.parent.postMessage({ type: 'windmill:title', title: t }, '*');
+					}
+				} catch (_) {}
+			}).observe(document.head, { childList: true, subtree: true, characterData: true });
 		})();
 	</script>
 </head>
@@ -149,8 +408,14 @@ export function htmlContent(
 </html>`
 }
 
-function removeStaticFields(schema: Schema, fields: Record<string, { type: string }>): Schema {
-	const staticFields = Object.keys(fields).filter((k) => fields[k].type == 'static')
+// The app fills static and ctx fields itself, so the frontend never passes them.
+function removeServerFilledFields(
+	schema: Schema,
+	fields: Record<string, { type: string }>
+): Schema {
+	const staticFields = Object.keys(fields).filter(
+		(k) => fields[k].type == 'static' || fields[k].type == 'ctx'
+	)
 	return {
 		...schema,
 		properties: {
@@ -165,14 +430,16 @@ function hiddenRunnableToTsType(runnable: Runnable) {
 	if (isRunnableByName(runnable)) {
 		if (runnable?.inlineScript?.schema) {
 			return schemaToTsType(
-				removeStaticFields(runnable?.inlineScript?.schema, runnable?.fields ?? {})
+				removeServerFilledFields(runnable?.inlineScript?.schema, runnable?.fields ?? {})
 			)
 		} else {
 			return '{}'
 		}
 	} else if (isRunnableByPath(runnable)) {
 		if (runnable?.schema) {
-			return schemaToTsType(removeStaticFields(runnable.schema as Schema, runnable?.fields ?? {}))
+			return schemaToTsType(
+				removeServerFilledFields(runnable.schema as Schema, runnable?.fields ?? {})
+			)
 		} else {
 			return '{}'
 		}
@@ -181,19 +448,35 @@ function hiddenRunnableToTsType(runnable: Runnable) {
 	}
 }
 
+/** Shown in the file tree, generated by `genWmillTs` — never a key of `files`. */
+export const WMILL_TS_PATH = '/wmill.ts'
+
 export function genWmillTs(runnables: Record<string, Runnable>) {
 	return `// THIS FILE IS READ-ONLY
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 
+/**
+ * \`memoryId\` names the conversation a turn of an agent or a chat-mode flow belongs to: a
+ * signed-in viewer's conversations are theirs alone.
+ */
 export declare const backend: {
 ${Object.entries(runnables)
-	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<any>;`)
+	.map(
+		([k, v]) =>
+			`  ${k}: (args: ${hiddenRunnableToTsType(v)}, opts?: { memoryId?: string }) => Promise<any>;`
+	)
 	.join('\n')}
 };
 
+/**
+ * Start a runnable and resolve its job id. \`memoryId\` is as for \`backend\`.
+ */
 export declare const backendAsync: {
 ${Object.entries(runnables)
-	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<string>;`)
+	.map(
+		([k, v]) =>
+			`  ${k}: (args: ${hiddenRunnableToTsType(v)}, opts?: { memoryId?: string }) => Promise<string>;`
+	)
 	.join('\n')}
 };
 
@@ -209,10 +492,10 @@ export type Job = {
 };
 
 /**
- * Execute a job and wait for it to complete and return the completed job
+ * Wait for a job to complete and return its result. Rejects if the job failed.
  * @param id
  */
-export declare function waitJob(id: string): Promise<Job>;
+export declare function waitJob(id: string): Promise<any>;
 
 /**
  * Get a job by id and return immediately with the current state of the job

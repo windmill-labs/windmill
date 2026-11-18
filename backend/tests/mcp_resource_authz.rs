@@ -23,9 +23,9 @@ use windmill_common::client::AuthedClient;
 use windmill_test_utils::*;
 use windmill_worker::{load_mcp_tools, McpResourceConfig};
 
-fn config() -> Vec<McpResourceConfig> {
+fn config(resource_path: &str) -> Vec<McpResourceConfig> {
     vec![McpResourceConfig {
-        resource_path: "$res:f/private/admin_mcp".to_string(),
+        resource_path: resource_path.to_string(),
         include_tools: None,
         exclude_tools: None,
     }]
@@ -34,7 +34,16 @@ fn config() -> Vec<McpResourceConfig> {
 // The Ok variant ((HashMap<_, Arc<McpClient>>, Vec<Tool>)) does not implement
 // Debug, so `expect_err` is unavailable — extract the error explicitly.
 async fn load_err(db: &Pool<Postgres>, client: &AuthedClient, ctx: &str) -> String {
-    match load_mcp_tools(db, "test-workspace", config(), client).await {
+    load_err_for(db, client, "$res:f/private/admin_mcp", ctx).await
+}
+
+async fn load_err_for(
+    db: &Pool<Postgres>,
+    client: &AuthedClient,
+    resource_path: &str,
+    ctx: &str,
+) -> String {
+    match load_mcp_tools(db, "test-workspace", config(resource_path), client).await {
         Ok(_) => panic!("{ctx}"),
         Err(e) => e.to_string(),
     }
@@ -96,6 +105,34 @@ async fn test_mcp_resource_not_loaded_without_authorization(
     assert!(
         msg.contains("Failed to create MCP client"),
         "admin should resolve the resource and only fail at the connect step: {msg}"
+    );
+
+    Ok(())
+}
+
+/// A `$var:` in the resource's `url` is resolved before connecting, rather than
+/// being handed to the client as a literal (and rejected as a relative URL).
+#[sqlx::test(fixtures("base", "mcp_resource_authz"))]
+async fn test_mcp_resource_url_variable_is_resolved(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let client = AuthedClient::new(
+        format!("http://localhost:{}", server.addr.port()),
+        "test-workspace".to_string(),
+        "SECRET_TOKEN".to_string(),
+        None,
+    );
+    let msg = load_err_for(
+        &db,
+        &client,
+        "$res:u/test-user/var_mcp",
+        "the variable's URL is non-resolvable, so the connect step must fail",
+    )
+    .await;
+    assert!(
+        msg.contains("mcp-from-var.invalid.windmill.test"),
+        "the URL should come from the variable: {msg}"
     );
 
     Ok(())

@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT ON (asset_path)\n                  asset_path, version, columns AS \"columns: Json<Vec<SchemaColumn>>\", captured_at\n             FROM materialized_asset_schema\n            WHERE workspace_id = $1 AND asset_kind = 'ducklake' AND asset_path = ANY($2)\n            ORDER BY asset_path, version DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asset_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "columns: Json<Vec<SchemaColumn>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "captured_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c6c186eb3a108e1f695bf5730c23ef4ab1ccfdc4ed33904e83e5130ac0bf5896"
+}

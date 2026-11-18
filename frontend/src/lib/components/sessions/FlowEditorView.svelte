@@ -15,7 +15,9 @@
 		path,
 		workspaceId,
 		onNavigate,
-		isActiveSession = true
+		isActiveSession = true,
+		active = true,
+		initialSelectedId
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -24,9 +26,18 @@
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
+		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
+		active?: boolean
+		/** Step the tab was opened on ("open this step in a session"), from its
+		 * URL's `selected` param. */
+		initialSelectedId?: string
 	} = $props()
 
-	let selectedId = $state('settings-metadata')
+	// This tab's own flow cell; each open flow editor binds its own store.
+	const cell = $derived(runtime.flowCell(path))
+	// Derived, not state: retargeting the tab at another flow swaps the URL, and a
+	// step id from the previous one must not survive into the new flow.
+	const selectedId = $derived(initialSelectedId ?? 'settings-metadata')
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	// Restore actions for the diff drawer. A `loadFlow`-based handler is a no-op:
@@ -35,7 +46,7 @@
 	// baseline — useUserDraftSync's inbound effect then syncs the editor preview.
 	// Mirrors ScriptEditorView.
 	async function restoreDeployed() {
-		const saved = runtime.savedFlow.val
+		const saved = cell.saved.val
 		if (!saved) {
 			sendUserToast('Could not restore to deployed', true)
 			return
@@ -61,7 +72,7 @@
 	}
 </script>
 
-{#if runtime.savedFlow.val}
+{#if cell.saved.val}
 	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} isFlow />
 {/if}
 <SessionEditorTarget
@@ -71,7 +82,13 @@
 	{workspaceId}
 	{onNavigate}
 	{isActiveSession}
-	effectivePath={() => runtime.flowStore.val?.path ?? path}
+	isActiveTab={active}
+	effectivePath={() =>
+		// A flow's typed rename lives in `draft_path` (`val.path` is the storage
+		// key), unlike scripts where `val.path` is the typed name — without it the
+		// live-draft registration hides a staged rename from lists and pickers.
+		((cell.store.val as { draft_path?: string } | undefined)?.draft_path || cell.store.val?.path) ??
+		path}
 >
 	{#snippet editor()}
 		<!-- customUi hides the in-editor "Flow AI Chat" button: the session already
@@ -83,26 +100,36 @@
 		     its intended name in `draft_path`; seed the builder from `draft_path`
 		     (as the full-page editor does) so the Path widget and deploy use the
 		     friendly name rather than creating a flow literally named draft_<uuid>. -->
+		<!-- bind:savedFlow / flowStore target this tab's editor cell (cell.saved /
+		     cell.store), reactive state owned by the SessionRuntime class (via
+		     flowCell), not by a component ancestor — so Svelte's ownership check
+		     flags a false positive here. -->
+		<!-- draftBaseVersion / version: the base the session's draft carries and the head at
+		     load time, so the deploy guard compares the same pair the full-page editor does;
+		     without them every deploy from a session tab reads as up to date. -->
+		<!-- svelte-ignore ownership_invalid_binding -->
 		<FlowBuilder
-			flowStore={runtime.flowStore}
-			flowStateStore={runtime.flowStateStore}
-			initialPath={(runtime.savedFlow.val as any)?.draft_path ?? path}
+			flowStore={cell.store}
+			flowStateStore={cell.stateStore}
+			initialPath={(cell.saved.val as any)?.draft_path ?? path}
 			autosaveWorkspace={workspaceId}
 			autosavePath={path}
-			newFlow={!runtime.savedFlow.val || runtime.savedFlow.val.no_deployed === true}
+			newFlow={!cell.saved.val || cell.saved.val.no_deployed === true}
 			{selectedId}
 			loading={false}
-			bind:savedFlow={runtime.savedFlow.val}
+			bind:savedFlow={cell.saved.val}
+			draftBaseVersion={cell.store.val?.version_id != null
+				? String(cell.store.val.version_id)
+				: undefined}
+			version={cell.saved.val?.version_id}
 			{diffDrawer}
 			{onNavigate}
+			condensedHeader={true}
 			customUi={{ topBar: { aiBuilder: false } }}
-			onDeploy={() => {
-				// FlowBuilder has no deploy toast and the session stays put, so toast
-				// here, then sync the preview to deployed (pulls the new locks + version_id).
+			onDeploy={(e) => {
+				// FlowBuilder has no deploy toast and the session stays put, so toast here.
 				sendUserToast('Deployed')
-				runtime.syncPreviewWithDeployed(workspaceId, 'flow', path)
-				// Deploying clears the item's pending draft — refresh the Draft Count.
-				invalidateWorkspaceDrafts(workspaceId)
+				runtime.itemDeployed(workspaceId, 'flow', path, e.path)
 			}}
 		/>
 	{/snippet}

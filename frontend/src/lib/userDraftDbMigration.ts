@@ -1,11 +1,12 @@
 /**
  * One-off migration from the localStorage UserDraft autosave to the
- * DB-backed `draft` table. Runs after `migrateLegacyUserDrafts` (which
- * produces the `userdraft/w/{workspace}/{kind}/{path}` keys this reads),
- * POSTing each to `/drafts/update` and clearing the source key only on
- * success — so it's idempotent without a sentinel; failed entries retry next
- * mount. Not workspace-gated: keys embed their own workspace and the token
- * covers all of them, so gating would orphan other-workspace entries.
+ * DB-backed `draft` table. Reads the workspace-scoped
+ * `userdraft/w/{workspace}/{kind}/{path}` keys (written by the editor during
+ * the interim LS-backed phase, so the embedded workspace is correct), POSTing
+ * each to `/drafts/update` and clearing the source key only on success — so
+ * it's idempotent without a sentinel; failed entries retry next mount. Not
+ * workspace-gated: keys embed their own workspace and the token covers all of
+ * them, so gating would orphan other-workspace entries.
  *
  * Before uploading, each draft is compared against its deployed version
  * (script / flow / app); a draft that's deep-equal to what's deployed carries
@@ -45,6 +46,7 @@ const ITEM_KINDS = [
 	'trigger_kafka',
 	'trigger_nats',
 	'trigger_mqtt',
+	'trigger_amqp',
 	'trigger_sqs',
 	'trigger_gcp',
 	'trigger_azure',
@@ -52,7 +54,8 @@ const ITEM_KINDS = [
 	'trigger_cli',
 	'trigger_nextcloud',
 	'trigger_google',
-	'trigger_github'
+	'trigger_github',
+	'data_pipeline'
 ] as const satisfies readonly UserDraftItemKind[]
 
 type _Exhaustive =
@@ -248,11 +251,16 @@ export async function migrateUserDraftsToDb(): Promise<void> {
 				}
 				continue
 			}
+			// Preserve the draft's original age: stamp `created_at` with the LS
+			// write time (epoch 0 when unknown) so migrated drafts don't all
+			// resurface to the top as freshly created. Same value as `last_sync`,
+			// which still drives the conflict check.
+			const writtenAt = new Date(lastWrittenAt ?? 0).toISOString()
 			const res = await DraftService.updateDraft({
 				workspace: parsed.workspace,
 				kind: parsed.itemKind,
 				path,
-				requestBody: { value, last_sync: new Date(lastWrittenAt ?? 0).toISOString() }
+				requestBody: { value, last_sync: writtenAt, created_at: writtenAt }
 			})
 			if (res.status === 'conflict') {
 				console.info(

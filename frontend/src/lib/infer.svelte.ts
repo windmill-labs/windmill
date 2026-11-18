@@ -70,9 +70,14 @@ type QueryEntry = [string, InferAssetsSqlQueryDetails]
 
 // DuckDB prepare replaces $N params with NULL. Some functions (read_parquet, read_csv, etc.)
 // reject NULL arguments, which is expected — the query will work at execution time with real args.
+// DuckDB 1.x says "cannot take NULL"; 2.0 reports the NULL as an argument no overload accepts.
 function isNullParamSubstitutionError(error?: string): boolean {
 	if (!error) return false
-	return error.includes('cannot take NULL') || error.includes('Could not choose a best candidate')
+	return (
+		error.includes('cannot take NULL') ||
+		error.includes('Could not choose a best candidate') ||
+		error.includes('No function matches the given name and argument types')
+	)
 }
 
 function mapPrepareResults(

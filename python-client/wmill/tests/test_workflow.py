@@ -1,9 +1,56 @@
 """Tests for the Workflow-as-Code SDK."""
 
 import asyncio
+import json
+import pathlib
 import pytest
 
-from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, _run_workflow
+from datetime import datetime, timezone
+
+from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, task_script, step, sleep, parallel, wait_for_approval, _run_workflow, _run_workflow_async
+
+
+class _FakeItems(dict):
+    """A mapping whose ``items()`` yields something that is not a key/value pair."""
+
+    def __bool__(self):
+        return True
+
+    def items(self):
+        return [None]
+
+
+class _StubInlineClient:
+    """Stands in for the httpx client the inline fast path POSTs with.
+
+    Decodes each request body, so a test sees exactly the JSON that reaches
+    ``/jobs/wac/inline_checkpoint`` — and therefore what a replay reads back.
+    """
+
+    def __init__(self):
+        self.posted = []
+
+    async def post(self, url, content=None):
+        self.posted.append(json.loads(content))
+
+        class _Response:
+            def raise_for_status(self):
+                pass
+
+        return _Response()
+
+    async def aclose(self):
+        pass
+
+
+def _set_inline_fast_path_env(monkeypatch):
+    for var, val in (
+        ("WM_JOB_ID", "job-1"),
+        ("WM_WORKSPACE", "admins"),
+        ("BASE_INTERNAL_URL", "http://localhost:8000"),
+        ("WM_TOKEN", "tok"),
+    ):
+        monkeypatch.setenv(var, val)
 
 
 @task
@@ -406,6 +453,24 @@ class TestChildMode:
         assert result["type"] == "complete"
         assert result["result"] == 14
 
+    def test_child_cannot_swallow_the_failure_of_the_step_it_executes(self):
+        # If `except Exception` could catch it, the child would report a success
+        # returning "swallowed" and the parent would record that as the step's value.
+        @task
+        async def boom():
+            raise ValueError("nope")
+
+        @workflow
+        async def wf():
+            try:
+                await boom()
+            except Exception:
+                return "swallowed"
+            return "unreachable"
+
+        with pytest.raises(ValueError, match="nope"):
+            _run_workflow(wf, {"_executing_key": "boom"}, {})
+
     def test_child_replays_cached_steps(self):
         checkpoint = {
             "completed_steps": {"extract_data": {"data": [1, 2, 3]}},
@@ -687,6 +752,84 @@ class TestChildModeParallel:
         assert result["result"] == 8
 
 
+class TestSdkCallsInsideTaskBody:
+    """A task body runs as one child job, so the SDK calls it makes cannot be
+    dispatched as steps of their own."""
+
+    def _run_child(self, wf, key):
+        async def bounded():
+            return await asyncio.wait_for(
+                _run_workflow_async(wf, {"completed_steps": {}, "_executing_key": key}, {}),
+                timeout=2,
+            )
+
+        return asyncio.run(bounded())
+
+    def test_nested_task_and_step_run_in_the_tasks_own_job(self):
+        @task
+        async def inner(x: str):
+            return f"inner:{x}"
+
+        @task
+        def sync_leaf(x: str):
+            return f"sync:{x}"
+
+        # A sync body calls its tasks without awaiting, whatever called it.
+        @task
+        def sync_inner(x: str):
+            return sync_leaf(x).upper().lower()
+
+        @task
+        async def outer(x: str):
+            via_task = await inner(x)
+            via_sync = await sync_inner(x)
+            via_step = await step("s", lambda: "stepped")
+            return f"{via_task}+{via_sync}+{via_step}"
+
+        @workflow
+        async def wf():
+            return await outer("a")
+
+        result = self._run_child(wf, "outer")
+        assert result == {"type": "complete", "result": "inner:a+sync:a+stepped"}
+
+    def test_sibling_task_of_the_workflow_body_is_not_run(self):
+        # The workflow body keeps replaying beside the task body, and its own
+        # calls must stay parked: running them would execute a sibling task in
+        # this job.
+        ran = []
+
+        @task
+        async def inner(x: str):
+            ran.append(x)
+            return x
+
+        @task
+        async def outer(x: str):
+            await asyncio.sleep(0)
+            return await inner("nested")
+
+        @workflow
+        async def wf():
+            return await asyncio.gather(outer("a"), inner("sibling"))
+
+        result = self._run_child(wf, "outer")
+        assert result == {"type": "complete", "result": "nested"}
+        assert ran == ["nested"]
+
+    def test_step_that_would_need_a_dispatch_fails_instead_of_hanging(self):
+        @task
+        async def dispatching():
+            return await task_script("f/other/script")()
+
+        @workflow
+        async def wf():
+            return await dispatching()
+
+        with pytest.raises(RuntimeError, match="cannot be called from inside a task"):
+            self._run_child(wf, "dispatching")
+
+
 class TestKeyDeterminism:
     def test_keys_consistent_across_replays(self):
         r1 = _run_workflow(det_wf, {}, {"n": 3})
@@ -914,6 +1057,410 @@ class TestErrorPropagation:
         assert "step failed" in r["result"]["caught"]
 
 
+class TestFailureRecordCorpus:
+    """The cases both SDKs must agree on, from the corpus the typescript suite
+    also reads. Its `_readme` states the contract and why it is shared."""
+
+    CORPUS = json.loads(
+        (
+            pathlib.Path(__file__).resolve().parents[3]
+            / "backend/windmill-common/src/wac_failure_corpus.json"
+        ).read_text()
+    )
+
+    @staticmethod
+    def _construct(spec: dict) -> BaseException:
+        exc = type(spec["name"], (Exception,), {})(spec["message"])
+        for key, value in (spec.get("props") or {}).items():
+            setattr(exc, key, value)
+        if spec.get("circular_prop"):
+            cyclic: dict = {}
+            cyclic["self"] = cyclic
+            setattr(exc, spec["circular_prop"], cyclic)
+        return exc
+
+    @pytest.mark.parametrize("case", CORPUS["cases"], ids=lambda c: c["case"])
+    def test_marker_matches_the_shared_contract(self, case):
+        exc = self._construct(case["thrown"])
+
+        def raiser():
+            raise exc
+
+        # through the real step path, so the stack is the one a failure actually
+        # records rather than one this test happens to construct
+        async def run():
+            ctx = WorkflowCtx({})
+            try:
+                await ctx._run_inline_step("k", raiser)
+            except _StepSuspend as suspended:
+                return suspended.dispatch_info["result"]
+            raise AssertionError("a raising step did not suspend")
+
+        error = asyncio.run(run())["result"]["error"]
+
+        expect = case["expect"]
+        assert error["name"] == expect["name"]
+        assert error["message"] == expect["message"]
+        assert ("stack" in error) == (expect["stack"] == "present")
+        if "extra" in expect:
+            assert error["extra"] == expect["extra"]
+        for absent in expect.get("absent", []):
+            assert absent not in error
+        # whatever it kept has to survive the trip to the checkpoint
+        json.dumps(error, allow_nan=False)
+
+
+class TestRaisingInlineStepIsCheckpointed:
+    """A ``step()`` whose body raises must still land in ``completed_steps``.
+
+    Otherwise a workflow that catches the exception and later dispatches a task
+    replays with ``_executing_key`` set, reaches the unrecorded key, and parks
+    on the never-resolving future forever.
+    """
+
+    # A failed child job reports `{"error": {"name", "message", "stack"}}`, and a
+    # failed step() has to be indistinguishable from it. The stack is a traceback
+    # string, asserted separately.
+    MARKER = {
+        "__wmill_error": True,
+        "message": "boom",
+        "step_key": "risky",
+        "result": {"error": {"name": "ValueError", "message": "boom"}},
+    }
+
+    @staticmethod
+    def _without_stack(marker: dict) -> dict:
+        error = {k: v for k, v in marker["result"]["error"].items() if k != "stack"}
+        return {**marker, "result": {**marker["result"], "error": error}}
+
+    @staticmethod
+    def _boom():
+        raise ValueError("boom")
+
+    @classmethod
+    def _wf(cls):
+        @workflow
+        async def wf(x: int):
+            try:
+                await step("risky", cls._boom)
+            except Exception:
+                pass
+            return await double(x=x)
+
+        return wf
+
+    def test_first_run_emits_error_checkpoint(self):
+        r = _run_workflow(self._wf(), {}, {"x": 5})
+        assert r["type"] == "inline_checkpoint"
+        assert r["key"] == "risky"
+        assert self._without_stack(r["result"]) == self.MARKER
+        stack = r["result"]["result"]["error"]["stack"]
+        # Frames only and the SDK's own `result = fn()` frame dropped, the way
+        # the python executor formats a failed job's stack.
+        assert 'raise ValueError("boom")' in stack
+        assert "result = fn()" not in stack
+        assert not stack.startswith("Traceback")
+
+    def test_custom_exception_attributes_survive_under_extra(self):
+        """A failed child job reports custom attributes under ``error.extra``;
+        a step dropping them would make the same exception carry less depending
+        on how it was run."""
+        from wmill.client import _step_error_marker
+
+        class HttpError(ValueError):
+            def __init__(self):
+                super().__init__("429")
+                self.code = 429
+
+        error = _step_error_marker("k", HttpError())["result"]["error"]
+        assert error["extra"] == {"code": 429}
+        assert error["name"] == "HttpError"
+        assert "extra" not in _step_error_marker("k", ValueError("plain"))["result"]["error"]
+
+    def test_unserializable_attributes_do_not_cost_the_fast_path(self):
+        """The fast-path POST serializes strictly, so an exception holding a
+        live object — ``resp.raise_for_status()`` is the common one — must not
+        make the marker unserializable and drop the step onto the slow path."""
+        import json as _json
+
+        from wmill.client import _step_error_marker
+
+        class Boom(Exception):
+            def __init__(self):
+                super().__init__("boom")
+                self.response = object()
+                self.status = 429
+
+        marker = _step_error_marker("k", Boom())
+        _json.dumps(marker)  # raises if an attribute leaked through unserialized
+        assert marker["result"]["error"]["extra"]["status"] == 429
+
+    def test_an_exception_whose_str_raises_still_reports(self):
+        """Every coercion of the user's exception runs inside the ``except``
+        reporting it, so one that raises would replace their failure with an
+        unrelated one and leave the step uncheckpointed."""
+        import json as _json
+
+        from wmill.client import _step_error_marker
+
+        class Hostile(Exception):
+            def __str__(self):
+                raise RuntimeError("cannot be rendered")
+
+        marker = _step_error_marker("k", Hostile())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "Hostile"
+        assert "unrepresentable" in marker["result"]["error"]["message"]
+
+        # ...including one that makes reading its own traceback raise
+        class HostileTraceback(Exception):
+            def __getattribute__(self, item):
+                if item == "__traceback__":
+                    raise RuntimeError("no traceback for you")
+                return super().__getattribute__(item)
+
+        marker = _step_error_marker("k", HostileTraceback())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "HostileTraceback"
+
+        # ...or reading its own attributes
+        class HostileDict(Exception):
+            def __getattribute__(self, item):
+                if item == "__dict__":
+                    raise RuntimeError("no attributes for you")
+                return super().__getattribute__(item)
+
+        marker = _step_error_marker("k", HostileDict())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "HostileDict"
+
+        # ...or an overridden __dict__, whatever shape it takes
+        class NotAMapping(Exception):
+            @property
+            def __dict__(self):
+                return "definitely not a mapping"
+
+        marker = _step_error_marker("k", NotAMapping())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "NotAMapping"
+
+        class YieldsNonPairs(Exception):
+            @property
+            def __dict__(self):
+                return _FakeItems()
+
+        marker = _step_error_marker("k", YieldsNonPairs())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "YieldsNonPairs"
+
+        class OddKey(Exception):
+            def __init__(self):
+                super().__init__("boom")
+                self.code = 429
+
+        odd = OddKey()
+        odd.__dict__[(1, 2)] = "tuple key"
+        marker = _step_error_marker("k", odd)
+        _json.dumps(marker)  # a surviving tuple key would raise here
+        assert marker["result"]["error"]["extra"] == {"code": 429}
+
+        class ExplodingKey:
+            def __init__(self):
+                self.hashed = 0
+
+            def __hash__(self):
+                self.hashed += 1
+                if self.hashed > 1:
+                    raise RuntimeError("second hash")
+                return 1
+
+        exploding = OddKey()
+        exploding.__dict__[ExplodingKey()] = "x"
+        marker = _step_error_marker("k", exploding)
+        _json.dumps(marker)
+        assert marker["result"]["error"]["extra"] == {"code": 429}
+
+        # A float is serializable, so `default=` never sees NaN — it would go out
+        # as a bare `NaN` literal, which is not JSON and which the backend
+        # rejects, so the step could not be checkpointed at all.
+        class NotFinite(Exception):
+            def __init__(self):
+                super().__init__("nan")
+                self.value = float("nan")
+                self.limit = float("inf")
+
+        marker = _step_error_marker("k", NotFinite())
+        _json.dumps(marker, allow_nan=False)
+        assert marker["result"]["error"]["extra"] == {"value": "NaN", "limit": "Infinity"}
+
+    def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
+        """The default path: the checkpoint is POSTed and the workflow body gets
+        the same ``TaskError`` a replay rebuilds from the marker — raising the
+        original ``ValueError`` here would make ``except ValueError:`` catch on
+        this run and miss on the next one. ``except`` is control flow, so
+        anything a handler can branch on has to be identical in both rounds."""
+        _set_inline_fast_path_env(monkeypatch)
+
+        class _EchoingStub(_StubInlineClient):
+            """The endpoint normalizes the failure before storing it and echoes
+            back what it stored. The echo deliberately differs from what was
+            posted, so the assertions below can tell which copy was raised from."""
+
+            async def post(self, url, content=None):
+                await super().post(url, content=content)
+                stored = {**self.posted[-1]["result"], "message": "normalized by the backend"}
+
+                class _Response:
+                    # the endpoint answers with a JSON body; a backend predating
+                    # the echo answers without one, which is how the client tells
+                    # "no echo" from "an echo it could not read"
+                    headers = {"content-type": "application/json"}
+
+                    def raise_for_status(self):
+                        pass
+
+                    def json(self):
+                        return {"failure": stored}
+
+                return _Response()
+
+        stub = _EchoingStub()
+        posted = stub.posted
+
+        async def run():
+            ctx = WorkflowCtx({})
+            ctx._inline_http_client = stub
+            with pytest.raises(TaskError) as live:
+                await ctx._run_inline_step("risky", self._boom)
+            # The live round raised from the record the backend stored, not from
+            # the marker it posted: that is what keeps the two rounds identical
+            # even if the SDK and the backend ever build a record differently.
+            stored = {**posted[0]["result"], "message": "normalized by the backend"}
+            assert str(live.value) == "normalized by the backend"
+
+            # ...and the replay of that very record raises the same thing.
+            replayed = WorkflowCtx({"completed_steps": {"risky": stored}})
+            with pytest.raises(TaskError) as replay:
+                await replayed._run_inline_step("risky", self._boom)
+            assert type(live.value) is type(replay.value)
+            assert live.value.args == replay.value.args
+            assert live.value.result == replay.value.result == stored["result"]
+            assert live.value.step_key == replay.value.step_key == "risky"
+            # A step has no child job to name, and nothing hangs off __cause__:
+            # a replay has no original exception to chain, so neither round does.
+            assert live.value.child_job_id is replay.value.child_job_id is None
+            assert live.value.__cause__ is replay.value.__cause__ is None
+
+        asyncio.run(run())
+        assert len(posted) == 1
+        assert posted[0]["key"] == "risky"
+        assert self._without_stack(posted[0]["result"]) == self.MARKER
+
+    def test_a_missing_echo_is_not_the_same_as_an_unreadable_one(self, monkeypatch):
+        """A backend predating the echo answers without a JSON body and the
+        locally checkpointed marker stands in. A JSON body that will not parse
+        means the stored record exists but is unknown, so the round has to end
+        and let the next one read whatever the backend actually kept."""
+        _set_inline_fast_path_env(monkeypatch)
+
+        def _client(headers, json_impl):
+            class _Response:
+                def raise_for_status(self):
+                    pass
+
+            _Response.headers = headers
+            _Response.json = json_impl
+
+            class _Client(_StubInlineClient):
+                async def post(self, url, content=None):
+                    await super().post(url, content=content)
+                    return _Response()
+
+            return _Client()
+
+        def _boom_json(self):
+            raise ValueError("not json")
+
+        async def run():
+            # no JSON body: the fast path still completes, raising the failure
+            ctx = WorkflowCtx({})
+            ctx._inline_http_client = _client({}, _boom_json)
+            with pytest.raises(TaskError):
+                await ctx._run_inline_step("risky", self._boom)
+
+            # a JSON body that will not parse: fall through to the suspend path
+            ctx = WorkflowCtx({})
+            ctx._inline_http_client = _client(
+                {"content-type": "application/json"}, _boom_json
+            )
+            with pytest.raises(_StepSuspend) as suspend:
+                await ctx._run_inline_step("risky", self._boom)
+            assert suspend.value.dispatch_info["key"] == "risky"
+
+        asyncio.run(run())
+
+    def test_replay_reraises_and_does_not_hang(self):
+        checkpoint = {
+            "completed_steps": {"risky": self.MARKER},
+            "_executing_key": "double",
+        }
+
+        async def run():
+            return await asyncio.wait_for(
+                _run_workflow_async(self._wf(), checkpoint, {"x": 5}), timeout=5
+            )
+
+        r = asyncio.run(run())
+        assert r["type"] == "complete"
+        assert r["result"] == 10
+
+
+class TestInlineStepRoundParity:
+    """The round that runs a ``step()`` body must see what a replay sees.
+
+    The fast path returns the value it checkpointed, not the in-memory one:
+    a workflow branching on a datetime attribute or a tuple would otherwise
+    take one path on the round that ran the body and another on every replay,
+    which can change which tasks get dispatched, not just crash later.
+    """
+
+    CASES = [
+        ("dt", lambda: datetime(2026, 1, 1, tzinfo=timezone.utc), "2026-01-01 00:00:00+00:00"),
+        ("pair", lambda: (1, 2), [1, 2]),
+        ("intkeys", lambda: {1: "a"}, {"1": "a"}),
+    ]
+
+    def test_outside_a_workflow_returns_the_same_shape(self):
+        """No checkpoint, no replay — but a local run must not hand back a shape
+        a deployed one never produces, or testing a workflow locally proves
+        nothing. The async task path is the sharp edge: the wrapper is sync, so
+        the value has to be round-tripped after the await, not before."""
+
+        @task
+        async def make_pair():
+            return (1, datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+        assert asyncio.run(step("pair", lambda: (1, 2))) == [1, 2]
+        assert asyncio.run(make_pair()) == [1, "2026-01-01 00:00:00+00:00"]
+
+    def test_live_round_matches_checkpoint_and_replay(self, monkeypatch):
+        _set_inline_fast_path_env(monkeypatch)
+
+        async def run():
+            for key, fn, expected in self.CASES:
+                stub = _StubInlineClient()
+                ctx = WorkflowCtx({})
+                ctx._inline_http_client = stub
+                live = await ctx._run_inline_step(key, fn)
+                checkpointed = stub.posted[0]["result"]
+                assert checkpointed == expected
+                assert live == expected and type(live) is type(expected)
+                replayed = WorkflowCtx({"completed_steps": {key: checkpointed}})
+                assert await replayed._run_inline_step(key, fn) == live
+
+        asyncio.run(run())
+
+
 # =====================================================================
 # TASK OPTIONS TESTS
 # =====================================================================
@@ -965,6 +1512,217 @@ class TestTaskOptions:
         assert step_info["concurrent_limit"] == 5
         assert step_info["concurrency_key"] == "my-key"
         assert step_info["concurrency_time_window_s"] == 60
+
+
+# =====================================================================
+# TASK RETRY TESTS
+# =====================================================================
+
+
+# What the failed child job leaves in ``completed_steps``.
+_FAILED = {"__wmill_error": True, "message": "boom", "result": {}}
+
+
+class TestTaskRetry:
+    """Nothing carries a retry across rounds: every round re-derives which
+    attempt comes next from the checkpoint alone."""
+
+    def test_each_failure_buys_a_backoff_sleep_and_one_more_attempt(self):
+        @task(retry={"attempts": 2, "delay": 30, "multiplier": 2})
+        async def call_api(x: int):
+            return x
+
+        @workflow
+        async def wf(x: int):
+            return await call_api(x=x)
+
+        completed = {"call_api": _FAILED}
+        r = _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+        assert r == {"type": "sleep", "key": "call_api#retry2", "seconds": 30}
+
+        completed["call_api#retry2"] = None
+        r = _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+        assert [s["key"] for s in r["steps"]] == ["call_api#2"]
+
+        # the delay grows by the multiplier for the second retry
+        completed["call_api#2"] = _FAILED
+        r = _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+        assert r == {"type": "sleep", "key": "call_api#retry3", "seconds": 60}
+
+        completed["call_api#retry3"] = None
+        r = _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+        assert [s["key"] for s in r["steps"]] == ["call_api#3"]
+
+        # attempts spent: the failure reaches the body
+        completed["call_api#3"] = _FAILED
+        with pytest.raises(TaskError):
+            _run_workflow(wf, {"completed_steps": dict(completed)}, {"x": 1})
+
+    def test_a_task_the_body_never_awaits_still_sleeps_and_retries(self):
+        # The runner dispatches unawaited task calls by flushing ``_pending``, so
+        # a backoff that only fired when awaited would drop the retry silently
+        # and report the workflow complete.
+        @task(retry={"attempts": 1, "delay": 30})
+        async def fire(x: int):
+            return x
+
+        @workflow
+        async def wf():
+            fire(x=1)
+            return "done"
+
+        r = _run_workflow(wf, {"completed_steps": {"fire": _FAILED}}, {})
+        assert r == {"type": "sleep", "key": "fire#retry2", "seconds": 30}
+
+    # ``step()`` names are arbitrary strings, so a step really can be called
+    # ``t#2``. Whichever of the two allocates second is the one renamed, and it
+    # has to be the same one in every round — hence claiming the attempt keys up
+    # front.
+    def test_an_inline_step_named_like_an_attempt_key_before_the_task_keeps_it(self):
+        @task(retry={"attempts": 1})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf():
+            decoy = await step("t#2", lambda: "not an attempt")
+            return [decoy, await t(x=1)]
+
+        r = _run_workflow(
+            wf, {"completed_steps": {"t#2": "not an attempt", "t": _FAILED}}, {}
+        )
+        assert [s["key"] for s in r["steps"]] == ["t#2_2"]
+
+    def test_an_inline_step_named_like_an_attempt_key_after_the_task_is_not_it(self):
+        @task(retry={"attempts": 1})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf():
+            pending = t(x=1)
+            decoy = await step("t#2", lambda: "not an attempt")
+            return [decoy, await pending]
+
+        # The first round records the step under the key left over after the
+        # task claimed ``t#2``, so the retry re-dispatches instead of reading
+        # the step's value.
+        r = _run_workflow(wf, {}, {})
+        assert r["key"] == "t#2_2"
+
+        r = _run_workflow(
+            wf, {"completed_steps": {"t": _FAILED, "t#2_2": "not an attempt"}}, {}
+        )
+        assert [s["key"] for s in r["steps"]] == ["t#2"]
+
+    def test_the_child_dispatched_for_an_attempt_walks_past_failure_and_backoff(self):
+        # The non-matching branch awaits a future that never resolves, so a child
+        # that walks the loop wrong parks the run until its timeout.
+        @task(retry={"attempts": 1, "delay": 30})
+        async def t(x: int):
+            return x * 10
+
+        @workflow
+        async def wf(x: int):
+            return await t(x=x)
+
+        r = _run_workflow(
+            wf,
+            {
+                "completed_steps": {"t": _FAILED, "t#retry2": None},
+                "_executing_key": "t#2",
+            },
+            {"x": 4},
+        )
+        assert r == {"type": "complete", "result": 40}
+
+    def test_a_misspelled_retry_option_raises_instead_of_being_ignored(self):
+        # The policy is a plain dict here, unlike the TS `TaskRetry` type, so
+        # nothing else would tell the author the option never took effect.
+        with pytest.raises(ValueError, match="max_delay_s"):
+
+            @task(retry={"attempts": 2, "max_delay_s": 300})
+            async def t(x: int):
+                return x
+
+    def test_an_out_of_range_attempt_count_is_rejected_where_it_is_written(self):
+        # Each attempt claims its keys before the first one is dispatched, so an
+        # unbounded count would hang the workflow allocating them.
+        for attempts in (10_000, -1, 2.5, float("inf")):
+            with pytest.raises(ValueError, match="whole number"):
+
+                @task(retry={"attempts": attempts})
+                async def t(x: int):
+                    return x
+
+    def test_a_zero_multiplier_is_honoured_not_read_as_the_default_of_one(self):
+        @task(retry={"attempts": 2, "delay": 30, "multiplier": 0})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf(x: int):
+            return await t(x=x)
+
+        r = _run_workflow(wf, {"completed_steps": {"t": _FAILED}}, {"x": 1})
+        assert r == {"type": "sleep", "key": "t#retry2", "seconds": 30}
+
+        # 30 * 0 — the second retry goes out with no wait at all
+        r = _run_workflow(
+            wf,
+            {"completed_steps": {"t": _FAILED, "t#retry2": None, "t#2": _FAILED}},
+            {"x": 1},
+        )
+        assert [s["key"] for s in r["steps"]] == ["t#3"]
+
+    def test_max_delay_caps_the_backoff_a_multiplier_grows(self):
+        @task(retry={"attempts": 2, "delay": 60, "multiplier": 100, "max_delay": 300})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf(x: int):
+            return await t(x=x)
+
+        r = _run_workflow(
+            wf,
+            {"completed_steps": {"t": _FAILED, "t#retry2": None, "t#2": _FAILED}},
+            {"x": 1},
+        )
+        assert r == {"type": "sleep", "key": "t#retry3", "seconds": 300}
+
+    def test_retry_that_succeeds_resolves_and_later_steps_keep_their_keys(self):
+        # No delay, so the retry is dispatched without a sleep round in between.
+        @task(retry={"attempts": 1})
+        async def flaky(x: int):
+            return x
+
+        @workflow
+        async def wf(x: int):
+            return await double(x=await flaky(x=x))
+
+        r = _run_workflow(
+            wf, {"completed_steps": {"flaky": _FAILED, "flaky#2": 7}}, {"x": 1}
+        )
+        assert r["steps"][0]["key"] == "double"
+        assert r["steps"][0]["args"] == {"x": 7}
+
+    def test_retrying_one_call_does_not_move_the_keys_of_the_calls_beside_it(self):
+        @task(retry={"attempts": 1})
+        async def t(x: int):
+            return x
+
+        @workflow
+        async def wf():
+            return await asyncio.gather(t(x=1), t(x=2))
+
+        r = _run_workflow(wf, {}, {})
+        assert [s["key"] for s in r["steps"]] == ["t", "t_2"]
+
+        # the first call retries as ``t#2``; the second keeps the ``t_2`` it was
+        # dispatched under, rather than being read as the first call's retry
+        r = _run_workflow(wf, {"completed_steps": {"t": _FAILED, "t_2": 20}}, {})
+        assert [s["key"] for s in r["steps"]] == ["t#2"]
 
 
 # =====================================================================
@@ -1112,3 +1870,58 @@ class TestParallel:
         r = _run_workflow(wf, {}, {})
         assert r["type"] == "complete"
         assert r["result"] == []
+
+
+class TestApprovalKeys:
+    """`key` names the step that get_approval_urls() mints URLs against, so a
+    duplicate must fail rather than silently become `<key>_2` and leave the
+    caller holding a URL for the earlier step."""
+
+    def test_explicit_key_is_used_verbatim(self):
+        @workflow
+        async def wf():
+            return await wait_for_approval(key="manager")
+
+        assert _run_workflow(wf, {}, {})["key"] == "manager"
+
+    def test_duplicate_explicit_key_raises(self):
+        @workflow
+        async def wf():
+            await wait_for_approval(key="manager")
+            await wait_for_approval(key="manager")
+
+        with pytest.raises(RuntimeError, match="already used"):
+            _run_workflow(wf, {"completed_steps": {"manager": {"approved": True}}}, {})
+
+    def test_explicit_key_colliding_with_a_suffixed_step_key_raises(self):
+        """`step("dup")` twice yields `dup`/`dup_2`, so an approval explicitly named
+        `dup_2` would alias the second step's key."""
+
+        @workflow
+        async def wf():
+            await step("dup", lambda: 1)
+            await step("dup", lambda: 2)
+            await wait_for_approval(key="dup_2")
+
+        with pytest.raises(RuntimeError, match="already used"):
+            _run_workflow(wf, {"completed_steps": {"dup": 1, "dup_2": 2}}, {})
+
+    @pytest.mark.parametrize("bad", ["", "  ", ".", "..", "a/b"])
+    def test_unusable_key_raises(self, bad):
+        """The key travels as one path segment when its URLs are minted, so anything
+        `get_approval_urls` could not address must be refused here too."""
+
+        @workflow
+        async def wf():
+            await wait_for_approval(key=bad)
+
+        with pytest.raises(RuntimeError, match="non-empty step name"):
+            _run_workflow(wf, {}, {})
+
+    def test_unnamed_approvals_still_auto_number(self):
+        @workflow
+        async def wf():
+            await wait_for_approval()
+            await wait_for_approval()
+
+        assert _run_workflow(wf, {"completed_steps": {"approval": {}}}, {})["key"] == "approval_2"

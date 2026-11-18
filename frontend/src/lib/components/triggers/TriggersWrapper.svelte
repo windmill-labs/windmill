@@ -8,6 +8,7 @@
 	import KafkaTriggerPanel from './kafka/KafkaTriggersPanel.svelte'
 	import NatsTriggersPanel from './nats/NatsTriggersPanel.svelte'
 	import MqttTriggerPanel from './mqtt/MqttTriggersPanel.svelte'
+	import AmqpTriggerPanel from './amqp/AmqpTriggersPanel.svelte'
 	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
 	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
 	import AzureTriggerPanel from './azure/AzureTriggerPanel.svelte'
@@ -38,6 +39,8 @@
 		onDelete?: () => void
 		onReset?: () => void
 		onEmailDomain: (domain: string) => void
+		/** A flow in chat mode: its webhook examples then name a conversation. */
+		chatMode?: boolean
 	}
 
 	let {
@@ -52,6 +55,7 @@
 		newItem,
 		schema,
 		onEmailDomain,
+		chatMode = false,
 		...props
 	}: Props = $props()
 
@@ -78,6 +82,7 @@
 		{args}
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
 		{newItem}
+		chat={isFlow && chatMode}
 	/>
 {:else if selectedTrigger.type === 'default_email'}
 	<DefaultEmailPanel
@@ -136,6 +141,15 @@
 	/>
 {:else if selectedTrigger.type === 'mqtt'}
 	<MqttTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'amqp'}
+	<AmqpTriggerPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}

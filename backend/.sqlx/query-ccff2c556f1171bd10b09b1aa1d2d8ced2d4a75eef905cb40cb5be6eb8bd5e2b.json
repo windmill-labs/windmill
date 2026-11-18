@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT storage, bytes, computed_at FROM workspace_storage_usage\n           WHERE workspace_id = $1 ORDER BY storage",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "storage",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "computed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ccff2c556f1171bd10b09b1aa1d2d8ced2d4a75eef905cb40cb5be6eb8bd5e2b"
+}

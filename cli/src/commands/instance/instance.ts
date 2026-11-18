@@ -685,6 +685,11 @@ async function getConfig(opts: InstanceSyncOptions & { outputFile?: string; show
     if (config.global_settings.license_key) config.global_settings.license_key = "***";
     if (config.global_settings.jwt_secret) config.global_settings.jwt_secret = "***";
   }
+  if (config?.global_settings && !config.global_settings.jwt_secret) {
+    log.infoStderr(
+      "jwt_secret, rsa_keys and the instance database secrets are not part of the export: the server withholds them (EXPORT_SERVER_SECRETS=false). This export cannot fully restore or migrate the instance."
+    );
+  }
 
   const yaml = yamlStringify(config as Record<string, unknown>);
   if (opts.outputFile) {

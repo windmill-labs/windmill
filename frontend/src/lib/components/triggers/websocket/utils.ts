@@ -26,6 +26,7 @@ export async function saveWebsocketTriggerFromCfg(
 		url: triggerCfg.url,
 		filters: triggerCfg.filters,
 		filter_logic: triggerCfg.filter_logic ?? 'and',
+		run_on_filter_error: triggerCfg.run_on_filter_error ?? false,
 		initial_messages: triggerCfg.initial_messages,
 		url_runnable_args: triggerCfg.url_runnable_args,
 		can_return_message: triggerCfg.can_return_message,

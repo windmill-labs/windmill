@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND account = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c427c9dad3de3acc361c341b359453197d7683bc8fd5a96be462e3493e957cee"
+}

@@ -4,11 +4,13 @@
 // for information about these interfaces
 declare namespace App {
 	interface Stuff {
-		title: string?
+		title?: string
 	}
 }
 
 declare var __pkg__: { version: string }
+/** The readable session-hint cookie's name: `wm_session`, renamed per backend in dev (vite.config.js). */
+declare var __WM_SESSION_HINT__: string
 
 declare module 'svelte-highlight/languages/json'
 declare module 'svelte-highlight/languages/python'

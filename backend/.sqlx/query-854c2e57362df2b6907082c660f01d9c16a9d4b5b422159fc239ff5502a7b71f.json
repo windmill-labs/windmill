@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_multipart_inflight\n         WHERE workspace_id = $1 AND created_at < now() - ($2::text)::interval",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "854c2e57362df2b6907082c660f01d9c16a9d4b5b422159fc239ff5502a7b71f"
+}

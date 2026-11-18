@@ -4,6 +4,7 @@
 //! to make them compatible with MCP tool naming requirements.
 
 use super::types::SchemaType;
+use std::collections::{HashMap, HashSet};
 use windmill_common::utils::calculate_hash;
 
 /// Max tool name length. The MCP spec allows 64 chars, but some clients
@@ -43,6 +44,89 @@ pub fn transform_path(path: &str, type_str: &str) -> String {
     format!("{}-{}{}", upper_prefix, truncated, hash_suffix)
 }
 
+/// Name every script and flow a token can see, in the same order as `items`
+/// (`(item_type, path)` pairs).
+///
+/// An item is named after its last path segment, with parent segments prepended
+/// (`billing_send_email`) only while that name is shared with another item or with a
+/// `reserved` name. A name that is still shared once every segment is used falls back
+/// to the `s-`/`f-` encoding of `transform_path`, which is unique per item.
+///
+/// A short name is never one `parse_tool_prefix` accepts, so a call can tell the two
+/// schemes apart. Resolving a short name relies on an item's name depending only on
+/// the items whose last segment is one of `short_name_last_segments(name)`: keep any
+/// new disambiguation step confined to candidates that end with the item's own
+/// last segment.
+pub fn assign_tool_names(items: &[(&str, &str)], reserved: &HashSet<&str>) -> Vec<String> {
+    let candidates: Vec<Vec<String>> = items
+        .iter()
+        .map(|(item_type, path)| name_candidates(item_type, path, reserved))
+        .collect();
+    let mut depth = vec![0usize; items.len()];
+    loop {
+        let mut holders: HashMap<&str, usize> = HashMap::new();
+        for (c, d) in candidates.iter().zip(&depth) {
+            *holders.entry(c[*d].as_str()).or_default() += 1;
+        }
+        let next: Vec<usize> = candidates
+            .iter()
+            .zip(&depth)
+            .map(|(c, d)| {
+                if holders[c[*d].as_str()] > 1 && d + 1 < c.len() {
+                    d + 1
+                } else {
+                    *d
+                }
+            })
+            .collect();
+        if next == depth {
+            break;
+        }
+        depth = next;
+    }
+    candidates
+        .into_iter()
+        .zip(depth)
+        .map(|(mut c, d)| c.swap_remove(d))
+        .collect()
+}
+
+/// Every name `path` may get, shortest first, ending with its `transform_path` encoding.
+fn name_candidates(item_type: &str, path: &str, reserved: &HashSet<&str>) -> Vec<String> {
+    let segments: Vec<&str> = path.split('/').collect();
+    let mut candidates: Vec<String> = (1..=segments.len())
+        .map(|k| segments[segments.len() - k..].join("_"))
+        .filter(|name| {
+            !name.is_empty()
+                && name.len() <= MAX_PATH_LENGTH
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                && !reserved.contains(name.as_str())
+                && parse_tool_prefix(name).is_err()
+        })
+        .collect();
+    candidates.push(transform_path(path, item_type));
+    candidates
+}
+
+/// Whether `name` uses the `s-`/`f-`/`hs-` encoding rather than a short name.
+pub fn is_encoded_tool_name(name: &str) -> bool {
+    parse_tool_prefix(name).is_ok()
+}
+
+/// The last path segments an item named `name` by `assign_tool_names` can have:
+/// each `_`-separated suffix of the name, since segments may contain `_` themselves.
+/// None for a name longer than any short name: the suffixes of a caller-supplied
+/// name grow quadratically with its length.
+pub fn short_name_last_segments(name: &str) -> Vec<String> {
+    if name.len() > MAX_PATH_LENGTH {
+        return vec![];
+    }
+    let parts: Vec<&str> = name.split('_').collect();
+    (0..parts.len()).map(|i| parts[i..].join("_")).collect()
+}
+
 /// Transform the path for hub scripts
 ///
 /// For short names (≤40 chars): `hs-{id}-{summary}`
@@ -68,7 +152,11 @@ pub fn transform_hub_path(version_id: u64, summary: &str) -> String {
 /// Returns `(type_str, is_hub, is_hashed)`.
 /// Hashed names use an uppercase first character as the signal.
 pub fn parse_tool_prefix(name: &str) -> Result<(&str, bool, bool), String> {
-    let is_hashed = name.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false);
+    let is_hashed = name
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_uppercase())
+        .unwrap_or(false);
     let lower = name.to_ascii_lowercase();
     let (type_str, is_hub) = if lower.starts_with("hs-") {
         ("script", true)
@@ -199,6 +287,41 @@ pub fn apply_key_transformation(key: &str) -> String {
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '_')
         .collect::<String>()
+}
+
+/// Rename every property key that MCP argument names cannot carry, in both
+/// `properties` and `required`.
+///
+/// `required` names properties, so it has to follow the rename: an entry left
+/// pointing at the original key names a property that no longer exists, which reads
+/// to a client as "this parameter is optional".
+pub fn transform_property_keys(schema_obj: &mut SchemaType) {
+    let renames: Vec<(String, String)> = schema_obj
+        .properties
+        .keys()
+        .filter(|key| key.chars().any(|c| !c.is_alphanumeric() && c != '_'))
+        .map(|key| (key.clone(), apply_key_transformation(key)))
+        .collect();
+
+    if renames.is_empty() {
+        return;
+    }
+
+    for (old_key, new_key) in renames {
+        if let Some(value) = schema_obj.properties.remove(&old_key) {
+            schema_obj.properties.insert(new_key.clone(), value);
+        }
+        for name in schema_obj.required.iter_mut() {
+            if *name == old_key {
+                *name = new_key.clone();
+            }
+        }
+    }
+
+    // Two keys can collapse onto the same name (`a.b` and `ab`). `required` is
+    // `uniqueItems`, and a strict validator rejects the whole tool over a repeat.
+    let mut seen = HashSet::new();
+    schema_obj.required.retain(|name| seen.insert(name.clone()));
 }
 
 /// Reverse the transformation of a key
@@ -340,6 +463,81 @@ mod tests {
         assert!(!hashed);
     }
 
+    const UNIVERSE: &[(&str, &str)] = &[
+        ("script", "f/billing/send_email"),
+        ("script", "f/support/send_email"),
+        ("script", "f/q/billing_send_email"),
+        ("flow", "u/admin/onboard"),
+        ("script", "u/admin/onboard"),
+        ("script", "u/alice/report"),
+        ("script", "u/alice/listScripts"),
+        ("flow", "f/a_b/c"),
+        ("flow", "f/a/b_c"),
+        ("script", "f/x/c"),
+        ("script", "u/admin/b_c"),
+        ("script", "u/admin/s-legacy_looking"),
+    ];
+
+    #[test]
+    fn test_assign_tool_names() {
+        let reserved: HashSet<&str> = ["listScripts"].into_iter().collect();
+        let names = assign_tool_names(UNIVERSE, &reserved);
+        assert_eq!(
+            names,
+            vec![
+                "f_billing_send_email".to_string(),
+                "support_send_email".to_string(),
+                "q_billing_send_email".to_string(),
+                "f-u_admin_onboard".to_string(),
+                "s-u_admin_onboard".to_string(),
+                "report".to_string(),
+                "alice_listScripts".to_string(),
+                "f-f_a__b_c".to_string(),
+                "f-f_a_b__c".to_string(),
+                "x_c".to_string(),
+                "admin_b_c".to_string(),
+                "admin_s-legacy_looking".to_string(),
+            ]
+        );
+    }
+
+    /// A call resolves a short name from only the items whose last segment can end
+    /// that name, so naming that subset must give every item the name it was listed
+    /// under.
+    #[test]
+    fn test_short_names_resolve_from_last_segment_subset() {
+        let reserved: HashSet<&str> = ["listScripts"].into_iter().collect();
+        let names = assign_tool_names(UNIVERSE, &reserved);
+        for (item, name) in UNIVERSE.iter().zip(&names) {
+            if is_encoded_tool_name(name) {
+                continue;
+            }
+            let segments = short_name_last_segments(name);
+            let subset: Vec<(&str, &str)> = UNIVERSE
+                .iter()
+                .filter(|(_, p)| segments.iter().any(|s| p.ends_with(&format!("/{s}"))))
+                .copied()
+                .collect();
+            let subset_names = assign_tool_names(&subset, &reserved);
+            let resolved: Vec<_> = subset
+                .iter()
+                .zip(&subset_names)
+                .filter(|(_, n)| *n == name)
+                .map(|(i, _)| *i)
+                .collect();
+            assert_eq!(resolved, vec![*item], "{name}");
+        }
+    }
+
+    #[test]
+    fn test_short_name_last_segments_bounded() {
+        assert_eq!(
+            short_name_last_segments("a_b_c"),
+            vec!["a_b_c".to_string(), "b_c".to_string(), "c".to_string()]
+        );
+        assert!(short_name_last_segments(&"_".repeat(100_000)).is_empty());
+    }
+
     #[test]
     fn test_reverse_transform_short_names() {
         let (type_str, path, is_hub) = reverse_transform("s-u_admin_script").unwrap();
@@ -394,7 +592,10 @@ mod tests {
     #[test]
     fn test_extract_path_prefix_handles_hs_prefix() {
         // Hs- is 3 chars, not 2 — ensure the prefix is stripped correctly
-        let hashed = transform_hub_path(12345, "a]very long hub script summary that exceeds the limit");
+        let hashed = transform_hub_path(
+            12345,
+            "a]very long hub script summary that exceeds the limit",
+        );
         let (_, is_hub, is_hashed) = parse_tool_prefix(&hashed).unwrap();
         assert!(is_hub);
         assert!(is_hashed);
@@ -422,5 +623,34 @@ mod tests {
         assert_eq!(apply_key_transformation("my key"), "my_key");
         assert_eq!(apply_key_transformation("key!@#"), "key");
         assert_eq!(apply_key_transformation("key_123"), "key_123");
+    }
+
+    #[test]
+    fn transform_property_keys_renames_required_alongside_properties() {
+        let mut schema: SchemaType = serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": { "my param": { "type": "string" }, "kept": { "type": "string" } },
+            "required": ["my param"],
+        }))
+        .unwrap();
+
+        transform_property_keys(&mut schema);
+
+        assert!(schema.properties.contains_key("my_param"));
+        assert_eq!(schema.required, vec!["my_param".to_string()]);
+    }
+
+    #[test]
+    fn transform_property_keys_does_not_repeat_a_collided_required_name() {
+        let mut schema: SchemaType = serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": { "a.b": { "type": "string" }, "ab": { "type": "string" } },
+            "required": ["a.b", "ab"],
+        }))
+        .unwrap();
+
+        transform_property_keys(&mut schema);
+
+        assert_eq!(schema.required, vec!["ab".to_string()]);
     }
 }

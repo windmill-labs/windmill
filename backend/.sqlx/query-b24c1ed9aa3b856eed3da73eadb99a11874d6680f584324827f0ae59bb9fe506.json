@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dbt_graph_snapshot\n          WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b24c1ed9aa3b856eed3da73eadb99a11874d6680f584324827f0ae59bb9fe506"
+}

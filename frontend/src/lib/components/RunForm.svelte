@@ -19,11 +19,22 @@
 	import { page } from '$app/state'
 	import { replaceState } from '$app/navigation'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import { processSecretArgs } from './secretArgUtils'
+	import { enforceDisabledDefaults, resetKeysToast } from './job_args'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
+	import { anyEditorUnparseable, flushAllPendingEditorChanges } from './pendingEditorFlush'
+	import { useOperatingWorkspace } from './operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
+
+	// The ephemeral secret variable a password argument mints has to be created in the same
+	// workspace the job runs in: a form embedded in a session runs the job in the session's
+	// workspace, and a `$var:` minted in the navigation workspace resolves to nothing there.
+	const operatingWorkspace = useOperatingWorkspace()
+	let formEl: HTMLElement | undefined = $state()
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -31,6 +42,13 @@
 	let showInputSelectedBadge = $state(false)
 	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
 	let psCommonParams: Record<string, any> = $state({})
+	// Reset on a view switch, where the editor that refused the run is gone, and on a form
+	// validity change, where the field's own error and the disabled button take over.
+	let blockedByUnparseable = $derived.by(() => {
+		void jsonView
+		void isValid
+		return false
+	})
 
 	function extractPsCommonParams(allArgs: Record<string, any>): {
 		scriptArgs: Record<string, any>
@@ -53,15 +71,38 @@
 		args = scriptArgs
 		psCommonParams = commonParams
 		reloadArgs++
+		// `reloadArgs` only keys the form; the JSON editor reads its payload once, at mount.
+		syncJsonEditor()
 	}
 
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
+		// Ahead of everything, including the flush below: the secret processing further down
+		// creates a variable per `password` argument, so a refusal that waits for `runAction`
+		// has already written. The keybinding reaches here without the button.
+		if (runRefusal) {
+			sendUserToast(runRefusal, true)
+			return
+		}
+		if (!$roleCaps.run) {
+			sendUserToast('Your role cannot run scripts, flows or AI agents in this workspace', true)
+			return
+		}
+		// An editor whose text does not parse never wrote it to `args`, so running now would send
+		// the last value that did parse. Flush first: a keystroke still inside the editor debounce
+		// has not been parsed yet, and per-field editors parse it in an effect, hence the tick.
+		flushAllPendingEditorChanges()
+		await tick()
+		blockedByUnparseable = anyEditorUnparseable(formEl)
+		if (blockedByUnparseable) {
+			return
+		}
 		let processedArgs: Record<string, any>
+		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
+		if (resetKeys.length > 0) {
+			sendUserToast(resetKeysToast(resetKeys))
+		}
 		try {
-			processedArgs = await processSecretArgs(
-				enforceDisabledDefaults(args ?? {}, true),
-				runnable?.schema
-			)
+			processedArgs = await processSecretArgs(withDefaults, runnable?.schema, $operatingWorkspace)
 		} catch (e) {
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
@@ -98,6 +139,15 @@
 					extra_perms?: Record<string, boolean>
 			  }
 			| undefined
+		/** Set to refuse every write this form can make, and to say so when a run is
+		 * attempted: the fields are disabled, the dynamic-select helper is not wired, the JSON
+		 * editor is read-only, and `run()` refuses before it mints the `password` arguments it
+		 * would send — so a caller cannot gate this in `runAction`, which comes after that
+		 * mint. For a form standing in for a chat card under plan mode, which promised none of
+		 * it. The caller must also leave this form on the side it is showing: swapping fields
+		 * for JSON or back mounts a `password` widget, which mints from the literal it opens
+		 * on regardless of being disabled. */
+		runRefusal?: string
 		runAction: (
 			scheduledForStr: string | undefined,
 			args: Record<string, any>,
@@ -111,17 +161,27 @@
 		loading?: boolean
 		noVariablePicker?: boolean
 		viewKeybinding?: boolean
-		scheduledForStr: string | undefined
-		invisible_to_owner: boolean | undefined
-		overrideTag: string | undefined
+		scheduledForStr?: string | undefined
+		invisible_to_owner?: boolean | undefined
+		overrideTag?: string | undefined
+		overrideTagNote?: string
 		args?: Record<string, any>
 		jsonView?: boolean
 		isValid?: boolean
+		/** Mirror the current args into the page URL's fragment, which is what makes a
+		 * filled-in form shareable and what `Run again` reads back. Turn off wherever this
+		 * form is embedded in a page that is not the runnable's own — an AI session preview
+		 * tab — since there the fragment would land on an unrelated URL. */
+		syncArgsToUrl?: boolean
+		/** Controls beside the Run button: left of Advanced on a schedulable form, in
+		 *  Advanced's place on one that cannot schedule. */
+		actions?: import('svelte').Snippet
 	}
 
 	let {
 		runnable,
 		runAction,
+		runRefusal = undefined,
 		buttonText = 'Run',
 		schedulable = true,
 		detailed = true,
@@ -132,10 +192,17 @@
 		scheduledForStr = $bindable(),
 		invisible_to_owner = $bindable(),
 		overrideTag = $bindable(),
+		overrideTagNote = undefined,
 		args = $bindable(),
 		jsonView = false,
-		isValid = $bindable(true)
+		isValid = $bindable(true),
+		syncArgsToUrl = true,
+		actions = undefined
 	}: Props = $props()
+
+	const argsReadonly = $derived(!!runRefusal)
+	const roleCaps = useRoleCapabilities()
+	const runDisabled = $derived((!isValid && !jsonView) || argsReadonly || !$roleCaps.run)
 
 	let showPsCommonParams = $derived(
 		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
@@ -156,11 +223,12 @@
 	let debounced: number | undefined = undefined
 
 	function onArgsChange(args: any) {
+		if (!syncArgsToUrl) return
 		try {
 			debounced && clearTimeout(debounced)
 			debounced = setTimeout(() => {
 				const nurl = new URL(window.location.href)
-				nurl.hash = computeSharableHash(args)
+				nurl.hash = computeSharableHash(args, overrideTag)
 
 				try {
 					replaceState(nurl.toString(), page.state)
@@ -173,34 +241,13 @@
 		}
 	}
 
-	function enforceDisabledDefaults(
-		args: Record<string, any>,
-		notify: boolean = false
-	): Record<string, any> {
-		const schema = runnable?.schema
-		if (!schema?.properties) return args
-		const result = { ...args }
-		const resetKeys: string[] = []
-		for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
-			if (prop?.disabled && 'default' in prop) {
-				if (notify && result[key] !== prop.default) {
-					resetKeys.push(key)
-				}
-				result[key] = prop.default
-			}
-		}
-		if (resetKeys.length > 0) {
-			sendUserToast(
-				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
-			)
-		}
-		return result
-	}
-
-	export function setCode(code: string) {
-		jsonEditor?.setCode(code)
+	/** Rewrite the open JSON editor from the current args. Only for args replaced from outside
+	 * the editor: entering the JSON view already starts from whatever `args` holds. */
+	export function syncJsonEditor() {
+		jsonEditor?.setCode(argsToJsonPayload(runnable?.schema, args))
 	}
 	$effect(() => {
+		overrideTag
 		Object.keys(args ?? {}).forEach((key) => {
 			args?.[key]
 		})
@@ -255,7 +302,7 @@
 		}}
 	/>
 {/if}
-<div class="max-w-3xl">
+<div bind:this={formEl} class="max-w-3xl">
 	{#if detailed}
 		{#if runnable}
 			<div class="flex flex-row flex-wrap justify-between gap-4">
@@ -312,11 +359,16 @@
 			>
 				<JsonInputs
 					bind:this={jsonEditor}
+					readOnly={argsReadonly}
 					on:select={(e) => {
+						// The other way into the arguments, and the one disabling the fields misses.
+						if (argsReadonly) return
+						blockedByUnparseable = false
 						if (e.detail) {
-							args = enforceDisabledDefaults(e.detail)
+							args = enforceDisabledDefaults(e.detail, runnable?.schema).args
 						}
 					}}
+					initialCode={argsToJsonPayload(runnable.schema, args)}
 					updateOnBlur={false}
 					placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 				/>
@@ -327,11 +379,14 @@
 			{#key reloadArgs}
 				<div bind:clientHeight={schemaHeight}>
 					<SchemaForm
-						helperScript={{
-							source: 'deployed',
-							path: runnable.path!,
-							runnable_kind: runnable.hash ? 'script' : 'flow'
-						}}
+						helperScript={argsReadonly
+							? undefined
+							: {
+									source: 'deployed',
+									path: runnable.path!,
+									runnable_kind: runnable.hash ? 'script' : 'flow'
+								}}
+						disabled={argsReadonly}
 						prettifyHeader
 						{noVariablePicker}
 						{autofocus}
@@ -359,7 +414,7 @@
 					variant="accent"
 					unifiedSize="md"
 					btnClasses="!inline-flex"
-					disabled={!isValid && !jsonView}
+					disabled={runDisabled}
 					on:click={() => run()}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
@@ -382,10 +437,16 @@
 						{/snippet}
 					</Popover>
 				</div>
+				{@render actions?.()}
 			</div>
+			{@render unparseableError()}
 			{#if overrideTag}
 				<div class="flex-row-reverse flex w-full text-primary text-sm">
 					tag override: {overrideTag}
+				</div>
+			{:else if overrideTagNote}
+				<div class="flex-row-reverse flex w-full text-secondary text-xs">
+					{overrideTagNote}
 				</div>
 			{/if}
 			{#if invisible_to_owner}
@@ -394,15 +455,46 @@
 				</div>
 			{/if}
 		</div>
+	{:else if actions}
+		<!-- The schedulable row's layout, with the caller's controls where Advanced sits. -->
+		<div class="flex-row-reverse flex-wrap flex w-full gap-4 mt-2 md:mt-6">
+			<Button
+				{loading}
+				variant="accent"
+				unifiedSize="md"
+				btnClasses="!inline-flex"
+				disabled={runDisabled}
+				on:click={() => run(null)}
+				shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
+			>
+				{buttonText}
+			</Button>
+			<div>{@render actions()}</div>
+		</div>
+		{@render unparseableError()}
 	{:else}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			variant="accent"
-			disabled={!isValid && !jsonView}
+			disabled={runDisabled}
 			on:click={() => run(null)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
 			{buttonText}
 		</Button>
+		{@render unparseableError()}
 	{/if}
 </div>
+
+{#snippet unparseableError()}
+	{#if !$roleCaps.run}
+		<div class="flex-row-reverse flex w-full text-secondary text-xs mt-1">
+			Your role can view runs but not start them in this workspace.
+		</div>
+	{/if}
+	{#if blockedByUnparseable}
+		<div class="flex-row-reverse flex w-full text-red-600 dark:text-red-400 text-xs mt-1">
+			Some input is not valid JSON. Fix it before running.
+		</div>
+	{/if}
+{/snippet}

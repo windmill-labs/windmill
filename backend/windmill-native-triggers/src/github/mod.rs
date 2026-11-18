@@ -17,6 +17,7 @@ pub struct GithubOAuthData {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub token_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub connection_path: String,
 }
 
 /// User-provided configuration for a GitHub webhook trigger.

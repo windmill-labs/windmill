@@ -3,16 +3,16 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import { PostgresTriggerService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { emptyString } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
-		edit: boolean;
-		replication_slot_name?: string;
-		postgres_resource_path?: string;
-		disabled?: boolean;
+		edit: boolean
+		replication_slot_name?: string
+		postgres_resource_path?: string
+		disabled?: boolean
 	}
 
 	let {
@@ -20,7 +20,9 @@
 		replication_slot_name = $bindable(''),
 		postgres_resource_path = '',
 		disabled = false
-	}: Props = $props();
+	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let deletingSlot: boolean = $state(false)
 	let loadingSlot: boolean = $state(false)
@@ -30,7 +32,7 @@
 			loadingSlot = true
 			const result = await PostgresTriggerService.listPostgresReplicationSlot({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!
+				workspace: wsId!
 			})
 
 			let exist = false
@@ -63,7 +65,7 @@
 			deletingSlot = true
 			const message = await PostgresTriggerService.deletePostgresReplicationSlot({
 				path: postgres_resource_path,
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				requestBody: {
 					name: replication_slot_name
 				}

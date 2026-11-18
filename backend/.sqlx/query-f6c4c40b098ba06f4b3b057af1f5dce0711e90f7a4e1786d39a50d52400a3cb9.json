@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_dataset SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f6c4c40b098ba06f4b3b057af1f5dce0711e90f7a4e1786d39a50d52400a3cb9"
+}

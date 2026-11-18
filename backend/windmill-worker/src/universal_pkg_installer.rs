@@ -291,6 +291,11 @@ pub async fn par_install_language_dependencies_all_at_once<
         let child = start_child_process(cmd, &installer_executable_name, false).await?;
         let mut buf = "".to_owned();
         let pipe_stdout = if stdout_on_err { Some(&mut buf) } else { None };
+        // handle_child only pings the job id it is handed, and that one is nil while output is
+        // buffered, so nothing would refresh this job's ping for the length of the batch install.
+        let _heartbeat = stdout_on_err.then(|| {
+            crate::worker_utils::JobPingHeartbeat::start(conn, *job_id, "dependency installation")
+        });
 
         if let Err(e) = crate::handle_child::handle_child(
             &(if pipe_stdout.is_some() {
@@ -328,7 +333,7 @@ pub async fn par_install_language_dependencies_all_at_once<
             mark_success(path.clone(), job_id, w_id).await;
             #[cfg(all(feature = "enterprise", feature = "parquet"))]
             {
-                if let Some(os) = windmill_object_store::get_object_store().await {
+                if let Some(os) = windmill_object_store::get_cache_object_store().await {
                     let language_name = _language_name.to_owned();
                     tokio::spawn(async move {
                         if let Err(e) = crate::global_cache::build_tar_and_push(
@@ -785,7 +790,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let s3_pull_future = if is_not_pro {
-        if let Some(os) = windmill_object_store::get_object_store().await {
+        if let Some(os) = windmill_object_store::get_cache_object_store().await {
             Some(crate::global_cache::pull_from_tar(
                 os,
                 dep.path.clone(),
@@ -888,7 +893,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
 
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         {
-            if let Some(os) = windmill_object_store::get_object_store().await {
+            if let Some(os) = windmill_object_store::get_cache_object_store().await {
                 let language_name = _language_name.to_string();
                 let platform_agnostic = _platform_agnostic;
                 let path = dep.path.clone();
@@ -949,8 +954,7 @@ async fn print_success(
     }
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if windmill_object_store::OBJECT_STORE_SETTINGS
-        .read()
+    if windmill_object_store::get_cache_object_store()
         .await
         .is_none()
     {

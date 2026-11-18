@@ -1,0 +1,98 @@
+#![cfg(all(feature = "enterprise", feature = "private"))]
+
+use sqlx::{Pool, Postgres};
+use uuid::Uuid;
+use windmill_queue::wake_deferred_concurrency_job;
+
+const KEY: &str = "wake-key";
+const LIMIT: i32 = 2;
+
+/// A job of `KEY`, limited to `LIMIT`, scheduled an hour out; `deferred_secs_ago` marks it
+/// as deferred by the limit after becoming due that long ago, as `apply_concurrency_limit`
+/// records it.
+async fn waiting_job(
+    db: &Pool<Postgres>,
+    deferred_secs_ago: Option<i64>,
+    time_window_s: Option<i32>,
+) -> anyhow::Result<Uuid> {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, concurrent_limit, concurrency_time_window_s)
+         VALUES ($1, 'test-workspace', $2, $3)",
+    )
+    .bind(id)
+    .bind(LIMIT)
+    .bind(time_window_s)
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for)
+         VALUES ($1, 'test-workspace', now() + interval '1 hour')",
+    )
+    .bind(id)
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO concurrency_key (key, job_id, original_scheduled_for)
+         VALUES ($1, $2, now() - make_interval(secs => $3))",
+    )
+    .bind(KEY)
+    .bind(id)
+    .bind(deferred_secs_ago.map(|s| s as f64))
+    .execute(db)
+    .await?;
+    Ok(id)
+}
+
+async fn due(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<bool> {
+    Ok(
+        sqlx::query_scalar("SELECT scheduled_for <= now() FROM v2_job_queue WHERE id = $1")
+            .bind(id)
+            .fetch_one(db)
+            .await?,
+    )
+}
+
+/// One completion tops the key up: it wakes the jobs the limit deferred first, as many as
+/// the free slots, and a later completion wakes none while they are due. Never a job
+/// scheduled for later or one limited per time window, and older time-window jobs sharing
+/// the key, more of them than the head the wake counts in, do not hide the eligible ones.
+#[sqlx::test(fixtures("base"))]
+async fn completion_fills_the_free_slots(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let mut windowed = vec![];
+    for i in 0..(2 * LIMIT + 2) as i64 {
+        windowed.push(waiting_job(&db, Some(100 - i), Some(10)).await?);
+    }
+    let first = waiting_job(&db, Some(30), None).await?;
+    let second = waiting_job(&db, Some(20), None).await?;
+    let third = waiting_job(&db, Some(10), None).await?;
+    let scheduled_later = waiting_job(&db, None, None).await?;
+
+    wake_deferred_concurrency_job(&db, KEY, LIMIT).await?;
+    let second_woken_at_once = due(&db, second).await?;
+    wake_deferred_concurrency_job(&db, KEY, LIMIT).await?;
+
+    assert!(
+        second_woken_at_once,
+        "a free slot was left to the deferral estimate"
+    );
+    assert!(
+        due(&db, first).await?,
+        "the first deferred job was not woken"
+    );
+    assert!(
+        !due(&db, third).await?,
+        "more jobs were woken than slots are free"
+    );
+    for w in windowed {
+        assert!(
+            !due(&db, w).await?,
+            "a job limited per time window was woken"
+        );
+    }
+    assert!(
+        !due(&db, scheduled_later).await?,
+        "a job scheduled for later was woken"
+    );
+    Ok(())
+}

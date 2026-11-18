@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_debounce_batch WHERE consumed_at IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "9d505f1d388f6160ccbe569204bf6cfb90400d864e409d615b0d756217727d96"
+}

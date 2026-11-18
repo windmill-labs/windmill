@@ -7,6 +7,9 @@ edition.workspace = true
 [lib]
 name = "windmill_test_utils"
 path = "src/lib.rs"
+# src/ has no unit tests or doctests: remove both lines before adding one, or cargo test never runs it.
+test = false
+doctest = false
 
 [features]
 default = []
@@ -19,6 +22,7 @@ agent_worker_server = ["dep:windmill-api-agent-workers"]
 run_inline = ["windmill-api/run_inline"]
 duckdb = ["windmill-worker/duckdb"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
+http_trigger = ["windmill-api/http_trigger"]
 
 [dependencies]
 windmill-api = { workspace = true, default-features = false }

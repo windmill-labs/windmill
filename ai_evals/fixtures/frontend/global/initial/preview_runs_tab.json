@@ -1,0 +1,12 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true
+  },
+  "previewTabs": [
+    {
+      "page": { "href": "/runs", "label": "Runs" },
+      "active": true
+    }
+  ]
+}

@@ -16,13 +16,7 @@
 		enableAi?: boolean
 	}
 
-	let {
-		branch = $bindable(),
-		parentModule,
-		previousModule,
-		noEditor,
-		enableAi = false
-	}: Props = $props()
+	let { branch, parentModule, previousModule, noEditor, enableAi = false }: Props = $props()
 </script>
 
 <div class="h-full flex flex-col">
@@ -32,19 +26,8 @@
 				<input bind:value={branch.summary} placeholder={'Summary'} />
 			</div>
 		{/snippet}
-		<div class="overflow-hidden flex-grow">
-			<h3 class="p-2">Predicate expression</h3>
-			<BranchPredicateEditor
-				{branch}
-				{parentModule}
-				{previousModule}
-				{enableAi}
-				on:updateSummary={(e) => {
-					if (!branch.summary) {
-						branch.summary = e.detail
-					}
-				}}
-			/>
+		<div class="flex h-full min-h-0 flex-col overflow-auto p-4" style="scrollbar-gutter: stable">
+			<BranchPredicateEditor {branch} {parentModule} {previousModule} {enableAi} />
 		</div>
 	</FlowCard>
 </div>

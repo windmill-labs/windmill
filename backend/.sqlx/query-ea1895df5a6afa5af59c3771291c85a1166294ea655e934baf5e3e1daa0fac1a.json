@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET git_sync = jsonb_set(\n            git_sync,\n            '{repositories}',\n            (SELECT jsonb_agg(\n                CASE WHEN elem->>'git_repo_resource_path' = $2\n                    THEN jsonb_set(\n                            jsonb_set(\n                                jsonb_set(elem, '{auto_pull}',\n                                          COALESCE(elem->'auto_pull', '{\"enabled\": false}'::jsonb), true),\n                                '{auto_pull,last_synced_sha}', $3, true),\n                            '{auto_pull,last_pull_status}', $4, true)\n                    ELSE elem END)\n             FROM jsonb_array_elements(git_sync->'repositories') AS elem)\n        )\n        WHERE workspace_id = $1\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ea1895df5a6afa5af59c3771291c85a1166294ea655e934baf5e3e1daa0fac1a"
+}

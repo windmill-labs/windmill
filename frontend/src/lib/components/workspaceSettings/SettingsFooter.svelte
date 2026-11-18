@@ -15,7 +15,8 @@
 		class: className
 	}: {
 		hasUnsavedChanges?: boolean
-		onSave: () => void | Promise<void>
+		/** Resolve to `false` when the save is called off; see `SaveButton`. */
+		onSave: () => void | boolean | Promise<void | boolean>
 		onDiscard: () => void
 		saveLabel?: string
 		disabled?: boolean

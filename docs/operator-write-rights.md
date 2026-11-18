@@ -1,0 +1,135 @@
+# Operator write rights
+
+Most of `workspace_settings.operator_settings` is visibility: flags that hide pages from operators
+so the UI stays uncluttered. They are not enforced, and were never meant to be.
+
+`manage_schedules` and `manage_triggers` are different. They are **enforced** on the write paths,
+because hiding the schedules page never stopped an operator creating a schedule through the API,
+the CLI or MCP. An admin who wants operators to see what is scheduled without letting them change
+it could not express that with a visibility flag alone.
+
+## Where the gate lives
+
+On the router, not in the handlers. `gate_operator_writes` is layered in `windmill-api/src/lib.rs`
+over the schedules router, the trigger routers, the native-trigger routers and capture, and refuses
+anything that is not a GET/HEAD/OPTIONS.
+
+That is not a style choice. A trigger kind can register routes of its own beside the shared CRUD
+ones — bulk HTTP creation, the Postgres publication and replication-slot setup — and those are
+hand-written, one per feature. A check inside each handler misses every one of those extra routes,
+along with the whole native-trigger family, which does not use the shared handlers at all. On the
+router the author of the next route writes nothing and is covered anyway.
+
+**A layer only covers the routers it is on.** It closes routes added *inside* a gated router; it
+says nothing about a new feature that performs trigger writes from a router of its own. Capture is
+exactly that — it configures a trigger without creating one, and saving a Postgres capture config
+creates a replication slot and a publication on the target database — and it needed its own layer
+rather than inheriting one. That includes `move`, which re-points existing capture configs between
+runnables: the builders, which call it on every script and flow creation, skip it while the right is
+withdrawn, since captures only arrive through a saved config. Before adding a feature that writes
+trigger or schedule state, ask which router it lands on.
+
+Three consequences to keep in mind when adding a route under one of these:
+
+- A read served over POST gets refused, and an unprompted refusal reaches the operator as a bare
+  privilege toast. The connection test is button-fired, so it only refuses someone who asked. The
+  HTTP route and email address availability checks and the Azure scope and topic lists run on
+  editor open, so their config sections skip them while the lock is set. Put new reads on GET; if
+  one must stay POST, check nothing fires it unprompted.
+- Anything mounted under a gated router inherits the gate. The native-trigger mount also carries
+  the workspace's integration setup, which is a settings concern, so the layer goes on the trigger
+  routes alone rather than the whole mount.
+- A route operating on *jobs* rather than configuration inherits it too.
+  `resume_suspended_trigger_jobs` and its cancel twin stay gated: an operator who can neither
+  suspend nor un-suspend a trigger should not override the consequence. Weigh the next one rather
+  than taking the router's answer.
+
+`check_operator_can_manage` is still the function underneath, for a write that cannot be reached
+through one of these routers. `/acls/add` and `/acls/remove` are the case that needs it: sharing an
+object is a write to it, but that router serves every kind there is, so it can only be gated per
+kind from inside the handlers. `manage_kind_for_acl_kind` holds that list, spelled out rather than
+matched on the `_trigger` suffix so a kind named otherwise cannot slip through ungated.
+
+It refuses with `PermissionDenied` (403), never `NotAuthorized` (401): the frontend reads an
+uncaught 401 as an expired session and logs the user out, so 401 here ejects an operator from the
+app rather than telling them why. Both integration tests assert the status for that reason.
+
+## Hub paths in triggers and schedules
+
+Whatever write rights they hold, a member without `code` cannot save a new Hub path into a trigger,
+a schedule or a WebSocket capture config (`check_new_hub_paths`). Paths already saved keep working,
+and are not rechecked when the trigger or schedule is edited, even when the edit moves one between
+a trigger's fields (an error handler to the main script) or among a schedule's handlers; a handler
+cannot take the schedule's Hub target. The edit makes the editor its run-as identity unless they
+may keep the stored one (admins, `wm_deployers`), so a saved Hub path then runs as the editor, with
+the arguments they save: accepted so that rows a member with `code` set up stay editable, since the
+choice of which Hub code runs stays with that member.
+
+## Drafts
+
+An operator may save a draft of a kind they could deploy, and no other: a resource or variable
+draft always, since no operator setting gates those routes; a schedule draft while they hold
+`manage_schedules`, a trigger draft (every trigger kind, native ones included) while they hold
+`manage_triggers`, a flow or full-code app draft under `builder_flows` / `builder_apps`.
+drafts.rs `require_can_write_path` asks `operator_can_draft`, which reads the same cached rights
+as the router gate, and `UserDraftItemKind::manage_kind` maps each draft kind to its right. The AI
+session chat writes resources, variables, schedules and triggers only as drafts and then deploys
+them, so without this rule an operator who may create a schedule on its page could not ask the
+chat for one.
+
+A secret variable draft is stored as an `$encrypted:` marker and decrypted by the variable create
+and update routes on deploy. Those routes accept the marker from any caller, so a draft gives an
+operator nothing the direct route does not.
+
+The schedule, trigger, resource and variable list routes append an operator's draft-only rows
+under the same `operator_can_draft` check, so a saved draft shows on its list page exactly while
+the operator may still save it.
+
+Deploying a draft goes through the ordinary create and update routes, so the router gate is still
+what decides the write. The draft rule only has to agree with it: a draft the gate would refuse to
+deploy should not be saved in the first place. The frontend mirrors the rule in `roleCanDraft`
+(`editRights.ts`), which the chat's `write_schedule_draft` / `write_trigger_draft` capabilities
+come from.
+
+## In the UI
+
+The shared lists (`TriggerList`, `SchedulesList`, `NativeTriggerTable`) derive a per-row `canEdit`
+from `canWrite && !$lock` and leave `canWrite` itself alone, because `canWrite` also tells
+`SharedBadge` whether a row belongs to someone else — fold the lock into it and every row,
+including ones the operator owns and has never shared, claims to be shared read-only. Gate write
+affordances on `canEdit`, never the badge.
+
+Each schedule and trigger editor folds the lock into its own `can_write`, so a withdrawn operator
+gets the same read-only editor as someone without write access to the folder. There, unlike the
+list pages, nothing reads `can_write` as a sharing hint. It is derived for a new trigger too, so the
+toolbar, which takes its permissions from `can_write`, needs no lock of its own. Sharing is gated in
+`ShareModal`, which locks itself off the kind it was opened on rather than relying on each of the
+dozen menu entries that open it.
+
+These rights are now capabilities of a member's role (`docs/workspace-roles.md`), and the legacy
+operator settings write them as an override of the `operator` role. The roles cache is per process,
+so withdrawing a right has to reach every replica: `write_role_overrides` calls
+`roles::notify_role_overrides_change` in its transaction and `process_notify_event` drops the
+entry. A new writer of `role_overrides` has to call it too, or a workspace that withdrew a right
+keeps authorizing writes on every other replica until its own entry expires.
+
+## Granted unless withdrawn
+
+These name capabilities operators already hold, so absence has to mean "never configured", not a
+value. That is easy to get wrong in two places, and the obvious implementation gets both wrong:
+
+- An unset key falls through to **true** (`RoleCapabilities::OPERATOR`), including for a
+  workspace with no override. A default of false instead revokes the right on upgrade for every
+  workspace that ever saved operator settings, since those rows carry explicit keys and none of
+  them is this one.
+- The update endpoint **merges** into the stored jsonb and takes these two as `Option<bool>`, so an
+  omitted key keeps its stored value. It has to: `operator_settings` is git-synced as a whole
+  object (`cli/src/core/settings.ts` posts the file's contents verbatim), so a settings file
+  written before these keys existed reaches the endpoint on every pull. A serde or SQL default of
+  either polarity turns that pull into a silent withdrawal or a silent restoration.
+
+The visibility flags are plain `bool` and always serialize, so the merge is a no-op for them and
+their behaviour is unchanged.
+
+Do not model a right that an admin *grants* on these. Granted-by-default and granted-on-request
+are opposite polarities, and a gate written for one is wrong for the other.
