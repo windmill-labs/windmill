@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.877.0](https://github.com/windmill-labs/windmill/compare/v1.876.1...v1.877.0) (2026-11-18)
+
+
+### Features
+
+* adapt workspace settings to narrow layouts ([#12492](https://github.com/windmill-labs/windmill/issues/12492)) ([0c18bdc](https://github.com/windmill-labs/windmill/commit/0c18bdc8256c2508341683c69874bbfbbec9daa8))
+* get an approval step's detail by flow run id and step id ([#12521](https://github.com/windmill-labs/windmill/issues/12521)) ([39cb251](https://github.com/windmill-labs/windmill/commit/39cb251ab8639eccf77fd988ff110133309082be))
+* label for-loop iterations with a per-iteration expression ([#12526](https://github.com/windmill-labs/windmill/issues/12526)) ([91de725](https://github.com/windmill-labs/windmill/commit/91de7252b8b82f397c8f7afca023ed54010e219d))
+* offer the hub to compose roles that have code ([#12518](https://github.com/windmill-labs/windmill/issues/12518)) ([306f38d](https://github.com/windmill-labs/windmill/commit/306f38dd0446abb16523e49a021135c8aca7a4d7))
+* open shared AI sessions in the app ([#12486](https://github.com/windmill-labs/windmill/issues/12486)) ([b9dc5f2](https://github.com/windmill-labs/windmill/commit/b9dc5f26dbce9078bbec858c0827a5458ee562be))
+* show a flow's continue-on-error failures on its run and status ([#12525](https://github.com/windmill-labs/windmill/issues/12525)) ([71e7d9e](https://github.com/windmill-labs/windmill/commit/71e7d9e440bd17d81f776f03d835a45a76072ea0))
+
+
+### Bug Fixes
+
+* disable SAML instead of crashing when its metadata cannot be loaded ([#12528](https://github.com/windmill-labs/windmill/issues/12528)) ([ae178a0](https://github.com/windmill-labs/windmill/commit/ae178a028746dcbcbf2bf65e9dd3ac5d982465ce))
+* explain why a non-admin cannot edit an email trigger's address ([#12503](https://github.com/windmill-labs/windmill/issues/12503)) ([a2c04c2](https://github.com/windmill-labs/windmill/commit/a2c04c2aa83dbc4d0c3343f56776fd8c10264e30))
+* **flows:** show Python examples in approval-step help drawer ([#9498](https://github.com/windmill-labs/windmill/issues/9498)) ([815db30](https://github.com/windmill-labs/windmill/commit/815db30c39ab499905974415464fa12cfea9ddc4)), closes [#6181](https://github.com/windmill-labs/windmill/issues/6181)
+* **frontend:** make run-page flow graph scrollable ([#3830](https://github.com/windmill-labs/windmill/issues/3830)) ([#9607](https://github.com/windmill-labs/windmill/issues/9607)) ([b56bb25](https://github.com/windmill-labs/windmill/commit/b56bb252a9347b1ae4541faec1187213b3838bb9))
+* **frontend:** sync eval drawer open state ([#10333](https://github.com/windmill-labs/windmill/issues/10333)) ([64e6142](https://github.com/windmill-labs/windmill/commit/64e6142277aca4a5a5a53c41e383b56ef53b839c))
+* hit the volume cache on Azure and keep a volume's lease through its pull ([#12520](https://github.com/windmill-labs/windmill/issues/12520)) ([97b80ae](https://github.com/windmill-labs/windmill/commit/97b80aef5e82ec94470fb974ee3676ca403065db))
+* keep every owner chip on the trigger lists while one is selected ([#12485](https://github.com/windmill-labs/windmill/issues/12485)) ([49075dc](https://github.com/windmill-labs/windmill/commit/49075dc246f3331bc8d28d803aea941d690a3050))
+* keep the owner filter on variables and resources to that folder or user ([#12495](https://github.com/windmill-labs/windmill/issues/12495)) ([538ee69](https://github.com/windmill-labs/windmill/commit/538ee694459e8ce1552222541f78b3661438d5b6))
+* let a workspace deps push survive a client or proxy timeout ([#12523](https://github.com/windmill-labs/windmill/issues/12523)) ([67165ca](https://github.com/windmill-labs/windmill/commit/67165cabfcd7160ce318ac0401d0ac4bb4cb2478))
+* let non-admins read an admin-approved GitHub App repository ([#12524](https://github.com/windmill-labs/windmill/issues/12524)) ([a718720](https://github.com/windmill-labs/windmill/commit/a718720fd6c97dcbcfdc4fa53d8b42d60a5f145e))
+* move a Map component when its longitude, latitude or zoom is set to 0 ([#12504](https://github.com/windmill-labs/windmill/issues/12504)) ([75905a8](https://github.com/windmill-labs/windmill/commit/75905a821e0586b579d0a0261fcf9fb70e5f9263))
+* open a script's runs from All runs on an older version's page ([#12488](https://github.com/windmill-labs/windmill/issues/12488)) ([3e3d7d1](https://github.com/windmill-labs/windmill/commit/3e3d7d1192a79455d4b1ad7ae534141ebc843cb0))
+* open an older script version without flashing the Archived alert ([#12497](https://github.com/windmill-labs/windmill/issues/12497)) ([3cc2f16](https://github.com/windmill-labs/windmill/commit/3cc2f16dd181ad1f0bc2efee7389fc9dc6e02bc0))
+* read a job's memory peak past its unshare, tini or nsjail wrapper ([#12510](https://github.com/windmill-labs/windmill/issues/12510)) ([258b556](https://github.com/windmill-labs/windmill/commit/258b5564c0d6afe792eca8ade9e4b82ba03c9763))
+* resolve the caller's role capabilities at authentication ([#12501](https://github.com/windmill-labs/windmill/issues/12501)) ([e24a430](https://github.com/windmill-labs/windmill/commit/e24a4309d0020e3acaf823768d368b099bbef6ec))
+* run the pinned version from a flow version's page ([#12505](https://github.com/windmill-labs/windmill/issues/12505)) ([8984bcc](https://github.com/windmill-labs/windmill/commit/8984bccf83e32ab29459d4736a02b0ef89402c25))
+* serve only enabled models on the workspace's configured AI key ([#12527](https://github.com/windmill-labs/windmill/issues/12527)) ([2c7d3fa](https://github.com/windmill-labs/windmill/commit/2c7d3fa98fa650b939f5d761abb0b483b6139d11))
+* show a renamed workspace's new name in the header without a reload ([#12487](https://github.com/windmill-labs/windmill/issues/12487)) ([806f2bf](https://github.com/windmill-labs/windmill/commit/806f2bf735aa25c8c067d2809125d8c96742346f))
+* switch a Select Tab component's tab when its default value changes ([#12494](https://github.com/windmill-labs/windmill/issues/12494)) ([e1ac1fd](https://github.com/windmill-labs/windmill/commit/e1ac1fddf6f6b9bf440c9e157a6309f77f65c7fa))
+
 ## [1.876.1](https://github.com/windmill-labs/windmill/compare/v1.876.0...v1.876.1) (2026-11-17)
 
 
