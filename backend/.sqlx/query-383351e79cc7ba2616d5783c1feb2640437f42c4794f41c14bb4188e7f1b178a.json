@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT ON (path) path, language AS \"language: ScriptLang\", content,\n                job_token_scopes IS NOT NULL AS \"restricted!\",\n                EXISTS (SELECT 1 FROM script l WHERE l.workspace_id = s.workspace_id AND l.path = s.path\n                    AND l.archived = false AND l.lock IS NOT NULL AND l.lock_error_logs IS NULL) AS \"locked!\"\n             FROM script s\n             WHERE workspace_id = $1\n               AND path = ANY($2)\n               AND archived = false\n               AND dedicated_worker = true\n             ORDER BY path, created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "language: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby",
+                "rlang",
+                "dbt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "content",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "restricted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "locked!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "383351e79cc7ba2616d5783c1feb2640437f42c4794f41c14bb4188e7f1b178a"
+}

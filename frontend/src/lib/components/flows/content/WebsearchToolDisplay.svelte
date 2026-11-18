@@ -1,10 +1,12 @@
 <script lang="ts">
-	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import FlowCard from '../common/FlowCard.svelte'
+
+	let { noEditor = false }: { noEditor?: boolean } = $props()
 </script>
 
-<div class="flex flex-col gap-4 p-4">
-	<Alert title="Web search tool" type="info">
-		Gives the AI Agent the ability to search the web. Only works for openai, anthropic and google
-		models for now.
-	</Alert>
-</div>
+<FlowCard
+	{noEditor}
+	title="Web search"
+	subtitle="Works with OpenAI, Anthropic and Google models."
+	subtitleDocLink="https://www.windmill.dev/docs/core_concepts/ai_agents"
+/>

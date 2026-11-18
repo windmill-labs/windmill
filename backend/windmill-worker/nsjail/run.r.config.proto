@@ -8,12 +8,15 @@ disable_rl: true
 
 cwd: "/tmp"
 
-clone_newnet: false
+clone_newnet: {CLONE_NEWNET}
 clone_newuser: {CLONE_NEWUSER}
 
 skip_setsid: true
 keep_caps: false
 keep_env: true
+# The script's env vars, proto-escaped. Set here rather than on the process that
+# execs nsjail: the loader honours `LD_PRELOAD` before the jail exists.
+{ENVARS}
 # mount_proc: true
 
 mount {

@@ -1,25 +1,46 @@
 <script lang="ts">
-	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
-	import { sendUserToast, sortArray } from '$lib/utils'
-	import { Loader2 } from 'lucide-svelte'
-	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
+	import { dbManagerTabsStorageKey, dbTableLayoutStorageKey } from './dbManagerDrawerModel.svelte'
+	import { DbManagerTabs, type DbManagerTabKind } from './dbManagerTabs.svelte'
+	import DbSqlTab from './DbSqlTab.svelte'
+	import { untrack } from 'svelte'
+	import { dbSchemas, type DBSchema } from '$lib/stores'
+	import type { DataTableTables } from '$lib/gen'
+	import { sortArray } from '$lib/utils'
+	import { Loader2, RefreshCcw } from 'lucide-svelte'
+	import Alert from './common/alert/Alert.svelte'
+	import Button from './common/button/Button.svelte'
+	import {
+		dbSupportsSchemas,
+		getLanguageByResourceType
+	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
+	import DbWorkerTagPicker from './DbWorkerTagPicker.svelte'
+	import MissingWorkerTagAlert from './jobs/MissingWorkerTagAlert.svelte'
 	import {
 		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
+		getDatabaseArg,
 		getDbType,
+		getDefaultDbTag,
 		getDucklakeSchema
 	} from './dbOps'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
-	import { type Snippet } from 'svelte'
-	import type { DbInput } from './dbTypes'
+	import type { DatatableRowAction, DbInput } from './dbTypes'
+	import { schemaCacheKey } from './dbSchemaCache'
 	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
-	import type { SelectedTable } from './DBManager.svelte'
+	import type { DbManagerViewMode, PendingRowAction, SelectedTable } from './DBManager.svelte'
 	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import { resource } from 'runed'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from './common/confirmationModal/asyncConfirmationModal.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { outOfOrderRunMessage } from './workspaceSettings/datatableMigrationUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		input?: DbInput
@@ -27,7 +48,15 @@
 		hasReplResult?: boolean
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
-		dbSelector?: Snippet<[]>
+		/** Every data table with its schemas and tables, for the left-pane tree. Undefined when
+		 * the manager is not on a data table, which drops the tree's top level. */
+		datatableTree?: DataTableTables[]
+		datatableTreeLoading?: boolean
+		onSelectDatatable?: (datatable: string) => void
+		onSelectRole?: (datatable: string, role: string) => void
+		pendingAction?: PendingRowAction | undefined
+		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
+		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
 		/** Selected tables in multi-select mode */
@@ -35,6 +64,19 @@
 		/** Tables that are already added and should show as disabled */
 		disabledTables?: SelectedTable[]
 		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
+		/** Workspace the datatable/schema lookups run against. Defaults to the operating
+		 *  workspace (see `useOperatingWorkspace`). */
+		workspace?: string
+		/** Worker tag every job of this manager runs on, overriding the database
+		 *  language's native tag. Bound so the hints below can offer to set it. */
+		workerTag?: string
+		/** Which view the right pane shows, set by the control the caller renders. */
+		requestedViewMode?: DbManagerViewMode
+		onViewMode?: (mode: DbManagerViewMode) => void
+		/** Show the right pane as tabs (data, diagram, SQL editor) kept per database, in place of
+		 * the single view and the SQL pane below it. The caller renders the tab strip from
+		 * `tabsModel()`. */
+		tabbed?: boolean
 	}
 
 	let {
@@ -43,48 +85,135 @@
 		hasReplResult = $bindable(false),
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
-		dbSelector,
+		datatableTree,
+		datatableTreeLoading,
+		onSelectDatatable,
+		onSelectRole,
+		pendingAction = $bindable(),
+		onDatatableAction,
+		canManageDatatable,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
-		onImport
+		onImport,
+		workspace = undefined,
+		workerTag = $bindable(),
+		requestedViewMode,
+		onViewMode,
+		tabbed = false
 	}: Props = $props()
 
-	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[getDbSchemasPath(input)])
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
-	function getDbSchemasPath(input: DbInput): string {
-		switch (input.type) {
-			case 'database':
-				return input.resourcePath
-			case 'ducklake':
-				return 'ducklake://' + input.ducklake
-		}
+	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[schemaCacheKey(ws, input)])
+
+	const outOfOrderModal = createAsyncConfirmationModal()
+
+	// Reported in place of the loading spinner: both queries run as jobs, so
+	// anything from a bad connection to a tag no worker serves surfaces here
+	// instead of leaving the manager spinning with no explanation. Each query
+	// owns its slot so neither can clear the other's error on a refetch.
+	let schemaError = $state<string | undefined>(undefined)
+	let colDefsError = $state<string | undefined>(undefined)
+	function emptySchemaFor(db: DbInput): DBSchema {
+		return {
+			lang: db.type === 'ducklake' ? 'ducklake' : getLanguageByResourceType(db.resourceType),
+			schema: {},
+			publicOnly: undefined,
+			stringified: ''
+		} as DBSchema
 	}
 
+	let loadError = $derived(
+		schemaError
+			? { title: 'Could not load the database schema', message: schemaError }
+			: colDefsError
+				? { title: 'Could not load the tables of this database', message: colDefsError }
+				: undefined
+	)
+
+	// A query already handed to the queue cannot be taken back: `resource` aborts its
+	// controller, but the poller behind these queries doesn't watch the signal, and a
+	// job left on a tag no worker serves only fails ~90s later. Stamp each run so a
+	// superseded one can neither report its failure nor overwrite what replaced it —
+	// picking a working tag from the hints below is exactly that race.
+	let colDefsRun = 0
+	let schemaRun = 0
+
+	// Keyed on the database rather than `input`, which is replaced whenever the selected table
+	// changes: re-reading on that would redo the whole database's reads per click.
+	let databaseCacheKey = $derived(input ? schemaCacheKey(ws, input) : undefined)
 	let colDefs = resource(
-		() => [input],
+		() => [databaseCacheKey, workerTag],
 		async () => {
+			const run = ++colDefsRun
+			colDefsError = undefined
 			if (!input) return
-			return await loadAllTablesMetaData($workspaceStore, input)
+			const databaseKey = schemaCacheKey(ws, input)
+			try {
+				const metadata = await loadAllTablesMetaData(ws, input, workerTag)
+				return run === colDefsRun ? { databaseKey, metadata } : colDefs.current
+			} catch (e) {
+				if (run !== colDefsRun) return colDefs.current
+				colDefsError = 'Error loading tables metadata: ' + ((e as Error)?.message || e)
+				return
+			}
 		}
 	)
+	// A resource keeps its previous value while it refetches, and after a switch of
+	// database that value is the previous database's metadata. Handed down as this
+	// one's, it would draw that database's columns and key work to the wrong one.
+	let colDefsOfInput = $derived(
+		input && colDefs.current?.databaseKey === schemaCacheKey(ws, input)
+			? colDefs.current.metadata
+			: undefined
+	)
+
 	let dbSchemasPromise = resource(
-		() => [input],
+		() => [databaseCacheKey, workerTag],
 		async () => {
+			const run = ++schemaRun
+			schemaError = undefined
 			if (!input) return
-			const dbSchemasPath = getDbSchemasPath(input)
+			const dbSchemasPath = schemaCacheKey(ws, input)
 			if (input.type == 'database') {
-				$dbSchemas[dbSchemasPath] = await getDbSchemas(
+				let connection = input.resourcePath
+				try {
+					// The role'd reference, validated: an invalid role fails here rather than
+					// reading the schema as the data table's default role.
+					if (connection.startsWith('datatable://')) connection = getDatabaseArg(input).database!
+				} catch (e) {
+					schemaError = (e as Error)?.message ?? String(e)
+					return
+				}
+				// Reported through a local, not `schemaError` directly, so a superseded
+				// run's callback can't fail a load that already succeeded.
+				let queryError: string | undefined
+				const schema = await getDbSchemas(
 					input.resourceType,
-					input.resourcePath,
-					$workspaceStore,
-					(message: string) => sendUserToast(message, true)
+					connection,
+					ws,
+					(message: string) => (queryError = message),
+					{ customTag: workerTag }
 				)
+				if (run !== schemaRun) return
+				if (!schema) {
+					schemaError = queryError ?? 'The schema query returned no schema'
+					return
+				}
+				$dbSchemas[dbSchemasPath] = schema
 			} else if (input.type == 'ducklake') {
-				$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
-					workspace: $workspaceStore!,
-					ducklake: input.ducklake
-				})
+				try {
+					const schema = await getDucklakeSchema({
+						workspace: ws!,
+						ducklake: input.ducklake,
+						tag: workerTag
+					})
+					if (run === schemaRun) $dbSchemas[dbSchemasPath] = schema
+				} catch (e) {
+					if (run !== schemaRun) return
+					schemaError = 'Error fetching schema: ' + ((e as Error)?.message || e)
+				}
 			}
 		}
 	)
@@ -95,6 +224,24 @@
 	export function isLoading() {
 		return colDefs.loading || dbSchemasPromise.loading
 	}
+
+	// Knowing the tag up front is what makes the missing-worker hint below possible
+	// without waiting for the poller to give up.
+	let defaultTag = $derived(input ? getDefaultDbTag(input) : undefined)
+	let jobTag = $derived(workerTag ?? defaultTag)
+
+	// A job queued behind busy workers still loads eventually, so this is a hint
+	// rather than an error. The no-worker-at-all case fails outright instead.
+	const SLOW_LOAD_MS = 10_000
+	let slowLoad = $state(false)
+	$effect(() => {
+		if (!isLoading()) {
+			slowLoad = false
+			return
+		}
+		const t = setTimeout(() => (slowLoad = true), SLOW_LOAD_MS)
+		return () => clearTimeout(t)
+	})
 
 	let replPanelSize = $state(36)
 	const REPL_MIN_SIZE = 1.5
@@ -112,6 +259,24 @@
 	}
 	let _dbManager: DbManager | undefined = $state()
 	export const dbManager = () => _dbManager
+
+	// Keyed on the database alone: `input` is replaced whenever the selected table changes, and
+	// that must not reset the tabs.
+	let tabsStorageKey = $derived(
+		tabbed && input && ws ? dbManagerTabsStorageKey(ws, input) : undefined
+	)
+	let tabs = $derived.by(() => {
+		const key = tabsStorageKey
+		if (!key) return undefined
+		return untrack(() => {
+			const kinds: DbManagerTabKind[] =
+				input && getDbType(input) === 'postgresql' ? ['data', 'diagram', 'sql'] : ['data', 'sql']
+			const model = new DbManagerTabs(key, kinds)
+			if (input?.specificTable) model.openTable(input.specificSchema, input.specificTable)
+			return model
+		})
+	})
+	export const tabsModel = () => tabs
 </script>
 
 <svelte:window
@@ -124,46 +289,119 @@
 	}}
 />
 
-{#if dbSchema && $workspaceStore && input}
+<!-- A load error replaces only the data pane: the tree, its role badge and menus, and the REPL
+	stay usable, so another data table or role can be picked and the connection tried by hand.
+	The tree then gets an empty schema: the cached one survives a failed refetch and would pass
+	stale content off as what this connection reaches. -->
+{#snippet errorPane()}
+	<div class="h-full w-full flex flex-col items-center justify-center gap-3 p-8">
+		<div class="max-w-2xl w-full flex flex-col gap-3">
+			<Alert type="error" title={loadError?.title ?? ''} size="xs">
+				{loadError?.message}
+			</Alert>
+			<div class="self-start">
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					startIcon={{ icon: RefreshCcw }}
+					on:click={() => refresh()}
+				>
+					Retry
+				</Button>
+			</div>
+			<!-- A database that no default worker can reach fails here rather than in the
+				missing-worker path below, so the same override is offered on any load error. -->
+			<DbWorkerTagPicker
+				bind:tag={workerTag}
+				{defaultTag}
+				workspace={ws}
+				class="border-t pt-3 max-w-md"
+			/>
+		</div>
+	</div>
+{/snippet}
+
+{#if (loadError || dbSchema) && ws && input}
 	{@const _input = input}
 	{@const dbType = getDbType(_input)}
+	{@const shownSchema = loadError || !dbSchema ? emptySchemaFor(_input) : dbSchema}
+	{@const placeholderTableName = sortArray(
+		Object.keys(
+			shownSchema.schema[
+				'public' in shownSchema.schema
+					? 'public'
+					: 'dbo' in shownSchema.schema
+						? 'dbo'
+						: Object.keys(shownSchema.schema ?? {})?.[0]
+			] ?? {}
+		)
+	)?.[0]}
+	{#snippet sqlTab(tab: { id: string; code?: string })}
+		<DbSqlTab
+			input={_input}
+			workspace={ws!}
+			tag={workerTag}
+			{placeholderTableName}
+			initialCode={tab.code}
+			onCodeChange={(code) => tabs?.update(tab.id, { code })}
+			onSchemaChange={() => refresh()}
+			schema={shownSchema}
+		/>
+	{/snippet}
 	<Splitpanes horizontal>
 		<Pane class="relative">
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div
-				class={'absolute inset-0 z-10 p-8 ' +
-					(replResultData
-						? 'bg-surface/90'
-						: 'transition-colors bg-transparent pointer-events-none select-none')}
-				onclick={(e) => {
-					// Only proceed if the click is directly on this div and not on the child elements
-					if (e.target === e.currentTarget) {
-						replResultData = undefined
-					}
-				}}
-			>
-				{#if replResultData}
-					{#key replResultData}
-						<SimpleAgTable data={replResultData} class="animate-zoom-in" />
-					{/key}
-				{/if}
-			</div>
+			{#if !tabbed}
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class={'absolute inset-0 z-10 p-8 ' +
+						(replResultData
+							? 'bg-surface/90'
+							: 'transition-colors bg-transparent pointer-events-none select-none')}
+					onclick={(e) => {
+						// Only proceed if the click is directly on this div and not on the child elements
+						if (e.target === e.currentTarget) {
+							replResultData = undefined
+						}
+					}}
+				>
+					{#if replResultData}
+						{#key replResultData}
+							<SimpleAgTable data={replResultData} class="animate-zoom-in" />
+						{/key}
+					{/if}
+				</div>
+			{/if}
 			<DbManager
+				{tabs}
+				{sqlTab}
+				{requestedViewMode}
+				{onViewMode}
+				databaseKey={schemaCacheKey(ws, _input)}
 				dbSupportsSchemas={dbSupportsSchemas(dbType)}
-				databaseIsEmpty={!Object.values(dbSchema.schema).flatMap((s) => Object.values(s)).length}
-				{dbSchema}
-				colDefs={colDefs.current}
+				databaseIsEmpty={!loadError &&
+					!Object.values(shownSchema.schema).flatMap((s) => Object.values(s)).length}
+				dbSchema={shownSchema}
+				mainPane={loadError ? errorPane : undefined}
+				colDefs={loadError ? undefined : colDefsOfInput}
 				dbTableOpsFactory={({ colDefs, tableKey }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,
 						tableKey,
 						input: _input,
-						workspace: $workspaceStore
+						workspace: ws,
+						tag: workerTag
 					})}
 				dbSchemaOps={dbSchemaOpsWithPreviewScripts({
 					input: _input,
-					workspace: $workspaceStore
+					workspace: ws,
+					tag: workerTag,
+					confirmRunOutOfOrder: (pending) =>
+						outOfOrderModal.ask({
+							title: 'Run migration out of order',
+							confirmationText: 'Run anyway',
+							children: outOfOrderRunMessage(pending)
+						})
 				})}
 				initialTableKey={input.specificTable}
 				initialSchemaKey={input.specificSchema}
@@ -174,7 +412,15 @@
 						: undefined}
 				{dbType}
 				refresh={() => refresh()}
-				{dbSelector}
+				{datatableTree}
+				{datatableTreeLoading}
+				{onSelectDatatable}
+				{onSelectRole}
+				workspace={ws}
+				currentRole={input.type === 'database' ? input.role : undefined}
+				bind:pendingAction
+				{onDatatableAction}
+				{canManageDatatable}
 				{onImport}
 				bind:selectedSchemaKey
 				bind:selectedTableKey
@@ -183,34 +429,55 @@
 				bind:this={_dbManager}
 				{disabledTables}
 				features={getDbFeatures(input)}
+				tableLayoutKey={(schema, table) => dbTableLayoutStorageKey(ws, _input, schema, table)}
 			/>
 		</Pane>
-		{#if showRepl}
+		{#if showRepl && !tabbed}
 			<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
 				<SqlRepl
 					{input}
+					{workspace}
+					tag={workerTag}
 					onData={(data) => {
 						replResultData = data
 					}}
-					placeholderTableName={sortArray(
-						Object.keys(
-							dbSchema?.schema[
-								'public' in dbSchema?.schema
-									? 'public'
-									: 'dbo' in dbSchema?.schema
-										? 'dbo'
-										: Object.keys(dbSchema?.schema ?? {})?.[0]
-							] ?? {}
-						)
-					)?.[0]}
+					onSchemaChange={() => refresh()}
+					{placeholderTableName}
+					schema={shownSchema}
 				/>
 			</Pane>
 		{/if}
 	</Splitpanes>
 {:else}
 	<Splitpanes>
-		<Pane class="relative flex justify-center items-center">
+		<Pane class="relative flex flex-col justify-center items-center gap-3 p-8">
 			<Loader2 class="animate-spin" size={32} />
+			{#if slowLoad}
+				<span class="text-xs text-tertiary max-w-md text-center">
+					The schema query is taking a while. It runs as a job, so it waits for a worker serving its
+					tag to be free.
+				</span>
+				{#if jobTag}
+					<MissingWorkerTagAlert
+						tag={jobTag}
+						subject="Database queries"
+						workspace={ws}
+						class="max-w-2xl w-full"
+					/>
+				{/if}
+				<DbWorkerTagPicker
+					bind:tag={workerTag}
+					{defaultTag}
+					workspace={ws}
+					class="max-w-md w-full"
+				/>
+			{/if}
 		</Pane>
 	</Splitpanes>
 {/if}
+
+<Portal>
+	<!-- Stacks above the DB table editor's own preview confirmation (z-[9999]),
+		which is still open when applyDdl asks for out-of-order confirmation. -->
+	<ConfirmationModal {...outOfOrderModal.props} zIndexClass="z-[10000]" />
+</Portal>

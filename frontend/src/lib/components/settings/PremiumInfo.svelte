@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
-	import { base } from '$lib/base'
 	import { capitalize, pluralize, sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
-	import { WorkspaceService, type User, UserService } from '$lib/gen'
+	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
+	import SelfHostCta from '$lib/components/settings/SelfHostCta.svelte'
 	import { ExternalLink, Pen, X } from 'lucide-svelte'
 	import Section from '../Section.svelte'
 	import Range from '../Range.svelte'
@@ -17,13 +17,11 @@
 	import { slide } from 'svelte/transition'
 
 	interface Props {
-		plan: string | undefined;
-		customer_id: string | undefined;
+		plan: string | undefined
+		customer_id: string | undefined
 	}
 
-	let { plan, customer_id }: Props = $props();
-
-	let users: User[] | undefined = undefined
+	let { plan, customer_id }: Props = $props()
 
 	let premiumInfo:
 		| {
@@ -32,11 +30,13 @@
 				status?: string
 				developerNb: number
 				operatorNb: number
+				serviceAccountNb: number
 				seatsFromUsers: number
 				seatsFromExtraComps: number
 				usedSeats: number
 				owner: string
 				is_past_due: boolean
+				is_canceled?: boolean
 				max_tolerated_executions?: number
 		  }
 		| undefined = $state(undefined)
@@ -49,7 +49,7 @@
 		Team: [
 			`<b>$10/mo</b> per seat`,
 			`Every seat includes <b>10 000</b> executions`,
-			`Every seat includes either 1 developer OR 2 operators`
+			`Every seat includes either 1 developer OR 2 operators or service accounts`
 		],
 		Enterprise: [
 			`Dedicated and isolated database and workers available (EU/US/Asia)`,
@@ -61,29 +61,30 @@
 		]
 	}
 
-
-	async function listUsers(): Promise<void> {
-		users = await UserService.listUsers({ workspace: $workspaceStore! })
-	}
-
 	async function loadPremiumInfo() {
-		const info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
-		const developerNb = users?.filter((x) => !x.operator)?.length ?? 0
-		const operatorNb = users?.filter((x) => x.operator)?.length ?? 0
+		// The seat rows come from the server rather than being recounted from the member
+		// list: this page states what the workspace is billed for, so it has to read the
+		// same count the invoice does.
+		const [info, billable] = await Promise.all([
+			WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! }),
+			WorkspaceService.getBillableSeats({ workspace: $workspaceStore! })
+		])
 		const usage = info.usage ?? 0
 
-		const seatsFromUsers = Math.ceil(developerNb + operatorNb / 2)
+		const seatsFromUsers = billable.seats
 		const seatsFromExtraComps = Math.max(Math.ceil(usage / 10000) - seatsFromUsers, 0)
-		const usedSeats = seatsFromUsers + seatsFromExtraComps
 		premiumInfo = {
 			...info,
 			usage,
 			owner: info.owner,
-			developerNb,
-			operatorNb,
+			// Always present here: this page renders only for a workspace billed on its own plan,
+			// which is exactly when the endpoint returns the breakdown.
+			developerNb: billable.developers ?? 0,
+			operatorNb: billable.operators ?? 0,
+			serviceAccountNb: billable.service_accounts ?? 0,
 			seatsFromUsers,
 			seatsFromExtraComps,
-			usedSeats
+			usedSeats: seatsFromUsers + seatsFromExtraComps
 		}
 	}
 
@@ -116,7 +117,6 @@
 	let estimatedDevsRaw = $state(1)
 	let estimatedOps = $state(0)
 
-
 	let estimatedExecs = $state(1)
 
 	function updateExecs() {
@@ -129,15 +129,14 @@
 	run(() => {
 		if ($workspaceStore) {
 			loadPremiumInfo()
-			listUsers()
 			getThresholdAlert()
 		}
-	});
+	})
 	let estimatedDevs = $derived(Math.max(1, estimatedDevsRaw))
 	let estimatedSeats = $derived(estimatedDevs + Math.ceil(estimatedOps / 2))
 	run(() => {
 		estimatedSeats && updateExecs()
-	});
+	})
 </script>
 
 <Modal bind:open={thresholdAlertOpen} title="Threshold alert">
@@ -149,17 +148,15 @@
 	</div>
 
 	{#snippet actions()}
-	
-			<Button
-				size="sm"
-				on:click={() => {
-					setThresholdAlert()
-					thresholdAlertOpen = false
-				}}
-			>
-				Save
-			</Button>
-		
+		<Button
+			size="sm"
+			on:click={() => {
+				setThresholdAlert()
+				thresholdAlertOpen = false
+			}}
+		>
+			Save
+		</Button>
 	{/snippet}
 </Modal>
 
@@ -167,11 +164,19 @@
 	<div class="flex flex-col gap-1">
 		<SettingsPageHeader
 			title={premiumInfo?.premium && plan
-				? `Plan: ${capitalize(plan)} plan${plan === 'team' ? ' (usage-based)' : ''}`
+				? plan === 'team_canceled'
+					? 'Plan: Team plan (canceled)'
+					: `Plan: ${capitalize(plan)} plan${plan === 'team' ? ' (usage-based)' : ''}`
 				: 'Plan: Free plan'}
 			class="mb-0"
 		/>
-		{#if premiumInfo?.status === 'past_due'}
+		{#if premiumInfo?.is_canceled}
+			<p class="text-base">
+				Your final invoice has been sent. The team plan stays active until the end of the month, up
+				to the {premiumInfo.max_tolerated_executions?.toLocaleString('en-US')} executions paid for,
+				then this workspace moves to the free plan.
+			</p>
+		{:else if premiumInfo?.status === 'past_due'}
 			<p class="text-red-500 text-base">
 				{#if premiumInfo.max_tolerated_executions === undefined || premiumInfo.usage > premiumInfo.max_tolerated_executions}
 					Your last invoice is unpaid, you cannot run any more jobs. Please update your payment
@@ -189,7 +194,7 @@
 		<Button
 			endIcon={{ icon: ExternalLink }}
 			variant="accent"
-			href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
+			href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 		>
 		<p class="text-xs text-primary mt-1">
 			See invoices, change billing information or subscription details.
@@ -255,8 +260,7 @@
 									<div class="flex flex-col gap-0.5">
 										<div class="font-medium">Developers</div>
 										<p class="text-xs text-secondary">
-											Calculated on the MAXIMUM number of users in a given billing
-											period, see the Customer Portal for more info.
+											1 seat each.
 										</p>
 									</div>
 								</Cell>
@@ -271,8 +275,7 @@
 									<div class="flex flex-col gap-0.5">
 										<div class="font-medium">Operators</div>
 										<p class="text-xs text-secondary">
-											Calculated on the MAXIMUM number of operators in a given
-											billing period, see the Customer Portal for more info.
+											Half a seat each.
 										</p>
 									</div>
 								</Cell>
@@ -282,16 +285,34 @@
 									</div>
 								</Cell>
 							</tr>
+							<tr>
+								<Cell first>
+									<div class="flex flex-col gap-0.5">
+										<div class="font-medium">Service accounts</div>
+										<p class="text-xs text-secondary">
+											Half a seat each, whatever their role.
+										</p>
+									</div>
+								</Cell>
+								<Cell last numeric>
+									<div class="text-sm text-secondary">
+										{formatNumber(premiumInfo.serviceAccountNb)}
+									</div>
+								</Cell>
+							</tr>
 							<tr class="bg-slate-50 dark:bg-slate-900/40">
 								<Cell first>
 									<div class="flex flex-col gap-0.5">
 										<div class="font-semibold text-sm">Seats from users</div>
 										<p class="text-xs text-secondary">
-											1 developer = 1 seat, 2 operators = 1 seat.
+											1 developer = 1 seat, 2 operators or service accounts = 1 seat.
 										</p>
 										<p class="text-[11px] text-secondary font-mono">
-											u = ceil({formatNumber(premiumInfo.developerNb)} + {formatNumber(premiumInfo.operatorNb)}/2)
-											= {formatNumber(premiumInfo.seatsFromUsers)}
+											u = ceil({formatNumber(premiumInfo.developerNb)} + ({formatNumber(
+												premiumInfo.operatorNb
+											)} + {formatNumber(premiumInfo.serviceAccountNb)})/2) = {formatNumber(
+												premiumInfo.seatsFromUsers
+											)}
 										</p>
 									</div>
 								</Cell>
@@ -306,9 +327,8 @@
 									<div class="flex flex-col gap-0.5">
 										<div class="font-semibold">Executions this month</div>
 										<p class="text-xs text-secondary">
-											One execution equals one job
-											up to 1 second on a worker with 2GB of memory, with each additional
-											second counting as an extra execution.
+											One execution equals one job up to 1 second on a worker with 2GB of memory,
+											with each additional second counting as an extra execution.
 										</p>
 									</div>
 								</Cell>
@@ -360,8 +380,9 @@
 											Used seats (billed)
 										</div>
 										<p class="text-xs text-secondary">
-											Highest between seats from 'Developers + Operators' and 'Seats from executions'.
-											This is the number of seats used for billing this month.
+											'Seats from users' plus 'Extra seats from computations'. Billed on the
+											highest total reached during the month; your invoices in the Customer Portal
+											show what was billed.
 										</p>
 										<p class="text-[11px] text-secondary font-mono">
 											u + c = {formatNumber(premiumInfo.usedSeats)}
@@ -393,8 +414,8 @@
 		<div class="flex flex-col gap-1">
 			<div class="text-sm font-semibold text-primary">Estimate your monthly cost</div>
 			<p class="text-xs text-secondary max-w-xl">
-				This is a rough estimate based on your expected team size and workload. Actual billing is based
-				on the maximum number of users and executions in a given month.
+				This is a rough estimate based on your expected team size and workload. Actual billing is
+				based on the highest seat total reached during the month.
 			</p>
 		</div>
 
@@ -415,13 +436,13 @@
 					<div class="flex items-center justify-between gap-2">
 						<div class="text-sm font-medium text-primary">Operators</div>
 						<div class="text-xs text-secondary">
-							<span class="font-semibold">{estimatedOps}</span> operator{estimatedOps === 1 ? '' : 's'}
+							<span class="font-semibold">{estimatedOps}</span> operator{estimatedOps === 1
+								? ''
+								: 's'}
 						</div>
 					</div>
 					<Range min={0} max={20} bind:value={estimatedOps} hideInput />
-					<p class="text-[11px] text-secondary">
-						2 operators = 1 seat
-					</p>
+					<p class="text-[11px] text-secondary"> 2 operators = 1 seat </p>
 				</div>
 
 				<div class="space-y-1.5">
@@ -429,8 +450,8 @@
 						<div class="flex items-center gap-1.5">
 							<div class="text-sm font-medium text-primary">Monthly executions</div>
 							<Tooltip>
-								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory, with
-								each additional second counting as an extra execution.
+								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory,
+								with each additional second counting as an extra execution.
 							</Tooltip>
 						</div>
 						<div class="text-xs text-secondary">
@@ -444,9 +465,7 @@
 						format={(v) => `${v * 10}k`}
 						hideInput
 					/>
-					<p class="text-[11px] text-secondary">
-						Each seat includes 10k executions per month.
-					</p>
+					<p class="text-[11px] text-secondary"> Each seat includes 10k executions per month. </p>
 				</div>
 			</div>
 
@@ -553,8 +572,8 @@
 						<li class="mt-2">
 							Every seat includes <b>10 000</b> executions
 							<Tooltip>
-								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory, with
-								each additional second counting as an extra execution.
+								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory,
+								with each additional second counting as an extra execution.
 							</Tooltip>
 						</li>
 					{:else}
@@ -571,7 +590,7 @@
 							<Button
 								size="xs"
 								color="bg-blue-500 text-white"
-								href="{base}/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
+								href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
 							>
 								Upgrade to Team plan</Button
 							>
@@ -581,9 +600,7 @@
 							</div>
 						{/if}
 					{:else}
-						<div class="text-md font-semibold">
-							Workspace is on the team plan
-						</div>
+						<div class="text-md font-semibold"> Workspace is on the team plan </div>
 					{/if}
 				{:else if planTitle == 'Enterprise'}
 					{#if plan != 'enterprise'}
@@ -596,9 +613,7 @@
 							See more
 						</Button>
 					{:else}
-						<div class="text-md font-semibold">
-							Workspace is on enterprise plan
-						</div>
+						<div class="text-md font-semibold"> Workspace is on enterprise plan </div>
 					{/if}
 				{:else if planTitle === 'Free'}
 					{#if plan}
@@ -606,14 +621,16 @@
 							Cancel your plan in the Customer Portal to downgrade to the free plan
 						</div>
 					{:else}
-						<div class="font-semibold">
-							Workspace is on the free plan
-						</div>
+						<div class="font-semibold"> Workspace is on the free plan </div>
 					{/if}
 				{/if}
 			</div>
 		</div>
 	{/each}
+</div>
+
+<div class="mt-4">
+	<SelfHostCta />
 </div>
 <div class="flex flex-col gap-1 my-8 w-full items-center">
 	<div class="text-primary text-md font-semibold"> Frequently asked questions </div><br />

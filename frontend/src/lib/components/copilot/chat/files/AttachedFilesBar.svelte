@@ -43,7 +43,7 @@
 {/snippet}
 
 {#if cards.length > 0}
-	<div class="flex flex-row flex-nowrap items-center gap-1 mt-1 mb-1 min-w-0" role="list">
+	<div class="flex flex-row flex-nowrap items-center gap-1 min-w-0" role="list">
 		{#each visible as card (card.key)}
 			{@render chip(card)}
 		{/each}

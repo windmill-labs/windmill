@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\", flow.job_token_scopes FROM flow\n                        LEFT JOIN flow_version\n                            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]\n                        LEFT JOIN flow_version_lite\n                            ON flow_version_lite.id = flow_version.id\n                        WHERE flow.path = $1 AND flow.workspace_id = $2 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_token_scopes",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      true
+    ]
+  },
+  "hash": "77e9cb16c25defc2423621a64f020e1e07f7e50df82fb6c33f79e6faa5b77bab"
+}

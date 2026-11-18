@@ -16,7 +16,8 @@
                 "variable",
                 "ducklake",
                 "datatable",
-                "volume"
+                "volume",
+                "dbt"
               ]
             }
           }
@@ -71,7 +72,8 @@
                       "variable",
                       "ducklake",
                       "datatable",
-                      "volume"
+                      "volume",
+                      "dbt"
                     ]
                   }
                 }

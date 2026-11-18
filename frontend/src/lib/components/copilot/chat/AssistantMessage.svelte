@@ -1,54 +1,121 @@
 <script lang="ts">
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import { twMerge } from 'tailwind-merge'
-	import { Brain, ChevronDown, ChevronRight, Loader2 } from 'lucide-svelte'
 	import type { DisplayMessage } from './shared'
+	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
+	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import MarkdownImage from './MarkdownImage.svelte'
 	import {
 		extractCandidatePaths,
 		remarkWindmillPaths,
 		workspaceItemRegistry
 	} from './workspaceItems.svelte'
+	import { markdownProse } from '$lib/components/markdownProse'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import { Bot, ExternalLink } from 'lucide-svelte'
+	import CopyButton from '$lib/components/common/button/CopyButton.svelte'
+	import { displayDate, truncateRev } from '$lib/utils'
 
 	interface Props {
 		message: DisplayMessage
+		// Workspace the message's paths are resolved against: the one the chat
+		// operates on, which is not always the one being navigated.
+		workspace: string | undefined
+		// Only the last answer of a run (a copilot turn, or a flow step's run) gets the copy /
+		// timestamp / run row: it stays in the layout while invisible, so on an answer between
+		// tool calls it would double the gap below it.
+		showActions?: boolean
 	}
 
-	let { message }: Props = $props()
+	let { message, workspace, showActions = true }: Props = $props()
+
+	// The run this answer came out of. Only a flow chat has one — a copilot turn runs in
+	// the browser — so the job link is absent rather than empty elsewhere.
+	const jobId = $derived(message.role === 'assistant' ? message.jobId : undefined)
+	const createdAt = $derived(message.role === 'assistant' ? message.createdAt : undefined)
+	const runHref = $derived(jobId ? `/run/${jobId}?workspace=${workspace}` : undefined)
+	// Today's answers show the time alone; the day earns its place only on a conversation
+	// read back later. Resolved at render, so a chat left open across midnight keeps
+	// yesterday's format until it is reopened.
+	const timestamp = $derived.by(() => {
+		if (!createdAt) return undefined
+		const at = new Date(createdAt)
+		const today = new Date().toDateString() === at.toDateString()
+		return displayDate(at, false, !today)
+	})
 
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
 	)
-	// Spinner while the reasoning text streams before the answer. Only the live
+	// Set the moment thinking ends, which is mid-turn on the live message — the
+	// answer streams on afterwards.
+	const reasoningDurationMs = $derived(
+		message.role === 'assistant' ? message.reasoningDurationMs : undefined
+	)
+	// Shimmer while the reasoning text streams before the answer. Only the live
 	// synthetic message carries `streaming` — a finalized reasoning-only message
 	// (thinking that led straight to a tool call) must not look in-progress.
 	const reasoningStreaming = $derived(
-		!!reasoning && message.role === 'assistant' && !!message.streaming && !message.content
+		!!reasoning &&
+			message.role === 'assistant' &&
+			!!message.streaming &&
+			!message.content &&
+			reasoningDurationMs === undefined
 	)
-	// Expand while still thinking, collapse once the answer begins — unless toggled.
+	// Undefined until this block is toggled by hand, so flipping the preference
+	// reaches every block the reader hasn't already made a decision about.
 	let reasoningToggled = $state<boolean | undefined>(undefined)
-	const reasoningExpanded = $derived(reasoningToggled ?? reasoningStreaming)
+	const reasoningExpanded = $derived(reasoningToggled ?? thinkingPreferences.expandByDefault)
+	const reasoningLabel = $derived(
+		reasoningDurationMs !== undefined
+			? `Thought for ${formatThinkingDuration(reasoningDurationMs)}`
+			: reasoningStreaming
+				? 'Thinking...'
+				: 'Thinking'
+	)
+
+	function formatThinkingDuration(ms: number): string {
+		const seconds = Math.max(1, Math.round(ms / 1000))
+		if (seconds < 60) return `${seconds}s`
+		const minutes = Math.floor(seconds / 60)
+		const rest = seconds % 60
+		return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`
+	}
+
+	const stepName = $derived(message.role === 'assistant' ? message.stepName : undefined)
+
+	// A flow step can return a file rather than text; the raw JSON would be
+	// unreadable, so hand it to the result viewer instead of the markdown renderer.
+	const s3Object = $derived.by(() => {
+		if (!message.content.startsWith('{')) return undefined
+		try {
+			const parsed = JSON.parse(message.content)
+			return parsed?.type === 'windmill_s3_object' && parsed?.s3 ? parsed : undefined
+		} catch {
+			return undefined
+		}
+	})
 
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
+	const reasoningPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer, img: MarkdownImage } }]
 	const rendererPlugin = {
 		renderer: {
 			pre: CodeDisplay,
-			a: LinkRenderer
+			a: LinkRenderer,
+			img: MarkdownImage
 		}
 	}
 
 	// Only populate the registry for messages that contain path-shaped tokens. The
 	// registry still dedups concurrent calls across messages and workspaces.
 	$effect(() => {
-		const ws = $workspaceStore
-		if (ws && candidatePaths.length > 0) workspaceItemRegistry.ensureLoaded(ws)
+		if (workspace && candidatePaths.length > 0) workspaceItemRegistry.ensureLoaded(workspace)
 	})
 
 	const plugins = $derived.by(() => {
-		const ws = $workspaceStore ?? ''
+		const ws = workspace ?? ''
 		if (!ws || candidatePaths.length === 0) {
 			return [gfmPlugin(), rendererPlugin]
 		}
@@ -71,51 +138,66 @@
 	})
 </script>
 
-{#if reasoning}
-	<div class="mb-2 bg-surface border border-border-light rounded-md overflow-hidden text-xs">
-		<button
-			class={twMerge(
-				'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center gap-2 text-left',
-				reasoningExpanded ? 'border-b border-border-light' : ''
-			)}
-			onclick={() => (reasoningToggled = !reasoningExpanded)}
-		>
-			{#if reasoningExpanded}
-				<ChevronDown class="w-3 h-3 text-secondary" />
-			{:else}
-				<ChevronRight class="w-3 h-3 text-secondary" />
-			{/if}
-			{#if reasoningStreaming}
-				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
-			{:else}
-				<Brain class="w-3.5 h-3.5 text-secondary" />
-			{/if}
-			<span class="text-primary font-medium text-2xs">Thinking</span>
-		</button>
-
-		{#if reasoningExpanded}
-			<div
-				class="p-2 bg-surface text-secondary break-words prose prose-sm dark:prose-invert max-w-full leading-snug
-					prose-p:text-2xs prose-li:text-2xs prose-code:text-2xs prose-pre:text-2xs prose-ul:!pl-5
-					prose-headings:font-medium prose-headings:text-secondary prose-headings:mt-2 prose-headings:mb-1
-					prose-h1:text-2xs prose-h2:text-2xs prose-h3:text-2xs prose-h4:text-2xs prose-h5:text-2xs prose-h6:text-2xs
-					prose-strong:text-secondary"
-			>
-				<Markdown md={reasoning} plugins={[gfmPlugin()]} />
-			</div>
-		{/if}
+<!-- An agent step's answer is headed by the agent's own icon, hung in the margin so the
+     answer itself stays on the same left edge as the reader's messages. The icon sits in
+     the padding the message column already carries. -->
+{#if stepName}
+	<div
+		class="flex items-center gap-2 -ml-6 pt-1 text-2xs text-tertiary"
+		title="Answered by {stepName}"
+	>
+		<Bot size={16} class="shrink-0" />
+		<span class="font-mono truncate">{stepName}</span>
 	</div>
 {/if}
 
-{#if message.content}
-	<div
-		class="prose prose-sm dark:prose-invert w-full max-w-full leading-snug space-y-2 prose-ul:!pl-6
-			prose-p:text-xs prose-li:text-xs prose-code:text-xs prose-pre:text-xs
-			prose-code:break-words prose-a:break-words
-			prose-headings:font-medium prose-headings:text-emphasis prose-headings:mt-3 prose-headings:mb-1
-			prose-h1:text-sm prose-h2:text-xs prose-h3:text-xs prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs
-			prose-table:block prose-table:max-w-full prose-table:overflow-x-auto prose-table:text-xs"
+{#if reasoning}
+	<ChatCollapsibleCard
+		label={reasoningLabel}
+		expanded={reasoningExpanded}
+		onToggle={() => (reasoningToggled = !reasoningExpanded)}
+		shimmer={reasoningStreaming}
+		class={message.content ? 'mb-1' : ''}
+		labelClass="truncate"
+		contentClass="font-main text-secondary {markdownProse.xs}"
 	>
+		<Markdown md={reasoning} plugins={reasoningPlugins} />
+	</ChatCollapsibleCard>
+{/if}
+
+{#if s3Object}
+	<div class="py-1">
+		<DisplayResult result={s3Object} workspaceId={workspace} noControls={true} />
+	</div>
+{:else if message.content}
+	<div class="w-full space-y-2 py-1 {markdownProse.sm}">
 		<Markdown md={message.content} {plugins} />
+	</div>
+{/if}
+
+{#if message.content && showActions}
+	<!-- Zero height in the layout (h-4 = -mt-1 + -mb-3): it draws in the answer's bottom
+	     padding and the gap below the turn, so a turn's last answer is spaced like any other
+	     message. A thinking-only row has no answer to copy, and its run's last answer links
+	     the run. -->
+	<div
+		class="flex items-center gap-2 h-4 -mt-1 -mb-3 text-2xs text-tertiary opacity-0 transition-opacity duration-150 group-hover/answer:opacity-100 focus-within:opacity-100"
+	>
+		<CopyButton value={message.content} title="Copy answer" class="-ml-1" btnClasses="h-4" />
+		{#if timestamp}
+			<span>{timestamp}</span>
+		{/if}
+		{#if runHref}
+			<a
+				href={runHref}
+				target="_blank"
+				rel="noopener noreferrer"
+				class="inline-flex items-center gap-1 hover:text-primary hover:underline"
+				title="Open this run"
+			>
+				<span>job <span class="font-mono">{truncateRev(jobId ?? '', 8)}</span></span>
+				<ExternalLink size={11} class="shrink-0" />
+			</a>
+		{/if}
 	</div>
 {/if}

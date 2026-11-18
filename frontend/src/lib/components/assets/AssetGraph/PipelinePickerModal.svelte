@@ -1,13 +1,6 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
-	import { goto } from '$app/navigation'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import FolderPicker from '$lib/components/FolderPicker.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
-	import { AssetService, type ListPipelineFoldersResponse } from '$lib/gen'
-	import { resource } from 'runed'
-	import { ArrowRight, Loader2 } from 'lucide-svelte'
+	import PipelineFolderList from './PipelineFolderList.svelte'
 
 	interface Props {
 		open: boolean
@@ -20,90 +13,8 @@
 		mode?: 'view' | 'edit'
 	}
 	let { open = $bindable(), currentFolder = undefined, mode = 'view' }: Props = $props()
-
-	let pipelines = resource(
-		() => $workspaceStore,
-		async (ws) => {
-			if (!ws) return [] as ListPipelineFoldersResponse
-			return await AssetService.listPipelineFolders({ workspace: ws })
-		}
-	)
-
-	let pickedFolder = $state('')
-
-	let visiblePipelines = $derived(
-		(pipelines.current ?? []).filter((p) => p.folder !== currentFolder)
-	)
-
-	async function openExistingPipeline(folder: string) {
-		open = false
-		const modeQuery = mode !== 'view' ? `?mode=${mode}` : ''
-		await goto(`${base}/pipeline/${encodeURIComponent(folder)}${modeQuery}`)
-	}
-
-	async function openPicked() {
-		const name = pickedFolder.trim()
-		if (!name) return
-		await openExistingPipeline(name)
-	}
 </script>
 
 <Modal bind:open title="Open a pipeline">
-	<div class="flex flex-col gap-6 w-full min-w-0">
-		{#if visiblePipelines.length > 0 || pipelines.loading}
-			<section class="flex flex-col gap-2">
-				<h3 class="text-xs font-semibold text-secondary uppercase tracking-wide">
-					Existing pipelines
-				</h3>
-				{#if pipelines.loading && !pipelines.current}
-					<div class="text-tertiary text-sm flex items-center gap-2">
-						<Loader2 size={14} class="animate-spin" />
-						Loading…
-					</div>
-				{:else if pipelines.error}
-					<div class="text-red-500 text-sm">Failed: {pipelines.error.message}</div>
-				{:else}
-					<div class="flex flex-col border rounded-md overflow-hidden max-h-64 overflow-y-auto">
-						{#each visiblePipelines as p}
-							<button
-								type="button"
-								class="flex items-center justify-between px-3 py-2 border-b last:border-b-0 bg-surface hover:bg-surface-hover transition-colors text-left"
-								onclick={() => openExistingPipeline(p.folder)}
-							>
-								<span class="font-mono text-sm">f/{p.folder}</span>
-								<span class="text-2xs text-tertiary">
-									{p.script_count}
-									{p.script_count === 1 ? 'script' : 'scripts'}
-								</span>
-							</button>
-						{/each}
-					</div>
-				{/if}
-			</section>
-		{/if}
-
-		{#if !$userStore?.operator}
-			<!-- Operators only view existing pipelines — opening an arbitrary
-			     folder is a build-a-new-pipeline affordance. -->
-			<section class="flex flex-col gap-2">
-				<h3 class="text-xs font-semibold text-secondary uppercase tracking-wide">
-					Pick or create a folder
-				</h3>
-				<div class="flex items-center gap-2">
-					<div class="flex-1 min-w-0">
-						<FolderPicker bind:folderName={pickedFolder} />
-					</div>
-					<Button
-						variant="accent"
-						unifiedSize="sm"
-						disabled={!pickedFolder.trim()}
-						onclick={openPicked}
-						startIcon={{ icon: ArrowRight }}
-					>
-						Open
-					</Button>
-				</div>
-			</section>
-		{/if}
-	</div>
+	<PipelineFolderList {currentFolder} {mode} onOpen={() => (open = false)} />
 </Modal>

@@ -1,6 +1,15 @@
 from typing import Optional
 
 
+def _item_as_attr(d: dict, attr: str):
+    # AttributeError, not KeyError: hasattr, copy and pickle probe optional
+    # attributes and only treat AttributeError as "absent".
+    try:
+        return d[attr]
+    except KeyError:
+        raise AttributeError(attr) from None
+
+
 class S3Object(dict):
     """S3 file reference with file key, optional storage identifier, and presigned token."""
     s3: str
@@ -8,7 +17,7 @@ class S3Object(dict):
     presigned: Optional[str]
 
     def __getattr__(self, attr):
-        return self[attr]
+        return _item_as_attr(self, attr)
 
 
 class S3FsClientKwargs(dict):
@@ -16,7 +25,7 @@ class S3FsClientKwargs(dict):
     region_name: str
 
     def __getattr__(self, attr):
-        return self[attr]
+        return _item_as_attr(self, attr)
 
 
 class S3FsArgs(dict):
@@ -29,7 +38,7 @@ class S3FsArgs(dict):
     client_kwargs: S3FsClientKwargs
 
     def __getattr__(self, attr):
-        return self[attr]
+        return _item_as_attr(self, attr)
 
 
 class StorageOptions(dict):
@@ -41,16 +50,17 @@ class StorageOptions(dict):
     aws_allow_http: str
 
     def __getattr__(self, attr):
-        return self[attr]
+        return _item_as_attr(self, attr)
 
 
 class PolarsConnectionSettings(dict):
     """Polars S3 connection settings containing S3FS args and storage options."""
     s3fs_args: S3FsArgs
     storage_options: StorageOptions
+    s3_bucket: Optional[str]
 
     def __getattr__(self, attr):
-        return self[attr]
+        return _item_as_attr(self, attr)
 
 
 class Boto3ConnectionSettings(dict):
@@ -63,12 +73,13 @@ class Boto3ConnectionSettings(dict):
     aws_session_token: Optional[str]
 
     def __getattr__(self, attr):
-        return self[attr]
+        return _item_as_attr(self, attr)
 
 
 class DuckDbConnectionSettings(dict):
     """DuckDB S3 connection settings as a configuration string."""
     connection_settings_str: str
+    s3_bucket: Optional[str]
 
     def __getattr__(self, attr):
-        return self[attr]
+        return _item_as_attr(self, attr)

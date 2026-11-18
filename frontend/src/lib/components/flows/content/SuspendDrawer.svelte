@@ -16,21 +16,26 @@
 </script>
 
 <Button
-	size="xs"
-	variant="default"
+	unifiedSize="xs"
+	variant="subtle"
+	btnClasses="text-hint font-normal"
+	endIcon={{ icon: HelpCircle }}
 	on:click={() => {
 		drawer?.openDrawer()
 	}}
-	>{text} <HelpCircle size={12} />
+>
+	{text}
 </Button>
 
 <Drawer bind:this={drawer}>
 	<DrawerContent title="Suspend/Approval/Prompt help" on:close={drawer?.closeDrawer}>
 		<div class="flex flex-col gap-y-6 text-xs text-primary font-normal">
 			<Section label="Form/Payload">
-				To add a form, go to the <b>Form</b> tab, inside the Advanced {'->'} Suspend tab, and add a form.
-				You can then get back the payloads using `resume` (single approver), or `resumes` (multiple approvers)
-				in the next step. Forms are an EE feature only. The approver list itself is fetchable using `approvers`
+				To add a form, open the <b>Form</b> tab of this <b>Suspend until approval/resume</b> setting
+				and click
+				<b>Add a form</b>. You can then get back the payloads using `resume` (single approver), or
+				`resumes` (multiple approvers) in the next step. Forms are an EE feature only. The approver
+				list itself is fetchable using `approvers`
 			</Section>
 			<Section label="Prompt">
 				A prompt is simply an approval step that can be self-approved. To do this, include the
@@ -81,15 +86,21 @@ def main():
 			<Section label="Default args">
 				As one of the return key of this step, return an object `default_args` that contains the
 				default arguments of the form arguments. e.g:
-				<HighlightCode
-					language={'deno'}
-					code={`//this assumes the Form tab has a string field named "foo" and a checkbox named "bar"
+				<Tabs selected="bun" class="pt-4">
+					<Tab value="bun" label="TypeScript (Bun)" />
+					<Tab value="python" label="Python" />
+
+					{#snippet content()}
+						<TabContent value="bun" class="p-2">
+							<HighlightCode
+								language={'deno'}
+								code={`//this assumes the Form tab has a string field named "foo" and a checkbox named "bar"
 
 import * as wmill from "npm:windmill-client@^1.158.2"
 
 export async function main() {
     // if no argument is passed, if user is logged in, it will use the user's username
-    const urls = await wmill.getResumeUrls("approver1") 
+    const urls = await wmill.getResumeUrls("approver1")
 
     // send the resumeUrls to the recipient or see Prompt section above
 
@@ -100,14 +111,44 @@ export async function main() {
         }
     }
 }`}
-				/>
+							/>
+						</TabContent>
+						<TabContent value="python" class="p-2">
+							<HighlightCode
+								language={'python3'}
+								code={`# this assumes the Form tab has a string field named "foo" and a checkbox named "bar"
+
+import wmill
+
+def main():
+    # if no argument is passed and the user is logged in, it uses the user's username
+    urls = wmill.get_resume_urls()
+
+    # send the resume urls to the recipient or see Prompt section above
+
+    return {
+        "default_args": {
+            "foo": "foo",
+            "bar": True
+        }
+    }`}
+							/>
+						</TabContent>
+					{/snippet}
+				</Tabs>
 			</Section>
 			<Section label="Dynamics enums">
 				As one of the return key of this step, return an object `enums` that contains the default
 				options of the form arguments. e.g:
-				<HighlightCode
-					language={'deno'}
-					code={`
+				<Tabs selected="bun" class="pt-4">
+					<Tab value="bun" label="TypeScript (Bun)" />
+					<Tab value="python" label="Python" />
+
+					{#snippet content()}
+						<TabContent value="bun" class="p-2">
+							<HighlightCode
+								language={'deno'}
+								code={`
 
 //this assumes the Form tab has a string field named "foo"
 
@@ -115,7 +156,7 @@ import * as wmill from "npm:windmill-client@^1.158.2"
 
 export async function main() {
     // if no argument is passed, if user is logged in, it will use the user's username
-    const url = await wmill.getResumeUrls("approver1") 
+    const url = await wmill.getResumeUrls("approver1")
 
     // send the resumeUrls to the recipient or see Prompt section above
 
@@ -125,7 +166,30 @@ export async function main() {
         },
     }
 }`}
-				/>
+							/>
+						</TabContent>
+						<TabContent value="python" class="p-2">
+							<HighlightCode
+								language={'python3'}
+								code={`# this assumes the Form tab has a string field named "foo"
+
+import wmill
+
+def main():
+    # if no argument is passed and the user is logged in, it uses the user's username
+    urls = wmill.get_resume_urls()
+
+    # send the resume urls to the recipient or see Prompt section above
+
+    return {
+        "enums": {
+            "foo": ["choice1", "choice2"]
+        }
+    }`}
+							/>
+						</TabContent>
+					{/snippet}
+				</Tabs>
 			</Section>
 		</div>
 	</DrawerContent>

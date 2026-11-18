@@ -7,7 +7,7 @@
 	import { Skeleton, Tab, Tabs } from '../common'
 	import HighlightCode from '../HighlightCode.svelte'
 	import FlowStatusViewer from '../FlowStatusViewer.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '../operatingWorkspace.svelte'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import { isFlowPreview, isScriptPreview, type StateStore } from '$lib/utils'
 	import { setContext, untrack, createEventDispatcher } from 'svelte'
@@ -20,11 +20,13 @@
 	interface Props {
 		id: string
 		workspace: string | undefined
+		onResolutionChanged?: () => void
 	}
 
-	let { id, workspace }: Props = $props()
+	let { id, workspace, onResolutionChanged }: Props = $props()
 
 	const dispatch = createEventDispatcher()
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let job: (Job & { result_stream?: string }) | undefined = $state(undefined)
 
@@ -152,6 +154,7 @@
 				{concurrencyKey}
 				onFilterByConcurrencyKey={handleFilterByConcurrencyKey}
 				onFilterByWorker={handleFilterByWorker}
+				{onResolutionChanged}
 			/>
 
 			<!-- Workflow timeline -->
@@ -171,7 +174,6 @@
 				{#if isFlow}
 					<FlowExecutionStatus
 						{job}
-						workspaceId={job?.workspace_id}
 						{isOwner}
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}
@@ -184,7 +186,7 @@
 				<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 				<JobArgs
 					id={job?.id}
-					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
+					workspace={job?.workspace_id ?? $operatingWorkspace ?? 'no_w'}
 					args={job?.args}
 				/>
 			</div>

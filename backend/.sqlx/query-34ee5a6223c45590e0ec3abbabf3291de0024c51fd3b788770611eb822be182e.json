@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_integrations (workspace_id, service_name, oauth_data, created_by)\n             VALUES ($1, $2, $3, $4)\n             ON CONFLICT (workspace_id, service_name) DO UPDATE SET oauth_data = EXCLUDED.oauth_data\n             WHERE (workspace_integrations.oauth_data->>'instance_shared')::boolean",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google",
+                "github"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "34ee5a6223c45590e0ec3abbabf3291de0024c51fd3b788770611eb822be182e"
+}

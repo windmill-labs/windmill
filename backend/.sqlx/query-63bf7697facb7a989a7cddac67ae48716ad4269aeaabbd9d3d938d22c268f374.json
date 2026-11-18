@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app (workspace_id, path, summary, policy, versions)\n             VALUES ($1, 'f/shared/converted', 'Converted', '{}'::jsonb, ARRAY[]::bigint[])\n             RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "63bf7697facb7a989a7cddac67ae48716ad4269aeaabbd9d3d938d22c268f374"
+}

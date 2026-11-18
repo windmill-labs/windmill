@@ -1,9 +1,11 @@
 <script lang="ts">
 	import Select from './select/Select.svelte'
 	import { WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { RefreshCcw } from 'lucide-svelte'
 	import { Button } from './common'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface ChannelItem {
 		channel_id?: string
@@ -21,6 +23,9 @@
 		showRefreshButton?: boolean
 		onError?: (error: Error) => void
 		onSelectedChannelChange?: (channel: ChannelItem | undefined) => void
+		/** Workspace to list Teams channels from; defaults to the operating workspace (see
+		 * `useOperatingWorkspace`). */
+		workspace?: string
 	}
 
 	let {
@@ -33,8 +38,11 @@
 		teamId,
 		showRefreshButton = true,
 		onError,
-		onSelectedChannelChange
+		onSelectedChannelChange,
+		workspace = undefined
 	}: Props = $props()
+
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
 
 	let isFetching = $state(false)
 	let loadedChannels = $state<ChannelItem[]>([])
@@ -88,7 +96,7 @@
 		isFetching = true
 		try {
 			const response = await WorkspaceService.listAvailableTeamsChannels({
-				workspace: $workspaceStore!,
+				workspace: effectiveWorkspace!,
 				teamId: teamId
 			})
 
@@ -130,10 +138,7 @@
 						clearable
 						disabled={disabled || !teamId}
 						loading={isFetching}
-						bind:value={
-							() => selectedChannel?.channel_id,
-							(newId) => setSelectedChannelById(newId)
-						}
+						bind:value={() => selectedChannel?.channel_id, (newId) => setSelectedChannelById(newId)}
 					/>
 				{:else}
 					<Select
@@ -147,10 +152,7 @@
 						{placeholder}
 						clearable
 						disabled={disabled || displayChannels.length === 0}
-						bind:value={
-							() => selectedChannel?.channel_id,
-							(newId) => setSelectedChannelById(newId)
-						}
+						bind:value={() => selectedChannel?.channel_id, (newId) => setSelectedChannelById(newId)}
 					/>
 				{/if}
 			</div>

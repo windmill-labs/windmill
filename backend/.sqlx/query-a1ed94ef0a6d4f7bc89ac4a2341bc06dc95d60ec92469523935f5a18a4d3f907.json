@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                 -- The guard's own predicate, ordered own row, then legacy, then another\n                 -- user's other-kind row: each needs a different remedy, and a bare\n                 -- LIMIT 1 would name an arbitrary one.\n                 (SELECT typ::text FROM draft WHERE workspace_id = $1 AND path = $3\n                  AND typ::text = ANY($6::text[])\n                  AND (typ <> $2 OR email = $4 OR email IS NULL)\n                  ORDER BY CASE WHEN email = $4 THEN 0 WHEN email IS NULL THEN 1 ELSE 2 END\n                  LIMIT 1) as \"at_target\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3\n                        AND typ::text = ANY($6::text[]) AND email = $4) as \"at_target_own!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $3\n                        AND typ::text = ANY($6::text[]) AND email IS NULL) as \"at_target_legacy!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email = $4\n                        AND position(chr(92) || 'u0000' in replace(value::text, chr(92) || chr(92), '')) > 0\n                       ) as \"poisoned!\",\n                 EXISTS(SELECT 1 FROM draft WHERE workspace_id = $1 AND path = $5\n                        AND typ = $2 AND email IS NULL) as \"legacy!\" ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "at_target",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "at_target_own!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "at_target_legacy!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "poisoned!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "legacy!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline",
+                "trigger_amqp"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a1ed94ef0a6d4f7bc89ac4a2341bc06dc95d60ec92469523935f5a18a4d3f907"
+}

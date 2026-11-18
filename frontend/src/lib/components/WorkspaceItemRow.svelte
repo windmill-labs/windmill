@@ -3,7 +3,9 @@
 Visual row for a workspace item (script / flow / app / resource /
 schedule / trigger / …). Matches the leaf-row layout used by
 WorkspaceItemDrillPicker: RowIcon + summary line on top with mono path
-beneath, or just the mono path when there's no summary.
+beneath, or just the mono path when there's no summary. With `singleLine`,
+both collapse to one row showing `summary ?? secondary` (summary in normal
+text, the mono path as the fallback) — denser, for the diff tree.
 
 Pure presentation — the caller controls highlighting / current state via
 props, supplies the onclick/onmouseenter handlers, and can pass an
@@ -26,6 +28,9 @@ doesn't steal focus from a sibling search input (matches the picker).
 		/** For `kind: 'trigger'`, specifies the concrete trigger subtype.
 		 * Forwarded to RowIcon. */
 		triggerKind?: string
+		/** For `kind: 'raw_app_file'`, the file name/path — forwarded to RowIcon
+		 * to pick an extension-specific icon. */
+		iconPath?: string
 		/** Optional summary text shown above the path. */
 		summary?: string
 		/** Mono path (or any secondary identifier). When summary is empty
@@ -47,6 +52,9 @@ doesn't steal focus from a sibling search input (matches the picker).
 		/** Reserve two lines of height and vertically center the content so
 		 * summary and summary-less rows are the same height (diff viewer). */
 		uniformHeight?: boolean
+		/** Collapse to a single line showing `summary ?? secondary` (summary in
+		 * normal text, secondary in mono) instead of stacking both. */
+		singleLine?: boolean
 		/** Extra left padding (px) for tree-view indentation. Adds to the
 		 * default `px-3` horizontal padding. */
 		indent?: number
@@ -69,6 +77,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 	let {
 		kind,
 		triggerKind,
+		iconPath,
 		summary,
 		secondary,
 		highlighted = false,
@@ -82,7 +91,8 @@ doesn't steal focus from a sibling search input (matches the picker).
 		onclick,
 		onmouseenter,
 		extras,
-		uniformHeight = false
+		uniformHeight = false,
+		singleLine = false
 	}: Props = $props()
 
 	const rootClass = $derived(
@@ -95,6 +105,39 @@ doesn't steal focus from a sibling search input (matches the picker).
 		`min-w-0 flex-1${uniformHeight ? ' flex flex-col justify-center min-h-[2.25rem]' : ''}`
 	)
 </script>
+
+{#snippet body()}
+	<RowIcon {kind} {triggerKind} path={iconPath} size={12} />
+	<div class={contentClass}>
+		{#if singleLine}
+			<!-- `||` not `??`: an empty-string summary (some draft rows carry `''`)
+			     must fall back to the path, otherwise the row renders blank. -->
+			<div
+				class="text-xs font-normal text-primary truncate {summary ? '' : 'font-mono'}"
+				title={summary || title || secondary}
+			>
+				{summary || secondary}
+			</div>
+		{:else if summary}
+			<div class="text-xs text-primary truncate" title={summary}>{summary}</div>
+			<div
+				class="text-2xs text-secondary font-normal font-mono truncate"
+				title={title ?? secondary}
+			>
+				{secondary}
+			</div>
+		{:else}
+			<div class="text-xs text-primary font-mono truncate" title={title ?? secondary}>
+				{secondary}
+			</div>
+		{/if}
+	</div>
+	{#if extras}
+		<div class="shrink-0 flex items-center gap-2">
+			{@render extras()}
+		</div>
+	{/if}
+{/snippet}
 
 {#if href}
 	<a
@@ -111,27 +154,7 @@ doesn't steal focus from a sibling search input (matches the picker).
 		{onclick}
 		{onmouseenter}
 	>
-		<RowIcon {kind} {triggerKind} size={12} />
-		<div class={contentClass}>
-			{#if summary}
-				<div class="text-xs text-primary truncate" title={summary}>{summary}</div>
-				<div
-					class="text-2xs text-secondary font-normal font-mono truncate"
-					title={title ?? secondary}
-				>
-					{secondary}
-				</div>
-			{:else}
-				<div class="text-xs text-primary font-mono truncate" title={title ?? secondary}>
-					{secondary}
-				</div>
-			{/if}
-		</div>
-		{#if extras}
-			<div class="shrink-0 flex items-center gap-2">
-				{@render extras()}
-			</div>
-		{/if}
+		{@render body()}
 	</a>
 {:else}
 	<button
@@ -147,26 +170,6 @@ doesn't steal focus from a sibling search input (matches the picker).
 		{onclick}
 		{onmouseenter}
 	>
-		<RowIcon {kind} {triggerKind} size={12} />
-		<div class={contentClass}>
-			{#if summary}
-				<div class="text-xs text-primary truncate" title={summary}>{summary}</div>
-				<div
-					class="text-2xs text-secondary font-normal font-mono truncate"
-					title={title ?? secondary}
-				>
-					{secondary}
-				</div>
-			{:else}
-				<div class="text-xs text-primary font-mono truncate" title={title ?? secondary}>
-					{secondary}
-				</div>
-			{/if}
-		</div>
-		{#if extras}
-			<div class="shrink-0 flex items-center gap-2">
-				{@render extras()}
-			</div>
-		{/if}
+		{@render body()}
 	</button>
 {/if}

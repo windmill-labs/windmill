@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE tree AS (\n                SELECT id, deleted, 0 AS depth FROM workspace WHERE id = $1\n                UNION ALL\n                SELECT w.id, w.deleted, tree.depth + 1 FROM workspace w\n                JOIN tree ON w.parent_workspace_id = tree.id\n                WHERE tree.depth < 20\n            )\n            SELECT COALESCE(MAX(depth) FILTER (WHERE NOT deleted), 0)::bigint AS \"height!\" FROM tree\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "height!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2eb746c4cc5c65e277d4c3a12e0bc9b6a776a4941e68d8e2b31904c677493e2d"
+}

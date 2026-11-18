@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace (id, name, owner, deleted, premium, parent_workspace_id, is_dev_workspace)\n         SELECT $1, $2, owner, false, premium,\n                CASE WHEN $4 THEN parent_workspace_id ELSE NULL END, $5\n         FROM workspace WHERE id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "29eb2c40e13d6e1ff7c37a05ab107829242f015a331bf15600986be3963878ee"
+}

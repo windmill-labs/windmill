@@ -2,6 +2,10 @@ import { minimatch } from "minimatch";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
 import { isFileResource, isFilesetResource } from "../utils/utils.ts";
 import {
+  isFolderResourcePathAnyFormat,
+  isScriptModulePath,
+} from "../utils/resource_folders.ts";
+import {
   SyncOptions,
   findWorkspaceByGitBranch,
   readConfigFile,
@@ -37,8 +41,30 @@ function getWorkspaceSpecificTypeKinds(): string[] {
     'variable',
     'resource',
     'schedule',
+    'custom_path',
     ...TRIGGER_TYPES.map(t => `${t}_trigger`),
   ];
+}
+
+/**
+ * An app's custom path is always workspace-specific, with or without
+ * specificItems: unless routes are workspace-prefixed it is unique across the
+ * instance, so one shared value can never be deployed to two workspaces.
+ */
+export function isCustomPathFile(path: string): boolean {
+  const p = path.replaceAll('\\', '/');
+  const slash = p.lastIndexOf('/');
+  const parts = p.slice(slash + 1).split('.');
+  return (
+    (parts.length == 3 || parts.length == 4) &&
+    parts[parts.length - 2] == 'custom_path' &&
+    (parts[parts.length - 1] == 'yaml' || parts[parts.length - 1] == 'json') &&
+    // It sits beside its app. A file inside an item's folder (app, flow,
+    // fileset, script module) is that item's content, whatever its name.
+    !p.slice(0, slash + 1).includes('.') &&
+    !isFolderResourcePathAnyFormat(p) &&
+    !isScriptModulePath(p)
+  );
 }
 
 /**
@@ -80,7 +106,7 @@ function getFileTypeSuffix(path: string): string | null {
  * Build regex pattern for all supported item-kind file types
  */
 function buildItemTypePattern(): string {
-  const basicTypes = ['variable', 'resource', 'schedule'];
+  const basicTypes = ['variable', 'resource', 'schedule', 'custom_path'];
   const triggerTypes = TRIGGER_TYPES.map(t => `${t}_trigger`);
   return `((${basicTypes.join('|')})|(${triggerTypes.join('|')}))`;
 }
@@ -190,6 +216,9 @@ function normalizeJsonToYaml(path: string): string {
  * Used to determine if workspace-specific files should be used for this type.
  */
 export function isItemTypeConfigured(path: string, specificItems: SpecificItemsConfig | undefined): boolean {
+  if (isCustomPathFile(path)) {
+    return true;
+  }
   if (!specificItems) {
     return false;
   }
@@ -231,6 +260,9 @@ export function isItemTypeConfigured(path: string, specificItems: SpecificItemsC
  * Check if a file path should be treated as workspace-specific
  */
 export function isSpecificItem(path: string, specificItems: SpecificItemsConfig | undefined): boolean {
+  if (isCustomPathFile(path)) {
+    return true;
+  }
   if (!specificItems) {
     return false;
   }
@@ -399,7 +431,7 @@ export function getWorkspaceSpecificPath(
   specificItems: SpecificItemsConfig | undefined,
   workspaceNameOverride?: string
 ): string | undefined {
-  if (!specificItems) {
+  if (!specificItems && !isCustomPathFile(basePath)) {
     return undefined;
   }
 
@@ -429,6 +461,16 @@ const workspacePatternCache = new Map<string, RegExp>();
  * workspaceNameOverride is the effective git branch name (for file naming on disk).
  */
 export function isCurrentWorkspaceFile(path: string, workspaceNameOverride?: string): boolean {
+  // Fileset children are never workspace-specific: only the parent's metadata
+  // file carries the suffix, children stay in the shared canonical directory.
+  // Their names are arbitrary, so one can look like typed metadata — and since
+  // the patterns match a workspace-name segment with `[^.]` (which spans `/`),
+  // an unguarded child is dropped from the diff or, worse, remapped onto a
+  // sibling's key and deployed over it. The same holds for the files inside a
+  // flow or app folder.
+  if (isFilesetResource(path) || isFolderResourcePathAnyFormat(path)) {
+    return false;
+  }
   let currentWorkspace: string | null = null;
   if (workspaceNameOverride) {
     currentWorkspace = workspaceNameOverride;
@@ -464,6 +506,10 @@ export function isCurrentWorkspaceFile(path: string, workspaceNameOverride?: str
  * Used to identify and skip files from other branches during sync operations
  */
 export function isWorkspaceSpecificFile(path: string): boolean {
+  // Same exemptions as isCurrentWorkspaceFile.
+  if (isFilesetResource(path) || isFolderResourcePathAnyFormat(path)) {
+    return false;
+  }
   const typePattern = buildItemTypePattern();
   return new RegExp(
     `\\.[^.]+\\.${typePattern}\\.(yaml|json)$|` +

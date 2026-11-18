@@ -20,7 +20,7 @@ use windmill_common::{
 };
 
 use windmill_store::resources::try_get_resource_from_db_as;
-use windmill_trigger::listener::ListeningTrigger;
+use windmill_trigger::listener::{transient_error, update_rw_lock, ListeningTrigger};
 use windmill_trigger::trigger_helpers::TriggerJobArgs;
 use windmill_trigger::Listener;
 
@@ -83,12 +83,7 @@ impl Listener for MqttTrigger {
             client_version.as_ref(),
         );
 
-        let client_result = client_builder
-            .build_client()
-            .await
-            .map_err(|e| Error::BadConfig(format!("Failed to build MQTT client: {}", e)))?;
-
-        Ok(Some(client_result))
+        Ok(Some(client_builder.build_client().await?))
     }
 
     async fn consume(
@@ -96,7 +91,7 @@ impl Listener for MqttTrigger {
         db: &DB,
         consumer: Self::Consumer,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
-        _err_message: Arc<RwLock<Option<String>>>,
+        err_message: Arc<RwLock<Option<String>>>,
         _killpill_rx: tokio::sync::broadcast::Receiver<()>,
         _extra_state: Option<&Self::ExtraState>,
     ) {
@@ -105,14 +100,15 @@ impl Listener for MqttTrigger {
             &listening_trigger.path
         );
 
-        match consumer {
+        let error = match consumer {
             MqttClientResult::V3((v3_handler, event_loop)) => {
                 handle_event(&db, self, listening_trigger, v3_handler, event_loop).await
             }
             MqttClientResult::V5((v5_handler, event_loop)) => {
                 handle_event(&db, self, listening_trigger, v5_handler, event_loop).await
             }
-        }
+        };
+        update_rw_lock(err_message, Some(error.to_string())).await;
     }
 }
 
@@ -134,6 +130,28 @@ fn convert_disconnect_packet_into_string(
             .map(|err| format!("message: {}", err))
             .unwrap_or("".to_string())
     )
+}
+
+/// A refusal for the client's own request (credentials, authorization, protocol, client
+/// id) fails the same way on every retry; one about the broker's state (unavailable,
+/// busy, over quota, moved) can clear up, e.g. while it restarts after an outage.
+fn connection_refused(code: impl std::fmt::Debug, server_side: bool) -> Error {
+    let message = format!("Connection refused by the broker: {:?}", code);
+    if server_side {
+        transient_error(message)
+    } else {
+        Error::BadConfig(message)
+    }
+}
+
+/// rumqttc builds the TLS connector (parsing the client certificate archive) only when
+/// the event loop first connects, so a bad certificate or password surfaces here, not
+/// when the client is built. Only I/O during the handshake can clear up on a retry.
+fn tls_error(err: rumqttc::TlsError) -> Error {
+    match err {
+        rumqttc::TlsError::Io(e) => to_anyhow(e).into(),
+        err => Error::BadConfig(format!("TLS error: {}", err)),
+    }
 }
 
 #[async_trait]
@@ -158,7 +176,26 @@ impl EventLoop for V5EventLoop {
         let start = std::time::Instant::now();
 
         while start.elapsed() < CONNECTION_TIMEOUT {
-            match self.poll().await.map_err(to_anyhow)? {
+            match self.poll().await.map_err(|err| match err {
+                rumqttc::v5::ConnectionError::ConnectionRefused(code) => {
+                    use rumqttc::v5::mqttbytes::v5::ConnectReturnCode::*;
+                    let server_side = matches!(
+                        code,
+                        ServiceUnavailable
+                            | ServerUnavailable
+                            | ServerBusy
+                            | QuotaExceeded
+                            | ConnectionRateExceeded
+                            | UseAnotherServer
+                            | ServerMoved
+                            | UnspecifiedError
+                            | ImplementationSpecificError
+                    );
+                    connection_refused(code, server_side)
+                }
+                rumqttc::v5::ConnectionError::Tls(err) => tls_error(err),
+                err => to_anyhow(err).into(),
+            })? {
                 Self::Event::Incoming(V5Incoming::ConnAck(_)) => return Ok(()),
                 Self::Event::Incoming(V5Incoming::Disconnect(disconnect)) => {
                     return Err(Error::BadConfig(convert_disconnect_packet_into_string(
@@ -169,7 +206,7 @@ impl EventLoop for V5EventLoop {
             }
         }
 
-        Err(Error::BadConfig(format!(
+        Err(transient_error(format!(
             "Timeout occurred while trying to connect to mqtt broker after {} seconds",
             TIMEOUT_DURATION
         )))
@@ -189,13 +226,21 @@ impl EventLoop for V3EventLoop {
         let start = std::time::Instant::now();
 
         while start.elapsed() < CONNECTION_TIMEOUT {
-            match self.poll().await.map_err(to_anyhow)? {
+            match self.poll().await.map_err(|err| match err {
+                rumqttc::ConnectionError::ConnectionRefused(code) => {
+                    let server_side =
+                        matches!(code, rumqttc::ConnectReturnCode::ServiceUnavailable);
+                    connection_refused(code, server_side)
+                }
+                rumqttc::ConnectionError::Tls(err) => tls_error(err),
+                err => to_anyhow(err).into(),
+            })? {
                 Self::Event::Incoming(rumqttc::Packet::ConnAck(_)) => return Ok(()),
                 _ => continue,
             }
         }
 
-        Err(Error::BadConfig(format!(
+        Err(transient_error(format!(
             "Timeout occurred while trying to connect to mqtt broker after {} seconds",
             TIMEOUT_DURATION
         )))
@@ -208,7 +253,7 @@ async fn handle_event<T, E, H>(
     listening_trigger: &ListeningTrigger<T::TriggerConfig>,
     handler: H,
     mut event_loop: E,
-) -> ()
+) -> Error
 where
     T: Listener,
     H: MqttEvent,
@@ -249,12 +294,12 @@ where
                 }
             }
             Err(err) => {
-                let error = err.to_string();
-                tracing::debug!("Error: {}", &err);
-                listener
-                    .disable_with_error(db, listening_trigger, error)
-                    .await;
-                return;
+                tracing::warn!(
+                    "MQTT trigger {} event loop error, reconnecting: {}",
+                    listening_trigger.path,
+                    err
+                );
+                return err;
             }
         }
     }

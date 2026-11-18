@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_experiment_case c\n         SET output = COALESCE(c.output, t.output), answered = COALESCE(c.answered, t.answered),\n             status = COALESCE(c.status, t.status)\n         FROM UNNEST($2::int[], $3::text[], $4::bool[], $5::text[])\n              AS t(ordinal, output, answered, status)\n         WHERE c.experiment_id = $1 AND c.ordinal = t.ordinal",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4Array",
+        "TextArray",
+        "BoolArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f0e943244b125d0c42a9b472701ec172af9dd334786275c391e80f1c38bbb45b"
+}

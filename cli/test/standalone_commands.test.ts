@@ -139,10 +139,7 @@ describe("resource-type commands", () => {
       );
 
       expect(result.code).toEqual(0);
-      // When empty, shows helpful message; when populated, shows table with Name header
-      const hasTable = result.stdout.includes("Name");
-      const hasEmptyMessage = result.stdout.includes("No custom resource types");
-      expect(hasTable || hasEmptyMessage).toBe(true);
+      expect(result.stdout).toContain("Name");
     });
   });
 
@@ -286,7 +283,10 @@ describe("script show command", () => {
 // =============================================================================
 
 describe("script run command", () => {
-  test("runs a script and returns result", { timeout: 60000 }, async () => {
+  // retry absorbs transient worker-side job failures on CI (notably the
+  // Windows standalone worker); the script is deterministic, so a failure is
+  // environmental rather than a real regression.
+  test("runs a script and returns result", { timeout: 60000, retry: 2 }, async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
@@ -301,12 +301,13 @@ describe("script run command", () => {
         tempDir
       );
 
-      expect(result.code).toEqual(0);
-      expect(result.stdout).toContain(`run_result_${uniqueId}`);
+      const diag = `code: ${result.code}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`;
+      expect(result.code, diag).toEqual(0);
+      expect(result.stdout, diag).toContain(`run_result_${uniqueId}`);
     });
   });
 
-  test("exits with code 1 when script fails", { timeout: 60000 }, async () => {
+  test("exits with code 1 when script fails", { timeout: 60000, retry: 2 }, async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 

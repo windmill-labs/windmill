@@ -1,27 +1,27 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import type { NativeTriggerKind } from './types'
-	import {
-		EmailTriggerService,
-		GcpTriggerService,
-		KafkaTriggerService,
-		MqttTriggerService,
-		NatsTriggerService,
-		PostgresTriggerService,
-		ScheduleService,
-		SqsTriggerService
-	} from '$lib/gen'
+	import type { NativeTriggerKind, PipelineTriggerDraftKind } from './types'
+	import type { Schedule } from '$lib/gen'
+	import { deleteTriggerRow } from './pipelineTriggerDraftDeploy'
 	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
 	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
+	import AmqpTriggerEditor from '$lib/components/triggers/amqp/AmqpTriggerEditor.svelte'
 	import NatsTriggerEditor from '$lib/components/triggers/nats/NatsTriggerEditor.svelte'
 	import PostgresTriggerEditor from '$lib/components/triggers/postgres/PostgresTriggerEditor.svelte'
 	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
 	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
 	import EmailTriggerEditor from '$lib/components/triggers/email/EmailTriggerEditor.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
+	import {
+		loadDefaultScheduleAdvanced,
+		scheduleAdvancedCfg
+	} from '$lib/components/triggers/schedules/ScheduleAdvancedOptions.svelte'
 	import WebhookEditor from '$lib/components/triggers/webhook/WebhookEditor.svelte'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// Owns the native-trigger drawer wiring for the pipeline canvas: the nine
 	// editor instances, the create/edit dispatch by kind, and the delete
@@ -34,11 +34,15 @@
 	// (matching the previous `{#if mode === 'edit'}` wrapper). The webhook
 	// editor stays mounted in every mode — its node is clickable in view mode
 	// too (informational endpoint URLs/token).
-	type Props = { onUpdate: () => void; mountTriggerEditors: boolean }
-	let { onUpdate, mountTriggerEditors }: Props = $props()
+	type Props = { onUpdate: () => void; mountTriggerEditors: boolean; workspace?: string }
+	let { onUpdate, mountTriggerEditors, workspace: triggerWorkspace }: Props = $props()
+
+	// The nine editors below act on this workspace (see operatingWorkspace.svelte.ts).
+	setOperatingWorkspace(() => triggerWorkspace)
 
 	let kafkaEditor: KafkaTriggerEditor | undefined = $state()
 	let mqttEditor: MqttTriggerEditor | undefined = $state()
+	let amqpEditor: AmqpTriggerEditor | undefined = $state()
 	let natsEditor: NatsTriggerEditor | undefined = $state()
 	let postgresEditor: PostgresTriggerEditor | undefined = $state()
 	let sqsEditor: SqsTriggerEditor | undefined = $state()
@@ -58,6 +62,8 @@
 				return kafkaEditor?.openNew(false, scriptPath)
 			case 'mqtt':
 				return mqttEditor?.openNew(false, scriptPath)
+			case 'amqp':
+				return amqpEditor?.openNew(false, scriptPath)
 			case 'nats':
 				return natsEditor?.openNew(false, scriptPath)
 			case 'postgres':
@@ -82,6 +88,8 @@
 				return kafkaEditor?.openEdit(triggerPath, false, scriptPath)
 			case 'mqtt':
 				return mqttEditor?.openEdit(triggerPath, false, scriptPath)
+			case 'amqp':
+				return amqpEditor?.openEdit(triggerPath, false, scriptPath)
 			case 'nats':
 				return natsEditor?.openEdit(triggerPath, false, scriptPath)
 			case 'postgres':
@@ -94,6 +102,57 @@
 				return emailEditor?.openEdit(triggerPath, false, scriptPath)
 			default:
 				return
+		}
+	}
+
+	/** The kind's full editor over a pipeline-local draft; Save hands the config back,
+	 * and the drawer stays open when `onSave` refuses it.
+	 * `saved` is the draft being edited (absent for a new one), applied over `defaults`. */
+	export function openTriggerDraft(
+		kind: PipelineTriggerDraftKind,
+		scriptPath: string,
+		defaults: Record<string, any>,
+		saved: Record<string, any> | undefined,
+		onSave: (cfg: Record<string, any>) => boolean
+	) {
+		switch (kind) {
+			case 'schedule': {
+				// A new draft starts from the workspace's default handlers, like a new
+				// schedule does; the drawer only applies them when it opens without one.
+				const open = (advanced: Record<string, any>) =>
+					scheduleEditor?.openDraft(
+						{
+							is_flow: false,
+							args: {},
+							...advanced,
+							...defaults,
+							...saved,
+							script_path: scriptPath
+						} as Schedule,
+						onSave
+					)
+				const workspace = triggerWorkspace ?? $operatingWorkspace
+				if (saved || !workspace) return open({})
+				return loadDefaultScheduleAdvanced(workspace)
+					.then((a) => open(scheduleAdvancedCfg(a)))
+					.catch(() => open({}))
+			}
+			case 'kafka':
+				return kafkaEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'mqtt':
+				return mqttEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'amqp':
+				return amqpEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'nats':
+				return natsEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'postgres':
+				return postgresEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'sqs':
+				return sqsEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'gcp':
+				return gcpEditor?.openDraft(scriptPath, defaults, saved, onSave)
+			case 'email':
+				return emailEditor?.openDraft(scriptPath, defaults, saved, onSave)
 		}
 	}
 
@@ -115,39 +174,12 @@
 	}
 
 	async function confirmDeleteAttachedTrigger() {
-		if (!triggerDeleteTarget || !$workspaceStore) return
+		const workspace = triggerWorkspace ?? $operatingWorkspace
+		if (!triggerDeleteTarget || !workspace) return
 		const { kind, path: triggerPath } = triggerDeleteTarget
-		const workspace = $workspaceStore
 		triggerDeleteLoading = true
 		try {
-			switch (kind) {
-				case 'schedule':
-					await ScheduleService.deleteSchedule({ workspace, path: triggerPath })
-					break
-				case 'kafka':
-					await KafkaTriggerService.deleteKafkaTrigger({ workspace, path: triggerPath })
-					break
-				case 'mqtt':
-					await MqttTriggerService.deleteMqttTrigger({ workspace, path: triggerPath })
-					break
-				case 'nats':
-					await NatsTriggerService.deleteNatsTrigger({ workspace, path: triggerPath })
-					break
-				case 'postgres':
-					await PostgresTriggerService.deletePostgresTrigger({ workspace, path: triggerPath })
-					break
-				case 'sqs':
-					await SqsTriggerService.deleteSqsTrigger({ workspace, path: triggerPath })
-					break
-				case 'gcp':
-					await GcpTriggerService.deleteGcpTrigger({ workspace, path: triggerPath })
-					break
-				case 'email':
-					await EmailTriggerService.deleteEmailTrigger({ workspace, path: triggerPath })
-					break
-				default:
-					return
-			}
+			if (!(await deleteTriggerRow(kind, triggerPath, workspace))) return
 			sendUserToast(`Deleted ${kind} trigger "${triggerPath}"`)
 			triggerDeleteTarget = undefined
 			onUpdate()
@@ -190,6 +222,7 @@
 	     gated off the canvas outside edit mode. -->
 	<KafkaTriggerEditor bind:this={kafkaEditor} {onUpdate} />
 	<MqttTriggerEditor bind:this={mqttEditor} {onUpdate} />
+	<AmqpTriggerEditor bind:this={amqpEditor} {onUpdate} />
 	<NatsTriggerEditor bind:this={natsEditor} {onUpdate} />
 	<PostgresTriggerEditor bind:this={postgresEditor} {onUpdate} />
 	<SqsTriggerEditor bind:this={sqsEditor} {onUpdate} />

@@ -208,6 +208,7 @@ export async function pushProtectionRules(
             rules: n.rules,
             bypass_groups: n.bypass_groups,
             bypass_users: n.bypass_users,
+            fork_role_mapping: n.fork_role_mapping ?? {},
           },
         });
         applied.created++;
@@ -221,6 +222,7 @@ export async function pushProtectionRules(
             rules: n.rules,
             bypass_groups: n.bypass_groups,
             bypass_users: n.bypass_users,
+            fork_role_mapping: n.fork_role_mapping ?? {},
           },
         });
         applied.updated++;

@@ -47,7 +47,8 @@
                 "trigger_nextcloud",
                 "trigger_google",
                 "trigger_github",
-                "data_pipeline"
+                "data_pipeline",
+                "trigger_amqp"
               ]
             }
           }

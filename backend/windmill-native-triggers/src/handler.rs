@@ -1,7 +1,11 @@
 use crate::{
-    decrypt_oauth_data, delete_native_trigger, delete_token_by_hash, get_native_trigger,
-    list_native_triggers, rotate_webhook_token, store_native_trigger, update_native_trigger_error,
-    webhook_token_label, External, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
+    classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_token_by_hash,
+    get_native_trigger, list_native_triggers, list_usable_connections, lock::TriggerLock,
+    lock_connection, map_external_error, map_external_error_with, resolve_usable_connection,
+    rotate_webhook_token, set_native_trigger_enabled, store_native_trigger,
+    sync::EXTERNAL_TRIGGER_MISSING_ERROR, update_native_trigger_error,
+    update_native_trigger_if_runnable_unchanged, webhook_token_label, webhook_token_scopes,
+    External, ExternalReadFailure, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
     ServiceName,
 };
 use axum::{
@@ -13,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use std::sync::Arc;
 use windmill_api_auth::{
-    check_scopes, create_token_internal, require_is_writer, ApiAuthed, NewToken,
+    build_scope_path_filter, check_scopes, create_token_internal, require_is_writer, ApiAuthed,
+    NewToken,
 };
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
@@ -52,6 +57,51 @@ async fn require_is_writer_on_runnable(
     }
 }
 
+/// A trigger may only point at a live runnable.
+///
+/// The webhook URL is built from this path, so a trigger pointed at a path the runnable has left
+/// keeps delivering there: for a flow the row is gone and the trigger vanishes from listings,
+/// for a script the abandoned version is still resolvable and fires stale code indefinitely. A
+/// client that loaded before a rename submits the old path in good faith, so this needs no
+/// concurrency to happen. The writer checks above do not cover it: they return early for admins
+/// and path owners without ever looking at the runnable.
+async fn require_runnable_exists(db: &DB, w_id: &str, path: &str, is_flow: bool) -> Result<()> {
+    let exists = if is_flow {
+        sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)",
+            path,
+            w_id
+        )
+        .fetch_one(db)
+        .await?
+    } else {
+        // Renaming a script archives the version at the old path instead of removing it, so a
+        // plain existence check would still accept a path the script has moved off. Every deploy
+        // archives its parent, leaving exactly one non-archived version at a live path and none
+        // at an abandoned one. Soft-delete sets `archived` too, and `deleted` is checked because
+        // it, not `archived`, is what stops a version from being resolved for execution.
+        sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND archived = false AND deleted = false)",
+            path,
+            w_id
+        )
+        .fetch_one(db)
+        .await?
+    };
+
+    if exists.unwrap_or(false) {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(format!(
+            "There is no {kind} at {path} to trigger. If the {kind} was renamed since this page \
+             was loaded, reload and try again; otherwise point this trigger at an existing {kind} \
+             or delete it.",
+            kind = if is_flow { "flow" } else { "script" }
+        )))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     pub page: Option<usize>,
@@ -65,6 +115,10 @@ pub struct FullTriggerResponse<T: Serialize> {
     #[serde(flatten)]
     pub windmill_data: NativeTrigger,
     pub external_data: Option<T>,
+    /// Why `external_data` is missing, when the service could not be read. The stored
+    /// configuration is still returned so the trigger stays viewable and editable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -72,7 +126,7 @@ pub struct CreateTriggerResponse {
     pub external_id: String,
 }
 
-async fn new_webhook_token(
+pub(crate) async fn new_webhook_token(
     tx: &mut PgConnection,
     db: &DB,
     authed: &ApiAuthed,
@@ -81,9 +135,7 @@ async fn new_webhook_token(
     workspace_id: &str,
     service_name: ServiceName,
 ) -> Result<String> {
-    let kind = if is_flow { "flows" } else { "scripts" };
-
-    let scopes = vec![format!("jobs:run:{kind}:{script_path}")];
+    let scopes = webhook_token_scopes(script_path, is_flow);
     let label = webhook_token_label(service_name);
     let expiration = service_name
         .webhook_token_expiration()
@@ -121,6 +173,7 @@ async fn create_native_trigger<T: External>(
         db.clone(),
     )
     .await?;
+    require_runnable_exists(&db, &workspace_id, &data.script_path, data.is_flow).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -135,9 +188,21 @@ async fn create_native_trigger<T: External>(
     )
     .await?;
 
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
+    let connection_path = resolve_usable_connection(
+        &db,
+        &mut tx,
+        &workspace_id,
+        service_name.integration_service(),
+        data.connection_path.as_deref(),
+    )
+    .await?;
+    let oauth_data: T::OAuthData = decrypt_oauth_data(
+        &db,
+        &workspace_id,
+        service_name.integration_service(),
+        Some(&connection_path),
+    )
+    .await?;
 
     let resp = handler
         .create(
@@ -148,7 +213,8 @@ async fn create_native_trigger<T: External>(
             &db,
             &mut tx,
         )
-        .await?;
+        .await
+        .map_err(map_external_error)?;
 
     let (external_id, _) = handler.external_id_and_metadata_from_response(&resp);
 
@@ -169,7 +235,8 @@ async fn create_native_trigger<T: External>(
                     &db,
                     &mut tx,
                 )
-                .await?
+                .await
+                .map_err(map_external_error)?
         };
 
     let config = NativeTriggerConfig {
@@ -177,6 +244,23 @@ async fn create_native_trigger<T: External>(
         is_flow: data.is_flow,
         webhook_token,
     };
+
+    lock_connection(&mut tx, &workspace_id, &connection_path).await?;
+    // Through `db`: a member using the workspace connection cannot read its variable.
+    let still_connected = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2)",
+        workspace_id,
+        connection_path,
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if !still_connected {
+        return Err(Error::BadRequest(format!(
+            "{connection_path} was disconnected while this trigger was being created. Its \
+             registration on {service_name} may remain; connect an account and create it again."
+        )));
+    }
 
     store_native_trigger(
         &mut *tx,
@@ -186,6 +270,8 @@ async fn create_native_trigger<T: External>(
         &config,
         service_config,
         data.summary.as_deref(),
+        data.enabled,
+        &connection_path,
     )
     .await?;
 
@@ -225,16 +311,42 @@ async fn update_native_trigger_handler<T: External>(
         db.clone(),
     )
     .await?;
+    require_runnable_exists(&db, &workspace_id, &data.script_path, data.is_flow).await?;
 
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
+    let lock = TriggerLock::acquire(&db, &workspace_id, service_name, &external_id).await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
 
     let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)
         .await?
         .ok_or_else(|| Error::NotFound(format!("Native trigger not found: {}", external_id)))?;
+
+    check_scopes(&authed, || {
+        format!("native_triggers:write:{}", &existing.script_path)
+    })?;
+    require_is_writer_on_runnable(
+        &authed,
+        &existing.script_path,
+        existing.is_flow,
+        &workspace_id,
+        db.clone(),
+    )
+    .await?;
+
+    // Saving re-registers the webhook as the connection's account, so the editor must be allowed
+    // to act as it, not just to write the runnable.
+    let integration_service = service_name.integration_service();
+    if let Some(path) = existing.connection_path.as_deref() {
+        resolve_usable_connection(&db, &mut tx, &workspace_id, integration_service, Some(path))
+            .await?;
+    }
+    let oauth_data: T::OAuthData = decrypt_oauth_data(
+        &db,
+        &workspace_id,
+        integration_service,
+        existing.connection_path.as_deref(),
+    )
+    .await?;
 
     let runnable_changed =
         existing.script_path != data.script_path || existing.is_flow != data.is_flow;
@@ -260,7 +372,14 @@ async fn update_native_trigger_handler<T: External>(
         token
     } else {
         // Same runnable — rotate the token (mints a fresh label + expiration)
-        match rotate_webhook_token(&db, &existing.webhook_token_hash, service_name).await? {
+        match rotate_webhook_token(
+            &db,
+            &existing.webhook_token_hash,
+            service_name,
+            webhook_token_scopes(&data.script_path, data.is_flow),
+        )
+        .await?
+        {
             Some(rotated) => {
                 old_token_hash_to_delete = Some(rotated.old_token_hash);
                 rotated.new_token
@@ -294,7 +413,8 @@ async fn update_native_trigger_handler<T: External>(
             &db,
             &mut tx,
         )
-        .await?;
+        .await
+        .map_err(map_external_error)?;
 
     let config = NativeTriggerConfig {
         script_path: data.script_path.clone(),
@@ -302,7 +422,11 @@ async fn update_native_trigger_handler<T: External>(
         webhook_token,
     };
 
-    store_native_trigger(
+    // `existing` was read before the network call, and a rename writes `script_path` from the
+    // deploy transaction, which this lock does not cover. Writing a stale path back would undo the
+    // rename and drop the trigger out of every listing, so refuse the edit instead. The rename's
+    // own re-registration is queued behind this lock and puts the service back in step.
+    let applied = update_native_trigger_if_runnable_unchanged(
         &mut *tx,
         &workspace_id,
         service_name,
@@ -310,8 +434,17 @@ async fn update_native_trigger_handler<T: External>(
         &config,
         service_config,
         data.summary.as_deref(),
+        &existing.script_path,
+        existing.is_flow,
     )
     .await?;
+
+    if !applied {
+        return Err(Error::BadRequest(format!(
+            "The runnable of {external_id} was renamed while this trigger was being saved, so the \
+             edit was not applied. Reload and save again."
+        )));
+    }
 
     audit_log(
         &mut *tx,
@@ -325,6 +458,8 @@ async fn update_native_trigger_handler<T: External>(
     .await?;
 
     tx.commit().await?;
+
+    lock.release().await?;
 
     // Everything succeeded — clean up old token (best-effort)
     if let Some(old_hash) = old_token_hash_to_delete {
@@ -365,18 +500,51 @@ async fn get_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
+    // Reading the registration acts as the connection's account, like saving does.
+    let usable = match windmill_trigger.connection_path.as_deref() {
+        Some(path) => list_usable_connections(
+            &db,
+            &mut tx,
+            &workspace_id,
+            service_name.integration_service(),
+        )
+        .await?
+        .iter()
+        .any(|c| c.path == path),
+        None => false,
+    };
+    if !usable {
+        tx.commit().await?;
+        return Ok(Json(FullTriggerResponse {
+            windmill_data: windmill_trigger,
+            external_data: None,
+            external_error: Some(format!(
+                "You cannot use this trigger's {service_name} connection, so its registration was \
+                 not read."
+            )),
+        }));
+    }
+
+    let oauth_data: T::OAuthData = decrypt_oauth_data(
+        &db,
+        &workspace_id,
+        service_name.integration_service(),
+        windmill_trigger.connection_path.as_deref(),
+    )
+    .await?;
 
     let native_trigger = handler
         .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
         .await;
 
+    let mut external_error = None;
+
     let external_data = match native_trigger {
         Ok(Some(native_cfg)) => {
-            // Clear error if it was set
-            if windmill_trigger.error.is_some() {
+            // Only the "no longer exists" error is disproven by the trigger being there; other
+            // paths record failures (e.g. a webhook still aimed at a pre-rename path) that a
+            // successful fetch says nothing about.
+            if windmill_trigger.error.as_deref() == Some(EXTERNAL_TRIGGER_MISSING_ERROR) {
                 update_native_trigger_error(
                     &mut *tx,
                     &workspace_id,
@@ -389,33 +557,54 @@ async fn get_native_trigger_handler<T: External>(
             Some(native_cfg)
         }
         Ok(None) => None,
-        Err(Error::NotFound(_)) => {
-            let error_msg = "Trigger no longer exists on external service".to_string();
-            tracing::warn!(
-                "Native trigger no longer exists on external service {}, setting error",
-                service_name
-            );
+        Err(e) => match classify_read_failure(e) {
+            ExternalReadFailure::Missing => {
+                let error_msg = EXTERNAL_TRIGGER_MISSING_ERROR.to_string();
+                tracing::warn!(
+                    "Native trigger no longer exists on external service {}, setting error",
+                    service_name
+                );
 
-            update_native_trigger_error(
-                &mut *tx,
-                &workspace_id,
-                service_name,
-                &external_id,
-                Some(&error_msg),
-            )
-            .await?;
+                update_native_trigger_error(
+                    &mut *tx,
+                    &workspace_id,
+                    service_name,
+                    &external_id,
+                    Some(&error_msg),
+                )
+                .await?;
 
-            tx.commit().await?;
+                tx.commit().await?;
 
-            return Err(Error::NotFound(format!(
-                "Trigger '{}' no longer exists on external service {}",
-                external_id, service_name
-            )));
-        }
-        Err(e) => return Err(e),
+                return Err(Error::NotFound(format!(
+                    "Trigger '{}' no longer exists on external service {}",
+                    external_id, service_name
+                )));
+            }
+            // The service being unreadable says nothing about the trigger Windmill stores, and
+            // failing here would leave the editor with no configuration to show at all. Report
+            // what the service said alongside the stored configuration instead.
+            ExternalReadFailure::Unreadable(message) => {
+                tracing::warn!(
+                    "Could not read trigger '{}' from {}, returning the stored configuration: {}",
+                    external_id,
+                    service_name,
+                    message
+                );
+                external_error = Some(message);
+                None
+            }
+            ExternalReadFailure::Internal(e) => return Err(e),
+        },
     };
 
-    let full_resp = Json(FullTriggerResponse { windmill_data: windmill_trigger, external_data });
+    tx.commit().await?;
+
+    let full_resp = Json(FullTriggerResponse {
+        windmill_data: windmill_trigger,
+        external_data,
+        external_error,
+    });
 
     Ok(full_resp)
 }
@@ -428,6 +617,8 @@ async fn delete_native_trigger_handler<T: External>(
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, external_id)): Path<(String, String)>,
 ) -> Result<String> {
+    let lock = TriggerLock::acquire(&db, &workspace_id, service_name, &external_id).await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)
@@ -446,13 +637,35 @@ async fn delete_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
-
-    handler
-        .delete(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
-        .await?;
+    // A connection can be deleted from under its triggers. Without it the registration cannot be
+    // removed, but deleting the row still revokes the webhook token, so the service's deliveries
+    // stop starting jobs; refusing would leave a trigger nobody can remove.
+    match decrypt_oauth_data::<T::OAuthData>(
+        &db,
+        &workspace_id,
+        service_name.integration_service(),
+        existing.connection_path.as_deref(),
+    )
+    .await
+    {
+        Ok(oauth_data) => handler
+            .delete(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
+            .await
+            .map_err(|e| {
+                map_external_error_with(e, |m| {
+                    let end = if m.ends_with(['.', '!', '?']) {
+                        ""
+                    } else {
+                        "."
+                    };
+                    format!("{m}{end} The trigger was kept in Windmill, so it can still fire.")
+                })
+            })?,
+        Err(e @ (Error::NotFound(_) | Error::BadRequest(_))) => tracing::warn!(
+            "Deleting {service_name} trigger {external_id} without removing its registration: {e}"
+        ),
+        Err(e) => return Err(e),
+    }
 
     let deleted =
         delete_native_trigger(&mut *tx, &workspace_id, service_name, &external_id).await?;
@@ -482,8 +695,90 @@ async fn delete_native_trigger_handler<T: External>(
     .await?;
 
     tx.commit().await?;
+    lock.release().await?;
 
     Ok(format!("Native trigger deleted"))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetEnabledPayload {
+    pub enabled: bool,
+}
+
+/// Pause or resume a trigger, without touching its registration on the external service.
+///
+/// Leaving the webhook registered is what makes this reversible: services drop or deactivate a
+/// subscription that keeps failing, so a paused trigger keeps answering deliveries normally and
+/// simply starts no job.
+async fn set_native_trigger_enabled_handler<T: External>(
+    Extension(service_name): Extension<ServiceName>,
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((workspace_id, external_id)): Path<(String, String)>,
+    Json(payload): Json<SetEnabledPayload>,
+) -> Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Native trigger not found: {}", external_id)))?;
+
+    check_scopes(&authed, || {
+        format!("native_triggers:write:{}", &existing.script_path)
+    })?;
+    require_is_writer_on_runnable(
+        &authed,
+        &existing.script_path,
+        existing.is_flow,
+        &workspace_id,
+        db.clone(),
+    )
+    .await?;
+
+    let updated = set_native_trigger_enabled(
+        &mut *tx,
+        &workspace_id,
+        service_name,
+        &external_id,
+        payload.enabled,
+    )
+    .await?;
+
+    // The read above takes no row lock, so a concurrent delete can land in between; reporting
+    // success then would tell the caller a trigger that is gone had been paused.
+    if !updated {
+        return Err(Error::NotFound(format!(
+            "Native trigger not found: {}",
+            external_id
+        )));
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        &format!(
+            "native_triggers.{}.{}",
+            service_name,
+            if payload.enabled { "enable" } else { "disable" }
+        ),
+        ActionKind::Update,
+        &workspace_id,
+        Some(&external_id),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "Native trigger {}",
+        if payload.enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    ))
 }
 
 async fn list_native_triggers_handler<T: External>(
@@ -502,6 +797,7 @@ async fn list_native_triggers_handler<T: External>(
         query.per_page,
         query.path.as_deref(),
         query.is_flow,
+        build_scope_path_filter(&authed, "native_triggers", "read"),
     )
     .await?;
     tx.commit().await?;
@@ -525,6 +821,10 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
         .route(
             "/delete/{external_id}",
             delete(delete_native_trigger_handler::<T>),
+        )
+        .route(
+            "/setenabled/{external_id}",
+            post(set_native_trigger_enabled_handler::<T>),
         );
 
     standard_routes

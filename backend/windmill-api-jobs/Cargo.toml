@@ -7,6 +7,8 @@ edition.workspace = true
 [lib]
 name = "windmill_api_jobs"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
@@ -15,6 +17,7 @@ enterprise = ["windmill-common/enterprise"]
 [dependencies]
 windmill-api-auth.workspace = true
 windmill-api-sse.workspace = true
+windmill-audit.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-queue.workspace = true
 axum.workspace = true

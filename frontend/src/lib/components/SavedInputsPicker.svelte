@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, type RunnableType } from '$lib/gen/index.js'
-	import { userStore, workspaceStore } from '$lib/stores.js'
+	import { userStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { Trash2, Save, Pencil } from 'lucide-svelte'
@@ -12,6 +12,14 @@
 	import InfiniteList from './InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import SavedInputsPickerViewer from './SavedInputsPickerViewer.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		previewArgs?: any
@@ -21,6 +29,8 @@
 		noButton?: boolean
 		jsonView?: boolean
 		limitPayloadSize?: boolean
+		/** Workspace to read/write saved inputs from; defaults to the nav workspace. */
+		workspace?: string
 	}
 
 	let {
@@ -30,8 +40,11 @@
 		isValid = false,
 		noButton = false,
 		jsonView = false,
-		limitPayloadSize = false
+		limitPayloadSize = false,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -58,7 +71,7 @@
 
 		try {
 			await InputService.updateInput({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				requestBody: {
 					id: input.id,
 					name: input.name,
@@ -76,7 +89,7 @@
 	function initLoadInputs() {
 		const loadInputsPageFn = async (page: number, perPage: number) => {
 			const inputs = await InputService.listInputs({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				runnableId,
 				runnableType,
 				page,
@@ -104,7 +117,7 @@
 
 		const deleteInputFn = async (id: string) => {
 			await InputService.deleteInput({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				input: id
 			})
 		}
@@ -119,7 +132,7 @@
 		if (!id) return
 		return await InputService.getArgsFromHistoryOrSavedInput({
 			jobOrInputId: id,
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			input,
 			allowLarge
 		})
@@ -198,7 +211,7 @@
 	}
 
 	$effect(() => {
-		$workspaceStore &&
+		ws &&
 			runnableId &&
 			runnableType &&
 			(infiniteList && untrack(() => initLoadInputs()), (draft = false))
@@ -222,6 +235,7 @@
 					{runnableId}
 					{runnableType}
 					args={previewArgs ?? {}}
+					workspace={ws}
 					disabled={!previewArgs || !runnableId || !isValid || jsonView}
 					on:update={() => {
 						refresh()
@@ -248,8 +262,8 @@
 				{#snippet children({ item, hover })}
 					{@const editOptions =
 						item.created_by == $userStore?.username ||
-						$userStore?.is_admin ||
-						$userStore?.is_super_admin}
+						actingUser?.is_admin ||
+						actingUser?.is_super_admin}
 					<Cell>
 						<div class="center-center">
 							<Save size={12} />

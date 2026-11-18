@@ -13,6 +13,7 @@ import {
   renameCurrentGitBranch,
 } from "../../utils/git.ts";
 import process from "node:process";
+import { apiErrorMessage } from "../../utils/utils.ts";
 import { WM_FORK_PREFIX } from "../../core/constants.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
 import {
@@ -21,6 +22,38 @@ import {
   getWorkspaceNames,
   readConfigFile,
 } from "../../core/conf.ts";
+
+/** Wait for a fork creation started in the background, by the id its request answered with. */
+async function waitForForkCreation(parentWorkspace: string, creationId: string) {
+  let failingSince: number | undefined;
+  let lastStep: string | undefined;
+  while (true) {
+    let result:
+      | Awaited<ReturnType<typeof wmill.getForkCreationStatus>>
+      | undefined;
+    try {
+      result = await wmill.getForkCreationStatus({
+        workspace: parentWorkspace,
+        creationId,
+      });
+      failingSince = undefined;
+    } catch (e) {
+      // A failed poll says nothing about the fork: it can be lost to a proxy, or reach a replica
+      // that has no status route yet during a rolling deploy.
+      failingSince ??= Date.now();
+      if (Date.now() - failingSince >= 3 * 60 * 1000) throw e;
+    }
+    if (result?.status === "running" && result.step && result.step !== lastStep) {
+      lastStep = result.step;
+      log.info(colors.gray(`${lastStep}...`));
+    }
+    if (result?.status === "completed") return;
+    if (result?.status === "failed") {
+      throw new Error(result.error ?? "Unknown error");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+}
 
 async function createWorkspaceFork(
   opts: GlobalOptions & {
@@ -131,41 +164,6 @@ async function createWorkspaceFork(
     return;
   }
 
-  // When we're converting the current branch into the fork branch, default
-  // the fork's name/id to that branch — almost always what you want, and it
-  // keeps the fork branch named after the work you already have
-  // (wm-fork/<base>/<branch>). Interactive: pre-fill the prompt (press enter
-  // to accept). Non-interactive (`--yes`): use it automatically.
-  const branchDefaultId = renameCurrent ? branchToForkId(currentBranch) : undefined;
-  const interactive = process.stdin.isTTY && opts.yes !== true;
-
-  if (workspaceName === undefined) {
-    if (branchDefaultId && !interactive) {
-      workspaceName = branchDefaultId;
-      log.info(`Naming the fork after the current branch: \`${workspaceName}\``);
-    } else {
-      workspaceName = await Input.prompt({
-        message: "Name this forked workspace:",
-        default: branchDefaultId,
-      });
-    }
-  }
-
-  if (!workspaceId) {
-    // The id (unlike the display name) must be a valid slug — derive it from
-    // the name rather than using the free-form name verbatim.
-    const idDefault = branchToForkId(workspaceName);
-    if (branchDefaultId && !interactive) {
-      workspaceId = idDefault;
-    } else {
-      workspaceId = await Input.prompt({
-        message: `Enter the ID of this forked workspace, it will then be prefixed by ${WM_FORK_PREFIX}. It will also determine the branch name`,
-        default: idDefault,
-        suggestions: [idDefault],
-      });
-    }
-  }
-
   const token = workspace.token;
 
   if (!token) {
@@ -178,6 +176,62 @@ async function createWorkspaceFork(
     remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote
   );
 
+  // Default the fork's display name to "<parent>'s fork", using the parent
+  // workspace's actual name (fall back to the local profile name / id if the
+  // lookup fails). It's only a default — always overridable.
+  let parentName = workspace.name;
+  try {
+    const fetched = await wmill.getWorkspaceName({ workspace: workspace.workspaceId });
+    if (fetched) parentName = fetched;
+  } catch {
+    // Non-fatal: keep the local profile name / id as the fallback.
+  }
+  // Cap the auto default at the workspace.name limit (varchar(50)): a valid
+  // parent name can be up to 50 chars, so appending "'s fork" would otherwise
+  // push the default over the limit and trip the length guard below.
+  const forkSuffix = "'s fork";
+  const nameBase = parentName || workspace.workspaceId;
+  const defaultForkName =
+    nameBase.length + forkSuffix.length <= 50
+      ? `${nameBase}${forkSuffix}`
+      : `${nameBase.slice(0, 50 - forkSuffix.length).trimEnd()}${forkSuffix}`;
+
+  // The fork branch (and thus the id) stays named after the work you already
+  // have when converting the current branch into the fork branch
+  // (wm-fork/<base>/<branch>); the display name is independent.
+  const branchDefaultId = renameCurrent ? branchToForkId(currentBranch) : undefined;
+  const interactive = process.stdin.isTTY && opts.yes !== true;
+
+  if (workspaceName === undefined) {
+    if (interactive) {
+      workspaceName = await Input.prompt({
+        message: "Friendly name for the forked workspace (shown in the UI, may contain spaces):",
+        default: defaultForkName,
+      });
+    } else {
+      workspaceName = defaultForkName;
+      log.info(`Naming the fork \`${workspaceName}\` (override with the workspace_name argument).`);
+    }
+  }
+
+  if (!workspaceId) {
+    // The id must be a valid slug. Prefer the branch-derived id when renaming a
+    // working branch (keeps id/branch aligned). Otherwise slugify the name —
+    // but for the auto default name ("<parent>'s fork") slugify "<parent>-fork"
+    // instead, so the id/branch is `<parent>-fork` rather than `<parent>-s-fork`.
+    const idBasis = workspaceName === defaultForkName ? `${parentName}-fork` : workspaceName;
+    const idDefault = branchDefaultId ?? branchToForkId(idBasis);
+    if (interactive) {
+      workspaceId = await Input.prompt({
+        message: `Id for the forked workspace (a slug: no spaces or special characters). It will be prefixed with '${WM_FORK_PREFIX}-' and also determines the git branch name. The suggested default is normalized from the name (or the branch when converting one into the fork branch)`,
+        default: idDefault,
+        suggestions: [idDefault],
+      });
+    } else {
+      workspaceId = idDefault;
+    }
+  }
+
   log.info(colors.blue(`Creating forked workspace: ${workspaceName}...`));
 
   const trueWorkspaceId = `${WM_FORK_PREFIX}-${workspaceId}`;
@@ -186,6 +240,15 @@ async function createWorkspaceFork(
   // branch creation — a late backend rejection would leave cloned databases
   // behind.
   validateForkWorkspaceId(trueWorkspaceId);
+  // The workspace.name column is character varying(50); reject an over-long name
+  // up front (matching the name actually sent to the backend below) instead of
+  // failing late after databases are cloned and the git branch is created.
+  const effectiveName = opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId;
+  if (effectiveName.length > 50) {
+    throw new Error(
+      `Fork workspace name is too long (${effectiveName.length} chars; max 50). Choose a shorter name.`
+    );
+  }
   let alreadyExists = false;
   try {
     alreadyExists = await wmill.existsWorkspace({
@@ -209,6 +272,7 @@ async function createWorkspaceFork(
   interface ForkedDatatableInfo {
     name: string;
     new_dbname: string;
+    fork_behavior?: "schema_only" | "schema_and_data";
   }
   const forkedDatatables: ForkedDatatableInfo[] = [];
 
@@ -255,6 +319,23 @@ async function createWorkspaceFork(
 
         const newDbName = `${trueWorkspaceId.replace(/-/g, "_")}__${dt.name}`;
 
+        const forkBehavior = dtBehavior as "schema_only" | "schema_and_data";
+        // A server that reports `permissioned` copies each data table in the fork request itself,
+        // and refuses a database copied beforehand. An older one only takes a database copied here.
+        if (typeof dt.permissioned === "boolean") {
+          log.info(
+            colors.blue(
+              `  Datatable "${dt.name}" will be cloned (${forkBehavior === "schema_only" ? "schema" : "schema + data"}) into "${newDbName}" when the fork is created.`
+            )
+          );
+          forkedDatatables.push({
+            name: dt.name,
+            new_dbname: newDbName,
+            fork_behavior: forkBehavior,
+          });
+          continue;
+        }
+
         try {
           log.info(
             colors.blue(`  Creating database "${newDbName}" for datatable "${dt.name}"...`)
@@ -270,7 +351,7 @@ async function createWorkspaceFork(
 
           log.info(
             colors.blue(
-              `  Importing ${dtBehavior === "schema_only" ? "schema" : "schema + data"}...`
+              `  Importing ${forkBehavior === "schema_only" ? "schema" : "schema + data"}...`
             )
           );
 
@@ -280,7 +361,7 @@ async function createWorkspaceFork(
               source: `datatable://${dt.name}`,
               target: `datatable://${dt.name}`,
               target_dbname_override: newDbName,
-              fork_behavior: dtBehavior as "schema_only" | "schema_and_data",
+              fork_behavior: forkBehavior,
             },
           });
 
@@ -306,6 +387,8 @@ async function createWorkspaceFork(
         id: trueWorkspaceId,
         name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
         color: forkColor,
+        // So a clone the fork would refuse is refused before any branch is created.
+        forked_datatables: forkedDatatables,
       },
     });
     if (gitSyncJobIds && gitSyncJobIds.length > 0) {
@@ -326,8 +409,9 @@ async function createWorkspaceFork(
 
   // --- Create the fork workspace ---
   try {
-    const result = await wmill.createWorkspaceFork({
+    const response = await wmill.createWorkspaceFork({
       workspace: workspace.workspaceId,
+      background: true,
       requestBody: {
         id: trueWorkspaceId,
         name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
@@ -335,11 +419,17 @@ async function createWorkspaceFork(
         forked_datatables: forkedDatatables,
       },
     });
+    // A server without background forks ignores the flag and answers once the fork is created.
+    if (!response.startsWith("Created forked workspace")) {
+      await waitForForkCreation(workspace.workspaceId, response);
+    }
 
-    log.info(colors.green(`✅ ${result}`));
+    log.info(colors.green(`✅ Created forked workspace ${trueWorkspaceId}`));
   } catch (error) {
     log.error(
-      colors.red(`Failed to create forked workspace: ${(error as Error).message}`),
+      colors.red(
+        `Failed to create forked workspace: ${apiErrorMessage(error) ?? (error as Error).message}`,
+      ),
     );
     throw error;
   }
@@ -381,7 +471,7 @@ async function createWorkspaceFork(
 
   log.info(`${checkoutHint}
 
-When doing operations on the forked workspace, it will use the remote setup in the workspaces section for the branch it was forked from.
+While on the branch \`${newBranchName}\`, every wmill command (sync pull/push, script run, ...) automatically targets the fork workspace \`${trueWorkspaceId}\` — no --workspace flag or profile switch needed. The remote comes from the base branch \`${clonedBranchName}\`'s entry in wmill.yaml's workspaces section, and auth is reused from that workspace's saved profile.
 
 To merge changes back to the parent workspace, you can:
   - Use the CLI: ` + colors.white(`git checkout ${newBranchName} && wmill workspace merge`) + `

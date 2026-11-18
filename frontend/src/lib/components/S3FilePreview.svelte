@@ -5,10 +5,11 @@
 	// renderings without dragging in the whole picker UI.
 	//
 	// The component owns its own metadata + preview loads — callers only
-	// need to hand it a `fileKey`. CSV separator/header are local state so
-	// the user can re-preview the same file with different parsing flags.
+	// need to hand it a `fileKey`. CSV separator/header are local state (unless
+	// the caller passes `csvOptions`) so the user can re-preview the same file
+	// with different parsing flags.
+	import { untrack } from 'svelte'
 	import { FileX2, Loader2 } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
 	import {
 		HelpersService,
 		type CancelablePromise,
@@ -19,12 +20,22 @@
 	} from '$lib/gen'
 	import { displayDate, displaySize, emptyString } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		fileKey: string | undefined
 		// Optional override of the storage backend (matches the picker's
 		// `storage` prop). Empty/undefined uses the workspace default.
 		storage?: string | undefined
+		// Browse this object storage resource directly instead of the
+		// workspace storage (matches the picker's `s3ResourcePath` prop).
+		s3ResourcePath?: string | undefined
+		// Workspace the previewed object lives in — the acting workspace of the
+		// surface that opened the preview; defaults to the nav workspace.
+		workspace?: string | undefined
 		// Override hooks for non-default backends (e.g. workspace settings
 		// preview before the storage is committed). Default to the standard
 		// helpers service — same defaults as S3FilePickerInner.
@@ -37,6 +48,11 @@
 		// metadata out themselves (the picker already has its own).
 		showMetadata?: boolean
 		class?: string
+		/** CSV parsing options owned by the caller, which then renders its own controls:
+		 * the preview hides its own and reloads when these change. */
+		csvOptions?: { separator: string | undefined; hasHeader: boolean }
+		/** Merged onto the preview body, below the metadata strip. */
+		bodyClass?: string
 		// Bump this to force a re-fetch (metadata + preview). Used by the
 		// asset detail pane after an upstream producer run completes —
 		// without it, the "Asset not yet materialized" empty state stays
@@ -47,10 +63,14 @@
 	let {
 		fileKey,
 		storage = undefined,
+		s3ResourcePath = undefined,
+		workspace = undefined,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
 		loadFileMetadataRequest = HelpersService.loadFileMetadata,
 		showMetadata = false,
 		class: className = '',
+		bodyClass = '',
+		csvOptions = undefined,
 		refreshKey
 	}: Props = $props()
 
@@ -88,13 +108,17 @@
 
 	function isNotFoundError(err: any): boolean {
 		// HelpersService surfaces backend errors as ApiError with a `status`
-		// field plus a serialized body. We accept either a 404 status or a
-		// "not found" substring (case-insensitive) to be robust against
-		// future error wrapping changes.
+		// field plus a serialized body. A missing object arrives as a 500 that
+		// merely *says* "not found" (`load_file_metadata` wraps the object-store
+		// error), so the substring test carries this and cannot be dropped. 400
+		// must short-circuit ahead of it: those messages echo back a
+		// caller-supplied storage name, and one like `archive not found` would
+		// otherwise read as a missing object and hide the diagnostic.
 		const status = err?.status ?? err?.response?.status
 		if (status === 404) return true
+		if (status === 400) return false
 		const body = String(err?.body ?? err?.message ?? err ?? '').toLowerCase()
-		return body.includes('not found') || body.includes('404')
+		return body.includes('not found')
 	}
 
 	// Reload whenever the file key, workspace, or external refreshKey
@@ -102,11 +126,13 @@
 	// existence after an upstream run completes — moving from the
 	// "not yet materialized" empty state to the actual preview without
 	// requiring the user to re-click the asset.
+	let ws = $derived(workspace ?? $operatingWorkspace)
+
 	$effect(() => {
 		const key = fileKey
-		const ws = $workspaceStore
+		const ws_ = ws
 		void refreshKey
-		if (!key || !ws) {
+		if (!key || !ws_) {
 			fileMetadata = undefined
 			filePreview = undefined
 			notFound = false
@@ -128,9 +154,10 @@
 		loadError = undefined
 		try {
 			const meta = await loadFileMetadataRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				fileKey: key,
-				storage
+				storage,
+				s3ResourcePath
 			})
 			if (meta !== undefined) {
 				fileMetadata = {
@@ -157,15 +184,16 @@
 		filePreviewLoading = true
 		try {
 			const raw = await loadFilePreviewRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				fileKey: key,
 				fileSizeInBytes: size,
 				fileMimeType: mimeType,
-				csvSeparator: csvSeparatorChar,
-				csvHasHeader: csvHasHeader,
+				csvSeparator: csvOptions ? csvOptions.separator : csvSeparatorChar,
+				csvHasHeader: csvOptions?.hasHeader ?? csvHasHeader,
 				readBytesFrom: 0,
 				readBytesLength: 128 * 1024,
-				storage
+				storage,
+				s3ResourcePath
 			})
 			let content = raw.content
 			if (content !== null && content !== undefined && content.length >= 128 * 1024) {
@@ -190,14 +218,28 @@
 	}
 
 	// `storage` is keyed by the workspace's S3 storage config name — used as
-	// a query-string suffix on the image/PDF preview URLs.
-	let storageQS = $derived(storage ? `&storage=${storage}` : '')
+	// a query-string suffix on the image/PDF preview URLs, together with the
+	// optional custom resource override.
+	let storageQS = $derived(
+		(storage ? `&storage=${storage}` : '') +
+			(s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : '')
+	)
 
 	function onCsvControlsChanged() {
 		if (fileMetadata?.fileKey) {
 			void reloadPreview(fileMetadata.fileKey, fileMetadata.size, fileMetadata.mimeType)
 		}
 	}
+
+	// Skips the first run: the file load already fetches the preview with these options.
+	let lastCsvOptionsKey: string | undefined
+	$effect(() => {
+		const key = csvOptions ? `${csvOptions.separator}|${csvOptions.hasHeader}` : undefined
+		if (lastCsvOptionsKey !== undefined && key !== lastCsvOptionsKey) {
+			untrack(onCsvControlsChanged)
+		}
+		lastCsvOptionsKey = key
+	})
 </script>
 
 <div class={twMerge('flex flex-col h-full w-full overflow-auto text-xs', className)}>
@@ -208,7 +250,7 @@
 			{#if fileMetadata.lastModified}<span>{fileMetadata.lastModified}</span>{/if}
 		</div>
 	{/if}
-	<div class="flex-1 min-h-0 overflow-auto p-4 bg-surface-secondary">
+	<div class={twMerge('flex-1 min-h-0 overflow-auto p-4 bg-surface-secondary', bodyClass)}>
 		{#if !fileKey}
 			<div class="text-tertiary text-xs">No file selected.</div>
 		{:else if fileInfoLoading && !fileMetadata && !notFound && !loadError}
@@ -243,11 +285,12 @@
 			</div>
 		{:else if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
 			<div>
-				<img
-					src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+				<ExpandableImage
+					src={`/api/w/${ws}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
 						fileMetadata.fileKey
 					)}${storageQS}`}
 					alt="S3 preview"
+					title={fileMetadata.fileKey}
 				/>
 			</div>
 		{:else if fileMetadata?.fileKey.endsWith('.pdf')}
@@ -256,7 +299,7 @@
 					<Loader2 class="animate-spin" />
 				{:then Module}
 					<Module.default
-						source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+						source={`/api/w/${ws}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
 							fileMetadata.fileKey
 						)}${storageQS}`}
 					/>
@@ -267,32 +310,36 @@
 				<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
 			</div>
 		{:else if fileMetadata !== undefined && filePreview !== undefined}
-			<div class="flex items-center text-primary mb-4">
-				{#if filePreview.contentType === 'Unknown'}
+			{#if filePreview.contentType === 'Unknown'}
+				<div class="flex items-center text-primary mb-4">
 					Type of file not supported for preview.
-				{:else if filePreview.contentType === 'Csv'}
-					Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
-					<div class="inline-flex w-12 ml-2 mr-2">
-						<select class="h-8" bind:value={csvSeparatorChar} onchange={onCsvControlsChanged}>
-							<option value=",">,</option>
-							<option value=";">;</option>
-							<option value="\t">\t</option>
-							<option value="|">|</option>
-						</select>
-					</div>
-					Header row:
-					<div class="inline-flex item-center w-4 ml-2 mr-2">
-						<input
-							type="checkbox"
-							class="h-5"
-							bind:checked={csvHasHeader}
-							onchange={onCsvControlsChanged}
-						/>
-					</div>
-				{:else}
-					Previewing a {filePreview.contentType?.toLowerCase()} file.
-				{/if}
-			</div>
+				</div>
+			{:else if !csvOptions}
+				<div class="flex items-center text-primary mb-4">
+					{#if filePreview.contentType === 'Csv'}
+						Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
+						<div class="inline-flex w-12 ml-2 mr-2">
+							<select class="h-8" bind:value={csvSeparatorChar} onchange={onCsvControlsChanged}>
+								<option value=",">,</option>
+								<option value=";">;</option>
+								<option value="\t">\t</option>
+								<option value="|">|</option>
+							</select>
+						</div>
+						Header row:
+						<div class="inline-flex item-center w-4 ml-2 mr-2">
+							<input
+								type="checkbox"
+								class="h-5"
+								bind:checked={csvHasHeader}
+								onchange={onCsvControlsChanged}
+							/>
+						</div>
+					{:else}
+						Previewing a {filePreview.contentType?.toLowerCase()} file.
+					{/if}
+				</div>
+			{/if}
 			<pre class="grow whitespace-no-wrap break-words"
 				>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}</pre
 			>

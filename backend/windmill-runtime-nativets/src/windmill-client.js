@@ -4760,25 +4760,6 @@ var WorkspaceService = class {
     });
   }
   /**
-   * edit deploy to
-   * @param data The data for the request.
-   * @param data.workspace
-   * @param data.requestBody
-   * @returns string status
-   * @throws ApiError
-   */
-  static editDeployTo(data) {
-    return request(OpenAPI, {
-      method: "POST",
-      url: "/w/{workspace}/workspaces/edit_deploy_to",
-      path: {
-        workspace: data.workspace,
-      },
-      body: data.requestBody,
-      mediaType: "application/json",
-    });
-  }
-  /**
    * edit auto invite
    * @param data The data for the request.
    * @param data.workspace
@@ -6476,7 +6457,7 @@ var AppService = class {
    * @param data.workspace
    * @param data.path
    * @param data.requestBody update app
-   * @returns string app updated
+   * @returns AppDeployed the path the app now lives at and the version this deploy wrote
    * @throws ApiError
    */
   static updateApp(data) {

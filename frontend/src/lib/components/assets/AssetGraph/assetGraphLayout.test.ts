@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutAssetGraph } from './assetGraphLayout'
+import { layoutAssetGraph, wrapWideLayers } from './assetGraphLayout'
 import { NODE } from '$lib/components/graph/util'
 
 const NODE_WIDTH = NODE.width
@@ -38,7 +38,14 @@ describe('layoutAssetGraph (tidy-tree with join breaks)', () => {
 		// stays strictly left of every node of the right branch.
 		const pos = layoutAssetGraph({
 			nodes: [n('root'), n('a'), n('b'), n('a1'), n('a2'), n('a3'), n('b1')],
-			edges: [e('root', 'a'), e('root', 'b'), e('a', 'a1'), e('a', 'a2'), e('a', 'a3'), e('b', 'b1')]
+			edges: [
+				e('root', 'a'),
+				e('root', 'b'),
+				e('a', 'a1'),
+				e('a', 'a2'),
+				e('a', 'a3'),
+				e('b', 'b1')
+			]
 		})
 		const leftMax = Math.max(...['a', 'a1', 'a2', 'a3'].map((id) => pos.get(id)!.x))
 		const rightMin = Math.min(...['b', 'b1'].map((id) => pos.get(id)!.x))
@@ -83,14 +90,37 @@ describe('layoutAssetGraph (tidy-tree with join breaks)', () => {
 		}
 	})
 
-	it('falls back to a grid on cyclic input', () => {
+	it('lays a 2-cycle out as a chain (feedback edge dropped, no grid)', () => {
 		const pos = layoutAssetGraph({
 			nodes: [n('a'), n('b')],
 			edges: [e('a', 'b'), e('b', 'a')]
 		})
-		expect(pos.size).toBe(2)
-		expect(pos.get('a')).toBeDefined()
-		expect(pos.get('b')).toBeDefined()
+		// First-in-input wins the top slot; the b→a feedback edge is ignored.
+		expect(pos.get('a')!.y).toBeLessThan(pos.get('b')!.y)
+		expect(pos.get('a')!.x).toBe(pos.get('b')!.x)
+	})
+
+	it('keeps the acyclic part of a graph layered when one cycle exists', () => {
+		// root → a ⇄ b → leaf: the a⇄b cycle must not degrade root/leaf layering.
+		const pos = layoutAssetGraph({
+			nodes: [n('root'), n('a'), n('b'), n('leaf')],
+			edges: [e('root', 'a'), e('a', 'b'), e('b', 'a'), e('b', 'leaf')]
+		})
+		expect(pos.get('root')!.y).toBeLessThan(pos.get('a')!.y)
+		expect(pos.get('a')!.y).toBeLessThan(pos.get('b')!.y)
+		expect(pos.get('b')!.y).toBeLessThan(pos.get('leaf')!.y)
+		// A linear chain stays in one column.
+		expect(new Set(['root', 'a', 'b', 'leaf'].map((id) => pos.get(id)!.x)).size).toBe(1)
+	})
+
+	it('handles a longer cycle without dropping nodes', () => {
+		const pos = layoutAssetGraph({
+			nodes: [n('a'), n('b'), n('c')],
+			edges: [e('a', 'b'), e('b', 'c'), e('c', 'a')]
+		})
+		expect(pos.size).toBe(3)
+		const ys = ['a', 'b', 'c'].map((id) => pos.get(id)!.y)
+		expect(new Set(ys).size).toBe(3)
 	})
 
 	it('packs disjoint components side by side without overlap', () => {
@@ -116,5 +146,56 @@ describe('layoutAssetGraph (tidy-tree with join breaks)', () => {
 		for (const id of ['a', 'b']) {
 			expect(pos.get(id)!.y).toBeGreaterThan(anchor.y)
 		}
+	})
+
+	it('packs narrow nodes by their own width', () => {
+		const pos = layoutAssetGraph({
+			nodes: [
+				{ ...n('p'), width: 100 },
+				{ ...n('l'), width: 100 },
+				{ ...n('r'), width: 180 }
+			],
+			edges: [e('p', 'l'), e('p', 'r')]
+		})
+		const gap = pos.get('r')!.x - 90 - (pos.get('l')!.x + 50)
+		expect(gap).toBe(NODE.gap.horizontal)
+		expect(pos.get('l')!.x).toBe(50)
+	})
+})
+
+describe('wrapWideLayers', () => {
+	const layers = new Map([
+		['root', { x: 150, y: 0 }],
+		['a', { x: 0, y: 100 }],
+		['b', { x: 100, y: 100 }],
+		['c', { x: 200, y: 100 }],
+		['d', { x: 300, y: 100 }],
+		['leaf', { x: 150, y: 200 }]
+	])
+
+	it('leaves the layout alone without a limit, or when every layer fits', () => {
+		expect(wrapWideLayers(layers, undefined)).toBe(layers)
+		expect(wrapWideLayers(layers, 4)).toEqual(layers)
+	})
+
+	it('wraps a wide layer around its center and pushes later layers below the new rows', () => {
+		const pos = wrapWideLayers(layers, 2)
+		const step = pos.get('c')!.y - pos.get('a')!.y
+
+		expect(step).toBeGreaterThan(0)
+		expect(pos.get('root')).toEqual({ x: 150, y: 0 })
+		expect(pos.get('b')!.y).toBe(pos.get('a')!.y)
+		expect(pos.get('d')!.y).toBe(pos.get('c')!.y)
+		expect((pos.get('a')!.x + pos.get('b')!.x) / 2).toBe(150)
+		expect((pos.get('c')!.x + pos.get('d')!.x) / 2).toBe(150)
+		expect(pos.get('leaf')).toEqual({ x: 150, y: 200 + step })
+	})
+
+	it('spaces wrapped rows by the height the layout gave its taller cards', () => {
+		const step = (extra: number) => {
+			const pos = wrapWideLayers(layers, 2, extra)
+			return pos.get('c')!.y - pos.get('a')!.y
+		}
+		expect(step(40) - step(0)).toBe(40)
 	})
 })

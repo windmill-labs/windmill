@@ -20,7 +20,19 @@ import {
   SyncOptions,
   mergeConfigWithConfigFile,
 } from "../../core/conf.ts";
-import { exts, removeExtensionToPath } from "../script/script.ts";
+import {
+  exts,
+  hasScriptExt,
+  readModulesFromDisk,
+  removeExtensionToPath,
+} from "../script/script.ts";
+import type { ScriptModule } from "../../../gen/types.gen.ts";
+import {
+  DBT_DESCRIPTOR_NAME,
+  DBT_MODULE_SUFFIX,
+  getModuleFolderSuffix,
+  getScriptBasePathFromModulePath,
+} from "../../utils/resource_folders.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
@@ -108,7 +120,7 @@ function findFlowFolderPrefix(cpath: string): string | undefined {
   return undefined;
 }
 
-async function listWorkspacePaths(): Promise<WmPathItem[]> {
+export async function listWorkspacePaths(): Promise<WmPathItem[]> {
   // Walk first, capturing each item's metadata file path. Then read summaries in
   // parallel — one tree pass plus N file reads is faster than a serialized walk.
   const items: (WmPathItem & { _metaPath?: string })[] = [];
@@ -134,6 +146,32 @@ async function listWorkspacePaths(): Promise<WmPathItem[]> {
         }
         if (APP_SUFFIXES.some((s) => entry.name.endsWith(s))) {
           items.push({ path: stripFolderSuffix(childRel, APP_SUFFIXES), kind: "raw_app" });
+          continue;
+        }
+        // A script's own bundle, whose files are its modules rather than
+        // scripts. In folder layout the script itself is its `script.*`.
+        if (entry.name.endsWith(getModuleFolderSuffix())) {
+          const files = await readdir(childAbs).catch(() => [] as string[]);
+          if (files.some((f) => f.startsWith("script.") && hasScriptExt(f))) {
+            items.push({
+              path: childRel.slice(0, -getModuleFolderSuffix().length),
+              kind: "script",
+              _metaPath: path.join(childAbs, "script.yaml"),
+            });
+          }
+          continue;
+        }
+        // A dbt script IS the project directory: its descriptor is optional, so
+        // there may be no file here to recognize it by. Not descended into
+        // either — the project's own `.sql` models would otherwise each be
+        // listed as a script of their own.
+        if (entry.name.endsWith(DBT_MODULE_SUFFIX)) {
+          const base = childRel.slice(0, -DBT_MODULE_SUFFIX.length);
+          items.push({
+            path: base,
+            kind: "script",
+            _metaPath: childAbs.slice(0, -DBT_MODULE_SUFFIX.length) + ".script.yaml",
+          });
           continue;
         }
         await walk(childAbs, childRel);
@@ -282,12 +320,35 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
   const flowMetadataFile = getMetadataFileName("flow", "yaml");
   async function loadPaths(pathsToLoad: string[]) {
-    const paths = pathsToLoad.filter((p) =>
-      exts.some(
-        (ext) => p.endsWith(ext)
-          || p.endsWith(".flow/" + flowMetadataFile)
-          || p.endsWith("__flow/" + flowMetadataFile)
-      )
+    // Module edits belong to the parent script's bundle, even when the file
+    // has no standalone script extension, as with dbt's `.yml` and `.csv`.
+    const rest: string[] = [];
+    const scriptsWithModules = new Set<string>();
+    for (const raw of pathsToLoad) {
+      const rel = (await realpath(raw).catch(() => raw))
+        .replace(base + SEP, "")
+        .replaceAll("\\", "/");
+      const wmPath = getScriptBasePathFromModulePath(rel);
+      // Every project in the batch, and each only once: a save-all or a
+      // `git checkout` touches many files at once, and returning on the first
+      // would drop both the other projects and whatever else changed with them.
+      if (wmPath) scriptsWithModules.add(wmPath);
+      else rest.push(raw);
+    }
+    for (const wmPath of scriptsWithModules) {
+      const edit = await loadWmPath(wmPath);
+      if (edit) {
+        log.info("Updated " + wmPath + " (script modules)");
+        broadcastChanges(edit);
+      }
+    }
+    if (rest.length === 0) return;
+    pathsToLoad = rest;
+    const paths = pathsToLoad.filter(
+      (p) =>
+        hasScriptExt(p) ||
+        p.endsWith(".flow/" + flowMetadataFile) ||
+        p.endsWith("__flow/" + flowMetadataFile)
     );
     if (paths.length == 0) {
       return;
@@ -346,8 +407,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         log.info("Updated " + wmFlowPath);
         broadcastChanges(currentLastEdit);
       } else if (typ == "script") {
-        const splitted = cpath.split(".");
-        const wmPath = splitted[0];
+        const wmPath = removeExtensionToPath(cpath);
         const content = await readTextFile(cpath);
         const lang = inferContentTypeFromFilePath(cpath, opts.defaultTs);
         const typed =
@@ -366,6 +426,9 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           tag: typed?.tag,
           lock: typed?.lock,
           temp_script_refs: tempScriptRefs,
+          modules: await readModulesFromDisk(
+            wmPath + getModuleFolderSuffix(lang), opts.defaultTs, lang === "dbt", lang === "dbt"
+          ),
         };
         log.info("Updated " + wmPath);
         broadcastChanges(currentLastEdit);
@@ -380,6 +443,8 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     tag?: string;
     lock?: string;
     temp_script_refs?: Record<string, string>;
+    /** Module bundle forwarded by the dev page to preview runs. */
+    modules?: Record<string, ScriptModule>;
   };
 
   type LastEditFlow = {
@@ -437,14 +502,34 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       // Not a flow, try as script
     }
 
-    // Try as script
-    for (const ext of exts) {
-      const filePath = wmPath + ext;
+    // Try as script: flat `<path>.<ext>`, then folder layout `<path>__mod/script.<ext>`
+    const candidates = [
+      ...exts.map((ext) => ({ ext, filePath: wmPath + ext, folderLayout: false })),
+      ...exts
+        .filter((ext) => !ext.includes("/"))
+        .map((ext) => ({ ext, filePath: wmPath + getModuleFolderSuffix() + "/script" + ext, folderLayout: true })),
+    ];
+    for (const { ext, filePath, folderLayout } of candidates) {
       try {
-        await access(filePath);
-        const content = await readTextFile(filePath);
+        // A dbt project's descriptor is optional, so what says "this is a dbt
+        // script" is the project beside it. Requiring the descriptor to exist
+        // would list such a project in the picker and then refuse to load it.
+        const isAbsentDbtDescriptor =
+          ext === "__dbt/" + DBT_DESCRIPTOR_NAME &&
+          !(await access(filePath).then(
+            () => true,
+            () => false
+          )) &&
+          (await access(wmPath + DBT_MODULE_SUFFIX + "/dbt_project.yml").then(
+            () => true,
+            () => false
+          ));
+        if (!isAbsentDbtDescriptor) {
+          await access(filePath);
+        }
+        const content = isAbsentDbtDescriptor ? "" : await readTextFile(filePath);
         const lang = inferContentTypeFromFilePath(filePath, opts.defaultTs);
-        const typed = (await parseMetadataFile(removeExtensionToPath(filePath), undefined))?.payload;
+        const typed = (await parseMetadataFile(wmPath, undefined))?.payload;
         const edit: LastEditScript = {
           type: "script",
           content,
@@ -453,6 +538,15 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           tag: typed?.tag,
           lock: typed?.lock,
           temp_script_refs: tempScriptRefs,
+          // Read VERBATIM for dbt, the way push does: the project's `.sql` and
+          // `.yml` files are dbt's, and inferring a language for each would
+          // drop the ones that are not Windmill scripts.
+          modules: await readModulesFromDisk(
+            wmPath + getModuleFolderSuffix(lang),
+            opts.defaultTs,
+            folderLayout || lang === "dbt",
+            lang === "dbt"
+          ),
         };
         currentLastEdit = edit;
         return edit;

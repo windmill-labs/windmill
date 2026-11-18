@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { OpenAPI } from '$lib/gen'
+	import { AssetService, JobService, type MaterializedPartition } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Loader2, RefreshCw, History } from 'lucide-svelte'
-	import { sendUserToast } from '$lib/utils'
+	import { enterpriseLicense } from '$lib/stores'
 	import BackfillRangeDialog from './BackfillRangeDialog.svelte'
+	import { runBackfill, type BackfillSliceState } from './backfillRun'
+	import { makeWaitJobTerminal } from './cascadeRun'
 
 	interface Props {
 		// The materialized ducklake asset path (`<ducklake>/<table>`).
@@ -13,74 +15,137 @@
 	}
 	let { path, workspace }: Props = $props()
 
-	type MaterializedPartition = {
-		partition: string
-		status: 'running' | 'materialized' | 'failed'
-		snapshot_id?: number | null
-		row_count?: number | null
-		materialized_at: string
-		error?: string | null
-	}
-
-	let partitions = resource([() => workspace, () => path], async ([ws, p], _prev, { signal }) => {
+	let partitions = resource([() => workspace, () => path], async ([ws, p]) => {
 		if (!ws || !p) return [] as MaterializedPartition[]
-		const res = await fetch(
-			`${OpenAPI.BASE ?? ''}/w/${ws}/assets/partitions?path=${encodeURIComponent(p)}`,
-			{ credentials: 'include', signal }
-		)
-		if (!res.ok) throw new Error(`GET /assets/partitions → ${res.status}`)
-		return (await res.json()) as MaterializedPartition[]
+		return await AssetService.listAssetPartitions({ workspace: ws, path: p })
 	})
 
 	let backfillOpen = $state(false)
+	// Slice states of the in-flight (or last finished) backfill. Owned here —
+	// not in the dialog — so progress keeps streaming in the header when the
+	// dialog is closed mid-run.
+	let backfillSlices = $state<BackfillSliceState[] | undefined>(undefined)
+	let backfillRunning = $state(false)
+	let backfillCancelRequested = $state(false)
+
+	let backfillDone = $derived(
+		backfillSlices?.filter((s) => s.status === 'success' || s.status === 'failure').length ?? 0
+	)
+	let backfillFailed = $derived(backfillSlices?.filter((s) => s.status === 'failure').length ?? 0)
+
+	// Never throws: the job may already be terminal, and the sequential loop
+	// stops on the cancel flag regardless.
+	async function cancelJobById(jobId: string) {
+		try {
+			await JobService.cancelQueuedJob({
+				workspace,
+				id: jobId,
+				requestBody: { reason: 'backfill cancelled' }
+			})
+		} catch {}
+	}
+
+	// Stop scheduling further slices and cancel the in-flight run (its slice
+	// then reports failure); already-materialized slices are unaffected. A
+	// cancel that lands while a launch is in flight (no job id yet) is
+	// finished by the runner via its `cancelJob` hook.
+	async function cancelBackfill() {
+		backfillCancelRequested = true
+		const running = backfillSlices?.find((s) => s.status === 'running')
+		if (running?.jobId) {
+			await cancelJobById(running.jobId)
+		}
+	}
+
+	async function startBackfill(producerPath: string, worklist: string[]) {
+		if (backfillRunning || worklist.length === 0) return
+		backfillRunning = true
+		backfillCancelRequested = false
+		try {
+			await runBackfill({
+				partitions: worklist,
+				// Backend asset dispatch stays ON (unlike client-orchestrated dev
+				// cascades, which pass `_wmill_skip_asset_dispatch`): a backfilled
+				// slice refreshes its deployed consumers like any deployed run,
+				// carrying its partition down the chain.
+				launch: async (partition) =>
+					await JobService.runScriptByPath({
+						workspace,
+						path: producerPath,
+						requestBody: { partition }
+					}),
+				waitTerminal: async (jobId) => {
+					const term = await makeWaitJobTerminal(workspace)(jobId)
+					// The run just recorded (or failed to record) its
+					// materialized_partition row — stream it into the grid.
+					partitions.refetch()
+					return term
+				},
+				onUpdate: (s) => (backfillSlices = s),
+				isCancelled: () => backfillCancelRequested,
+				cancelJob: cancelJobById
+			})
+		} finally {
+			backfillRunning = false
+			partitions.refetch()
+		}
+	}
 
 	const statusClass: Record<MaterializedPartition['status'], string> = {
 		materialized: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
 		running: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
 		failed: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
 	}
-
-	async function onBackfill(from: string, to: string) {
-		// The fan-out runner is an enterprise feature; the dialog only submits
-		// when licensed. This posts the intent to the (EE) backfill endpoint.
-		const res = await fetch(`${OpenAPI.BASE ?? ''}/w/${workspace}/assets/backfill`, {
-			method: 'POST',
-			credentials: 'include',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ path, from, to })
-		})
-		if (!res.ok) throw new Error(`backfill → ${res.status}`)
-		sendUserToast(`Backfill queued for ${path} (${from} → ${to})`)
-		await partitions.refetch()
-	}
 </script>
 
 <div class="flex flex-col h-full">
 	<div class="flex items-center justify-between gap-2 px-3 py-2 border-b shrink-0">
 		<span class="text-xs font-semibold text-secondary">Materialized partitions</span>
-		<div class="flex items-center gap-1">
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				startIcon={{ icon: RefreshCw }}
-				iconOnly
-				onclick={() => partitions.refetch()}
-				title="Refresh"
-			/>
-			<!-- The backfill range runner (POST /assets/backfill) is a planned
-			     enterprise follow-up and not yet implemented on the backend, so the
-			     button stays disabled — enabling it would 404. Re-enable when the
-			     endpoint lands. -->
-			<Button
-				variant="default"
-				unifiedSize="sm"
-				startIcon={{ icon: History }}
-				disabled
-				onclick={() => (backfillOpen = true)}
-				title="Backfill a range of partitions — coming soon (enterprise)"
-			>
-				Backfill
-			</Button>
+		<div class="flex items-center gap-2">
+			{#if backfillRunning}
+				<button
+					class="flex items-center gap-1 text-3xs text-tertiary hover:text-primary"
+					onclick={() => (backfillOpen = true)}
+					title="Show backfill progress"
+				>
+					<Loader2 size={12} class="animate-spin" />
+					Backfilling {backfillDone}/{backfillSlices?.length ?? 0}
+				</button>
+			{:else if backfillSlices?.length}
+				<button
+					class="text-3xs {backfillFailed > 0
+						? 'text-red-600'
+						: 'text-tertiary'} hover:text-primary"
+					onclick={() => (backfillOpen = true)}
+					title="Show backfill result"
+				>
+					Backfill: {backfillDone - backfillFailed}/{backfillSlices.length} ok{backfillFailed > 0
+						? `, ${backfillFailed} failed`
+						: ''}
+				</button>
+			{/if}
+			<div class="flex items-center gap-1">
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: RefreshCw }}
+					iconOnly
+					onclick={() => partitions.refetch()}
+					title="Refresh"
+				/>
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: History }}
+					disabled={!$enterpriseLicense}
+					onclick={() => (backfillOpen = true)}
+					title={$enterpriseLicense
+						? 'Backfill a range of partitions'
+						: 'Backfill a range of partitions (enterprise feature)'}
+				>
+					Backfill
+				</Button>
+			</div>
 		</div>
 	</div>
 
@@ -131,4 +196,14 @@
 	</div>
 </div>
 
-<BackfillRangeDialog bind:open={backfillOpen} assetPath={path} {onBackfill} />
+<BackfillRangeDialog
+	bind:open={backfillOpen}
+	assetPath={path}
+	{workspace}
+	slices={backfillSlices}
+	running={backfillRunning}
+	cancelRequested={backfillCancelRequested}
+	onStart={startBackfill}
+	onCancel={cancelBackfill}
+	onReset={() => (backfillSlices = undefined)}
+/>

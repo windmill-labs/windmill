@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
 	interface Props {
 		size?: number
 		height?: number
@@ -20,14 +21,16 @@
 	)
 </script>
 
+<!-- #000000 / #FFFFFF per okta.com. Okta's official April-2025 logo package (logos-04-2025.zip)
+	ships the mark in Black and White only. -->
 <svg
 	role="img"
 	{width}
 	{height}
-	viewBox="0 0 1594 1595"
+	viewBox="-73.0 -72.5 1740.0 1740.0"
 	fill={color ?? 'currentColor'}
 	xmlns="http://www.w3.org/2000/svg"
-	class={clazz}
+	class={twMerge('text-[#000000] dark:text-[#FFFFFF]', clazz)}
 >
 	<title>okta-svg</title>
 	<path

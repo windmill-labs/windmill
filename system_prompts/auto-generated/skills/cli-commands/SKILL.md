@@ -35,16 +35,20 @@ app related commands
 - `app dev [app_folder:string]` - Start a development server for building apps with live reload and hot module replacement
   - `--port <port:number>` - Port to run the dev server on (will find next available port if occupied)
   - `--host <host:string>` - Host to bind the dev server to
-  - `--entry <entry:string>` - Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)
+  - `--entry <entry:string>` - Entry point file (default: index.ts for Svelte, index.tsx otherwise)
   - `--no-open` - Don't automatically open the browser
+  - `--recording` - Frame the app in a shell with a Record button, to capture a replayable session recording of the app under development
 - `app lint [app_folder:string]` - Lint a raw app folder to validate structure and buildability
   - `--fix` - Attempt to fix common issues (not implemented yet)
+- `app bundle [app_folder:string]` - Bundle a raw app folder to js/css without deploying it
+  - `--out <dir:string>` - Directory to write bundle.js and bundle.css into (default: <app_folder>/dist)
+  - `--no-minify` - Skip minification
 - `app new` - create a new raw app from a template
   - `--summary <summary:string>` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
   - `--path <path:string>` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
-  - `--framework <framework:string>` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - `--framework <framework:string>` - Framework template: react19 | react18 | svelte5. Skips the prompt when provided. Triggers non-interactive mode.
   - `--datatable <datatable:string>` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
-  - `--schema <schema:string>` - Schema to use with --datatable. Created (CREATE SCHEMA IF NOT EXISTS) if it doesn't already exist.
+  - `--schema <schema:string>` - Schema to use with --datatable. If it doesn't exist yet, a sql_to_apply/ migration (CREATE SCHEMA IF NOT EXISTS) is written for it.
   - `--overwrite` - Overwrite the target directory if it already exists, without prompting.
   - `--no-open-in-desktop` - Do not prompt to open the new app in Claude Desktop.
 - `app generate-agents [app_folder:string]` - regenerate AGENTS.md and DATATABLES.md from remote workspace
@@ -82,6 +86,18 @@ datatable related commands
 - `datatable run <sql:string>` - run a SQL query on a datatable
   - `-n --name <name:string>` - Datatable name (default: main)
   - `-s --silent` - Output only the final result as JSON. Useful for scripting.
+- `datatable migrate` - manage datatable migrations
+  - `datatable migrate new <name:string>` - scaffold a new migration (.up.sql / .down.sql files)
+    - `-d --datatable <datatable:string>` - Target datatable (default: main)
+    - `-s --schemas <schemas:string>` - Comma-separated schemas the migration changes, written as its `-- schemas` line. Without it the migration applies to the whole database and every later migration waits for it
+  - `datatable migrate up` - apply all pending migrations to the main datatable (or one via --datatable)
+    - `-d --datatable <datatable:string>` - Target datatable (default: main)
+    - `--schema <schema:string>` - Apply only the pending migrations that declare this schema; refused while an earlier overlapping migration is pending
+  - `datatable migrate down` - roll back the most recent migration on the main datatable (or one via --datatable)
+    - `-d --datatable <datatable:string>` - Target datatable (default: main)
+  - `datatable migrate status` - show applied and pending migrations on the main datatable (or one via --datatable)
+    - `-d --datatable <datatable:string>` - Target datatable (default: main)
+    - `--json` - Output as JSON (for piping to jq)
 - `datatable create [name:string]` - register a datatable database in the workspace (default: instance-backed 'main') so scripts can use datatable://<name>
   - `--resource <resource:string>` - Back the datatable with an existing postgresql resource path instead of the instance database
   - `--force` - Allow adding to a workspace that already has datatables (fork metadata on existing ones is not preserved)
@@ -114,6 +130,15 @@ Watch local file changes and live-reload the dev page for preview. Does NOT depl
 - `--proxy-port <port:number>` - Port for a localhost reverse proxy to the remote Windmill server
 - `--path <path:string>` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
 - `--no-open` - Do not open the browser automatically
+
+### digest
+
+Compute the content digest of local scripts and flows, as the `digest` and `root_digest` claims of job OIDC tokens carry it. Run from the root of a sync checkout, pulled after the deployment's dependency jobs completed: they write the lockfiles the digest covers. A flow also lists the digest of each inline step, as `<flow path>/<step id>`.
+
+**Arguments:** `<paths...:string>`
+
+**Options:**
+- `--json` - Output the digests as JSON
 
 ### docs
 
@@ -154,13 +179,16 @@ flow related commands
 - `flow push <file_path:string> <remote_path:string>` - push a local flow spec. This overrides any remote versions.
   - `--message <message:string>` - Deployment message
 - `flow run <path:string>` - run a flow by path.
-  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
-- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
-  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
+- `flow preview <flow_path:string>` - preview a local flow without deploying it. <flow_path> is the flow's Windmill path (f/x/my_flow), its .flow/__flow folder or its flow.yaml. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow).
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
   - `--step <step_id:string>` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
+  - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
+  - `--on-behalf-of <identity:string>` - Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers.
 - `flow new <flow_path:string>` - create a new empty flow
   - `--summary <summary:string>` - flow summary
   - `--description <description:string>` - flow description
@@ -247,6 +275,8 @@ Manage git-sync settings between local wmill.yaml and Windmill backend
   - `--with-backend-settings <json:string>` - Use provided JSON settings instead of querying backend (for testing)
   - `--yes` - Skip interactive prompts and use default behavior
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
+- `gitsync-settings status` - Report how local changes deploy to the workspace (git push vs wmill sync push)
+  - `--json-output` - Output in JSON format
 
 ### group
 
@@ -350,23 +380,22 @@ Manage jobs (list, inspect, cancel)
 
 ### jobs
 
-Pull completed and queued jobs from workspace
-
-**Arguments:** `[workspace:string]`
-
-**Options:**
-- `-c, --completed-output <file:string>` - Completed jobs output file (default: completed_jobs.json)
-- `-q, --queued-output <file:string>` - Queued jobs output file (default: queued_jobs.json)
-- `--skip-worker-check` - Skip checking for active workers before export
+Manage jobs (import/export)
 
 **Subcommands:**
 
-- `jobs pull`
-- `jobs push`
+- `jobs pull [workspace:string]` - Pull completed and queued jobs from workspace
+  - `-c, --completed-output <file:string>` - Completed jobs output file (default: completed_jobs.json)
+  - `-q, --queued-output <file:string>` - Queued jobs output file (default: queued_jobs.json)
+  - `--skip-worker-check` - Skip checking for active workers before export
+- `jobs push [workspace:string]` - Push completed and queued jobs to workspace
+  - `-c, --completed-file <file:string>` - Completed jobs input file (default: completed_jobs.json)
+  - `-q, --queued-file <file:string>` - Queued jobs input file (default: queued_jobs.json)
+  - `--skip-worker-check` - Skip checking for active workers before import
 
 ### lint
 
-Validate Windmill flow, schedule, and trigger YAML files in a directory
+Validate Windmill flow, schedule, and trigger YAML files in a directory (including AI agent tool names and flow groups/notes), and report script metadata that has no deployable content file
 
 **Arguments:** `[directory:string]`
 
@@ -424,6 +453,22 @@ inspect asset-driven pipelines (scripts marked `// pipeline`, wired by `// on <s
   - `--json` - Output as JSON (for piping to jq)
 - `pipeline show <folder:string>` - render a pipeline folder's DAG (sources, lineage, subscriptions) in the terminal
   - `--json` - Output the raw asset graph as JSON
+  - `--local` - Build the graph from local working-tree files (// pipeline scripts) instead of the deployed workspace — no deploy needed.
+- `pipeline run <folder:string>` - run a cascade: from --from (a root OR any mid-DAG model), fan downstream up to the --to end node(s)
+  - `--from <script:string>` - Start script (short name or path). May be any node, including a mid-DAG model — that node plus its transitive downstream runs, upstream is NOT re-run (dbt `--select model+`). Defaults to the folder's sole schedule/manual root.
+  - `--to <node:string>` - End node(s) to stop at — script names/paths or asset URIs (e.g. datatable://main/staged). Repeatable or comma-separated. Omit to run the full downstream.
+  - `--dry-run` - Print the topological run plan without executing.
+  - `--json` - Output the plan as JSON (for piping to jq).
+  - `--local` - Run the local working-tree scripts via preview (no deploy) instead of the deployed versions; the graph is built from local files.
+  - `--upload <binding:string>` - Bind an object to a data_upload/webhook entry point so it runs in the cascade, as SCRIPT[:PARAM]=SOURCE (SOURCE is a local file or an s3://key). Local files are uploaded to the workspace store; the S3Object param is inferred when the script has exactly one. Repeatable.
+  - `--arg <binding:string>` - Pass a plain run arg to a script in the cascade, as SCRIPT:PARAM=VALUE (VALUE is parsed as JSON when possible, else taken as a string — e.g. daily_report:partition=2026-07-02). Repeatable.
+  - `--partition <value:string>` - Partition value for `// partitioned` scripts in the run (e.g. 2026-06-30) — use it to backfill a past slice. With --local, time kinds (daily/hourly/weekly/monthly) default to the current UTC period when omitted; `dynamic` always needs it. Deployed runs without it defer to backend run-start resolution.
+- `pipeline docs <folder:string>` - generate PIPELINE.md (+ AGENTS.md pointer) describing a folder's pipeline graph and datatable schemas, for an editor / agentic loop
+  - `--local` - Build the graph from local working-tree files instead of the deployed workspace.
+- `pipeline dev [folder:string]` - Live-preview a data pipeline from local files: watch an `f/<folder>` of `// pipeline` scripts, push the working-tree graph to the dev page, and run the cascade via preview (no deploy).
+  - `--port <port:number>` - Port for the dev WebSocket server.
+  - `--no-open` - Do not open the browser automatically.
+  - `--frontend <origin:string>` - Origin serving the /pipeline_dev page (e.g. http://localhost:3000 for a locally-run frontend). Defaults to the workspace remote; use it when the remote's deployed frontend predates the dev page.
 
 ### protection-rules
 
@@ -496,6 +541,20 @@ resource type related commands
 - `resource-type push <file_path:string> <name:string>` - push a local resource spec. This overrides any remote versions.
 - `resource-type generate-namespace` - Create a TypeScript definition file with the RT namespace generated from the resource types
 
+### review
+
+Review a pull request on a git sync repository with the workspace's AI, the way deployment requests are reviewed. Reads the changes and the base branch's review instructions from git; the instance, workspace and token come from the flags, never from the checkout's wmill.yaml.
+
+**Options:**
+- `--base <ref:string>` - The base branch commit. Defaults to the pull_request event's base.
+- `--head <ref:string>` - The pull request's commit. Defaults to the event's head, else HEAD.
+- `--model <model:string>` - provider:model to review with. Defaults to the workspace's default model.
+- `--folder <dir:string>` - The repository directory the workspace is synced into, when it is not the root.
+- `--json` - Print the review as JSON
+- `--post <target:string>` - Post the review on the pull request. Only `github` is supported.
+- `--pr <number:number>` - The pull request number. Defaults to the pull_request event's.
+- `--fail-on <severity:string>` - Exit with 1 when a finding is at least this severe: high, medium or low.
+
 ### schedule
 
 schedule related commands
@@ -535,11 +594,14 @@ script related commands
   - `--json` - Output as JSON (for piping to jq)
 - `script show <path:file>` - show a script's content (alias for get)
 - `script run <path:file>` - run a script by path
-  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
 - `script preview <path:file>` - preview a local script without deploying it. Supports both regular and codebase scripts.
-  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - `-s --silent` - Do not output anything other than the final output. Useful for scripting.
+  - `--tag <tag:string>` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
+  - `--on-behalf-of <identity:string>` - Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers.
 - `script new <path:file> <language:string>` - create a new script
   - `--summary <summary:string>` - script summary
   - `--description <description:string>` - script description
@@ -577,7 +639,9 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-users` - Include syncing users
   - `--include-groups` - Include syncing groups
   - `--include-settings` - Include syncing workspace settings
+  - `--include-datatable-permissions` - With --include-settings, also sync who may connect to each data table as which role
   - `--include-key` - Include workspace encryption key
+  - `--keep-deleted` - Do not delete local files for items that no longer exist on the remote workspace. Only adds and updates.
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes
@@ -607,8 +671,10 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-users` - Include syncing users
   - `--include-groups` - Include syncing groups
   - `--include-settings` - Include syncing workspace settings
+  - `--include-datatable-permissions` - With --include-settings, also sync who may connect to each data table as which role
   - `--include-key` - Include workspace encryption key
   - `--skip-reencrypt-on-key-change` - When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.
+  - `--keep-deleted` - Do not delete remote items that no longer exist locally. Only adds and updates.
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
@@ -639,6 +705,27 @@ Manage API tokens
   - `--expiration <expiration:string>` - Token expiration (ISO 8601 timestamp)
 - `token delete <token_prefix:string>` - Delete a token by its prefix
 
+### trash
+
+List, inspect and restore items deleted in the last three days (requires admin)
+
+**Options:**
+- `--json` - Output as JSON (for piping to jq)
+- `--kind <kind:string>` - Only items of this kind: script, flow, app, schedule, variable, resource or a trigger kind such as http_trigger
+- `--limit <limit:integer>` - Number of items to return (default 100, max 1000)
+- `--page <page:integer>` - Page to return, starting at 1
+
+**Subcommands:**
+
+- `trash list` - List trashed items, most recently deleted first
+  - `--json` - Output as JSON (for piping to jq)
+  - `--kind <kind:string>` - Only items of this kind: script, flow, app, schedule, variable, resource or a trigger kind such as http_trigger
+  - `--limit <limit:integer>` - Number of items to return (default 100, max 1000)
+  - `--page <page:integer>` - Page to return, starting at 1
+- `trash get <id:integer>` - Show a trashed item and the data it was deleted with
+  - `--json` - Output as JSON (for piping to jq)
+- `trash restore <ids...:integer>` - Put trashed items back at their paths
+
 ### trigger
 
 trigger related commands
@@ -652,12 +739,12 @@ trigger related commands
   - `--json` - Output as JSON (for piping to jq)
 - `trigger get <path:string>` - get a trigger's details
   - `--json` - Output as JSON (for piping to jq)
-  - `--kind <kind:string>` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup
+  - `--kind <kind:string>` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email). Recommended for faster lookup
 - `trigger new <path:string>` - create a new trigger locally
-  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)
 - `trigger push <file_path:string> <remote_path:string>` - push a local trigger spec. This overrides any remote versions.
 - `trigger set-permissioned-as <path:string> <email:string>` - Set the email (run-as user) for a trigger (requires admin or wm_deployers group)
-  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
+  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, amqp, sqs, gcp, azure, email)
 
 ### user
 
@@ -665,6 +752,8 @@ user related commands
 
 **Subcommands:**
 
+- `user list` - List the users of the workspace
+  - `--json` - Output as JSON (for piping to jq)
 - `user add <email:string> [password:string]` - Create a user
   - `--superadmin` - Specify to make the new user superadmin.
   - `--company <company:string>` - Specify to set the company of the new user.
@@ -749,13 +838,19 @@ workspace related commands
   - `--branch <branch:string>` - Git branch to associate (default: workspace name)
 - `workspace unbind` - Remove baseUrl and workspaceId from a workspace entry
   - `--workspace <name:string>` - Workspace to unbind
-- `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace
+- `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace from its parent workspace.
+
+The parent is resolved from your current git branch, not from the active profile: run this from a git repo checked out on the branch mapped to the parent workspace in wmill.yaml's `workspaces:` section (a fork branch of it resolves to the same parent). `wmill workspace switch` does not change which workspace is forked.
+
+Arguments (omit both to be prompted interactively):
+  [workspace_name]  Friendly display name for the fork, shown in the UI. May contain spaces, so quote it in the shell (e.g. "My Fork"). Max 50 chars. Defaults to "<parent workspace name>'s fork".
+  [workspace_id]    Id for the fork. Must be a slug (no spaces or special characters) and is automatically prefixed with `wm-fork-`, so pass just the bare slug (e.g. `my-fork` becomes `wm-fork-my-fork`). This id also determines the fork's git branch name. Defaults to a slug derived from the name — or, when you are converting an existing branch into the fork branch, from that branch.
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)
   - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
   - `--from-branch <branch:string>` - Non-interactive override for the 'turn my current working branch into the fork' workflow: base the fork on <branch> (its bound workspace is the parent) and rename the current branch onto wm-fork/<branch>/<id>. Usually unneeded — from a working branch `wmill workspace fork` offers this interactively; from a base branch it creates a fresh fork branch.
   - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip'). On a non-base branch, requires --from-branch since the base branch can't be prompted for.
-- `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch
+- `workspace delete-fork <fork_name:string>` - Delete a forked workspace
   - `-y --yes` - Skip confirmation prompt
 - `workspace merge` - Compare and deploy changes between a fork and its parent workspace
   - `--direction <direction:string>` - Deploy direction: to-parent or to-fork
@@ -770,6 +865,13 @@ workspace related commands
   - `--team-id <team_id:string>` - Slack team id
   - `--team-name <team_name:string>` - Slack team name
 - `workspace disconnect-slack` - Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push.
+- `workspace get-settings` - Print the active workspace's settings in the layout of the settings.yaml that 'wmill sync' writes. Secrets show as __SENSITIVE_AND_UNCHANGED__ unless --encrypted. Admin only.
+  - `--encrypted` - Write secrets encrypted with the workspace key, as 'wmill sync pull' does
+  - `--json` - Output as JSON
+- `workspace apply-settings <file:string>` - Apply a settings document (YAML or JSON, in the layout of settings.yaml) to the active workspace. Only the settings the file states are changed, unless --replace; a setting set to null is cleared. A secret left as __SENSITIVE_AND_UNCHANGED__ keeps its value. Shows the changes and asks before applying. Admin only.
+  - `--dry-run` - Only show the changes
+  - `--replace` - Also clear the settings the file omits, as 'wmill sync push' does
+  - `-y --yes` - Apply without asking
 
 
 

@@ -18,9 +18,10 @@ use tokio::sync::RwLock;
 use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
-    jobs::JobTriggerKind,
+    jobs::{ChosenBy, JobTriggerKind},
+    runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
-    utils::report_critical_error,
+    utils::{report_critical_error, report_recovered_critical_error},
     worker::to_raw_value,
     DB, INSTANCE_NAME,
 };
@@ -386,9 +387,14 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         error: String,
     ) {
         if listening_trigger.trigger_mode {
-            // SAFETY: Self::TABLE_NAME is a compile-time constant.
-            let report_status = sqlx::query(&format!(
-                r#"
+            // Contract on `record_in_disable_tx`: one transaction so the row
+            // lock spans both writes.
+            let mut history_err = None;
+            let report_status = async {
+                let mut tx = db.begin().await?;
+                // SAFETY: Self::TABLE_NAME is a compile-time constant.
+                let rows = sqlx::query(&format!(
+                    r#"
                     UPDATE
                         {}
                     SET
@@ -398,18 +404,60 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                         last_server_ping = NULL
                     WHERE
                         workspace_id = $2 AND
-                        path = $3
+                        path = $3 AND
+                        mode <> 'disabled'::TRIGGER_MODE
                 "#,
-                Self::TABLE_NAME
-            ))
-            .bind(&error)
-            .bind(&listening_trigger.workspace_id)
-            .bind(&listening_trigger.path)
-            .execute(db)
+                    Self::TABLE_NAME
+                ))
+                .bind(&error)
+                .bind(&listening_trigger.workspace_id)
+                .bind(&listening_trigger.path)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+
+                // Zero rows: deleted, or a user disabled it first — no
+                // transition of ours to record.
+                if rows > 0 {
+                    // `to_key`, not `Display`: it is what lines up with the
+                    // `TRIGGER_TYPE` the API records under.
+                    let trigger_kind = Self::TRIGGER_KIND.to_key();
+                    history_err = windmill_common::trigger_history::record_in_disable_tx(
+                        &mut tx,
+                        windmill_common::trigger_history::TriggerHistoryEvent::server_disable(
+                            &listening_trigger.workspace_id,
+                            &trigger_kind,
+                            &listening_trigger.path,
+                            serde_json::json!({ "mode": { "new": "disabled" } }),
+                            &error,
+                        ),
+                    )
+                    .await;
+                }
+                tx.commit().await?;
+                Ok::<(), Error>(())
+            }
             .await;
 
+            if let Some(history_err) = history_err {
+                // Spawned: the commit above made the cleared `server_id` visible,
+                // so the ping branch of the enclosing `select!` is about to
+                // finish and drop everything left in this future. Awaiting the
+                // alert here would lose the one signal that the row is missing.
+                let message = format!(
+                    "Disabled {} trigger {} but could not record it in the trigger history: {}",
+                    Self::TRIGGER_KIND,
+                    listening_trigger.path,
+                    history_err
+                );
+                let (db, workspace_id) = (db.clone(), listening_trigger.workspace_id.clone());
+                tokio::spawn(async move {
+                    report_critical_error(message, db, Some(&workspace_id), None).await;
+                });
+            }
+
             match report_status {
-                Ok(_) => {
+                Ok(()) => {
                     report_critical_error(
                         format!(
                             "Disabling {} trigger {} because of error: {}",
@@ -482,9 +530,10 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "trigger_path".to_string(),
             to_raw_value(&listening_trigger.path),
         );
+        let runnable =
+            RunnableRef::from_path(&listening_trigger.script_path, listening_trigger.is_flow)?;
         let args = Self::build_job_args(
-            &listening_trigger.script_path,
-            listening_trigger.is_flow,
+            &runnable,
             &listening_trigger.workspace_id,
             db,
             payload,
@@ -517,9 +566,9 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             db,
             None,
             authed,
+            ChosenBy::Deployed,
             &listening_trigger.workspace_id,
-            &listening_trigger.script_path,
-            listening_trigger.is_flow,
+            &runnable,
             args,
             retry,
             error_handler_path.as_deref(),
@@ -589,6 +638,106 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     }
 }
 
+/// Unit of [`reconnect_delay`] between a trigger's connection attempts.
+const RECONNECT_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Upper bound on [`reconnect_delay`].
+const MAX_RECONNECT_DELAY: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Exponential backoff for the `attempt`th consecutive failure (1-based): `2^attempt`
+/// units of `base`, capped at [`MAX_RECONNECT_DELAY`].
+fn reconnect_delay(base: std::time::Duration, attempt: u32) -> std::time::Duration {
+    base.saturating_mul(1u32 << attempt.min(20))
+        .min(MAX_RECONNECT_DELAY)
+}
+
+/// A consumer that ran at least this long before exiting is reconnected at once; a
+/// shorter one counts as a failed attempt, so a server that accepts and immediately
+/// closes (e.g. at its per-client connection limit) is retried with backoff rather than
+/// in a hot loop.
+const MIN_STABLE_CONSUMER_RUN: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A blip, or a server rotating its connections, recovers within the first retries:
+/// only a failure streak this long raises a critical alert, repeated every
+/// [`ALERT_EVERY_N_FAILURES`] failures after that.
+const FIRST_ALERT_AFTER_FAILURES: u32 = 3;
+const ALERT_EVERY_N_FAILURES: u32 = 10;
+
+/// Whether a failure to open or keep a connection can succeed on a later attempt, so
+/// that a trigger retries it instead of being disabled. An allowlist: config,
+/// permission and lookup failures (`BadConfig`, `NotFound`, `PermissionDenied`, ...)
+/// fail the same way every time and must disable rather than retry forever. A listener
+/// reports a transient failure that has no such kind with [`transient_error`].
+pub fn is_transient_error(err: &Error) -> bool {
+    match err {
+        Error::Generic(status, _) => status.is_server_error(),
+        Error::InternalErr(_)
+        | Error::InternalErrLoc { .. }
+        | Error::InternalErrAt(..)
+        | Error::Anyhow { .. }
+        | Error::SqlErr { .. }
+        | Error::IoErr { .. }
+        | Error::ConnectingToDatabase(_)
+        | Error::BadGateway(_) => true,
+        _ => false,
+    }
+}
+
+pub fn transient_error(message: impl Into<String>) -> Error {
+    Error::Generic(http::StatusCode::SERVICE_UNAVAILABLE, message.into())
+}
+
+/// Counts a failed connection or a consumer that stopped too soon, and reports it as a
+/// critical alert once the streak is long enough to matter.
+async fn record_connection_failure<T: Listener>(
+    db: &DB,
+    listening_trigger: &ListeningTrigger<T::TriggerConfig>,
+    failures: &mut u32,
+    delay: std::time::Duration,
+    error: &str,
+) {
+    *failures += 1;
+    tracing::warn!(
+        "[{}] Trigger {} failed to connect (attempt {}), retrying in {:?}: {}",
+        T::TRIGGER_KIND,
+        listening_trigger.path,
+        failures,
+        delay,
+        error
+    );
+    if *failures >= FIRST_ALERT_AFTER_FAILURES
+        && (*failures - FIRST_ALERT_AFTER_FAILURES) % ALERT_EVERY_N_FAILURES == 0
+    {
+        report_critical_error(
+            format!(
+                "{} trigger {} failed to connect {} times in a row, retrying in {}s. This alert repeats every {} failed attempts. Last error: {}",
+                T::TRIGGER_KIND,
+                listening_trigger.path,
+                failures,
+                delay.as_secs(),
+                ALERT_EVERY_N_FAILURES,
+                error
+            ),
+            db.clone(),
+            Some(&listening_trigger.workspace_id),
+            Some(&connection_alert_id::<T>(listening_trigger)),
+        )
+        .await;
+    }
+}
+
+fn connection_alert_id<T: Listener>(
+    listening_trigger: &ListeningTrigger<T::TriggerConfig>,
+) -> String {
+    // A recovery acknowledges every alert with this id, whatever its workspace.
+    format!(
+        "{}_trigger:{}:{}",
+        T::TRIGGER_KIND.to_key(),
+        listening_trigger.workspace_id,
+        listening_trigger.path
+    )
+}
+
 #[allow(unused)]
 pub async fn listening<T: Listener>(
     db: DB,
@@ -597,58 +746,112 @@ pub async fn listening<T: Listener>(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let killpill_rx_consumer = killpill_rx.resubscribe();
-    let killpill_rx_get_consumer = killpill_rx.resubscribe();
 
     let loop_ping_status = Arc::new(RwLock::new(None));
     let extra_state = listener.get_extra_state().await;
     let path = listening_trigger.path.clone();
+    // Capture is an interactive test: a failure surfaces at once rather than being
+    // retried, and the next claim poll starts over while the client still pings.
+    let reconnect = listening_trigger.trigger_mode;
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
-            let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
+            tracing::info!("[{}] Killing pill received, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
         }
         _ = listener.loop_ping(&db, &listening_trigger, loop_ping_status.clone(), Some("Connecting...".to_string())) => {
-            let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
+            tracing::info!("[{}] Loop ping exited, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
         }
-        consumer = {
-            tracing::info!("[{}] Getting consumer for trigger {}", T::TRIGGER_KIND, path);
-            listener.get_consumer(&db, &listening_trigger, loop_ping_status.clone(), killpill_rx_get_consumer)
-        } => {
-            tokio::select! {
-                biased;
-                _ = killpill_rx.recv() => {
-                    tracing::info!("[{}] Killing pill received, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
-                    let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
-                    return;
-                }
-                _ = listener.loop_ping(&db, &listening_trigger, loop_ping_status.clone(), None) => {
-                    tracing::info!("[{}] Loop ping exited, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
-                    let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
-                    return;
-                }
-                _ = async {
-                    match consumer {
-                        Ok(Some(consumer)) => {
-                            listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
-                            tracing::info!("[{}] Starting consumer for trigger {}", T::TRIGGER_KIND, path);
-                            listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer, extra_state.as_ref()).await;
-                            tracing::info!("[{}] Consumer stopped for trigger {}", T::TRIGGER_KIND, path);
+        _ = async {
+            // Consecutive failed connections and consumers that stopped too soon.
+            let mut failures = 0;
+            loop {
+                tracing::info!("[{}] Getting consumer for trigger {}", T::TRIGGER_KIND, path);
+                match listener.get_consumer(&db, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer.resubscribe()).await {
+                    Ok(Some(consumer)) => {
+                        listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
+                        tracing::info!("[{}] Starting consumer for trigger {}", T::TRIGGER_KIND, path);
+                        let consume = listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer.resubscribe(), extra_state.as_ref());
+                        tokio::pin!(consume);
+                        let stable = tokio::select! {
+                            _ = &mut consume => false,
+                            _ = tokio::time::sleep(MIN_STABLE_CONSUMER_RUN) => true,
+                        };
+                        if stable {
+                            if failures >= FIRST_ALERT_AFTER_FAILURES {
+                                report_recovered_critical_error(
+                                    format!("{} trigger {} reconnected", T::TRIGGER_KIND, path),
+                                    db.clone(),
+                                    Some(&listening_trigger.workspace_id),
+                                    Some(&connection_alert_id::<T>(&listening_trigger)),
+                                )
+                                .await;
+                            }
+                            failures = 0;
+                            consume.await;
                         }
-                        Err(error) => {
-                            tracing::error!("[{}] Disabling trigger {} due to consumer error: {}", T::TRIGGER_KIND, path, error);
-                            listener.disable_with_error(&db, &listening_trigger, error.to_string()).await;
+                        tracing::info!("[{}] Consumer stopped for trigger {}", T::TRIGGER_KIND, path);
+                        if !reconnect {
+                            return;
                         }
-                        Ok(None) => {
-                            tracing::error!("[{}] Consumer is None for trigger {}", T::TRIGGER_KIND, path);
+                        if !stable {
+                            let status = loop_ping_status.read().await.clone();
+                            // A consumer that disabled its own trigger also stops early: that
+                            // is not a failed connection to count or alert on.
+                            if listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), status.clone()).await.is_none() {
+                                return;
+                            }
+                            let status = status.unwrap_or_else(|| "Consumer stopped".to_string());
+                            let delay = reconnect_delay(RECONNECT_BASE_DELAY, failures + 1);
+                            record_connection_failure::<T>(&db, &listening_trigger, &mut failures, delay, &status).await;
+                            update_rw_lock(loop_ping_status.clone(), Some(format!("{status}. Reconnecting in {}s...", delay.as_secs()))).await;
+                            tokio::time::sleep(delay).await;
                         }
+                        // `consume` may have stopped because the trigger was disabled or
+                        // edited (it can disable it itself): only reconnect while the
+                        // lease is still ours.
+                        if listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), Some("Reconnecting...".to_string())).await.is_none() {
+                            return;
+                        }
+                        tracing::info!("[{}] Reconnecting consumer for trigger {}", T::TRIGGER_KIND, path);
                     }
-                } => {
-                    let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
-                    return;
+                    Err(error) if reconnect && is_transient_error(&error) => {
+                        let delay = reconnect_delay(RECONNECT_BASE_DELAY, failures + 1);
+                        record_connection_failure::<T>(&db, &listening_trigger, &mut failures, delay, &error.to_string()).await;
+                        let next_attempt_at = chrono::Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default();
+                        update_rw_lock(
+                            loop_ping_status.clone(),
+                            Some(format!(
+                                "Connection attempt {} failed, retrying in {}s (at {}): {}",
+                                failures,
+                                delay.as_secs(),
+                                next_attempt_at.format("%Y-%m-%d %H:%M:%S UTC"),
+                                error
+                            )),
+                        )
+                        .await;
+                        tokio::time::sleep(delay).await;
+                    }
+                    Err(error) => {
+                        let error = if failures > 0 {
+                            format!("{} (connection attempt {})", error, failures + 1)
+                        } else {
+                            error.to_string()
+                        };
+                        tracing::error!("[{}] Disabling trigger {} due to consumer error: {}", T::TRIGGER_KIND, path, error);
+                        listener.disable_with_error(&db, &listening_trigger, error).await;
+                        return;
+                    }
+                    Ok(None) => {
+                        tracing::error!("[{}] Consumer is None for trigger {}", T::TRIGGER_KIND, path);
+                        return;
+                    }
                 }
             }
-        }
+        } => {}
     }
+    let _ = listener
+        .cleanup(&db, &listening_trigger, extra_state.as_ref())
+        .await;
 }
 
 #[allow(unused)]

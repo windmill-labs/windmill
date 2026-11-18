@@ -5,7 +5,7 @@ const INLINE_SCRIPT_PREFIX = "inline_script";
 /**
  * Union type of all supported programming languages in Windmill
  */
-export type SupportedLanguage = RawScript["language"] | "frontend" | "bunnative" | "oracledb" | "rust" | "csharp" | "nu" | "ansible" | "java" | "duckdb";
+export type SupportedLanguage = RawScript["language"] | "frontend" | "bunnative" | "oracledb" | "rust" | "csharp" | "nu" | "ansible" | "java" | "duckdb" | "dbt";
 
 /**
  * Mapping of supported languages to their file extensions
@@ -36,6 +36,7 @@ export const LANGUAGE_EXTENSIONS: Record<SupportedLanguage, string> = {
   bunnative: "ts",
   ruby: "rb",
   rlang: "r",
+  dbt: "dbt.yaml",
   // for related places search: ADD_NEW_LANG
 };
 
@@ -84,6 +85,7 @@ export const EXTENSION_TO_LANGUAGE: Record<string, SupportedLanguage> = {
   "playbook.yml": "ansible",
   "java": "java",
   "duckdb.sql": "duckdb",
+  "dbt.yaml": "dbt",
   "rb": "ruby",
   // Plain .ts defaults to bun (will be overridden by defaultTs setting)
   "ts": "bun",

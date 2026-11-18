@@ -1,44 +1,75 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
 	import {
-		CheckCircle2,
 		ChevronDown,
 		Code2,
-		EllipsisVertical,
 		GitBranch,
 		Layers,
 		Loader2,
 		Play,
 		RotateCw,
+		SquareFunction,
 		Tag,
+		Target,
 		Timer,
 		Trash2,
-		XCircle,
 		Zap
 	} from 'lucide-svelte'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import type { GraphUsageKind } from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
-	import { NODE } from '$lib/components/graph/util'
-	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { parseDurationSecs } from './parsePipelineAnnotations'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
+	import PipelineNodeCard from './PipelineNodeCard.svelte'
+	import NodeActionsMenu from './NodeActionsMenu.svelte'
+	import NodeFixButton, { type NodeFix } from './NodeFixButton.svelte'
+	import NodeOnDot from './NodeOnDot.svelte'
+	import RunStateChip from './RunStateChip.svelte'
+	import type { ScriptLang } from '$lib/gen'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Item } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	import { sendUserToast, msToReadableTimeShort } from '$lib/utils'
 
 	interface Props {
 		data: {
+			/** What is wrong with the node, and how to fix it: shows the Fix pill. */
+			fix?: NodeFix
+			/** Starts dragging the top dot onto an asset to subscribe the script to it. */
+			onStartOnDrag?: (e: PointerEvent) => void
 			runnable_kind: GraphUsageKind
 			path: string
+			summary?: string
+			language?: ScriptLang
+			// Why the script is misconfigured, when it is: renders it red.
+			error?: string
 			in_pipeline?: boolean
 			partition_kind?: 'daily' | 'hourly' | 'weekly' | 'monthly' | 'dynamic'
 			freshness?: string
+			// Completion time (ISO) of the newest successful run visible to
+			// the caller. With `freshness`, drives the fresh/stale chip state.
+			last_success_at?: string
 			tag?: string
 			retry?: { count: number; delay?: string }
+			// Macros this script provides (deployed/drafted `// macros` library).
+			// Non-empty renders the ƒ chip marking the node as a macro library.
+			macros?: { name: string; params: string; is_table: boolean }[]
+			// Set on a dbt script: the number of models the project materializes.
+			// One runnable node stands for the whole project, so the count is what
+			// tells it apart from a single-output script.
+			dbt?: { model_count: number }
+			/** Hovering the project badge emphasizes every model it
+			 *  materializes — the fan-out the graph deliberately omits. */
+			onDbtHover?: (on: boolean) => void
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
+			// Opt-in (replay player): when this node is the transform actively
+			// running, tint its whole surface amber so the compute is unmissable.
+			highlightRunning?: boolean
 			// True for nodes synthesized from local drafts (script not yet
 			// persisted). Same convention as `unsaved` on triggers/edges.
 			unsaved?: boolean
@@ -67,6 +98,10 @@
 			// "Discard" for drafts, "Delete…" (which the page maps to its
 			// archive/delete confirmation flow) for persisted scripts.
 			onRequestRemove?: () => void
+			// Wired only for valid bounded-run starts (schedule / manual roots
+			// with downstream). Enters the page's end-node pick mode for a
+			// bounded cascade rooted at this script.
+			onStartBoundedRun?: () => void
 		}
 		// SvelteFlow injects this when the user clicks the node. Combined with
 		// hover state to drive the run-button visibility (same pattern as
@@ -75,10 +110,11 @@
 	}
 	let { data, selected = false }: Props = $props()
 
-	// The icon alone conveys "script" vs "flow"; the uppercase kind label was
-	// visually noisy and redundant. Tooltip on hover surfaces the path in
-	// full when truncated.
 	let Icon = $derived(data.runnable_kind === 'flow' ? GitBranch : Code2)
+	let kindLabel = $derived(
+		data.runnable_kind === 'flow' ? 'Flow' : data.dbt ? 'dbt project' : 'Script'
+	)
+	// The title shows the summary when there is one, so the tooltip keeps the path.
 	let nodeTooltip = $derived(
 		data.unsaved
 			? `${data.path} (unsaved draft)`
@@ -88,8 +124,10 @@
 	)
 
 	let hover = $state(false)
-	let menuOpen = $state(false)
 	let running = $state(false)
+
+	// Amber "computing now" surface, gated so only the replay player lights it up.
+	let computingNow = $derived(data.highlightRunning === true && data.runState?.status === 'running')
 	// Popover state for the on-node Run-button caret. Sticky while open so
 	// `showRun` (which gates the whole pill) stays true even after the
 	// pointer leaves the node — otherwise picking an option would unmount
@@ -102,7 +140,7 @@
 
 	async function runSelf(e: MouseEvent, cascade?: boolean) {
 		e.stopPropagation()
-		if (!$workspaceStore || running || !data.onRunSelf) return
+		if (!$operatingWorkspace || running || !data.onRunSelf) return
 		running = true
 		try {
 			await data.onRunSelf(cascade != undefined ? { cascade } : undefined)
@@ -113,9 +151,47 @@
 		}
 	}
 
-	// Cascade option is surfaced directly on the Run button (via a caret +
-	// popover) when `downstreamCount > 0`, so the kebab menu stays focused
-	// on lifecycle actions only.
+	// Freshness verdict: newest successful run (server `last_success_at`,
+	// or a newer one the session poll observed) vs the `// freshness`
+	// window. No verdict (undefined) for drafts — no run history — and for
+	// unparseable windows; the chip then stays neutral like the other
+	// annotation chips.
+	let freshnessWindowS = $derived(data.freshness ? parseDurationSecs(data.freshness) : undefined)
+	// Ticks so a node crosses fresh→stale while the canvas stays open (the
+	// graph payload is static between refetches). Armed only when a verdict
+	// is rendered.
+	let nowMs = $state(Date.now())
+	$effect(() => {
+		if (freshnessWindowS === undefined || data.unsaved) return
+		const id = setInterval(() => (nowMs = Date.now()), 30_000)
+		return () => clearInterval(id)
+	})
+	let lastSuccessMs = $derived.by(() => {
+		const server = data.last_success_at ? new Date(data.last_success_at).getTime() : undefined
+		const polled = data.runState?.lastSuccessAt
+			? new Date(data.runState.lastSuccessAt).getTime()
+			: undefined
+		if (server === undefined) return polled
+		return polled === undefined ? server : Math.max(server, polled)
+	})
+	let freshnessState = $derived.by((): 'fresh' | 'stale' | undefined => {
+		if (freshnessWindowS === undefined || data.unsaved) return undefined
+		if (lastSuccessMs === undefined) return 'stale'
+		return nowMs - lastSuccessMs <= freshnessWindowS * 1000 ? 'fresh' : 'stale'
+	})
+	let freshnessTooltip = $derived.by(() => {
+		const base = `// freshness ${data.freshness}`
+		if (freshnessState === undefined) return base
+		if (lastSuccessMs === undefined) return `${base} — stale: no successful run yet`
+		const ago = msToReadableTimeShort(Math.max(0, nowMs - lastSuccessMs))
+		return freshnessState === 'fresh'
+			? `${base} — fresh: last successful run ${ago} ago`
+			: `${base} — stale: last successful run ${ago} ago`
+	})
+
+	// Cascade + bounded-run options live on the Run button's caret popover
+	// (whenever there's a cascade OR a bounded-run start — see `hasCaret`
+	// below), so the kebab menu stays focused on lifecycle actions only.
 	let menuItems: Item[] = $derived(
 		data.onRequestRemove
 			? [
@@ -131,101 +207,122 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+<!-- Hovering anywhere on a dbt project node highlights the models it
+     materializes: the association the graph does not draw as edges. -->
+<div
+	class="relative"
+	onmouseenter={() => {
+		hover = true
+		data.onDbtHover?.(true)
+	}}
+	onmouseleave={() => {
+		hover = false
+		data.onDbtHover?.(false)
+	}}
+>
 	<!--
 		Mirrors the flow editor's step styling (getNodeColorClasses): muted
 		surface-tertiary fill with a quiet gray border, accent only for the
-		selected state, dashes for unsaved drafts. The 2px dashed stroke is
-		necessary for the dash gaps to be readable; 1px disappears into the
-		fill.
+		selected state, dashes for unsaved drafts — 1px, like the trigger
+		nodes' dashed outline, so every draft node reads the same.
 	-->
-	<div
-		class={twMerge(
-			'flex items-center rounded-md drop-shadow-sm overflow-hidden border transition-colors',
-			'bg-surface border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500',
-			selected && 'bg-surface-accent-selected border-border-selected',
-			data.unsaved && 'border-2 border-dashed border-gray-400 dark:border-gray-500'
-		)}
-		style="width: {NODE.width}px; min-height: {NODE.height}px;"
-		title={nodeTooltip}
-	>
-		<Icon size={14} class={`shrink-0 ml-2 mr-2 ${selected ? 'text-accent' : 'text-secondary'}`} />
-		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
-			{data.path}
-		</span>
-		<!-- Annotation chips share one neutral treatment — the icon carries
-		     the meaning (colors are reserved for feedback, per the brand
-		     guidelines). Only the run-state chip below keeps semantic
-		     colors. -->
-		{#if data.partition_kind}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={`// partitioned ${data.partition_kind}`}
-			>
-				<Layers size={10} />
-				<span class="text-3xs leading-none">{data.partition_kind}</span>
-			</div>
-		{/if}
-		{#if data.freshness}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={`// freshness ${data.freshness}`}
-			>
-				<Timer size={10} />
-				<span class="text-3xs leading-none">{data.freshness}</span>
-			</div>
-		{/if}
-		{#if data.tag}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={`// tag ${data.tag}`}
-			>
-				<Tag size={10} />
-				<span class="text-3xs leading-none">{data.tag}</span>
-			</div>
-		{/if}
-		{#if data.retry}
-			{@const r = data.retry}
-			<div
-				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
-				title={`// retry ${r.count}${r.delay ? ` ${r.delay}` : ''}`}
-			>
-				<RotateCw size={10} />
-				<span class="text-3xs leading-none">×{r.count}</span>
-			</div>
-		{/if}
-		{#if data.runState}
-			{@const rs = data.runState}
-			<div
-				class={twMerge(
-					'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
-					rs.status === 'running'
-						? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-						: rs.status === 'success'
-							? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
-							: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
-				)}
-				title={`${
-					rs.status === 'running'
-						? 'Running now'
-						: rs.status === 'success'
-							? 'Last run succeeded'
-							: 'Last run failed'
-				}${rs.runs > 0 ? ` — ran ${rs.runs}× this session` : ''}`}
-			>
-				{#if rs.status === 'running'}
-					<Loader2 size={10} class="animate-spin" />
-				{:else if rs.status === 'success'}
-					<CheckCircle2 size={10} />
+	<NodeActionsMenu items={menuItems} {hover}>
+		<PipelineNodeCard
+			surface="primary"
+			kindLabel="{kindLabel}{data.unsaved ? ' · draft' : ''}"
+			title={data.summary || data.path}
+			tooltip={data.error ? `${data.path}: ${data.error}` : nodeTooltip}
+			{selected}
+			draft={data.unsaved}
+			tone={computingNow ? 'running' : data.error ? 'error' : undefined}
+		>
+			{#snippet icon()}
+				{#if data.language && data.runnable_kind === 'script'}
+					<LanguageIcon lang={data.language} width={14} height={14} />
 				{:else}
-					<XCircle size={10} />
+					<Icon size={14} class={selected ? 'text-accent' : 'text-secondary'} />
 				{/if}
-				{#if rs.runs > 0}
-					<span class="text-3xs leading-none tabular-nums">×{rs.runs}</span>
+			{/snippet}
+			{#snippet trailing()}
+				<!-- Annotation chips share one neutral treatment — the icon carries
+			     the meaning (colors are reserved for feedback, per the brand
+			     guidelines). Only the freshness chip (when it has a verdict)
+			     and the run-state chip below use semantic colors. -->
+				{#if data.partition_kind}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+						title={`// partitioned ${data.partition_kind}`}
+					>
+						<Layers size={10} />
+						<span class="text-3xs leading-none">{data.partition_kind}</span>
+					</div>
 				{/if}
-			</div>
-		{/if}
-	</div>
+				<!-- Freshness is the one annotation chip that carries feedback (a
+			     fresh/stale verdict against real run history), so like the
+			     run-state chip it uses semantic colors: emerald = within window,
+			     amber = stale. Neutral when there's no verdict (drafts, bad
+			     window value). -->
+				{#if data.freshness}
+					<div
+						class={twMerge(
+							'shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm',
+							freshnessState === 'fresh'
+								? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+								: freshnessState === 'stale'
+									? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+									: 'bg-surface-secondary text-secondary'
+						)}
+						title={freshnessTooltip}
+					>
+						<Timer size={10} />
+						<span class="text-3xs leading-none">{data.freshness}</span>
+					</div>
+				{/if}
+				{#if data.tag}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+						title={`// tag ${data.tag}`}
+					>
+						<Tag size={10} />
+						<span class="text-3xs leading-none">{data.tag}</span>
+					</div>
+				{/if}
+				{#if data.retry}
+					{@const r = data.retry}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+						title={`// retry ${r.count}${r.delay ? ` ${r.delay}` : ''}`}
+					>
+						<RotateCw size={10} />
+						<span class="text-3xs leading-none">×{r.count}</span>
+					</div>
+				{/if}
+				{#if data.macros && data.macros.length > 0}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-surface-secondary text-secondary"
+						title={`// macros — defines ${data.macros.length} macro${data.macros.length > 1 ? 's' : ''}:\n${data.macros
+							.map((m) => `• ${m.name}(${m.params})${m.is_table ? ' → table' : ''}`)
+							.join('\n')}`}
+					>
+						<SquareFunction size={10} />
+						<span class="text-3xs leading-none">×{data.macros.length}</span>
+					</div>
+				{/if}
+				{#if data.dbt}
+					<div
+						class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+						title={`dbt project — materializes ${data.dbt.model_count} model${data.dbt.model_count === 1 ? '' : 's'}`}
+					>
+						<DbtIcon width={10} height={10} />
+						<span class="text-3xs leading-none">×{data.dbt.model_count}</span>
+					</div>
+				{/if}
+				{#if data.runState}
+					<RunStateChip runState={data.runState} class="mr-1" />
+				{/if}
+			{/snippet}
+		</PipelineNodeCard>
+	</NodeActionsMenu>
 	{#if showRun}
 		<!-- Run button revealed on hover/select. Matches the placement, size,
 		     and behaviour of AssetNode's run button so both nodes feel
@@ -238,6 +335,11 @@
 		     + trigger N downstream". Matches the editor Test split button
 		     so the affordance is identical on both surfaces. -->
 		{@const hasCascade = (data.downstreamCount ?? 0) > 0}
+		<!-- The caret popover opens for either a subscriber cascade OR a
+		     bounded-run start. A pure-reader-only root has no subscriber
+		     downstream (`downstreamCount === 0`) but still gets `onStartBoundedRun`
+		     — without this it would have no visible "Run downstream up to…". -->
+		{@const hasCaret = hasCascade || !!data.onStartBoundedRun}
 		<div class="absolute -left-3 top-1/2 -translate-y-1/2 z-10 flex items-stretch">
 			<button
 				type="button"
@@ -245,7 +347,7 @@
 				disabled={running}
 				class={twMerge(
 					'bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white grid place-items-center shadow border-2 border-surface-secondary leading-none',
-					hasCascade ? 'rounded-l-full w-6 h-6 border-r-0' : 'rounded-full w-6 h-6'
+					hasCaret ? 'rounded-l-full w-6 h-6 border-r-0' : 'rounded-full w-6 h-6'
 				)}
 				title={`Run ${data.path}${data.unsaved ? ' (draft, runs as preview)' : ''}`}
 			>
@@ -255,7 +357,7 @@
 					<Play size={14} strokeWidth={2.5} class="translate-x-px" />
 				{/if}
 			</button>
-			{#if hasCascade}
+			{#if hasCaret}
 				<Popover
 					placement="bottom-start"
 					bind:isOpen={cascadeMenuOpen}
@@ -287,74 +389,70 @@
 									</span>
 								</div>
 							</button>
-							<button
-								type="button"
-								class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
-								onclick={(e) => {
-									close()
-									void runSelf(e, true)
-								}}
-							>
-								<Zap size={14} class="mt-0.5 shrink-0 text-secondary" />
-								<div class="flex flex-col min-w-0">
-									<span class="font-medium">
-										Run + trigger {data.downstreamCount} downstream
-									</span>
-									<span class="text-2xs text-secondary">
-										Let the asset-trigger cascade fan out to the {data.downstreamCount}
-										subscribed script{data.downstreamCount === 1 ? '' : 's'} after this run succeeds.
-									</span>
-									{#if data.unsaved || (data.downstreamUnsavedCount ?? 0) > 0}
-										<span class="text-2xs text-amber-700 dark:text-amber-400">
-											{#if data.unsaved}
-												Unsaved chain — runs as previews in dependency order.
-											{:else}
-												{data.downstreamUnsavedCount} unsaved — chain runs as previews in dependency
-												order.
-											{/if}
-											Deploy to enable automatic triggering.
+							{#if hasCascade}
+								<button
+									type="button"
+									class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+									onclick={(e) => {
+										close()
+										void runSelf(e, true)
+									}}
+								>
+									<Zap size={14} class="mt-0.5 shrink-0 text-secondary" />
+									<div class="flex flex-col min-w-0">
+										<span class="font-medium">
+											Run + trigger {data.downstreamCount} downstream
 										</span>
-									{/if}
-								</div>
-							</button>
+										<span class="text-2xs text-secondary">
+											Let the asset-trigger cascade fan out to the {data.downstreamCount}
+											subscribed script{data.downstreamCount === 1 ? '' : 's'} after this run succeeds.
+										</span>
+										{#if data.unsaved || (data.downstreamUnsavedCount ?? 0) > 0}
+											<span class="text-2xs text-amber-700 dark:text-amber-400">
+												{#if data.unsaved}
+													Unsaved chain — runs as previews in dependency order.
+												{:else}
+													{data.downstreamUnsavedCount} unsaved — chain runs as previews in dependency
+													order.
+												{/if}
+												Deploy to enable automatic triggering.
+											</span>
+										{/if}
+									</div>
+								</button>
+							{/if}
+							{#if data.onStartBoundedRun}
+								<button
+									type="button"
+									class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2 border-t"
+									onclick={(e) => {
+										e.stopPropagation()
+										cascadeMenuOpen = false
+										data.onStartBoundedRun?.()
+									}}
+								>
+									<Target size={14} class="mt-0.5 shrink-0 text-secondary" />
+									<div class="flex flex-col min-w-0">
+										<span class="font-medium">Run + downstream…</span>
+										<span class="text-2xs text-secondary">
+											Run this script and everything downstream. Or pick end node(s) on the graph to
+											bound the cascade between this script and them.
+										</span>
+									</div>
+								</button>
+							{/if}
 						</div>
 					{/snippet}
 				</Popover>
 			{/if}
 		</div>
 	{/if}
-
-	{#if menuItems.length > 0}
-		<!--
-			Hover-revealed action menu, top-right of the node. Mirrors the
-			FlowModuleSchemaItem pattern: position the trigger button just
-			outside the node frame, only render it on hover (or while the
-			menu is open) so the canvas isn't visually cluttered when idle.
-			The pointerdown stop+preventDefault keeps xyflow from selecting
-			the node when the user is reaching for the menu.
-		-->
-		<div class="absolute -top-2 -right-2 h-7 p-1 min-w-7" style="will-change: transform;">
-			<DropdownV2
-				items={menuItems}
-				placement="bottom-end"
-				bind:open={menuOpen}
-				fixedHeight={false}
-				usePointerDownOutside
-			>
-				{#snippet buttonReplacement()}
-					<button
-						class={twMerge(
-							'center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
-							hover || menuOpen ? 'block' : '!hidden',
-							'shadow-md rounded-md'
-						)}
-						onpointerdown={stopPropagation(preventDefault(() => {}))}
-						title="Actions"
-					>
-						<EllipsisVertical size={12} />
-					</button>
-				{/snippet}
-			</DropdownV2>
+	{#if data.onStartOnDrag}
+		<NodeOnDot onStart={data.onStartOnDrag} visible={hover} />
+	{/if}
+	{#if data.fix}
+		<div class="absolute left-1/2 -bottom-3 -translate-x-1/2 z-10">
+			<NodeFixButton fix={data.fix} />
 		</div>
 	{/if}
 </div>

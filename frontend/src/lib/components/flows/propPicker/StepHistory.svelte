@@ -10,12 +10,14 @@
 <script lang="ts">
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
 	import { JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { getContext, createEventDispatcher, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { Pin } from 'lucide-svelte'
 	import { Cell } from '$lib/components/table'
 	import JobPickerLight from './JobPickerLight.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		selected?: string | undefined
@@ -39,7 +41,9 @@
 		noHistory = undefined
 	}: Props = $props()
 
-	const { pathStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext') ?? {}
+	const { pathStore, flowStateStore, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext') ?? {}
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 	const dispatch = createEventDispatcher()
 
 	let infiniteList: InfiniteList | undefined = $state(undefined)
@@ -51,7 +55,7 @@
 		loadInputsPageFn = async (page: number, perPage: number) => {
 			if (staticInputs) return staticInputs
 			const previousJobs = await JobService.listCompletedJobs({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				scriptPathExact: path === '' ? $pathStore + '/' + moduleId : path,
 				jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),
 				page,
@@ -77,7 +81,7 @@
 	async function getJobResultAndLogs(jobId: string, noLogs: boolean) {
 		try {
 			const job = await JobService.getJob({
-				workspace: $workspaceStore ?? '',
+				workspace: opWs ?? '',
 				id: jobId ?? '',
 				noLogs
 			})

@@ -4,20 +4,61 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, PgConnection};
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    jobs::ChosenBy,
+    runnable_ref::RunnableRef,
     worker::to_raw_value,
 };
 use windmill_git_sync::DeployedObject;
-use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
+use windmill_trigger::{filter::CompiledFilters, Trigger, TriggerCrud, TriggerData};
 
 use super::{
-    get_url_from_runnable_value, proxy::connect_async_with_proxy, validate_websocket_url_for_ssrf,
-    TestWebsocketConfig, WebsocketConfig, WebsocketConfigRequest, WebsocketTrigger,
+    get_url_from_runnable_value, listener::InitialMessage, proxy::connect_async_with_proxy,
+    validate_websocket_url_for_ssrf, TestWebsocketConfig, WebsocketConfig, WebsocketConfigRequest,
+    WebsocketTrigger,
 };
+
+/// A websocket_triggers:write token can configure secondary runnables that the
+/// listener later executes under the trigger owner's identity: a `$flow:`/
+/// `$script:` URL resolver and `initial_messages` of kind `runnable_result`.
+/// That execution happens in a background task where the reconstructed authed is
+/// scopeless (so its check_scopes is a no-op), so enforce run scope here, at
+/// create/update time, against the API caller's token. Reading the paths here also
+/// refuses, for any caller, one that does not parse.
+fn check_secondary_runnable_scopes(
+    authed: &ApiAuthed,
+    config: &WebsocketConfigRequest,
+) -> Result<()> {
+    for runnable in secondary_runnables(&config.url, config.initial_messages.as_deref()) {
+        let runnable = runnable?;
+        let kind = if runnable.is_flow() {
+            "flows"
+        } else {
+            "scripts"
+        };
+        check_scopes(authed, || format!("jobs:run:{kind}:{}", runnable.path()))?;
+    }
+    Ok(())
+}
+
+fn secondary_runnables(
+    url: &str,
+    initial_messages: Option<&[serde_json::Value]>,
+) -> Vec<Result<RunnableRef>> {
+    let mut runnables: Vec<_> = RunnableRef::from_ws_url(url).into_iter().collect();
+    for msg in initial_messages.unwrap_or_default() {
+        if let Ok(InitialMessage::RunnableResult { path, is_flow, .. }) =
+            serde_json::from_value::<InitialMessage>(msg.clone())
+        {
+            runnables.push(RunnableRef::from_path(&path, is_flow));
+        }
+    }
+    runnables
+}
 
 #[async_trait]
 impl TriggerCrud for WebsocketTrigger {
@@ -38,6 +79,7 @@ impl TriggerCrud for WebsocketTrigger {
         "url",
         "filters",
         "filter_logic",
+        "run_on_filter_error",
         "initial_messages",
         "url_runnable_args",
         "can_return_message",
@@ -45,6 +87,18 @@ impl TriggerCrud for WebsocketTrigger {
         "heartbeat",
     ];
     const IS_ALLOWED_ON_CLOUD: bool = false;
+
+    fn config_runnables(config: &serde_json::Value) -> Vec<RunnableRef> {
+        let url = config
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let messages = config.get("initial_messages").and_then(|v| v.as_array());
+        secondary_runnables(url, messages.map(Vec::as_slice))
+            .into_iter()
+            .flatten()
+            .collect()
+    }
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
         DeployedObject::WebsocketTrigger { path, parent_path }
@@ -77,6 +131,8 @@ impl TriggerCrud for WebsocketTrigger {
             }
         }
 
+        CompiledFilters::validate(&config.filters)?;
+
         if let Some(ref hb) = config.heartbeat {
             if hb.interval_secs < 1 {
                 return Err(Error::BadRequest(
@@ -101,6 +157,7 @@ impl TriggerCrud for WebsocketTrigger {
         w_id: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        check_secondary_runnable_scopes(authed, &trigger.config)?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger
@@ -137,9 +194,10 @@ impl TriggerCrud for WebsocketTrigger {
                 error_handler_path,
                 error_handler_args,
                 retry,
-                heartbeat
+                heartbeat,
+                run_on_filter_error
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17, $18
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17, $18, $19
             )
             "#,
             w_id,
@@ -162,7 +220,8 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.config.heartbeat.map(SqlxJson) as _
+            trigger.config.heartbeat.map(SqlxJson) as _,
+            trigger.config.run_on_filter_error
         )
         .execute(&mut *tx)
         .await?;
@@ -178,6 +237,7 @@ impl TriggerCrud for WebsocketTrigger {
         path: &str,
         trigger: TriggerData<Self::TriggerConfigRequest>,
     ) -> Result<()> {
+        check_secondary_runnable_scopes(authed, &trigger.config)?;
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
         let filters = trigger
@@ -218,7 +278,8 @@ impl TriggerCrud for WebsocketTrigger {
             error_handler_path = $15,
             error_handler_args = $16,
             retry = $17,
-            heartbeat = $18
+            heartbeat = $18,
+            run_on_filter_error = $19
         WHERE
             workspace_id = $13 AND path = $14
     ",
@@ -243,7 +304,8 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.config.heartbeat.map(SqlxJson) as _
+            trigger.config.heartbeat.map(SqlxJson) as _,
+            trigger.config.run_on_filter_error
         )
         .execute(&mut *tx)
         .await?;
@@ -262,32 +324,30 @@ impl TriggerCrud for WebsocketTrigger {
         let url = &config.url;
 
         let connect_url: Cow<str> = if url.starts_with("$") {
-            if url.starts_with("$flow:") || url.starts_with("$script:") {
-                let path = url.splitn(2, ':').nth(1).unwrap();
-                Cow::Owned(
-                    get_url_from_runnable_value(
-                        path,
-                        url.starts_with("$flow:"),
-                        &db,
-                        authed.clone(),
-                        config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
-                        &workspace_id,
-                    )
-                    .await?,
-                )
-            } else {
+            let Some(runnable) = RunnableRef::from_ws_url(url) else {
                 return Err(Error::BadConfig(format!(
                     "Invalid WebSocket runnable path: {}",
                     url
                 )));
-            }
+            };
+            Cow::Owned(
+                get_url_from_runnable_value(
+                    &runnable?,
+                    &db,
+                    authed.clone(),
+                    ChosenBy::Caller,
+                    config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
+                    &workspace_id,
+                )
+                .await?,
+            )
         } else {
             Cow::Borrowed(&url)
         };
 
-        validate_websocket_url_for_ssrf(&connect_url).await?;
+        let validated = validate_websocket_url_for_ssrf(&connect_url).await?;
 
-        connect_async_with_proxy(&*connect_url)
+        connect_async_with_proxy(&*connect_url, validated.pinned_addrs())
             .await
             .map_err(|err| {
                 Error::BadConfig(format!(

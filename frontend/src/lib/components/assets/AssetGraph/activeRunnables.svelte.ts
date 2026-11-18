@@ -1,8 +1,15 @@
 import { JobService } from '$lib/gen'
 
 export type RunStatus = 'running' | 'success' | 'failure'
-/** Per-runnable badge state: latest run status + runs observed this session. */
-export type RunnableRunState = { status: RunStatus; runs: number }
+/**
+ * Per-runnable badge state: latest run status + runs observed this session.
+ * `lastSuccessAt` is the completion time (start + duration when the listing
+ * carries it, else start as a conservative lower bound) of the newest
+ * successful run seen by the poll — lets the freshness chip go green right
+ * after an in-session run, ahead of the next graph refetch (whose
+ * `last_success_at` would carry it).
+ */
+export type RunnableRunState = { status: RunStatus; runs: number; lastSuccessAt?: string }
 
 export type EventStatus = 'queued' | 'running' | 'success' | 'failure'
 /** One folder activity-log row (a job observed by the poll). */
@@ -14,6 +21,12 @@ export type PipelineEvent = {
 	/** What started it, as far as the job listing reveals. */
 	source: 'schedule' | 'run'
 	at: string
+	/**
+	 * Completion time (start + duration) for completed rows. The freshness
+	 * chip compares against completion — `at` is the start time and would
+	 * read a long run as older than its output actually is.
+	 */
+	completedAt?: string
 	/**
 	 * Queued jobs: when the job is due to start. A future value means a
 	 * scheduled run waiting for its cron tick, not pipeline activity.
@@ -45,7 +58,8 @@ function statesEq(a: Map<string, RunnableRunState>, b: Map<string, RunnableRunSt
 	if (a.size !== b.size) return false
 	for (const [k, v] of a) {
 		const w = b.get(k)
-		if (!w || w.status !== v.status || w.runs !== v.runs) return false
+		if (!w || w.status !== v.status || w.runs !== v.runs || w.lastSuccessAt !== v.lastSuccessAt)
+			return false
 	}
 	return true
 }
@@ -128,7 +142,7 @@ export function useActiveRunnableIds(
 	// keeps showing the last status while idle; only `dispose()` clears them.
 	const completedHistory = new Map<
 		string,
-		{ runs: number; lastStatus: RunStatus; lastTs: string }
+		{ runs: number; lastStatus: RunStatus; lastTs: string; lastSuccessTs?: string }
 	>()
 	const countedJobIds = new Set<string>()
 	// Job ids we've observed in-flight at least once. The catch-up pulse is
@@ -241,10 +255,25 @@ export function useActiveRunnableIds(
 						const prev = completedHistory.get(id)
 						const status: RunStatus = (j as any).success === true ? 'success' : 'failure'
 						const ts = startedTs ?? new Date(pollStartedMs).toISOString()
+						// Freshness compares against COMPLETION time (that's
+						// when the output materialized — the server-side
+						// last_success_at is completed_at too). The listing
+						// only carries started_at, so add duration_ms; when
+						// absent, the start is a conservative lower bound
+						// (errs stale, never false-fresh).
+						const durationMs = (j as any).duration_ms
+						const doneTs =
+							typeof durationMs === 'number' && startedTs
+								? new Date(new Date(startedTs).getTime() + durationMs).toISOString()
+								: ts
 						completedHistory.set(id, {
 							runs: (prev?.runs ?? 0) + 1,
 							lastStatus: !prev || ts >= prev.lastTs ? status : prev.lastStatus,
-							lastTs: !prev || ts >= prev.lastTs ? ts : prev.lastTs
+							lastTs: !prev || ts >= prev.lastTs ? ts : prev.lastTs,
+							lastSuccessTs:
+								status === 'success' && (!prev?.lastSuccessTs || doneTs >= prev.lastSuccessTs)
+									? doneTs
+									: prev?.lastSuccessTs
 						})
 					}
 				}
@@ -267,6 +296,10 @@ export function useActiveRunnableIds(
 								: 'failure',
 						source: (j as any).schedule_path ? 'schedule' : 'run',
 						at: startedTs ?? new Date(pollStartedMs).toISOString(),
+						completedAt:
+							!isQueued && typeof (j as any).duration_ms === 'number' && startedTs
+								? new Date(new Date(startedTs).getTime() + (j as any).duration_ms).toISOString()
+								: undefined,
 						scheduledFor: isQueued ? ((j as any).scheduled_for as string | undefined) : undefined
 					})
 				}
@@ -289,7 +322,11 @@ export function useActiveRunnableIds(
 		// previous badge state until a worker picks the job up.
 		const snap = new Map<string, RunnableRunState>()
 		for (const [id, h] of completedHistory) {
-			snap.set(id, { status: runningThisTick.has(id) ? 'running' : h.lastStatus, runs: h.runs })
+			snap.set(id, {
+				status: runningThisTick.has(id) ? 'running' : h.lastStatus,
+				runs: h.runs,
+				lastSuccessAt: h.lastSuccessTs
+			})
 		}
 		for (const id of runningThisTick) {
 			if (!snap.has(id)) snap.set(id, { status: 'running', runs: 0 })

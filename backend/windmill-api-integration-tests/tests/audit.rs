@@ -33,3 +33,227 @@ async fn test_audit_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// A run fired by a labeled token must be findable both by the token that fired it and by the
+/// caller who fired it. `push` builds its own audit author from `(user, permissioned_as)` rather
+/// than from the `ApiAuthed`, so the label only reaches the row through the explicit end-user
+/// argument; and when the runnable declares `on_behalf_of`, the run-as identity takes `username`,
+/// so the caller only stays searchable through the `created_by` parameter.
+///
+/// EE-only: the OSS `audit_log` writes nothing, and a lesser plan redacts the `parameters` this
+/// matches on.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_job_run_is_searchable_by_token_and_by_caller(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use serde_json::json;
+
+    initialize_tracing().await;
+
+    // The recorded identity makes a run against this take `u/test-user-2` as its
+    // permissioned_as, so the audit `username` slot goes to it rather than to the caller.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by,
+             on_behalf_of, schema, summary, description, lock, extra_perms)
+         VALUES ('test-workspace', 900101, 'u/test-user-2/onbehalf', 'export function main() {}',
+             'deno', 'script', 'test-user-2', 'u/test-user-2', '{}', '', '', '', '{\"g/all\": true}')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(client().post(format!("http://localhost:{port}/api/users/tokens/create")))
+        .json(&json!({ "label": "audit-probe" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+    let token = resp.text().await?;
+    let bearer = |b: reqwest::RequestBuilder| b.header("Authorization", format!("Bearer {token}"));
+
+    let resp = bearer(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/jobs/run/preview"
+    )))
+    .json(&json!({
+        "content": "export function main() { return 1; }",
+        "language": "deno",
+        "args": {}
+    }))
+    .send()
+    .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "POST /jobs/run/preview",
+    );
+
+    let resp = bearer(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/jobs/run/p/u/test-user-2/onbehalf"
+    )))
+    .json(&json!({}))
+    .send()
+    .await?;
+    assert_2xx(
+        resp.status().as_u16(),
+        &resp.text().await?,
+        "POST /jobs/run/p/u/test-user-2/onbehalf",
+    );
+
+    let search = |q: &str| {
+        let url = format!("http://localhost:{port}/api/w/test-workspace/audit/list?username={q}");
+        async move {
+            let resp = authed(client().get(url)).send().await.unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.json::<Vec<serde_json::Value>>().await.unwrap()
+        }
+    };
+
+    let by_token = search("label-audit-probe").await;
+    assert!(
+        by_token
+            .iter()
+            .any(|l| l["operation"] == "jobs.run.preview"),
+        "the run must be searchable by token label, got {by_token:?}"
+    );
+    assert!(
+        by_token
+            .iter()
+            .any(|l| l["operation"] == "jobs.run.script" && l["username"] == "test-user-2"),
+        "the on-behalf run must be searchable by token label, got {by_token:?}"
+    );
+
+    // `username` is `test-user-2` on that row, so this can only match through `created_by`.
+    let by_caller = search("test-user").await;
+    assert!(
+        by_caller
+            .iter()
+            .any(|l| l["operation"] == "jobs.run.script" && l["username"] == "test-user-2"),
+        "the on-behalf run must stay searchable by the caller who fired it, got {by_caller:?}"
+    );
+
+    Ok(())
+}
+
+/// Paging with the `(timestamp, id)` cursor must return every row once, in `timestamp DESC, id
+/// DESC` order, even where ids disagree with timestamps (an id is drawn at insert, the timestamp
+/// at transaction start).
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_audit_list_cursor_follows_timestamp_order(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // Hours ahead stay inside the partitions created for the next days.
+    sqlx::query(
+        "INSERT INTO audit_partitioned (workspace_id, id, timestamp, username, operation, action_kind)
+         SELECT 'test-workspace', id, date_trunc('second', now()) + h * interval '1 hour',
+                'test-user', 'cursor.probe', 'create'
+         FROM (VALUES (9000001, 1), (9000002, 3), (9000003, 2), (9000004, 2), (9000005, 1)) v(id, h)",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let mut seen = vec![];
+    let mut cursor: Vec<(&str, String)> = vec![];
+    loop {
+        let url = format!("http://localhost:{port}/api/w/test-workspace/audit/list");
+        let page = authed(client().get(url))
+            .query(&[("operation", "cursor.probe"), ("per_page", "1")])
+            .query(&cursor)
+            .send()
+            .await?
+            .json::<Vec<serde_json::Value>>()
+            .await?;
+        let Some(row) = page.first() else { break };
+        seen.push(row["id"].as_i64().unwrap());
+        cursor = vec![
+            ("before_id", row["id"].to_string()),
+            (
+                "before_id_timestamp",
+                row["timestamp"].as_str().unwrap().to_string(),
+            ),
+        ];
+    }
+    assert_eq!(seen, [9000002, 9000004, 9000003, 9000005, 9000001]);
+
+    Ok(())
+}
+
+/// The run filter must find a run's entries under each key they keep its id in: the run itself
+/// (`parameters.uuid`), a cancel (`resource`) and a resume (`parameters.job_id`), and only those.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_audit_list_filters_by_run(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use serde_json::json;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let w = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let mut ids = vec![];
+    for _ in 0..2 {
+        let resp = authed(client().post(format!("{w}/jobs/run/preview")))
+            .json(
+                &json!({ "content": "export function main() {}", "language": "deno", "args": {} }),
+            )
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+        ids.push(resp.text().await?);
+    }
+    let (run, other) = (&ids[0], &ids[1]);
+
+    let resp = authed(client().post(format!("{w}/jobs_u/queue/cancel/{run}")))
+        .json(&json!({}))
+        .send()
+        .await?;
+    assert_2xx(resp.status().as_u16(), &resp.text().await?, "cancel");
+    // A subflow of the run and a step of that subflow, whose approval and start are filed under
+    // their own ids.
+    let (sub, step) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, parent_job)
+         VALUES ($1, 'test-workspace', $2::uuid), ($3, 'test-workspace', $1)",
+    )
+    .bind(sub)
+    .bind(run)
+    .bind(step)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO audit_partitioned (workspace_id, username, operation, action_kind, parameters)
+         VALUES ('test-workspace', 'test-user', 'jobs.suspend_resume', 'update', $1),
+                ('test-workspace', 'test-user', 'jobs.run.script', 'execute', $2)",
+    )
+    .bind(json!({ "job_id": sub }))
+    .bind(json!({ "uuid": step }))
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().get(format!("{w}/audit/list?job_id={run}")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let mut ops = resp
+        .json::<Vec<serde_json::Value>>()
+        .await?
+        .into_iter()
+        .map(|l| l["operation"].as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
+    ops.sort();
+    assert_eq!(
+        ops,
+        [
+            "jobs.cancel",
+            "jobs.run.preview",
+            "jobs.run.script",
+            "jobs.suspend_resume"
+        ],
+        "entries of {run} (not of {other})"
+    );
+
+    Ok(())
+}

@@ -4,20 +4,21 @@ AI chat `@`-mention dropdown. Mounts the generic `DrillPicker` with a
 unified tree:
 
   Diffs / Modules / Databases / Workspace
-                                     ├── All / Flows / Scripts
-                                     │       └── f/scope/sub/leaf …
+                                     ├── u/user / f/folder …
+                                     │       └── sub/leaf … (kinds mixed)
 
 The Diffs / Modules / Databases branches are synthesized from the chat's
 in-memory `availableContext`. The Workspace branch delegates to
-`buildWorkspaceTree` so the picker shares the workspace caching machinery
-with the standalone picker used by `EditorHeader`.
+`buildWorkspaceTree` (flat layout — the workspace home's first level, no
+kind grouping) so the picker shares the workspace caching machinery with
+the standalone picker used by `EditorHeader`. Apps only appear in GLOBAL
+chat and list raw (code-based) apps; visual apps are excluded.
 
 On a workspace-leaf pick, emits a reference-only `WorkspaceScriptElement` /
-`WorkspaceFlowElement` (path + title + summary). Content is materialized
-at message-prep time by `AIChatManager` — see PR #9216.
+`WorkspaceFlowElement` / `WorkspaceAppElement` (path + title + summary).
+Content is materialized at message-prep time by `AIChatManager` — see PR #9216.
 -->
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { Database, Diff, FileText, Folder, Layers } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
@@ -25,7 +26,11 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	import type { FlowModule } from '$lib/gen/types.gen'
 	import DrillPicker from '$lib/components/DrillPicker.svelte'
 	import type { DrillBranch, DrillIcon, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
-	import { type WorkspaceItem, type WorkspaceItemKind } from '$lib/components/workspacePicker'
+	import {
+		workspaceItemDisplayPath,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 	import { useWorkspaceItemsLoader } from '$lib/components/workspaceItemsLoader.svelte'
 	import { buildWorkspaceTree, relativizeWorkspacePath } from '$lib/components/workspaceTree'
 	import { getFileIcon } from '$lib/components/icons/fileIcon'
@@ -34,10 +39,16 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	import type { AttachedFile, AttachedFolder } from './files/attachedFiles.svelte'
 	import {
 		ContextIconMap,
+		withFolderContextLeaves,
 		type ContextElement,
+		type WorkspaceAgentElement,
+		type WorkspaceAppElement,
 		type WorkspaceFlowElement,
 		type WorkspaceScriptElement
 	} from './context'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -90,13 +101,25 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	}
 
 	// Workspace state shared with WorkspaceItemDrillPicker via the loader.
-	// Chat surfaces flows and scripts only — apps aren't useful as @-mention
-	// context because they're frontends, not callable units.
-	const WORKSPACE_KINDS: WorkspaceItemKind[] = ['flow', 'script']
+	// Flows and scripts everywhere; raw apps and agents only in GLOBAL chat, where
+	// its tools let the model act on the reference. Visual apps stay
+	// excluded — they're frontends, not code units (filtered out below, where the
+	// 'app' kind is narrowed to raw apps before tree-building).
+	const WORKSPACE_KINDS = $derived<WorkspaceItemKind[]>(
+		aiChatManager.mode === AIMode.GLOBAL ? ['flow', 'script', 'app', 'agent'] : ['flow', 'script']
+	)
 	const loader = useWorkspaceItemsLoader(
-		() => $workspaceStore,
+		() => $operatingWorkspace,
 		() => WORKSPACE_KINDS
 	)
+
+	// The 'app' listing returns visual and raw apps together; keep only raw apps
+	// so the picker never surfaces a frontend-only app that the chat can't use.
+	const loadedForTree = $derived.by(() => {
+		const loaded = loader.loaded
+		if (!loaded.app) return loaded
+		return { ...loaded, app: loaded.app.filter((a) => a.raw_app) }
+	})
 
 	function contextLeaf(c: ContextElement): DrillLeaf<ChatLeafData> {
 		const displayLabel =
@@ -245,11 +268,14 @@ at message-prep time by `AIChatManager` — see PR #9216.
 			if (diffs) branches.push(diffs)
 			if (modules) branches.push(modules)
 			if (dbs) branches.push(dbs)
-			const wsChildren = buildWorkspaceTree({
-				loaded: loader.loaded,
-				kinds: WORKSPACE_KINDS,
-				loadingKind: loader.loadingKind
-			}) as DrillNode<ChatLeafData>[]
+			const wsChildren: DrillNode<ChatLeafData>[] = withFolderContextLeaves(
+				buildWorkspaceTree({
+					loaded: loadedForTree,
+					kinds: WORKSPACE_KINDS,
+					loadingKind: loader.loadingKind,
+					layout: 'flat'
+				})
+			)
 			// Workspace-only (e.g. global chat with no diffs/modules/dbs): skip
 			// the redundant 'Workspace' row and surface its children at the root.
 			if (branches.length === 0) return wsChildren
@@ -258,7 +284,8 @@ at message-prep time by `AIChatManager` — see PR #9216.
 				key: 'workspace',
 				label: 'Workspace',
 				icon: Layers,
-				children: wsChildren
+				children: wsChildren,
+				loading: WORKSPACE_KINDS.some((k) => loader.loadingKind[k])
 			})
 			return branches
 		})()
@@ -292,8 +319,29 @@ at message-prep time by `AIChatManager` — see PR #9216.
 					deletable: true
 				}
 				onSelectWorkspaceItem(element)
+			} else if (d.kind === 'app') {
+				// Only raw apps reach here (the tree is narrowed in `loadedForTree`).
+				const element: WorkspaceAppElement & { deletable: boolean } = {
+					type: 'workspace_app',
+					path: d.path,
+					title: d.path,
+					summary: d.summary,
+					deletable: true
+				}
+				onSelectWorkspaceItem(element)
+			} else if (d.kind === 'agent') {
+				const element: WorkspaceAgentElement & { deletable: boolean } = {
+					type: 'workspace_agent',
+					path: d.path,
+					title: d.path,
+					summary: d.summary,
+					deletable: true
+				}
+				onSelectWorkspaceItem(element)
 			}
-			// Apps are filtered out via kinds=['flow','script']; ignore.
+		} else if (d.type === 'workspace_folder') {
+			// A folder is a workspace reference like an item, never in availableContext.
+			onSelectWorkspaceItem?.(d)
 		} else {
 			// Runtime context element — added directly.
 			onSelect(d)
@@ -302,15 +350,14 @@ at message-prep time by `AIChatManager` — see PR #9216.
 
 	function handleScopeChange(scope: string[]) {
 		// Two possible layouts:
-		//   (a) WRAPPED   — `['workspace', 'kind:all', ...]` — chat with Diffs /
+		//   (a) WRAPPED   — `['workspace', 'dir:all:...', ...]` — chat with Diffs /
 		//       Modules / Databases branches alongside Workspace.
-		//   (b) UNWRAPPED — `['kind:all', ...]` or `['dir:flow:...']` — chat
-		//       with only the workspace branch (global chat). The redundant
-		//       'workspace' wrapper is collapsed in the tree builder.
+		//   (b) UNWRAPPED — `['dir:all:...', ...]` — chat with only the workspace
+		//       branch (global chat). The redundant 'workspace' wrapper is
+		//       collapsed in the tree builder.
 		// Empty scope `[]` is the picker root: in (a) it's the chat root
 		// (don't preload — user hasn't entered Workspace yet), in (b) it's
-		// the workspace root itself (preload so kind branches don't render
-		// empty-without-spinner).
+		// the workspace root itself.
 		if (scope.length === 0) {
 			if (isWorkspaceOnly) loader.ensureAll()
 			return
@@ -318,15 +365,9 @@ at message-prep time by `AIChatManager` — see PR #9216.
 		if (scope[0] === 'files') return // synthesised from attached files — no fetch
 		const inWorkspace = scope[0] === 'workspace' || isWorkspaceOnly
 		if (!inWorkspace) return // diffs / modules / databases — synthesised, no fetch
-		const path = scope[0] === 'workspace' ? scope.slice(1) : scope
-		// Entering Workspace (wrapped: scope=['workspace']) or its 'All' sub-
-		// branch: preload every kind so the kind branches each show their
-		// spinner/items without a per-drill delay.
-		if (path.length === 0 || path[0] === 'kind:all') {
-			loader.ensureAll()
-			return
-		}
-		loader.ensureForScopeSegment(path[0])
+		// Flat workspace layout: every level is a cross-kind merge, so any
+		// workspace scope needs all kinds loaded.
+		loader.ensureAll()
 	}
 
 	// Close the picker on Escape. The badge popover's melt-ui handles Esc
@@ -362,10 +403,7 @@ at message-prep time by `AIChatManager` — see PR #9216.
 {/snippet}
 
 {#snippet branchIcon(branch: DrillBranch<ChatLeafData>)}
-	{#if branch.key === 'kind:flow' || branch.key === 'kind:script' || branch.key === 'kind:app'}
-		{@const k = branch.key.slice(5) as WorkspaceItemKind}
-		<RowIcon kind={k} size={12} />
-	{:else if branch.icon}
+	{#if branch.icon}
 		{@const Icon = branch.icon}
 		<Icon size={12} class="shrink-0 text-tertiary" />
 	{/if}
@@ -380,7 +418,11 @@ at message-prep time by `AIChatManager` — see PR #9216.
 	{leafIcon}
 	{branchIcon}
 	leafSecondary={(leaf, scope) =>
-		'kind' in leaf.data ? relativizeWorkspacePath(leaf.data.path, scope) : undefined}
+		'kind' in leaf.data
+			? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)
+			: undefined}
 	onScopeChange={handleScopeChange}
 	onFilterChange={loader.onFilterChange}
+	rootLoading={isWorkspaceOnly &&
+		WORKSPACE_KINDS.some((k) => !loader.loaded[k] && loader.loadingKind[k])}
 />

@@ -1,10 +1,13 @@
 <script lang="ts">
-	import { workspaceStore, userStore } from '$lib/stores'
-	import { base } from '$lib/base'
+	import pLimit from 'p-limit'
+	import { roleCapabilities, workspaceStore, userStore } from '$lib/stores'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
+	import PipelineGraphEditor from '$lib/components/assets/AssetGraph/PipelineGraphEditor.svelte'
 	import {
 		useActiveRunnableIds,
 		isActiveEvent
@@ -15,29 +18,54 @@
 		RunStatus
 	} from '$lib/components/assets/AssetGraph/activeRunnables.svelte'
 	import { usePipelineHistory } from '$lib/components/assets/AssetGraph/pipelineHistory.svelte'
-	import PipelineEventLog from '$lib/components/assets/AssetGraph/PipelineEventLog.svelte'
 	import PipelineActivityPanel from '$lib/components/assets/AssetGraph/PipelineActivityPanel.svelte'
-	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
-	import {
-		extractWrites,
-		extractReads,
-		type AssetWithAltAccessType
-	} from '$lib/components/assets/lib'
 	import type {
 		AssetGraphResponse,
 		AssetGraphSelection,
 		NativeTriggerKind,
-		PipelineMode
+		PipelineMode,
+		PipelineTriggerDraft,
+		PipelineTriggerDraftKind
 	} from '$lib/components/assets/AssetGraph/types'
 	import PipelineModeToggle from '$lib/components/assets/AssetGraph/PipelineModeToggle.svelte'
+	import MacroExplorerDrawer from '$lib/components/assets/AssetGraph/MacroExplorerDrawer.svelte'
+	import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 	import {
-		parsePipelineAnnotations,
-		type PipelineAnnotations
-	} from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
-	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
-	import { computeDownstreamClosure } from '$lib/components/assets/AssetGraph/graphTraversal'
-	import { runCascade } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
+		assetColumnNodes,
+		buildColumnGraph,
+		connectedComponent,
+		EMPTY_COLUMN_GRAPH,
+		mergeColumnGraphs
+	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
+	import { useDbtColumnLineage } from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
+	import {
+		pipelineNodeErrors,
+		resolveGraph
+	} from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
+	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
+	import { usePipelineDataUploads } from '$lib/components/assets/AssetGraph/pipelineDataUploads.svelte'
+	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
+	import {
+		computeDownstreamClosure,
+		computeInducedSchedule,
+		assetProducers
+	} from '$lib/components/assets/AssetGraph/graphTraversal'
+	import { runCascade, runSelection } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
+	import { DATA_ASSET_KINDS } from '$lib/components/assets/AssetGraph/cascadeRun'
+	import {
+		boundedSet,
+		buildLineageDag,
+		buildLineageDownstreamMap,
+		isScriptNode,
+		nonAutorunTriggerScripts,
+		reachableCutting,
+		scriptNodeId,
+		scriptsOf,
+		validFromStarts,
+		validStarts
+	} from '$lib/components/assets/AssetGraph/boundedCascade'
 	import {
 		diffDeployedGraph,
 		extractCascadeFacts,
@@ -50,91 +78,172 @@
 		type PipelineOutputKind,
 		type DraftTriggerSource
 	} from '$lib/components/assets/AssetGraph/pipelineTemplates'
-	import { decodeState, encodeState } from '$lib/utils'
-	import { DraftService } from '$lib/gen'
-	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { type PipelineDraft } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
+	import {
+		PipelineEditorState
+	} from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+	import {
+		defaultTriggerPath,
+		isDraftableTriggerKind,
+		triggerDraftKey
+	} from '$lib/components/assets/AssetGraph/pipelineTriggerDrafts'
+	import { deleteTriggerRow } from '$lib/components/assets/AssetGraph/pipelineTriggerDraftDeploy'
+	import {
+		deployPipelineDrafts,
+		deployPipelineScript
+	} from '$lib/components/assets/AssetGraph/pipelineDeploy.svelte'
+	import type { AssetUpstreamDelete } from '$lib/components/assets/AssetGraph/assetsOnlyView'
+	import type { NodeFixSpec } from '$lib/components/assets/AssetGraph/NodeFixButton.svelte'
+	import { TRIGGER_NODE_STYLE } from '$lib/components/assets/AssetGraph/TriggerNode.svelte'
+	import {
+		addTriggerDirective,
+		assetRef,
+		listenToAsset,
+		removeTriggerDirective,
+		stopListeningChangeText,
+		stopListeningToAsset
+	} from '$lib/components/assets/AssetGraph/pipelineAnnotationEdits'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import type { PipelineInsertOptions } from '$lib/components/assets/AssetGraph/PipelineInsertMenu.svelte'
+	import {
+		createPipelineRecording,
+		finalizePipelineRecording
+	} from '$lib/components/recording/pipelineRecording.svelte'
+	import type { PipelineRecording } from '$lib/components/recording/types'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
+	import { usePipelineAssetPrefetch } from '$lib/components/assets/AssetGraph/pipelineAssetPrefetch.svelte'
+	import PipelineDeployErrors from '$lib/components/assets/AssetGraph/PipelineDeployErrors.svelte'
+	import PipelineDeployTriggersModal from '$lib/components/assets/AssetGraph/PipelineDeployTriggersModal.svelte'
 	import { onMount, tick, untrack } from 'svelte'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import {
 		AlertTriangle,
-		ArrowLeft,
 		ChevronDown,
+		Circle,
+		Download,
 		Folder,
 		FolderSearch,
 		History,
 		Loader2,
 		NetworkIcon,
+		Play,
 		RefreshCw,
 		Save,
+		SquareFunction,
+		Target,
 		Telescope
 	} from 'lucide-svelte'
 	import {
 		JobService,
 		OpenAPI,
+		ScheduleService,
 		ScriptService,
+		AssetService,
 		type AssetKind,
 		type Script,
 		type ScriptLang
 	} from '$lib/gen'
 	import { resource } from 'runed'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { emptySchema, sendUserToast } from '$lib/utils'
-	import type { Schema } from '$lib/common'
+	import { emptySchema, sendUserToast, type Item } from '$lib/utils'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import { fade } from 'svelte/transition'
-	import { twMerge } from 'tailwind-merge'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
-	import { inferArgs, inferAssets } from '$lib/infer'
 	import PipelineTriggerEditors from '$lib/components/assets/AssetGraph/PipelineTriggerEditors.svelte'
 
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
 	// layout without adding lineage information.
-	const DATA_KINDS = ['s3object', 'ducklake', 'datatable', 'volume']
+	const DATA_KINDS = DATA_ASSET_KINDS
 
-	let folder = $derived(page.params.folder as string)
-	let selection = $state<AssetGraphSelection | undefined>(undefined)
+	// The route param is gone for a moment while the page tears down on leaving; the
+	// folder keeps its last value so nothing keyed on it (draft autosave, graph
+	// fetch) sees a different folder in that window.
+	let lastFolder = ''
+	let folder = $derived.by(() => {
+		const param = page.params.folder
+		if (param !== undefined) lastFolder = normalizePipelineFolder(param)
+		return lastFolder
+	})
+
+	// Externalized editor state (drafts, live overlays, selection), shared with
+	// the in-session pipeline preview via PipelineEditorState. Referenced as
+	// `pe.*` throughout; the persistence / graph / run logic below stays here.
+	const pe = new PipelineEditorState()
+
+	// The in-app folder switcher navigates same-route (`/pipeline/<other>`), which
+	// reuses this page component — nothing remounts. Mirror the session preview's
+	// retarget guard: reset the editor state on a folder change so folder A's drafts
+	// don't display under B (and aren't autosaved into B's bundle), and so
+	// hydratedFromDb flips back to false and B's draft bundle re-hydrates.
+	$effect(() => {
+		const f = folder
+		untrack(() => {
+			if (pe.folder !== f) {
+				if (pe.folder !== undefined) {
+					pe.reset()
+					// The set-aside edit pane belongs to the folder being left.
+					editPane = undefined
+				}
+				pe.folder = f
+			}
+		})
+	})
 
 	// Page mode, URL-addressable via `?mode=`. No param = view (the
 	// default): deployed-only graph focused on past/live executions.
-	// Operators are clamped to view — the derived ignores a hand-typed
-	// `?mode=edit` rather than redirecting.
-	let isOperator = $derived($userStore?.operator ?? false)
+	// A role without `code` (pipeline steps are scripts) is clamped to view: the
+	// derived ignores a hand-typed `?mode=edit` rather than redirecting.
+	let viewOnly = $derived(!$roleCapabilities.code)
 	let urlMode = $derived(page.url.searchParams.get('mode'))
-	let mode = $derived<PipelineMode>(isOperator ? 'view' : urlMode === 'edit' ? 'edit' : 'view')
+	let mode = $derived<PipelineMode>(viewOnly ? 'view' : urlMode === 'edit' ? 'edit' : 'view')
+	// The edit-mode pane, set aside while View shows the activity feed, so coming
+	// back to Edit reopens it.
+	let editPane:
+		| { selection: typeof pe.selection; activeDraftPath: string | undefined; hidden: boolean }
+		| undefined = undefined
 	function setMode(m: PipelineMode, opts?: { replace?: boolean }) {
 		// Switching edit→view re-surfaces the activity feed: drop the edit-mode
 		// selection / open draft / hidden-pane state so view opens on Activity
 		// rather than a stale details pane (mirrors toggleActivity's show path).
 		if (m === 'view' && mode === 'edit') {
-			selection = undefined
-			activeDraftPath = undefined
+			editPane = {
+				selection: pe.selection,
+				activeDraftPath: pe.activeDraftPath,
+				hidden: panelHidden
+			}
+			pe.selection = undefined
+			pe.activeDraftPath = undefined
 			panelHidden = false
-			liveAnnotations = EMPTY_LIVE_ANNOTATIONS
+			pe.liveAnnotations = EMPTY_LIVE_ANNOTATIONS
+		}
+		// View→edit keeps what was opened in View; with only the activity feed
+		// (or nothing) showing, it reopens the pane Edit had.
+		if (m === 'edit' && mode === 'view') {
+			const openedInView = pe.selection != undefined || pe.activeDraftPath != undefined
+			if (!openedInView && editPane) {
+				const draft = editPane.activeDraftPath
+				pe.activeDraftPath = draft && pe.drafts.has(draft) ? draft : undefined
+				pe.selection = pe.activeDraftPath ? undefined : editPane.selection
+				panelHidden = editPane.hidden
+			} else if (openedInView) {
+				panelHidden = false
+			}
+			editPane = undefined
 		}
 		const url = new URL(page.url)
 		if (m === 'view') url.searchParams.delete('mode')
 		else url.searchParams.set('mode', m)
 		// Same-pathname navigation — the drafts leave-guard skips it.
-		goto(url, { replaceState: opts?.replace ?? false, keepFocus: true, noScroll: true })
+		return goto(url, { replaceState: opts?.replace ?? false, keepFocus: true, noScroll: true })
 	}
 	// View-mode drafts overlay: "what View will show once the drafts are
 	// deployed". A view variant rather than a third mode — ephemeral (not
 	// URL-addressable: drafts live in this browser's localStorage, so a
 	// shared link couldn't reproduce it anyway).
 	let includeDrafts = $state(false)
-
-	// Asset-kind → syntax-prefix for `// on <ref>` reconstruction. Mirrors
-	// ASSET_KINDS in backend/parsers/windmill-parser/src/asset_parser.rs.
-	const ASSET_PREFIX: Record<AssetKind, string> = {
-		s3object: 's3://',
-		resource: '$res:',
-		ducklake: 'ducklake://',
-		datatable: 'datatable://',
-		volume: 'volume://'
-	}
 
 	// Path-input split for the insert menu: a read-only `f/<folder>/` chip
 	// on the left the user can't delete, plus an editable suffix seeded
@@ -146,426 +255,88 @@
 	// output asset, and they all render on the graph simultaneously.
 	// Saving removes a draft from the map; closing the pane keeps it so the
 	// user can come back to it.
-	// Counter-based id source — sufficient for "stable across renames in
-	// this session"; doesn't need to survive a reload. (We have crypto.
-	// randomUUID() too but a short numeric id keeps localStorage tidy.)
-	let nextDraftLocalIdCounter = 0
-	function newDraftLocalId(): string {
-		nextDraftLocalIdCounter += 1
-		return `d${nextDraftLocalIdCounter}-${Date.now()}`
-	}
+	// The draft shape + draft Map + activeDraftPath now live in the shared
+	// PipelineEditorState (`pe`). `Draft` aliases the store's type so existing
+	// annotations keep working.
+	type Draft = PipelineDraft
 
-	type Draft = {
-		// Stable per-draft identifier, generated on first create and
-		// preserved across renames. Used to track concurrent deploys (a
-		// fast double-rename otherwise fires two saves that each leave a
-		// persisted script behind — the latest deploy archives the prior
-		// one keyed on this id).
-		localId: string
-		script: Script
-		// Undefined when the user picked `outputKind === 'none'` — the draft
-		// has no auto-generated output asset, so the graph overlay skips
-		// synthesizing a write edge for it.
-		outputAsset?: { kind: AssetKind; path: string }
-		// Inferred body writes from the last time this draft was open in
-		// the details pane. Captured on transition (selection change /
-		// pane close) so the canvas keeps showing the user's renamed
-		// outputs after they've clicked away. Falls back to outputAsset
-		// when undefined (initial state or parser miss).
-		outputAssets?: Array<{ kind: AssetKind; path: string }>
-	}
-	let drafts = $state<Map<string, Draft>>(new Map())
-
-	// Which draft (if any) is currently open in the details pane. When
-	// undefined and `selection` is set, the pane shows the persisted
-	// selection's script. Never both at once.
-	let activeDraftPath = $state<string | undefined>(undefined)
-
-	// Splitpanes sizes: bound so user-resized widths persist when the
-	// details pane is hidden + re-shown, or when switching between draft
-	// and persisted selections (previously the panes were sized inline,
-	// which made the right pane jump width when activeDraft was set
-	// since the left was hardcoded to 100%). When the right pane
-	// unmounts, svelte-splitpanes does NOT auto-stretch the remaining
-	// pane — the bound `leftPaneSize` stays at its last value and the
-	// other 40% renders as blank space. We explicitly set leftPaneSize
-	// to 100 in that state via a $derived effect below, and restore the
-	// stored split when the pane comes back.
-	let leftPaneSize = $state(60)
-	let rightPaneSize = $state(40)
-	let storedRightPaneSize = $state(40)
+	// Splitpane sizing + details-pane-open derivation live inside PipelineGraphEditor.
 	// Explicit hide flag — keeps `selection` / `activeDraftPath` intact
 	// so re-opening the pane re-uses them. Mirrors AppEditor's
 	// hideRightPanel/showRightPanel pattern.
 	let panelHidden = $state(false)
-	// Edit mode opens the pane only for a selection/draft; view mode
-	// keeps it open permanently — it shows the activity panel when nothing
-	// is selected and swaps to the details pane on node select.
-	let detailsPaneOpen = $derived(
-		mode === 'edit'
-			? (selection != undefined || activeDraftPath != undefined) && !panelHidden
-			: !panelHidden
-	)
 	// View mode's idle pane is the activity feed; once a node is selected
 	// (or the pane hidden) the only ways back were the pane's X and the
 	// floating hide toggle — neither is named. The top-bar Activity toggle
 	// is the explicit affordance: shows the feed from any state, hides the
 	// pane when the feed is already showing.
 	let activityShowing = $derived(
-		mode === 'view' && !panelHidden && selection == undefined && activeDraftPath == undefined
+		mode === 'view' && !panelHidden && pe.selection == undefined && pe.activeDraftPath == undefined
 	)
 	function toggleActivity() {
 		if (activityShowing) {
 			panelHidden = true
 		} else {
-			selection = undefined
-			activeDraftPath = undefined
+			pe.selection = undefined
+			pe.activeDraftPath = undefined
 			panelHidden = false
 			// Same reset as the pane's close button — clears the live
 			// annotation overlay of whichever script was open.
-			liveAnnotations = EMPTY_LIVE_ANNOTATIONS
+			pe.liveAnnotations = EMPTY_LIVE_ANNOTATIONS
 		}
 	}
 
-	$effect(() => {
-		if (detailsPaneOpen) {
-			// Pane visible: reapply the stored split. We don't depend on
-			// rightPaneSize here (only stored) so user resizes via the
-			// splitter handle aren't immediately overridden.
-			const restore = storedRightPaneSize
-			untrack(() => {
-				rightPaneSize = restore
-				leftPaneSize = 100 - restore
-			})
+	// Workspace-macro explorer drawer (all `// macros` libraries + their
+	// signatures/bodies). "Open" on a group selects the lib node when it's on
+	// this canvas; a lib living in another folder opens its script page.
+	let macroDrawer: MacroExplorerDrawer | undefined = $state()
+	function openMacroLib(path: string) {
+		const onCanvas = displayGraph?.runnables?.some(
+			(r) => r.usage_kind === 'script' && r.path === path
+		)
+		if (onCanvas) {
+			pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
+			pe.activeDraftPath = undefined
+			panelHidden = false
+			focusPipelineNode(`script:${path}`)
 		} else {
-			// About to hide. Stash the current right size so the next show
-			// restores it, then expand the left pane to fill — splitpanes
-			// won't do this automatically when a Pane unmounts.
-			untrack(() => {
-				if (rightPaneSize > 0) storedRightPaneSize = rightPaneSize
-				leftPaneSize = 100
-			})
-		}
-	})
-
-	// All of this folder's in-flight drafts live in ONE per-user DB draft
-	// (typ `data_pipeline`) keyed at the folder, so they sync across devices
-	// and surface in the global drafts list — replacing the prior
-	// browser-only blob. The `f/<folder>/...` path drives the backend's
-	// folder-write access check. localStorage is kept as a synchronous crash
-	// mirror (no size cap, survives a hard close inside the debounce window)
-	// but is only ever READ for the one-time import below; the DB is the
-	// source of truth on load.
-	const PIPELINE_DRAFT_KIND = 'data_pipeline' as const
-	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
-	let storageKey = $derived(`pipeline-${folder}`)
-	type PipelineDraftBundle = { drafts: Array<[string, Draft]>; activeDraftPath?: string }
-
-	// Gate the persist effect until the initial DB load resolves so empty
-	// pre-hydration state can't clobber the server copy. `lastPersistedBundle`
-	// holds the last value we pushed so an unchanged re-render (and the
-	// just-loaded value itself) isn't re-POSTed.
-	let draftsHydrated = $state(false)
-	let lastPersistedBundle: string | undefined = undefined
-	// True once a bundle was restored from the DB on load — drives the
-	// AutosaveIndicator's one-shot "Loaded from draft" hint.
-	let loadedFromDbDraft = $state(false)
-
-	function restoreBundle(bundle: PipelineDraftBundle) {
-		if (Array.isArray(bundle.drafts)) {
-			const loaded = new Map<string, Draft>()
-			for (const entry of bundle.drafts) {
-				if (entry && typeof entry[0] === 'string' && entry[1]?.script) {
-					const d = entry[1] as Draft
-					// Backfill localId for state persisted by older builds.
-					if (typeof d.localId !== 'string' || d.localId === '') {
-						d.localId = newDraftLocalId()
-					}
-					loaded.set(entry[0], d)
-				}
-			}
-			if (loaded.size > 0) drafts = loaded
-		}
-		if (typeof bundle.activeDraftPath === 'string') {
-			activeDraftPath = bundle.activeDraftPath
+			window.open(`/scripts/get/${path}`, '_blank')
 		}
 	}
 
-	// The pre-DB localStorage blob, for the one-time migration when the user
-	// has no DB draft yet.
-	function readLocalBundle(): PipelineDraftBundle | undefined {
-		if (typeof localStorage === 'undefined') return undefined
-		const raw = localStorage.getItem(`pipeline-${folder}`)
-		if (!raw) return undefined
-		try {
-			const state = decodeState(raw)
-			if (state && (Array.isArray(state.drafts) || typeof state.activeDraftPath === 'string')) {
-				return {
-					drafts: Array.isArray(state.drafts) ? state.drafts : [],
-					activeDraftPath:
-						typeof state.activeDraftPath === 'string' ? state.activeDraftPath : undefined
-				}
-			}
-		} catch (e) {
-			console.warn('failed to read local pipeline state', e)
-		}
-		return undefined
-	}
+	// Draft autosave (the data_pipeline DraftService bundle) lives inside
+	// PipelineGraphEditor now; the route just supplies its path to the indicator.
+	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
 
-	onMount(() => {
-		void hydrateDrafts()
-	})
-
-	async function hydrateDrafts() {
-		const ws = $workspaceStore
-		const path = pipelineDraftPath
-		try {
-			let bundle: PipelineDraftBundle | undefined
-			let serverSavedAt: string | undefined
-			if (ws) {
-				const row = await DraftService.getOwnDraft({
-					workspace: ws,
-					kind: PIPELINE_DRAFT_KIND,
-					path
-				})
-				if (row?.value) {
-					bundle = row.value as PipelineDraftBundle
-					serverSavedAt = row.created_at
-					loadedFromDbDraft = true
-				}
-			}
-			// One-time migration: no DB draft yet, but an older build left a
-			// localStorage blob — adopt it and let the persist effect push it up.
-			let migratedFromLocal = false
-			if (!bundle) {
-				const local = readLocalBundle()
-				if (local) {
-					bundle = local
-					migratedFromLocal = true
-				}
-			}
-			if (bundle) restoreBundle(bundle)
-			// Seed the conflict baseline: server timestamp when loaded from the
-			// DB, none otherwise (first save omits last_sync → backend first-push
-			// branch). A local migration counts as "nothing server-side yet".
-			UserDraftDbSyncer.recordRemoteSync(
-				{ workspace: ws ?? '', itemKind: PIPELINE_DRAFT_KIND, path },
-				migratedFromLocal ? undefined : serverSavedAt
-			)
-			// Record what we loaded so the first persist run is a no-op — UNLESS
-			// we migrated from localStorage, which must push to the DB once.
-			if (!migratedFromLocal) {
-				lastPersistedBundle = bundle ? JSON.stringify(bundle) : undefined
-			}
-		} catch (e) {
-			console.warn('failed to load pipeline drafts', e)
-		} finally {
-			draftsHydrated = true
-		}
-	}
-
-	// Persist on change: debounced DB sync (UserDraftDbSyncer handles the
-	// debounce + optimistic-concurrency) plus a synchronous localStorage
-	// mirror for crash recovery before the first DB confirm.
-	$effect(() => {
-		// Track deps explicitly so Svelte 5 re-runs on mutation.
-		// For the active draft, also snapshot the latest live body writes
-		// at serialize time. Without this, edits made since the last
-		// pane-transition (the cleanup that calls onDraftPersist) are
-		// lost on reload — the draft restores with stale `outputAssets`
-		// and the graph drops the corresponding edges until the user
-		// re-opens the draft and types something new.
-		const liveWritesSnapshot =
-			liveBodyAssets.scriptPath != undefined && drafts.has(liveBodyAssets.scriptPath)
-				? extractWrites(liveBodyAssets.assets)
-				: undefined
-		const liveWritesPath = liveBodyAssets.scriptPath
-		// Live editor buffer for the open draft. `onDraftPersist` only commits
-		// content into the Map on pane teardown, so without this overlay the
-		// autosave (and a crash reload) would lag a whole editing session behind.
-		const liveContentPath =
-			liveContent.scriptPath != undefined && drafts.has(liveContent.scriptPath)
-				? liveContent.scriptPath
-				: undefined
-		const liveContentValue = liveContent.content
-		const serialized = Array.from(drafts.entries()).map(([p, d]) => {
-			const outputAssets =
-				liveWritesSnapshot != undefined && liveWritesPath === p
-					? liveWritesSnapshot.length > 0
-						? liveWritesSnapshot
-						: undefined
-					: d.outputAssets
-			const script =
-				liveContentPath === p && d.script.content !== liveContentValue
-					? { ...d.script, content: liveContentValue }
-					: d.script
-			if (script === d.script && outputAssets === d.outputAssets) {
-				return [p, d] as [string, Draft]
-			}
-			return [p, { ...d, script, outputAssets }] as [string, Draft]
-		})
-		const activePath = activeDraftPath
-		const key = storageKey
-		const ws = $workspaceStore
-		const path = pipelineDraftPath
-		const hydrated = draftsHydrated
-		untrack(() => {
-			// Don't touch storage until the initial load settled.
-			if (!hydrated) return
-			const isEmpty = serialized.length === 0 && !activePath
-			const bundle: PipelineDraftBundle | undefined = isEmpty
-				? undefined
-				: { drafts: serialized, activeDraftPath: activePath }
-			// localStorage crash mirror — synchronous, no debounce, no size cap.
-			try {
-				if (typeof localStorage !== 'undefined') {
-					if (isEmpty) localStorage.removeItem(key)
-					else
-						localStorage.setItem(
-							key,
-							encodeState({ drafts: serialized, activeDraftPath: activePath })
-						)
-				}
-			} catch (e) {
-				console.warn('failed to mirror pipeline state', e)
-			}
-			const serializedBundle = bundle ? JSON.stringify(bundle) : undefined
-			if (serializedBundle === lastPersistedBundle) return
-			lastPersistedBundle = serializedBundle
-			if (!ws) return
-			void UserDraftDbSyncer.save({
-				workspace: ws,
-				itemKind: PIPELINE_DRAFT_KIND,
-				path,
-				// `null` deletes the bundle once the last draft is gone.
-				value: bundle ?? null,
-				auto: true
-			})
-		})
-	})
-
-	// Live-parsed annotations from whatever script is currently open in the
-	// details pane (draft or existing). Refreshed on every keystroke via
-	// `onAnnotationsChange`. Used to overlay unsaved schedule / trigger-asset
-	// edges onto the graph so the editor buffer and the graph stay in sync.
-	let liveAnnotations = $state<{
-		scriptPath: string | undefined
-		annotations: PipelineAnnotations
-	}>({
+	// The live editor overlays (annotations / body assets / content for the open
+	// script) now live in `pe`. The canonical "empty" literals stay here — they
+	// also seed the no-overlay inputs to the deployed graph below.
+	const EMPTY_LIVE_ASSETS = { scriptPath: undefined, assets: [] }
+	const EMPTY_LIVE_ANNOTATIONS = {
 		scriptPath: undefined,
 		annotations: {
 			inPipeline: false,
 			triggerAssets: [],
-			nativeTriggers: []
+			nativeTriggers: [],
+			dataTests: [],
+			columnLineage: [],
+			macros: false,
+			useLibs: [],
+			muteAssets: [],
+			muteAll: false
 		}
-	})
-
-	// Live-inferred body assets (read/write usages parsed by inferAssets
-	// — e.g. CREATE TABLE in SQL, loadS3File / writeS3File in TS/Python).
-	// Refreshed via onAssetsChange. We use the write subset as the
-	// authoritative output node set for drafts whose body has been edited
-	// past the seeded template; without this, renaming a CREATE TABLE
-	// target leaves the stale auto-output node on the graph.
-	let liveBodyAssets = $state<{
-		scriptPath: string | undefined
-		assets: AssetWithAltAccessType[]
-	}>({ scriptPath: undefined, assets: [] })
-
-	// The open draft's live editor buffer, emitted by the pane on every
-	// keystroke (`onContentChange`). The persist effect overlays it onto the
-	// Map's copy so autosave reflects in-progress edits — `onDraftPersist`
-	// only commits content into the Map on pane teardown, which would leave
-	// autosave a full editing session behind.
-	let liveContent = $state<{ scriptPath: string | undefined; content: string }>({
-		scriptPath: undefined,
-		content: ''
-	})
-
-	// Canonical "empty" overlay literals, reused both as reset values for the
-	// live-* state above and as the no-overlay inputs to the deployed graph.
-	const EMPTY_LIVE_ASSETS = { scriptPath: undefined, assets: [] }
-	const EMPTY_LIVE_ANNOTATIONS = {
-		scriptPath: undefined,
-		annotations: { inPipeline: false, triggerAssets: [], nativeTriggers: [] }
 	}
 
-	// Reset every live editor overlay (annotations / body assets / content)
-	// back to empty, unconditionally. Used by the leave-edit path so a stale
-	// buffer for the previously-open script can't leak into the view graphs.
-	// (forgetPath resets these per-path instead — see there.)
-	function clearLiveOverlays() {
-		liveAnnotations = EMPTY_LIVE_ANNOTATIONS
-		liveBodyAssets = EMPTY_LIVE_ASSETS
-		liveContent = { scriptPath: undefined, content: '' }
-	}
-
-	// Only-add cache of (script_path → body content) populated lazily by
-	// `bodyFetchEffect` for every script in the current folder. We never
-	// remove entries: stale keys (renamed-away, deleted) are simply ignored
-	// at read time because the derived maps below only iterate paths that
-	// appear in the current `g.runnables`. That self-cleaning property is
-	// the whole reason for the refactor — no rename/delete cleanup needed.
-	let bodiesByPath = $state<Map<string, string>>(new Map())
-	// Sibling cache: the parsed asset usages from `inferAssets` (wasm), one
-	// pass per body. Same only-add semantics as `bodiesByPath`.
-	let inferredAssetsByPath = $state<Map<string, AssetWithAltAccessType[]>>(new Map())
-	// Bumped on folder change so an in-flight prefetch sweep stops before
-	// writing into the new folder's state.
-	let bodyFetchGen = 0
-
-	// Inferred write/read edges per script-in-graph. Derived from
-	//   (a) the open pane's live overlay (`liveBodyAssets`) — current
-	//       keystrokes for the script the user is editing right now, and
-	//   (b) the prefetched assets cache for everyone else.
-	// Iteration is gated on `graphRes.current.runnables`, so a path that
-	// gets renamed / deleted disappears from the derived map as soon as
-	// the refetch lands — no manual rekey, no phantom edges.
-	// Single pass over the graph's scripts producing both the write- and
-	// read-asset maps (they only differ by extractWrites vs extractReads over
-	// the same `liveBodyAssets`-vs-cache asset source). Split into two derives
-	// below so consumers can depend on one without invalidating on the other.
-	let inferredAssetEdges = $derived.by(() => {
-		const writes = new Map<string, Array<{ kind: AssetKind; path: string }>>()
-		const reads = new Map<string, Array<{ kind: AssetKind; path: string }>>()
-		const g = graphRes.current
-		if (!g) return { writes, reads }
-		const liveAssetsForPath = (path: string) =>
-			liveBodyAssets.scriptPath === path ? liveBodyAssets.assets : inferredAssetsByPath.get(path)
-		for (const r of g.runnables) {
-			if (r.usage_kind !== 'script') continue
-			const assets = liveAssetsForPath(r.path)
-			if (!assets) continue
-			const w = extractWrites(assets)
-			if (w.length > 0) writes.set(r.path, w)
-			const rd = extractReads(assets)
-			if (rd.length > 0) reads.set(r.path, rd)
-		}
-		return { writes, reads }
+	// Bodies, inferred asset edges and `// on` annotations of every deployed
+	// script in the folder, so the graph shows the edges of scripts never opened.
+	const assetPrefetch = usePipelineAssetPrefetch({
+		getWorkspace: () => $workspaceStore,
+		getGraph: () => graphRes.current,
+		editor: pe
 	})
-	let inferredWritesByPath = $derived(inferredAssetEdges.writes)
-	let inferredReadsByPath = $derived(inferredAssetEdges.reads)
-	// Same derived shape for `// on kafka` etc. annotations. Live buffer
-	// wins for the open script; everyone else is parsed from the
-	// prefetched body content.
-	let annotatedNativeKindsByPath = $derived.by(() => {
-		const out = new Map<string, Set<NativeTriggerKind>>()
-		const g = graphRes.current
-		if (!g) return out
-		const livePath = liveAnnotations.scriptPath
-		for (const r of g.runnables) {
-			if (r.usage_kind !== 'script') continue
-			let kinds: Set<NativeTriggerKind>
-			if (r.path === livePath) {
-				kinds = new Set(liveAnnotations.annotations.nativeTriggers.map((n) => n.kind))
-			} else {
-				const body = bodiesByPath.get(r.path)
-				if (!body) continue
-				kinds = new Set(parsePipelineAnnotations(body).nativeTriggers.map((n) => n.kind))
-			}
-			if (kinds.size > 0) out.set(r.path, kinds)
-		}
-		return out
-	})
+	let inferredWritesByPath = $derived(assetPrefetch.inferredWritesByPath)
+	let inferredReadsByPath = $derived(assetPrefetch.inferredReadsByPath)
+	let annotatedNativeKindsByPath = $derived(assetPrefetch.annotatedNativeKindsByPath)
 
 	// Build a runnable Script from picked language / triggers / output.
 	// Delegates to the shared template generator (pipelineTemplates.ts) so
@@ -628,61 +399,74 @@
 		triggers: DraftTriggerSource[],
 		outputKind: PipelineOutputKind,
 		input?: { kind: AssetKind; path: string },
-		aiPrompt?: string
+		options?: PipelineInsertOptions
 	) {
-		const out = autoOutputAsset(outputKind, folder, language)
+		const out = options?.outputAsset ?? autoOutputAsset(outputKind, folder, language)
 		const script = buildDraft(language, scriptPath, triggers, outputKind, out, input)
 		// Write the new draft into the map (structural update so Svelte
 		// re-derives graphWithDraft) and focus it in the details pane. When
-		// the user picked `none`, `outputAsset` is undefined and the graph
-		// overlay skips synthesizing a write edge.
-		const next = new Map(drafts)
-		next.set(scriptPath, { localId: newDraftLocalId(), script, outputAsset: out })
-		drafts = next
-		activeDraftPath = scriptPath
-		selection = undefined
+		// the user picked `none`, `out` is undefined and the graph overlay
+		// skips synthesizing a write edge.
+		const next = new Map(pe.drafts)
+		next.set(scriptPath, {
+			localId: pe.newDraftLocalId(),
+			script,
+			outputAssets: out ? [out] : undefined
+		})
+		pe.drafts = next
+		pe.activeDraftPath = scriptPath
+		pe.selection = undefined
+		if (options?.schedule) {
+			const path = options.schedule.path || defaultTriggerPath(scriptPath, 'schedule')
+			const saved = pe.setTriggerDraft({
+				kind: 'schedule',
+				config: { ...options.schedule, path, script_path: scriptPath }
+			})
+			if (!saved) {
+				sendUserToast(
+					`Another draft schedule already uses the path ${path}; the new script has no schedule`,
+					true
+				)
+			}
+		}
 
 		// Follow the new node with a smooth pan. The id matches the runnable
 		// node the canvas builds for a draft script (`script:<path>`).
 		focusPipelineNode(`script:${scriptPath}`)
-
-		// User filled the optional prompt on the path stage — fire off a
-		// chat request so the AI bootstraps the body. The seeded template
-		// (already in `script.content`) acts as scaffolding the AI
-		// rewrites; language + chosen output + upstream input go in as
-		// context so the model knows what to read from / write to.
-		if (aiPrompt && aiPrompt.trim().length > 0) {
-			void triggerAiBootstrap({ scriptPath, language, outputKind, input, out, prompt: aiPrompt })
-		}
 	}
 
-	async function triggerAiBootstrap(args: {
-		scriptPath: string
-		language: ScriptLang
-		outputKind: PipelineOutputKind
-		input?: { kind: AssetKind; path: string }
-		out?: { kind: AssetKind; path: string }
-		prompt: string
-	}) {
-		// Wait one tick for AssetGraphDetailsPane to mount the ScriptEditor
-		// and register itself with aiChatManager (scriptEditorApplyCode etc.).
-		// Without this, openChat fires before the chat has a target editor.
+	// The session's preview hydrates this folder's drafts from its DB bundle, so the
+	// autosave still inside its debounce has to land first.
+	async function persistDraftsForSession(): Promise<void> {
+		const workspace = $workspaceStore
+		// A role that cannot code only views the pipeline, so there is no draft of theirs to save.
+		if (!workspace || viewOnly) return
 		await tick()
-		const lines: string[] = [args.prompt]
-		lines.push('')
-		lines.push(`Language: ${args.language}.`)
-		if (args.input) {
-			lines.push(`Read input from ${args.input.kind} \`${args.input.path}\`.`)
+		const draft = { workspace, itemKind: PIPELINE_DRAFT_KIND, path: pipelineDraftPath }
+		await UserDraftDbSyncer.flush(draft)
+		// A flush resolves even when the save failed or conflicted, and the session
+		// would then open on the older drafts the server holds: stay here instead.
+		if (UserDraftDbSyncer.getConflict(draft).conflict) {
+			throw new Error('The pipeline drafts conflict with a newer version — resolve that first.')
 		}
-		if (args.out) {
-			lines.push(`Write output to ${args.out.kind} \`${args.out.path}\`.`)
-		} else if (args.outputKind === 'none') {
-			lines.push('No output asset is expected.')
+		const sync = UserDraftDbSyncer.getState(draft)
+		if (sync.state === 'failed') {
+			throw new Error(
+				`The pipeline drafts could not be saved: ${sync.failureMessage ?? 'unknown error'}`
+			)
 		}
-		const instructions = lines.join('\n')
-		aiChatManager.openChat()
-		aiChatManager.sendRequest({ instructions })
+		// The drafts go with the pipeline into the session, so leaving for it is
+		// not leaving them behind.
+		bypassNavigationGuard = true
 	}
+
+	const sessionOpen: OpenInSessionSource = $derived({
+		target: { kind: 'pipeline', path: folder },
+		workspaceId: $workspaceStore ?? undefined,
+		beforeOpen: persistDraftsForSession
+	})
+	// Lets the navigation rail's session switch open this pipeline, with its drafts.
+	setOpenInSessionHandoff({ source: () => sessionOpen })
 
 	// Navigation guard state. `pendingNavigationUrl` holds the URL the user
 	// tried to leave to so we can complete the navigation after they pick
@@ -699,7 +483,7 @@
 			bypassNavigationGuard = false
 			return
 		}
-		if (drafts.size === 0) return
+		if (pendingCount === 0) return
 		// `leave` covers tab close / hard reload / cross-origin nav. SvelteKit
 		// turns a cancelled leave into a browser-native "Leave site?" prompt,
 		// which we explicitly don't want — match the rest of the editors and
@@ -733,8 +517,12 @@
 		// Wipe every draft and the active selection so saved drafts and
 		// stale active path don't bleed into the next page. localStorage
 		// is overwritten by the persist effect on the next tick.
-		drafts = new Map()
-		activeDraftPath = undefined
+		pe.drafts = new Map()
+		pe.triggerDrafts = new Map()
+		pe.activeDraftPath = undefined
+		// The open pane's buffer is autosaved as a draft of the deployed script it
+		// edits, so it has to go with the drafts.
+		pe.clearLiveOverlays()
 		saveErrors = new Map()
 		const target = pendingNavigationUrl
 		leaveModalOpen = false
@@ -745,7 +533,20 @@
 		}
 	}
 
+	// Triggers start running once deployed, so leaving through "Save all" asks
+	// first, like the toolbar button, and navigates once confirmed.
+	let leaveAfterTriggerConfirm = $state(false)
 	async function leaveModalSaveAll() {
+		if (pe.triggerDrafts.size > 0) {
+			leaveModalOpen = false
+			leaveAfterTriggerConfirm = true
+			confirmTriggerDeployOpen = true
+			return
+		}
+		await saveAllAndLeave()
+	}
+
+	async function saveAllAndLeave() {
 		leaveSaving = true
 		await saveAllDrafts()
 		leaveSaving = false
@@ -753,7 +554,7 @@
 		// page so they can deal with the failures via the bar's error
 		// popover. Otherwise resume the navigation that triggered the
 		// guard.
-		if (drafts.size === 0) {
+		if (pendingCount === 0) {
 			const target = pendingNavigationUrl
 			leaveModalOpen = false
 			pendingNavigationUrl = undefined
@@ -772,6 +573,8 @@
 	// are removed from the drafts map as they land.
 	let savingAll = $state(false)
 	let saveErrors = $state<Map<string, string>>(new Map())
+	// Opened by a save that fails, so the reason is on screen without a click.
+	let saveErrorsOpen = $state(false)
 
 	// Post-deploy verification: capture the cascade-relevant facts (writes +
 	// `// on` subscriptions) the resolved draft graph promises for `paths`.
@@ -791,130 +594,50 @@
 		if (msg) sendUserToast(msg, true)
 	}
 
-	async function saveDraft(path: string, draft: Draft, ws: string): Promise<void> {
-		const script = structuredClone($state.snapshot(draft.script) as Script)
-		script.schema = script.schema ?? emptySchema()
-		try {
-			const result = await inferArgs(script.language, script.content, script.schema as Schema)
-			;(script as any).auto_kind = result?.auto_kind || undefined
-			script.has_preprocessor = result?.has_preprocessor ?? false
-		} catch {
-			// Inference failures don't block deploys (the same fallback the
-			// per-pane save uses). The createScript call is the real
-			// validation gate — if the body is broken it'll reject there.
-		}
-		// Re-infer the asset lineage from the CURRENT body. The draft's
-		// `script.assets` is a snapshot that isn't refreshed on edit, so without
-		// this a renamed/removed output (e.g. an old `CREATE TABLE foo`) would
-		// be re-deployed as a phantom write edge and linger as an orphan asset.
-		// Mirrors the per-pane save, which sends live-inferred assets.
-		let assets: AssetWithAltAccessType[] = []
-		try {
-			const inferred = await inferAssets(script.language, script.content)
-			if (inferred?.status !== 'error')
-				assets = (inferred?.assets ?? []) as AssetWithAltAccessType[]
-		} catch {
-			// Same fallback as above — an unparsable body deploys with no
-			// lineage rather than the stale snapshot.
-		}
-		await ScriptService.createScript({
-			workspace: ws,
-			requestBody: {
-				...script,
-				language: script.language,
-				description: script.description ?? '',
-				// Brand-new drafts have no parent (buildDraft seeds hash as ''
-				// — treat any falsy hash as parentless, the backend rejects
-				// an empty hex string); a draft promoted from unsaved edits
-				// to a deployed script carries that script's hash and must
-				// chain off it (createScript rejects a parentless deploy to
-				// an occupied path).
-				parent_hash: script.hash ? String(script.hash) : undefined,
-				is_template: false,
-				tag: script.tag,
-				kind: script.kind as Script['kind'] | undefined,
-				lock: undefined,
-				// Freshly inferred above — overrides the stale snapshot carried
-				// by `...script`, so the deployed lineage matches the body.
-				assets: assets as any
-			}
-		})
+	// Scripts plus trigger drafts: what "Save all" deploys.
+	let pendingCount = $derived(
+		pe.drafts.size + pe.triggerDrafts.size + (pe.liveEditPath != undefined ? 1 : 0)
+	)
+	let confirmTriggerDeployOpen = $state(false)
+
+	function requestSaveAll() {
+		if (pe.triggerDrafts.size > 0) confirmTriggerDeployOpen = true
+		else void saveAllDrafts()
 	}
 
 	async function saveAllDrafts() {
-		if (!$workspaceStore || drafts.size === 0 || savingAll) return
+		if (!$workspaceStore || pendingCount === 0 || savingAll) return
 		savingAll = true
-		const ws = $workspaceStore
-		const entries = [...drafts.entries()]
 		// Snapshot what the preview promises for every draft before anything
 		// deploys — used to verify the persisted graph below.
-		const predicted = predictCascadeFacts(entries.map(([p]) => p))
-		const errors = new Map<string, string>()
-		const savedPaths: string[] = []
-		// Parallel — every createScript is independent. The backend handles
-		// its own ordering for any cross-script lock writes; we just want
-		// failures isolated per script so one bad body doesn't block the
-		// other deploys.
-		const results = await Promise.allSettled(
-			entries.map(async ([path, d]) => {
-				await saveDraft(path, d, ws)
-				return path
-			})
-		)
-		for (let i = 0; i < results.length; i++) {
-			const r = results[i]
-			const [path] = entries[i]
-			if (r.status === 'fulfilled') {
-				savedPaths.push(path)
-			} else {
-				const e: any = r.reason
-				errors.set(path, e?.body ?? e?.message ?? String(e))
-			}
-		}
-		// Drop the saved drafts from the map; failed ones stay so the user
-		// can fix them and retry. Build the new map from the still-failing
-		// entries to keep insertion order stable.
-		if (savedPaths.length > 0) {
-			const next = new Map<string, Draft>()
-			for (const [k, v] of drafts) {
-				if (!savedPaths.includes(k)) next.set(k, v)
-			}
-			drafts = next
-			// If the open draft just got deployed, transfer the focus to
-			// its now-persisted runnable so the pane stays on the same
-			// script the user was editing — otherwise the pane closes,
-			// the canvas re-fits, and the user has to re-find their
-			// script after every save.
-			if (activeDraftPath && savedPaths.includes(activeDraftPath)) {
-				selection = {
-					kind: 'runnable',
-					runnable_kind: 'script',
-					path: activeDraftPath
-				}
-				activeDraftPath = undefined
-			}
+		const predicted = predictCascadeFacts([...pe.drafts.keys()])
+		const { savedPaths, savedTriggers, errors } = await deployPipelineDrafts(pe, $workspaceStore)
+		if (savedPaths.length > 0 || savedTriggers.length > 0) {
 			await graphRes.refetch()
 			// Verify only what actually deployed — failed drafts would
 			// otherwise false-positive as "missing" rows.
 			reportDeployDrift(new Map([...predicted].filter(([p]) => savedPaths.includes(p))))
 		}
 		saveErrors = errors
+		if (errors.size > 0) saveErrorsOpen = true
 		savingAll = false
-		if (savedPaths.length > 0 && errors.size === 0) {
-			sendUserToast(`Saved ${savedPaths.length} draft${savedPaths.length === 1 ? '' : 's'}`)
-		} else if (savedPaths.length > 0 && errors.size > 0) {
-			sendUserToast(`Saved ${savedPaths.length}, ${errors.size} failed — see details`, true)
+		const savedCount = savedPaths.length + savedTriggers.length
+		if (savedCount > 0 && errors.size === 0) {
+			sendUserToast(`Saved ${savedCount} draft${savedCount === 1 ? '' : 's'}`)
+		} else if (savedCount > 0 && errors.size > 0) {
+			sendUserToast(`Saved ${savedCount}, ${errors.size} failed — see details`, true)
 		} else if (errors.size > 0) {
 			sendUserToast(`${errors.size} draft${errors.size === 1 ? '' : 's'} failed to save`, true)
 		}
 	}
 
 	function discardDraft(path: string) {
-		if (!drafts.has(path)) return
-		const next = new Map(drafts)
+		if (!pe.drafts.has(path)) return
+		const next = new Map(pe.drafts)
 		next.delete(path)
-		drafts = next
+		pe.drafts = next
 		forgetPath(path)
+		pe.discardTriggerDraftsFor(path)
 	}
 
 	function clearSaveError(path: string) {
@@ -924,26 +647,26 @@
 		saveErrors = next
 	}
 
-	// "This path is gone" cleanup. The three big inferred-* / annotated-*
-	// maps used to live here too, but they're now derived from
-	// `bodiesByPath` × `g.runnables` — entries for missing paths drop out
-	// implicitly when `g.runnables` no longer mentions them, so the only
-	// things left to flush are the live overlays for the open pane + the
-	// selection + per-path save errors. `bodiesByPath` keeps its entry
-	// (only-add cache, harmless if stale).
+	function forgetScriptCache(...paths: string[]) {
+		assetPrefetch.forget(...paths)
+	}
+
+	// "This path is gone" cleanup: the live overlays for the open pane, the
+	// selection and per-path save errors. The prefetched edge maps need nothing,
+	// being derived over the current graph's scripts.
 	function forgetPath(path: string) {
-		if (activeDraftPath === path) activeDraftPath = undefined
-		if (selection?.kind === 'runnable' && selection.path === path) {
-			selection = undefined
+		if (pe.activeDraftPath === path) pe.activeDraftPath = undefined
+		if (pe.selection?.kind === 'runnable' && pe.selection.path === path) {
+			pe.selection = undefined
 		}
-		if (liveAnnotations.scriptPath === path) {
-			liveAnnotations = EMPTY_LIVE_ANNOTATIONS
+		if (pe.liveAnnotations.scriptPath === path) {
+			pe.liveAnnotations = EMPTY_LIVE_ANNOTATIONS
 		}
-		if (liveBodyAssets.scriptPath === path) {
-			liveBodyAssets = EMPTY_LIVE_ASSETS
+		if (pe.liveBodyAssets.scriptPath === path) {
+			pe.liveBodyAssets = EMPTY_LIVE_ASSETS
 		}
-		if (liveContent.scriptPath === path) {
-			liveContent = { scriptPath: undefined, content: '' }
+		if (pe.liveContent.scriptPath === path) {
+			pe.liveContent = { scriptPath: undefined, content: '' }
 		}
 		clearSaveError(path)
 	}
@@ -954,22 +677,30 @@
 	// open and surface the conflict inline.
 	function renameDraft(oldPath: string, newPath: string): boolean | string {
 		if (oldPath === newPath) return true
-		const draft = drafts.get(oldPath)
+		const draft = pe.drafts.get(oldPath)
 		if (!draft) return 'Draft not found'
-		if (drafts.has(newPath)) return 'Another draft already uses this path'
+		if (pe.drafts.has(newPath)) return 'Another draft already uses this path'
+		const clash = pe.retargetTriggerDrafts(oldPath, newPath)
+		if (clash) return `Its draft trigger would be renamed to ${clash}, which another draft uses`
 		const next = new Map<string, Draft>()
 		// Preserve insertion order: replace the entry at its original
 		// position so the canvas / lists don't reshuffle on rename.
-		for (const [k, v] of drafts) {
+		for (const [k, v] of pe.drafts) {
 			if (k === oldPath) {
-				const updatedScript = { ...v.script, path: newPath }
+				// Fold the open pane's live buffer in: the drafts Map only syncs
+				// on pane teardown, and the rename both re-clones the pane from
+				// this entry AND auto-deploys it — a stale snapshot here wipes
+				// the user's unsaved keystrokes and ships pre-edit content.
+				const content =
+					pe.liveContent.scriptPath === oldPath ? pe.liveContent.content : v.script.content
+				const updatedScript = { ...v.script, path: newPath, content }
 				next.set(newPath, { ...v, script: updatedScript })
 			} else {
 				next.set(k, v)
 			}
 		}
-		drafts = next
-		if (activeDraftPath === oldPath) activeDraftPath = newPath
+		pe.drafts = next
+		if (pe.activeDraftPath === oldPath) pe.activeDraftPath = newPath
 		// Path-keyed live overlays: re-key for the renamed draft so the
 		// graph stays consistent between the moment we mutate `drafts`
 		// here and the next editor event that re-emits annotations /
@@ -978,14 +709,14 @@
 		// re-applying live overlays against the same OLD path — leaving
 		// phantom edges that displace the + node off the top of the
 		// graph and shuffle the layout.
-		if (liveAnnotations.scriptPath === oldPath) {
-			liveAnnotations = { ...liveAnnotations, scriptPath: newPath }
+		if (pe.liveAnnotations.scriptPath === oldPath) {
+			pe.liveAnnotations = { ...pe.liveAnnotations, scriptPath: newPath }
 		}
-		if (liveBodyAssets.scriptPath === oldPath) {
-			liveBodyAssets = { ...liveBodyAssets, scriptPath: newPath }
+		if (pe.liveBodyAssets.scriptPath === oldPath) {
+			pe.liveBodyAssets = { ...pe.liveBodyAssets, scriptPath: newPath }
 		}
-		if (liveContent.scriptPath === oldPath) {
-			liveContent = { ...liveContent, scriptPath: newPath }
+		if (pe.liveContent.scriptPath === oldPath) {
+			pe.liveContent = { ...pe.liveContent, scriptPath: newPath }
 		}
 		// `inferredWritesByPath` / `inferredReadsByPath` /
 		// `annotatedNativeKindsByPath` are derived from `g.runnables` ×
@@ -1026,7 +757,7 @@
 	>()
 
 	function deployRenamedDraft(path: string) {
-		const draft = drafts.get(path)
+		const draft = pe.drafts.get(path)
 		if (!draft) return
 		const localId = draft.localId
 		let state = deployQueue.get(localId)
@@ -1049,10 +780,10 @@
 		try {
 			while (true) {
 				if (!$workspaceStore) break
-				const draft = drafts.get(path)
+				const draft = pe.drafts.get(path)
 				if (!draft) break
 				try {
-					await saveDraft(path, draft, $workspaceStore)
+					await deployPipelineScript(draft, $workspaceStore)
 					// Archive the previously-deployed intermediate path (if
 					// any) — a double-rename otherwise leaves it as an
 					// orphan script visible on the canvas as a "deployed"
@@ -1082,12 +813,12 @@
 					// queued path is waiting, the next loop iteration will
 					// pick it up and we keep the draft live.
 					if (!state.queuedPath) {
-						const nextDrafts = new Map(drafts)
+						const nextDrafts = new Map(pe.drafts)
 						nextDrafts.delete(path)
-						drafts = nextDrafts
-						if (activeDraftPath === path) {
-							selection = { kind: 'runnable', runnable_kind: 'script', path }
-							activeDraftPath = undefined
+						pe.drafts = nextDrafts
+						if (pe.activeDraftPath === path) {
+							pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
+							pe.activeDraftPath = undefined
 						}
 						if (saveErrors.has(path)) {
 							const nextErrors = new Map(saveErrors)
@@ -1102,6 +833,7 @@
 					const nextErrors = new Map(saveErrors)
 					nextErrors.set(path, msg)
 					saveErrors = nextErrors
+					saveErrorsOpen = true
 				}
 				// Pick up the next queued rename, if any.
 				const next = state.queuedPath
@@ -1113,22 +845,22 @@
 			state.inflight = false
 			// On the rare path where the draft is also gone (deployed +
 			// no queued path), drop the slot to keep the map bounded.
-			if (!drafts.has(path) && !state.queuedPath) {
+			if (!pe.drafts.has(path) && !state.queuedPath) {
 				deployQueue.delete(localId)
 			}
 		}
 	}
 
 	// Currently-open draft shape (if any) — fed into the details pane.
-	let activeDraft = $derived(activeDraftPath ? drafts.get(activeDraftPath) : undefined)
+	let activeDraft = $derived(pe.activeDraftPath ? pe.drafts.get(pe.activeDraftPath) : undefined)
 
 	// Path of the script currently open in the details pane (draft or
 	// persisted selection), used wherever run-routing / overlay logic needs
 	// "the one script the user is editing right now".
 	let openScriptPath = $derived(
-		activeDraftPath ??
-			(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
-				? selection.path
+		pe.activeDraftPath ??
+			(pe.selection?.kind === 'runnable' && pe.selection.runnable_kind === 'script'
+				? pe.selection.path
 				: undefined)
 	)
 
@@ -1139,12 +871,12 @@
 	$effect(() => {
 		if (mode !== 'edit') return
 		if (
-			selection?.kind === 'runnable' &&
-			selection.runnable_kind === 'script' &&
-			drafts.has(selection.path)
+			pe.selection?.kind === 'runnable' &&
+			pe.selection.runnable_kind === 'script' &&
+			pe.drafts.has(pe.selection.path)
 		) {
-			activeDraftPath = selection.path
-			selection = undefined
+			pe.activeDraftPath = pe.selection.path
+			pe.selection = undefined
 		}
 	})
 	// Symmetric demotion: view mode shows the deployed truth, so an open
@@ -1156,97 +888,20 @@
 		if (mode !== 'view') return
 		const d = activeDraft
 		if (d && d.script.hash) {
-			selection = { kind: 'runnable', runnable_kind: 'script', path: d.script.path }
-			activeDraftPath = undefined
+			pe.selection = { kind: 'runnable', runnable_kind: 'script', path: d.script.path }
+			pe.activeDraftPath = undefined
 		}
 	})
 
-	// Named handlers for the details pane's live callbacks. Inline arrows
-	// would be rebuilt on every parent re-render, and the pane's $effects
-	// track those refs as deps — combined with the drafts mutation in
-	// `handleDraftContentChange`, that creates a parent ↔ child feedback
-	// loop ("effect_update_depth_exceeded"). Named functions keep the
-	// prop reference stable so the $effects only re-fire on real
-	// content changes (e.g. handleContentChange below mutating drafts).
-	function handleAnnotationsChange(
-		scriptPath: string | undefined,
-		annotations: PipelineAnnotations
-	) {
-		liveAnnotations = { scriptPath, annotations }
-	}
-	function handleAssetsChange(scriptPath: string | undefined, assets: AssetWithAltAccessType[]) {
-		// Single update site for the live overlay. `inferredWritesByPath`
-		// / `inferredReadsByPath` are now derived from `liveBodyAssets`
-		// (for the open script) + `inferredAssetsByPath` (prefetched
-		// snapshot for every other script), so we don't have to write
-		// into those caches here — the derive picks up our update on the
-		// next reactive tick.
-		liveBodyAssets = { scriptPath, assets }
-	}
-	function handleContentChange(scriptPath: string | undefined, content: string) {
-		liveContent = { scriptPath, content }
-	}
-	function handleDraftPersist(
-		p: string,
-		snapshot: {
-			content: string
-			writes: { kind: AssetKind; path: string }[]
-			script?: Script
-		}
-	) {
-		// Persist body edits + inferred outputs back into the drafts Map so
-		// they survive switching to another node and back (the details pane
-		// clones draftScript locally on every prop change, and `outputAsset`
-		// would otherwise stay frozen at the value seeded when the draft
-		// was opened — leaving a stale write edge on the canvas after the
-		// user has renamed a CREATE TABLE / writeS3File target).
-		//
-		// Deferred a microtask: this is called from the pane's $effect
-		// teardown, which observes the *previous* batch values — after a
-		// discard, `drafts` still appears to contain the discarded entry,
-		// and writing a map cloned from that stale read would resurrect it
-		// (the "discard needs two clicks" bug). One microtask later the
-		// batch has committed and the reads are fresh.
-		queueMicrotask(() => {
-			const d = drafts.get(p)
-			if (!d) {
-				// Unsaved edits to a *deployed* script (the pane only emits
-				// these when the buffer differs from the deployed content):
-				// promote to a draft so the work survives mode switches /
-				// selection changes, shows in the drafts chip, and deploys
-				// via Save all. The script snapshot carries the deployed
-				// hash, so saving chains a new version off it.
-				if (!snapshot.script) return
-				const next = new Map(drafts)
-				next.set(p, {
-					localId: newDraftLocalId(),
-					script: snapshot.script,
-					outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
-				})
-				drafts = next
-				return
-			}
-			const writesEqual =
-				d.outputAssets?.length === snapshot.writes.length &&
-				(d.outputAssets ?? []).every(
-					(a, i) => a.kind === snapshot.writes[i]?.kind && a.path === snapshot.writes[i]?.path
-				)
-			if (d.script.content === snapshot.content && writesEqual) return
-			const next = new Map(drafts)
-			next.set(p, {
-				...d,
-				script: { ...d.script, content: snapshot.content },
-				outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
-			})
-			drafts = next
-		})
-	}
+	// The details pane's live callbacks (annotations / assets / content / persist)
+	// now live on `pe` as stable arrow fields — pass `pe.handleX` straight through.
 
 	// Canvas callbacks, named so the prop refs stay stable across re-renders
 	// (same rationale as the live-callback handlers above) and so the
 	// template can gate them per-mode with simple ternaries — the canvas
 	// hides each affordance when its callback is undefined.
 	function handleCanvasSelect(s: AssetGraphSelection | undefined) {
+		uploadInputsPath = undefined
 		// Clicking a node while the pane is explicitly hidden is a request
 		// to see that node — unhide. Background clicks (s == undefined)
 		// keep the hidden state.
@@ -1264,13 +919,13 @@
 			s &&
 			s.kind === 'runnable' &&
 			s.runnable_kind === 'script' &&
-			drafts.has(s.path)
+			pe.drafts.has(s.path)
 		) {
-			activeDraftPath = s.path
-			selection = undefined
+			pe.activeDraftPath = s.path
+			pe.selection = undefined
 		} else {
-			activeDraftPath = undefined
-			selection = s
+			pe.activeDraftPath = undefined
+			pe.selection = s
 		}
 	}
 	function handleAddScriptForAsset(
@@ -1278,9 +933,9 @@
 		language: ScriptLang,
 		scriptPath: string,
 		outputKind: PipelineOutputKind,
-		aiPrompt?: string
+		options?: PipelineInsertOptions
 	) {
-		const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
+		const ref = assetRef(asset)
 		openMaterializerDraft(
 			language,
 			scriptPath,
@@ -1290,7 +945,7 @@
 				kind: asset.kind,
 				path: asset.path
 			},
-			aiPrompt
+			options
 		)
 	}
 	function handleAddPipelineScript(
@@ -1298,10 +953,306 @@
 		scriptPath: string,
 		source: { kind: NativeTriggerKind; path: string | undefined },
 		outputKind: PipelineOutputKind,
-		aiPrompt?: string
+		options?: PipelineInsertOptions
 	) {
-		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, aiPrompt)
+		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, options)
+		// A schedule was configured by the wizard itself; other row-backed kinds
+		// are configured in their own editor, as a draft of the new script.
+		if (source.kind !== 'schedule' && isDraftableTriggerKind(source.kind)) {
+			openTriggerDraft(source.kind, scriptPath)
+		}
 	}
+	// Assets-only "Delete N items": one confirmation, then the trigger and the
+	// script, each discarded if it is a draft and deleted if it is deployed.
+	let assetDeleteTarget = $state<AssetUpstreamDelete | undefined>(undefined)
+	let assetDeleteLoading = $state(false)
+	// Permanent script deletion is admin-only, as in the pane's own remove modal;
+	// everyone else archives it.
+	let canHardDeleteScripts = $derived(!!($userStore?.is_admin || $userStore?.is_super_admin))
+	async function confirmAssetUpstreamDelete() {
+		const target = assetDeleteTarget
+		const ws = $workspaceStore
+		if (!target || !ws) return
+		assetDeleteLoading = true
+		const { script, trigger } = target
+		const n = (script ? 1 : 0) + (trigger ? 1 : 0)
+		try {
+			// The script first: when it is refused, nothing else has changed.
+			if (script) await removeScript(script, ws)
+		} catch (e: any) {
+			sendUserToast(`Could not remove ${script?.path}: ${e?.body ?? e?.message ?? String(e)}`, true)
+			assetDeleteLoading = false
+			return
+		}
+		try {
+			if (trigger) {
+				const key = triggerDraftKey(trigger.kind, trigger.path)
+				if (pe.triggerDrafts.has(key)) pe.discardTriggerDraft(key)
+				if (!trigger.draft) await deleteTriggerRow(trigger.kind, trigger.path, ws)
+			}
+			sendUserToast(`Removed ${n} item${n === 1 ? '' : 's'}`)
+		} catch (e: any) {
+			sendUserToast(
+				`${script ? `Removed ${script.path}, but not its` : 'Could not remove the'} ${trigger?.kind} trigger ${trigger?.path}: ${e?.body ?? e?.message ?? String(e)}`,
+				true
+			)
+		} finally {
+			assetDeleteTarget = undefined
+			assetDeleteLoading = false
+			await graphRes.refetch()
+		}
+	}
+	async function removeScript(script: { path: string }, ws: string) {
+		const deployed = graphRes.current?.runnables.some(
+			(r) => r.path === script.path && !r.unsaved
+		)
+		if (deployed) {
+			if (canHardDeleteScripts) {
+				await ScriptService.deleteScriptByPath({ workspace: ws, path: script.path })
+			} else {
+				await ScriptService.archiveScriptByPath({ workspace: ws, path: script.path })
+			}
+		}
+		if (pe.drafts.has(script.path)) discardDraft(script.path)
+		if (deployed) {
+			pe.discardTriggerDraftsFor(script.path)
+			forgetPath(script.path)
+			forgetScriptCache(script.path)
+		}
+	}
+
+	// ===================== Fixes for misconfigured nodes =====================
+	// Rewrites a script's annotation header and keeps the result as a draft, opened
+	// so the change is in view. The pane closes first and its buffer is saved back
+	// before the content is read: saved back after the edit, it would overwrite it.
+	async function editScriptHeader(
+		path: string,
+		apply: (content: string) => string,
+		done: string
+	): Promise<boolean> {
+		const ws = $workspaceStore
+		if (!ws) return false
+		// Wait for Edit: the switch reopens Edit's set-aside pane when it lands, which
+		// would take the place of the draft opened below.
+		if (mode !== 'edit') await setMode('edit')
+		pe.selection = undefined
+		pe.activeDraftPath = undefined
+		await tick()
+		await new Promise<void>((r) => queueMicrotask(r))
+		const draft = pe.drafts.get(path)
+		let script: Script
+		try {
+			script = draft
+				? draft.script
+				: await ScriptService.getScriptByPath({ workspace: ws, path })
+		} catch (e: any) {
+			sendUserToast(`Could not open ${path}: ${e?.body ?? e?.message ?? String(e)}`, true)
+			return false
+		}
+		panelHidden = false
+		const content = apply(script.content ?? '')
+		if (content === script.content) {
+			pe.activeDraftPath = draft ? path : undefined
+			if (!draft) pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
+			sendUserToast(`${path} already does that`)
+			return true
+		}
+		const next = new Map(pe.drafts)
+		next.set(path, {
+			...(draft ?? { localId: pe.promotedDraftLocalId(path) }),
+			script: { ...script, content }
+		})
+		pe.drafts = next
+		pe.activeDraftPath = path
+		sendUserToast(`${done} in ${path}. It is a draft until you save.`)
+		return true
+	}
+
+	// Edits several scripts' headers at once, after the user has seen the list: a
+	// change to one edge or node must not silently rewrite scripts they didn't pick.
+	let multiEdit = $state<{ scripts: string[]; what: string; run: () => Promise<void> } | undefined>(
+		undefined
+	)
+	function editScripts(
+		scripts: string[],
+		what: string,
+		apply: (script: string) => (content: string) => string
+	) {
+		const run = async () => {
+			for (const s of scripts) await editScriptHeader(s, apply(s), what)
+		}
+		if (scripts.length > 1) multiEdit = { scripts, what, run }
+		else void run()
+	}
+
+	const scriptName = (p: string) => p.split('/').pop() ?? p
+
+	const readsAsset = (script: string, asset: { kind: AssetKind; path: string }) =>
+		shownGraph.edges.some(
+			(e) =>
+				e.runnable_path === script &&
+				e.asset_kind === asset.kind &&
+				e.asset_path === asset.path &&
+				(e.access_type === 'r' || e.access_type === 'rw')
+		)
+	const selectScript = (path: string) => {
+		pe.activeDraftPath = pe.drafts.has(path) ? path : undefined
+		pe.selection = pe.drafts.has(path)
+			? undefined
+			: { kind: 'runnable', runnable_kind: 'script', path }
+	}
+	const selectAsset = (asset: { kind: AssetKind; path: string }) => {
+		pe.activeDraftPath = undefined
+		pe.selection = { kind: 'asset', asset_kind: asset.kind, path: asset.path }
+	}
+	const scriptLink = (path: string) => ({ text: path, onClick: () => selectScript(path) })
+	const assetLink = (asset: { kind: AssetKind; path: string }) => ({
+		text: asset.path,
+		onClick: () => selectAsset(asset)
+	})
+
+	let nodeFixes = $derived.by(() => {
+		const fixes = new Map<string, NodeFixSpec>()
+		if (viewOnly) return fixes
+		for (const [path, asset] of nodeErrors.waitsOn) {
+			fixes.set(`script:${path}`, {
+				explainer: [
+					'Runs after each write to ',
+					// Not drawn when only this subscription names it: nothing to select.
+					shownGraph.edges.some(
+						(e) => e.asset_kind === asset.kind && e.asset_path === asset.path
+					)
+						? assetLink(asset)
+						: asset.path,
+					', but nothing writes it, so it never runs.'
+				],
+				actions: [
+					{
+						label: `Remove \`on ${assetRef(asset)}\``,
+						detail: `${stopListeningChangeText(asset, readsAsset(path, asset))} in ${path}; only the annotation header changes. Saved as a draft.`,
+						run: () =>
+							editScriptHeader(
+								path,
+								(c) => stopListeningToAsset(c, asset, readsAsset(path, asset)),
+								`Removed \`on ${assetRef(asset)}\``
+							)
+					},
+					{
+						label: 'Open script',
+						run: () => {
+							pe.activeDraftPath = pe.drafts.has(path) ? path : undefined
+							pe.selection = pe.drafts.has(path)
+								? undefined
+								: { kind: 'runnable', runnable_kind: 'script', path }
+						}
+					}
+				]
+			})
+		}
+		for (const [path, why] of nodeErrors.untriggered) {
+			const unsaved = displayGraph.runnables.some((r) => r.path === path && r.unsaved)
+			fixes.set(`script:${path}`, {
+				explainer: [
+					'Nothing starts ',
+					scriptLink(path),
+					why === 'no-trigger'
+						? ': it has no trigger, so it only runs by hand.'
+						: ': it only runs after writes to tables it reads, and nothing writes them, so it only runs by hand.'
+				],
+				actions: [
+					{
+						label: 'Run it on a schedule',
+						detail: `Opens the schedule setup. On create: adds \`on schedule\` in ${path}, with the schedule as a draft.`,
+						scheduleFor: {
+							script: path,
+							onSchedule: async (schedule) => {
+								// Checked first: a header saying `on schedule` with no schedule
+								// behind it would be a new error, not a fix.
+								if (pe.triggerDrafts.has(triggerDraftKey('schedule', schedule.path))) {
+									sendUserToast(
+										`Another draft schedule already uses the path ${schedule.path}`,
+										true
+									)
+									return
+								}
+								const ok = await editScriptHeader(
+									path,
+									(c) => addTriggerDirective(c, 'schedule'),
+									'Added a schedule'
+								)
+								if (!ok) return
+								if (!pe.setTriggerDraft({ kind: 'schedule', config: { ...schedule, script_path: path } })) {
+									sendUserToast(
+										`Another draft schedule already uses the path ${schedule.path}; ${path} has no schedule yet`,
+										true
+									)
+								}
+							}
+						}
+					},
+					{
+						label: 'Run it from a webhook',
+						detail: `Adds \`on webhook\` in ${path}: it runs when its webhook URL is called. Saved as a draft.`,
+						run: () =>
+							editScriptHeader(path, (c) => addTriggerDirective(c, 'webhook'), 'Added a webhook')
+					},
+					{
+						label: unsaved ? 'Discard it' : 'Remove it',
+						detail: unsaved
+							? 'Drops the draft.'
+							: 'Opens its archive or delete confirmation.',
+						run: async () => {
+							if (mode !== 'edit') await setMode('edit')
+							// The pane takes the remove request only once it is open on the
+							// script: a request made as it mounts is its starting point.
+							if (!unsaved) {
+								panelHidden = false
+								pe.activeDraftPath = undefined
+								pe.selection = { kind: 'runnable', runnable_kind: 'script', path }
+								await tick()
+							}
+							handleRunnableMenuRemove({ runnable_kind: 'script', path, unsaved })
+						}
+					}
+				]
+			})
+		}
+		for (const t of displayGraph.triggers) {
+			if (t.trigger_kind === 'asset' || !t.missing) continue
+			if (t.trigger_kind === 'webhook' || t.trigger_kind === 'data_upload') continue
+			const kind = t.trigger_kind
+			const script = t.runnable_path
+			const label = TRIGGER_NODE_STYLE[kind]?.label ?? kind
+			fixes.set(`trigger:${kind}:missing:${script}`, {
+				explainer: [
+					scriptLink(script),
+					` declares \`on ${kind}\`, but no ${label} trigger points at it, so nothing starts it that way.`
+				],
+				actions: [
+					{
+						label: `Create the ${label} trigger`,
+						detail: 'Opens its editor. It is created when you save the pipeline.',
+						run: () => {
+							if (mode !== 'edit') setMode('edit')
+							openMissingTriggerDrawer(kind, script)
+						}
+					},
+					{
+						label: `Remove \`on ${kind}\` from ${scriptName(script)}`,
+						detail: `Edits ${script}. Saved as a draft.`,
+						run: () =>
+							editScriptHeader(
+								script,
+								(c) => removeTriggerDirective(c, kind),
+								`Removed \`on ${kind}\``
+							)
+					}
+				]
+			})
+		}
+		return fixes
+	})
+
 	function handleRunnableMenuRemove(info: {
 		runnable_kind: 'script' | 'flow'
 		path: string
@@ -1316,8 +1267,8 @@
 			return
 		}
 		if (info.runnable_kind !== 'script') return
-		activeDraftPath = undefined
-		selection = { kind: 'runnable', runnable_kind: 'script', path: info.path }
+		pe.activeDraftPath = undefined
+		pe.selection = { kind: 'runnable', runnable_kind: 'script', path: info.path }
 		requestRemoveSignal++
 	}
 	async function handleRunProducer(producer: {
@@ -1353,7 +1304,7 @@
 		if (cascade) {
 			const hasDraftInChain =
 				producer.unsaved === true ||
-				computeDownstreamClosure(graphWithDraft, producer.path).nodes.some((p) => drafts.has(p))
+				computeDownstreamClosure(graphWithDraft, producer.path).nodes.some((p) => pe.drafts.has(p))
 			if (hasDraftInChain) {
 				return await runDraftAwareCascade(producer.path)
 			}
@@ -1370,7 +1321,7 @@
 		const skipArg = cascade ? {} : { _wmill_skip_asset_dispatch: true }
 		let jobId: string | undefined
 		if (producer.unsaved) {
-			const draft = drafts.get(producer.path)
+			const draft = pe.drafts.get(producer.path)
 			if (!draft?.script.content || !draft.script.language) return undefined
 			jobId = await JobService.runScriptPreview({
 				workspace: $workspaceStore,
@@ -1450,12 +1401,13 @@
 	let graphWithDraft = $derived.by<AssetGraphResponse>(() =>
 		resolveGraph({
 			base: graphRes.current ?? EMPTY_GRAPH,
-			drafts,
-			liveBodyAssets,
-			liveAnnotations,
+			drafts: pe.drafts,
+			liveBodyAssets: pe.liveBodyAssets,
+			liveAnnotations: pe.liveAnnotations,
 			inferredWritesByPath,
 			inferredReadsByPath,
-			annotatedNativeKindsByPath
+			annotatedNativeKindsByPath,
+			triggerDrafts: pe.triggerDrafts.values()
 		})
 	)
 
@@ -1478,7 +1430,166 @@
 	// What the canvas renders: drafts merged in edit, deployed-only in view —
 	// unless the "show drafts" chip is on, which overlays the drafts onto the
 	// view (what View will show once they're deployed).
-	let displayGraph = $derived(mode === 'edit' || includeDrafts ? graphWithDraft : deployedGraph)
+	let shownGraph = $derived(mode === 'edit' || includeDrafts ? graphWithDraft : deployedGraph)
+	// Each script's explicit `// on <asset>` subscriptions, from its live buffer,
+	// draft or deployed body.
+	let explicitOnByPath = $derived.by(() => {
+		const showDrafts = mode === 'edit' || includeDrafts
+		const out = new Map<string, Array<{ kind: AssetKind; path: string }>>()
+		for (const r of shownGraph.runnables) {
+			if (r.usage_kind !== 'script') continue
+			const live =
+				showDrafts && pe.liveAnnotations.scriptPath === r.path ? pe.liveAnnotations : undefined
+			const content = showDrafts ? pe.drafts.get(r.path)?.script.content : undefined
+			const body = content ?? assetPrefetch.bodies.get(r.path)
+			const refs = live
+				? live.annotations.triggerAssets
+				: body !== undefined
+					? parsePipelineAnnotations(body).triggerAssets
+					: []
+			if (refs.length > 0) out.set(r.path, refs)
+		}
+		return out
+	})
+	// Assets an asset trigger waits on (explicit `on`, or an auto-triggering read)
+	// that nothing in the pipeline writes, checked against the whole workspace: an
+	// asset trigger fires on a write from anywhere.
+	// Every other asset nothing in the pipeline writes is looked up too, so an
+	// asset nothing writes anywhere can go without the "add downstream step" +.
+	let writtenInPipeline = $derived(
+		new Set(
+			shownGraph.edges
+				.filter(
+					(e) =>
+						e.runnable_kind === 'script' && (e.access_type === 'w' || e.access_type === 'rw')
+				)
+				.map((e) => `${e.asset_kind}:${e.asset_path}`)
+		)
+	)
+	// dbt builds its models; its sources come from elsewhere, like any other asset.
+	const dbtBuilt = (a: { dbt?: { resource_type?: string } | null }) =>
+		!!a.dbt && a.dbt.resource_type !== 'source'
+	let unwrittenInPipeline = $derived(
+		[
+			...new Set([
+				...pipelineNodeErrors(shownGraph, explicitOnByPath).unwrittenTriggerAssets,
+				...shownGraph.assets
+					.filter((a) => !dbtBuilt(a) && !writtenInPipeline.has(`${a.kind}:${a.path}`))
+					.map((a) => `${a.kind}:${a.path}`)
+			])
+		]
+			.sort()
+			.join('\n')
+	)
+	// Whether a script outside the pipeline writes each asset (a flow's write fires
+	// no asset trigger). One lookup per asset, bounded, and remembered per
+	// `kind:path` so editing the graph only asks about assets it has not seen.
+	const writerLookups = new Map<string, Promise<boolean | undefined>>()
+	const writerLimit = pLimit(6)
+	function writtenInWorkspace(ws: string, key: string): Promise<boolean | undefined> {
+		const cacheKey = `${ws}\n${key}`
+		let p = writerLookups.get(cacheKey)
+		if (!p) {
+			const i = key.indexOf(':')
+			const kind = key.slice(0, i)
+			const path = key.slice(i + 1)
+			p = writerLimit(async () => {
+				try {
+					const res = await AssetService.listAssets({ workspace: ws, path, assetKinds: kind })
+					return res.assets.some((a) =>
+						a.usages.some(
+							(u) => u.kind === 'script' && (u.access_type === 'w' || u.access_type === 'rw')
+						)
+					)
+				} catch {
+					// Unknown: the node stays flagged, and the next graph change asks again.
+					writerLookups.delete(cacheKey)
+					return undefined
+				}
+			})
+			writerLookups.set(cacheKey, p)
+		}
+		return p
+	}
+	let writtenElsewhere = resource(
+		[() => $workspaceStore, () => unwrittenInPipeline],
+		async ([ws, keys]) => {
+			const out = new Set<string>()
+			if (!ws || !keys) return out
+			const list = keys.split('\n')
+			const found = await Promise.all(list.map((key) => writtenInWorkspace(ws, key)))
+			list.forEach((key, i) => found[i] && out.add(key))
+			return out
+		}
+	)
+	// Until the lookup answers for the assets it is asking about, they count as
+	// written: a node turns red only once nothing is known to write them, never
+	// for the moment the answer is in flight.
+	let nodeErrors = $derived.by(() => {
+		const errors = pipelineNodeErrors(
+			shownGraph,
+			explicitOnByPath,
+			writtenElsewhere.loading || !writtenElsewhere.current
+				? new Set([...(writtenElsewhere.current ?? []), ...unwrittenInPipeline.split('\n')])
+				: writtenElsewhere.current
+		)
+		// A webhook or data upload trigger is read from the script's body, which loads
+		// after the graph: until it has, "nothing starts it" may only mean "not read yet".
+		for (const path of [...errors.untriggered.keys()]) {
+			if (pe.drafts.has(path) || assetPrefetch.bodies.has(path)) continue
+			errors.untriggered.delete(path)
+			errors.scripts.delete(path)
+		}
+		return errors
+	})
+	let displayGraph = $derived(withSummaries(shownGraph))
+	// Adds what the canvas shows but the resolved graph does not carry: script
+	// summaries and languages, schedule crons, and which nodes are misconfigured.
+	function withSummaries(g: AssetGraphResponse): AssetGraphResponse {
+		const showDrafts = mode === 'edit' || includeDrafts
+		const errors = nodeErrors
+		const schedules = scheduleInfo.current
+		// An asset drawn only because a script subscribes to it, which nothing ever
+		// writes, stands for nothing: it is left out, and the subscriber carries the
+		// error. One a script reads or writes stays.
+		const used = new Set(g.edges.map((e) => `${e.asset_kind}:${e.asset_path}`))
+		const phantom = new Set([...errors.unwritten.keys()].filter((k) => !used.has(k)))
+		const triggers = g.triggers.filter(
+			(t) => t.trigger_kind !== 'asset' || !phantom.has(`${t.asset_kind}:${t.asset_path}`)
+		)
+		return {
+			...g,
+			triggers: schedules?.size
+				? triggers.map((t) =>
+						t.trigger_kind === 'schedule' && t.path && !t.draft && schedules.has(t.path)
+							? { ...t, ...schedules.get(t.path) }
+							: t
+					)
+				: triggers,
+			assets: g.assets
+				.filter((a) => !phantom.has(`${a.kind}:${a.path}`))
+				.map((a) => {
+					const key = `${a.kind}:${a.path}`
+					const error = errors.assets.get(key)
+					// Only once the workspace lookup has answered: before, it is unknown.
+					const never_written =
+						!dbtBuilt(a) &&
+						!writtenInPipeline.has(key) &&
+						!!writtenElsewhere.current &&
+						!writtenElsewhere.loading &&
+						!writtenElsewhere.current.has(key)
+					return error || never_written ? { ...a, error, never_written } : a
+				}),
+			runnables: g.runnables.map((r) => {
+				const draft = showDrafts ? pe.drafts.get(r.path)?.script : undefined
+				const meta = assetPrefetch.scriptMeta.get(r.path)
+				const summary = draft?.summary || meta?.summary
+				const language = draft?.language ?? meta?.language
+				const error = r.usage_kind === 'script' ? errors.scripts.get(r.path) : undefined
+				return summary || language || error ? { ...r, summary, language, error } : r
+			})
+		}
+	}
 
 	// Leaving edit mode: drop the live editor overlays — they substitute the
 	// last keystroke buffer for one script inside inferredWritesByPath /
@@ -1490,11 +1601,11 @@
 			// Guard before reassigning so an already-empty overlay doesn't
 			// needlessly invalidate the graph derives every mode toggle.
 			if (
-				liveAnnotations.scriptPath != undefined ||
-				liveBodyAssets.scriptPath != undefined ||
-				liveContent.scriptPath != undefined
+				pe.liveAnnotations.scriptPath != undefined ||
+				pe.liveBodyAssets.scriptPath != undefined ||
+				pe.liveContent.scriptPath != undefined
 			) {
-				clearLiveOverlays()
+				pe.clearLiveOverlays()
 			}
 		})
 	})
@@ -1503,19 +1614,10 @@
 	// preserved, so toggling back to edit keeps them). Tracks activeDraftPath
 	// too, covering the onMount localStorage restore landing after a view load.
 	$effect(() => {
-		if (mode === 'view' && !includeDrafts && activeDraftPath != undefined) {
-			activeDraftPath = undefined
+		if (mode === 'view' && !includeDrafts && pe.activeDraftPath != undefined) {
+			pe.activeDraftPath = undefined
 		}
 	})
-
-	// Selection highlights the active draft (if any) or the user's picked
-	// node. Non-active drafts render without selection highlight but are
-	// still clickable to re-enter their edit pane.
-	let effectiveSelection = $derived<AssetGraphSelection | undefined>(
-		activeDraftPath
-			? { kind: 'runnable', runnable_kind: 'script', path: activeDraftPath }
-			: selection
-	)
 
 	// Bumped after every successful run dispatch so AssetRunsPanel re-fetches
 	// the listing immediately — the new (preview or script) job appears in
@@ -1621,8 +1723,17 @@
 						? 'failure'
 						: 'success'
 			const cur = m.get(id)
-			if (cur) cur.runs += 1
-			else m.set(id, { status, runs: 1 })
+			// Freshness compares against completion; `at` (start) is the
+			// fallback lower bound for rows without a duration.
+			const successAt = e.status === 'success' ? (e.completedAt ?? e.at) : undefined
+			if (cur) {
+				cur.runs += 1
+				// Newest-first, so the first success per id is the latest one —
+				// it feeds the freshness chip between graph refetches.
+				if (successAt && !cur.lastSuccessAt) cur.lastSuccessAt = successAt
+			} else {
+				m.set(id, { status, runs: 1, lastSuccessAt: successAt })
+			}
 		}
 		return m
 	})
@@ -1651,6 +1762,134 @@
 	// Run+downstream affordance against overlapping chains stomping each
 	// other's storage writes.
 	let cascadeRunningRoot = $state<string | undefined>(undefined)
+
+	// Recorder: when armed, the next cascade run captures the resolved graph and
+	// the per-node status timeline into a downloadable recording that the
+	// /pipeline_replay player can rerun offline (parity with the flow/script
+	// recorders); each node's completed job is fetched when the run finalizes.
+	// Status capture (`recordStatuses`) no-ops unless the store is active, so
+	// the cascade run paths call it unconditionally.
+	let pipelineRecording = createPipelineRecording()
+	let recordingMode = $state(false)
+	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
+
+	// Shared by the overflow-menu Record item and the inline armed pill so their
+	// wording can't drift — both describe the same armed recorder.
+	const RECORDING_ARMED_HINT =
+		'Recording armed — the next pipeline run will be captured. Click to disarm.'
+
+	function downloadPipelineRecording() {
+		if (lastPipelineRecording) {
+			pipelineRecording.download(lastPipelineRecording)
+		}
+	}
+
+	// Secondary top-bar controls (recorder, macros) collapse into a single
+	// overflow (⋮) menu so the bar stays legible on small screens; only primary
+	// actions stay inline. Recording lives here rather than on the bar at all
+	// times — while armed it surfaces a compact inline pill (below) instead.
+	// The bar folds the actions (`actionFolds` below) once its breadcrumb has given all it can,
+	// moving them into the ⋮ menu rather than dropping their labels: first the view helpers, then
+	// the run and the drafts overlay. The mode toggle and Save all stay on the bar.
+	const viewHelpersInMenu = $derived(pageHeader.actionFold >= 1)
+	const runInMenu = $derived(pageHeader.actionFold >= 2)
+
+	let overflowMenuItems = $derived.by<Item[]>(() => {
+		const items: Item[] = []
+		if (runInMenu && !viewOnly && allPipelineScripts.length > 0) {
+			items.push({
+				displayName: cascadeRunningRoot ? 'Running…' : 'Run pipeline',
+				icon: Play,
+				disabled: !!cascadeRunningRoot,
+				action: () => runWholePipeline()
+			})
+		}
+		if (runInMenu && !viewOnly && mode === 'view' && pendingCount > 0) {
+			items.push({
+				displayName: `${includeDrafts ? 'Hide' : 'Show'} ${pendingCount} draft${pendingCount === 1 ? '' : 's'}`,
+				icon: Telescope,
+				action: () => (includeDrafts = !includeDrafts)
+			})
+		}
+		if (viewHelpersInMenu) {
+			if (mode === 'view') {
+				items.push({
+					displayName: activityShowing ? 'Hide activity' : 'Activity',
+					icon: History,
+					action: () => toggleActivity()
+				})
+			}
+			items.push({
+				displayName: 'Refresh',
+				icon: RefreshCw,
+				disabled: graphRes.loading,
+				action: () => graphRes.refetch()
+			})
+		}
+		if (!viewOnly && allPipelineScripts.length > 0) {
+			items.push({
+				displayName: recordingMode ? 'Disarm recorder' : 'Record next run',
+				icon: Circle,
+				iconColor: recordingMode ? 'rgb(220 38 38)' : undefined,
+				disabled: !!cascadeRunningRoot,
+				tooltip: recordingMode
+					? RECORDING_ARMED_HINT
+					: 'Arm the recorder so the next pipeline run is captured for offline replay',
+				action: () => (recordingMode = !recordingMode)
+			})
+			if (lastPipelineRecording && !cascadeRunningRoot) {
+				items.push({
+					displayName: 'Download last recording',
+					icon: Download,
+					action: () => downloadPipelineRecording()
+				})
+			}
+		}
+		items.push({
+			displayName: 'Macros',
+			icon: SquareFunction,
+			tooltip: "Browse the workspace's DuckDB macros (deployed // macros libraries)",
+			action: () => macroDrawer?.openDrawer()
+		})
+		return items
+	})
+
+	// Script path → its schedule's configured args, so a manual "Run pipeline"
+	// launches a schedule-triggered script with the same payload a real tick
+	// would (rather than empty args). Schedule is the only trigger that stores a
+	// static args payload; every other trigger (webhook / http / event kinds /
+	// data_upload) receives its input from the live event or request at dispatch
+	// time — a message, an HTTP body, an uploaded file — which doesn't exist
+	// during a manual run, so there's nothing to default and those scripts run
+	// empty (data_upload being fed its staged file instead, see dataUploads).
+	// Resolved on demand right before a run (schedule args aren't in the graph
+	// response); fail-safe — a schedule we can't fetch just contributes nothing.
+	let scheduleArgsByPath: Record<string, Record<string, any>> = {}
+	async function resolveScheduleArgs(scripts: string[]): Promise<void> {
+		scheduleArgsByPath = {}
+		const ws = $workspaceStore
+		if (!ws) return
+		const runSet = new Set(scripts)
+		// First schedule (with args) per in-run script; dedupe schedule fetches.
+		const wanted = new Map<string, string>() // script path → schedule path
+		for (const t of displayGraph.triggers) {
+			if (t.trigger_kind !== 'schedule' || t.runnable_kind !== 'script') continue
+			if (!runSet.has(t.runnable_path) || wanted.has(t.runnable_path)) continue
+			if ((t as any).path) wanted.set(t.runnable_path, (t as any).path)
+		}
+		await Promise.all(
+			[...wanted].map(async ([scriptPath, schedulePath]) => {
+				try {
+					const sched = await ScheduleService.getSchedule({ workspace: ws, path: schedulePath })
+					if (sched?.args && Object.keys(sched.args).length > 0) {
+						scheduleArgsByPath[scriptPath] = sched.args as Record<string, any>
+					}
+				} catch {
+					// schedule unreadable / deleted — leave its script on empty args
+				}
+			})
+		)
+	}
 	// Launch one pipeline script for the dev-run cascade. Always passes
 	// _wmill_skip_asset_dispatch — the orchestrator owns the whole closure,
 	// so the backend dispatcher must not double-fire the deployed part of a
@@ -1659,7 +1898,17 @@
 	// edits is not picked up — same as production dispatch).
 	async function launchCascadeScript(path: string): Promise<string> {
 		if (!$workspaceStore) throw new Error('no workspace')
-		const draft = drafts.get(path)
+		// Only run draft content when the displayed graph actually includes
+		// drafts (same condition as `displayGraph`). Otherwise — View mode with
+		// drafts hidden — a bounded run must execute the *deployed* scripts the
+		// user is looking at, not preview jobs from hidden local drafts.
+		// Default a script's run args to its schedule's stored payload (the only
+		// trigger with static args — see resolveScheduleArgs), then let a
+		// data-upload entry's staged file override. runWholePipeline already
+		// refused to start unless every data-upload entry is staged, so this is
+		// always the intended input.
+		const staged = { ...(scheduleArgsByPath[path] ?? {}), ...(dataUploads.argsFor(path) ?? {}) }
+		const draft = mode === 'edit' || includeDrafts ? pe.drafts.get(path) : undefined
 		if (draft) {
 			if (!draft.script.content || !draft.script.language) {
 				throw new Error(`draft ${path} has no content/language`)
@@ -1670,14 +1919,14 @@
 					content: draft.script.content,
 					language: draft.script.language,
 					path,
-					args: { _wmill_skip_asset_dispatch: true }
+					args: { ...staged, _wmill_skip_asset_dispatch: true }
 				}
 			})
 		}
 		return await JobService.runScriptByPath({
 			workspace: $workspaceStore,
 			path,
-			requestBody: { _wmill_skip_asset_dispatch: true }
+			requestBody: { ...staged, _wmill_skip_asset_dispatch: true }
 		})
 	}
 	// Poll a launched cascade job to a terminal state. Modest fixed cadence —
@@ -1724,9 +1973,13 @@
 				true
 			)
 		}
+		// Claim the running-guard BEFORE the first await so a rapid second click
+		// (which reads `cascadeRunningRoot`) can't slip through and double-launch.
 		cascadeRunningRoot = rootPath
 		let rootJobId: string | undefined
 		try {
+			// Seed schedule-triggered members with their configured payload.
+			await resolveScheduleArgs([rootPath, ...closure.nodes])
 			const res = await runCascade({
 				closure,
 				root: rootPath,
@@ -1750,6 +2003,14 @@
 			} else {
 				const failed = [...res.statuses.entries()].filter(([, s]) => s.status === 'failure')
 				const skipped = [...res.statuses.values()].filter((s) => s.status === 'skipped').length
+				// Surface the failed node's error in the details pane. Clear the
+				// active draft too — it has pane priority over `selection`
+				// (openScriptPath), so a bare selection would stay masked while a
+				// draft is open.
+				if (failed.length > 0) {
+					pe.activeDraftPath = undefined
+					pe.selection = { kind: 'runnable', runnable_kind: 'script', path: failed[0][0] }
+				}
 				sendUserToast(
 					`Chain run failed at ${failed.map(([p]) => p).join(', ')}` +
 						(skipped > 0 ? ` — ${skipped} downstream skipped` : ''),
@@ -1761,6 +2022,248 @@
 		}
 		return rootJobId
 	}
+
+	// ── Bounded-cascade selective execution ──────────────────────────────
+	// "Run downstream up to…" lets the user run a *prefix* of a cascade: start
+	// at a schedule/manual root, fan downstream, but stop at chosen end node(s).
+	// The matched set is the path-between of start and ends over the lineage DAG.
+	// Pick state is in engine node-id space (`script:path`, `${kind}:${path}`);
+	// it is converted to canvas ids only at the canvas boundary.
+	let boundPickStart = $state<string | undefined>(undefined)
+	let boundPickEnds = $state<Set<string>>(new Set())
+
+	// Script paths eligible to start a bounded run, for the canvas menu gate.
+	// Any node with downstream — roots AND mid-DAG models — can be a "Run +
+	// downstream" start (dbt `model+`); only event-triggered scripts are excluded
+	// (see boundedCascade.validFromStarts). The canvas additionally requires the
+	// node to have lineage downstream before offering the entry.
+	let validStartPaths = $derived(new Set(scriptsOf(validFromStarts(displayGraph))))
+	// Scripts with read-aware downstream — the same gate the canvas applies
+	// (AssetGraphCanvas `hasLineageDownstream`). A valid start with no downstream
+	// has no end to pick, so the bounded-run entry is suppressed everywhere,
+	// including the details-pane (ScriptEditor) Test caret.
+	let lineageDownstreamPaths = $derived(new Set(buildLineageDownstreamMap(displayGraph).keys()))
+
+	// Rebuilt only while a pick is active (cheap to skip otherwise).
+	let boundDag = $derived(boundPickStart ? buildLineageDag(displayGraph) : undefined)
+	let boundResult = $derived(
+		boundDag && boundPickStart
+			? boundedSet(boundDag, boundPickStart, [...boundPickEnds])
+			: undefined
+	)
+	// Event handlers (kafka/mqtt/…) can't run with empty args, so they're cut from
+	// any cascade run — as is a consumer reachable only through one. But a
+	// scheduled/manual root is NEVER a barrier even if it also carries an event
+	// trigger: it runs on its own schedule/manual identity (schedule wins in
+	// validStarts), so it — and its downstream — stay reachable when running from
+	// an upstream start. The explicit start is likewise protected. Parity with the
+	// CLI `barriers` set (`nonAutorunTriggerScripts` minus `starts` minus start).
+	let boundReachable = $derived.by(() => {
+		if (!boundDag || !boundPickStart) return new Set<string>()
+		const roots = validStarts(displayGraph)
+		const barriers = new Set(
+			[...nonAutorunTriggerScripts(displayGraph)].filter(
+				(id) => !roots.has(id) && id !== boundPickStart
+			)
+		)
+		return reachableCutting(boundDag, [boundPickStart], barriers)
+	})
+	// Nodes pickable as end bounds: the barrier-cut downstream (excluding the
+	// start), NOT raw descendants — else an event handler or a node only reachable
+	// through one could be clicked as an end yet get silently dropped from the run.
+	let boundEligible = $derived(new Set([...boundReachable].filter((id) => id !== boundPickStart)))
+	// The actual run set (nodes, scripts + assets). No end picked → "Run +
+	// downstream" (dbt `model+`): the start plus its full transitive downstream.
+	// Picking end(s) narrows it to the path-between set. Either way, intersect with
+	// the barrier-cut closure so an event descendant is never launched empty. The
+	// canvas highlights exactly this set, so the ring matches what will run.
+	let boundRunNodes = $derived(
+		boundPickStart
+			? boundPickEnds.size === 0
+				? boundReachable
+				: new Set([...(boundResult?.nodes ?? [])].filter((n) => boundReachable.has(n)))
+			: new Set<string>()
+	)
+	let boundScripts = $derived(scriptsOf(boundRunNodes))
+
+	// Engine id → canvas id: scripts keep `script:path`; assets gain the
+	// canvas's `asset:` prefix (AssetGraphCanvas node ids).
+	const toCanvasId = (eid: string): string => (isScriptNode(eid) ? eid : `asset:${eid}`)
+	const fromCanvasId = (cid: string): string =>
+		cid.startsWith('asset:') ? cid.slice('asset:'.length) : cid
+	// Short label for a `script:f/folder/name` start id (last path segment).
+	const shortPath = (scriptId: string): string => {
+		const p = isScriptNode(scriptId) ? scriptId.slice('script:'.length) : scriptId
+		return p.split('/').pop() ?? p
+	}
+	let boundPick = $derived(
+		boundPickStart && boundDag
+			? {
+					start: boundPickStart,
+					eligible: new Set([...boundEligible].map(toCanvasId)),
+					ends: new Set([...boundPickEnds].map(toCanvasId)),
+					bounded: new Set([...boundRunNodes].map(toCanvasId))
+				}
+			: undefined
+	)
+
+	function startBoundedRun(path: string) {
+		boundPickStart = scriptNodeId(path)
+		boundPickEnds = new Set()
+	}
+	function pickBoundEnd(canvasNodeId: string) {
+		const eid = fromCanvasId(canvasNodeId)
+		if (eid === boundPickStart) return
+		const next = new Set(boundPickEnds)
+		if (next.has(eid)) next.delete(eid)
+		else next.add(eid)
+		boundPickEnds = next
+	}
+	function cancelBoundedRun() {
+		boundPickStart = undefined
+		boundPickEnds = new Set()
+	}
+	async function confirmBoundedRun() {
+		const scripts = boundScripts
+		cancelBoundedRun()
+		await runBoundedCascade(scripts)
+	}
+	// Run an arbitrary selected set of scripts in topological order. Same
+	// per-hop launch + poll as the draft-aware cascade (it skips the backend
+	// dispatcher so the page owns the whole closure), but multi-root: every
+	// selected script with no in-set upstream is seeded at once.
+	async function runBoundedCascade(scripts: string[]): Promise<void> {
+		if (scripts.length === 0) {
+			sendUserToast('No scripts to run in this selection', true)
+			return
+		}
+		if (cascadeRunningRoot) {
+			sendUserToast(`A chain run from ${cascadeRunningRoot} is still in progress`, true)
+			return
+		}
+		// Read-aware adjacency so a pure-reader member runs after its producer
+		// (parity with the CLI `topoOrder`); see buildLineageDownstreamMap.
+		const schedule = computeInducedSchedule(
+			displayGraph,
+			new Set(scripts),
+			buildLineageDownstreamMap(displayGraph)
+		)
+		if (schedule.cyclic.length > 0) {
+			sendUserToast(
+				`Not running ${schedule.cyclic.length} script(s) on a dependency cycle: ${schedule.cyclic.join(', ')}`,
+				true
+			)
+		}
+		if (schedule.nodes.length === 0) {
+			sendUserToast('No runnable scripts in this selection', true)
+			return
+		}
+		// Claim the running-guard BEFORE the first await so a rapid second click
+		// (which reads `cascadeRunningRoot`) can't slip through and double-launch.
+		cascadeRunningRoot = schedule.roots[0] ?? scripts[0]
+		if (recordingMode) {
+			lastPipelineRecording = undefined
+			pipelineRecording.start(folder, displayGraph)
+		}
+		let firstJobId: string | undefined
+		try {
+			// Seed schedule-triggered roots with their configured payload.
+			await resolveScheduleArgs(schedule.nodes)
+			const res = await runSelection({
+				schedule,
+				launch: async (path) => {
+					const jobId = await launchCascadeScript(path)
+					activeRunnables.arm(`script:${path}`)
+					if (firstJobId === undefined) {
+						firstJobId = jobId
+						runsPendingJobId = jobId
+						runsRefreshKey++
+					}
+					return jobId
+				},
+				waitTerminal: waitJobTerminal,
+				onUpdate: (statuses) => pipelineRecording.recordStatuses(statuses)
+			})
+			const n = res.statuses.size
+			if (res.ok) {
+				sendUserToast(`Bounded run complete — ${n} script${n === 1 ? '' : 's'} succeeded`)
+			} else {
+				const failed = [...res.statuses.entries()].filter(([, s]) => s.status === 'failure')
+				const skipped = [...res.statuses.values()].filter((s) => s.status === 'skipped').length
+				// Surface the failed node's error in the details pane. Clear the
+				// active draft too — it has pane priority over `selection`
+				// (openScriptPath), so a bare selection would stay masked while a
+				// draft is open.
+				if (failed.length > 0) {
+					pe.activeDraftPath = undefined
+					pe.selection = { kind: 'runnable', runnable_kind: 'script', path: failed[0][0] }
+				}
+				sendUserToast(
+					`Bounded run failed at ${failed.map(([p]) => p).join(', ')}` +
+						(skipped > 0 ? ` — ${skipped} downstream skipped` : ''),
+					true
+				)
+			}
+		} finally {
+			// Hold the run guard until finalization finishes: finalize keeps writing
+			// jobs/samples/code through the recorder store, and a second run's
+			// `start()` would reset those maps mid-write, corrupting both recordings.
+			// The nested finally still clears the guard if finalize ever rejects, so
+			// Run can't wedge permanently.
+			try {
+				if (pipelineRecording.active) {
+					lastPipelineRecording = await finalizePipelineRecording(
+						pipelineRecording,
+						$workspaceStore
+					)
+				}
+			} finally {
+				cascadeRunningRoot = undefined
+			}
+		}
+	}
+
+	// Data-upload entries' staged input; see usePipelineDataUploads.
+	const dataUploads = usePipelineDataUploads(() => displayGraph)
+
+	// Every pipeline-member script, for the always-visible header "Run pipeline"
+	// control. Per-node runs are hover/select-gated on the canvas; this
+	// pipeline-level affordance runs the whole graph without hunting for a root
+	// node to hover. Gated on `in_pipeline` so it never launches dependency-only
+	// endpoints the graph surfaces for context (macro libraries, custom
+	// data-test scripts, out-of-folder producers) — only actual pipeline steps.
+	let allPipelineScripts = $derived(
+		displayGraph.runnables
+			.filter((r) => r.usage_kind === 'script' && r.in_pipeline)
+			.map((r) => r.path)
+	)
+	// What the bar shows of the page's main actions: the session button goes right before them.
+	const saveAllShown = $derived(mode === 'edit' && pendingCount > 0)
+	const runPipelineShown = $derived(!viewOnly && allPipelineScripts.length > 0 && !runInMenu)
+
+	// Run the whole pipeline: hand every script to the bounded-cascade engine,
+	// which topo-orders them (roots first) and fans downstream — i.e. run + all
+	// downstream from every source at once. Reuses the same per-hop launch/poll
+	// and one-cascade-at-a-time guard as the node-level chain runs.
+	async function runWholePipeline() {
+		// Data-upload entries can't auto-run with empty args (they'd run against a
+		// missing S3Object). Require every one to be staged (green) first, and
+		// point the user at the first unready node instead of launching a doomed
+		// run.
+		const unready = allPipelineScripts.filter(
+			(p) => dataUploads.entryPaths.has(p) && !dataUploads.isReady(p)
+		)
+		if (unready.length > 0) {
+			sendUserToast(
+				`Upload data to ${unready.length} data-upload node${unready.length === 1 ? '' : 's'} first — they must be green before the pipeline can run`,
+				true
+			)
+			openDataUploadRun(unready[0])
+			return
+		}
+		await runBoundedCascade(allPipelineScripts)
+	}
+
 	// Counter bumped when the canvas Run button targets the currently-open
 	// script — the pane intercepts and routes through ScriptEditor.runTest
 	// so logs/result/cancel land in the test panel instead of going off
@@ -1787,19 +2290,106 @@
 	// runs panel can list jobs for the right scripts. We include drafts —
 	// running a draft via runScriptPreview creates a `preview`-kind job at
 	// the same path, which the panel's listing query picks up.
-	let selectionProducers = $derived.by(() => {
-		const sel = selection
-		if (!sel || sel.kind !== 'asset') return []
-		return graphWithDraft.edges
-			.filter((e) => {
-				const access = e.access_type ?? 'r'
-				return (
-					(access === 'w' || access === 'rw') &&
-					e.asset_kind === sel.asset_kind &&
-					e.asset_path === sel.path
-				)
-			})
-			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
+	let selectionProducers = $derived(assetProducers(graphWithDraft, pe.selection))
+	// dbt provenance of the selected relation: the details pane renders the
+	// model's own SQL from it. Looked up on the asset, not the producer — a
+	// relation carries one description whichever script materializes it.
+	let selectionDbt = $derived.by(() => {
+		const sel = pe.selection
+		if (sel?.kind !== 'asset') return undefined
+		return graphWithDraft?.assets?.find((a) => a.kind === sel.asset_kind && a.path === sel.path)
+			?.dbt
+	})
+
+	// Pipeline-wide column-lineage graph, stitched across every producer's
+	// (inferred + annotated) `column_lineage` and the asset write-edges. Drives
+	// the transitive column trace in the details pane. Built from `displayGraph`
+	// — the exact graph the canvas renders — so the trace matches it: draft
+	// overlays in edit / show-drafts, deployed-only in plain View. Gated to the
+	// two asset kinds that can carry column lineage so it isn't rebuilt on every
+	// editor keystroke when the trace UI isn't even shown.
+	let producerColumnGraph = $derived(
+		pe.selection?.kind === 'asset' &&
+			(pe.selection.asset_kind === 'ducklake' || pe.selection.asset_kind === 'dbt')
+			? buildColumnGraph(displayGraph)
+			: EMPTY_COLUMN_GRAPH
+	)
+	// dbt's half comes from its own request instead: a project's static analysis
+	// is stored per relation and only exists if the descriptor asked for it, so
+	// the folder-wide graph does not carry it. A draft is never asked about —
+	// nothing has parsed it, so there is nothing to fetch.
+	//
+	// The relations to ask about are the selected one when it IS a dbt relation,
+	// and otherwise every dbt relation a producer feeding this selection names as
+	// a source — the boundary nodes above. Asking at all of them at once is what
+	// lets a ducklake selection trace back up the dbt projects that fed it, and
+	// why one selection is one request however many boundaries it crosses.
+	let dbtSeedPaths = $derived.by(() => {
+		const sel = pe.selection
+		if (pe.activeDraft || sel?.kind !== 'asset') return []
+		if (sel.asset_kind === 'dbt') return [sel.path]
+		const seeds = assetColumnNodes(producerColumnGraph, sel.asset_kind, sel.path)
+		const paths = new Set<string>()
+		for (const id of connectedComponent(seeds, producerColumnGraph)) {
+			const node = producerColumnGraph.nodes.get(id)
+			if (node?.kind === 'dbt') paths.add(node.path)
+		}
+		return [...paths]
+	})
+	// Which fetch of the folder graph is on screen. `graphRes.current` is a new
+	// object per fetch, so this moves on a Refresh, a deploy and a folder switch
+	// — and on nothing else, which is what keeps a keystroke in the editor from
+	// re-asking. Without it a redeploy would leave the pane pairing the new
+	// version's SQL and columns with the old version's edges, since the relation,
+	// the pin and the seeds are all unchanged by one.
+	let graphGeneration = $state(0)
+	$effect(() => {
+		if (graphRes.current) untrack(() => graphGeneration++)
+	})
+	const dbtColumnLineage = useDbtColumnLineage({
+		workspace: () => $workspaceStore,
+		assetPaths: () => dbtSeedPaths,
+		generation: () => graphGeneration
+	})
+	// One graph across both, so a trace crosses the dbt/ducklake boundary in
+	// either direction rather than stopping at it.
+	let columnGraph = $derived(mergeColumnGraphs(producerColumnGraph, dbtColumnLineage.graph))
+
+	// Producer-side facts for the editor's live schema-contract diagnostics:
+	// which assets are muted (`on_schema_change=ignore`) and which `_current`
+	// views map to an scd2 base table. Derived from the same resolved graph the
+	// canvas renders so the mirror suppresses exactly what the server check does.
+	let schemaContractContext = $derived(buildSchemaContractContext(graphWithDraft.runnables))
+
+	// Whether the selected ducklake asset's captured schema can *evolve* (drives
+	// the asset panel's Schema tab: version history vs. a single fixed schema).
+	// Only a whole-table `replace` producer (CREATE OR REPLACE) can change
+	// columns run-to-run; `append`/`merge`/partitioned writes INSERT into a
+	// fixed-schema table, so their schema is pinned at first materialize.
+	//
+	// Fail open: show the fixed view only when we're *sure* — every producer is a
+	// known insert-style write. A producer with no `materialize_strategy`
+	// metadata (e.g. a draft-overlay runnable, which the graph synthesizes
+	// without it) is treated as unknown → evolvable, so captured history is never
+	// hidden behind a stale "fixed" verdict.
+	let schemaCanEvolve = $derived.by(() => {
+		const sel = pe.selection
+		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return true
+		const producerPaths = new Set(selectionProducers.map((p) => p.path))
+		const producers = graphWithDraft.runnables.filter((r) => producerPaths.has(r.path))
+		const knownFixed = (r: (typeof producers)[number]) =>
+			!!r.materialize_strategy && !(r.materialize_strategy === 'replace' && !r.partition_kind)
+		return producers.length === 0 || !producers.every(knownFixed)
+	})
+
+	// Fork data-environment state of the selected ducklake asset (fork workspaces
+	// only): read off the graph node so the details pane can show the
+	// deferred-to-parent / fork-materialized banner matching the canvas chip.
+	let selectionForkMaterialization = $derived.by(() => {
+		const sel = pe.selection
+		if (!sel || sel.kind !== 'asset' || sel.asset_kind !== 'ducklake') return undefined
+		return displayGraph.assets.find((a) => a.kind === 'ducklake' && a.path === sel.path)
+			?.fork_materialization
 	})
 
 	// Downstream subscriber count for the currently-edited script. Drives
@@ -1853,7 +2443,7 @@
 	// flow. Drafts have no deployed endpoint yet, so nudge the user to save
 	// first (mirrors openMissingTriggerDrawer).
 	function openWebhookDrawer(scriptPath: string) {
-		if (drafts.has(scriptPath)) {
+		if (pe.drafts.has(scriptPath)) {
 			sendUserToast(
 				`Save the script "${scriptPath}" first — webhooks only trigger the deployed version.`,
 				true
@@ -1868,19 +2458,64 @@
 	// auto-generated run form (the script declares an `S3Object` input, so the
 	// form renders the S3 picker) lets the user upload a file and run the
 	// pipeline. Drafts open in-place too so the user can fill the body first.
+	// A data-upload click opens the node on its inputs alone; any other selection
+	// (or "Open script") goes back to the script.
+	let uploadInputsPath = $state<string | undefined>(undefined)
+	// Runs the open node with its form inputs: a draft previews its own content, a
+	// deployed script runs for real (in view mode, cascading like any legit run).
+	// `live` is the pane's buffer when it differs from what is stored (a draft, or a
+	// deployed node edited before switching to the inputs view): it is previewed.
+	async function runUploadInputs(
+		path: string,
+		args: Record<string, any>,
+		live?: { content: string; language: ScriptLang }
+	): Promise<string | undefined> {
+		const draft = mode === 'edit' ? pe.drafts.get(path) : undefined
+		const body =
+			mode === 'edit'
+				? (live ?? (draft && { content: draft.script.content, language: draft.script.language }))
+				: undefined
+		if (!body) return mode === 'edit' ? runDeployedWithArgs(path, args) : runByPathLegit(path, args)
+		if (!$workspaceStore || !body.content || !body.language) return undefined
+		activeRunnables.arm(`script:${path}`)
+		try {
+			const jobId = await JobService.runScriptPreview({
+				workspace: $workspaceStore,
+				requestBody: {
+					content: body.content,
+					language: body.language,
+					path,
+					args: { ...args, _wmill_skip_asset_dispatch: true }
+				}
+			})
+			runsPendingJobId = jobId
+			runsRefreshKey++
+			activeRunnable = { kind: 'script', path }
+			activeRunnableJobId = jobId
+			return jobId
+		} catch (e: any) {
+			sendUserToast(`Run failed: ${e?.body ?? e?.message ?? e}`, true)
+			return undefined
+		}
+	}
+	// Same as a canvas run of a deployed node in edit mode: this step only.
+	function runDeployedWithArgs(path: string, args: Record<string, any>) {
+		return runByPathLegit(path, { ...args, _wmill_skip_asset_dispatch: true })
+	}
 	function openDataUploadRun(scriptPath: string) {
+		uploadInputsPath = scriptPath
 		// Opening the run form is meaningless while the pane is hidden —
 		// unhide first, same as a plain node click.
 		panelHidden = false
 		// Same mode gate as handleCanvasSelect: view mode targets the
 		// deployed script (its run form runs the deployed version), even
 		// when unsaved edits were promoted to a draft.
-		if (mode === 'edit' && drafts.has(scriptPath)) {
-			activeDraftPath = scriptPath
-			selection = undefined
+		if (mode === 'edit' && pe.drafts.has(scriptPath)) {
+			pe.activeDraftPath = scriptPath
+			pe.selection = undefined
 		} else {
-			activeDraftPath = undefined
-			selection = { kind: 'runnable', runnable_kind: 'script', path: scriptPath }
+			pe.activeDraftPath = undefined
+			pe.selection = { kind: 'runnable', runnable_kind: 'script', path: scriptPath }
 		}
 		// Bump after a tick so the pane has reacted to the new selection/draft
 		// and begun mounting the run form before it hunts for the S3 input.
@@ -1895,7 +2530,13 @@
 		// time or silently bind to nothing. Surface that as a toast and
 		// keep the drawer closed; the user needs to save the script first
 		// (which also creates it under the new path if they renamed it).
-		if (drafts.has(scriptPath)) {
+		// Kinds with a trigger row can instead wait as a pipeline draft and
+		// deploy with the pipeline, after the script.
+		if (isDraftableTriggerKind(kind) && pe.drafts.has(scriptPath)) {
+			openTriggerDraft(kind, scriptPath)
+			return
+		}
+		if (pe.drafts.has(scriptPath)) {
 			sendUserToast(
 				`Save the script "${scriptPath}" first — triggers can only be attached to deployed scripts.`,
 				true
@@ -1910,11 +2551,40 @@
 	// can still be edited everywhere else (TriggersPanel, etc.) where the
 	// picker stays editable.
 	function deleteAttachedTrigger(kind: NativeTriggerKind, triggerPath: string) {
+		const key = triggerDraftKey(kind, triggerPath)
+		if (pe.triggerDrafts.has(key)) {
+			pe.discardTriggerDraft(key)
+			return
+		}
 		triggerEditors?.requestDelete(kind, triggerPath)
 	}
 
 	function openEditTriggerDrawer(kind: NativeTriggerKind, triggerPath: string, scriptPath: string) {
+		const draft = pe.triggerDrafts.get(triggerDraftKey(kind, triggerPath))
+		if (draft) {
+			openTriggerDraft(draft.kind, scriptPath, draft)
+			return
+		}
 		triggerEditors?.openEdit(kind, triggerPath, scriptPath)
+	}
+
+	/** The kind's editor over a new draft, or over `draft` when re-editing one. */
+	function openTriggerDraft(
+		kind: PipelineTriggerDraftKind,
+		scriptPath: string,
+		draft?: PipelineTriggerDraft
+	) {
+		const defaults = { path: defaultTriggerPath(scriptPath, kind) }
+		triggerEditors?.openTriggerDraft(kind, scriptPath, defaults, draft?.config, (cfg) => {
+			const { extra_perms: _, ...config } = cfg
+			const saved = pe.setTriggerDraft(
+				{ kind, config: { ...config, path: cfg.path, script_path: scriptPath, is_flow: false } },
+				// The editor's Path field can rename it; drafts are keyed by path.
+				draft ? triggerDraftKey(kind, draft.config.path) : undefined
+			)
+			if (!saved) sendUserToast(`Another draft trigger already uses the path ${cfg.path}`, true)
+			return saved
+		})
 	}
 
 	// Reuse the empty AssetGraphResponse so we can still render the canvas
@@ -1953,11 +2623,11 @@
 		// Keep the current mode across folder switches (view is the
 		// param-less default).
 		const modeQuery = mode !== 'view' ? `?mode=${mode}` : ''
-		const items = otherPipelineFolders.map((p) => ({
+		const items: Item[] = otherPipelineFolders.map((p) => ({
 			displayName: `f/${p.folder}`,
 			icon: Folder,
 			disabled: false,
-			action: () => goto(`${base}/pipeline/${encodeURIComponent(p.folder)}${modeQuery}`)
+			href: `/pipeline/${encodeURIComponent(p.folder)}${modeQuery}`
 		}))
 		items.push({
 			displayName: 'Choose another folder…',
@@ -1980,7 +2650,7 @@
 		const f = folder
 		if (!g || graphRes.loading || autoEditCheckedFolder === f) return
 		autoEditCheckedFolder = f
-		if (untrack(() => urlMode) != null || untrack(() => isOperator)) return
+		if (untrack(() => urlMode) != null || untrack(() => viewOnly)) return
 		if (g.runnables.length === 0 && g.assets.length === 0) {
 			setMode('edit', { replace: true })
 		}
@@ -2000,71 +2670,64 @@
 				signal
 			})
 			if (!res.ok) throw new Error(`GET /assets/graph → ${res.status}`)
-			return (await res.json()) as AssetGraphResponse
+			return hideDbtRunnables((await res.json()) as AssetGraphResponse)
 		}
 	)
 
-	// Body / inferred-assets prefetch sweep. Watches `g.runnables`; for any
-	// non-draft path we haven't fetched yet, fetches `getScriptByPath` and
-	// `inferAssets`, and stores both in their respective only-add caches.
-	// All three previously-sticky maps (`inferredWritesByPath`,
-	// `inferredReadsByPath`, `annotatedNativeKindsByPath`) are now derived
-	// from these caches × the current graph, so rename / delete cleanup
-	// happens implicitly when `g.runnables` changes — no per-mutation
-	// cache surgery needed. A generation counter cancels in-flight work on
-	// folder change so the previous folder's results never leak into the
-	// new one.
-	let prefetchingAssets = $state(false)
-	$effect(() => {
-		const ws = $workspaceStore
-		const g = graphRes.current
-		if (!ws || !g) return
-		const gen = ++bodyFetchGen
-		const targets = untrack(() =>
-			g.runnables
-				.filter((r) => r.usage_kind === 'script')
-				.map((r) => r.path)
-				.filter((p) => !drafts.has(p) && !bodiesByPath.has(p))
-		)
-		if (targets.length === 0) return
-		let i = 0
-		const POOL = 6
-		const worker = async () => {
-			while (i < targets.length && gen === bodyFetchGen) {
-				const path = targets[i++]
-				try {
-					const s = await ScriptService.getScriptByPath({ workspace: ws, path })
-					if (gen !== bodyFetchGen) return
-					const content = s.content ?? ''
-					const res = await inferAssets(s.language, content)
-					if (gen !== bodyFetchGen) return
-					const inferred = (res?.assets ?? []) as AssetWithAltAccessType[]
-					untrack(() => {
-						if (!bodiesByPath.has(path)) {
-							const nextBodies = new Map(bodiesByPath)
-							nextBodies.set(path, content)
-							bodiesByPath = nextBodies
-						}
-						if (!inferredAssetsByPath.has(path)) {
-							const nextAssets = new Map(inferredAssetsByPath)
-							nextAssets.set(path, inferred)
-							inferredAssetsByPath = nextAssets
-						}
-					})
-				} catch {
-					// Skip — that node just falls back to base-graph edges.
-				}
+	// Cron, zone and summary of the deployed schedules on the graph, for their nodes'
+	// labels. Re-read with every graph load, so an edit in the schedule drawer shows.
+	let scheduleInfo = resource(
+		[() => $workspaceStore, () => graphRes.current],
+		async ([ws, g]) => {
+			const info = new Map<string, { schedule: string; timezone: string; summary?: string }>()
+			if (!ws || !g) return info
+			const paths = new Set<string>()
+			for (const t of g.triggers) {
+				if (t.trigger_kind === 'schedule' && t.path && !t.missing) paths.add(t.path)
 			}
+			await Promise.all(
+				[...paths].map(async (path) => {
+					try {
+						const s = await ScheduleService.getSchedule({ workspace: ws, path })
+						info.set(path, {
+							schedule: s.schedule,
+							timezone: s.timezone,
+							summary: s.summary || undefined
+						})
+					} catch {
+						// Unreadable schedule: its node keeps the plain "Schedule" label.
+					}
+				})
+			)
+			return info
 		}
-		prefetchingAssets = true
-		const pool = Array.from({ length: Math.min(POOL, targets.length) }, () => worker())
-		void Promise.all(pool).then(() => {
-			if (gen === bodyFetchGen) prefetchingAssets = false
-		})
+	)
+
+	// Folder whose graph is actually rendered. `graphRes.current` is stale-
+	// while-revalidate on an in-place folder switch, so keying the canvas's
+	// one-shot initial fit on the route param would fire the new folder's fit
+	// on the old graph and leave the fresh one unfitted. `folder` is read
+	// untracked: the key must move only when a graph lands.
+	let viewportFitFolder = $state('')
+	$effect(() => {
+		if (graphRes.current) untrack(() => (viewportFitFolder = folder))
 	})
+
 
 	function pluralize(n: number, singular: string): string {
 		return `${n} ${singular}${n === 1 ? '' : 's'}`
+	}
+
+	// Human noun per asset kind for the header summary. The raw `ducklake` kind
+	// counts materialized tables/views (including `_current` history views), so
+	// "N ducklakes" mis-reads as a count of lakes — surface "table" instead. Other
+	// kinds keep their own noun; unmapped kinds fall back to the raw kind.
+	const ASSET_KIND_NOUN: Record<string, string> = {
+		ducklake: 'table',
+		datatable: 'table',
+		s3object: 'file',
+		volume: 'volume',
+		resource: 'resource'
 	}
 
 	let summary = $derived.by<string[]>(() => {
@@ -2075,9 +2738,14 @@
 		const flows = g.runnables.filter((r) => r.usage_kind === 'flow').length
 		if (scripts) parts.push(pluralize(scripts, 'script'))
 		if (flows) parts.push(pluralize(flows, 'flow'))
-		const byKind = new Map<string, number>()
-		for (const a of g.assets) byKind.set(a.kind, (byKind.get(a.kind) ?? 0) + 1)
-		for (const [kind, n] of byKind) parts.push(pluralize(n, kind))
+		// Collapse kinds that share a noun (ducklake + datatable → "table") into a
+		// single tally so the summary reads "5 tables", not "3 tables · 2 tables".
+		const byNoun = new Map<string, number>()
+		for (const a of g.assets) {
+			const noun = ASSET_KIND_NOUN[a.kind] ?? a.kind
+			byNoun.set(noun, (byNoun.get(noun) ?? 0) + 1)
+		}
+		for (const [noun, n] of byNoun) parts.push(pluralize(n, noun))
 		return parts
 	})
 </script>
@@ -2086,140 +2754,150 @@
 	<title>Pipeline · {folder} — Windmill</title>
 </svelte:head>
 
-<div class="flex flex-col h-full">
-	<div
-		class="border-b flex flex-row justify-between gap-2 px-2 py-1 items-center overflow-y-visible overflow-x-auto min-h-12 shrink-0 whitespace-nowrap"
+<PageHeaderContent
+	section={{ label: 'Pipelines', content: pipelineCrumb }}
+	actions={pipelineActions}
+	sessionSource={sessionOpen}
+	actionFolds={2}
+/>
+
+{#snippet pipelineCrumb()}
+	<a
+		href="/pipeline"
+		class="flex items-center gap-1 px-1 py-0.5 rounded text-xs text-primary hover:bg-surface-hover hover:text-emphasis transition-colors"
 	>
-		<div class="flex flex-row items-center gap-2 flex-1 min-w-0">
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				href="{base}/pipeline"
-				startIcon={{ icon: ArrowLeft }}
-				iconOnly
-				title="Back to pipelines"
-			/>
-			<NetworkIcon size={16} class="text-tertiary shrink-0" />
-			<h1 class="text-sm font-semibold">{mode === 'edit' ? 'Pipeline editor' : 'Pipeline'}</h1>
-			<span class="text-tertiary text-sm">·</span>
-			{#if otherPipelineFolders.length === 0}
-				<button
-					type="button"
-					onclick={() => (pickerModalOpen = true)}
-					class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
-					title="Switch pipeline folder"
-				>
-					<Folder size={14} class="text-tertiary shrink-0" />
-					<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
-					<ChevronDown size={12} class="text-tertiary" />
-				</button>
-			{:else}
-				<DropdownV2 size="sm" items={folderSwitcherItems}>
-					{#snippet buttonReplacement()}
-						<span
-							class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-surface hover:bg-surface-hover transition-colors"
-							title="Switch pipeline folder"
-						>
-							<Folder size={14} class="text-tertiary shrink-0" />
-							<span class="text-sm font-mono font-medium text-emphasis">f/{folder}</span>
-							<ChevronDown size={12} class="text-tertiary" />
-						</span>
-					{/snippet}
-				</DropdownV2>
-			{/if}
-			{#if summary.length > 0}
-				<span class="text-xs text-tertiary">· {summary.join(' · ')}</span>
-			{/if}
-		</div>
-		{#if !isOperator}
+		<NetworkIcon size={14} class="shrink-0 text-tertiary" />
+		Pipelines
+	</a>
+	<span class="shrink-0 text-hint/40 text-xs" aria-hidden="true">/</span>
+	{#snippet folderSegment()}
+		<span
+			class="flex items-center gap-1 px-1 py-0.5 rounded text-xs text-primary hover:bg-surface-hover hover:text-emphasis transition-colors"
+			title="Switch pipeline folder"
+		>
+			<Folder size={14} class="shrink-0 text-tertiary" />
+			<span class="truncate font-normal">{folder}</span>
+			<ChevronDown size={14} class="shrink-0 text-tertiary" />
+		</span>
+	{/snippet}
+	{#if otherPipelineFolders.length === 0}
+		<button type="button" onclick={() => (pickerModalOpen = true)}>
+			{@render folderSegment()}
+		</button>
+	{:else}
+		<DropdownV2 size="sm" items={folderSwitcherItems}>
+			{#snippet buttonReplacement()}
+				{@render folderSegment()}
+			{/snippet}
+		</DropdownV2>
+	{/if}
+	{#if summary.length > 0}
+		<span class="text-2xs text-secondary truncate">{summary.join(' · ')}</span>
+	{/if}
+	{#if mode === 'edit' && $workspaceStore}
+		<!-- Draft sync for the whole pipeline bundle, beside its name like a flow's.
+		     Distinct from "Save all", which deploys the drafts. -->
+		<AutosaveIndicator
+			workspace={$workspaceStore}
+			itemKind={PIPELINE_DRAFT_KIND}
+			path={pipelineDraftPath}
+			draftOnly
+			loadedFromDraft={pe.loadedFromDbDraft}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet pipelineActions()}
+	<!-- This page carries more actions than any other in the band; what does not fit folds into
+	     the ⋮ menu (see `viewHelpersInMenu`). -->
+	<div class="flex flex-row items-center gap-2 whitespace-nowrap">
+		{#if !viewOnly}
 			<!-- Center group: the mode toggle is the page's primary control —
 			     anchored between the two flex-1 side groups so it stays
 			     centered, with breathing room on both sides. -->
-			<div class="flex flex-row items-center gap-2 shrink-0 px-6">
-				<PipelineModeToggle {mode} draftCount={drafts.size} onModeChange={(m) => setMode(m)} />
-				{#if mode === 'view' && drafts.size > 0}
+			<div class="flex flex-row items-center gap-2 shrink-0">
+				<PipelineModeToggle {mode} draftCount={pendingCount} onModeChange={(m) => setMode(m)} />
+				{#if mode === 'view' && pendingCount > 0 && !runInMenu}
 					<!-- View variant: overlay the unsaved drafts onto the deployed
 					     graph — "what View will show once they're deployed". -->
-					<button
-						type="button"
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: Telescope }}
 						onclick={() => (includeDrafts = !includeDrafts)}
-						class={twMerge(
-							'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors',
-							includeDrafts
-								? 'bg-amber-50 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400'
-								: 'bg-surface border-gray-300 dark:border-gray-600 text-secondary hover:bg-surface-hover'
-						)}
+						btnClasses={includeDrafts
+							? '!bg-amber-50 dark:!bg-amber-900/30 !border-amber-300 dark:!border-amber-700 !text-amber-700 dark:!text-amber-400'
+							: undefined}
 						title={includeDrafts
 							? 'Showing undeployed drafts overlaid on the deployed pipeline — click to hide them'
 							: 'Overlay your undeployed drafts to see what the pipeline will look like once deployed'}
 					>
-						<Telescope size={14} />
 						{includeDrafts ? 'Showing' : 'Show'}
-						{drafts.size} draft{drafts.size === 1 ? '' : 's'}
-					</button>
+						{pendingCount} draft{pendingCount === 1 ? '' : 's'}
+					</Button>
 				{/if}
 			</div>
 		{/if}
-		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
-			{#if mode === 'edit' && saveErrors.size > 0}
-				<!-- Compact errors popover anchored next to Save all so users
-				     can see exactly which drafts failed and why without losing
-				     the editor context. Drafts that succeed disappear from
-				     the map; the ones still listed here are the unresolved
-				     failures. -->
-				<Popover placement="bottom-end" contentClasses="p-3 max-w-[480px]" usePointerDownOutside>
-					{#snippet trigger()}
-						<button
-							type="button"
-							class="flex items-center gap-1.5 px-2 py-1 rounded-md text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-xs font-medium"
-							title="View save errors"
-						>
-							<AlertTriangle size={14} />
-							<span>{saveErrors.size} failed</span>
-						</button>
-					{/snippet}
-					{#snippet content()}
-						<div class="flex flex-col gap-2">
-							<span class="text-xs font-semibold text-emphasis">Save errors</span>
-							<div class="flex flex-col gap-2 max-h-72 overflow-y-auto">
-								{#each [...saveErrors.entries()] as [path, message]}
-									<div class="flex flex-col gap-0.5 border-l-2 border-red-400 pl-2">
-										<span class="text-2xs font-mono text-emphasis">{path}</span>
-										<span class="text-2xs text-red-600 dark:text-red-400 break-words">
-											{message}
-										</span>
-									</div>
-								{/each}
-							</div>
-						</div>
-					{/snippet}
-				</Popover>
-			{/if}
-			{#if mode === 'edit' && drafts.size > 0}
-				<!-- Draft autosave status for the whole pipeline bundle. Distinct
-				     from "Save all", which DEPLOYS the drafts — this only reflects
-				     that in-flight edits are persisted to the per-user server draft. -->
-				{#if $workspaceStore}
-					<AutosaveIndicator
-						workspace={$workspaceStore}
-						itemKind="data_pipeline"
-						path={pipelineDraftPath}
-						draftOnly
-						loadedFromDraft={loadedFromDbDraft}
-					/>
+			{#if !viewOnly && allPipelineScripts.length > 0}
+				<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
+				     menu) — a compact disarm pill. -->
+				{#if recordingMode}
+					<button
+						type="button"
+						onclick={() => (recordingMode = false)}
+						disabled={!!cascadeRunningRoot}
+						class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400"
+						title={RECORDING_ARMED_HINT}
+					>
+						<Circle size={12} class="fill-red-600 text-red-600 animate-pulse" />
+						Recording
+					</button>
 				{/if}
+				<!-- Pipeline-level run: in both View and Edit, on the bar or in the ⋮ menu, so a
+				     run never requires hunting for a specific node's play button
+				     (dbt `build` / Dagster "Materialize all"). Runs every script in
+				     dependency order (roots first, cascading downstream) over the
+				     displayed graph — deployed in View, draft-overlaid in Edit. -->
+				{#if !runInMenu}
+					{#if !saveAllShown}
+						{@render sessionButton()}
+					{/if}
+					<Button
+						variant="accent-secondary"
+						unifiedSize="sm"
+						startIcon={{
+							icon: cascadeRunningRoot ? Loader2 : Play,
+							classes: cascadeRunningRoot ? 'animate-spin' : undefined
+						}}
+						onclick={runWholePipeline}
+						disabled={!!cascadeRunningRoot}
+						title={cascadeRunningRoot
+							? 'A pipeline run is already in progress'
+							: `Run all ${allPipelineScripts.length} script${
+									allPipelineScripts.length === 1 ? '' : 's'
+								} in dependency order (roots first, cascading downstream)`}
+					>
+						{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
+					</Button>
+				{/if}
+			{/if}
+			{#if mode === 'edit' && saveErrors.size > 0}
+				<PipelineDeployErrors errors={saveErrors} bind:open={saveErrorsOpen} />
+			{/if}
+			{#if saveAllShown}
+				{@render sessionButton()}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
 					startIcon={{ icon: savingAll ? Loader2 : Save }}
-					onclick={saveAllDrafts}
+					onclick={requestSaveAll}
 					disabled={savingAll}
-					title={savingAll ? 'Saving drafts…' : `Deploy all ${drafts.size} drafts`}
+					title={savingAll ? 'Saving drafts…' : `Deploy all ${pendingCount} drafts`}
 				>
-					{savingAll ? 'Saving…' : `Save all (${drafts.size})`}
+					{savingAll ? 'Saving…' : `Save all (${pendingCount})`}
 				</Button>
 			{/if}
-			{#if mode === 'view'}
+			{#if mode === 'view' && !viewHelpersInMenu}
 				<Button
 					variant={activityShowing ? 'accent-secondary' : 'subtle'}
 					unifiedSize="sm"
@@ -2232,18 +2910,30 @@
 					Activity
 				</Button>
 			{/if}
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				startIcon={{ icon: RefreshCw }}
-				onclick={() => graphRes.refetch()}
-				disabled={graphRes.loading}
-				iconOnly
-				title="Refresh"
-			/>
-		</div>
+			{#if !viewHelpersInMenu}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: RefreshCw }}
+					onclick={() => graphRes.refetch()}
+					disabled={graphRes.loading}
+					iconOnly
+					title="Refresh"
+				/>
+			{/if}
+			<DropdownV2 size="sm" items={overflowMenuItems} />
+			{#if !saveAllShown && !runPipelineShown}
+				{@render sessionButton()}
+			{/if}
 	</div>
+{/snippet}
 
+{#snippet sessionButton()}
+	<!-- Right before the page's main action: Save all while there are drafts, else Run pipeline. -->
+	<OpenInSessionButton source={sessionOpen} />
+{/snippet}
+
+<div class="flex flex-col h-full">
 	<div class="flex-1 min-h-0">
 		{#if graphRes.loading && !graphRes.current}
 			<div class="h-full flex items-center justify-center gap-2 text-tertiary">
@@ -2255,216 +2945,210 @@
 				Failed to load pipeline: {graphRes.error.message}
 			</div>
 		{:else}
-			<Splitpanes class="!h-full">
-				<Pane bind:size={leftPaneSize}>
-					<div class="relative h-full">
-						<AssetGraphCanvas
-							graph={displayGraph}
-							selection={effectiveSelection}
-							hoveredPaths={activityHoverPaths}
-							selectedRunPaths={activitySelectPaths}
-							{activeRunnable}
-							activeRunnableIds={activeRunnables.ids}
-							runStates={mergedRunStates}
-							{pathPrefix}
-							defaultPathSuffix={DEFAULT_PATH_SUFFIX}
-							onCreateMissingTrigger={mode === 'edit' ? openMissingTriggerDrawer : undefined}
-							onEditTrigger={mode === 'edit' ? openEditTriggerDrawer : undefined}
-							onDeleteTrigger={mode === 'edit' ? deleteAttachedTrigger : undefined}
-							onOpenWebhook={openWebhookDrawer}
-							onOpenDataUpload={openDataUploadRun}
-							onselect={handleCanvasSelect}
-							onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
-							onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
-							onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
-							onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
-							{panToNodeId}
-						/>
-						{#if mode === 'edit'}
-							<!-- View mode surfaces activity as a full right pane
-							     instead — the overlay would double up. -->
-							<PipelineEventLog events={activeRunnables.events} />
-						{/if}
-						{#if prefetchingAssets}
-							<div
-								class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 text-2xs text-secondary shadow-sm"
-								title="Inferring assets for every script in this folder so the graph is complete"
-							>
-								<Loader2 size={11} class="animate-spin" />
-								Parsing assets…
+			<PipelineGraphEditor
+				editor={pe}
+				{folder}
+				viewportFitKey={viewportFitFolder}
+				persistDrafts={true}
+				{displayGraph}
+				{mode}
+				workspace={$workspaceStore}
+				{pathPrefix}
+				defaultPathSuffix={DEFAULT_PATH_SUFFIX}
+				{panelHidden}
+				onTogglePanelHidden={() => (panelHidden = !panelHidden)}
+				prefetchingAssets={assetPrefetch.prefetching}
+				hoveredPaths={activityHoverPaths}
+				selectedRunPaths={activitySelectPaths}
+				{activeRunnable}
+				activeRunnableIds={activeRunnables.ids}
+				runStates={mergedRunStates}
+				eventLogEvents={activeRunnables.events}
+				{runsRefreshKey}
+				{runsPendingJobId}
+				{boundPick}
+				validStartPaths={viewOnly ? undefined : validStartPaths}
+				onStartBoundedRun={viewOnly ? undefined : startBoundedRun}
+				onPickEnd={pickBoundEnd}
+				{panToNodeId}
+				onCreateMissingTrigger={mode === 'edit' ? openMissingTriggerDrawer : undefined}
+				onEditTrigger={mode === 'edit' ? openEditTriggerDrawer : undefined}
+				onDeleteTrigger={mode === 'edit' ? deleteAttachedTrigger : undefined}
+				onOpenWebhook={openWebhookDrawer}
+				onOpenDataUpload={openDataUploadRun}
+				readyDataUploadPaths={dataUploads.readyPaths}
+				runFormInitialArgs={openScriptPath ? dataUploads.argsFor(openScriptPath) : undefined}
+				onRunFormArgsChange={dataUploads.stage}
+				inputsOnly={uploadInputsPath !== undefined &&
+					(openScriptPath === undefined || uploadInputsPath === openScriptPath)}
+				onRunInputs={runUploadInputs}
+				onShowScript={() => (uploadInputsPath = undefined)}
+				onSelect={handleCanvasSelect}
+				onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
+				onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
+				onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
+				onDeleteAssetUpstream={viewOnly ? undefined : (t) => (assetDeleteTarget = t)}
+				{nodeFixes}
+				assetDeleteVerb={canHardDeleteScripts ? 'Delete' : 'Archive'}
+				onEdgeAction={viewOnly
+					? undefined
+					: ({
+							action,
+							targets
+						}: {
+							action: 'listen' | 'stop'
+							targets: Array<{
+								script: string
+								asset: { kind: AssetKind; path: string }
+								reads: boolean
+							}>
+						}) => {
+							const byScript = new Map(targets.map((t) => [t.script, t] as const))
+							editScripts(
+								[...byScript.keys()],
+								action === 'listen' ? 'Now reruns on each write' : 'Stopped rerunning on writes',
+								(s) => (c) => {
+									const t = byScript.get(s)!
+									return action === 'listen'
+										? listenToAsset(c, t.asset, t.reads)
+										: stopListeningToAsset(c, t.asset, t.reads)
+								}
+							)
+						}}
+				onAddAssetTrigger={viewOnly || mode !== 'edit'
+					? undefined
+					: ({
+							scripts,
+							asset
+						}: {
+							scripts: Array<{ script: string; reads: boolean }>
+							asset: { kind: AssetKind; path: string }
+						}) => {
+							const reads = new Map(scripts.map((s) => [s.script, s.reads] as const))
+							editScripts([...reads.keys()], 'Now reruns on each write', (s) => (c) =>
+								listenToAsset(c, asset, reads.get(s) ?? false)
+							)
+						}}
+				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
+				onRequestEdit={viewOnly ? undefined : () => setMode('edit')}
+				canRunByPath={openScriptHasDataUpload}
+				onRunByPath={runByPathLegit}
+				{selectionProducers}
+				{selectionDbt}
+				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
+				selectionColumnLoading={dbtColumnLineage.loading}
+				selectionColumnTruncated={dbtColumnLineage.truncated}
+				selectionColumnFailed={dbtColumnLineage.failed}
+				{schemaCanEvolve}
+				{selectionForkMaterialization}
+				{schemaContractContext}
+				downstreamSubscribers={editedScriptDownstreamCount}
+				onStartBoundedRunForOpen={startBoundedRun}
+				canBoundedRunOpenScript={!!openScriptPath &&
+					validStartPaths.has(openScriptPath) &&
+					lineageDownstreamPaths.has(openScriptPath)}
+				onRunCompleted={() => {
+					activeRunnable = undefined
+					activeRunnableJobId = undefined
+				}}
+				onTestStateChange={(running) => {
+					const openPath = openScriptPath
+					if (running && openPath) {
+						activeRunnable = { kind: 'script', path: openPath }
+						activeRunnables.arm(`script:${openPath}`)
+						activeRunnableJobId = undefined
+					} else if (!running && activeRunnable?.path === openPath) {
+						activeRunnable = undefined
+						activeRunnableJobId = undefined
+					}
+				}}
+				{requestRemoveSignal}
+				{requestRunSignal}
+				{requestRunCascadeSignal}
+				focusUploadSignal={focusDataUploadSignal}
+				onDraftPathChange={renameDraft}
+				onClose={() => {
+					pe.selection = undefined
+					pe.activeDraftPath = undefined
+					pe.liveAnnotations = EMPTY_LIVE_ANNOTATIONS
+				}}
+				onDiscard={() => {
+					if (pe.activeDraftPath) discardDraft(pe.activeDraftPath)
+				}}
+				onDraftSaved={async (savedPath) => {
+					const predicted = predictCascadeFacts([savedPath])
+					const nextDrafts = new Map(pe.drafts)
+					nextDrafts.delete(savedPath)
+					pe.drafts = nextDrafts
+					if (pe.activeDraftPath === savedPath) {
+						pe.selection = { kind: 'runnable', runnable_kind: 'script', path: savedPath }
+						pe.activeDraftPath = undefined
+					}
+					clearSaveError(savedPath)
+					await graphRes.refetch()
+					reportDeployDrift(predicted)
+				}}
+				onPersistedSaved={async (savedPath) => {
+					const predicted = predictCascadeFacts([savedPath])
+					forgetScriptCache(savedPath)
+					await graphRes.refetch()
+					reportDeployDrift(predicted)
+				}}
+				onScriptRenamed={async (oldPath, newPath) => {
+					if (pe.selection?.kind === 'runnable' && pe.selection.path === oldPath) {
+						pe.selection = { ...pe.selection, path: newPath }
+					}
+					forgetScriptCache(oldPath, newPath)
+					await graphRes.refetch()
+				}}
+				onScriptRemoved={async (removedPath) => {
+					forgetPath(removedPath)
+					await graphRes.refetch()
+				}}
+			>
+				{#snippet boundBar()}
+					{#if boundPick}
+						<div
+							class="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-3 py-2 rounded-lg bg-surface shadow-lg border border-gray-200 dark:border-gray-700"
+						>
+							<Target size={15} class="text-blue-500 shrink-0" />
+							<div class="flex flex-col leading-tight">
+								<span class="text-xs font-semibold text-emphasis">
+									{boundPickEnds.size === 0
+										? `Run + all downstream · ${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} (click node(s) to bound)`
+										: `${boundScripts.length} script${boundScripts.length === 1 ? '' : 's'} up to ${boundPickEnds.size} end${boundPickEnds.size === 1 ? '' : 's'}`}
+								</span>
+								<span class="text-2xs text-tertiary">
+									from {boundPickStart ? shortPath(boundPickStart) : ''}
+								</span>
 							</div>
-						{/if}
-						{#if mode !== 'edit' || selection != undefined || activeDraftPath != undefined}
-							<!-- Floating panel toggle, mirrors the app builder's
-							     hide-bar pattern. Anchored to the canvas (not the
-							     toolbar) so it stays adjacent to the splitter
-							     handle. z-50 + bg-surface keep it visible above
-							     the SvelteFlow internals (panels, edges, controls
-							     all render at z>10) and against the canvas
-							     background — the bare HideButton uses
-							     bg-transparent which disappears on light themes. -->
-							<div
-								class="absolute top-2 right-2 z-50 rounded-md bg-surface shadow-sm border border-gray-200 dark:border-gray-700"
+							<Button variant="subtle" unifiedSize="sm" onclick={cancelBoundedRun}>Cancel</Button>
+							<Button
+								variant="accent"
+								unifiedSize="sm"
+								startIcon={{ icon: Play }}
+								disabled={boundScripts.length === 0}
+								onclick={confirmBoundedRun}
 							>
-								<HideButton
-									hidden={panelHidden}
-									direction="right"
-									on:click={() => (panelHidden = !panelHidden)}
-								/>
-							</div>
-						{/if}
-					</div></Pane
-				>
-				{#if detailsPaneOpen && $workspaceStore}
-					<Pane bind:size={rightPaneSize} minSize={25}>
-						{#if mode !== 'edit' && selection == undefined && activeDraftPath == undefined}
-							<!-- Idle view mode: the pane is the pipeline's activity
-							     feed (preloaded history + live runs). Selecting a node
-							     swaps in the details pane below; closing it lands back
-							     here. -->
-							<PipelineActivityPanel
-								events={activityEvents}
-								edges={pipelineHistory.edges}
-								loading={pipelineHistory.loading}
-								truncated={pipelineHistory.truncated}
-								error={pipelineHistory.error}
-								days={activityDays}
-								onDaysChange={setActivityDays}
-								onHoverRun={(p) => (activityHoverPaths = p ?? [])}
-								onSelectRun={(p) => (activitySelectPaths = p ?? [])}
-							/>
-						{:else}
-							<AssetGraphDetailsPane
-								{mode}
-								onRequestEdit={isOperator ? undefined : () => setMode('edit')}
-								canRunByPath={openScriptHasDataUpload}
-								onRunByPath={runByPathLegit}
-								selection={activeDraft ? undefined : selection}
-								selectionProducers={activeDraft ? [] : selectionProducers}
-								{runsRefreshKey}
-								{runsPendingJobId}
-								{activeRunnable}
-								downstreamSubscribers={editedScriptDownstreamCount}
-								onRunCompleted={() => {
-									activeRunnable = undefined
-									activeRunnableJobId = undefined
-								}}
-								onTestStateChange={(running) => {
-									// Bridge: ScriptEditor's Test button triggers the
-									// same canvas-level "is running" hint as the
-									// per-node Run button. The currently-edited script
-									// is whichever path is open in the pane (active
-									// draft, or the persisted-script selection).
-									const openPath = openScriptPath
-									if (running && openPath) {
-										activeRunnable = { kind: 'script', path: openPath }
-										// Mark the tested runnable as launched-from-here so the
-										// folder poll's catch-up pulse won't re-flash its edge a
-										// poll-interval after a fast job already finished (the
-										// edge is animated zero-latency by `activeRunnable`, and
-										// the test loader clears that the instant it completes).
-										// Also upgrades to the fast poll so the badge lands sooner.
-										activeRunnables.arm(`script:${openPath}`)
-										// Editor Test path clears via its own callbacks, not
-										// the job-id effect — drop any stale tracked id so a
-										// prior canvas run's completion can't clear this hint.
-										activeRunnableJobId = undefined
-									} else if (!running && activeRunnable?.path === openPath) {
-										activeRunnable = undefined
-										activeRunnableJobId = undefined
-									}
-								}}
-								{requestRemoveSignal}
-								{requestRunSignal}
-								{requestRunCascadeSignal}
-								focusUploadSignal={focusDataUploadSignal}
-								draftScript={activeDraft?.script}
-								{pathPrefix}
-								onDraftPathChange={renameDraft}
-								workspace={$workspaceStore}
-								onAnnotationsChange={handleAnnotationsChange}
-								onAssetsChange={handleAssetsChange}
-								onContentChange={handleContentChange}
-								onDraftPersist={handleDraftPersist}
-								onclose={() => {
-									// Close dismisses the pane but preserves drafts so
-									// the user can come back to them. Discarding is
-									// via the explicit "Discard" button in the pane.
-									selection = undefined
-									activeDraftPath = undefined
-									liveAnnotations = EMPTY_LIVE_ANNOTATIONS
-								}}
-								onHide={() => (panelHidden = true)}
-								onDiscard={() => {
-									if (activeDraftPath) discardDraft(activeDraftPath)
-								}}
-								onDraftSaved={async (savedPath) => {
-									// Snapshot the preview's promise while the draft
-									// overlay still exists (dropped from `drafts` below).
-									const predicted = predictCascadeFacts([savedPath])
-									// Drop the now-deployed draft and hand focus to its
-									// persisted runnable so the pane stays open on the
-									// same script. `discardDraft` would clear
-									// activeDraftPath without setting selection — the
-									// canvas would deselect and the view reset on the
-									// next refetch.
-									const nextDrafts = new Map(drafts)
-									nextDrafts.delete(savedPath)
-									drafts = nextDrafts
-									if (activeDraftPath === savedPath) {
-										selection = {
-											kind: 'runnable',
-											runnable_kind: 'script',
-											path: savedPath
-										}
-										activeDraftPath = undefined
-									}
-									clearSaveError(savedPath)
-									await graphRes.refetch()
-									reportDeployDrift(predicted)
-								}}
-								onPersistedSaved={async (savedPath) => {
-									// Snapshot before the refetch replaces the base graph
-									// — the live editor overlay is the prediction here.
-									const predicted = predictCascadeFacts([savedPath])
-									// Refresh the asset graph so the rows the deploy
-									// just inserted (from the body-asset write list we
-									// pass at save time) make it into base.edges. The
-									// in-memory `inferredWritesByPath` overlay
-									// dedupes against base, so the edge stays put
-									// instead of flickering when the ScriptEditor
-									// remounts on the new hash.
-									await graphRes.refetch()
-									reportDeployDrift(predicted)
-								}}
-								onScriptRenamed={async (oldPath, newPath) => {
-									// Repoint the selection at the new path before the
-									// graph refetches so the pane stays focused on the
-									// same script. Order matters: update selection
-									// first, then refetch — otherwise the resource
-									// driving the pane would briefly resolve to nothing.
-									if (selection?.kind === 'runnable' && selection.path === oldPath) {
-										selection = { ...selection, path: newPath }
-									}
-									await graphRes.refetch()
-								}}
-								onScriptRemoved={async (removedPath) => {
-									// Drop every path-keyed overlay / cache entry
-									// pointing at the now-archived runnable so
-									// resolveGraph doesn't keep emitting lineage
-									// edges or missing-trigger placeholders against
-									// a script that no longer exists. Without this
-									// the inferred writes / annotation maps would
-									// keep dragging phantom nodes onto the canvas
-									// until the next folder change.
-									forgetPath(removedPath)
-									await graphRes.refetch()
-								}}
-							/>
-						{/if}
-					</Pane>
-				{/if}
-			</Splitpanes>
+								{boundPickEnds.size === 0 ? 'Run + downstream' : 'Run selection'}
+							</Button>
+						</div>
+					{/if}
+				{/snippet}
+				{#snippet idlePane()}
+					<PipelineActivityPanel
+						events={activityEvents}
+						edges={pipelineHistory.edges}
+						loading={pipelineHistory.loading}
+						truncated={pipelineHistory.truncated}
+						error={pipelineHistory.error}
+						days={activityDays}
+						onDaysChange={setActivityDays}
+						onHoverRun={(p) => (activityHoverPaths = p ?? [])}
+						onSelectRun={(p) => (activitySelectPaths = p ?? [])}
+					/>
+				{/snippet}
+			</PipelineGraphEditor>
 		{/if}
 	</div>
 </div>
@@ -2474,6 +3158,102 @@
 <!-- Native trigger drawer wiring: create/edit/delete drawers (edit-mode
      only) + the always-mounted webhook drawer. Driven imperatively from the
      page via `triggerEditors`. -->
+<ConfirmationModal
+	open={multiEdit != undefined}
+	title={`Edit ${multiEdit?.scripts.length ?? 0} scripts?`}
+	confirmationText="Edit scripts"
+	type="info"
+	onConfirmed={() => {
+		const m = multiEdit
+		multiEdit = undefined
+		void m?.run()
+	}}
+	onCanceled={() => (multiEdit = undefined)}
+>
+	{#if multiEdit}
+		<div class="flex flex-col gap-2 text-xs text-secondary">
+			<p>This will edit the annotation header of the following scripts. Each is saved as a draft.</p>
+			<ul class="flex flex-col gap-1">
+				{#each multiEdit.scripts as s (s)}
+					<li class="text-emphasis truncate">{s}</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={assetDeleteTarget != undefined}
+	loading={assetDeleteLoading}
+	title={assetDeleteTarget?.script && assetDeleteTarget.trigger
+		? 'Delete 2 items?'
+		: assetDeleteTarget?.script
+			? `${canHardDeleteScripts ? 'Delete' : 'Archive'} script?`
+			: 'Delete trigger?'}
+	confirmationText={assetDeleteTarget?.script && !canHardDeleteScripts
+		? assetDeleteTarget.trigger
+			? 'Archive and delete'
+			: 'Archive'
+		: 'Delete'}
+	onConfirmed={confirmAssetUpstreamDelete}
+	onCanceled={() => {
+		if (!assetDeleteLoading) assetDeleteTarget = undefined
+	}}
+>
+	{#if assetDeleteTarget}
+		{@const t = assetDeleteTarget}
+		<div class="flex flex-col gap-2 text-xs text-secondary">
+			<p>
+				{#if t.script}
+					{canHardDeleteScripts
+						? 'The script is deleted, with every version'
+						: 'The script is archived'}{t.trigger ? ', and its trigger deleted' : ''}. The tables
+					it wrote stay.
+				{:else}
+					The trigger is deleted: its script stays, and no longer runs this way.
+				{/if}
+			</p>
+			<ul class="flex flex-col gap-1">
+				{#if t.script}
+					<li class="flex flex-col">
+						<span class="text-emphasis truncate">{t.script.path}</span>
+						<span class="text-2xs text-hint">Script{t.script.unsaved ? ' · draft' : ''}</span>
+					</li>
+				{/if}
+				{#if t.trigger}
+					<li class="flex flex-col">
+						<span class="text-emphasis truncate">{t.trigger.path}</span>
+						<span class="text-2xs text-hint"
+							>{t.trigger.kind} trigger{t.trigger.draft ? ' · draft' : ''}</span
+						>
+					</li>
+				{/if}
+			</ul>
+		</div>
+	{/if}
+</ConfirmationModal>
+
+<PipelineDeployTriggersModal
+	open={confirmTriggerDeployOpen}
+	triggerDrafts={pe.triggerDrafts}
+	onConfirmed={() => {
+		confirmTriggerDeployOpen = false
+		if (leaveAfterTriggerConfirm) {
+			leaveAfterTriggerConfirm = false
+			void saveAllAndLeave()
+		} else {
+			void saveAllDrafts()
+		}
+	}}
+	onCanceled={() => {
+		confirmTriggerDeployOpen = false
+		if (leaveAfterTriggerConfirm) {
+			leaveAfterTriggerConfirm = false
+			pendingNavigationUrl = undefined
+		}
+	}}
+/>
+
 <PipelineTriggerEditors
 	bind:this={triggerEditors}
 	mountTriggerEditors={mode === 'edit'}
@@ -2505,18 +3285,18 @@
 						</div>
 						<div class="ml-4 flex-1">
 							<h3 class="text-lg font-medium text-primary">
-								{drafts.size === 1 ? 'Unsaved draft' : `${drafts.size} unsaved drafts`}
+								{pendingCount === 1 ? 'Unsaved draft' : `${pendingCount} unsaved drafts`}
 							</h3>
 							<div class="mt-2 text-sm text-secondary flex flex-col gap-2">
 								<p>
-									You have {drafts.size === 1
-										? 'a draft pipeline script'
-										: `${drafts.size} draft pipeline scripts`} that {drafts.size === 1
+									You have {pendingCount === 1
+										? 'a pipeline draft'
+										: `${pendingCount} pipeline drafts`} that {pendingCount === 1
 										? 'has'
 										: 'have'} not been deployed yet. What would you like to do?
 								</p>
 								<ul class="text-2xs font-mono pl-4 max-h-40 overflow-y-auto flex flex-col gap-0.5">
-									{#each [...drafts.keys()] as p}
+									{#each [...pe.drafts.keys(), ...[...pe.triggerDrafts.values()].map((d) => d.config.path)] as p}
 										<li class="truncate text-tertiary">{p}</li>
 									{/each}
 								</ul>
@@ -2531,7 +3311,9 @@
 							unifiedSize="sm"
 							startIcon={{ icon: leaveSaving ? Loader2 : Save }}
 						>
-							<span class="min-w-20">{leaveSaving ? 'Saving…' : `Save all (${drafts.size})`}</span>
+							<span class="min-w-20"
+								>{leaveSaving ? 'Saving…' : `Save all (${pendingCount})`}</span
+							>
 						</Button>
 						<Button
 							disabled={leaveSaving}
@@ -2557,3 +3339,5 @@
 		</div>
 	</div>
 {/if}
+
+<MacroExplorerDrawer bind:this={macroDrawer} onOpenLib={openMacroLib} />

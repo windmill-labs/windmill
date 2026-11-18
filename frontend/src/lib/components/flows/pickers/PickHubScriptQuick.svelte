@@ -1,9 +1,6 @@
 <script module lang="ts">
-	let listHubIntegrationsCached = createCache(
-		({ kind }: { kind: HubScriptKind & string; refreshCount?: number }) =>
-			IntegrationService.listHubIntegrations({ kind }),
-		{ initial: { kind: 'script', refreshCount: 0 }, invalidateMs: 1000 * 60 }
-	)
+	// Warm the list the step picker opens on before it first mounts.
+	listHubIntegrationsShared('script').catch(() => {})
 
 	let listHubScriptsCached = createCache(
 		async ({
@@ -39,8 +36,9 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
 	import { classNames, createCache } from '$lib/utils'
-	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
-	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
+	import { appIconMap } from '$lib/components/icons/appIcon.svelte'
+	import { listHubIntegrationsShared } from '$lib/components/displayNameLoaders'
+	import { ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle, ExternalLink } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
@@ -49,6 +47,15 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Alert } from '$lib/components/common'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { logHubScriptPick } from '$lib/utils/featureUsage'
+	import {
+		alphabetical,
+		byPopularity,
+		localCountsByIntegration
+	} from '$lib/components/pickerPopularity'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
@@ -65,6 +72,8 @@
 		items?: {
 			path: string
 			summary: string
+			/** The hub's own wording, before `summary` is rewritten as the display label. */
+			hubSummary: string
 			id: number
 			version_id: number
 			ask_id: number
@@ -74,6 +83,7 @@
 		displayPath?: boolean
 		apps?: string[]
 		refreshCount?: number
+		onHover?: (index: number) => void
 	}
 
 	let {
@@ -85,13 +95,15 @@
 		items = $bindable([]),
 		displayPath = false,
 		apps = $bindable([]),
-		refreshCount = 0
+		refreshCount = 0,
+		onHover = undefined
 	}: Props = $props()
 
 	let allApps: string[] = $state([])
+	let popularity: (a: string, b: string) => number = $state(alphabetical)
 	$effect(() => {
 		if (filter.length > 0) {
-			apps = Array.from(new Set(items?.map((x) => x.app) ?? [])).sort()
+			apps = Array.from(new Set(items?.map((x) => x.app) ?? [])).sort(popularity)
 		} else {
 			apps = allApps
 		}
@@ -101,9 +113,14 @@
 		if ($disableHubStore) return
 		try {
 			hubNotAvailable = false
-			allApps = (await listHubIntegrationsCached({ kind: filterKind, refreshCount })).map(
-				(x) => x.name
-			)
+			// Independent reads, so they share one round trip before first paint.
+			const [integrations, local] = await Promise.all([
+				listHubIntegrationsShared(filterKind, refreshCount),
+				$operatingWorkspace ? localCountsByIntegration($operatingWorkspace) : {}
+			])
+			const hubPicks = Object.fromEntries(integrations.map((x) => [x.name, x.picks ?? 0]))
+			popularity = byPopularity(hubPicks, local)
+			allApps = integrations.map((x) => x.name).sort(popularity)
 		} catch (err) {
 			console.error('Failed to fetch hub integrations:', err)
 			allApps = []
@@ -138,6 +155,9 @@
 				}) => ({
 					...x,
 					path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+					// `summary` below becomes the display label; keep the hub's own wording,
+					// which is what telemetry keys off.
+					hubSummary: x.summary,
 					summary: `${x.summary} (${x.app})`
 				})
 			)
@@ -148,12 +168,14 @@
 
 	async function handlePickScript(item: (typeof items)[number]) {
 		if (item.path.startsWith('hub/')) {
-			try {
-				await ScriptService.pickHubScriptByPath({ path: item.path })
-			} catch (error) {
+			logHubScriptPick(
+				{ version_id: item.version_id, app: item.app, summary: item.hubSummary },
+				'picker'
+			)
+			// Not awaited: a hub that cannot be reached would hold the pick until the request times out.
+			ScriptService.pickHubScriptByPath({ path: item.path }).catch((error) =>
 				console.error('Failed to track hub script pick:', error)
-				// Don't block the flow if tracking fails
-			}
+			)
 		}
 
 		// Dispatch the event to continue with the selection
@@ -199,7 +221,14 @@
 	<ul class="gap-1 flex flex-col">
 		{#each items as item, index (item.path)}
 			<li class="w-full">
-				<Popover class="w-full" placement="right" forceOpen={index === selected}>
+				<!-- Only the selected row may show a tooltip: the Popover opens on its own hover too, and a
+				     row scrolled under a stationary cursor would otherwise open a second one. -->
+				<Popover
+					class="w-full"
+					placement="right"
+					forceOpen={index === selected}
+					disablePopup={index !== selected}
+				>
 					{#snippet text()}
 						<div class="flex flex-col">
 							<div class="text-left text-xs font-normal leading-tight py-0"
@@ -211,15 +240,19 @@
 						</div>
 					{/snippet}
 					<Button
-						selected={selected === index}
 						variant="subtle"
 						unifiedSize="sm"
-						btnClasses="justify-start"
+						btnClasses="justify-start h-auto min-h-7 py-1 {selected === index
+							? 'bg-surface-hover'
+							: onHover
+								? 'hover:bg-transparent'
+								: ''}"
+						onmousemove={() => onHover?.(index)}
 						onClick={() => handlePickScript(item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
-							{#if item['app'] in APP_TO_ICON_COMPONENT}
-								{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
+							{#if appIconMap()?.[item['app']]}
+								{@const SvelteComponent = appIconMap()![item['app']]}
 								<SvelteComponent height={13} width={13} />
 							{:else}
 								<div class="text-gray-400 flex flex-row items-center justify-center">
@@ -229,11 +262,11 @@
 						</div>
 
 						<div class="flex flex-col grow min-w-0">
-							<div class="grow truncate text-left font-normal leading-tight py-0.5"
+							<div class="min-w-0 truncate text-left font-normal leading-tight"
 								>{item.summary ?? ''}</div
 							>
 							{#if displayPath && item.path}
-								<div class="grow truncate text-left text-2xs font-thin">
+								<div class="min-w-0 truncate text-left text-2xs font-thin leading-tight">
 									{item.path}
 								</div>
 							{/if}

@@ -21,6 +21,7 @@ export type DeployKind =
   | "resource_type"
   | "folder"
   | "schedule"
+  | "datatable_migration"
   | "http_trigger"
   | "websocket_trigger"
   | "kafka_trigger"
@@ -161,6 +162,24 @@ export interface DeployProvider {
     requestBody: any;
   }): Promise<any>;
   deleteFolder(p: { workspace: string; name: string }): Promise<any>;
+  // Datatable migrations. In the diff, an item's `path` is
+  // `<datatable>/<timestamp>_<name>` (see `parseDatatableMigrationDeployPath`).
+  listDatatableMigrations(p: { workspace: string }): Promise<any>;
+  upsertDatatableMigration(p: {
+    workspace: string;
+    datatableName: string;
+    requestBody: {
+      timestamp: number;
+      name: string;
+      code_up: string;
+      code_down?: string;
+    };
+  }): Promise<any>;
+  deleteDatatableMigration(p: {
+    workspace: string;
+    datatableName: string;
+    timestamp: number;
+  }): Promise<any>;
   // Triggers — per-kind dispatch is delegated to the implementor so the shared
   // module doesn't need to know about each of the 9 trigger services.
   existsTriggerByKind(
@@ -299,6 +318,40 @@ function toError(e: unknown): string {
   return err.body || err.message || String(e);
 }
 
+// A datatable-migration diff item's path is `<datatable>/<timestamp>_<name>`
+// (mirrors the backend, e.g. `mydt/20260101000001_create_users`).
+export function parseDatatableMigrationDeployPath(path: string): {
+  datatable: string;
+  timestamp: number;
+  name: string;
+} {
+  const slash = path.indexOf("/");
+  const underscore = slash >= 0 ? path.indexOf("_", slash + 1) : -1;
+  if (slash < 0 || underscore < 0) {
+    throw new Error(`Invalid datatable migration path: ${path}`);
+  }
+  const datatable = path.slice(0, slash);
+  const timestamp = Number(path.slice(slash + 1, underscore));
+  const name = path.slice(underscore + 1);
+  if (!datatable || !Number.isFinite(timestamp) || !name) {
+    throw new Error(`Invalid datatable migration path: ${path}`);
+  }
+  return { datatable, timestamp, name };
+}
+
+// The backend rejects `upsertDatatableMigration` when the target data table
+// hasn't opted in to migrations. Turn that opaque 400 into an explicit,
+// deploy-context message (falls back to the original error otherwise).
+function asMigrationsDisabledError(e: unknown, datatable: string): unknown {
+  const msg = (e as { body?: string; message?: string })?.body ?? ''
+  if (typeof msg === "string" && /migrations are not enabled/i.test(msg)) {
+    return new Error(
+      `Data table '${datatable}' has not opted in to migrations on the target workspace; enable migrations for it there before deploying its migrations.`
+    );
+  }
+  return e;
+}
+
 // ---------------------------------------------------------------------------
 // checkItemExists
 // ---------------------------------------------------------------------------
@@ -325,10 +378,42 @@ export async function checkItemExists(
     return provider.existsFolder({ workspace, name: folderName(path) });
   } else if (kind === "schedule") {
     return provider.existsSchedule({ workspace, path });
+  } else if (kind === "datatable_migration") {
+    const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+    const migrations = await provider.listDatatableMigrations({ workspace });
+    return (migrations as { datatable: string; timestamp: number }[]).some(
+      (m) => m.datatable === datatable && m.timestamp === timestamp
+    );
   } else if (isTriggerKind(kind)) {
     return provider.existsTriggerByKind(kind, { workspace, path });
   }
   throw new Error(`Unknown kind: ${kind}`);
+}
+
+/**
+ * Fetch one part of a raw app's compiled bundle.
+ *
+ * A bundle with no styles may have no `css` blob stored at all, which older
+ * backends serve as a 404. Absent means empty, not broken — letting that reject
+ * makes such an app permanently un-deployable. Only `.css` and only a 404 are
+ * forgiven: swallowing auth/network failures would silently deploy the app with
+ * its styles stripped, and a missing `.js` is a genuinely broken bundle.
+ */
+export async function getRawAppBundlePart(
+  provider: DeployProvider,
+  secret: string,
+  ext: "js" | "css",
+  workspace: string
+): Promise<any> {
+  try {
+    return await provider.getRawAppData({
+      secretWithExtension: `${secret}.${ext}`,
+      workspace,
+    });
+  } catch (e: any) {
+    if (ext === "css" && e?.status === 404) return "";
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -373,8 +458,14 @@ export async function deployItem(
           path,
           requestBody: {
             ...flow,
+            // Sent even when unset: the backend keeps a restriction an omitted field leaves out.
+            job_token_scopes: flow.job_token_scopes ?? null,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
+            // Usernames are per-workspace, so the source's principal names nobody in
+            // the target (or names a different person). Clearing it lets the backend
+            // derive the target's own principal from the email above.
+            on_behalf_of: undefined,
           },
         });
       } else {
@@ -382,8 +473,14 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             ...flow,
+            // Sent even when unset: the backend keeps a restriction an omitted field leaves out.
+            job_token_scopes: flow.job_token_scopes ?? null,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
+            // Usernames are per-workspace, so the source's principal names nobody in
+            // the target (or names a different person). Clearing it lets the backend
+            // derive the target's own principal from the email above.
+            on_behalf_of: undefined,
           },
         });
       }
@@ -405,30 +502,50 @@ export async function deployItem(
         requestBody: {
           ...script,
           lock: script.lock,
+          job_token_scopes: script.job_token_scopes ?? null,
           parent_hash: parentHash,
           preserve_on_behalf_of: preserveOnBehalfOf,
           on_behalf_of_email: onBehalfOf,
+          // See the flow branch: a source-workspace principal is never valid here.
+          on_behalf_of: undefined,
         },
       });
     } else if (kind === "app" || kind === "raw_app") {
-      const app = await provider.getAppByPath({
+      const rawApp = await provider.getAppByPath({
         workspace: workspaceFrom,
         path,
       });
+      // See the flow branch: a source-workspace principal is never valid here, and the
+      // policy carries the app's in `on_behalf_of`. Clearing it lets the backend derive
+      // the target's own from the address. A group travels as its synthetic
+      // `group-*@windmill.dev` address, which an admin-created account holding it would
+      // win: known and accepted, see `users::permissioned_as_from_email` in the backend.
+      const app = {
+        ...rawApp,
+        policy: {
+          ...rawApp.policy,
+          on_behalf_of: undefined,
+          on_behalf_of_email: onBehalfOf,
+        },
+      };
       if (alreadyExists) {
         if (app.raw_app) {
           const secret = await provider.getPublicSecretOfLatestVersionOfApp({
             workspace: workspaceFrom,
             path: app.path,
           });
-          const js = await provider.getRawAppData({
-            secretWithExtension: `${secret}.js`,
-            workspace: workspaceFrom,
-          });
-          const css = await provider.getRawAppData({
-            secretWithExtension: `${secret}.css`,
-            workspace: workspaceFrom,
-          });
+          const js = await getRawAppBundlePart(
+            provider,
+            secret,
+            "js",
+            workspaceFrom
+          );
+          const css = await getRawAppBundlePart(
+            provider,
+            secret,
+            "css",
+            workspaceFrom
+          );
           await provider.updateAppRaw({
             workspace: workspaceTo,
             path,
@@ -454,14 +571,18 @@ export async function deployItem(
             workspace: workspaceFrom,
             path: app.path,
           });
-          const js = await provider.getRawAppData({
-            secretWithExtension: `${secret}.js`,
-            workspace: workspaceFrom,
-          });
-          const css = await provider.getRawAppData({
-            secretWithExtension: `${secret}.css`,
-            workspace: workspaceFrom,
-          });
+          const js = await getRawAppBundlePart(
+            provider,
+            secret,
+            "js",
+            workspaceFrom
+          );
+          const css = await getRawAppBundlePart(
+            provider,
+            secret,
+            "css",
+            workspaceFrom
+          );
           await provider.createAppRaw({
             workspace: workspaceTo,
             formData: {
@@ -481,11 +602,19 @@ export async function deployItem(
         }
       }
     } else if (kind === "variable") {
-      const variable = await provider.getVariable({
+      // An external secret reference is copied as the reference, never as the value it resolves to.
+      let variable = await provider.getVariable({
         workspace: workspaceFrom,
         path,
-        decryptSecret: true,
+        decryptSecret: false,
       });
+      if (variable.is_secret && !variable.value?.startsWith("$external:")) {
+        variable = await provider.getVariable({
+          workspace: workspaceFrom,
+          path,
+          decryptSecret: true,
+        });
+      }
       if (alreadyExists) {
         await provider.updateVariable({
           workspace: workspaceTo,
@@ -495,6 +624,9 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            labels: variable.labels,
+            // `null` clears; absent would keep the target's stored date.
+            value_valid_until: variable.value_valid_until ?? null,
           },
           alreadyEncrypted: false,
         });
@@ -506,6 +638,8 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            labels: variable.labels,
+            value_valid_until: variable.value_valid_until ?? null,
           },
         });
       }
@@ -514,14 +648,27 @@ export async function deployItem(
         workspace: workspaceFrom,
         path,
       });
+      let value = resource.value ?? "";
+      // An agent's value carries the principal it runs as, as a trigger's row does: the source's
+      // names nobody in the target, so it is replaced by the chosen one or dropped, leaving the
+      // backend to make it the deployer's.
+      const agent = resource.resource_type === "ai_agent" && typeof value === "object";
+      if (agent) {
+        const { on_behalf_of: _, ...rest } = value;
+        value = onBehalfOf ? { ...rest, on_behalf_of: onBehalfOf } : rest;
+      }
+      const agentPreserve = agent ? { preserve_on_behalf_of: preserveOnBehalfOf } : {};
       if (alreadyExists) {
         await provider.updateResource({
           workspace: workspaceTo,
           path,
           requestBody: {
             path,
-            value: resource.value ?? "",
+            value,
+            resource_type: resource.resource_type,
             description: resource.description ?? "",
+            labels: resource.labels,
+            ...agentPreserve,
           },
         });
       } else {
@@ -529,9 +676,11 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             path,
-            value: resource.value ?? "",
+            value,
             resource_type: resource.resource_type,
             description: resource.description ?? "",
+            labels: resource.labels,
+            ...agentPreserve,
           },
         });
       }
@@ -547,6 +696,11 @@ export async function deployItem(
           requestBody: {
             schema: rt.schema,
             description: rt.description ?? "",
+            is_fileset: rt.is_fileset ?? false,
+            // An omitted extension or name is left unchanged, so an unset one is sent as null
+            // to clear what the target has.
+            format_extension: rt.format_extension ?? null,
+            display_name: rt.display_name ?? null,
           },
         });
       } else {
@@ -556,6 +710,9 @@ export async function deployItem(
             name: rt.name,
             schema: rt.schema,
             description: rt.description ?? "",
+            is_fileset: rt.is_fileset,
+            format_extension: rt.format_extension,
+            display_name: rt.display_name,
           },
         });
       }
@@ -570,9 +727,13 @@ export async function deployItem(
           workspace: workspaceTo,
           name,
           requestBody: {
+            display_name: folder.display_name,
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
+            // A folder stores cleared labels as NULL and reads back without the field, so an
+            // absent value has to be sent as [] or the target keeps labels the source removed.
+            labels: folder.labels ?? [],
           },
         });
       } else {
@@ -580,9 +741,11 @@ export async function deployItem(
           workspace: workspaceTo,
           requestBody: {
             name,
+            display_name: folder.display_name,
             owners: folder.owners,
             extra_perms: folder.extra_perms,
             summary: folder.summary ?? undefined,
+            labels: folder.labels,
           },
         });
       }
@@ -639,6 +802,41 @@ export async function deployItem(
           requestBody,
         });
       }
+    } else if (kind === "datatable_migration") {
+      const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+      const migrations = await provider.listDatatableMigrations({
+        workspace: workspaceFrom,
+      });
+      const migration = (
+        migrations as {
+          datatable: string;
+          timestamp: number;
+          name: string;
+          code_up: string;
+          code_down?: string;
+        }[]
+      ).find((m) => m.datatable === datatable && m.timestamp === timestamp);
+      if (!migration) {
+        throw new Error(
+          `Datatable migration ${path} not found in ${workspaceFrom}`
+        );
+      }
+      try {
+        await provider.upsertDatatableMigration({
+          workspace: workspaceTo,
+          datatableName: datatable,
+          requestBody: {
+            timestamp: migration.timestamp,
+            name: migration.name,
+            code_up: migration.code_up,
+            ...(migration.code_down != null
+              ? { code_down: migration.code_down }
+              : {}),
+          },
+        });
+      } catch (e) {
+        throw asMigrationsDisabledError(e, datatable);
+      }
     } else {
       throw new Error(`Unknown kind: ${kind}`);
     }
@@ -684,6 +882,13 @@ export async function deleteItemInWorkspace(
       await provider.deleteFolder({ workspace, name: folderName(path) });
     } else if (kind === "schedule") {
       await provider.deleteSchedule({ workspace, path });
+    } else if (kind === "datatable_migration") {
+      const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+      await provider.deleteDatatableMigration({
+        workspace,
+        datatableName: datatable,
+        timestamp,
+      });
     } else if (isTriggerKind(kind)) {
       await provider.deleteTriggerByKind(kind, { workspace, path });
     } else {
@@ -722,7 +927,9 @@ export async function getItemValue(
       return {
         summary: flow.summary,
         description: flow.description,
+        schema: flow.schema,
         value: flow.value,
+        job_token_scopes: flow.job_token_scopes ?? null,
       };
     } else if (kind === "script") {
       const script = await provider.getScriptByPath({ workspace, path });
@@ -731,7 +938,9 @@ export async function getItemValue(
         lock: script.lock,
         schema: script.schema,
         summary: script.summary,
+        description: script.description,
         language: script.language,
+        job_token_scopes: script.job_token_scopes ?? null,
       };
     } else if (kind === "app" || kind === "raw_app") {
       return await provider.getAppByPath({ workspace, path });
@@ -741,13 +950,33 @@ export async function getItemValue(
         path,
         decryptSecret: true,
       });
-      return variable.value;
+      return {
+        value: variable.value,
+        is_secret: variable.is_secret,
+        description: variable.description,
+        value_valid_until: variable.value_valid_until ?? undefined,
+      };
     } else if (kind === "resource") {
       const resource = await provider.getResource({ workspace, path });
-      return resource.value;
+      let value = resource.value;
+      // Each workspace resolves its own agent identity, which a deploy never copies.
+      if (resource.resource_type === "ai_agent" && value) {
+        const { on_behalf_of: _, ...rest } = value;
+        value = rest;
+      }
+      return {
+        value,
+        description: resource.description,
+        resource_type: resource.resource_type,
+      };
     } else if (kind === "resource_type") {
       const rt = await provider.getResourceType({ workspace, path });
-      return rt.schema;
+      return {
+        schema: rt.schema,
+        description: rt.description,
+        format_extension: rt.format_extension,
+        is_fileset: rt.is_fileset,
+      };
     } else if (kind === "folder") {
       const folder = await provider.getFolder({
         workspace,
@@ -755,6 +984,7 @@ export async function getItemValue(
       });
       return {
         name: folder.name,
+        display_name: folder.display_name,
         owners: folder.owners,
         extra_perms: folder.extra_perms,
         summary: folder.summary,
@@ -767,6 +997,29 @@ export async function getItemValue(
     } else if (isTriggerKind(kind)) {
       const trigger = await provider.getTriggerValue(kind, { workspace, path });
       return stripTriggerOrScheduleRuntimeFields(trigger);
+    } else if (kind === "datatable_migration") {
+      // Surface the migration SQL so the diff drawer shows the up/down bodies a
+      // reviewer needs to inspect before deploying.
+      const { datatable, timestamp } = parseDatatableMigrationDeployPath(path);
+      const migrations = (await provider.listDatatableMigrations({
+        workspace,
+      })) as {
+        datatable: string;
+        timestamp: number;
+        name: string;
+        code_up: string;
+        code_down?: string;
+      }[];
+      const migration = migrations.find(
+        (m) => m.datatable === datatable && m.timestamp === timestamp
+      );
+      if (migration) {
+        return {
+          name: migration.name,
+          code_up: migration.code_up,
+          code_down: migration.code_down ?? null,
+        };
+      }
     }
   } catch {
     // Item may not exist
@@ -806,7 +1059,8 @@ function stripTriggerOrScheduleRuntimeFields(row: unknown): unknown {
 
 /**
  * Fetch the on_behalf_of value for a deployable item.
- * Returns an email for flows/scripts/apps, or undefined if not applicable.
+ * Returns an email for flows/scripts/apps, a principal (u/username, g/group) for
+ * triggers/schedules and agents, or undefined if not applicable.
  */
 export async function getOnBehalfOf(
   provider: DeployProvider,
@@ -824,6 +1078,12 @@ export async function getOnBehalfOf(
     } else if (kind === "app" || kind === "raw_app") {
       const app = await provider.getAppByPath({ workspace, path });
       return app.policy?.on_behalf_of_email;
+    } else if (kind === "resource") {
+      // Only an agent runs as anyone, and like a trigger it records the principal.
+      const resource = await provider.getResource({ workspace, path });
+      return resource.resource_type === "ai_agent"
+        ? resource.value?.on_behalf_of
+        : undefined;
     } else if (kind === "schedule") {
       const schedule = await provider.getSchedule({ workspace, path });
       return schedule.permissioned_as;

@@ -4,12 +4,12 @@ import { editor as meditor, Position, languages, type IDisposable } from 'monaco
 import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS } from '../lib'
-import { getModelContextWindow } from '../modelConfig'
+import { ASSUMED_CONTEXT_WINDOW, getEffectiveModelContextWindow } from '../modelConfig'
 import { setGlobalCSS } from '../shared'
 import { supportsAutocomplete } from '../utils'
 import { get } from 'svelte/store'
 import type { MonacoLanguageClient } from 'monaco-languageclient'
-import { copilotInfo } from '$lib/aiStore'
+import { copilotInfo, type AiTarget } from '$lib/aiStore'
 import { getTypeScriptWorker } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 
 // max ratio of completions to context window
@@ -72,15 +72,21 @@ export class Autocompletor {
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
 	#lastCompletions: string[] = []
-	#contextWindow: number = 0
+	#sessionTarget: (() => AiTarget | undefined) | undefined
 	#shouldShowDeletionCue = false
 	#languageClient: MonacoLanguageClient | undefined = undefined
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
 		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
-		options: { workflowAsCode?: boolean } = {}
+		options: {
+			workflowAsCode?: boolean
+			/** Set in an AI session's editor: completions go to the session's workspace with its
+			 * AI config. Undefined while that config is loading. */
+			sessionTarget?: () => AiTarget | undefined
+		} = {}
 	) {
+		this.#sessionTarget = options.sessionTarget
 		setGlobalCSS(
 			'ai-chat-autocomplete',
 			`
@@ -93,9 +99,6 @@ export class Autocompletor {
 		this.#workflowAsCode = options.workflowAsCode ?? false
 
 		const deletionsCues = editor.createDecorationsCollection()
-
-		const completionModel = get(copilotInfo).codeCompletionModel
-		this.#contextWindow = getModelContextWindow(completionModel?.model ?? '')
 
 		this.#completionDisposable = languages.registerInlineCompletionsProvider(
 			{ pattern: '**' },
@@ -514,9 +517,22 @@ export class Autocompletor {
 		const markers = meditor.getModelMarkers({ resource: model.uri })
 		const markersAtCursor = this.#markersAtCursor(position, markers)
 
+		const target = this.#sessionTarget?.()
+		// A session's editor completes only once its own workspace's config is known.
+		if (this.#sessionTarget && !target) {
+			return
+		}
+		const { codeCompletionModel, contextWindowPerModel } = target?.info ?? get(copilotInfo)
+		const contextWindow = codeCompletionModel
+			? getEffectiveModelContextWindow(
+					codeCompletionModel.provider,
+					codeCompletionModel.model,
+					contextWindowPerModel
+				)
+			: ASSUMED_CONTEXT_WINDOW
 		const librariesCompletions: string = completions
 			.join('\n')
-			.slice(0, Math.floor(this.#contextWindow * COMPLETIONS_MAX_RATIO))
+			.slice(0, Math.floor(contextWindow * COMPLETIONS_MAX_RATIO))
 
 		const completion = await autocompleteRequest(
 			{
@@ -527,7 +543,8 @@ export class Autocompletor {
 				libraries: librariesCompletions,
 				workflowAsCode: this.#workflowAsCode
 			},
-			this.#abortController
+			this.#abortController,
+			target
 		)
 
 		if (!completion) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { runCascade } from './cascadeOrchestrator'
-import type { DownstreamClosure } from './graphTraversal'
+import { runCascade, runSelection } from './cascadeOrchestrator'
+import type { DownstreamClosure, InducedSchedule } from './graphTraversal'
 
 function closure(edges: Array<[from: string, to: string]>, nodes: string[]): DownstreamClosure {
 	const e = new Map<string, Set<string>>()
@@ -159,5 +159,103 @@ describe('runCascade', () => {
 		expect(r.launched).toEqual(['a'])
 		expect(res.statuses.get('b')?.status).toBe('skipped')
 		expect(res.statuses.get('c')?.status).toBe('skipped')
+	})
+})
+
+function schedule(
+	edges: Array<[from: string, to: string]>,
+	nodes: string[],
+	roots: string[]
+): InducedSchedule {
+	const e = new Map<string, Set<string>>()
+	const indegree = new Map<string, number>()
+	for (const n of nodes) indegree.set(n, 0)
+	for (const [from, to] of edges) {
+		const set = e.get(from) ?? new Set()
+		set.add(to)
+		e.set(from, set)
+		indegree.set(to, (indegree.get(to) ?? 0) + 1)
+	}
+	return { nodes, edges: e, indegree, roots, cyclic: [] }
+}
+
+describe('runSelection', () => {
+	it('runs every selected node, seeding all roots', async () => {
+		// two independent roots a, b each → c.
+		const sched = schedule(
+			[
+				['a', 'c'],
+				['b', 'c']
+			],
+			['a', 'b', 'c'],
+			['a', 'b']
+		)
+		const r = fakeRunner()
+		const res = await runSelection({ schedule: sched, ...r })
+		expect(res.ok).toBe(true)
+		// Sort a copy for the membership check — mutating `r.launched` here
+		// would invalidate the launch-order assertions below.
+		expect([...r.launched].sort()).toEqual(['a', 'b', 'c'])
+		// c only after both upstreams.
+		expect(r.launched.indexOf('c')).toBeGreaterThan(r.launched.indexOf('a'))
+		expect(r.launched.indexOf('c')).toBeGreaterThan(r.launched.indexOf('b'))
+	})
+
+	it('skips a failed node’s descendants but keeps independent branches running', async () => {
+		// Two independent chains: a → b and c → d. `a` fails; `b` (its descendant)
+		// must be skipped, but `d` depends only on the successful `c`, so it must
+		// still run — a failure must not stall unrelated branches.
+		const sched = schedule(
+			[
+				['a', 'b'],
+				['c', 'd']
+			],
+			['a', 'b', 'c', 'd'],
+			['a', 'c']
+		)
+		const r = fakeRunner({ a: 'failure' })
+		const res = await runSelection({ schedule: sched, ...r })
+		expect(res.ok).toBe(false)
+		expect(res.statuses.get('a')?.status).toBe('failure')
+		expect(res.statuses.get('b')?.status).toBe('skipped')
+		expect(res.statuses.get('c')?.status).toBe('success')
+		expect(res.statuses.get('d')?.status).toBe('success')
+		expect(r.launched).toContain('d')
+		expect(r.launched).not.toContain('b')
+	})
+
+	it('skips a join node when any one of its upstreams fails', async () => {
+		// {a, b} → c. `a` fails; `c` needs both, so it must be skipped even though
+		// `b` succeeds — a poisoned lineage isn’t rescued by a sibling success.
+		const sched = schedule(
+			[
+				['a', 'c'],
+				['b', 'c']
+			],
+			['a', 'b', 'c'],
+			['a', 'b']
+		)
+		const r = fakeRunner({ a: 'failure' })
+		const res = await runSelection({ schedule: sched, ...r })
+		expect(res.ok).toBe(false)
+		expect(res.statuses.get('c')?.status).toBe('skipped')
+		expect(r.launched).not.toContain('c')
+	})
+
+	it('stops scheduling a failed node’s chain', async () => {
+		const sched = schedule([['a', 'b']], ['a', 'b'], ['a'])
+		const r = fakeRunner({ a: 'failure' })
+		const res = await runSelection({ schedule: sched, ...r })
+		expect(res.ok).toBe(false)
+		expect(r.launched).toEqual(['a'])
+		expect(res.statuses.get('b')?.status).toBe('skipped')
+	})
+
+	it('a single-node selection runs that node', async () => {
+		const sched = schedule([], ['a'], ['a'])
+		const r = fakeRunner()
+		const res = await runSelection({ schedule: sched, ...r })
+		expect(res.ok).toBe(true)
+		expect(r.launched).toEqual(['a'])
 	})
 })

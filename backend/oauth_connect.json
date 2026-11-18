@@ -2,7 +2,8 @@
   "github": {
     "auth_url": "https://github.com/login/oauth/authorize",
     "token_url": "https://github.com/login/oauth/access_token",
-    "scopes": ["workflow", "repo"]
+    "scopes": ["workflow", "repo"],
+    "scope_options": ["repo", "workflow", "gist", "read:org", "read:project", "project"]
   },
   "gitlab": {
     "auth_url": "https://gitlab.com/oauth/authorize",
@@ -16,9 +17,80 @@
     "scopes": ["repository"]
   },
   "slack": {
-    "auth_url": "https://slack.com/oauth/authorize",
-    "token_url": "https://slack.com/api/oauth.access",
-    "scopes": ["chat:write:user", "users:read", "users:read.email"]
+    "auth_url": "https://slack.com/oauth/v2/authorize",
+    "token_url": "https://slack.com/api/oauth.v2.access",
+    "scopes": [
+      "chat:write",
+      "chat:write.public",
+      "channels:join",
+      "files:write",
+      "users:read",
+      "users:read.email",
+      "channels:read",
+      "channels:history"
+    ],
+    "user_scopes": [
+      "channels:history",
+      "groups:history",
+      "im:history",
+      "mpim:history",
+      "search:read",
+      "users:read",
+      "chat:write",
+      "users:read.email",
+      "channels:read",
+      "groups:read",
+      "im:read",
+      "mpim:read",
+      "files:read"
+    ],
+    "scope_options": [
+      { "value": "chat:write", "label": "Send messages as the app" },
+      { "value": "chat:write.public", "label": "Send messages to public channels the app is not in" },
+      { "value": "channels:join", "label": "Join public channels" },
+      { "value": "files:write", "label": "Upload, edit and delete files" },
+      { "value": "users:read", "label": "View people in the workspace" },
+      { "value": "users:read.email", "label": "View people's email addresses" },
+      { "value": "channels:read", "label": "View basic information about public channels" },
+      { "value": "channels:history", "label": "Read messages in public channels the app is in" },
+      { "value": "reactions:write", "label": "Add emoji reactions" },
+      { "value": "channels:manage", "label": "Create, archive and manage public channels, invite members, set topics" },
+      { "value": "groups:write", "label": "Create and manage private channels the app is in" },
+      { "value": "usergroups:write", "label": "Edit user groups (workspace settings often block bots)" },
+      { "value": "files:read", "label": "Read and download files shared where the app is a member" },
+      { "value": "groups:read", "label": "List private channels the app is in" },
+      { "value": "im:read", "label": "List the app's direct messages" },
+      { "value": "mpim:read", "label": "List the app's group direct messages" },
+      { "value": "usergroups:read", "label": "List user groups" },
+      { "value": "emoji:read", "label": "List custom emojis" }
+    ],
+    "user_scope_options": [
+      { "value": "channels:history", "label": "Read messages in public channels" },
+      { "value": "groups:history", "label": "Read messages in your private channels" },
+      { "value": "im:history", "label": "Read your direct messages" },
+      { "value": "mpim:history", "label": "Read your group direct messages" },
+      { "value": "search:read", "label": "Search messages and files" },
+      { "value": "users:read", "label": "View people in the workspace" },
+      { "value": "chat:write", "label": "Send messages as you" },
+      { "value": "users:read.email", "label": "View people's email addresses" },
+      { "value": "channels:read", "label": "View basic information about public channels" },
+      { "value": "groups:read", "label": "View basic information about your private channels" },
+      { "value": "im:read", "label": "View basic information about your direct messages" },
+      { "value": "mpim:read", "label": "View basic information about your group direct messages" },
+      { "value": "files:read", "label": "View files shared in your conversations" },
+      { "value": "reactions:write", "label": "Add emoji reactions" },
+      { "value": "channels:write", "label": "Create, archive and manage public channels" },
+      { "value": "channels:write.invites", "label": "Invite members to public channels" },
+      { "value": "channels:write.topic", "label": "Set public channel topics" },
+      { "value": "groups:write", "label": "Create and manage private channels" },
+      { "value": "users.profile:write", "label": "Set your status and edit your profile" },
+      { "value": "reminders:write", "label": "Create reminders for yourself" },
+      { "value": "usergroups:write", "label": "Edit user groups" },
+      { "value": "files:write", "label": "Upload and delete files as yourself" },
+      { "value": "usergroups:read", "label": "List user groups" },
+      { "value": "emoji:read", "label": "List custom emojis" }
+    ],
+    "token_response_path": "authed_user"
   },
   "supabase_wizard": {
     "auth_url": "https://api.supabase.com/v1/oauth/authorize",
@@ -29,6 +101,11 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/spreadsheets", "label": "Read, edit, create and delete spreadsheets" },
+      { "value": "https://www.googleapis.com/auth/spreadsheets.readonly", "label": "Read spreadsheets" },
+      { "value": "https://www.googleapis.com/auth/drive.metadata.readonly", "label": "List and search your spreadsheets in Drive" }
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -38,15 +115,90 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/drive"],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/drive.file", "label": "Only files created or opened with this connection" },
+      { "value": "https://www.googleapis.com/auth/drive.readonly", "label": "Read all Drive files" },
+      { "value": "https://www.googleapis.com/auth/drive", "label": "Read, edit, create and delete all Drive files" }
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
+    }
+  },
+  "ms_onedrive": {
+    "req_body_auth": true,
+    "scopes": ["offline_access", "User.Read", "Files.ReadWrite"],
+    "scope_options": [
+      { "value": "offline_access", "label": "Stay connected (refresh token)" },
+      { "value": "User.Read", "label": "Read your profile" },
+      { "value": "Files.Read", "label": "Read your files" },
+      { "value": "Files.ReadWrite", "label": "Read, upload, edit and delete your files" },
+      { "value": "Files.Read.All", "label": "Read all files you can access (shared and SharePoint drives)" },
+      { "value": "Files.ReadWrite.All", "label": "Read and edit all files you can access (shared and SharePoint drives)" }
+    ],
+    "connect_config_template": {
+      "display_name": "Microsoft OneDrive",
+      "label": "Microsoft Entra tenant",
+      "placeholder": "common, organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": ["offline_access", "User.Read", "Files.ReadWrite"]
+    }
+  },
+  "ms_sharepoint": {
+    "req_body_auth": true,
+    "scopes": ["offline_access", "User.Read", "Sites.ReadWrite.All"],
+    "scope_options": [
+      { "value": "offline_access", "label": "Stay connected (refresh token)" },
+      { "value": "User.Read", "label": "Read your profile" },
+      { "value": "Sites.Read.All", "label": "Read sites, lists and files" },
+      { "value": "Sites.ReadWrite.All", "label": "Read and edit lists, list items and files in all sites" },
+      { "value": "Sites.Manage.All", "label": "Create and manage lists and libraries" }
+    ],
+    "connect_config_template": {
+      "display_name": "Microsoft SharePoint",
+      "label": "Microsoft Entra tenant",
+      "placeholder": "common, organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": ["offline_access", "User.Read", "Sites.ReadWrite.All"]
+    }
+  },
+  "ms_excel": {
+    "req_body_auth": true,
+    "scopes": ["offline_access", "User.Read", "Files.ReadWrite"],
+    "scope_options": [
+      { "value": "offline_access", "label": "Stay connected (refresh token)" },
+      { "value": "User.Read", "label": "Read your profile" },
+      { "value": "Files.ReadWrite", "label": "Read and edit workbooks in your OneDrive" },
+      { "value": "Files.ReadWrite.All", "label": "Read and edit workbooks in shared and SharePoint drives" }
+    ],
+    "connect_config_template": {
+      "display_name": "Microsoft Excel",
+      "label": "Microsoft Entra tenant",
+      "placeholder": "common, organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": ["offline_access", "User.Read", "Files.ReadWrite"]
     }
   },
   "gmail": {
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/gmail.send"],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/gmail.send", "label": "Send mail only" },
+      { "value": "https://www.googleapis.com/auth/gmail.readonly", "label": "Read and search mail" },
+      { "value": "https://www.googleapis.com/auth/gmail.compose", "label": "Draft and send mail" },
+      { "value": "https://www.googleapis.com/auth/gmail.modify", "label": "Read, search, label, draft and send mail" },
+      { "value": "https://www.googleapis.com/auth/gmail.labels", "label": "Create, edit and delete labels" }
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -56,6 +208,15 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/calendar.events"],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/calendar.events", "label": "Read and edit events on all calendars" },
+      { "value": "https://www.googleapis.com/auth/calendar.events.readonly", "label": "Read events on all calendars" },
+      { "value": "https://www.googleapis.com/auth/calendar.calendarlist.readonly", "label": "See the list of calendars you're subscribed to" },
+      { "value": "https://www.googleapis.com/auth/calendar.calendars.readonly", "label": "Read calendar properties (title, timezone)" },
+      { "value": "https://www.googleapis.com/auth/calendar.freebusy", "label": "See your availability (free/busy)" },
+      { "value": "https://www.googleapis.com/auth/calendar.readonly", "label": "Read all calendars and events" },
+      { "value": "https://www.googleapis.com/auth/calendar", "label": "Read, edit, share and delete all calendars" }
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -65,6 +226,47 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/forms"],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/forms", "label": "Read and manage forms in Drive" },
+      { "value": "https://www.googleapis.com/auth/forms.body", "label": "Read, edit, create and delete forms" },
+      { "value": "https://www.googleapis.com/auth/forms.body.readonly", "label": "Read forms" },
+      { "value": "https://www.googleapis.com/auth/forms.responses.readonly", "label": "Read form responses" }
+    ],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  "gdocs": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/documents"],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/documents", "label": "Read, edit, create and delete documents" },
+      { "value": "https://www.googleapis.com/auth/documents.readonly", "label": "Read documents" },
+      { "value": "https://www.googleapis.com/auth/drive.file", "label": "Only files created or opened with this connection" },
+      { "value": "https://www.googleapis.com/auth/drive.readonly", "label": "Read, export and search all Drive files and comments" },
+      { "value": "https://www.googleapis.com/auth/drive", "label": "Read, edit, create and delete all Drive files" }
+    ],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  "gchat": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/chat.spaces.readonly",
+      "https://www.googleapis.com/auth/chat.messages.create"
+    ],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/chat.spaces.readonly", "label": "Read spaces" },
+      { "value": "https://www.googleapis.com/auth/chat.messages", "label": "Read, send, edit and delete messages" },
+      { "value": "https://www.googleapis.com/auth/chat.messages.readonly", "label": "Read messages" },
+      { "value": "https://www.googleapis.com/auth/chat.messages.create", "label": "Send messages only" },
+      { "value": "https://www.googleapis.com/auth/chat.memberships.readonly", "label": "Read space members" }
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -74,6 +276,10 @@
     "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
     "token_url": "https://oauth2.googleapis.com/token",
     "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/cloud-platform", "label": "Read and manage all Google Cloud resources" },
+      { "value": "https://www.googleapis.com/auth/cloud-platform.read-only", "label": "Read Google Cloud resources" }
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -88,6 +294,16 @@
       "https://www.googleapis.com/auth/admin.directory.user.security",
       "https://www.googleapis.com/auth/admin.directory.orgunit"
     ],
+    "scope_options": [
+      { "value": "https://www.googleapis.com/auth/admin.directory.user", "label": "Read and manage users" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.user.readonly", "label": "Read users" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.group", "label": "Read and manage groups" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.group.readonly", "label": "Read groups" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.orgunit", "label": "Read and manage organizational units" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.orgunit.readonly", "label": "Read organizational units" },
+      { "value": "https://www.googleapis.com/auth/admin.directory.user.security", "label": "Manage user security settings" },
+      { "value": "https://www.googleapis.com/auth/admin.reports.audit.readonly", "label": "Read audit logs (login, admin, Drive, token activity)" }
+    ],
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
@@ -101,16 +317,49 @@
       "type": "web_server"
     }
   },
+  "asana": {
+    "auth_url": "https://app.asana.com/-/oauth_authorize",
+    "token_url": "https://app.asana.com/-/oauth_token",
+    "scopes": ["default"],
+    "scope_options": [
+      { "value": "default", "label": "Full permissions (the Asana app must be registered with Full permissions)" }
+    ]
+  },
+  "notion": {
+    "auth_url": "https://api.notion.com/v1/oauth/authorize",
+    "token_url": "https://api.notion.com/v1/oauth/token",
+    "scopes": [],
+    "extra_params": {
+      "owner": "user"
+    }
+  },
   "linkedin": {
     "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
     "grant_types": ["authorization_code", "client_credentials"],
-    "scopes": ["w_member_social", "r_liteprofile", "r_emailaddress"],
+    "scopes": ["openid", "profile", "email", "w_member_social"],
+    "scope_options": [
+      "openid",
+      "profile",
+      "email",
+      "w_member_social",
+      "r_member_social",
+      "w_organization_social",
+      "r_organization_social",
+      "r_organization_admin",
+      "rw_organization_admin",
+      "r_ads",
+      "r_basicprofile"
+    ],
     "req_body_auth": true
   },
   "quickbooks": {
     "auth_url": "https://appcenter.intuit.com/connect/oauth2",
     "token_url": "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    "connect_fields": {
+      "realmId": "callback.realmId"
+    },
+    "resource_fields": ["realmId", "isSandBox"],
     "scopes": ["com.intuit.quickbooks.accounting"]
   },
   "visma": {
@@ -156,10 +405,25 @@
       }
     }
   },
+  "shopify": {
+    "grant_types": ["client_credentials"],
+    "connect_config_template": {
+      "display_name": "Shopify",
+      "label": "Shopify store",
+      "placeholder": "your-store",
+      "help_url": "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant",
+      "token_url": "https://{instance}.myshopify.com/admin/oauth/access_token",
+      "strip_suffix": ".myshopify.com",
+      "resource_mapping": {
+        "store_name": "{instance}"
+      }
+    }
+  },
   "sage_intacct": {
     "auth_url": "https://api.intacct.com/ia/api/v1/oauth2/authorize",
     "token_url": "https://api.intacct.com/ia/api/v1/oauth2/token",
-    "scopes": ["offline_access"]
+    "scopes": ["offline_access"],
+    "req_body_auth": true
   },
   "spotify": {
     "auth_url": "https://accounts.spotify.com/authorize",
@@ -199,6 +463,7 @@
     }
   },
   "snowflake_oauth": {
+    "resource_fields": ["database", "warehouse", "role", "schema"],
     "connect_config_template": {
       "display_name": "Snowflake",
       "label": "Snowflake Account Identifier",
@@ -220,15 +485,26 @@
   "docusign": {
     "auth_url": "https://account.docusign.com/oauth/auth",
     "token_url": "https://account.docusign.com/oauth/token",
+    "userinfo_url": "https://account.docusign.com/oauth/userinfo",
+    "connect_fields": {
+      "account_id": "userinfo.accounts[is_default=true].account_id",
+      "base_uri": "userinfo.accounts[is_default=true].base_uri"
+    },
+    "resource_fields": ["account_id", "base_uri"],
     "scopes": ["signature"],
     "sandbox": {
       "auth_url": "https://account-d.docusign.com/oauth/auth",
-      "token_url": "https://account-d.docusign.com/oauth/token"
+      "token_url": "https://account-d.docusign.com/oauth/token",
+      "userinfo_url": "https://account-d.docusign.com/oauth/userinfo"
     }
   },
   "salesforce": {
     "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
     "token_url": "https://login.salesforce.com/services/oauth2/token",
+    "connect_fields": {
+      "instance_url": "token.instance_url"
+    },
+    "resource_fields": ["instance_url"],
     "scopes": ["api", "refresh_token", "offline_access"],
     "sandbox": {
       "auth_url": "https://test.salesforce.com/services/oauth2/authorize",
@@ -250,6 +526,101 @@
       "resource_mapping": {
         "instance_url": "https://{instance}.service-now.com"
       }
+    }
+  },
+  "ms_teams": {
+    "req_body_auth": true,
+    "scopes": [
+      "offline_access",
+      "User.Read",
+      "Team.ReadBasic.All",
+      "Channel.ReadBasic.All",
+      "ChannelMessage.Send",
+      "Chat.ReadWrite",
+      "OnlineMeetings.ReadWrite"
+    ],
+    "scope_options": [
+      {
+        "value": "offline_access",
+        "label": "Stay connected (refresh token)"
+      },
+      {
+        "value": "User.Read",
+        "label": "Read your profile"
+      },
+      {
+        "value": "Team.ReadBasic.All",
+        "label": "List your teams"
+      },
+      {
+        "value": "Channel.ReadBasic.All",
+        "label": "List channels"
+      },
+      {
+        "value": "ChannelMessage.Send",
+        "label": "Post and reply in channels"
+      },
+      {
+        "value": "Chat.ReadWrite",
+        "label": "Read, create and send in your chats"
+      },
+      {
+        "value": "Chat.ReadBasic",
+        "label": "List your chats"
+      },
+      {
+        "value": "Chat.Read",
+        "label": "Read your chat messages"
+      },
+      {
+        "value": "Chat.Create",
+        "label": "Create chats"
+      },
+      {
+        "value": "ChatMessage.Send",
+        "label": "Send chat messages"
+      },
+      {
+        "value": "OnlineMeetings.ReadWrite",
+        "label": "Create and read online meetings"
+      },
+      {
+        "value": "ChannelMessage.Read.All",
+        "label": "Read channel messages (admin consent)"
+      },
+      {
+        "value": "ChannelMember.Read.All",
+        "label": "List channel members (admin consent)"
+      },
+      {
+        "value": "TeamMember.Read.All",
+        "label": "List team members (admin consent)"
+      },
+      {
+        "value": "Channel.Create",
+        "label": "Create channels (admin consent)"
+      },
+      {
+        "value": "Schedule.Read.All",
+        "label": "Read Shifts schedules (admin consent)"
+      }
+    ],
+    "connect_config_template": {
+      "label": "Microsoft Entra tenant",
+      "placeholder": "organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": [
+        "offline_access",
+        "User.Read",
+        "Team.ReadBasic.All",
+        "Channel.ReadBasic.All",
+        "ChannelMessage.Send",
+        "Chat.ReadWrite",
+        "OnlineMeetings.ReadWrite"
+      ]
     }
   },
   "netsuite": {
@@ -282,5 +653,114 @@
       "mailboxes.read"
     ],
     "req_body_auth": true
+  },
+  "ms_outlook": {
+    "req_body_auth": true,
+    "scopes": ["offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"],
+    "scope_options": [
+      { "value": "offline_access", "label": "Stay connected (refresh token)" },
+      { "value": "User.Read", "label": "Read your profile" },
+      { "value": "Mail.Send", "label": "Send mail" },
+      { "value": "Mail.Read", "label": "Read and search mail" },
+      { "value": "Mail.ReadWrite", "label": "Read, draft, move and modify mail" },
+      { "value": "MailboxSettings.Read", "label": "Read mailbox settings and categories" },
+      { "value": "Contacts.Read", "label": "Read contacts" },
+      { "value": "Contacts.ReadWrite", "label": "Read, create and edit contacts" },
+      { "value": "People.Read", "label": "Search relevant people" },
+      { "value": "Calendars.Read", "label": "Read calendars and events" },
+      { "value": "Calendars.ReadWrite", "label": "Read, create, edit and delete events" },
+      { "value": "Calendars.Read.Shared", "label": "Read shared calendars and find meeting times" },
+      { "value": "Mail.Send.Shared", "label": "Send mail from shared mailboxes" },
+      { "value": "Mail.Read.Shared", "label": "Read mail in shared mailboxes" },
+      { "value": "Mail.ReadWrite.Shared", "label": "Read and modify mail in shared mailboxes" }
+    ],
+    "connect_config_template": {
+      "display_name": "Outlook",
+      "label": "Microsoft Entra tenant",
+      "placeholder": "common, organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": ["offline_access", "User.Read", "Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Contacts.ReadWrite"]
+    }
+  },
+  "hubspot": {
+    "auth_url": "https://app.hubspot.com/oauth/authorize",
+    "token_url": "https://api.hubapi.com/oauth/v1/token",
+    "scopes": [
+      "oauth",
+      "crm.objects.contacts.read",
+      "crm.objects.contacts.write",
+      "crm.objects.companies.read",
+      "crm.objects.companies.write",
+      "crm.objects.deals.read",
+      "crm.objects.deals.write",
+      "crm.objects.owners.read"
+    ],
+    "scope_options": [
+      { "value": "oauth", "label": "Basic OAuth access (always required by HubSpot)" },
+      { "value": "crm.objects.contacts.read", "label": "Read contacts, and notes, tasks, meetings and calls" },
+      { "value": "crm.objects.contacts.write", "label": "Create and edit contacts, and notes, tasks, meetings and calls" },
+      { "value": "crm.objects.companies.read", "label": "Read companies" },
+      { "value": "crm.objects.companies.write", "label": "Create and edit companies" },
+      { "value": "crm.objects.deals.read", "label": "Read deals and deal pipelines" },
+      { "value": "crm.objects.deals.write", "label": "Create and edit deals" },
+      { "value": "crm.objects.owners.read", "label": "Read owners (users assignable to records)" },
+      { "value": "tickets", "label": "Read and edit tickets and ticket pipelines" },
+      { "value": "crm.objects.line_items.read", "label": "Read line items" },
+      { "value": "crm.objects.line_items.write", "label": "Create and edit line items" },
+      { "value": "e-commerce", "label": "Read and edit products and line items" },
+      { "value": "crm.objects.quotes.read", "label": "Read quotes" },
+      { "value": "crm.objects.quotes.write", "label": "Create and edit quotes" },
+      { "value": "crm.objects.leads.read", "label": "Read leads" },
+      { "value": "crm.objects.leads.write", "label": "Create and edit leads" },
+      { "value": "crm.objects.custom.read", "label": "Read custom object records" },
+      { "value": "crm.objects.custom.write", "label": "Create and edit custom object records" },
+      { "value": "crm.schemas.custom.read", "label": "Read custom object schemas" },
+      { "value": "crm.lists.read", "label": "Read lists (segments)" },
+      { "value": "crm.lists.write", "label": "Edit lists and their members" },
+      { "value": "sales-email-read", "label": "Read the content of logged one-to-one emails" },
+      { "value": "forms", "label": "Read and edit forms and their submissions" },
+      { "value": "files", "label": "Read and upload files in the file manager" },
+      { "value": "content", "label": "Read and edit marketing emails, blog posts, pages and templates" },
+      { "value": "crm.objects.marketing_events.read", "label": "Read marketing events" },
+      { "value": "marketing.campaigns.read", "label": "Read marketing campaigns (Marketing Hub Professional)" },
+      { "value": "communication_preferences.read_write", "label": "Read and change email subscription preferences" },
+      { "value": "automation", "label": "Read, create and enroll into workflows (Professional)" },
+      { "value": "automation.sequences.read", "label": "Read sequences and sequence enrollments (Sales Hub Professional)" },
+      { "value": "automation.sequences.enrollments.write", "label": "Enroll contacts in sequences (Sales Hub Professional)" },
+      { "value": "conversations.read", "label": "Read inboxes, threads and messages" },
+      { "value": "conversations.write", "label": "Send messages and update threads" },
+      { "value": "scheduler.meetings.meeting-link.read", "label": "Read meeting links and their availability" }
+    ],
+    "extra_params": {
+      "optional_scope": "tickets crm.objects.line_items.read crm.objects.line_items.write e-commerce crm.objects.quotes.read crm.objects.quotes.write crm.objects.leads.read crm.objects.leads.write crm.objects.custom.read crm.objects.custom.write crm.schemas.custom.read crm.lists.read crm.lists.write sales-email-read forms files content crm.objects.marketing_events.read marketing.campaigns.read communication_preferences.read_write automation automation.sequences.read automation.sequences.enrollments.write conversations.read conversations.write scheduler.meetings.meeting-link.read"
+    },
+    "req_body_auth": true
+  },
+  "zendesk": {
+    "grant_types": ["authorization_code", "client_credentials"],
+    "scopes": ["read", "write"],
+    "cc_scopes": ["read", "write"],
+    "scope_options": [
+      { "value": "read", "label": "Read tickets, users, organizations and Help Center content" },
+      { "value": "write", "label": "Create, update and delete tickets, users, organizations and Help Center content" }
+    ],
+    "req_body_auth": true,
+    "connect_config_template": {
+      "display_name": "Zendesk",
+      "label": "Zendesk subdomain",
+      "placeholder": "yourcompany (from yourcompany.zendesk.com)",
+      "help_url": "https://developer.zendesk.com/documentation/api-basics/authentication/oauth-migration/",
+      "auth_url": "https://{instance}.zendesk.com/oauth/authorizations/new",
+      "token_url": "https://{instance}.zendesk.com/oauth/tokens",
+      "scopes": ["read", "write"],
+      "req_body_auth": true,
+      "strip_suffix": ".zendesk.com",
+      "resource_mapping": {
+        "subdomain": "{instance}"
+      }
+    }
   }
 }

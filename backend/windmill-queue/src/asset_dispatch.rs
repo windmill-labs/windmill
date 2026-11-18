@@ -37,26 +37,36 @@
 //!       "asset_path": "...",
 //!       "producer_path": "...",
 //!       "producer_job_id": "...",
-//!       "chain": ["f/a/producer0", "f/a/producer1"]
+//!       "chain": ["f/a/producer0", "f/a/producer1"],
+//!       "upstream_snapshots": [
+//!         { "asset": "ducklake://analytics/orders", "snapshot_id": 42 }
+//!       ]
 //!     }
 //!   }
 //!   ```
 //!
+//! `upstream_snapshots` is a forensic record only (present when at least one
+//! direct upstream has a captured materialization snapshot): it says which
+//! substrate version each of the subscriber's `// on` assets was at when the
+//! job was dispatched, so a failing run can be replayed against DuckLake
+//! time-travel (`AT (VERSION => n)`). Nothing pins the consumer's reads to it.
+//!
 //! Errors are logged but never bubble up to fail the producer's job.
 
 use crate::{push, MiniCompletedJob, PushArgs, PushIsolationLevel};
+use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
-use windmill_common::assets::AssetKind;
+use windmill_common::assets::{parse_asset_trigger_ref, AssetKind};
 use windmill_common::error::{self, Result};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::{JobKind, JobPayload, JobTriggerKind};
 use windmill_common::partition::PARTITION_ARG;
-use windmill_common::scripts::ScriptHash;
+use windmill_common::scripts::{ScriptHash, ScriptLang};
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::users::{get_email_from_permissioned_as, username_to_permissioned_as};
 use windmill_common::worker::to_raw_value;
@@ -226,6 +236,29 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     if !is_eligible_kind(job) {
         return Ok(DispatchResult::default());
     }
+    // A parented script is dispatch-eligible only as a native retry attempt — a
+    // re-run of the SAME runnable as its chain parent. Schedule/error/recovery
+    // handlers are also parented `Script` children but run a DIFFERENT script;
+    // excluding them stops a handler that happens to declare assets from
+    // triggering a cascade (the pre-native-retry `parent_job IS NULL` guard
+    // excluded every parented child).
+    if job.parent_job.is_some() && !is_native_retry_attempt(db, job).await? {
+        return Ok(DispatchResult::default());
+    }
+    // A dbt run records the relations it builds, so it looks like a producer
+    // here — but dbt does not trigger downstream runs. Its own DAG is dbt's to
+    // order; the only thing a cascade would add is waking Windmill scripts that
+    // read a mart. Cascading from a project whose per-run selection can build any
+    // subset of itself needs a per-run write set to be correct, which is a design
+    // worth doing deliberately rather than inferring: the deploy-time write set is
+    // not what ran, and the per-relation state table keeps one row per relation.
+    // Until then dbt materializes and reports; it does not dispatch. The opposite
+    // direction does: a native `// materialize manual dbt://…` script reaches the
+    // fan-out below on the ordinary path, on the strength of its own asset rows.
+    if job.script_lang == Some(ScriptLang::Dbt) {
+        return Ok(DispatchResult::default());
+    }
+
     let runnable_path = match job.runnable_path.as_deref() {
         Some(p) if !p.is_empty() => p,
         _ => return Ok(DispatchResult::default()),
@@ -277,6 +310,10 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     // subscriber × asset write). The mid-pass join-slot writes
     // (record_and_check_join_slot) are a separate table and unaffected.
     let mut events: Vec<EventRow> = Vec::new();
+    // A subscriber listening to several of this producer's writes is pushed
+    // once per edge; its upstream-snapshot record is identical across those
+    // pushes (same instant, same trigger set), so resolve it once per pass.
+    let mut snapshot_memo: HashMap<String, Arc<Vec<UpstreamSnapshot>>> = HashMap::new();
     for (asset_kind, asset_path) in writes {
         let Some(prefix) = asset_kind.canonical_prefix() else {
             continue;
@@ -352,6 +389,29 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                     }
                 }
             }
+            // Forensic upstream-state capture, resolved at dispatch time (a
+            // debounced job that gets superseded is re-pushed by the later
+            // arrival, which re-resolves — the surviving job records what its
+            // own dispatch saw). Best-effort: a lookup failure must not stop
+            // the cascade.
+            let snapshots = match snapshot_memo.get(&sub_path) {
+                Some(s) => s.clone(),
+                None => {
+                    let s = Arc::new(
+                        upstream_snapshots(db, &job.workspace_id, &sub_path)
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::error!(
+                                    "upstream-snapshot lookup failed for {}: {e:#}",
+                                    sub_path
+                                );
+                                Vec::new()
+                            }),
+                    );
+                    snapshot_memo.insert(sub_path.clone(), s.clone());
+                    s
+                }
+            };
             match push_subscriber(
                 db,
                 job,
@@ -364,6 +424,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
                 debounce_s,
                 retry_count,
                 retry_delay_s,
+                &snapshots,
             )
             .await
             {
@@ -406,10 +467,26 @@ fn is_eligible_kind(job: &MiniCompletedJob) -> bool {
     if !matches!(job.kind, JobKind::Script | JobKind::Preview) {
         return false;
     }
-    if job.parent_job.is_some() || job.flow_step_id.is_some() {
+    // Flow steps (and sub-flow jobs) carry `flow_step_id` and are ineligible.
+    // Native script-retry attempts carry `parent_job` (the chain root) but no
+    // `flow_step_id`; whether a parented job is actually a retry attempt (vs a
+    // schedule/error handler child) is decided in `try_dispatch`.
+    if job.flow_step_id.is_some() {
         return false;
     }
     true
+}
+
+// Native retry attempts carry an explicit `native_retry_attempt` marker; no
+// other parented `Script` child (schedule handlers, WAC inline children, flow
+// steps) does. One indexed point lookup, only for parented jobs.
+async fn is_native_retry_attempt(db: &DB, job: &MiniCompletedJob) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = $1) AS \"exists!\"",
+        job.id,
+    )
+    .fetch_one(db)
+    .await?)
 }
 
 async fn fetch_args(
@@ -527,6 +604,91 @@ async fn workspace_producer_writes(
     Ok(map)
 }
 
+/// Forensic record of one direct upstream's state at dispatch time: the
+/// latest captured materialization snapshot of an asset in the subscriber's
+/// `// on` trigger set. Serialized into the dispatched job's `trigger` arg
+/// (`upstream_snapshots`) so a failing consumer run stays debuggable against
+/// DuckLake time-travel. Record-only — the consumer's reads are not pinned.
+#[derive(Debug, Serialize)]
+struct UpstreamSnapshot {
+    /// Canonical asset uri, e.g. `ducklake://analytics/orders_daily`.
+    asset: String,
+    snapshot_id: i64,
+    /// Partition whose write produced this snapshot — i.e. the latest slice
+    /// written, not necessarily the slice this consumer processes. The
+    /// snapshot itself is table-global. Omitted for whole-table
+    /// materializations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partition: Option<String>,
+}
+
+/// Latest captured snapshot per direct upstream of `subscriber_path`: its
+/// asset trigger set joined against `materialized_partition`, keeping the
+/// highest `snapshot_id` per asset (the newest substrate version the consumer
+/// could read). Assets with no captured snapshot (non-materialized upstreams)
+/// simply produce no entry. Two queries total regardless of upstream count.
+async fn upstream_snapshots(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    subscriber_path: &str,
+) -> Result<Vec<UpstreamSnapshot>> {
+    let refs = sqlx::query_scalar!(
+        r#"SELECT DISTINCT trigger_ref AS "trigger_ref!"
+           FROM script_trigger
+           WHERE workspace_id = $1
+             AND runnable_path = $2
+             AND trigger_kind = 'asset'
+             AND runnable_kind = 'script'
+           ORDER BY trigger_ref"#,
+        workspace_id,
+        subscriber_path,
+    )
+    .fetch_all(db)
+    .await?;
+    // Keep only refs with a recognized asset prefix, preserving ref order so
+    // the recorded list is deterministic.
+    let parsed: Vec<(String, AssetKind, String)> = refs
+        .into_iter()
+        .filter_map(|r| parse_asset_trigger_ref(&r).map(|(k, p)| (r, k, p)))
+        .collect();
+    if parsed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let kinds: Vec<AssetKind> = parsed.iter().map(|(_, k, _)| *k).collect();
+    let paths: Vec<String> = parsed.iter().map(|(_, _, p)| p.clone()).collect();
+    let rows = sqlx::query!(
+        r#"SELECT DISTINCT ON (mp.asset_kind, mp.asset_path)
+                  mp.asset_kind AS "asset_kind: AssetKind", mp.asset_path,
+                  mp.snapshot_id AS "snapshot_id!", mp.partition
+             FROM materialized_partition mp
+             JOIN unnest($2::ASSET_KIND[], $3::text[]) AS u(kind, path)
+               ON mp.asset_kind = u.kind AND mp.asset_path = u.path
+            WHERE mp.workspace_id = $1
+              AND mp.status = 'materialized' AND mp.snapshot_id IS NOT NULL
+            ORDER BY mp.asset_kind, mp.asset_path, mp.snapshot_id DESC"#,
+        workspace_id,
+        kinds as Vec<AssetKind>,
+        &paths,
+    )
+    .fetch_all(db)
+    .await?;
+    let mut latest: HashMap<(AssetKind, String), (i64, String)> = rows
+        .into_iter()
+        .map(|r| ((r.asset_kind, r.asset_path), (r.snapshot_id, r.partition)))
+        .collect();
+    Ok(parsed
+        .into_iter()
+        .filter_map(|(trigger_ref, kind, path)| {
+            let (snapshot_id, partition) = latest.remove(&(kind, path))?;
+            Some(UpstreamSnapshot {
+                asset: trigger_ref,
+                snapshot_id,
+                partition: (!partition.is_empty()).then_some(partition),
+            })
+        })
+        .collect())
+}
+
 /// A subscriber row resolved from `script_trigger`. Bundles the per-edge
 /// options (debounce) and the script-level policy fields (`join_all`,
 /// retry) that travel together to dispatch.
@@ -589,6 +751,7 @@ async fn push_subscriber(
     debounce_s: Option<i32>,
     retry_count: Option<i16>,
     retry_delay_s: Option<i32>,
+    upstream_snapshots: &[UpstreamSnapshot],
 ) -> Result<Uuid> {
     // Same resolution as every other trigger path (`script_path_to_payload`):
     // latest deployed hash plus the script's own runnable settings
@@ -604,6 +767,7 @@ async fn push_subscriber(
     .await?
     .prefetch_cached(db)
     .await?;
+    let on_behalf_of = script.on_behalf_of(&producer.workspace_id, db).await?;
     let hash = ScriptHash(script.hash);
     let tag = script.tag;
     let concurrency_settings = script.runnable_settings.concurrency_settings;
@@ -618,14 +782,16 @@ async fn push_subscriber(
         script.runnable_settings.debouncing_settings,
     );
 
-    // Retry is only available via the flow runtime — wrap the script in a
-    // one-step flow when the cascade declares one. No retry =
-    // unwrapped `ScriptHash` push.
+    // When the cascade declares a retry, hand `push` a one-step-flow request
+    // carrying the policy + `language`; `push` materializes it into a native
+    // retryable `Script` (not a flow), so a failed/recovered subscriber stays
+    // eligible to trigger its own downstream. No retry = plain `ScriptHash`.
     let payload = if let Some(retry) = crate::cascade::cascade_retry(retry_count, retry_delay_s) {
         JobPayload::SingleStepFlow {
             path: subscriber_path.to_string(),
             hash: Some(hash),
             flow_version: None,
+            language: Some(script.language),
             args: HashMap::new(),
             retry: Some(retry),
             error_handler_path: None,
@@ -653,6 +819,7 @@ async fn push_subscriber(
             debouncing_settings,
             concurrency_settings,
             labels: script.labels,
+            job_token_scopes: script.job_token_scopes,
         }
     };
 
@@ -660,20 +827,22 @@ async fn push_subscriber(
     // producer's. Subscriptions are workspace-wide, so attributing the run
     // to the producer would let anyone who can deploy a `// on` script
     // execute code with the permissions of whoever happens to write the
-    // asset (e.g. an admin's scheduled job). `on_behalf_of_email` (an
-    // explicit service-account opt-in at deploy) takes precedence for the
-    // email; otherwise the deployer's email is resolved from their
-    // username.
-    let permissioned_as = username_to_permissioned_as(&script.created_by);
-    let email = match script.on_behalf_of_email {
-        Some(obo) => obo,
+    // asset (e.g. an admin's scheduled job). An on-behalf-of identity (an
+    // explicit service-account opt-in at deploy) takes precedence; otherwise
+    // the deployer's email is resolved from their username.
+    let (email, permissioned_as) = match on_behalf_of {
+        Some(obo) => (obo.email, obo.permissioned_as),
         None => {
-            get_email_from_permissioned_as(&permissioned_as, &producer.workspace_id, db).await?
+            let permissioned_as = username_to_permissioned_as(&script.created_by);
+            let email =
+                get_email_from_permissioned_as(&permissioned_as, &producer.workspace_id, db)
+                    .await?;
+            (email, permissioned_as)
         }
     };
 
     let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
-    let trigger_payload = serde_json::json!({
+    let mut trigger_payload = serde_json::json!({
         "kind": "asset",
         "asset_kind": serde_json::to_value(&asset_kind).expect("AssetKind serializes"),
         "asset_path": asset_path,
@@ -682,6 +851,10 @@ async fn push_subscriber(
         CHAIN_KEY: chain,
         PARTITION_ARG: partition,
     });
+    if !upstream_snapshots.is_empty() {
+        trigger_payload["upstream_snapshots"] =
+            serde_json::to_value(upstream_snapshots).expect("UpstreamSnapshot serializes");
+    }
     args.insert(TRIGGER_ARG.to_string(), to_raw_value(&trigger_payload));
     // Carry the producer's resolved partition forward as a top-level arg so
     // the subscriber's body can read it and the next cascade hop's
@@ -690,6 +863,12 @@ async fn push_subscriber(
     if let Some(p) = partition {
         args.insert(PARTITION_ARG.to_string(), to_raw_value(&p));
     }
+    // The partition and chain come from the producer's args, which its author controls, while
+    // the subscriber runs as its own deployer.
+    let args = windmill_common::variables::omit_untrusted_interpolation(
+        args,
+        "The following resource has been omitted for security reasons: ",
+    );
 
     // Attribute the dispatched run to a synthetic user so audit logs reflect
     // it came from the asset cascade, not the original human runner.
@@ -706,6 +885,7 @@ async fn push_subscriber(
         &email,
         permissioned_as,
         Some(producer_path),
+        None,
         None,
         Some(producer_path.to_string()),
         None,
@@ -727,6 +907,7 @@ async fn push_subscriber(
             Some(producer_path.to_string()),
             JobTriggerKind::Asset,
         )),
+        None,
         None,
     )
     .await

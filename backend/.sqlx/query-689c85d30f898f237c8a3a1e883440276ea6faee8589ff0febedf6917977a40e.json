@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name AS \"name!\", provider_path AS \"provider_path!\",\n                  params AS \"params!\", is_table_macro AS \"is_table_macro!\"\n           FROM macro_definition\n           WHERE workspace_id = $1\n           ORDER BY provider_path, name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "provider_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "params!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_table_macro!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "689c85d30f898f237c8a3a1e883440276ea6faee8589ff0febedf6917977a40e"
+}

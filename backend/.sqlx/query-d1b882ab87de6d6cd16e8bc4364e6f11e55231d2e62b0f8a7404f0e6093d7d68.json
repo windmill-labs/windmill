@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1 AND suspend > 0",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d1b882ab87de6d6cd16e8bc4364e6f11e55231d2e62b0f8a7404f0e6093d7d68"
+}

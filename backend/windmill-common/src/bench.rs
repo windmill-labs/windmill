@@ -258,6 +258,8 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
             .execute(db)
             .await
             .unwrap_or_else(|e| panic!("failed to clean up concurrency_counter: {e:#}"));
+        // Benchmark jobs never produce dispatch_event / flow_conversation_message /
+        // zombie_job_counter rows, so this cleanup needs no side-table deletes (cf. delete_jobs).
         sqlx::query!("DELETE FROM v2_job WHERE workspace_id = 'admins'")
             .execute(db)
             .await

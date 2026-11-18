@@ -2,8 +2,7 @@
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { base } from '$lib/base'
+	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
@@ -19,7 +18,7 @@
 		CtxAppInput
 	} from '../../inputType'
 	import type { AppViewerContext } from '../../types'
-	import { workspaceStore } from '$lib/stores'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { createEventDispatcher } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
@@ -33,8 +32,16 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ScriptEditorDrawer from '$lib/components/flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditorDrawer from '$lib/components/flows/content/FlowEditorDrawer.svelte'
-	import { FlowService, ScriptService, type OpenFlow } from '$lib/gen'
+	import { FlowService, ResourceService, ScriptService, type OpenFlow } from '$lib/gen'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { summarizeAgentBrain, type AgentTool } from '$lib/components/flows/agentResourceUtils'
+	import { agentRunnableSchema } from '$lib/components/raw_apps/agentRunnable'
+	import { agentMemoryMode } from '$lib/components/flows/agentFormFields'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		runnable: RunnableByPath
@@ -131,7 +138,7 @@
 				return
 			}
 
-			const loaded = await loadSchema($workspaceStore ?? '', runnable.path, 'flow')
+			const loaded = await loadSchema($operatingWorkspace ?? '', runnable.path, 'flow')
 			const schema = loaded?.schema ?? emptySchema()
 			if (!deepEqual(runnable.schema, schema)) {
 				runnable.schema = schema
@@ -139,6 +146,47 @@
 					runnable.schema.order = Object.keys(runnable.schema.properties ?? {})
 				}
 				fields = computeFields(schema, false, fields ?? {})
+			}
+		} catch (e) {
+			notFound = true
+			console.error(e)
+		}
+	}
+
+	let agentInfo:
+		| {
+				description?: string
+				rows: { label: string; value: string }[]
+				tools: string[]
+				memoryOff: boolean
+		  }
+		| undefined = $state()
+
+	async function refreshAgent(runnable: RunnableByPath) {
+		hubFlowPreview = undefined
+		try {
+			const agent = await ResourceService.getResource({
+				workspace: $operatingWorkspace ?? '',
+				path: runnable.path
+			})
+			const config = agent.value as any
+			agentInfo = {
+				description: agent.description ?? undefined,
+				rows: summarizeAgentBrain(config),
+				tools: ((config?.tools ?? []) as AgentTool[]).map(
+					(t) => t.summary || t.value?.tool_type || t.id
+				),
+				memoryOff: agentMemoryMode(config?.memory) === 'off'
+			}
+			const schema = agentRunnableSchema(config?.memory)
+			if (!deepEqual(runnable.schema, schema)) runnable.schema = schema
+			// Every input of a turn comes from its caller: a static one would be pinned by the
+			// deployed policy, answering every viewer's message with the same one.
+			if (
+				Object.values(fields ?? {}).some((f) => f?.type !== 'user') ||
+				!deepEqual(Object.keys(fields ?? {}).sort(), Object.keys(schema.properties).sort())
+			) {
+				fields = computeFields(schema, true, {})
 			}
 		} catch (e) {
 			notFound = true
@@ -167,7 +215,7 @@
 	async function openScriptEditor(path: string) {
 		try {
 			const script = await ScriptService.getScriptByPath({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				path
 			})
 			scriptEditorDrawer?.openDrawer(script.hash, () => {
@@ -202,6 +250,8 @@
 			refreshScript(runnable)
 		} else if (runnable.runType == 'flow') {
 			refreshFlow(runnable)
+		} else if (runnable.runType == 'agent') {
+			refreshAgent(runnable)
 		} else {
 			hubFlowPreview = undefined
 		}
@@ -317,16 +367,19 @@
 				Expand
 			</Button>
 			{#if hubFlowId}
-				<Button
-					variant="default"
-					size="xs"
-					startIcon={{ icon: GitFork }}
-					endIcon={{ icon: ExternalLink }}
-					target="_blank"
-					href="{base}/flows/add?hub={hubFlowId}"
-				>
-					Fork
-				</Button>
+				<!-- A Hub flow's steps are usually inline code, which only `flows: full` may deploy. -->
+				{#if $roleCaps.flows === 'full'}
+					<Button
+						variant="default"
+						size="xs"
+						startIcon={{ icon: GitFork }}
+						endIcon={{ icon: ExternalLink }}
+						target="_blank"
+						href="/flows/add?hub={hubFlowId}"
+					>
+						Fork
+					</Button>
+				{/if}
 			{:else}
 				<Button
 					variant="default"
@@ -344,11 +397,22 @@
 					startIcon={{ icon: Eye }}
 					endIcon={{ icon: ExternalLink }}
 					target="_blank"
-					href="{base}/flows/get/{runnable.path}?workspace={$workspaceStore}"
+					href="/flows/get/{runnable.path}?workspace={$operatingWorkspace}"
 				>
 					Details
 				</Button>
 			{/if}
+		{:else if runnable.runType == 'agent'}
+			<Button
+				variant="default"
+				unifiedSize="md"
+				startIcon={{ icon: Pen }}
+				endIcon={{ icon: ExternalLink }}
+				target="_blank"
+				href="/agents/edit/{runnable.path}?workspace={$operatingWorkspace}"
+			>
+				Edit
+			</Button>
 		{:else}
 			<Button
 				size="xs"
@@ -360,56 +424,60 @@
 			>
 				Edit
 			</Button>
-			<Button
-				size="xs"
-				variant="default"
-				startIcon={{ icon: GitFork }}
-				on:click={() => {
-					fork(runnable.path)
-				}}
-			>
-				Fork
-			</Button>
-		{/if}
-		<Popover
-			floatingConfig={{
-				middleware: [
-					autoPlacement({
-						allowedPlacements: [
-							'bottom-start',
-							'bottom-end',
-							'top-start',
-							'top-end',
-							'top',
-							'bottom'
-						]
-					})
-				]
-			}}
-			closeButton
-			contentClasses="block text-primary text-xs p-4 w-[20vh]"
-		>
-			{#snippet trigger()}
+			{#if $roleCaps.apps !== 'compose'}
 				<Button
-					nonCaptureEvent={true}
-					btnClasses={'bg-surface text-primay hover:bg-hover'}
-					variant="default"
 					size="xs"
+					variant="default"
+					startIcon={{ icon: GitFork }}
+					on:click={() => {
+						fork(runnable.path)
+					}}
 				>
-					Cache
+					Fork
 				</Button>
-			{/snippet}
-			{#snippet content()}
-				{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
-					Since this is a reference to a hub flow, cache settings are managed from the flow after
-					you fork it into your workspace.
-				{:else}
-					Since this is a reference to a workspace {runnable.runType}, set the cache in the
-					{runnable.runType} settings directly by editing it. The cache will be shared by any app or
-					flow that uses this {runnable.runType}.
-				{/if}
-			{/snippet}
-		</Popover>
+			{/if}
+		{/if}
+		{#if runnable.runType != 'agent'}
+			<Popover
+				floatingConfig={{
+					middleware: [
+						autoPlacement({
+							allowedPlacements: [
+								'bottom-start',
+								'bottom-end',
+								'top-start',
+								'top-end',
+								'top',
+								'bottom'
+							]
+						})
+					]
+				}}
+				closeButton
+				contentClasses="block text-primary text-xs p-4 w-[20vh]"
+			>
+				{#snippet trigger()}
+					<Button
+						nonCaptureEvent={true}
+						btnClasses={'bg-surface text-primay hover:bg-hover'}
+						variant="default"
+						size="xs"
+					>
+						Cache
+					</Button>
+				{/snippet}
+				{#snippet content()}
+					{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
+						Since this is a reference to a hub flow, cache settings are managed from the flow after
+						you fork it into your workspace.
+					{:else}
+						Since this is a reference to a workspace {runnable.runType}, set the cache in the
+						{runnable.runType} settings directly by editing it. The cache will be shared by any app or
+						flow that uses this {runnable.runType}.
+					{/if}
+				{/snippet}
+			</Popover>
+		{/if}
 
 		<input
 			onkeydown={stopPropagation(bubble('keydown'))}
@@ -425,7 +493,7 @@
 					{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
 						Hub flow not found at {runnable.path}
 					{:else}
-						{runnable.runType} not found at {runnable.path} in workspace {$workspaceStore}
+						{runnable.runType} not found at {runnable.path} in workspace {$operatingWorkspace}
 					{/if}
 				</div>
 			{:else if runnable.runType == 'script' || runnable.runType == 'hubscript'}
@@ -449,6 +517,36 @@
 				{:else}
 					<FlowPathViewer path={runnable.path} fillAvailableHeight />
 				{/if}
+			{:else if runnable.runType == 'agent'}
+				<div class="flex flex-col gap-2 p-2">
+					{#if agentInfo?.memoryOff}
+						<Alert type="info" size="xs" title="Managed memory is off">
+							Each call is answered on its own inputs, so a chat would forget every turn. Pass
+							<code>previous_messages</code> to give it the history.
+						</Alert>
+					{/if}
+					{#if agentInfo?.description}
+						<p class="text-xs text-secondary">{agentInfo.description}</p>
+					{/if}
+					<dl class="flex flex-col gap-1">
+						{#each agentInfo?.rows ?? [] as row (row.label)}
+							<div class="flex items-baseline gap-2 text-2xs">
+								<dt class="text-tertiary shrink-0 w-28">{row.label}</dt>
+								<dd class="text-secondary truncate" title={row.value}>{row.value}</dd>
+							</div>
+						{/each}
+						{#if agentInfo?.tools.length}
+							<div class="flex items-baseline gap-2 text-2xs">
+								<dt class="text-tertiary shrink-0 w-28">Tools</dt>
+								<dd class="flex flex-wrap gap-1">
+									{#each agentInfo.tools as tool, i (i)}
+										<Badge color="gray">{tool}</Badge>
+									{/each}
+								</dd>
+							</div>
+						{/if}
+					</dl>
+				</div>
 			{:else}
 				Unrecognized runType {runnable.runType}
 			{/if}

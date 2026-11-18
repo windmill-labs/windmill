@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_diff_full_scan WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "40c76629ba533ad9c523cb9dae2ee8a2a78a250884acff600f3cf0eb9bbaf058"
+}

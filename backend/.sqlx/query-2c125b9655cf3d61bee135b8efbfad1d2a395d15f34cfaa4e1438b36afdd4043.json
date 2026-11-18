@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_diff SET fork_last_event_kind = 'delete', fork_last_event_origin = 'sync'\n         WHERE fork_workspace_id = 'wm-fork-deferred' AND kind = 'flow'\n           AND path = 'u/admin/moved_by_user' RETURNING 1 AS \"one!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "one!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2c125b9655cf3d61bee135b8efbfad1d2a395d15f34cfaa4e1438b36afdd4043"
+}

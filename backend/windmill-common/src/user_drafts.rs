@@ -18,6 +18,7 @@ pub use windmill_types::user_drafts::DraftUserRef;
 
 use crate::db::DB;
 use crate::error::Result;
+use crate::workspaces::ManageKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +46,7 @@ pub enum UserDraftItemKind {
     TriggerKafka,
     TriggerNats,
     TriggerMqtt,
+    TriggerAmqp,
     TriggerSqs,
     TriggerGcp,
     TriggerAzure,
@@ -80,6 +82,7 @@ impl UserDraftItemKind {
             UserDraftItemKind::TriggerKafka => "trigger_kafka",
             UserDraftItemKind::TriggerNats => "trigger_nats",
             UserDraftItemKind::TriggerMqtt => "trigger_mqtt",
+            UserDraftItemKind::TriggerAmqp => "trigger_amqp",
             UserDraftItemKind::TriggerSqs => "trigger_sqs",
             UserDraftItemKind::TriggerGcp => "trigger_gcp",
             UserDraftItemKind::TriggerAzure => "trigger_azure",
@@ -94,7 +97,7 @@ impl UserDraftItemKind {
 
     /// Every variant, for code that must enumerate kinds (e.g. generating
     /// the `draft_only` existence SQL).
-    pub const ALL: [UserDraftItemKind; 25] = [
+    pub const ALL: [UserDraftItemKind; 26] = [
         UserDraftItemKind::Script,
         UserDraftItemKind::Flow,
         UserDraftItemKind::App,
@@ -111,6 +114,7 @@ impl UserDraftItemKind {
         UserDraftItemKind::TriggerKafka,
         UserDraftItemKind::TriggerNats,
         UserDraftItemKind::TriggerMqtt,
+        UserDraftItemKind::TriggerAmqp,
         UserDraftItemKind::TriggerSqs,
         UserDraftItemKind::TriggerGcp,
         UserDraftItemKind::TriggerAzure,
@@ -144,6 +148,7 @@ impl UserDraftItemKind {
             TriggerKafka => Some("kafka_trigger"),
             TriggerNats => Some("nats_trigger"),
             TriggerMqtt => Some("mqtt_trigger"),
+            TriggerAmqp => Some("amqp_trigger"),
             TriggerSqs => Some("sqs_trigger"),
             TriggerGcp => Some("gcp_trigger"),
             TriggerAzure => Some("azure_trigger"),
@@ -153,6 +158,49 @@ impl UserDraftItemKind {
             // Keyed at a folder path, not a runnable; access falls back to the
             // path-only (folder write) check.
             DataPipeline => None,
+        }
+    }
+
+    /// The withdrawable operator right that governs deploying this kind, which is
+    /// therefore also the right to draft it. Every trigger kind maps here, native ones
+    /// included: `gate_operator_writes` covers their routers as well.
+    pub fn manage_kind(&self) -> Option<ManageKind> {
+        use UserDraftItemKind::*;
+        match self {
+            TriggerSchedule => Some(ManageKind::Schedules),
+            TriggerWebhook | TriggerDefaultEmail | TriggerEmail | TriggerHttp
+            | TriggerWebsocket | TriggerPostgres | TriggerKafka | TriggerNats | TriggerMqtt
+            | TriggerAmqp | TriggerSqs | TriggerGcp | TriggerAzure | TriggerPoll | TriggerCli
+            | TriggerNextcloud | TriggerGoogle | TriggerGithub => Some(ManageKind::Triggers),
+            Script | Flow | App | RawApp | Resource | Variable | DataPipeline => None,
+        }
+    }
+
+    /// The `draft.value` key holding the user-typed target path — where a
+    /// deploy of this draft would land when the user staged a rename. A script
+    /// draft round-trips its own `path`; flows and apps write a separate
+    /// `draft_path`, and only when it differs from the row's path.
+    ///
+    /// `None` for every kind with no editor to stage a rename in — a resource,
+    /// a variable, a trigger. Their drafts carry no such key, so `Some` is also
+    /// the test for whether a kind can be moved at all.
+    pub fn typed_path_field(&self) -> Option<&'static str> {
+        use UserDraftItemKind::*;
+        match self {
+            Script => Some("path"),
+            Flow | App | RawApp => Some("draft_path"),
+            _ => None,
+        }
+    }
+
+    /// The other of the two path keys a draft value can carry. The editors mirror
+    /// the typed path into it while it differs from the row's path, so a move that
+    /// rewrote only `typed_path_field` would leave the mirror naming the old
+    /// location — and the loaders prefer the mirror, which un-does the move.
+    pub fn mirror_path_field(&self) -> Option<&'static str> {
+        match self.typed_path_field()? {
+            "path" => Some("draft_path"),
+            _ => Some("path"),
         }
     }
 
@@ -208,6 +256,12 @@ pub struct WithDraftOverlay {
     pub is_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_saved_at: Option<DateTime<Utc>>,
+    /// The deployed version the draft forked from (`draft.base`), as text
+    /// whatever the kind. The editor compares it to the head it loaded to tell
+    /// a draft that is behind. Absent when there is no draft or it was never
+    /// forked from a deploy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_base: Option<String>,
     /// True when no deployed row exists at this path: `inner` is only a
     /// best-effort stand-in synthesized from the draft and only `draft` is
     /// canonical. Frontend uses this to disable "diff/reset vs deployed" and
@@ -237,22 +291,29 @@ async fn fetch_other_drafts_users(
     kind: UserDraftItemKind,
     path: &str,
 ) -> Result<Vec<OtherDraftUser>> {
-    // The `admins` workspace has no `usr` rows (username IS the email there),
-    // so fall back to `d.email` when the join misses, else a real teammate's
-    // draft renders as a phantom "Legacy draft". The genuine NULL-email legacy
-    // row keeps `username = None` (its `d.email` is NULL, so the CASE yields NULL).
+    // A superadmin authoring in a workspace they are not a member of has no `usr`
+    // row: fall back to their instance-derived username (`password.username`), or
+    // their email when derivation is disabled. Else a real teammate's draft renders
+    // as a phantom "Legacy draft". The genuine NULL-email legacy row keeps
+    // `username = None` (no `usr`/`password` match and `d.email` is NULL), which is
+    // why an owner that resolves to no name at all — an external JWT's subject has
+    // neither row — is dropped instead: `None` is taken to mean "legacy" downstream.
     let rows = sqlx::query_as!(
         OtherDraftUser,
-        r#"SELECT COALESCE(u.username, CASE WHEN d.workspace_id = 'admins' THEN d.email END) as "username?",
+        r#"SELECT COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) as "username?",
                   d.created_at as "draft_saved_at!"
            FROM draft d
            LEFT JOIN usr u
                   ON u.workspace_id = d.workspace_id
                  AND u.email = d.email
+           LEFT JOIN password p
+                  ON p.email = d.email
+                 AND p.super_admin = true
            WHERE d.workspace_id = $1
              AND d.path = $2
              AND d.typ = $3
              AND (d.email IS NULL OR d.email <> $4)
+             AND (d.email IS NULL OR u.username IS NOT NULL OR p.email IS NOT NULL)
            ORDER BY d.email NULLS LAST"#,
         w_id,
         path,
@@ -286,6 +347,7 @@ where
             inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
+            draft_base: None,
             no_deployed: false,
             draft: None,
             other_drafts_users: Vec::new(),
@@ -306,7 +368,7 @@ where
     // row when an owned one exists.
     let row = sqlx::query!(
         r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                  created_at
+                  created_at, base
            FROM draft
            WHERE workspace_id = $1
              AND (email = $2 OR email IS NULL)
@@ -327,6 +389,7 @@ where
             inner: Box::new(deployed),
             is_draft: false,
             draft_saved_at: None,
+            draft_base: None,
             no_deployed: false,
             draft: None,
             other_drafts_users,
@@ -339,6 +402,7 @@ where
         inner: Box::new(deployed),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
+        draft_base: row.base,
         no_deployed: false,
         draft: Some(draft_json),
         other_drafts_users,
@@ -390,6 +454,45 @@ pub async fn fetch_draft_only_list_rows(
     Ok(rows)
 }
 
+/// Delete the caller's OWN draft at a path with no deployed row, for the DELETE
+/// route of a kind whose list synthesizes such rows via
+/// `fetch_draft_only_list_rows`. The `NOT EXISTS` leaves a deployed row's draft
+/// alone, so a route may call this on its not-found branch whatever the reason
+/// for the miss. `Ok(false)` means nothing matched: the caller reports its own error.
+///
+/// Takes no permission check and callers must not add one: an email-scoped row
+/// belongs to the caller, who can always discard it, as `update_draft`'s
+/// own-discard does. Legacy (`email IS NULL`) rows are owned by nobody and keep
+/// their write gate, so discarding one stays on the `update_draft` route.
+pub async fn delete_draft_only_for_path(
+    db: &DB,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+    email: &str,
+) -> Result<bool> {
+    let Some(table) = kind.deployed_table() else {
+        return Ok(false);
+    };
+    // `table` is from the closed `deployed_table()` enum, never user input.
+    let sql = format!(
+        "DELETE FROM draft \
+         WHERE workspace_id = $1 AND typ = $2::text::DRAFT_KIND AND path = $3 \
+           AND email = $4 \
+           AND NOT EXISTS (SELECT 1 FROM {table} t \
+             WHERE t.workspace_id = draft.workspace_id AND t.path = draft.path)"
+    );
+    let deleted = sqlx::query(&sql)
+        .bind(w_id)
+        .bind(kind.as_str())
+        .bind(path)
+        .bind(email)
+        .execute(db)
+        .await?
+        .rows_affected();
+    Ok(deleted > 0)
+}
+
 /// The get-by-path draft choreography, shared by every entity's "get by path"
 /// route. Given the deployed entity as an `Option` (caller maps its own "not
 /// found" to `None`):
@@ -416,6 +519,93 @@ pub async fn overlay_or_draft_only<T: serde::Serialize + Send + 'static>(
             .ok_or_else(not_found),
         None => Err(not_found()),
     }
+}
+
+/// Delete the drafts an address owns, and the move records routing saves to them,
+/// across every workspace.
+///
+/// `draft.email` carries no foreign key to `password`: a draft's owner is any principal the
+/// instance authenticates, and an external JWT's subject never has a `password` row. Deleting an
+/// account is therefore what has to delete its drafts — a delete path that skips this leaves them
+/// behind forever, addressed to someone who no longer exists. Call it in the same transaction as
+/// the account removal.
+///
+/// No authorization of its own: it acts instance-wide on whatever address it is handed, so the
+/// caller must already have authorized removing that account (superadmin, the account's own
+/// holder, or SCIM).
+pub async fn delete_drafts_of_email(conn: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    sqlx::query!("DELETE FROM draft WHERE email = $1", email)
+        .execute(&mut *conn)
+        .await?;
+    // The records routing saves to those drafts go with them: one left behind would send
+    // a later holder of the address to a draft that no longer exists.
+    sqlx::query!("DELETE FROM draft_move WHERE email = $1", email)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+/// Move the drafts an address owns onto its new address, for the same reason
+/// [`delete_drafts_of_email`] exists: no foreign key follows the rename, so drafts left behind are
+/// stranded on an address that no longer authenticates. Same authorization contract, for a rename.
+///
+/// The two addresses may each already hold a draft of the same item, since the destination can
+/// belong to a principal with no account and so is not covered by the caller's "address is free"
+/// check. `draft_pkey_with_user` admits only one, so the moving account's wins — which is also why
+/// a rename onto the same address returns early: every row would collide with itself and be
+/// cleared. Callers need not compare first (an IdP re-sending an unchanged `userName` does not).
+pub async fn rename_drafts_of_email(
+    conn: &mut sqlx::PgConnection,
+    old_email: &str,
+    new_email: &str,
+) -> Result<()> {
+    if old_email == new_email {
+        return Ok(());
+    }
+    sqlx::query!(
+        "DELETE FROM draft dest
+         WHERE dest.email = $1
+           AND EXISTS (SELECT 1 FROM draft src
+                       WHERE src.email = $2
+                         AND src.workspace_id = dest.workspace_id
+                         AND src.path = dest.path
+                         AND src.typ = dest.typ)",
+        new_email,
+        old_email
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "UPDATE draft SET email = $1 WHERE email = $2",
+        new_email,
+        old_email
+    )
+    .execute(&mut *conn)
+    .await?;
+    // The records that route saves to those drafts follow the same address, or a save
+    // still addressed to a path the account moved away from would start a second draft
+    // there. The moving account's record for a path wins, as its draft just did.
+    sqlx::query!(
+        "DELETE FROM draft_move dest
+         WHERE dest.email = $1
+           AND EXISTS (SELECT 1 FROM draft_move src
+                       WHERE src.email = $2
+                         AND src.workspace_id = dest.workspace_id
+                         AND src.old_path = dest.old_path
+                         AND src.typ = dest.typ)",
+        new_email,
+        old_email
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "UPDATE draft_move SET email = $1 WHERE email = $2",
+        new_email,
+        old_email
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
 }
 
 /// Delete EVERY user's draft (and the legacy NULL-email row) at a path+kind.
@@ -471,6 +661,335 @@ pub async fn delete_own_draft_for_path(
     Ok(())
 }
 
+/// Copy drafts from `source` into its fork `target`, returning the `(kind, path)` of each row
+/// copied. With `items = None` this is the fork-time clone: every row of `email` plus the legacy
+/// NULL-email row. With `items`, only `email`'s own rows at those `(kind, path)` pairs.
+///
+/// No authorization here. The caller MUST have checked that `target` is in `source`'s family, that
+/// the credential behind `email` may act on `target`, and that it may write each copied path
+/// there. Secret values are copied as encrypted, so the two workspaces must share a key.
+///
+/// A row the target already holds is skipped and left out of the result: a conflict check earlier
+/// in the transaction cannot see a save committed after it, so a caller that needs every row
+/// copied compares the result with what it asked for.
+/// `created_at` is preserved so the per-tab `last_sync` baseline the editor reads lines up with
+/// the source's timeline — otherwise the first save from an open editor would trip the conflict
+/// modal on every copied draft.
+pub async fn copy_drafts_to_workspace(
+    conn: &mut sqlx::PgConnection,
+    source: &str,
+    target: &str,
+    email: &str,
+    items: Option<&[(UserDraftItemKind, String)]>,
+) -> Result<Vec<(UserDraftItemKind, String)>> {
+    let (kinds, paths): (Option<Vec<&str>>, Option<Vec<&str>>) = match items {
+        Some(items) => (
+            Some(items.iter().map(|(k, _)| k.as_str()).collect()),
+            Some(items.iter().map(|(_, p)| p.as_str()).collect()),
+        ),
+        None => (None, None),
+    };
+    // A script/flow draft carries the principal in its value, and deploying it in the target
+    // would send a pair naming somebody who may not be a member there. Stripped rather than
+    // filtered: the address the draft still carries re-derives the target's own principal at
+    // deploy time, which is the more accurate answer of the two.
+    let rows = sqlx::query!(
+        // A script hash is content-addressed and shared between a workspace and its forks, so
+        // a script draft keeps its base (and `parent_hash`, both `ScriptHash`'s 16 hex digits,
+        // matched on the column so the lookup uses the key) when the target has that version,
+        // which a fork's clone does; one deployed in the source after the fork was made is not
+        // there, and a deploy naming it as parent would be refused. Flow and app ids are minted
+        // per workspace, so those drafts arrive with no base (staleness falls back to the
+        // timestamps), lineage field included, or the next autosave would re-derive the source id.
+        //
+        // `clean` is `strip_json_nul`'s parity rule in SQL, so a pre-sanitizer U+0000 escape
+        // cannot abort the copy on `to_jsonb` or arrive with its principal unstripped: escaped
+        // backslashes park on chr(1) (lossless, a `json` value's text cannot hold a raw control
+        // byte) so only a real NUL is removed, and chr(92) spells the backslash so no escape
+        // sequence reaches this source file.
+        r#"INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
+         SELECT $2::text, path, typ,
+                to_json(
+                    CASE WHEN typ IN ('script', 'flow') THEN clean - 'on_behalf_of' ELSE clean END
+                    - CASE WHEN typ = 'flow' THEN 'version_id'
+                           WHEN typ IN ('app', 'raw_app') THEN 'parent_version'
+                           ELSE '' END
+                    - CASE WHEN typ <> 'script' THEN ''
+                           WHEN (clean->>'parent_hash' ~ '^[0-9a-f]{16}$') IS NOT TRUE THEN 'parent_hash'
+                           WHEN EXISTS (SELECT 1 FROM script sc WHERE sc.workspace_id = $2::text
+                                    AND sc.hash = ('x' || (clean->>'parent_hash'))::bit(64)::bigint)
+                           THEN '' ELSE 'parent_hash' END
+                ),
+                created_at, email,
+                CASE WHEN typ = 'script' AND base ~ '^[0-9a-f]{16}$' THEN
+                    CASE WHEN EXISTS (SELECT 1 FROM script sc WHERE sc.workspace_id = $2::text
+                                 AND sc.hash = ('x' || base)::bit(64)::bigint)
+                         THEN base END
+                END
+         FROM (
+             SELECT d.path, d.typ, d.created_at, d.email, d.base,
+                    replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean
+             FROM draft d
+             WHERE d.workspace_id = $1
+               AND CASE WHEN $4::text[] IS NULL THEN d.email = $3 OR d.email IS NULL
+                        ELSE d.email = $3
+                             AND (d.typ::text, d.path) IN (SELECT * FROM unnest($4::text[], $5::text[]))
+                   END
+         ) s
+         ON CONFLICT DO NOTHING
+         RETURNING typ AS "typ: UserDraftItemKind", path"#,
+        source,
+        target,
+        email,
+        kinds.as_deref() as Option<&[&str]>,
+        paths.as_deref() as Option<&[&str]>,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.typ, r.path)).collect())
+}
+
+/// Carry every draft at `old_path` over to `new_path` when an item MOVES
+/// (rename or relocation). A draft is bound to its item by nothing but the path
+/// string, so without this a move detaches every draft on the item. No owner
+/// filter: teammates' rows and the legacy NULL-email row follow too.
+///
+/// **The caller must have authorized the underlying item move first.** This rewrites
+/// rows the caller has no permission on and enforces nothing itself, taking both paths
+/// on trust: it is safe only inside a deploy that has already cleared them, and is a
+/// cross-user write with no gate anywhere else.
+///
+/// The value keeps its base version, so every carried draft reads as behind the head the
+/// move minted. Of its two path keys, one still naming `old_path` follows the row (the
+/// editors write the item's own path there on every save, so it is the item's path and
+/// not a staged rename); any other value is a rename the user staged, and is kept.
+///
+/// A draft already at `new_path` occupies it the way a deployed item does, so the move is
+/// refused with `BadRequest` inside the deploy's transaction, refusing the rename itself:
+/// moving onto it would merge two items or strand the row that lost. A row a `draft_move`
+/// record already brought there from `old_path` is this rename's own draft and does not
+/// count: deploying it would otherwise be refused against itself, with no way out.
+pub async fn move_drafts_for_path(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    kinds: &[UserDraftItemKind],
+    old_path: &str,
+    new_path: &str,
+) -> Result<()> {
+    let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    // Named by workspace username, as the editors name other users' drafts: the
+    // caller is often not the owner, and cannot clear a draft they cannot find.
+    let owners = sqlx::query!(
+        r#"SELECT d.email IS NULL as "legacy!", COALESCE(u.username, p.username) as username
+           FROM draft d
+           LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email
+           LEFT JOIN password p ON p.email = d.email AND p.super_admin = true
+           WHERE d.workspace_id = $1 AND d.path = $2 AND d.typ::text = ANY($3::text[])
+             -- A row a move already brought here from the very path being renamed is this
+             -- rename's own draft, not an item in its way: the record says which owners
+             -- it moved (all of them for an item move, one for a draft-only move). Any
+             -- other row is a second item and still collides.
+             AND NOT EXISTS (
+                 SELECT 1 FROM draft_move m
+                 WHERE m.workspace_id = $1 AND m.typ::text = ANY($3::text[])
+                   AND m.old_path = $4 AND m.new_path = $2
+                   AND (m.email IS NULL OR m.email IS NOT DISTINCT FROM d.email)
+             )
+           ORDER BY 2"#,
+        w_id,
+        new_path,
+        &typs as &[&str],
+        old_path,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    if !owners.is_empty() {
+        let names = owners
+            .into_iter()
+            .map(|o| match (o.username, o.legacy) {
+                (Some(name), _) => name,
+                (None, true) => "a legacy workspace draft".to_string(),
+                (None, false) => "another user".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(crate::error::Error::BadRequest(format!(
+            "'{new_path}' already has a draft on it ({names}) — it must be moved or discarded first"
+        )));
+    }
+    // `draft.value` is `json`, so a NUL escape left by a pre-sanitizer write makes
+    // `to_jsonb` raise 22P05. `clean` is `strip_json_nul`'s parity rule in SQL (escaped
+    // backslashes parked on chr(1), which a `json` value's text cannot hold, so nothing
+    // collides with it; chr(92) spells the backslash so no escape sequence reaches this
+    // file). A row whose keys need re-pointing is therefore rewritten clean rather than
+    // left naming the old path, and one that needs nothing keeps its value byte for byte.
+    sqlx::query!(
+        r#"UPDATE draft AS d
+           SET path = $3::text,
+               value = (
+                   SELECT CASE
+                       WHEN s.clean -> 'path' = to_jsonb($2::text)
+                         OR s.clean -> 'draft_path' = to_jsonb($2::text)
+                           THEN to_json(
+                               s.clean
+                               || CASE WHEN s.clean -> 'path' = to_jsonb($2::text)
+                                       THEN jsonb_build_object('path', $3::text)
+                                       ELSE '{}'::jsonb END
+                               || CASE WHEN s.clean -> 'draft_path' = to_jsonb($2::text)
+                                       THEN jsonb_build_object('draft_path', $3::text)
+                                       ELSE '{}'::jsonb END
+                           )
+                       ELSE d.value
+                   END
+                   FROM (SELECT replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)),
+                                                chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean) s
+               )
+           WHERE d.workspace_id = $1
+             AND d.path = $2::text
+             AND d.typ::text = ANY($4::text[])"#,
+        w_id,
+        old_path,
+        new_path,
+        &typs as &[&str],
+    )
+    .execute(&mut **tx)
+    .await?;
+    record_draft_move(tx, w_id, kinds, old_path, new_path, None).await
+}
+
+/// Record that the drafts at `old_path` now live at `new_path`, so a draft save still
+/// addressed to `old_path` lands on them (see `update_draft`). `email` scopes the
+/// record to one user's draft-only move; `None` is a deployed item's move, for everyone.
+///
+/// Kept to one hop: records pointing at `old_path` are re-pointed (an owner's move
+/// leaves the item's own record alone and copies it into its own scope instead), and
+/// records leaving either path are replaced, since `new_path` now holds the item.
+///
+/// **The caller must have authorized the move first.** A record routes every later
+/// draft write at `old_path` (any owner's, for an item move), and enforces nothing
+/// itself.
+///
+/// A record outlives the editors that need it: it ends when a later move touches either
+/// path or an item is deployed at `old_path`, so a save meaning to start a NEW draft at a
+/// vacated path would be routed instead. Nothing does that today: every surface parks a
+/// new item at a minted `u/<user>/draft_<uuid>` key (`mintDraftPath.ts`).
+pub async fn record_draft_move(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    kinds: &[UserDraftItemKind],
+    old_path: &str,
+    new_path: &str,
+    email: Option<&str>,
+) -> Result<()> {
+    let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    sqlx::query!(
+        "DELETE FROM draft_move
+         WHERE workspace_id = $1 AND typ::text = ANY($2::text[])
+           AND old_path IN ($3, $4) AND ($5::text IS NULL OR email = $5)",
+        w_id,
+        &typs as &[&str],
+        old_path,
+        new_path,
+        email,
+    )
+    .execute(&mut **tx)
+    .await?;
+    // Routes that ended at the destination before this move describe drafts that were
+    // carried there for an item this one is replacing: left alive, a save addressed to
+    // the start of that chain would land on this move's draft instead.
+    sqlx::query!(
+        "DELETE FROM draft_move
+         WHERE workspace_id = $1 AND typ::text = ANY($2::text[])
+           AND new_path = $4 AND old_path <> $3 AND ($5::text IS NULL OR email = $5)",
+        w_id,
+        &typs as &[&str],
+        old_path,
+        new_path,
+        email,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE draft_move SET new_path = $4
+         WHERE workspace_id = $1 AND typ::text = ANY($2::text[])
+           AND new_path = $3 AND ($5::text IS NULL OR email = $5)",
+        w_id,
+        &typs as &[&str],
+        old_path,
+        new_path,
+        email,
+    )
+    .execute(&mut **tx)
+    .await?;
+    // An owner's move must not re-point what everyone else follows, so the item's own
+    // records ending at `old_path` are copied into this scope: a save addressed to the
+    // start of that chain still reaches this destination in one hop. Only those: another
+    // user's owner-scoped record routes their own draft-only item, which this move has
+    // nothing to do with.
+    if email.is_some() {
+        sqlx::query!(
+            "INSERT INTO draft_move (workspace_id, typ, old_path, new_path, email)
+             SELECT m.workspace_id, m.typ, m.old_path, $4, $5::text
+             FROM draft_move m
+             WHERE m.workspace_id = $1 AND m.typ::text = ANY($2::text[])
+               AND m.new_path = $3 AND m.email IS NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM draft_move o
+                   WHERE o.workspace_id = m.workspace_id AND o.typ = m.typ
+                     AND o.old_path = m.old_path AND o.email = $5::text
+               )",
+            w_id,
+            &typs as &[&str],
+            old_path,
+            new_path,
+            email,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    sqlx::query!(
+        "INSERT INTO draft_move (workspace_id, typ, old_path, new_path, email)
+         SELECT $1, t::draft_kind, $3, $4, $5 FROM unnest($2::text[]) t",
+        w_id,
+        &typs as &[&str],
+        old_path,
+        new_path,
+        email,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Drop the move records at `path`: an item was just created there, so saves addressed to
+/// it are its own (records leaving `path`). A deploy that is not a rename also drops the
+/// records arriving, which point at an item that no longer owns the path; `keep_from`,
+/// the path a rename came from, suppresses that, since the chain ending here is the one
+/// this very deploy just wrote.
+///
+/// **The caller must have authorized the deploy that created the item first.**
+/// Dropping a record sends later draft writes at `path` back to `path`.
+pub async fn clear_draft_moves_from(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    kinds: &[UserDraftItemKind],
+    path: &str,
+    keep_from: Option<&str>,
+) -> Result<()> {
+    let typs = kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    sqlx::query!(
+        "DELETE FROM draft_move WHERE workspace_id = $1 AND typ::text = ANY($2::text[])
+           AND (old_path = $3 OR (new_path = $3 AND $4::text IS NULL))",
+        w_id,
+        &typs as &[&str],
+        path,
+        keep_from,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 /// Fetch the authed user's draft as a standalone payload, for "get by path"
 /// routes when no deployed row exists but a draft might. Returns it as a
 /// `WithDraftOverlay` with `inner` and `draft` both set to the same JSON and
@@ -489,7 +1008,7 @@ pub async fn fetch_draft_only(
     // Own draft first, legacy NULL-email row as fallback (see `maybe_overlay_draft`).
     let row = sqlx::query!(
         r#"SELECT value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
-                  created_at
+                  created_at, base
            FROM draft
            WHERE workspace_id = $1
              AND (email = $2 OR email IS NULL)
@@ -520,6 +1039,7 @@ pub async fn fetch_draft_only(
         inner: Box::new(draft_json.clone()),
         is_draft: true,
         draft_saved_at: Some(row.created_at),
+        draft_base: row.base,
         no_deployed: true,
         draft: Some(draft_json),
         other_drafts_users,

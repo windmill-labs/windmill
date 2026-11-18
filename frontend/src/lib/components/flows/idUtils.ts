@@ -14,6 +14,9 @@ export const forbiddenIds: string[] = [
 	'in',
 	'failure',
 	'preprocessor',
+	// The agent editor's synthetic root module. It shares one flow-state map with the agent's
+	// tools, so a tool of this id would take the root's slot and show the agent's own schema.
+	'__wm_agent_root',
 	'as',
 	'Input',
 	'Result',

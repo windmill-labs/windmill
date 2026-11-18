@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
+	import { isNewTabClick } from '$lib/navigation'
 
 	interface Props {
 		title: string
@@ -18,8 +19,8 @@
 		<a
 			class="text-accent truncate text-xs"
 			{href}
-			onclick={() => {
-				dispatch('close')
+			onclick={(e) => {
+				if (!isNewTabClick(e)) dispatch('close')
 			}}
 		>
 			{title}

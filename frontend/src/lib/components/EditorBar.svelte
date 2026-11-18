@@ -22,11 +22,9 @@
 <script lang="ts">
 	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
-	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -39,6 +37,7 @@
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
+	import { bashRunsInCustomImage } from '$lib/script_helpers'
 	import Toggle from './Toggle.svelte'
 
 	import {
@@ -53,11 +52,12 @@
 		Package,
 		Plus,
 		RotateCw,
+		Sigma,
 		Save,
 		Settings,
 		Users
 	} from 'lucide-svelte'
-	import { capitalize, formatS3Object, toCamel, type Item } from '$lib/utils'
+	import { capitalize, formatS3Object, isObject, toCamel, type Item } from '$lib/utils'
 	import DropdownV2 from './DropdownV2.svelte'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
@@ -69,9 +69,14 @@
 	import { quicktype, InputData, JSONSchemaInput, FetchingJSONSchemaStore } from 'quicktype-core'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
+	import MetricsDrawer from './metrics/MetricsDrawer.svelte'
+	import { endsWithUnterminatedStatement } from './sqlDdl'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -90,7 +95,7 @@
 		// editor). `undefined` = not applicable; `false` makes the badge red
 		// even if the main function parses.
 		validAssets?: boolean | undefined
-		kind?: 'script' | 'trigger' | 'approval'
+		kind?: 'script' | 'trigger' | 'approval' | 'preprocessor'
 		template?:
 			| 'pgsql'
 			| 'mysql'
@@ -99,6 +104,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 			| 'wac_python'
 			| 'wac_typescript'
 			| 'ci_test_bun'
@@ -117,6 +123,9 @@
 		right?: import('svelte').Snippet
 		openAiChat?: boolean
 		moduleId?: string
+		// Workspace to scope variable/resource/data-table lookups to. Defaults to the
+		// operating workspace (see `useOperatingWorkspace`).
+		workspace?: string
 	}
 
 	let {
@@ -141,19 +150,22 @@
 		showHistoryDrawer = $bindable(false),
 		right,
 		openAiChat = false,
-		moduleId = undefined
+		moduleId = undefined,
+		workspace = undefined
 	}: Props = $props()
 
+	let ws = $derived(workspace ?? $operatingWorkspace)
+
 	let contextualVariablePicker: ItemPicker | undefined = $state()
-	let variablePicker: ItemPicker | undefined = $state()
+	let variablePicker: VariablePicker | undefined = $state()
 	let resourcePicker: ItemPicker | undefined = $state()
 	let resourceTypePicker: ItemPicker | undefined = $state()
-	let variableEditor: VariableEditor | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
 	let dataTablePicker: ItemPicker | undefined = $state()
 	let databasePicker: ItemPicker | undefined = $state()
+	let metricsDrawer: MetricsDrawer | undefined = $state()
 	let gitRepoPickerOpen = $state(false)
 
 	let showContextVarPicker = $derived(
@@ -231,6 +243,9 @@
 		['duckdb', 'python3'].includes(lang ?? '') ||
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
 	)
+	// Declared metrics compile to a SELECT, so only a DuckDB script can take the
+	// insertion; the other DuckLake-capable languages call it through the SDK.
+	let showMetricsDrawer = $derived(lang === 'duckdb')
 	let showDucklakePicker = $derived(
 		['duckdb', 'python3'].includes(lang ?? '') ||
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
@@ -310,6 +325,13 @@
 				action: () => ducklakePicker?.openDrawer()
 			})
 		}
+		if (showMetricsDrawer && customUi?.metrics != false) {
+			items.push({
+				displayName: 'Metrics',
+				icon: Sigma,
+				action: () => metricsDrawer?.open()
+			})
+		}
 		if (showDataTablePicker && customUi?.dataTable != false) {
 			items.push({
 				displayName: 'Data table',
@@ -349,13 +371,9 @@
 		editor && untrack(() => addEditorActions())
 	})
 
-	async function loadVariables() {
-		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
-	}
-
 	async function loadContextualVariables() {
 		return await VariableService.listContextualVariables({
-			workspace: $workspaceStore ?? 'NO_W'
+			workspace: ws ?? 'NO_W'
 		})
 	}
 
@@ -366,23 +384,23 @@
 	async function onScriptPick(e: { detail: { path: string } }) {
 		codeObj = undefined
 		codeViewer?.openDrawer?.()
-		codeObj = await getScriptByPath(e.detail.path ?? '')
+		codeObj = await getScriptByPath(e.detail.path ?? '', ws)
 	}
 
 	const dispatch = createEventDispatcher()
 
 	function compile(schema: Schema) {
-		function rec(x: { [name: string]: SchemaProperty }, root = false) {
+		function rec(x: { [name: string]: SchemaProperty } | undefined, root = false) {
 			let res = '{\n'
-			const entries = Object.entries(x)
+			const entries = Object.entries(isObject(x) ? x : {})
 			if (entries.length == 0) {
 				return 'any'
 			}
 			let i = 0
 			for (let [name, prop] of entries) {
-				if (prop.type == 'object') {
-					res += `${name}: ${rec(prop.properties ?? {})}`
-				} else if (prop.type == 'array') {
+				if (prop?.type == 'object') {
+					res += `${name}: ${rec(prop.properties)}`
+				} else if (prop?.type == 'array') {
 					res += `${name}: ${prop?.items?.type ?? 'any'}[]`
 				} else {
 					let typ = prop?.type ?? 'any'
@@ -401,7 +419,7 @@
 			}
 			return res
 		}
-		return rec(schema.properties, true)
+		return rec(schema?.properties, true)
 	}
 
 	async function quicktypeJSONSchema(targetLanguage, typeName, jsonSchemaString, rendererOptions) {
@@ -423,7 +441,7 @@
 	async function resourceTypePickCallback(name: string) {
 		if (!editor) return
 		const resourceType = await ResourceService.getResourceType({
-			workspace: $workspaceStore ?? 'NO_W',
+			workspace: ws ?? 'NO_W',
 			path: name
 		})
 
@@ -462,22 +480,23 @@
 
 	function phpCompile(schema: Schema) {
 		let res = '  '
-		const entries = Object.entries(schema.properties)
+		const properties = schema?.properties
+		const entries = Object.entries(isObject(properties) ? properties : {})
 		if (entries.length === 0) {
-			return 'array'
+			return ''
 		}
 		let i = 0
 		for (let [name, prop] of entries) {
 			let typ = 'array'
-			if (prop.type === 'array') {
+			if (prop?.type === 'array') {
 				typ = 'array'
-			} else if (prop.type === 'string') {
+			} else if (prop?.type === 'string') {
 				typ = 'string'
-			} else if (prop.type === 'number') {
+			} else if (prop?.type === 'number') {
 				typ = 'float'
-			} else if (prop.type === 'integer') {
+			} else if (prop?.type === 'integer') {
 				typ = 'int'
-			} else if (prop.type === 'boolean') {
+			} else if (prop?.type === 'boolean') {
 				typ = 'bool'
 			}
 			res += `public ${typ} $${name};`
@@ -490,22 +509,24 @@
 	}
 	function pythonCompile(schema: Schema) {
 		let res = ''
-		const entries = Object.entries(schema.properties)
+		const properties = schema?.properties
+		const entries = Object.entries(isObject(properties) ? properties : {})
 		if (entries.length === 0) {
-			return 'dict'
+			// the result is inserted as a `class X(TypedDict):` body
+			return 'pass'
 		}
 		let i = 0
 		for (let [name, prop] of entries) {
 			let typ = 'dict'
-			if (prop.type === 'array') {
+			if (prop?.type === 'array') {
 				typ = 'list'
-			} else if (prop.type === 'string') {
+			} else if (prop?.type === 'string') {
 				typ = 'str'
-			} else if (prop.type === 'number') {
+			} else if (prop?.type === 'number') {
 				typ = 'float'
-			} else if (prop.type === 'integer') {
+			} else if (prop?.type === 'integer') {
 				typ = 'int'
-			} else if (prop.type === 'boolean') {
+			} else if (prop?.type === 'boolean') {
 				typ = 'bool'
 			}
 			res += `${name}: ${typ}`
@@ -555,7 +576,13 @@
 <Drawer bind:this={scriptPicker} size="900px">
 	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
 		{#if pick_existing == 'hub'}
-			<PickHubScript bind:filter {kind} on:pick={onScriptPick}>
+			<!-- The hub publishes no preprocessor script, so that kind falls back to the action list
+			     rather than showing an empty hub. -->
+			<PickHubScript
+				bind:filter
+				kind={kind == 'preprocessor' ? 'script' : kind}
+				on:pick={onScriptPick}
+			>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</PickHubScript>
 		{:else}
@@ -632,9 +659,11 @@
 	loadItems={loadContextualVariables}
 />
 
-<ItemPicker
+<VariablePicker
+	editable
 	bind:this={variablePicker}
-	pickCallback={(path, name) => {
+	workspace={ws}
+	onPick={(path, name) => {
 		if (!editor) return
 		if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 			if (!editor.getCode().includes('import * as wmill from')) {
@@ -652,7 +681,17 @@
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		} else if (lang == 'bash') {
-			editor.insertAtCursor(`wmill variable get ${path} --json | jq -r .value`)
+			if (bashRunsInCustomImage(editor.getCode())) {
+				// Custom image: no wmill CLI. Fall back to curl, then busybox wget
+				// (the default `# sandbox alpine:latest` image ships wget, not curl).
+				// get_value returns a JSON-quoted string, so strip the outer quotes
+				// to match the `jq -r .value` output of the non-sandbox branch.
+				editor.insertAtCursor(
+					`{ curl -sf -H "Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path}" 2>/dev/null || wget -qO- --header="Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/variables/get_value/${path}"; } | sed 's/^"//;s/"$//'`
+				)
+			} else {
+				editor.insertAtCursor(`wmill variable get ${path} --json | jq -r .value`)
+			}
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
 			editor.arrowDown()
@@ -688,27 +727,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
-	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-	itemName="Variable"
-	extraField="path"
-	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
->
-	{#snippet submission()}
-		<div class="flex flex-row">
-			<Button
-				variant="accent"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
+/>
 
 <ItemPicker
 	bind:this={resourcePicker}
@@ -730,7 +749,16 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
 		} else if (lang == 'bash') {
-			editor.insertAtCursor(`wmill resource get ${path} --json | jq .value`)
+			if (bashRunsInCustomImage(editor.getCode())) {
+				// Custom image: no wmill CLI. Fall back to curl, then busybox wget
+				// (the default `# sandbox alpine:latest` image ships wget, not curl).
+				// get_value_interpolated returns JSON, matching the `jq .value` branch.
+				editor.insertAtCursor(
+					`curl -sf -H "Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}" 2>/dev/null || wget -qO- --header="Authorization: Bearer $WM_TOKEN" "$BASE_INTERNAL_URL/api/w/$WM_WORKSPACE/resources/get_value_interpolated/${path}"`
+				)
+			} else {
+				editor.insertAtCursor(`wmill resource get ${path} --json | jq .value`)
+			}
 		} else if (lang == 'powershell') {
 			editor.insertAtCursor(`$Headers = @{\n"Authorization" = "Bearer $Env:WM_TOKEN"`)
 			editor.arrowDown()
@@ -785,8 +813,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	buttons={{ 'Edit/View': (x) => resourceEditor?.initEdit(x) }}
 	extraField="description"
 	extraField2="resource_type"
-	loadItems={async () =>
-		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
+	loadItems={async () => await ResourceService.listResource({ workspace: ws ?? 'NO_W' })}
 >
 	{#snippet submission()}
 		<div class="flex flex-row gap-x-1 mr-2">
@@ -794,7 +821,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				startIcon={{ icon: Plus }}
 				target="_blank"
 				variant="accent"
-				href="{base}/resources?connect_app=undefined"
+				href="/resources?connect_app=undefined"
 			>
 				Add resource
 			</Button>
@@ -812,12 +839,14 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 		itemName="Resource Type"
 		extraField="name"
-		loadItems={async () =>
-			await ResourceService.listResourceType({ workspace: $workspaceStore ?? 'NO_W' })}
+		loadItems={async () => await ResourceService.listResourceType({ workspace: ws ?? 'NO_W' })}
 	/>
 {/if}
-<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
-<VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
+<ResourceEditorDrawer
+	bind:this={resourceEditor}
+	workspace={ws}
+	on:refresh={resourcePicker.openDrawer}
+/>
 
 {#if showDucklakePicker}
 	<ItemPicker
@@ -842,9 +871,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake"
 		itemName="ducklake"
 		loadItems={async () =>
-			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
-				(path) => ({ path })
-			)}
+			(await WorkspaceService.listDucklakes({ workspace: ws ?? 'NO_W' })).map((path) => ({ path }))}
 	>
 		{#snippet submission()}
 			<div class="flex flex-row gap-x-1 mr-2">
@@ -852,7 +879,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=ducklake"
+					href="/workspace_settings?tab=ducklake"
 				>
 					Go to settings
 				</Button>
@@ -885,9 +912,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
 		itemName="data table"
 		loadItems={async () =>
-			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
-				(d) => ({ path: d.name })
-			)}
+			(await WorkspaceService.listDataTables({ workspace: ws ?? 'NO_W' })).map((d) => ({
+				path: d.name
+			}))}
 	>
 		{#snippet submission()}
 			<div class="flex flex-row gap-x-1 mr-2">
@@ -895,7 +922,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=windmill_data_tables"
+					href="/workspace_settings?tab=windmill_data_tables"
 				>
 					Go to settings
 				</Button>
@@ -923,10 +950,29 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		extraField2="resource_type"
 		loadItems={async () =>
 			await ResourceService.listResource({
-				workspace: $workspaceStore ?? 'NO_W',
+				workspace: ws ?? 'NO_W',
 				resourceType: 'postgresql,mysql,bigquery'
 			})}
 	></ItemPicker>
+{/if}
+
+{#if showMetricsDrawer && customUi?.metrics != false}
+	<!-- Appended rather than inserted at the cursor: the snippet is a whole statement
+	     block, and when it relies on an ATTACH already in the script it must follow it. -->
+	<MetricsDrawer
+		bind:this={metricsDrawer}
+		workspace={ws}
+		getCode={() => editor?.getCode() ?? ''}
+		onInsert={(sql) => {
+			// Terminate whatever the script ends with: appending a fresh statement
+			// after an unterminated one produces invalid SQL. The separator starts on
+			// its own line so the `;` cannot land inside a trailing line comment.
+			const existing = editor?.getCode() ?? ''
+			const sep =
+				existing.trim() === '' ? '' : endsWithUnterminatedStatement(existing) ? '\n;\n\n' : '\n\n'
+			editor?.append(sep + sql + '\n')
+		}}
+	/>
 {/if}
 
 <S3FilePicker
@@ -1011,7 +1057,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						aiDescription="Add variable"
 						title="Add variable"
 						variant="subtle"
-						on:click={variablePicker.openDrawer}
+						on:click={() => variablePicker?.openDrawer()}
 						unifiedSize="sm"
 						startIcon={{ icon: DollarSign }}
 						{iconOnly}
@@ -1109,6 +1155,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						startIcon={{ icon: DucklakeIcon }}
 						{iconOnly}
 						>+Ducklake
+					</Button>
+				{/if}
+
+				{#if showMetricsDrawer && customUi?.metrics != false}
+					<Button
+						aiId="editor-bar-metrics"
+						aiDescription="Open the measures and dimensions declared on DuckLake tables"
+						title="Metrics"
+						variant="subtle"
+						on:click={() => metricsDrawer?.open()}
+						unifiedSize="sm"
+						startIcon={{ icon: Sigma }}
+						{iconOnly}
+						>Metrics
 					</Button>
 				{/if}
 
@@ -1235,7 +1295,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if customUi?.aiGen != false}
 				{#if openAiChat}
-					<FlowInlineScriptAiButton {moduleId} btnProps={{ variant: 'subtle' }} />
+					<FlowInlineScriptAiButton
+						{moduleId}
+						flushEditor={() => editor?.flushPendingChanges()}
+						btnProps={{ variant: 'subtle' }}
+					/>
 				{/if}
 			{/if}
 

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow_node SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3 AND NOT EXISTS (SELECT 1 FROM flow_node d WHERE d.workspace_id = $3 AND d.hash_v2 = flow_node.hash_v2 AND d.path = REGEXP_REPLACE(flow_node.path, 'u/' || $2 || '/(.*)', $1 || '/\\1'))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6cdd377dc2987bd46604b187ce7a54c7ce282621ef23ae0b8427b98474b41fef"
+}

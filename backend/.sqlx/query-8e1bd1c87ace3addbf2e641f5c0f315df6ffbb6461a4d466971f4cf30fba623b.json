@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id, agent_path FROM slack_agent_channel\n             WHERE slack_team_id = $1 AND channel_id = $2 AND is_default",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "agent_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8e1bd1c87ace3addbf2e641f5c0f315df6ffbb6461a4d466971f4cf30fba623b"
+}

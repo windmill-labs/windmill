@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM resource_version rv\n         USING (\n             SELECT id FROM (\n                 SELECT id, row_number() OVER (\n                     PARTITION BY workspace_id, path ORDER BY id DESC\n                 ) AS rn\n                 FROM resource_version\n             ) ranked WHERE rn > $1\n         ) over_cap\n         WHERE rv.id = over_cap.id\n         RETURNING rv.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9ecd7eee162905fc55ae4f641c1a2095c02f020a0c8ee47e0b4dbc357ced6fd2"
+}

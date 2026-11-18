@@ -9,7 +9,6 @@
 	// ("This partition") or show the full table ("Whole table") via a toggle.
 	import DBTable from '$lib/components/DBTable.svelte'
 	import { resource } from 'runed'
-	import { workspaceStore } from '$lib/stores'
 	import { loadAllTablesMetaData } from '$lib/components/apps/components/display/dbtable/metadata'
 	import { dbTableOpsWithPreviewScripts } from '$lib/components/dbOps'
 	import type { DbInput } from '$lib/components/dbTypes'
@@ -18,6 +17,9 @@
 	import { twMerge } from 'tailwind-merge'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		// Full asset URI, e.g. `ducklake://main/orders_daily`.
@@ -53,15 +55,19 @@
 		scoped && partition ? `_wm_partition = '${partition.replaceAll("'", "''")}'` : undefined
 	)
 
+	// Distinct from "no columns for this table": a failed metadata read says
+	// nothing about whether the table exists.
+	let colDefsError = $state<string | undefined>(undefined)
+
 	let colDefs = resource(
 		() => [input, refreshKey] as const,
 		async ([_input]) => {
-			if (!_input || !$workspaceStore) return undefined
+			colDefsError = undefined
+			if (!_input || !$operatingWorkspace) return undefined
 			try {
-				return await loadAllTablesMetaData($workspaceStore, _input)
-			} catch {
-				// A load failure reads the same as "table missing" from the preview's
-				// POV; the underlying error is surfaced by loadAllTablesMetaData.
+				return await loadAllTablesMetaData($operatingWorkspace, _input)
+			} catch (e) {
+				colDefsError = (e as Error)?.message || String(e)
 				return undefined
 			}
 		}
@@ -85,12 +91,12 @@
 	})
 
 	let dbTableOps = $derived.by(() => {
-		if (!(input && tableColDefs && tableKey && $workspaceStore)) return undefined
+		if (!(input && tableColDefs && tableKey && $operatingWorkspace)) return undefined
 		const ops = dbTableOpsWithPreviewScripts({
 			input,
 			tableKey,
 			colDefs: tableColDefs,
-			workspace: $workspaceStore,
+			workspace: $operatingWorkspace,
 			whereClause
 		})
 		// Read-only preview: drop the mutation handlers so DBTable hides its
@@ -118,6 +124,11 @@
 	{#if colDefs.loading && !colDefs.current}
 		<div class="flex items-center justify-center p-4 text-tertiary">
 			<Loader2 class="animate-spin" size={18} />
+		</div>
+	{:else if colDefsError}
+		<div class="flex items-start gap-2 p-3 text-2xs text-tertiary">
+			<AlertTriangle size={14} class="text-red-500 shrink-0 mt-0.5" />
+			{colDefsError}
 		</div>
 	{:else if !tableColDefs}
 		<div class="flex items-center gap-2 p-3 text-2xs text-tertiary">

@@ -1,4 +1,4 @@
-import type { DownstreamClosure } from './graphTraversal'
+import type { DownstreamClosure, InducedSchedule } from './graphTraversal'
 
 // Client-side orchestration of a pipeline chain dev-run ("Run + downstream"
 // over a graph that contains drafts). The backend asset-trigger dispatcher
@@ -100,6 +100,107 @@ export async function runCascade(opts: CascadeRunOptions): Promise<CascadeRunRes
 	}
 
 	schedule(root)
+	while (inFlight.size > 0) {
+		await Promise.race(inFlight)
+	}
+
+	for (const [n, st] of statuses) {
+		if (st.status === 'pending') statuses.set(n, { status: 'skipped' })
+	}
+	emit()
+
+	const ok = !failed && [...statuses.values()].every((s) => s.status === 'success')
+	return { ok, statuses }
+}
+
+export type SelectionRunOptions = {
+	/** Multi-root induced schedule of the selected scripts (computeInducedSchedule). */
+	schedule: InducedSchedule
+	/** Launch one script (preview for drafts, by-path for deployed); returns the job id. */
+	launch: (path: string) => Promise<string>
+	/** Resolve once the job reaches a terminal state. */
+	waitTerminal: (jobId: string) => Promise<'success' | 'failure'>
+	/** Snapshot of all node states, emitted on every transition. */
+	onUpdate?: (statuses: Map<string, CascadeNodeState>) => void
+}
+
+/**
+ * Execute an arbitrary selected set of scripts (e.g. a bounded-cascade
+ * selection) in topological order. Unlike `runCascade` there is no single
+ * privileged root — every `schedule.roots` entry is seeded at once and a node
+ * runs as soon as its in-set upstreams all succeed. A failure abandons only
+ * that node's lineage (its transitive descendants end 'skipped'); INDEPENDENT
+ * branches keep running. In-flight jobs always finish.
+ */
+export async function runSelection(opts: SelectionRunOptions): Promise<CascadeRunResult> {
+	const { schedule, launch, waitTerminal, onUpdate } = opts
+	const statuses = new Map<string, CascadeNodeState>()
+	for (const n of schedule.nodes) statuses.set(n, { status: 'pending' })
+	const remaining = new Map(schedule.indegree)
+	let failed = false
+	// Nodes a failed prerequisite has made unrunnable — the transitive descendants
+	// of every failure. Gating scheduling on this (rather than a single global
+	// fail-fast flag) is what lets independent branches finish: only the lineage
+	// below a failure is skipped, not every node that happens to become ready
+	// afterwards. Poisoned nodes are never scheduled, so they end 'skipped' below.
+	const poisoned = new Set<string>()
+	const inFlight = new Set<Promise<void>>()
+
+	const emit = () => onUpdate?.(new Map(statuses))
+
+	function poison(path: string) {
+		const stack = [path]
+		while (stack.length > 0) {
+			const n = stack.pop()!
+			for (const s of schedule.edges.get(n) ?? []) {
+				if (!poisoned.has(s)) {
+					poisoned.add(s)
+					stack.push(s)
+				}
+			}
+		}
+	}
+
+	function schedule_(path: string) {
+		const p = runNode(path).finally(() => inFlight.delete(p))
+		inFlight.add(p)
+	}
+
+	async function runNode(path: string): Promise<void> {
+		statuses.set(path, { status: 'running' })
+		emit()
+		let jobId: string | undefined
+		try {
+			jobId = await launch(path)
+			statuses.set(path, { status: 'running', jobId })
+			emit()
+			const term = await waitTerminal(jobId)
+			statuses.set(path, { status: term, jobId })
+			emit()
+			if (term === 'failure') {
+				failed = true
+				poison(path)
+				return
+			}
+		} catch (e) {
+			statuses.set(path, {
+				status: 'failure',
+				jobId,
+				error: e instanceof Error ? e.message : String(e)
+			})
+			emit()
+			failed = true
+			poison(path)
+			return
+		}
+		for (const s of schedule.edges.get(path) ?? []) {
+			const d = (remaining.get(s) ?? 0) - 1
+			remaining.set(s, d)
+			if (d === 0 && !poisoned.has(s)) schedule_(s)
+		}
+	}
+
+	for (const r of schedule.roots) schedule_(r)
 	while (inFlight.size > 0) {
 		await Promise.race(inFlight)
 	}

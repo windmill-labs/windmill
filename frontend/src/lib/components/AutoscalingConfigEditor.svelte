@@ -15,15 +15,32 @@
 	import Select from './select/Select.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { untrack } from 'svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from './common/confirmationModal/asyncConfirmationModal.svelte'
+	import Portal from './Portal.svelte'
 
 	interface Props {
+		worker_group: string
 		config: AutoscalingConfig | undefined
 		worker_tags: string[] | undefined
+		/** Whether the draft config gives the group any tags (worker_tags or dedicated workers). */
+		group_has_tags: boolean
+		/** Tags reported by the group's live workers, which for agent workers come from their token. */
+		reported_tags: string[]
 		disabled: boolean
 		eeOnly?: boolean
 	}
 
-	let { config = $bindable(), worker_tags, disabled, eeOnly = false }: Props = $props()
+	let {
+		worker_group,
+		config = $bindable(),
+		worker_tags,
+		group_has_tags,
+		reported_tags,
+		disabled,
+		eeOnly = false
+	}: Props = $props()
 	let test_input: number = $state(3)
 	let healthCheckLoading: boolean = $state(false)
 	let healthCheckResult: { success: boolean; error?: string } | null = $state(null)
@@ -54,7 +71,57 @@
 		}
 	}
 
-	let collapsed: boolean = $state(true)
+	const confirmationModal = createAsyncConfirmationModal()
+
+	async function testScaling() {
+		const integration = config?.integration
+		if (!integration) return
+		if (integration.type === 'script' && !integration['path']) {
+			sendUserToast('Please select a script before testing scaling', true)
+			return
+		}
+		const desired_workers = test_input
+		let job_id: string | null | undefined
+		let failed = false
+		const confirmed = await confirmationModal.ask({
+			title: `Scale ${worker_group} to ${desired_workers} workers?`,
+			confirmationText: 'Scale now',
+			type: 'reload',
+			children:
+				integration.type === 'kubernetes'
+					? `This sets the worker group's replica count to ${desired_workers} now. If autoscaling is enabled, it adjusts the count again on its next pass.`
+					: `This runs the integration script once with desired_workers set to ${desired_workers}, and it scales the group if the script does. If autoscaling is enabled, it adjusts the count again on its next pass.`,
+			onConfirmed: async () => {
+				try {
+					job_id = (
+						await ConfigService.testAutoscaling({
+							workerGroup: worker_group,
+							requestBody: { desired_workers, integration: $state.snapshot(integration) }
+						})
+					).job_id
+				} catch (e: any) {
+					failed = true
+					sendUserToast('Test scaling failed', true, [], e?.body ?? e?.message)
+				}
+			}
+		})
+		if (!confirmed || failed) return
+		if (job_id) {
+			const id = job_id
+			sendUserToast('Autoscaling script queued in the admins workspace', false, [
+				{
+					label: 'See job',
+					callback: () => window.open('/run/' + id + '?workspace=admins', '_blank')
+				}
+			])
+		} else {
+			sendUserToast(`Scaled ${worker_group} to ${desired_workers} workers`)
+		}
+	}
+
+	let noTagsToCount = $derived(!!config?.enabled && !group_has_tags && !config.custom_tags?.length)
+
+	let collapsed: boolean = $state(untrack(() => !noTagsToCount))
 </script>
 
 <Section
@@ -98,6 +165,29 @@
 			/>
 		</div>
 	{/snippet}
+
+	{#if noTagsToCount}
+		<Alert
+			type="warning"
+			size="xs"
+			title="Queued jobs won't trigger autoscaling"
+			actions={reported_tags.length && !disabled
+				? [
+						{
+							label: `Use the tags these workers report: ${reported_tags.join(', ')}`,
+							onClick: () => {
+								if (config) config.custom_tags = [...reported_tags]
+							}
+						}
+					]
+				: []}
+		>
+			Autoscaling counts waiting jobs on this group's worker tags, or on the custom tags under
+			Advanced, and this group has neither. Agent workers don't need either to run, since their tags
+			come from their token, but to scale on their queue set worker tags or custom tags to the tags
+			their token was issued with.
+		</Alert>
+	{/if}
 
 	<div class="flex flex-row gap-4">
 		<Label label="Min # of workers" disabled={config === undefined} class="grow min-w-0">
@@ -229,22 +319,11 @@
 							/>
 
 							<div class="flex flex-row gap-2 justify-end mt-4">
-								<Button
-									variant="default"
-									unifiedSize="md"
-									onclick={() => {
-										if (!config?.integration?.['path']) {
-											sendUserToast('Please select a script before testing scaling', true)
-											return
-										}
-										if (!config?.integration?.['tag']) {
-											sendUserToast('Please select a custom tag before testing scaling', true)
-											return
-										}
-									}}>Test scaling</Button
+								<Button variant="default" unifiedSize="md" {disabled} onclick={testScaling}
+									>Test scaling</Button
 								>
 								<div class="flex text-xs flex-row gap-2 items-center">
-									<input class="!w-16" type="number" bind:value={test_input} />
+									<input class="!w-16" type="number" min="0" bind:value={test_input} />
 									workers
 								</div>
 							</div>
@@ -280,9 +359,11 @@
 								</div>
 
 								<div class="flex flex-row gap-2 justify-end">
-									<Button unifiedSize="md" variant="default">Test scaling</Button>
+									<Button unifiedSize="md" variant="default" {disabled} onclick={testScaling}
+										>Test scaling</Button
+									>
 									<div class="flex text-xs flex-row gap-2 items-center">
-										<input class="!w-16" type="number" bind:value={test_input} />
+										<input class="!w-16" type="number" min="0" bind:value={test_input} />
 										workers
 									</div>
 								</div>
@@ -510,3 +591,7 @@
 		</Label>
 	</Section>
 </Section>
+
+<Portal>
+	<ConfirmationModal {...confirmationModal.props} />
+</Portal>

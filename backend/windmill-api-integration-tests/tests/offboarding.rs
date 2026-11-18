@@ -80,6 +80,35 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
+    // A shared-path script that runs as the departing user. Both halves of its identity have to
+    // move: a worker predating MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL reads the address and
+    // nothing else, so a stale one keeps running it under someone who has just been offboarded.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of, on_behalf_of_email)
+         VALUES ('test-workspace', 'f/shared/obo', 1099, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user-2', 'test2@windmill.dev')"
+    )
+    .execute(&db)
+    .await?;
+
+    // An agent records who it runs as inside its value, on a path the user does not own.
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+         VALUES ('test-workspace', 'f/shared/agent', $1, 'ai_agent', 'test-user')",
+    )
+    .bind(json!({ "run_on_behalf_of": true, "on_behalf_of": "u/test-user-2" }))
+    .execute(&db)
+    .await?;
+    let preview: serde_json::Value =
+        authed(client().get(ws_url(port, "offboard_preview/test-user-2")))
+            .send()
+            .await?
+            .json()
+            .await?;
+    assert_eq!(
+        preview["executing_on_behalf"]["resources"],
+        json!(["f/shared/agent"])
+    );
+
     let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
         .json(&json!({
             "reassign_to": "u/test-user",
@@ -89,6 +118,14 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
+
+    let agent_obo: Option<String> = sqlx::query_scalar(
+        "SELECT value->>'on_behalf_of' FROM resource
+         WHERE path = 'f/shared/agent' AND workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(agent_obo.as_deref(), Some("u/test-user"));
 
     let body: serde_json::Value = resp.json().await?;
     assert!(body["conflicts"].as_array().map_or(true, |a| a.is_empty()));
@@ -100,6 +137,20 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(summary["resources_reassigned"].as_i64().unwrap() > 0);
     assert!(summary["variables_reassigned"].as_i64().unwrap() > 0);
     assert!(summary["schedules_reassigned"].as_i64().unwrap() > 0);
+
+    let obo = sqlx::query!(
+        "SELECT on_behalf_of, on_behalf_of_email FROM script WHERE path = 'f/shared/obo' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        (
+            obo.on_behalf_of.as_deref(),
+            obo.on_behalf_of_email.as_deref()
+        ),
+        (Some("u/test-user"), Some("test@windmill.dev")),
+        "the reassignment moves the whole identity, not just the half this release reads"
+    );
 
     // Verify scripts moved
     let moved = sqlx::query_scalar!(
@@ -266,6 +317,86 @@ async fn test_offboard_to_folder(db: Pool<Postgres>) -> anyhow::Result<()> {
     .fetch_optional(&db)
     .await?;
     assert_eq!(perm.as_deref(), Some("u/test-user"));
+
+    Ok(())
+}
+
+/// Offboarding moves the user's runnables to the target, so handlers naming them must follow.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
+async fn test_offboard_moves_handler_paths(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        r#"UPDATE schedule SET on_failure = 'script/u/test-user-2/script_a', on_success = 'flow/u/test-user-2/flow_a'
+             WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/sched_shared';
+           UPDATE http_trigger SET error_handler_path = 'u/test-user-2/script_b'
+             WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/webhook_shared';
+           UPDATE workspace_settings SET error_handler = '{"path": "script/u/test-user-2/script_b", "muted_on_cancel": true}',
+               slack_command_script = 'u/test-user-2/script_a', teams_command_script = 'flow/u/test-user-2/flow_a',
+               default_app = 'u/test-user-2/app_a'
+             WHERE workspace_id = 'test-workspace';"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
+        .json(&json!({
+            "reassign_to": "f/test-folder",
+            "new_on_behalf_of_user": "test-user",
+            "delete_user": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "offboard: {}", resp.text().await?);
+
+    let schedule: (String, String) = sqlx::query_as(
+        "SELECT on_failure, on_success FROM schedule
+         WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/sched_shared'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        schedule,
+        (
+            "script/f/test-folder/script_a".into(),
+            "flow/f/test-folder/flow_a".into()
+        )
+    );
+
+    let trigger: String = sqlx::query_scalar(
+        "SELECT error_handler_path FROM http_trigger
+         WHERE workspace_id = 'test-workspace' AND path = 'f/test-folder/webhook_shared'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(trigger, "f/test-folder/script_b");
+
+    let error_handler: serde_json::Value = sqlx::query_scalar(
+        "SELECT error_handler FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        error_handler,
+        json!({ "path": "script/f/test-folder/script_b", "muted_on_cancel": true })
+    );
+
+    let commands: (String, String, String) = sqlx::query_as(
+        "SELECT slack_command_script, teams_command_script, default_app FROM workspace_settings
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        commands,
+        (
+            "f/test-folder/script_a".into(),
+            "flow/f/test-folder/flow_a".into(),
+            "f/test-folder/app_a".into()
+        )
+    );
 
     Ok(())
 }
@@ -575,6 +706,62 @@ async fn test_offboard_invalid_target(db: Pool<Postgres>) -> anyhow::Result<()> 
         .send()
         .await?;
     assert_eq!(resp.status(), 400, "should reject invalid target format");
+
+    Ok(())
+}
+
+/// A legacy member named `group-ops` canonicalizes to `g/ops`, the principal the real `ops` group
+/// runs as. Offboarding the member must not hand the group's runnables to the replacement.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_offboard_group_prefixed_member_keeps_group_identities(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, username)
+         VALUES ('ops-bot@windmill.dev', 'x', 'password', false, true, 'Ops bot', 'group-ops');
+         INSERT INTO usr(workspace_id, email, username, is_admin, role)
+         VALUES ('test-workspace', 'ops-bot@windmill.dev', 'group-ops', false, 'User');
+         INSERT INTO group_(workspace_id, name, summary) VALUES ('test-workspace', 'ops', '');
+         INSERT INTO app(workspace_id, path, summary, policy, versions, extra_perms)
+         VALUES ('test-workspace', 'f/shared/ops_app', '',
+                 '{\"execution_mode\": \"publisher\", \"on_behalf_of\": \"g/ops\",
+                   \"on_behalf_of_email\": \"group-ops@windmill.dev\"}', '{}', '{}');",
+    )
+    .execute(&db)
+    .await?;
+
+    let preview: serde_json::Value =
+        authed(client().get(ws_url(port, "offboard_preview/group-ops")))
+            .send()
+            .await?
+            .json()
+            .await?;
+    assert!(
+        preview["executing_on_behalf"]["apps"].is_null(),
+        "the group's apps are not the member's to reassign: {preview}"
+    );
+
+    let resp = authed(client().post(ws_url(port, "offboard/group-ops")))
+        .json(&json!({
+            "reassign_to": "u/test-user",
+            "new_on_behalf_of_user": "test-user",
+            "delete_user": false
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let principal: Option<String> = sqlx::query_scalar(
+        "SELECT policy->>'on_behalf_of' FROM app
+         WHERE workspace_id = 'test-workspace' AND path = 'f/shared/ops_app'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(principal.as_deref(), Some("g/ops"));
 
     Ok(())
 }

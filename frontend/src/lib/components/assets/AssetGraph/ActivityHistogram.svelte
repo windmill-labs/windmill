@@ -147,9 +147,10 @@
 			></div>
 		{/if}
 	</div>
-	<!-- Always-on window axis: the period the bars span. -->
+	<!-- Always-on window axis: the period the bars span. The `from` prefix keeps
+	     the left edge from reading as a date header for the run list below it. -->
 	<div class="flex justify-between text-3xs text-tertiary tabular-nums mt-0.5">
-		<span>{fmtTime(from)}</span>
+		<span>from {fmtTime(from)}</span>
 		<span>now</span>
 	</div>
 </div>

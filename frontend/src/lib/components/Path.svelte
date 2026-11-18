@@ -20,15 +20,17 @@
 		PostgresTriggerService,
 		NatsTriggerService,
 		MqttTriggerService,
+		AmqpTriggerService,
 		SqsTriggerService,
 		GcpTriggerService,
 		AzureTriggerService,
 		EmailTriggerService
 	} from '$lib/gen'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, type UserExt } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
+	import { overlayStack, type OverlayStack } from './common/overlayHost.svelte'
 	import { random_adj } from './random_positive_adjetive'
 	import { ChevronDown, Copy, SearchCode } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -43,6 +45,15 @@
 	import Select from './select/Select.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import InputError from './InputError.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatingHref = useOperatingWorkspaceHref()
 
 	type PathKind =
 		| 'resource'
@@ -58,6 +69,7 @@
 		| 'postgres_trigger'
 		| 'nats_trigger'
 		| 'mqtt_trigger'
+		| 'amqp_trigger'
 		| 'sqs_trigger'
 		| 'gcp_trigger'
 		| 'azure_trigger'
@@ -78,6 +90,20 @@
 		disableEditing?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
+		/** Workspace the folder list and path-existence checks run against. Defaults to the
+		 *  operating workspace (see `useOperatingWorkspace`). */
+		workspaceOverride?: string
+		/** The user acting in `workspaceOverride`, for the owner suggestion and the folder
+		 *  write flags. Omit it to stand in the user acting in the operating workspace; pass
+		 *  `null` for "not known (yet)", which no user must answer for. */
+		actingUser?: UserExt | null
+		/** One path that does not count as taken, for a caller creating something that may
+		 *  already have written there itself — a setup flow correcting its own failed attempt.
+		 *  Every other existing path is still refused. */
+		allowedExistingPath?: string
+		/** Show the "moving may break other items" warning on a rename. Off for items nothing
+		 *  can reference by path and whose dependents move with them (eval datasets). */
+		warnOnRename?: boolean
 	}
 
 	let {
@@ -94,8 +120,18 @@
 		hideUser = false,
 		disableEditing = false,
 		size = 'md',
-		drawerOffset = 0
+		drawerOffset = 0,
+		workspaceOverride = undefined,
+		actingUser = undefined,
+		allowedExistingPath = undefined,
+		warnOnRename = true
 	}: Props = $props()
+
+	let ws = $derived(workspaceOverride ?? $operatingWorkspace)
+	// Sole place this component falls back to an ambient user, and only for a caller that passed
+	// none: the one acting in `ws`, never the navigation user, whose memberships belong to
+	// another workspace. Everything below reads `user`.
+	let user = $derived(actingUser === undefined ? operatingUser.in(ws) : (actingUser ?? undefined))
 
 	$effect.pre(() => {
 		if (path == undefined) {
@@ -150,17 +186,17 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//' || path?.startsWith('tmp/') || path?.startsWith('hub/')) {
-			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != $userStore?.username) {
+			if ($lastMetaUsed == undefined || $lastMetaUsed.owner != user?.username) {
 				meta = {
 					ownerKind: hideUser ? 'folder' : 'user',
 					name: fullNamePlaceholder ?? random_adj() + '_' + namePlaceholder,
 					owner: ''
 				}
 				if (!hideUser) {
-					if ($userStore?.username?.includes('@')) {
-						meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+					if (user?.username?.includes('@')) {
+						meta.owner = user!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 					} else {
-						meta.owner = $userStore!.username!
+						meta.owner = user!.username!
 					}
 				}
 			} else {
@@ -203,16 +239,16 @@
 		folders = initialFolders.concat(
 			(
 				await FolderService.listFolderNames({
-					workspace: $workspaceStore!
+					workspace: ws!
 				})
 			)
 				.filter((x) => !excludedFolders.includes(x))
 				.map((x) => ({
 					name: x,
 					write:
-						$userStore?.folders?.includes(x) == true ||
-						($userStore?.is_admin ?? false) ||
-						($userStore?.is_super_admin ?? false)
+						user?.folders?.includes(x) == true ||
+						(user?.is_admin ?? false) ||
+						(user?.is_super_admin ?? false)
 				}))
 		)
 	}
@@ -230,6 +266,7 @@
 		}
 		validateTimeout = setTimeout(async () => {
 			if (
+				path !== allowedExistingPath &&
 				(path == '' || checkInitialPathExistence || path != initialPath) &&
 				(await pathExists(path, kind))
 			) {
@@ -244,74 +281,79 @@
 	async function pathExists(path: string, kind: PathKind): Promise<boolean> {
 		if (!path.length) return false
 		if (kind == 'flow') {
-			return await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path })
+			return await FlowService.existsFlowByPath({ workspace: ws!, path: path })
 		} else if (kind == 'script') {
 			return await ScriptService.existsScriptByPath({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'resource') {
 			return await ResourceService.existsResource({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'variable') {
 			return await VariableService.existsVariable({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'schedule') {
-			return await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })
+			return await ScheduleService.existsSchedule({ workspace: ws!, path: path })
 		} else if (kind == 'app') {
-			return await AppService.existsApp({ workspace: $workspaceStore!, path: path })
+			return await AppService.existsApp({ workspace: ws!, path: path })
 		} else if (kind == 'http_trigger') {
 			return await HttpTriggerService.existsHttpTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'websocket_trigger') {
 			return await WebsocketTriggerService.existsWebsocketTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'kafka_trigger') {
 			return await KafkaTriggerService.existsKafkaTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'postgres_trigger') {
 			return await PostgresTriggerService.existsPostgresTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'nats_trigger') {
 			return await NatsTriggerService.existsNatsTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'mqtt_trigger') {
 			return await MqttTriggerService.existsMqttTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
+				path: path
+			})
+		} else if (kind === 'amqp_trigger') {
+			return await AmqpTriggerService.existsAmqpTrigger({
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind == 'sqs_trigger') {
 			return await SqsTriggerService.existsSqsTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'gcp_trigger') {
 			return await GcpTriggerService.existsGcpTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'azure_trigger') {
 			return await AzureTriggerService.existsAzureTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else if (kind === 'email_trigger') {
 			return await EmailTriggerService.existsEmailTrigger({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				path: path
 			})
 		} else {
@@ -370,9 +412,11 @@
 		}
 	})
 
-	const openSearchWithPrefilledText: (t?: string) => void = getContext(
+	const openSearchWithPrefilledText: (t?: string, stack?: OverlayStack) => void = getContext(
 		'openSearchWithPrefilledText'
 	)
+	// Handed to the search so it stacks above the modal or drawer this field sits in.
+	const searchStack = overlayStack()
 
 	$effect.pre(() => {
 		;[meta?.name, meta?.owner, meta?.ownerKind]
@@ -398,44 +442,53 @@
 		})
 	})
 	$effect.pre(() => {
-		if ($workspaceStore && $userStore) {
+		if (ws && user) {
 			untrack(() => {
 				loadFolders()
 				initPath()
 			})
 		}
 	})
+	// Nothing depends on an item that does not exist yet, so editing a *suggested* path is not a
+	// rename. `checkInitialPathExistence` is what callers set when they are creating something,
+	// which is the same question asked the other way round.
 	let displayPathChangedWarning = $derived(
-		(['flow', 'script', 'resource', 'variable'] as PathKind[]).includes(kind) &&
+		warnOnRename &&
+			(['flow', 'script', 'resource', 'variable'] as PathKind[]).includes(kind) &&
+			!checkInitialPathExistence &&
 			initialPath &&
 			initialPath !== path
 	)
 	let pathUsageInFlowsPromise = $derived(
-		(kind == 'script' || kind == 'flow') &&
-			$workspaceStore &&
-			initialPath &&
-			FlowService.listFlowPathsFromWorkspaceRunnable({
-				workspace: $workspaceStore,
-				path: initialPath,
-				runnableKind: kind
-			})
+		ws && initialPath
+			? kind == 'script' || kind == 'flow'
+				? FlowService.listFlowPathsFromWorkspaceRunnable({
+						workspace: ws,
+						path: initialPath,
+						runnableKind: kind
+					})
+				: kind == 'resource'
+					? // Only steps linked to a saved agent are tracked; other `$res:` references are not.
+						FlowService.listFlowPathsLinkingAgent({ workspace: ws, path: initialPath })
+					: undefined
+			: undefined
 	)
 	let pathUsageInAppsPromise = $derived(
 		(kind == 'script' || kind == 'flow') &&
-			$workspaceStore &&
+			ws &&
 			initialPath &&
 			AppService.listAppPathsFromWorkspaceRunnable({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: initialPath,
 				runnableKind: kind
 			})
 	)
 	let pathUsageInScriptsPromise = $derived(
 		kind == 'script' &&
-			$workspaceStore &&
+			ws &&
 			initialPath &&
 			ScriptService.listScriptPathsFromWorkspaceRunnable({
-				workspace: $workspaceStore,
+				workspace: ws,
 				path: initialPath
 			})
 	)
@@ -472,11 +525,13 @@
 								setDirty()
 								meta.ownerKind = v
 								if (v === 'folder') {
-									meta.owner = folders?.[0]?.name ?? ''
+									// Prefer a folder the user can write to: a read-only one cannot
+									// be picked in the list and saving in it is refused.
+									meta.owner = (folders.find((f) => f.write) ?? folders[0])?.name ?? ''
 								} else {
 									// 'group' is unreachable here (Select only offers user/folder)
 									// but validateName still accepts it for forward-compat.
-									meta.owner = $userStore?.username?.split('@')[0] ?? ''
+									meta.owner = user?.username?.split('@')[0] ?? ''
 								}
 							}
 						}
@@ -490,7 +545,7 @@
 			<div>
 				{#if meta.ownerKind === 'user'}
 					{@const userOwnerDisabled =
-						disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing}
+						disabled || !($superadmin || (user?.is_admin ?? false)) || disableEditing}
 					<label class="block shrink min-w-0">
 						<TextInput
 							class={twMerge('!border-none', userOwnerDisabled && '!bg-transparent')}
@@ -498,7 +553,7 @@
 							underlyingInputEl="div"
 							bind:value={meta.owner}
 							inputProps={{
-								placeholder: $userStore?.username ?? '',
+								placeholder: user?.username ?? '',
 								onkeydown: setDirty,
 								disabled: userOwnerDisabled
 							}}
@@ -525,6 +580,7 @@
 					bind:this={inputP}
 					bind:value={meta.name}
 					prefix={`${meta.ownerKind?.charAt(0) ?? ''}/${meta.owner ?? ''}/`}
+					workspace={ws}
 					{size}
 					{error}
 					{autofocus}
@@ -564,13 +620,13 @@
 					<Tooltip>
 						<ul>
 							{#each scripts || [] as path}
-								<li><a target="_blank" href="/scripts/edit/{path}">{path}</a></li>
+								<li><a target="_blank" href={operatingHref(`/scripts/edit/${path}`)}>{path}</a></li>
 							{/each}
 							{#each flows || [] as path}
-								<li><a target="_blank" href="/flows/edit/{path}">{path}</a></li>
+								<li><a target="_blank" href={operatingHref(`/flows/edit/${path}`)}>{path}</a></li>
 							{/each}
 							{#each apps || [] as path}
-								<li><a target="_blank" href="/apps/edit/{path}">{path}</a></li>
+								<li><a target="_blank" href={operatingHref(`/apps/edit/${path}`)}>{path}</a></li>
 							{/each}
 						</ul>
 					</Tooltip>
@@ -584,21 +640,33 @@
 						<ul class="list-disc">
 							{#each scripts || [] as scriptPath}
 								<li>
-									<a href={`/scripts/edit/${scriptPath}`} class="text-blue-400" target="_blank">
+									<a
+										href={operatingHref(`/scripts/edit/${scriptPath}`)}
+										class="text-blue-400"
+										target="_blank"
+									>
 										{scriptPath}
 									</a>
 								</li>
 							{/each}
 							{#each flows || [] as flowPath}
 								<li>
-									<a href={`/flows/edit/${flowPath}`} class="text-blue-400" target="_blank">
+									<a
+										href={operatingHref(`/flows/edit/${flowPath}`)}
+										class="text-blue-400"
+										target="_blank"
+									>
 										{flowPath}
 									</a>
 								</li>
 							{/each}
 							{#each apps || [] as appPath}
 								<li>
-									<a href={`/apps/edit/${appPath}`} class="text-blue-400" target="_blank">
+									<a
+										href={operatingHref(`/apps/edit/${appPath}`)}
+										class="text-blue-400"
+										target="_blank"
+									>
 										{appPath}
 									</a>
 								</li>
@@ -606,24 +674,36 @@
 						</ul>
 					</Alert>
 				{/if}
+			{:else if displayPathChangedWarning && kind == 'resource'}
+				{@render renameMayBreakWarning()}
+			{/if}
+		{:catch}
+			<!-- A resource's references beyond linked agents are never looked up, so a failed lookup
+			     still leaves it with the generic warning. -->
+			{#if displayPathChangedWarning && kind == 'resource'}
+				{@render renameMayBreakWarning()}
 			{/if}
 		{/await}
 	{:else if displayPathChangedWarning}
-		<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
-			You are renaming an item that may be depended upon by other items. This may break apps, flows
-			or resources. Find if it used elsewhere using the content search. Note that linked variables
-			and resources (having the same path) are automatically moved together.
-			<div class="flex pt-2">
-				<Button
-					variant="default"
-					on:click={() => {
-						openSearchWithPrefilledText('#')
-					}}
-					startIcon={{ icon: SearchCode }}
-				>
-					Search
-				</Button>
-			</div>
-		</Alert>
+		{@render renameMayBreakWarning()}
 	{/if}
 </div>
+
+{#snippet renameMayBreakWarning()}
+	<Alert type="warning" class="mt-4" title="Moving may break other items relying on it">
+		You are renaming an item that may be depended upon by other items. This may break apps, flows or
+		resources. Find if it used elsewhere using the content search. Note that linked variables and
+		resources (having the same path) are automatically moved together.
+		<div class="flex pt-2">
+			<Button
+				variant="default"
+				on:click={() => {
+					openSearchWithPrefilledText('#', searchStack)
+				}}
+				startIcon={{ icon: SearchCode }}
+			>
+				Search
+			</Button>
+		</div>
+	</Alert>
+{/snippet}

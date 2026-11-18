@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE app SET policy = policy || $1::jsonb\n         WHERE workspace_id = 'wm-fork-cmp' AND path = 'u/test-user/identity_only'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "68a76bac7f8f2ef7e2dc09e01df3435b1a929d89b07bf332d47553da7c8c0abc"
+}

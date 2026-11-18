@@ -1,7 +1,6 @@
 <script lang="ts">
 	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import type { Job } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { StateStore } from '$lib/utils'
@@ -39,7 +38,6 @@
 			{#if isOwner !== undefined && suspendStatus}
 				<FlowExecutionStatus
 					{job}
-					workspaceId={$workspaceStore}
 					{isOwner}
 					innerModules={job?.flow_status?.modules}
 					{suspendStatus}

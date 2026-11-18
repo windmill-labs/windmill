@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_case SET input = $4, expected = $5\n                 WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3\n                 RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "61773dd5d5952607eddfacb1717126a87ee5dc4bd6664eaf31c2c0096fea08db"
+}

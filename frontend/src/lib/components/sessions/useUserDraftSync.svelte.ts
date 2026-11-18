@@ -37,7 +37,27 @@ export interface UserDraftSyncOptions<Draft> {
 	 * `loadedX !== path` guards.
 	 */
 	ready: () => boolean
-	codec: DraftSyncCodec<Draft>
+	/**
+	 * Reactive codec. Retargeting a mounted editor (breadcrumb / in-editor link)
+	 * changes `path` without remounting, and the codec closes over one
+	 * `(kind, path)` cell's store — so it must be re-read per path, not captured
+	 * once, or the sync would read/write the previously-targeted cell.
+	 */
+	codec: () => DraftSyncCodec<Draft>
+	/** Called after an editor edit is saved: never for a draft that came in. */
+	onSaved?: (itemKind: UserDraftItemKind, path: string) => void
+}
+
+/** Every mounted editor's debounced-but-unwritten save, with the workspace it writes to. */
+const pendingEditorSaves = new Map<() => void, string>()
+
+/**
+ * Hand every open session editor's debounced save for `workspace` to `UserDraft` now. It
+ * then sits parked in the syncer, so follow with `UserDraftDbSyncer.flushWorkspace` to
+ * have it land.
+ */
+export function flushEditorSaves(workspace: string): void {
+	for (const [save, ws] of [...pendingEditorSaves]) if (ws === workspace) save()
 }
 
 /**
@@ -61,18 +81,19 @@ export interface UserDraftSyncOptions<Draft> {
  * Must be called once during component init (registers `useMany` + two `$effect`s).
  */
 export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void {
-	const { codec } = opts
 	const handles = UserDraft.useMany<Draft>(() => {
 		const p = opts.path()
 		const ws = opts.workspace()
-		return p && ws ? [{ itemKind: codec.itemKind, path: p, workspace: ws }] : []
+		return p && ws ? [{ itemKind: opts.codec().itemKind, path: p, workspace: ws }] : []
 	})
 	let lastInboundSig: string | undefined = $state(undefined)
 
 	// inbound: handle.draft → store. Re-runs when the handle's draft changes
-	// (chat write / another session's edit). The store read happens inside
-	// applyDraftToStore under untrack so the editor's own mutations don't refire.
+	// (chat write / another session's edit) or the target retargets (new codec).
+	// The store read happens inside applyDraftToStore under untrack so the
+	// editor's own mutations don't refire.
 	$effect(() => {
+		const codec = opts.codec()
 		const incoming = handles[0]?.draft
 		if (incoming == null) return
 		const sig = codec.sig(incoming)
@@ -87,7 +108,10 @@ export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void
 			// re-apply only advances the sig, never reverts an edit or fires a save.
 			if (sig === lastInboundSig) return
 			lastInboundSig = sig
-			codec.applyDraftToStore(incoming)
+			// Copies both ways: a store sharing proxies with the draft makes every local
+			// edit re-fire this effect as if a draft came in, reassigning the store on
+			// each keystroke.
+			codec.applyDraftToStore($state.snapshot(incoming) as Draft)
 		})
 	})
 
@@ -101,6 +125,7 @@ export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void
 	let pendingFlush: (() => void) | undefined
 	$effect(() => {
 		if (!opts.ready()) return
+		const codec = opts.codec()
 		const draft = codec.storeToDraft(undefined)
 		if (draft == null) return
 		const sig = codec.sig(draft)
@@ -113,15 +138,21 @@ export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void
 				clearTimeout(outboundTimer)
 				outboundTimer = undefined
 			}
+			pendingEditorSaves.delete(save)
 			pendingFlush = undefined
 			untrack(() => {
 				const current = UserDraft.get<Draft>(codec.itemKind, path, { workspace })
 				if (current && codec.sig(current) === sig) return
-				const toSave = codec.storeToDraft(current) ?? draft
+				const toSave = $state.snapshot(codec.storeToDraft(current) ?? draft) as Draft
+				// Our own write comes back through the handle; the inbound side must skip it.
+				lastInboundSig = codec.sig(toSave)
 				UserDraft.save<Draft>(codec.itemKind, path, toSave, { workspace })
+				opts.onSaved?.(codec.itemKind, path)
 			})
 		}
+		if (pendingFlush) pendingEditorSaves.delete(pendingFlush)
 		pendingFlush = save
+		pendingEditorSaves.set(save, workspace)
 		if (outboundTimer) clearTimeout(outboundTimer)
 		outboundTimer = setTimeout(save, codec.debounceMs)
 	})

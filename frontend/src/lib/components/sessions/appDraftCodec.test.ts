@@ -78,3 +78,25 @@ describe('appDraftCodec — draft_path round-trip', () => {
 		expect(back.draft_path).toBe('u/admin/renamed')
 	})
 })
+
+describe('appDraftCodec — fork base round-trip', () => {
+	it('carries the draft version both ways', () => {
+		const draft = runtimeRawAppToDraft(runtime({ parent_version: 3 }))
+		expect(draft.parent_version).toBe(3)
+		expect(applyDraftToRuntimeRawApp(runtime({ parent_version: 1 }), draft).parent_version).toBe(3)
+	})
+
+	it('keeps an unknown base unknown rather than adopting the runtime version', () => {
+		const dv: RawAppDraft = {
+			summary: 'app',
+			files: {},
+			runnables: {},
+			data: { tables: [] } as any
+		}
+		// This result round-trips into the next save: a fallback here would claim the
+		// content forked from the version the session happens to hold.
+		expect(applyDraftToRuntimeRawApp(runtime({ parent_version: 2 }), dv).parent_version).toBe(
+			undefined
+		)
+	})
+})

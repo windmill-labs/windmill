@@ -1,0 +1,386 @@
+<script module lang="ts">
+	// A refusal spends the offer for good, and the layout mounts one instance of this
+	// component per breakpoint: kept at module level so crossing it does not lose the
+	// explanation and the way to the portal, which the next instance can never refetch.
+	// The module outlives a same-tab sign-out, so the record names the account it answers
+	// and is shown to that account only.
+	let refusal = $state<{ email: string; reason: string; location: string } | null>(null)
+</script>
+
+<script lang="ts">
+	import { resource } from 'runed'
+	import { isNewTabClick } from '$lib/navigation'
+	import { isCloudHosted } from '$lib/cloud'
+	import { AlertTriangle, Sparkles } from 'lucide-svelte'
+	import { UserService, WorkspaceService } from '$lib/gen'
+	import {
+		isPremiumStore,
+		usageStore,
+		userStore,
+		workspaceMembershipVersion,
+		workspaceStore,
+		workspaceUsageStore
+	} from '$lib/stores'
+	import { refreshExecutions } from '$lib/usage.svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { sendUserToast } from '$lib/toast'
+	import { scopedValue, tagged } from '$lib/utils/scopedValue'
+	import { Button } from '$lib/components/common'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import { Tooltip } from '$lib/components/meltComponents'
+	import { EXECUTIONS_HINT, FREE_EXECUTION_QUOTA, SEAT_EXECUTION_QUOTA } from './executionsHint'
+
+	interface Props {
+		isCollapsed?: boolean
+	}
+
+	let { isCollapsed = false }: Props = $props()
+
+	let open = $state(false)
+
+	// A pre-approved self-hosted Enterprise trial travels with accounts created through an
+	// invite; the offer lives on the account, not the workspace, and never expires. The
+	// click hands the browser to the customer portal already signed in, which starts it.
+	let trialOffered = $state(false)
+	$effect(() => {
+		if (!isCloudHosted()) return
+		UserService.getCloudTrialOffer()
+			.then((r) => (trialOffered = r.offered))
+			.catch(() => (trialOffered = false))
+	})
+	let starting = $state(false)
+	let trialRefusal = $derived(
+		refusal && $userStore?.email && refusal.email === $userStore.email ? refusal : null
+	)
+	async function startPreApprovedTrial() {
+		if (starting) return
+		starting = true
+		try {
+			// A POST, so nothing but this click can start the trial; the answer is where to go.
+			const { location, reason } = await UserService.goCloudTrialOffer()
+			logFeatureUsage('cloud_trial_offer', 'go')
+			if (reason) {
+				// Recorded where the button was, so it stays readable for the rest of the session
+				// without a toast running its timer, and the person chooses whether to go.
+				trialOffered = false
+				refusal = { email: $userStore?.email ?? '', reason, location }
+				starting = false
+				return
+			}
+			window.location.assign(location)
+		} catch (e) {
+			console.error('Could not start the pre-approved trial:', e)
+			sendUserToast('Could not start the trial right now, please try again', true)
+			starting = false
+		}
+	}
+
+	// Seat count for a paid workspace, the basis of its included executions. The server
+	// resolves a fork to the workspace its plan is billed on and counts the seats there,
+	// because neither is answerable from here: a fork's member list is a subset of that
+	// root's, and a fork member need not be a member of the root at all.
+	const fetchSeats = tagged(
+		async (workspace: string) => (await WorkspaceService.getBillableSeats({ workspace })).seats
+	)
+
+	const meteredWorkspace = $derived(
+		isCloudHosted() && $isPremiumStore ? $workspaceStore : undefined
+	)
+
+	// The membership version is in the key so a change re-resolves the cap, but not in
+	// the tag: tagging by it would blank the bar on every change.
+	const seatsResource = resource(
+		() =>
+			meteredWorkspace
+				? { workspace: meteredWorkspace, version: $workspaceMembershipVersion }
+				: undefined,
+		async (key) => (key ? await fetchSeats(key.workspace) : undefined)
+	)
+
+	const scopedSeats = scopedValue<number>()
+	const seats = $derived(scopedSeats(meteredWorkspace, seatsResource.current))
+
+	type QuotaKey = 'user' | 'workspace'
+
+	/** Every key the meter can report, so the whole vocabulary is readable here. A paid
+	workspace has no per-user quota, so `paid:user` does not exist. */
+	type UsageMeterKey = `free:${QuotaKey}` | 'paid:workspace'
+
+	type Quota = {
+		key: QuotaKey
+		label: string
+		short: string
+		used: number
+		cap: number
+		/** Reaching the cap stops jobs, rather than adding to the bill. */
+		hard: boolean
+	}
+
+	// Every input is tri-state while it resolves, and a quota built from a missing
+	// one would render as a real number: each is listed only once its own usage,
+	// tier and cap are known. Free tier: two caps apply at once and either stops
+	// jobs on its own. Paid: one soft cap, the executions the seats already include.
+	const quotas = $derived<Quota[]>(
+		$isPremiumStore === undefined
+			? []
+			: $isPremiumStore
+				? seats !== undefined && $workspaceUsageStore !== undefined
+					? [
+							{
+								key: 'workspace' as const,
+								label: 'Workspace executions',
+								short: 'Workspace execs',
+								used: $workspaceUsageStore,
+								cap: seats * SEAT_EXECUTION_QUOTA,
+								hard: false
+							}
+						]
+					: []
+				: [
+						...($usageStore !== undefined
+							? [
+									{
+										key: 'user' as const,
+										label: 'Your executions',
+										short: 'Your execs',
+										used: $usageStore,
+										cap: FREE_EXECUTION_QUOTA,
+										hard: true
+									}
+								]
+							: []),
+						// The demo workspace has no workspace-level quota.
+						...($workspaceStore !== 'demo' && $workspaceUsageStore !== undefined
+							? [
+									{
+										key: 'workspace' as const,
+										label: 'Workspace executions',
+										short: 'Workspace execs',
+										used: $workspaceUsageStore,
+										cap: FREE_EXECUTION_QUOTA,
+										hard: true
+									}
+								]
+							: [])
+					]
+	)
+
+	const tightest = $derived(
+		quotas.length ? quotas.reduce((a, b) => (b.used / b.cap > a.used / a.cap ? b : a)) : undefined
+	)
+
+	const FILL = {
+		over: { bar: 'bg-red-500', ring: 'stroke-red-500' },
+		near: { bar: 'bg-yellow-500', ring: 'stroke-yellow-500' },
+		ok: { bar: 'bg-surface-accent-primary', ring: 'stroke-surface-accent-primary' }
+	}
+
+	function fill(q: Quota) {
+		// Passing a soft cap only means extra billed seats, never a stop, so it
+		// never reaches the red the free tier's hard cap gets.
+		if (q.used >= q.cap) return q.hard ? FILL.over : FILL.near
+		if (q.used >= q.cap * 0.9) return FILL.near
+		return FILL.ok
+	}
+
+	function ratio(q: Quota): number {
+		return q.cap > 0 ? Math.min(q.used / q.cap, 1) : 0
+	}
+
+	const fmt = (value: number) => value.toLocaleString('en-US')
+
+	// r=6 with a 2-wide stroke keeps the outer edge at 7, inside the 16x16 box.
+	const RING_RADIUS = 6
+	const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
+</script>
+
+{#snippet bar(q: Quota)}
+	<div class="w-full h-1 rounded-full bg-surface-sunken overflow-hidden">
+		<div class="h-full rounded-full {fill(q).bar}" style="width: {ratio(q) * 100}%"></div>
+	</div>
+{/snippet}
+
+{#snippet ring(q: Quota)}
+	<svg viewBox="0 0 16 16" class="h-4 w-4" aria-hidden="true">
+		<circle
+			cx="8"
+			cy="8"
+			r={RING_RADIUS}
+			fill="none"
+			stroke-width="2"
+			class="stroke-surface-sunken"
+		/>
+		<!-- Rotated in SVG user space, not with a CSS transform: the arc is rasterized
+		     already turned, so its edges stay crisp at this size. -->
+		<circle
+			cx="8"
+			cy="8"
+			r={RING_RADIUS}
+			fill="none"
+			stroke-width="2"
+			transform="rotate(-90 8 8)"
+			stroke-dasharray={RING_CIRCUMFERENCE}
+			stroke-dashoffset={RING_CIRCUMFERENCE * (1 - ratio(q))}
+			class={fill(q).ring}
+		/>
+	</svg>
+{/snippet}
+
+{#if isCloudHosted() && trialOffered}
+	<div class="px-2 pt-2">
+		<Tooltip placement="right" class="w-full">
+			{#snippet text()}
+				Your 30-day self-hosted Enterprise trial is pre-approved — start it whenever you're ready.
+			{/snippet}
+			{#if isCollapsed}
+				<Button
+					variant="accent-secondary"
+					unifiedSize="sm"
+					iconOnly
+					startIcon={{ icon: Sparkles }}
+					onclick={startPreApprovedTrial}
+					disabled={starting}
+					aria-label="Start your pre-approved Enterprise trial"
+				/>
+			{:else}
+				<Button
+					variant="accent-secondary"
+					unifiedSize="sm"
+					startIcon={{ icon: Sparkles }}
+					onclick={startPreApprovedTrial}
+					disabled={starting}
+				>
+					Start your Enterprise trial
+				</Button>
+			{/if}
+		</Tooltip>
+	</div>
+{/if}
+
+<!-- The refusal replaces the button it answers, in the button's own shape: a
+     collapsed rail gets the icon with the explanation in its tooltip, an expanded one
+     the sentence and the way to the portal. The status region is always present and empty
+     until then, since assistive technology announces what arrives in a live region but not
+     a region that appears already filled; the spacing sits inside so an empty one is 0px. -->
+<div role="status">
+	{#if trialRefusal}
+		<div class="px-2 pt-2">
+			{#if isCollapsed}
+				<Tooltip placement="right">
+					{#snippet text()}
+						The trial could not be started: {trialRefusal?.reason}. The customer portal has the
+						details.
+					{/snippet}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						iconOnly
+						startIcon={{ icon: AlertTriangle }}
+						onclick={() => window.location.assign(trialRefusal!.location)}
+						aria-label="The trial could not be started; open the customer portal"
+					/>
+				</Tooltip>
+			{:else}
+				<p class="mb-1.5 text-2xs text-secondary">
+					The trial could not be started: {trialRefusal.reason}.
+				</p>
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: AlertTriangle }}
+					onclick={() => window.location.assign(trialRefusal!.location)}
+				>
+					Open the customer portal
+				</Button>
+			{/if}
+		</div>
+	{/if}
+</div>
+
+{#if isCloudHosted() && tightest}
+	<div class="px-2 pt-2 pb-2">
+		<Tooltip placement="right" class="w-full">
+			{#snippet text()}
+				{tightest.label} this month: {fmt(tightest.used)}/{fmt(tightest.cap)}.
+				{EXECUTIONS_HINT}
+			{/snippet}
+			<button
+				type="button"
+				class="w-full h-9 rounded hover:bg-surface-hover flex {isCollapsed
+					? 'items-center px-2'
+					: 'flex-col justify-center gap-1 p-1.5'}"
+				onclick={() => {
+					open = true
+					const key: UsageMeterKey = $isPremiumStore ? 'paid:workspace' : `free:${tightest.key}`
+					logFeatureUsage('usage_meter', 'opened', { key })
+					// Executions accrue continuously and seats move with membership; both
+					// are read here rather than glanced at, so re-read both.
+					refreshExecutions()
+					void seatsResource.refetch()
+				}}
+				aria-label="{tightest.label} this month: {fmt(tightest.used)} of {fmt(tightest.cap)}"
+			>
+				{#if isCollapsed}
+					{@render ring(tightest)}
+				{:else}
+					<div
+						class="w-full flex items-baseline justify-between gap-2 text-2xs font-normal text-secondary"
+					>
+						<span class="truncate">{tightest.short}</span>
+						<span class="shrink-0 tabular-nums">{fmt(tightest.used)}/{fmt(tightest.cap)}</span>
+					</div>
+					{@render bar(tightest)}
+				{/if}
+			</button>
+		</Tooltip>
+	</div>
+
+	<Modal title="Executions this month" bind:open cancelText="Close">
+		<div class="flex flex-col gap-4">
+			{#each quotas as quota (quota.key)}
+				<div class="flex flex-col gap-1.5">
+					<div class="flex items-baseline justify-between gap-2">
+						<span class="text-sm text-emphasis">{quota.label}</span>
+						<span class="text-sm text-secondary tabular-nums"
+							>{fmt(quota.used)}/{fmt(quota.cap)}</span
+						>
+					</div>
+					{@render bar(quota)}
+				</div>
+			{/each}
+			<p class="text-xs text-secondary">
+				{EXECUTIONS_HINT} Counters reset at the start of every calendar month.
+			</p>
+			{#if $isPremiumStore}
+				<p class="text-xs text-secondary">
+					Your {seats} seat{seats === 1 ? '' : 's'} include {fmt(
+						(seats ?? 0) * SEAT_EXECUTION_QUOTA
+					)} executions per month. Every extra {fmt(SEAT_EXECUTION_QUOTA)} executions beyond that add
+					one billed seat for the month.
+				</p>
+			{:else}
+				<p class="text-xs text-secondary">
+					Either quota reaching {fmt(FREE_EXECUTION_QUOTA)} stops jobs from running for the rest of the
+					month. Team and Enterprise plans lift both limits.
+					{#if !$userStore?.is_admin}
+						Ask a workspace admin to change the plan.
+					{/if}
+				</p>
+			{/if}
+		</div>
+		{#snippet actions()}
+			{#if $userStore?.is_admin}
+				<Button
+					unifiedSize="md"
+					href="/workspace_settings?tab=premium"
+					onClick={(e) => {
+						if (e instanceof MouseEvent && isNewTabClick(e)) return
+						open = false
+					}}
+				>
+					{$isPremiumStore ? 'See billing' : 'See plans'}
+				</Button>
+			{/if}
+		{/snippet}
+	</Modal>
+{/if}

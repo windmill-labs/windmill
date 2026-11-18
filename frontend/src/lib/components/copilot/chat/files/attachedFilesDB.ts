@@ -21,6 +21,9 @@ export interface PersistedAttachedItem {
 	kind: AttachedItemKind
 	/** Display name: relative path for files, folder name for dir-handle records. */
 	name: string
+	/** Raw pre-sanitization source name — the re-link identity. Absent on records
+	 * persisted before provenance existed (dedupe then falls back to `name`). */
+	sourceName?: string
 	/** Top-level folder (for grouping); equals `name` for dir-handle records. */
 	folder?: string
 	/** Folder-relative path (snapshot folder children) — restores the folder grouping/tree. */
@@ -88,9 +91,10 @@ export async function deleteItem(id: string): Promise<void> {
 	await db?.delete('items', id)
 }
 
-export async function deleteItemsForSession(sessionId: string): Promise<void> {
+/** False when the store could not be reached or the deletion failed. */
+export async function deleteItemsForSession(sessionId: string): Promise<boolean> {
 	const db = await getDB()
-	if (!db) return
+	if (!db) return false
 	try {
 		const tx = db.transaction('items', 'readwrite')
 		const index = tx.store.index('by-session')
@@ -100,8 +104,10 @@ export async function deleteItemsForSession(sessionId: string): Promise<void> {
 			cursor = await cursor.continue()
 		}
 		await tx.done
+		return true
 	} catch (err) {
 		console.error('Could not delete attached files for session', err)
+		return false
 	}
 }
 

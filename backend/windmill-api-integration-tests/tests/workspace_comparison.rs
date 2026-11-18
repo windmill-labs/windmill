@@ -756,6 +756,13 @@ async fn test_compare_workspaces_trigger_and_schedule(db: Pool<Postgres>) -> any
     )
     .execute(&db)
     .await?;
+    // The scheduler's missed-occurrence counters only ever move on the enabled side.
+    sqlx::query(
+        "UPDATE schedule SET late_run_streak = 1, missed_occurrences = 2, last_missed_at = NOW()
+         WHERE workspace_id = 'test-workspace' AND path = 'f/sch/runtime_only'",
+    )
+    .execute(&db)
+    .await?;
 
     // ------ Schedule: config change (script_path) in fork. Should diff.
     sqlx::query!(
@@ -1206,6 +1213,118 @@ async fn test_compare_workspaces_rename_visibility_ee_e2e(
     Ok(())
 }
 
+/// Regression test for #10401. The fork -> parent ("ahead") side of the tally
+/// used to key off `workspace_settings.deploy_to` while the parent -> fork
+/// ("behind") side keyed off `workspace.parent_workspace_id`, so a fork whose
+/// `deploy_to` disagreed recorded no ahead change at all and its edits stayed
+/// permanently absent from "Deploy to <parent>". Both sides now read the
+/// lineage, which is the only key left.
+///
+/// Gated on `private` for the same reason as the rename test above: the OSS
+/// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_fork_tally_ahead_against_parent(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-tally",
+            "name": "Tally Fork",
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // bash needs no lock generation, so `create_script` tallies inline instead of
+    // deferring to a dependency job (no worker runs in this test).
+    let deploy = async |path: &str| -> anyhow::Result<()> {
+        let resp = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-tally/scripts/create"))
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "description": "",
+                "content": "echo 1",
+                "language": "bash",
+                "schema": {"type": "object", "properties": {}, "required": []},
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert!(
+            status.is_success(),
+            "script create failed: {} — {}",
+            status,
+            resp.text().await?
+        );
+        Ok(())
+    };
+
+    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
+    // Stopping at the first non-NULL read would let a regression that tallies the
+    // same deploy against two upstream workspaces slip through: it shows `ahead = 1`
+    // between the upserts. So keep sampling after the row appears and return the
+    // settled value.
+    let ahead_for = async |path: &str| -> anyhow::Result<Option<i32>> {
+        let read = async || -> anyhow::Result<Option<i32>> {
+            Ok(sqlx::query_scalar!(
+                "SELECT ahead FROM workspace_diff
+                 WHERE source_workspace_id = 'test-workspace'
+                   AND fork_workspace_id = 'wm-fork-tally'
+                   AND kind = 'script'
+                   AND path = $1",
+                path
+            )
+            .fetch_optional(&db)
+            .await?)
+        };
+        let mut ahead = None;
+        for _ in 0..40 {
+            ahead = read().await?;
+            if ahead.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        for _ in 0..10 {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            ahead = read().await?;
+        }
+        Ok(ahead)
+    };
+
+    deploy("u/admin/tallied").await?;
+    assert_eq!(
+        ahead_for("u/admin/tallied").await?,
+        Some(1),
+        "a fork's change must record once against its parent"
+    );
+
+    Ok(())
+}
+
 /// Regression test for WIN-1975. A non-admin user creating a script in a fork-
 /// only folder used to get the spurious
 /// "this fork has changes not visible to your user" warning because
@@ -1235,8 +1354,7 @@ async fn test_compare_workspaces_fork_only_folder_visibility(
     .execute(&db)
     .await?;
 
-    // Create fork via the API so cloning + workspace_settings.deploy_to wiring
-    // matches what production sees.
+    // Create fork via the API so the cloning and lineage wiring matches what production sees.
     let client_admin = windmill_api_client::create_client(
         &format!("http://localhost:{port}"),
         "SECRET_TOKEN".to_string(),
@@ -1399,7 +1517,9 @@ async fn test_delete_fork_purges_workspace_diff(db: Pool<Postgres>) -> anyhow::R
     // Delete the fork through the real handler.
     let delete_response = client
         .client()
-        .delete(&format!("{base_url}/workspaces/delete/wm-fork-test-workspace"))
+        .delete(&format!(
+            "{base_url}/workspaces/delete/wm-fork-test-workspace"
+        ))
         .send()
         .await?;
     assert!(
@@ -1517,6 +1637,1215 @@ async fn test_create_fork_purges_stale_diff_state(db: Pool<Postgres>) -> anyhow:
         leftover_skip,
         Some(0),
         "stale skip_workspace_diff_tally row must be purged on fork creation"
+    );
+
+    Ok(())
+}
+
+/// Regression: a stale/phantom trigger diff row must never block a privileged
+/// user's deploy. Triggers (unlike scripts/flows) are not re-validated by
+/// `compare_workspaces`, so a cached `has_changes=true` row for a trigger that
+/// no longer exists in the table is trusted, then dropped by the visibility
+/// filter (the row is gone) — flipping `all_ahead_items_visible` to false and
+/// hiding the deploy button. This used to happen even for a superadmin, because
+/// the item's absence is indistinguishable from a permission-hidden item.
+///
+/// The blast-radius guard forces the flag true for anyone who sees the relevant
+/// side in full: a target/fork admin (or superadmin) for ahead items. A regular
+/// user with no such visibility still gets the (conservative) warning, since we
+/// cannot tell a phantom from a genuine permission gap on their behalf.
+///
+/// The diff row and visibility query are OSS, so this runs on any build (no
+/// tally needed — the row is inserted directly, mimicking a delete that left the
+/// diff behind).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_phantom_trigger_shortfuse(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let superadmin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    // Fork of test-workspace (INSERT directly; we only need the pair to exist).
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-test-workspace', 'Fork', 'test-user', 'test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_key(workspace_id, kind, key)
+         VALUES ('wm-fork-test-workspace', 'cloud', 'test-key')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Phantom rows: cached diffs for http_triggers with no backing row (the exact
+    // state a trigger delete used to leave behind before it reset the tally). One
+    // ahead (fork side), one behind (source side) so both guard branches are hit.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/ghost', 'http_trigger', 1, 0, true, false, true),
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/ghost_behind', 'http_trigger', 0, 1, true, true, false)"
+    )
+    .execute(&db)
+    .await?;
+
+    // Superadmin: the guard forces `all_ahead_items_visible = true`, and the
+    // non-existent trigger is not surfaced as a diff.
+    let comparison: serde_json::Value = superadmin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "phantom trigger row must not trip the 'not visible' warning for a superadmin: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_behind_items_visible"].as_bool(),
+        Some(true),
+        "phantom behind trigger row must not trip the warning for a superadmin: {comparison}"
+    );
+    assert!(
+        !comparison["diffs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["path"] == "f/rt/ghost" || d["path"] == "f/rt/ghost_behind"),
+        "non-existent triggers must not be surfaced as diffs: {comparison}"
+    );
+
+    // Non-superadmin, non-fork-admin member of the source: no full-visibility
+    // guarantee, so the warning still (conservatively) fires.
+    let comparison: serde_json::Value = non_admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(false),
+        "a user without full visibility must not be short-circuited by the guard: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_behind_items_visible"].as_bool(),
+        Some(false),
+        "the behind-side guard must not fire for a non-admin either: {comparison}"
+    );
+
+    Ok(())
+}
+
+/// A source-only row is offered to the fork whatever its counters say, so it can
+/// carry `behind = 0` — a `behind`-derived tally never sees it, and hiding one must
+/// still be reported to the update direction. The merge direction does not carry
+/// such a row at all, so hiding one withholds nothing from that side.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_hidden_source_only_no_behind(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-test-workspace', 'Fork', 'test-user', 'test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_key(workspace_id, kind, key)
+         VALUES ('wm-fork-test-workspace', 'cloud', 'test-key')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Source-only row with no `behind`: the trigger has no backing row, so the
+    // visibility filter drops it exactly as it would an ACL-hidden one.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-test-workspace', 'f/rt/parent_only', 'http_trigger', 1, 0, true, true, false)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = non_admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_behind_items_visible"].as_bool(),
+        Some(false),
+        "a hidden source-only row must trip the warning even at behind = 0: {comparison}"
+    );
+    assert_eq!(
+        comparison["hidden_behind"]["total"].as_i64(),
+        Some(1),
+        "a hidden source-only row must be counted as withheld from the update direction: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "the merge direction does not carry a source-only row, so hiding one withholds nothing from it: {comparison}"
+    );
+    assert_eq!(
+        comparison["hidden_ahead"]["total"].as_i64(),
+        Some(0),
+        "a source-only row must not be reported as withheld from the merge direction: {comparison}"
+    );
+
+    Ok(())
+}
+
+/// Regression: the "sees everything" guard must require admin of BOTH sides, not
+/// just the fork. `filter_visible_diffs` keeps a modified/conflict row (one that
+/// exists in the source AND the fork) only when the caller can see it on both
+/// sides, so an ahead diff can be dropped for a *source-side* visibility gap even
+/// when the caller is a fork admin. If the guard cleared the ahead flag on
+/// fork-admin alone, the UI would report "all ahead visible" and let the user
+/// deploy from an incomplete comparison. Here test-user-2 is admin of the fork
+/// but only a plain member of the parent with no access to folder `restricted`,
+/// so the parent copy of the modified script is hidden from them and the ahead
+/// diff is (correctly) dropped — the flag must stay false.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_fork_admin_source_hidden_ahead(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let fork_admin_user = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    // Parent folder `restricted` owned by test-user (the admin), NOT test-user-2,
+    // and a script inside it (access flows through the folder). test-user-2 is a
+    // plain member of the parent, so RLS hides this script from them.
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by)
+         VALUES ('test-workspace', 'restricted', 'restricted', ARRAY['u/test-user']::varchar[], '{\"u/test-user\": true}'::jsonb, '', 'test-user')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted, extra_perms)
+         VALUES ('test-workspace', 'f/restricted/item', 314159, 'def main(): return 1', '', '', 'python3', 'test-user', NOW(), false, false, false, false, '{}'::jsonb)"
+    )
+    .execute(&db)
+    .await?;
+
+    // Fork (clones the folder + script into the fork).
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-guard-test", "name": "Guard Fork", "color": "#0000ff"}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // test-user-2 is ADMIN of the fork (so they see the fork copy via RLS bypass)
+    // but only a plain member of the parent.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('wm-fork-guard-test', 'test2@windmill.dev', 'test-user-2', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+
+    // A confirmed modified/ahead diff on the script that exists on both sides.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-guard-test', 'f/restricted/item', 'script', 1, 0, true, true, true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM skip_workspace_diff_tally WHERE workspace_id IN ('test-workspace', 'wm-fork-guard-test')"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = fork_admin_user
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-guard-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    // The parent copy is hidden from test-user-2, so the ahead diff is dropped.
+    // Fork-admin alone must NOT clear the flag — the comparison is incomplete.
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(false),
+        "fork admin without source-side visibility must not be reported as seeing all ahead items: {comparison}"
+    );
+    assert!(
+        !comparison["diffs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["path"] == "f/restricted/item"),
+        "source-hidden item must not appear in the fork admin's diff list: {comparison}"
+    );
+
+    // Sanity: a superadmin (admin of both sides) still sees everything.
+    let comparison: serde_json::Value = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-guard-test"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "superadmin must see all ahead items: {comparison}"
+    );
+
+    Ok(())
+}
+
+/// The merge UI can target a workspace outside the fork lineage. Nothing tallies
+/// such a pair, so its comparison rests on an explicit full scan: before one, an
+/// empty `diffs` must be distinguishable from "the two workspaces agree", and the
+/// scan itself must seed only what actually differs, one way (WIN-2266).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // A second root workspace, unrelated to test-workspace by lineage.
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'test@windmill.dev', 'test-user', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('other-workspace')")
+        .execute(&db)
+        .await?;
+
+    // One script identical on both sides, one that differs, one that exists only here.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted)
+         VALUES
+         ('test-workspace', 'f/shared/same', 1, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('test-workspace', 'f/shared/differs', 2, 'def main(): return 1', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('test-workspace', 'f/shared/only_here', 3, 'def main(): return 2', 'Only here', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('other-workspace', 'f/shared/same', 4, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('other-workspace', 'f/shared/differs', 5, 'def main(): return 99', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false)"
+    )
+    .execute(&db)
+    .await?;
+
+    // The same app path, a normal app here and a raw app there: one logical item that
+    // keys as two kinds, which the scan must collapse onto this workspace's kind.
+    for (ws, raw) in [("test-workspace", false), ("other-workspace", true)] {
+        let app_id = sqlx::query_scalar!(
+            "INSERT INTO app (workspace_id, path, summary, policy, versions)
+             VALUES ($1, 'f/shared/converted', 'Converted', '{}'::jsonb, ARRAY[]::bigint[])
+             RETURNING id",
+            ws,
+        )
+        .fetch_one(&db)
+        .await?;
+        let version = sqlx::query_scalar!(
+            "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
+             VALUES ($1, $2, 'test@windmill.dev', NOW(), $3) RETURNING id",
+            app_id,
+            json!({"grid": []}),
+            raw,
+        )
+        .fetch_one(&db)
+        .await?;
+        sqlx::query!(
+            "UPDATE app SET versions = ARRAY[$2::bigint] WHERE id = $1",
+            app_id,
+            version,
+        )
+        .execute(&db)
+        .await?;
+    }
+
+    // The same migration under a different name on each side: one logical item, two
+    // candidate paths, which the scan must collapse.
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up)
+         VALUES
+         ('test-workspace', 'dt', 20260101000001, 'renamed_here', 'ALTER TABLE t ADD COLUMN a int'),
+         ('other-workspace', 'dt', 20260101000001, 'named_there', 'ALTER TABLE t ADD COLUMN a int')"
+    )
+    .execute(&db)
+    .await?;
+
+    let compare_url = format!("{base_url}/w/other-workspace/workspaces/compare/test-workspace");
+
+    // Before any scan: no candidate set, so no diffs — and `full_scan_at` says so.
+    let before: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        before["diffs"].as_array().map(|d| d.len()),
+        Some(0),
+        "an unscanned arbitrary pair has no diffs: {before}"
+    );
+    assert!(
+        before["full_scan_at"].is_null(),
+        "an unscanned arbitrary pair must report no scan: {before}"
+    );
+
+    let scan = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        scan.status().is_success(),
+        "seeding the scan should succeed: {}",
+        scan.status()
+    );
+
+    let after: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert!(
+        !after["full_scan_at"].is_null(),
+        "a scanned pair must report when it was scanned: {after}"
+    );
+    let mut keys: Vec<(&str, &str)> = after["diffs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["kind"].as_str().unwrap(), d["path"].as_str().unwrap()))
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec![
+            ("app", "f/shared/converted"),
+            ("datatable_migration", "dt/20260101000001_renamed_here"),
+            ("script", "f/shared/differs"),
+            ("script", "f/shared/only_here"),
+        ],
+        "the scan keeps only what differs, drops the identical script, and collapses the renamed migration and the app/raw-app conversion onto this workspace's key: {after}"
+    );
+    for diff in after["diffs"].as_array().unwrap() {
+        assert_eq!(
+            (diff["ahead"].as_i64(), diff["behind"].as_i64()),
+            (Some(1), Some(0)),
+            "an arbitrary pair is compared one way only: {diff}"
+        );
+    }
+
+    // Renaming the migration moves its candidate path. A re-scan must replace the
+    // candidate set, not add to it: the previous path still resolves to the same
+    // `(datatable, timestamp)`, so keeping it would list one migration twice.
+    sqlx::query!(
+        "UPDATE datatable_migrations SET name = 'renamed_again'
+         WHERE workspace_id = 'test-workspace' AND datatable = 'dt'"
+    )
+    .execute(&db)
+    .await?;
+    client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    let rescanned: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    let migrations: Vec<&str> = rescanned["diffs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["kind"] == "datatable_migration")
+        .map(|d| d["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        migrations,
+        vec!["dt/20260101000001_renamed_again"],
+        "a re-scan replaces the candidate set, so the pre-rename path is gone: {rescanned}"
+    );
+
+    // An arbitrary pair is only comparable to someone who administers both sides:
+    // otherwise admin of one workspace would be enough to learn how much of another
+    // differs from it. test-user-2 is a plain member of test-workspace.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'test2@windmill.dev', 'test-user-2', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+    let refused = non_admin.client().get(&compare_url).send().await?;
+    assert!(
+        refused.status().is_client_error(),
+        "comparing an arbitrary pair without admin on both sides must be refused: {}",
+        refused.status()
+    );
+    let refused_scan = non_admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        refused_scan.status().is_client_error(),
+        "seeding a scan without admin on both sides must be refused: {}",
+        refused_scan.status()
+    );
+
+    // The lineage pair has a continuous tally whose direction a one-way scan would
+    // overwrite, so scanning it is refused.
+    let fork = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-test-workspace", "name": "Test Fork", "color": "#0000ff"}))
+        .send()
+        .await?;
+    assert!(fork.status().is_success(), "fork creation should succeed");
+    let lineage_scan = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/wm-fork-test-workspace/workspaces/seed_full_diff/test-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        lineage_scan.status().is_client_error(),
+        "scanning a lineage pair must be refused: {}",
+        lineage_scan.status()
+    );
+
+    Ok(())
+}
+
+/// Regression for WIN-2289. A fork deletion and a git-sync pull reverting an
+/// earlier deploy leave the same `ahead > 0, behind = 0` row with the item gone
+/// from the fork; the comparison must carry the recorded origin that tells them
+/// apart, and a tally that cannot vouch for its event must not overwrite it.
+///
+/// Gated on `private` for the same reason as the tally tests above: the OSS
+/// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_records_fork_removal_origin(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+
+    // Deployed in the parent before the fork exists, so nothing is tallied yet and
+    // the fork starts with both scripts. bash needs no lock generation, so the
+    // create tallies inline instead of deferring to a dependency job (no worker
+    // runs in this test).
+    for path in ["u/admin/dropped_by_user", "u/admin/dropped_by_sync"] {
+        let resp = admin
+            .client()
+            .post(&format!("{base_url}/w/test-workspace/scripts/create"))
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "description": "",
+                "content": "echo 1",
+                "language": "bash",
+                "schema": {"type": "object", "properties": {}, "required": []},
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert!(
+            status.is_success(),
+            "script create failed: {} — {}",
+            status,
+            resp.text().await?
+        );
+    }
+
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-removal", "name": "Removal Fork"}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Same act, same resulting row shape; only the header a sync client sets differs.
+    for (path, origin_header) in [
+        ("u/admin/dropped_by_user", None),
+        ("u/admin/dropped_by_sync", Some("sync")),
+    ] {
+        let mut req = admin.client().post(&format!(
+            "{base_url}/w/wm-fork-removal/scripts/archive/p/{path}"
+        ));
+        if let Some(origin) = origin_header {
+            req = req.header("X-Windmill-Deploy-Origin", origin);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        assert!(
+            status.is_success(),
+            "archive of {path} failed: {} — {}",
+            status,
+            resp.text().await?
+        );
+    }
+
+    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
+    let mut recorded = 0;
+    for _ in 0..40 {
+        recorded = sqlx::query_scalar!(
+            "SELECT COUNT(*) AS \"count!\" FROM workspace_diff
+             WHERE source_workspace_id = 'test-workspace'
+               AND fork_workspace_id = 'wm-fork-removal'
+               AND kind = 'script'
+               AND fork_last_event_origin IS NOT NULL"
+        )
+        .fetch_one(&db)
+        .await?;
+        if recorded >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(recorded, 2, "both archives should have tallied an event");
+
+    let comparison: serde_json::Value = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-removal"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let diffs = comparison["diffs"].as_array().unwrap();
+
+    for (path, expected_origin) in [
+        ("u/admin/dropped_by_user", "authored"),
+        ("u/admin/dropped_by_sync", "sync"),
+    ] {
+        let row = diffs
+            .iter()
+            .find(|d| d["path"] == path && d["kind"] == "script")
+            .unwrap_or_else(|| panic!("{path} should be in the diff; got {diffs:?}"));
+        assert_eq!(row["exists_in_source"].as_bool(), Some(true), "{row}");
+        assert_eq!(row["exists_in_fork"].as_bool(), Some(false), "{row}");
+        assert_eq!(row["behind"].as_i64(), Some(0), "{row}");
+        assert_eq!(
+            row["fork_last_event_kind"].as_str(),
+            Some("delete"),
+            "{row}"
+        );
+        assert_eq!(
+            row["fork_last_event_origin"].as_str(),
+            Some(expected_origin),
+            "the two removals must stay distinguishable: {row}"
+        );
+    }
+
+    // The call the worker makes on its success path for a lock-generating deploy:
+    // it reports a deploy that landed before the archive and cannot answer for what
+    // the path holds now. The archive's record has to survive it, and only the
+    // counter moves.
+    windmill_git_sync::handle_deployment_metadata(
+        "admin@windmill.dev",
+        "admin",
+        &db,
+        "wm-fork-removal",
+        windmill_git_sync::DeployedObject::Script {
+            hash: windmill_common::scripts::ScriptHash(0),
+            path: "u/admin/dropped_by_sync".to_string(),
+            parent_path: Some("u/admin/dropped_by_sync".to_string()),
+        },
+        None,
+        true,
+        // A redeploy that did not move the item passes the same path back; it must
+        // not be tallied a second time as the path a rename vacated.
+        Some("u/admin/dropped_by_sync"),
+    )
+    .await?;
+    let mut after = None;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let row = sqlx::query!(
+            "SELECT ahead, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE source_workspace_id = 'test-workspace' AND fork_workspace_id = 'wm-fork-removal'
+               AND kind = 'script' AND path = 'u/admin/dropped_by_sync'"
+        )
+        .fetch_one(&db)
+        .await?;
+        if row.ahead > 1 {
+            after = Some(row);
+            break;
+        }
+    }
+    let after = after.expect("the detached tally should still bump the counter");
+    assert_eq!(after.fork_last_event_kind.as_deref(), Some("delete"));
+    assert_eq!(
+        after.fork_last_event_origin.as_deref(),
+        Some("sync"),
+        "a tally that cannot vouch for its event must not overwrite one that did"
+    );
+    assert_eq!(after.ahead, 2, "and it counts once, not twice");
+
+    Ok(())
+}
+
+/// `probe_deploy_event_kind` builds its query for these kinds by interpolating the
+/// table name, so a wrong entry compiles fine and only fails once someone deploys
+/// that trigger kind in a fork — where the error aborts the tally and the item
+/// never reaches `workspace_diff` at all. Sweep the allowlist against a live
+/// database instead.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_probe_covers_every_path_keyed_table(db: Pool<Postgres>) -> anyhow::Result<()> {
+    for kind in windmill_git_sync::PATH_KEYED_TABLES {
+        let probed =
+            windmill_git_sync::probe_deploy_event_kind(&db, "test-workspace", kind, "u/a/nothing")
+                .await
+                .unwrap_or_else(|e| panic!("probing `{kind}` failed: {e}"));
+        assert_eq!(
+            probed,
+            Some(windmill_common::deploy_origin::DeployEventKind::Delete),
+            "an absent `{kind}` must probe as a deletion"
+        );
+    }
+    Ok(())
+}
+
+/// Flows always generate a lock, so without the request reporting the path a
+/// rename left behind, a renamed flow leaves its old path in the parent with
+/// nothing to merge.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-renamed", "name": "Rename Fork"}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation: {}",
+        resp.status()
+    );
+
+    let flow = |path: &str| {
+        json!({
+            "path": path,
+            "summary": "",
+            "description": "",
+            "value": {"modules": []},
+            "schema": {"type": "object", "properties": {}, "required": []},
+        })
+    };
+    for (path, origin) in [
+        ("u/admin/moved_by_user", None),
+        ("u/admin/moved_by_sync", Some("sync")),
+    ] {
+        let mut req = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-renamed/flows/create"))
+            .json(&flow(path));
+        if let Some(origin) = origin {
+            req = req.header("X-Windmill-Deploy-Origin", origin);
+        }
+        let resp = req.send().await?;
+        assert!(resp.status().is_success(), "flow create: {}", resp.status());
+
+        let mut req = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-renamed/flows/update/{path}"))
+            .json(&flow(&format!("{path}_new")));
+        if let Some(origin) = origin {
+            req = req.header("X-Windmill-Deploy-Origin", origin);
+        }
+        let resp = req.send().await?;
+        assert!(resp.status().is_success(), "flow rename: {}", resp.status());
+    }
+
+    let mut rows = vec![];
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        rows = sqlx::query!(
+            "SELECT path, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'flow'
+               AND fork_last_event_origin IS NOT NULL ORDER BY path"
+        )
+        .fetch_all(&db)
+        .await?;
+        if rows.len() >= 2 {
+            break;
+        }
+    }
+    let claimed: Vec<_> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.path.as_str(),
+                r.fork_last_event_kind.as_deref(),
+                r.fork_last_event_origin.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        claimed,
+        vec![
+            ("u/admin/moved_by_sync", Some("delete"), Some("sync")),
+            ("u/admin/moved_by_user", Some("delete"), Some("authored")),
+        ],
+        "each vacated path is recorded with the origin of the rename that left it, \
+         and the deployed paths — which only the dependency job reports — are not"
+    );
+
+    // A script needing no lock deploys inline, so its own request reports both
+    // paths and can say why the old one is empty rather than only that it is.
+    let mut parent_hash: Option<String> = None;
+    for path in ["u/admin/inline", "u/admin/inline_moved"] {
+        let resp = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-renamed/scripts/create"))
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "description": "",
+                // bash needs no lock, so this deploys inline.
+                "content": "echo 1",
+                "language": "bash",
+                "schema": {"type": "object", "properties": {}, "required": []},
+                "parent_hash": parent_hash,
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let hash = resp.text().await?;
+        assert!(
+            status.is_success(),
+            "script deploy failed: {status} — {hash}"
+        );
+        parent_hash = Some(hash.trim().trim_matches('"').to_string());
+        // Each deploy tallies from its own spawned task: let the create's `write` land
+        // before the rename, or it can overwrite the `rename_from` asserted below.
+        if path == "u/admin/inline" {
+            let mut written = false;
+            for _ in 0..40 {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                written = sqlx::query_scalar!(
+                    "SELECT EXISTS (SELECT 1 FROM workspace_diff
+                     WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'
+                       AND path = 'u/admin/inline' AND fork_last_event_kind = 'write')"
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false);
+                if written {
+                    break;
+                }
+            }
+            assert!(written, "the inline create should be tallied");
+        }
+    }
+    let mut vacated = None;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        vacated = sqlx::query!(
+            "SELECT fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'
+               AND path = 'u/admin/inline' AND fork_last_event_kind <> 'write'"
+        )
+        .fetch_optional(&db)
+        .await?;
+        if vacated.is_some() {
+            break;
+        }
+    }
+    let vacated = vacated.expect("the inline rename should report the path it left");
+    assert_eq!(vacated.fork_last_event_kind.as_deref(), Some("rename_from"));
+    assert_eq!(vacated.fork_last_event_origin.as_deref(), Some("authored"));
+
+    Ok(())
+}
+
+/// Regression: a resource or resource type can be stored with a NULL description while deploy
+/// writes "", so the comparison must read the two as equal or the item never settles.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_null_description_equals_empty(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    for q in [
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-test-workspace', 'Fork', 'test-user', 'test-workspace')",
+        "INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')",
+        "INSERT INTO workspace_key(workspace_id, kind, key)
+         VALUES ('wm-fork-test-workspace', 'cloud', 'test-key')",
+        "INSERT INTO resource (workspace_id, path, value, resource_type, description, created_by) VALUES
+         ('test-workspace', 'u/test-user/null_desc', '{}', 'generic', NULL, 'test-user'),
+         ('wm-fork-test-workspace', 'u/test-user/null_desc', '{}', 'generic', '', 'test-user'),
+         ('test-workspace', 'u/test-user/other_desc', '{}', 'generic', NULL, 'test-user'),
+         ('wm-fork-test-workspace', 'u/test-user/other_desc', '{}', 'generic', 'x', 'test-user')",
+        "INSERT INTO resource_type (workspace_id, name, schema, description, created_by) VALUES
+         ('test-workspace', 'null_desc_rt', '{}', NULL, 'test-user'),
+         ('wm-fork-test-workspace', 'null_desc_rt', '{}', '', 'test-user'),
+         ('test-workspace', 'other_desc_rt', '{}', NULL, 'test-user'),
+         ('wm-fork-test-workspace', 'other_desc_rt', '{}', 'x', 'test-user')",
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes) VALUES
+         ('test-workspace', 'wm-fork-test-workspace', 'u/test-user/null_desc', 'resource', 1, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'u/test-user/other_desc', 'resource', 1, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'null_desc_rt', 'resource_type', 1, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'other_desc_rt', 'resource_type', 1, 1, NULL)",
+    ] {
+        sqlx::query(q).execute(&db).await?;
+    }
+
+    let comparison: serde_json::Value = client
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let mut paths: Vec<&str> = comparison["diffs"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no diffs: {comparison}"))
+        .iter()
+        .map(|d| d["path"].as_str().unwrap())
+        .collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        ["other_desc_rt", "u/test-user/other_desc"],
+        "{comparison}"
+    );
+
+    Ok(())
+}
+
+/// Runs its closure when dropped, so process-wide state is put back even when an assertion
+/// fails.
+struct OnDrop<F: FnMut()>(F);
+impl<F: FnMut()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        (self.0)()
+    }
+}
+
+/// Secrets are encrypted with a fresh nonce on every write, so a secret holding the same value on
+/// both sides must compare by plaintext, not ciphertext.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_secret_variables_by_value(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    let resp = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({ "id": "wm-fork-secrets", "name": "Secrets Fork" }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Secrets are written in CBC, which is deterministic, until every worker reads AES-GCM.
+    use windmill_common::min_version::{MIN_VERSION, MIN_VERSION_SUPPORTS_AEAD_SECRETS};
+    let before = MIN_VERSION.load_full();
+    let _restore = OnDrop(move || MIN_VERSION.store(before.clone()));
+    MIN_VERSION.store(std::sync::Arc::new(
+        MIN_VERSION_SUPPORTS_AEAD_SECRETS.version().clone(),
+    ));
+
+    for (ws, path, value) in [
+        ("test-workspace", "u/test-user/same", "s3cret"),
+        ("wm-fork-secrets", "u/test-user/same", "s3cret"),
+        ("test-workspace", "u/test-user/different", "one"),
+        ("wm-fork-secrets", "u/test-user/different", "two"),
+    ] {
+        let resp = client
+            .client()
+            .post(&format!("{base_url}/w/{ws}/variables/create"))
+            .json(&json!({ "path": path, "value": value, "is_secret": true, "description": "" }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    }
+    let stored = sqlx::query_scalar!(
+        "SELECT COUNT(DISTINCT value) FROM variable WHERE path = 'u/test-user/same'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        stored,
+        Some(2),
+        "the same secret must be stored as two different ciphertexts"
+    );
+
+    // The creates above tally these rows from a spawned task that can land after the
+    // DELETE, so the plant must upsert.
+    sqlx::query!("DELETE FROM workspace_diff WHERE fork_workspace_id = 'wm-fork-secrets'")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES
+         ('test-workspace', 'wm-fork-secrets', 'u/test-user/same', 'variable', 1, 1, NULL),
+         ('test-workspace', 'wm-fork-secrets', 'u/test-user/different', 'variable', 1, 1, NULL)
+         ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)
+         DO UPDATE SET ahead = 1, behind = 1, has_changes = NULL"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = client
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-secrets"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let diffs = comparison["diffs"].as_array().unwrap();
+    let listed = |path: &str| {
+        diffs
+            .iter()
+            .any(|d| d["path"] == path && d["kind"] == "variable")
+    };
+
+    assert!(
+        !listed("u/test-user/same"),
+        "equal secrets must compare as unchanged: {comparison}"
+    );
+    assert!(
+        listed("u/test-user/different"),
+        "different secrets must compare as changed: {comparison}"
+    );
+
+    Ok(())
+}
+
+/// `compare_two_variables` hand-lists its columns, so a forgotten one hides that difference
+/// from the fork diff, and it can never be promoted.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_variables_detects_value_valid_until(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
+         VALUES ('test-workspace', 'u/admin/expiring', 'v', false, 'same', '2027-01-01T00:00:00Z')"
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({ "id": "wm-fork-expiry", "name": "Expiry Fork" }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Before the UPDATE below overwrites it: the fork must inherit the date from the source.
+    let inherited: Option<String> = sqlx::query_scalar(
+        "SELECT to_char(value_valid_until, 'YYYY-MM-DD') FROM variable
+         WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(inherited.as_deref(), Some("2027-01-01"));
+
+    // Only the expiry differs.
+    sqlx::query!(
+        "UPDATE variable SET value_valid_until = '2029-12-31T00:00:00Z'
+         WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'"
+    )
+    .execute(&db)
+    .await?;
+
+    // Forces the endpoint to re-evaluate the pair rather than trust a cached verdict.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES ('test-workspace', 'wm-fork-expiry', 'u/admin/expiring', 'variable', 0, 1, NULL)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-expiry"
+        ))
+        .send()
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
+
+    assert_eq!(
+        comparison["summary"]["variables_changed"].as_u64(),
+        Some(1),
+        "an expiry-only change must show as deployable: {comparison}"
     );
 
     Ok(())

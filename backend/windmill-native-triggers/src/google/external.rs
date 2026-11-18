@@ -11,7 +11,8 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 use crate::{
-    generate_webhook_service_url, rotate_webhook_token,
+    generate_webhook_service_url,
+    lock::TriggerLock,
     sync::{SyncAction, SyncError, TriggerSyncInfo},
     update_native_trigger_error, update_native_trigger_service_config, External, NativeTrigger,
     NativeTriggerData, ServiceName,
@@ -41,7 +42,7 @@ impl External for Google {
     async fn create(
         &self,
         w_id: &str,
-        _oauth_data: &Self::OAuthData,
+        oauth_data: &Self::OAuthData,
         webhook_token: &str,
         data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
@@ -50,8 +51,16 @@ impl External for Google {
         // At creation time, channel_id also becomes the trigger's external_id
         // (see external_id_and_metadata_from_response).
         let channel_id = uuid::Uuid::new_v4().to_string();
-        self.create_watch_channel(w_id, &channel_id, &channel_id, webhook_token, data, db)
-            .await
+        self.create_watch_channel(
+            w_id,
+            &oauth_data.connection_path,
+            &channel_id,
+            &channel_id,
+            webhook_token,
+            data,
+            db,
+        )
+        .await
     }
 
     async fn update(
@@ -71,7 +80,15 @@ impl External for Google {
         // external_id stays the stable routing key used in the webhook URL.
         let channel_id = uuid::Uuid::new_v4().to_string();
         let resp = self
-            .create_watch_channel(w_id, external_id, &channel_id, webhook_token, data, db)
+            .create_watch_channel(
+                w_id,
+                &oauth_data.connection_path,
+                external_id,
+                &channel_id,
+                webhook_token,
+                data,
+                db,
+            )
             .await?;
 
         self.service_config_from_create_response(data, &resp)
@@ -85,7 +102,7 @@ impl External for Google {
     async fn delete(
         &self,
         w_id: &str,
-        _oauth_data: &Self::OAuthData,
+        oauth_data: &Self::OAuthData,
         external_id: &str,
         db: &DB,
         tx: &mut PgConnection,
@@ -121,7 +138,15 @@ impl External for Google {
 
             // Stop the channel (ignore errors - channel may have already expired)
             let result: std::result::Result<serde_json::Value, _> = self
-                .http_client_request(&url, Method::POST, w_id, db, None, Some(&stop_request))
+                .http_client_request(
+                    &url,
+                    Method::POST,
+                    w_id,
+                    &oauth_data.connection_path,
+                    db,
+                    None,
+                    Some(&stop_request),
+                )
                 .await;
 
             if let Err(e) = result {
@@ -198,6 +223,26 @@ impl External for Google {
     fn additional_routes(&self) -> axum::Router {
         routes::google_routes(self.clone())
     }
+
+    fn error_hint(&self, status: http::StatusCode) -> Option<&'static str> {
+        match status {
+            http::StatusCode::UNAUTHORIZED => {
+                Some("reconnect the Google account this uses with Reconnect next to it, or ask its owner or an admin to.")
+            }
+            http::StatusCode::FORBIDDEN => Some(
+                "the connected Google account is missing access to this resource or the scope the \
+                 integration was granted does not cover it.",
+            ),
+            _ => None,
+        }
+    }
+
+    /// Google answers 403 to a quota being spent as well as to a permission failure. Every
+    /// throttling reason it defines sits in the `usageLimits` domain, so matching the domain
+    /// covers the group without an allowlist to extend each time one is added.
+    fn is_transient_response(&self, status: http::StatusCode, body: &str) -> bool {
+        status == http::StatusCode::FORBIDDEN && body.contains("usageLimits")
+    }
 }
 
 // Helper methods for creating trigger type-specific watches
@@ -210,6 +255,7 @@ impl Google {
     async fn create_watch_channel(
         &self,
         w_id: &str,
+        connection_path: &str,
         external_id: &str,
         channel_id: &str,
         webhook_token: &str,
@@ -242,12 +288,24 @@ impl Google {
 
         match data.service_config.trigger_type {
             GoogleTriggerType::Drive => {
-                self.create_drive_watch(w_id, &data.service_config, &watch_request, db)
-                    .await
+                self.create_drive_watch(
+                    w_id,
+                    connection_path,
+                    &data.service_config,
+                    &watch_request,
+                    db,
+                )
+                .await
             }
             GoogleTriggerType::Calendar => {
-                self.create_calendar_watch(w_id, &data.service_config, &watch_request, db)
-                    .await
+                self.create_calendar_watch(
+                    w_id,
+                    connection_path,
+                    &data.service_config,
+                    &watch_request,
+                    db,
+                )
+                .await
             }
         }
     }
@@ -255,6 +313,7 @@ impl Google {
     async fn create_drive_watch(
         &self,
         w_id: &str,
+        connection_path: &str,
         config: &GoogleServiceConfig,
         watch_request: &WatchRequest,
         db: &DB,
@@ -264,14 +323,30 @@ impl Google {
                 // Specific file: use files.watch
                 let url = format!("{}/files/{}/watch", endpoints::DRIVE_API_BASE, resource_id);
 
-                self.http_client_request(&url, Method::POST, w_id, db, None, Some(watch_request))
-                    .await
+                self.http_client_request(
+                    &url,
+                    Method::POST,
+                    w_id,
+                    connection_path,
+                    db,
+                    None,
+                    Some(watch_request),
+                )
+                .await
             }
             None => {
                 // All changes: use changes.watch
                 let token_url = format!("{}/changes/startPageToken", endpoints::DRIVE_API_BASE);
                 let token_response: serde_json::Value = self
-                    .http_client_request::<_, ()>(&token_url, Method::GET, w_id, db, None, None)
+                    .http_client_request::<_, ()>(
+                        &token_url,
+                        Method::GET,
+                        w_id,
+                        connection_path,
+                        db,
+                        None,
+                        None,
+                    )
                     .await?;
 
                 let start_page_token = token_response
@@ -292,6 +367,7 @@ impl Google {
                     &watch_url,
                     Method::POST,
                     w_id,
+                    connection_path,
                     db,
                     None,
                     Some(&watch_body),
@@ -304,6 +380,7 @@ impl Google {
     async fn create_calendar_watch(
         &self,
         w_id: &str,
+        connection_path: &str,
         config: &GoogleServiceConfig,
         watch_request: &WatchRequest,
         db: &DB,
@@ -318,8 +395,16 @@ impl Google {
             urlencoding::encode(calendar_id)
         );
 
-        self.http_client_request(&url, Method::POST, w_id, db, None, Some(watch_request))
-            .await
+        self.http_client_request(
+            &url,
+            Method::POST,
+            w_id,
+            connection_path,
+            db,
+            None,
+            Some(watch_request),
+        )
+        .await
     }
 
     /// Renew an expiring Google watch channel.
@@ -341,11 +426,18 @@ impl Google {
             .map(|v| serde_json::from_value(v.clone()))
             .transpose()?
             .ok_or_else(|| Error::InternalErr("Missing service config".to_string()))?;
+        let connection_path = trigger.connection_path.as_deref().ok_or_else(|| {
+            Error::BadRequest(format!(
+                "Cannot renew channel {}: the trigger has no Google connection",
+                trigger.external_id
+            ))
+        })?;
 
-        let rotated = match rotate_webhook_token(
+        let rotated = match crate::rotate_webhook_token(
             db,
             &trigger.webhook_token_hash,
             ServiceName::Google,
+            crate::webhook_token_scopes(&trigger.script_path, trigger.is_flow),
         )
         .await?
         {
@@ -408,7 +500,15 @@ impl Google {
                 }
             };
             let result: std::result::Result<serde_json::Value, _> = self
-                .http_client_request(&url, Method::POST, w_id, db, None, Some(&stop_request))
+                .http_client_request(
+                    &url,
+                    Method::POST,
+                    w_id,
+                    connection_path,
+                    db,
+                    None,
+                    Some(&stop_request),
+                )
                 .await;
             if let Err(e) = result {
                 tracing::warn!(
@@ -422,11 +522,11 @@ impl Google {
         // Create new watch channel with a fresh channel ID
         let resp = match config.trigger_type {
             GoogleTriggerType::Drive => {
-                self.create_drive_watch(w_id, &config, &watch_request, db)
+                self.create_drive_watch(w_id, connection_path, &config, &watch_request, db)
                     .await?
             }
             GoogleTriggerType::Calendar => {
-                self.create_calendar_watch(w_id, &config, &watch_request, db)
+                self.create_calendar_watch(w_id, connection_path, &config, &watch_request, db)
                     .await?
             }
         };
@@ -477,7 +577,7 @@ enum RenewOutcome {
     Skipped,
 }
 
-/// Renew one Google watch channel under a row lock.
+/// Renew one Google watch channel under `TriggerLock`.
 /// `sync_all_triggers` runs on every replica with no leader election — without
 /// the lock, parallel renewals orphan the losers' new tokens and Google channels.
 async fn try_renew_channel_locked(
@@ -486,22 +586,31 @@ async fn try_renew_channel_locked(
     workspace_id: &str,
     trigger: &NativeTrigger,
 ) -> Result<RenewOutcome> {
-    let mut tx = db.begin().await?;
+    // Renewal stops the live channel and creates a replacement, exactly like a re-registration
+    // does — so the two must not overlap, or each stops the channel the other just made and one
+    // is left orphaned, delivering a second copy of every event. Skipping is fine: the sweep runs
+    // again. Excluding them through this lock rather than by holding the row itself is what keeps
+    // a rename's `UPDATE native_trigger` from having to wait on a third party's API.
+    let Some(lock) =
+        TriggerLock::try_acquire(db, workspace_id, ServiceName::Google, &trigger.external_id)
+            .await?
+    else {
+        return Ok(RenewOutcome::Skipped);
+    };
 
     let row = sqlx::query!(
         r#"
-        SELECT service_config, webhook_token_hash
+        SELECT service_config, webhook_token_hash, script_path, is_flow
         FROM native_trigger
         WHERE workspace_id = $1
           AND service_name = $2
           AND external_id = $3
-        FOR UPDATE SKIP LOCKED
         "#,
         workspace_id,
         ServiceName::Google as ServiceName,
         trigger.external_id,
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(db)
     .await?;
 
     let Some(row) = row else {
@@ -522,16 +631,22 @@ async fn try_renew_channel_locked(
         return Ok(RenewOutcome::Skipped);
     }
 
-    // Use freshly-read fields — webhook_token_hash may have rotated since list time.
+    // Use freshly-read fields — the listing this came from predates the lock, so a rename may
+    // have moved the runnable since. Renewing against the listed path would build the channel's
+    // callback URL from a path that no longer resolves.
     let fresh_trigger = NativeTrigger {
         service_config: Some(service_config),
         webhook_token_hash: row.webhook_token_hash,
+        script_path: row.script_path,
+        is_flow: row.is_flow,
         ..trigger.clone()
     };
 
     let (new_config, new_token, old_token_hash) = handler
         .renew_channel(workspace_id, &fresh_trigger, db)
         .await?;
+
+    let mut tx = db.begin().await?;
 
     // Past this point a new Google channel exists. Any failure leaks it.
     if let Err(e) = update_native_trigger_service_config(
@@ -576,6 +691,8 @@ async fn try_renew_channel_locked(
             e
         ),
     }
+
+    lock.release().await?;
 
     Ok(RenewOutcome::Renewed)
 }
@@ -637,7 +754,10 @@ async fn renew_expiring_channels(
                     workspace_id,
                     ServiceName::Google,
                     &trigger.external_id,
-                    Some(&format!("Channel renewal failed: {}", e)),
+                    Some(&format!(
+                        "Channel renewal failed: {}",
+                        crate::external_error_message(&e)
+                    )),
                 )
                 .await;
 

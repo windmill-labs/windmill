@@ -1,19 +1,21 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #3F00A5 / #604BE9 per Fauna's own VS Code extension icons (fauna/fauna-vscode: icons/fauna.svg for light themes, icons/fauna-light.svg for dark). -->
 <svg
+	class="text-[#3F00A5] dark:text-[#604BE9]"
 	xmlns="http://www.w3.org/2000/svg"
 	x="0px"
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
+	viewBox="-3.356 -3.356 175.04 175.04"
 	fill="none"
 	style="enable-background:new 0 0 270 270; fill:currentcolor;"
 >
@@ -21,4 +23,3 @@
 		d="M124.222 37.638C114.302 40.949 109.525 46.888 106.271 56.138C105.431 58.609 103.331 61.342 100.969 63.182L109.105 71.907L83.28 53.827L12 4C12 4 17.144 37.428 18.929 49.727C20.189 58.399 22.34 62.288 29.164 66.23L31.894 67.702L43.651 73.904L36.67 70.277L68.898 87.885L68.688 88.358L33.993 72.274C35.83 78.582 39.399 90.723 40.922 96.084C42.549 101.865 44.386 103.968 50.002 106.018L60.342 109.802L66.746 107.279L58.611 112.693L17.931 164.358C44.963 139.235 67.849 130.3 84.593 122.994C105.956 113.744 118.816 107.805 127.214 86.466C133.198 71.486 137.869 52.302 143.801 44.891L156.451 28.703C156.451 28.703 130.258 35.641 124.222 37.638Z"
 	/>
 </svg>
-		

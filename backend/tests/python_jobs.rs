@@ -51,7 +51,7 @@ mod dedicated_worker_protocol_python {
     fn run_py_multi_script_test(
         scripts: &[(&str, &str)],
         jobs: Vec<MultiScriptJob>,
-    ) -> Vec<Result<serde_json::Value, String>> {
+    ) -> Vec<Result<serde_json::Value, serde_json::Value>> {
         let temp_dir = tempfile::tempdir().unwrap();
         create_py_worker_files(temp_dir.path(), scripts);
 
@@ -87,13 +87,7 @@ mod dedicated_worker_protocol_python {
 
             match parse_dedicated_worker_line(response.trim()) {
                 DedicatedWorkerResult::Success(value) => results.push(Ok(value)),
-                DedicatedWorkerResult::Error(err) => {
-                    let msg = err["message"]
-                        .as_str()
-                        .unwrap_or("Unknown error")
-                        .to_string();
-                    results.push(Err(msg));
-                }
+                DedicatedWorkerResult::Error(err) => results.push(Err(err)),
                 other => panic!("Unexpected response: {:?}", other),
             }
         }
@@ -108,7 +102,7 @@ mod dedicated_worker_protocol_python {
         script_path: &str,
         content: &str,
         jobs: Vec<serde_json::Value>,
-    ) -> Vec<Result<serde_json::Value, String>> {
+    ) -> Vec<Result<serde_json::Value, serde_json::Value>> {
         run_py_multi_script_test(
             &[(script_path, content)],
             jobs.into_iter()
@@ -180,7 +174,10 @@ mod dedicated_worker_protocol_python {
         let results = run_py_multi_script_test(
             &[
                 ("f/ok", "def main(x: int):\n    return x * 2\n"),
-                ("f/err", "def main(msg: str):\n    raise Exception(msg)\n"),
+                (
+                    "f/err",
+                    "def main(msg: str):\n    e = Exception(msg)\n    e.status_code = 429\n    e.info = {}\n    e.info['self'] = e.info\n    raise e\n",
+                ),
             ],
             vec![
                 MultiScriptJob {
@@ -199,8 +196,12 @@ mod dedicated_worker_protocol_python {
         );
         assert_eq!(results.len(), 3);
         assert_eq!(results[0], Ok(serde_json::json!(10)));
-        assert!(results[1].is_err());
-        assert_eq!(results[1], Err("boom".to_string()));
+        let err = results[1].as_ref().unwrap_err();
+        assert_eq!(err["message"], "boom");
+        assert_eq!(
+            err["extra"],
+            serde_json::json!({ "status_code": 429, "info": "[unserializable]" })
+        );
         assert_eq!(results[2], Ok(serde_json::json!(20)));
     }
 
@@ -214,10 +215,9 @@ mod dedicated_worker_protocol_python {
             }],
         );
         assert_eq!(results.len(), 1);
-        assert!(results[0].is_err());
-        assert!(results[0]
-            .as_ref()
-            .unwrap_err()
+        assert!(results[0].as_ref().unwrap_err()["message"]
+            .as_str()
+            .unwrap()
             .contains("Script not found"));
     }
 
@@ -462,6 +462,59 @@ def main(x: int):
         assert_eq!(
             results[2],
             DedicatedWorkerResult::Success(serde_json::json!(107))
+        );
+    }
+
+    #[test]
+    fn test_python_execd_async() {
+        let script = r#"
+import asyncio
+
+_import_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(_import_loop)
+
+async def preprocessor(x: int):
+    return {"x": x * 2}
+
+async def main(x: int):
+    return {"x": x + 100, "same_loop": asyncio.get_running_loop() is _import_loop}
+"#;
+        let results = run_py_raw_protocol_test(
+            &[("f/test/async", script)],
+            vec![
+                ProtocolCmd::ExecdPreprocess { args: serde_json::json!({"x": 5}) },
+                ProtocolCmd::Execd { args: serde_json::json!({"x": 7}) },
+            ],
+        );
+        assert_eq!(
+            results,
+            vec![
+                DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 10})),
+                DedicatedWorkerResult::Success(serde_json::json!({"x": 110, "same_loop": true})),
+                DedicatedWorkerResult::Success(serde_json::json!({"x": 107, "same_loop": true})),
+            ]
+        );
+    }
+
+    // `hasattr` does not swallow the KeyError this `__getattr__` raises; released
+    // `wmill` clients ship an `S3Object` built this way.
+    #[test]
+    fn test_python_execd_result_with_keyerror_getattr() {
+        let script = r#"
+class AttrDict(dict):
+    def __getattr__(self, attr):
+        return self[attr]
+
+def main(x: str):
+    return AttrDict(s3=x)
+"#;
+        let results = run_py_raw_protocol_test(
+            &[("f/test/attr_dict", script)],
+            vec![ProtocolCmd::Execd { args: serde_json::json!({"x": "a/b.txt"}) }],
+        );
+        assert_eq!(
+            results,
+            vec![DedicatedWorkerResult::Success(serde_json::json!({"s3": "a/b.txt"}))]
         );
     }
 
@@ -762,6 +815,49 @@ def main():
 
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
+async fn test_python_async_main(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+import asyncio
+
+async def main(x: int):
+    await asyncio.sleep(0)
+    return x + 1
+        "#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = RunJob::from(job)
+        .arg("x", serde_json::json!(41))
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!(42));
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
 async fn test_python_result_preserves_infinity_in_string(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
@@ -1045,9 +1141,9 @@ async fn test_relative_imports_python(db: Pool<Postgres>) -> anyhow::Result<()> 
     let content = r#"
 from f.system.same_folder_script import main as test1
 from .same_folder_script import main as test2
-from f.system_relative.different_folder_script import main as test3
-from ..system_relative.different_folder_script import main as test4
-    
+from f.system_relative.system import main as test3
+from ..system_relative.loader import main as test4
+
 def main():
     return [test1(), test2(), test3(), test4()]
 "#
@@ -1132,7 +1228,8 @@ async def main(item: str, qty: int, email: str):
             port,
         )
         .await;
-    });
+    })
+    .await;
     Ok(())
 }
 
@@ -1203,6 +1300,7 @@ async fn test_python_wac_v2_with_preprocessor(db: Pool<Postgres>) -> anyhow::Res
                     debouncing_settings:
                         windmill_common::runnable_settings::DebouncingSettings::default(),
                     labels: None,
+                    job_token_scopes: None,
                 })
                 .arg("who", json!("alice"))
                 .arg("count", json!(7))
@@ -1237,6 +1335,50 @@ async fn test_python_wac_v2_with_preprocessor(db: Pool<Postgres>) -> anyhow::Res
         port,
     )
     .await;
+    Ok(())
+}
+
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "typechecked_python"))]
+async fn test_typechecked_decorator_python(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+from f.system.typechecked_helper import greet
+
+def main():
+    return greet("World")
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: Some("f/system/test_typechecked".to_string()),
+        language: ScriptLang::Python3,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    let result_str = result.as_str().unwrap();
+    assert!(
+        result_str.starts_with("Hello, World! from "),
+        "unexpected result: {result_str}"
+    );
     Ok(())
 }
 

@@ -1,12 +1,14 @@
 import type { SupportedLanguage } from '$lib/common'
 
 export type FlowBuilderWhitelabelCustomUi = {
+	/** Opt out of FlowEditor's `modalPanel` to keep the classic always-docked pane. */
+	modalPanel?: boolean
 	topBar?: {
 		path?: boolean
+		editablePath?: boolean
 		export?: boolean
 		history?: boolean
 		aiBuilder?: boolean
-		tutorials?: boolean
 		diff?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
@@ -34,6 +36,8 @@ export type FlowBuilderWhitelabelCustomUi = {
 	languages?: (SupportedLanguage | 'docker' | 'bunnative')[]
 	scriptFork?: boolean
 	scriptEdit?: boolean
+	/** Set to false to hide the inline step's "Save to workspace" button. */
+	saveToWorkspace?: boolean
 	tagEdit?: boolean
 	editorBar?: EditorBarUi
 	downloadLogs?: boolean
@@ -42,6 +46,10 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagLabel?: string
 	aiAgent?: boolean
 	aiSandbox?: boolean
+	/** Set to false so no AI feature can add, change or remove the flow's inputs (its schema): the
+	 * step input fill ("Fill inputs" and the per-input suggestion) only uses existing flow
+	 * inputs, and the flow AI chat cannot edit the schema. */
+	aiFlowInputs?: boolean
 	suggestIntegration?: boolean
 	suggestScript?: boolean
 	// Default timeout (in seconds) prefilled when enabling a custom step timeout.
@@ -94,6 +102,11 @@ export type PreviewPanelUi = {
 	// "what happened the last time this ran". No-op when a test is already
 	// in progress (we don't clobber a live run).
 	loadLastRunOnMount?: boolean
+	// Pipeline-only: when set, the Test split's caret popover gains a "Run
+	// downstream up to…" entry that calls this, letting the user bound the
+	// cascade from the script they're editing. Wired by the pipeline details
+	// pane only when the open script is a valid bounded-run start.
+	onBoundedRun?: () => void
 }
 
 export type EditorBarUi = {
@@ -116,6 +129,7 @@ export type EditorBarUi = {
 	s3object?: boolean
 	database?: boolean
 	ducklake?: boolean
+	metrics?: boolean
 	dataTable?: boolean
 	debug?: boolean
 	history?: boolean

@@ -1,7 +1,6 @@
-import { ResourceService, JobService } from '$lib/gen/services.gen'
+import { ResourceService, JobService } from '$lib/gen'
 import type { AIProvider, AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, isObject, toCamel } from '$lib/utils'
-import { get } from 'svelte/store'
+import { capitalize, toCamel } from '$lib/utils'
 import { compile, phpCompile, pythonCompile } from '../../utils'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -10,6 +9,7 @@ import type {
 } from 'openai/resources/index.mjs'
 import { type DBSchema, dbSchemas } from '$lib/stores'
 import type { ContextElement } from '../context'
+import { NONE, RUN_PREVIEW, type SessionTool } from '../sessionCapabilities'
 import {
 	createSearchHubScriptsTool,
 	type Tool,
@@ -19,18 +19,23 @@ import {
 	type ScriptLintResult,
 	formatScriptLintResult,
 	createSearchWorkspaceTool,
-	createGetRunnableDetailsTool
+	createGetRunnableDetailsTool,
+	HUB_SYNC_INSTRUCTIONS
 } from '../shared'
 import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
-import { getModelContextWindow } from '../../modelConfig'
+import { getEffectiveModelContextWindow } from '../../modelConfig'
 import type { ReviewChangesOpts } from '../monaco-adapter'
-import { getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, getCurrentModel, type SessionAi } from '$lib/aiStore'
+import { get } from 'svelte/store'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
+import { scriptLangToEditorLang } from '$lib/scripts'
 import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
 
-// Score threshold for npm packages search filtering
-const SCORE_THRESHOLD = 1000
+// The registry's best match is kept, and the runner-up only when it scores this share of it:
+// the scores have no fixed scale (a descriptive query's right answer can score a few hundred, a
+// package's own name thousands), so a match is judged against the best one.
+const NPM_RUNNER_UP_SHARE = 0.6
 // percentage of the context window for documentation of npm packages
 const DOCS_CONTEXT_PERCENTAGE = 1
 // percentage of the context window for types of npm packages
@@ -39,19 +44,16 @@ const TYPES_CONTEXT_PERCENTAGE = 1
 export const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = []
 
 export function formatResourceTypes(
-	allResourceTypes: ResourceType[],
+	allResourceTypes: Pick<ResourceType, 'name' | 'schema'>[],
 	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets' | 'bunnative'
 ) {
-	const resourceTypes = allResourceTypes.filter(
-		(rt) => isObject(rt.schema) && 'properties' in rt.schema && isObject(rt.schema.properties)
-	)
 	if (lang === 'python3') {
-		const result = resourceTypes.map((resourceType) => {
+		const result = allResourceTypes.map((resourceType) => {
 			return `class ${resourceType.name}(TypedDict):\n${pythonCompile(resourceType.schema as any)}`
 		})
 		return '\n**Make sure to rename conflicting imported modules**\n' + result.join('\n\n')
 	} else if (lang === 'php') {
-		const result = resourceTypes.map((resourceType) => {
+		const result = allResourceTypes.map((resourceType) => {
 			return `class ${toCamel(capitalize(resourceType.name))} {\n${phpCompile(
 				resourceType.schema as any
 			)}\n}`
@@ -59,7 +61,7 @@ export function formatResourceTypes(
 		return '\n' + result.join('\n\n')
 	} else {
 		let resultStr = 'namespace RT {\n'
-		const result = resourceTypes.map((resourceType) => {
+		const result = allResourceTypes.map((resourceType) => {
 			return `  type ${toCamel(capitalize(resourceType.name))} = ${compile(
 				resourceType.schema as any
 			).replaceAll('\n', '\n  ')}`
@@ -68,14 +70,75 @@ export function formatResourceTypes(
 	}
 }
 
-async function getResourceTypes(prompt: string, workspace: string) {
-	const resourceTypes = await ResourceService.queryResourceTypes({
-		workspace: workspace,
-		text: prompt,
-		limit: 5
-	})
+// The hub publishes hundreds of resource types and an instance seeds only a few of its own,
+// so fewer than this means the instance never synced with the hub.
+const UNSYNCED_RESOURCE_TYPE_COUNT = 20
 
-	return resourceTypes
+/**
+ * The note on an unsynced instance cannot wait for an empty result: the similarity search
+ * still returns the nearest of the few types there are (the instance's own `ai_skill` scores
+ * about 0.8 for "confluence").
+ */
+export async function searchResourceTypes(
+	query: string,
+	workspace: string,
+	limit: number
+): Promise<{ resourceTypes: Pick<ResourceType, 'name' | 'schema'>[]; note?: string }> {
+	const [resourceTypes, names] = await Promise.all([
+		ResourceService.queryResourceTypes({ workspace, text: query, limit }),
+		ResourceService.listResourceTypeNames({ workspace }).catch(() => [])
+	])
+	const count = new Set(names).size
+	return {
+		resourceTypes,
+		note:
+			count > 0 && count < UNSYNCED_RESOURCE_TYPE_COUNT
+				? `Only ${count} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. ${HUB_SYNC_INSTRUCTIONS}`
+				: undefined
+	}
+}
+
+export type ResourceTypeSync = 'unsynced' | 'now_synced'
+
+const NOT_SYNCED_HEADING = '## RESOURCE TYPES NOT SYNCED'
+const SYNCED_HEADING = '## RESOURCE TYPES SYNCED'
+
+// An instance does not go back to unsynced, so one seen synced is never asked again.
+const syncedWorkspaces = new Set<string>()
+
+/**
+ * Whether the next user message has to say the instance lacks the hub's types, or that an
+ * earlier such note no longer holds. It rides in the user message, not the system prompt,
+ * so a sync during a conversation leaves the cached prefix untouched; `history` is what
+ * tells a sync that happened mid-conversation from an instance that was always synced.
+ */
+export async function resolveResourceTypeSync(
+	workspace: string,
+	history: readonly { role: string; content?: unknown }[]
+): Promise<ResourceTypeSync | undefined> {
+	if (!syncedWorkspaces.has(workspace)) {
+		const count = await ResourceService.listResourceTypeNames({ workspace })
+			.then((names) => new Set(names).size)
+			.catch(() => 0)
+		if (count === 0) {
+			return undefined
+		}
+		if (count < UNSYNCED_RESOURCE_TYPE_COUNT) {
+			return 'unsynced'
+		}
+		syncedWorkspaces.add(workspace)
+	}
+	const lastNote = history
+		.filter((m) => m.role === 'user')
+		.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '')))
+		.findLast((text) => text.includes(NOT_SYNCED_HEADING) || text.includes(SYNCED_HEADING))
+	return lastNote?.includes(NOT_SYNCED_HEADING) ? 'now_synced' : undefined
+}
+
+export function resourceTypeSyncBlock(state: ResourceTypeSync): string {
+	return state === 'unsynced'
+		? `${NOT_SYNCED_HEADING}\nThis instance has not synced the Windmill Hub's resource types, so no hub type exists here yet (stripe, slack, postgresql, ...), including the one a hub script takes. ${HUB_SYNC_INSTRUCTIONS}\n\n`
+		: `${SYNCED_HEADING}\nThe instance now holds the Windmill Hub's resource types: the earlier "not synced" note no longer applies.\n\n`
 }
 
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
@@ -150,13 +213,14 @@ export async function getFormattedResourceTypes(
 		case 'bunnative':
 		case 'python3':
 		case 'php': {
-			const resourceTypes = await getResourceTypes(prompt, workspace)
+			const { resourceTypes, note } = await searchResourceTypes(prompt, workspace, 5)
 
-			const intro = `RESOURCE_TYPES:\n`
+			const found =
+				resourceTypes.length > 0
+					? `RESOURCE_TYPES:\n${formatResourceTypes(resourceTypes, lang)}`
+					: `No resource type found for "${prompt}".`
 
-			const resourceTypesText = formatResourceTypes(resourceTypes, lang)
-
-			return intro + resourceTypesText
+			return note ? `${found}\n\n${note}` : found
 		}
 		default:
 			return ''
@@ -447,6 +511,7 @@ export interface ScriptChatHelpers {
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
+	planModeSafe: true,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching resource types for "' + args.query + '"...'
@@ -460,10 +525,25 @@ export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	}
 }
 
-// Generic DB schema tool factory that can be used by both script and flow modes
-export function createDbSchemaTool<T>(): Tool<T> {
+// Generic DB schema tool factory shared by the script, flow and global modes
+export function createDbSchemaTool<T>(
+	opts: { description?: string; updateEditorCache?: boolean } = {}
+): SessionTool<T> {
+	const { description, updateEditorCache = true } = opts
 	return {
-		def: DB_SCHEMA_FUNCTION_DEF,
+		// `getDbSchemas` below introspects by running a query job through /jobs/run/preview,
+		// which jobs.rs refuses operators — so this reads like a lookup but gates like a run.
+		requires: RUN_PREVIEW,
+		def: description
+			? {
+					...DB_SCHEMA_FUNCTION_DEF,
+					function: { ...DB_SCHEMA_FUNCTION_DEF.function, description }
+				}
+			: DB_SCHEMA_FUNCTION_DEF,
+		// The one safe tool that starts a job: the job runs a fixed introspection query this
+		// codebase authors, never the user's code, and writes nothing. Planning a change to a
+		// database is not possible without its schema.
+		planModeSafe: true,
 		fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
@@ -475,23 +555,24 @@ export function createDbSchemaTool<T>(): Tool<T> {
 				workspace: workspace,
 				path: args.resourcePath
 			})
-			const newDbSchemas = {
-				[args.resourcePath]: await getDbSchemas(
-					resource.resource_type,
-					args.resourcePath,
-					workspace,
-					(error) => {
-						console.error(error)
-					}
-				)
-			}
-			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
-			const dbs = get(dbSchemas)
-			const db = dbs[args.resourcePath]
-			if (!db) {
+			const dbSchema = await getDbSchemas(
+				resource.resource_type,
+				args.resourcePath,
+				workspace,
+				(error) => {
+					console.error(error)
+				}
+			)
+			if (!dbSchema) {
 				throw new Error('Database not found')
 			}
-			const stringSchema = await formatDBSchema(db)
+			// The dbSchemas store is an editor cache keyed by resource path with no
+			// workspace dimension: a chat that may operate on a different workspace than
+			// the navigation one (global/session) must not write into it.
+			if (updateEditorCache) {
+				dbSchemas.update((schemas) => ({ ...schemas, [args.resourcePath]: dbSchema }))
+			}
+			const stringSchema = await formatDBSchema(dbSchema)
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Retrieved database schema for ' + args.resourcePath
 			})
@@ -523,20 +604,33 @@ type PackageSearchResult = {
 }
 
 const packagesSearchCache = new Map<string, PackageSearchResult[]>()
-export async function searchExternalIntegrationResources(args: { query: string }): Promise<string> {
+export async function searchExternalIntegrationResources(
+	args: { query: string },
+	sessionAi?: SessionAi
+): Promise<string> {
 	try {
 		if (packagesSearchCache.has(args.query)) {
 			return JSON.stringify(packagesSearchCache.get(args.query))
 		}
 
-		const result = await fetch(`https://registry.npmjs.org/-/v1/search?text=${args.query}&size=2`)
+		const result = await fetch(
+			`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(args.query)}&size=2`
+		)
 		const data = await result.json()
+		const best = Math.max(0, ...data.objects.map((r: PackageSearchQuery) => r.searchScore))
 		const filtered = data.objects.filter(
-			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
+			(r: PackageSearchQuery) => r.searchScore >= best * NPM_RUNNER_UP_SHARE
 		)
 
-		const model = getCurrentModel()
-		const modelContextWindow = getModelContextWindow(model.model)
+		const model = sessionAi ? sessionAi.model : getCurrentModel()
+		if (!model) {
+			throw new Error('No model selected')
+		}
+		const modelContextWindow = getEffectiveModelContextWindow(
+			model.provider,
+			model.model,
+			(sessionAi ? sessionAi.info : get(copilotInfo))?.contextWindowPerModel
+		)
 		const results: PackageSearchResult[] = await Promise.all(
 			filtered.map(async (r: PackageSearchQuery) => {
 				let documentation = ''
@@ -591,11 +685,15 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionFunctionTool = {
 	}
 }
 
-export const searchNpmPackagesTool: Tool<ScriptChatHelpers> = {
+// Helpers-agnostic so both script mode and global mode can offer it.
+export const searchNpmPackagesTool: SessionTool<{}> = {
+	requires: NONE,
 	def: SEARCH_NPM_PACKAGES_TOOL,
-	fn: async ({ args, toolId, toolCallbacks }) => {
+	planModeSafe: true,
+	fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
-		const result = await searchExternalIntegrationResources(args)
+		const sessionAi = (helpers as { sessionAi?: () => SessionAi } | undefined)?.sessionAi
+		const result = await searchExternalIntegrationResources(args, sessionAi?.())
 		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved relevant packages' })
 		return result
 	}
@@ -807,7 +905,12 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Code changes applied`,
-				result: 'Success'
+				result: 'Success',
+				codeDiff: {
+					before: oldCode,
+					after: updatedCode,
+					lang: scriptLangToEditorLang(scriptOptions.lang)
+				}
 			})
 			return `Applied changes to the script editor.`
 		} catch (error) {
@@ -859,7 +962,12 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: 'Code changes applied',
-				result: 'Success'
+				result: 'Success',
+				codeDiff: {
+					before: oldCode,
+					after: args.code,
+					lang: scriptLangToEditorLang(scriptOptions.lang)
+				}
 			})
 			return 'Code has been applied to the script editor.'
 		} catch (error) {
@@ -909,13 +1017,15 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		})
 	},
 	requiresConfirmation: true,
-	confirmationMessage: 'Run script test',
+	confirmAction: 'run',
+	confirmationMessage: 'Run a test of the current script',
 	showDetails: true,
 	autoCollapseDetails: false
 }
 
 export const getLintErrorsTool: Tool<ScriptChatHelpers> = {
 	def: GET_LINT_ERRORS_TOOL,
+	planModeSafe: true,
 	fn: async function ({ helpers, toolCallbacks, toolId }) {
 		toolCallbacks.setToolStatus(toolId, { content: 'Getting lint errors...' })
 

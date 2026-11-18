@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET git_sync = jsonb_set(\n            git_sync,\n            '{repositories}',\n            (SELECT jsonb_agg(\n                CASE WHEN elem->>'git_repo_resource_path' = $2\n                      AND jsonb_typeof(elem->'auto_pull') = 'object'\n                    THEN jsonb_set(elem, '{auto_pull}',\n                         ((elem->'auto_pull') - 'webhook_id' - 'webhook_secret' - 'webhook_url' - 'webhook_error') || $3)\n                    ELSE elem END)\n             FROM jsonb_array_elements(git_sync->'repositories') AS elem)\n        )\n        WHERE workspace_id = $1\n          AND jsonb_typeof(git_sync->'repositories') = 'array'\n          AND EXISTS (\n              SELECT 1 FROM jsonb_array_elements(git_sync->'repositories') AS e\n              WHERE e->>'git_repo_resource_path' = $2\n                AND jsonb_typeof(e->'auto_pull') = 'object'\n          )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6ddf798848b75affad1333b76c95b300c08ef40ef59a1cc159840cac51cc4789"
+}

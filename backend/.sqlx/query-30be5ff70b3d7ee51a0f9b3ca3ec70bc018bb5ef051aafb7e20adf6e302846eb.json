@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ai_memory_turn t SET handed_jobs = t.handed_jobs - $4::text\n         FROM (SELECT handed_jobs -> $4::text AS jobs FROM ai_memory_turn\n               WHERE workspace_id = $1 AND memory_id = $2 AND job_id = $3) old\n         WHERE t.workspace_id = $1 AND t.memory_id = $2 AND t.job_id = $3\n           AND t.handed_jobs ? $4::text\n         RETURNING old.jobs AS \"jobs: sqlx::types::Json<Vec<BackgroundJob>>\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "jobs: sqlx::types::Json<Vec<BackgroundJob>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "30be5ff70b3d7ee51a0f9b3ca3ec70bc018bb5ef051aafb7e20adf6e302846eb"
+}

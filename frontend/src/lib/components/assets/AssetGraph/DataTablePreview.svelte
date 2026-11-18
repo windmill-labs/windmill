@@ -9,7 +9,6 @@
 	// just be noise.
 	import DBTable from '$lib/components/DBTable.svelte'
 	import { resource } from 'runed'
-	import { workspaceStore } from '$lib/stores'
 	import { loadAllTablesMetaData } from '$lib/components/apps/components/display/dbtable/metadata'
 	import { dbTableOpsWithPreviewScripts } from '$lib/components/dbOps'
 	import { WorkspaceService } from '$lib/gen'
@@ -17,8 +16,10 @@
 	import { parseDbInputFromAssetSyntax } from '$lib/utils'
 	import { AlertTriangle, Database, Loader2, Settings } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { base } from '$lib/base'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		// Asset path as parsed from `datatable://<datatable>/<table>` —
@@ -71,7 +72,7 @@
 	// query, and the user needs to configure it before pipeline scripts
 	// can write to it.
 	let datatables = resource(
-		() => $workspaceStore,
+		() => $operatingWorkspace,
 		async (ws) => {
 			if (!ws) return [] as string[]
 			try {
@@ -102,6 +103,11 @@
 			: undefined
 	)
 
+	// Kept apart from "no columns for this table": a failed metadata read says
+	// nothing about whether the table exists, so reporting it as missing would
+	// point the user at the wrong problem.
+	let colDefsError = $state<string | undefined>(undefined)
+
 	// Metadata for every table in the datatable. We query the lot rather
 	// than just the one we care about because `loadAllTablesMetaData` is
 	// what `dbTableOpsWithPreviewScripts` and the rest of the DB manager
@@ -111,14 +117,12 @@
 	let colDefs = resource(
 		() => [input, refreshKey],
 		async ([_input]) => {
-			if (!_input || !$workspaceStore) return undefined
+			colDefsError = undefined
+			if (!_input || !$operatingWorkspace) return undefined
 			try {
-				return await loadAllTablesMetaData($workspaceStore, _input)
-			} catch {
-				// Connection/permission errors look identical to "table
-				// missing" from the user's POV inside the preview pane;
-				// the full error is surfaced via the existing sendUserToast
-				// path inside loadAllTablesMetaData.
+				return await loadAllTablesMetaData($operatingWorkspace, _input)
+			} catch (e) {
+				colDefsError = (e as Error)?.message || String(e)
 				return undefined
 			}
 		}
@@ -135,12 +139,12 @@
 	})
 
 	let dbTableOps = $derived(
-		input && tableColDefs && parsed.table && $workspaceStore
+		input && tableColDefs && parsed.table && $operatingWorkspace
 			? dbTableOpsWithPreviewScripts({
 					input,
 					tableKey: parsed.table,
 					colDefs: tableColDefs,
-					workspace: $workspaceStore
+					workspace: $operatingWorkspace
 				})
 			: undefined
 	)
@@ -175,7 +179,7 @@
 				</span>
 			</div>
 			<Button
-				href="{base}/workspace_settings?tab=windmill_data_tables"
+				href="/workspace_settings?tab=windmill_data_tables"
 				variant="accent"
 				unifiedSize="sm"
 				startIcon={{ icon: Settings }}
@@ -186,6 +190,12 @@
 	{:else if colDefs.loading && !colDefs.current}
 		<div class="absolute inset-0 flex items-center justify-center text-tertiary">
 			<Loader2 class="animate-spin" size={20} />
+		</div>
+	{:else if colDefsError}
+		<div class="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center">
+			<AlertTriangle size={20} class="text-red-500" />
+			<span class="text-sm font-medium text-emphasis">Could not read the datatable</span>
+			<span class="text-2xs text-tertiary max-w-md">{colDefsError}</span>
 		</div>
 	{:else if !tableColDefs}
 		<!-- Datatable exists but the specific table doesn't — most often

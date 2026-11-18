@@ -1,17 +1,22 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { usedTriggerKinds } from '$lib/stores'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import {
 		SqsTriggerService,
 		type AwsAuthResourceType,
-		type ErrorHandler,
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
@@ -22,7 +27,8 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveSqsTriggerFromCfg } from './utils'
-	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -32,9 +38,19 @@
 	import { deepEqual } from 'fast-equals'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
+	const editRights = useEditRights()
 
 	interface Props {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -53,6 +69,8 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -68,6 +86,10 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let is_flow: boolean = $state(false)
@@ -81,7 +103,15 @@
 	let pathError = $state('')
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
+	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let aws_resource_path: string = $state('')
@@ -95,9 +125,10 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -107,7 +138,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_sqs',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => sqsConfig,
 		applyCfg: loadTriggerConfig,
@@ -122,18 +153,27 @@
 		is_flow = itemKind === 'flow'
 	})
 
+	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
+	// draft, so Save hands it the config instead of writing it.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
 		defaultConfig?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		saveDraftHandler = undefined
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.sqs.path, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
@@ -166,8 +206,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		opts: {
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
+			/** A config this editor saved before, re-applied over the defaults. */
+			draftConfig?: Record<string, any>
+		} = {}
 	) {
+		saveDraftHandler = opts.onSaveDraft
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100)
@@ -188,14 +234,18 @@
 			edit = false
 			dirtyPath = false
 			mode = defaultValues?.mode ?? 'enabled'
-			error_handler_path = defaultValues?.error_handler_path ?? undefined
-			error_handler_args = defaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				defaultValues?.error_handler_path,
+				'script',
+				defaultValues?.error_handler_args
+			)
 			retry = defaultValues?.retry ?? undefined
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig)
 		} finally {
 			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			clearTimeout(loadingTimeout)
@@ -205,6 +255,8 @@
 	}
 
 	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		try {
 			script_path = cfg?.script_path
 			initialScriptPath = cfg?.script_path
@@ -215,11 +267,15 @@
 			path = cfg?.path
 			mode = cfg?.mode ?? 'enabled'
 			aws_auth_resource_type = cfg?.aws_auth_resource_type
-			can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
-			error_handler_path = cfg?.error_handler_path
-			error_handler_args = cfg?.error_handler_args ?? {}
+			permsPath = cfg?.path
+			permsForWrite = cfg?.extra_perms
+			errorHandler = handlerDraftFromStored(
+				'error',
+				cfg?.error_handler_path,
+				'script',
+				cfg?.error_handler_args
+			)
 			retry = cfg?.retry
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = cfg?.permissioned_as
 			selectedPermissionedAs = cfg?.permissioned_as
 			preservePermissionedAs = !!cfg?.permissioned_as
@@ -238,7 +294,7 @@
 				return { overlay: undefined, noDeployed: false }
 			}
 			const s = await SqsTriggerService.getSqsTrigger({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath,
 				getDraft: true
 			})
@@ -282,7 +338,7 @@
 				(force) =>
 					SqsTriggerService.setSqsTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'SQS trigger'
@@ -300,16 +356,15 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(getSaveCfg()))) return
+			drawer?.closeDrawer()
+			return
+		}
 		deploymentLoading = true
 		const previousPath = initialPath
 		const cfg = getSaveCfg()
-		const isSaved = await saveSqsTriggerFromCfg(
-			initialPath,
-			cfg,
-			edit,
-			$workspaceStore!,
-			usedTriggerKinds
-		)
+		const isSaved = await saveSqsTriggerFromCfg(initialPath, cfg, edit, wsId!, usedTriggerKinds)
 		if (isSaved) {
 			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(cfg.path)
@@ -367,30 +422,46 @@
 	/>
 {/if}
 
-{#if useDrawer}
-	<Drawer size="800px" bind:this={drawer}>
-		<DrawerContent
-			title={edit
-				? can_write
-					? `Edit SQS trigger ${initialPath}`
-					: `SQS trigger ${initialPath}`
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit SQS trigger ${initialPath}`
+				: `SQS trigger ${initialPath}`
+			: saveDraftHandler
+				? 'Draft SQS trigger'
 				: 'New SQS trigger'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsSnippet()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			{@render actionsSnippet()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
+	<Drawer
+		size="800px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.sqs.path)}
+	>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'SQS trigger' : ''} headerClass="grow min-w-0 h-[30px]">
@@ -409,6 +480,8 @@
 {#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="sqs"
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
@@ -417,6 +490,7 @@
 			isLoading={deploymentLoading}
 			{isDeployed}
 			onUpdate={updateTrigger}
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 			{onReset}
 			{onDelete}
 			{mode}
@@ -435,6 +509,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -462,6 +537,7 @@
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
+						workspaceOverride={wsId}
 						bind:dirty={dirtyPath}
 						bind:error={pathError}
 						bind:path
@@ -478,12 +554,13 @@
 			{#if !hideTarget}
 				<Section label="Runnable">
 					<TriggerRunnablePicker
+						workspace={wsId}
 						{fixedScriptPath}
 						bind:itemKind
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
 						promptText="Pick a script or flow to be triggered "
 					>
 						{#snippet createButton()}
@@ -493,7 +570,9 @@
 									variant="accent"
 									size="xs"
 									disabled={!can_write}
-									href={itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F19657'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=59' : '/scripts/add?hub=hub%2F19657'
+									)}
 									target="_blank"
 								>
 									Create from template
@@ -527,12 +606,11 @@
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler
+								workspace={wsId}
 								{optionTabSelected}
 								{itemKind}
 								{can_write}
-								bind:errorHandlerSelected
-								bind:error_handler_path
-								bind:error_handler_args
+								bind:errorHandler
 								bind:retry
 							/>
 						</div>

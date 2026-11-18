@@ -6,11 +6,56 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+lazy_static::lazy_static! {
+    /// Matches the non-quoted, non-IP-literal subset of the `proper_email` CHECK constraint
+    /// carried by `usr` and `workspace_invite`, so anything accepted here is accepted by those
+    /// tables too.
+    pub static ref VALID_EMAIL: regex::Regex = regex::Regex::new(
+        r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$"
+    ).unwrap();
+
+}
+
+/// Width of the `email` columns of `usr`, `workspace_invite` and `email_to_igroup`.
+pub const EMAIL_COLUMN_MAX_LEN: usize = 255;
+
+/// The regex of the `proper_email` CHECK constraint on `usr` and `workspace_invite`
+/// (`20220620210708_regex_fix`), verbatim, for [`usr_accepts_email`]. Evaluated by the
+/// database and never by a Rust engine: `~*` folds case under the database collation, so a
+/// fixed mirror accepts addresses the constraint rejects, or rejects ones it holds, on some
+/// locale. `windmill-common/tests/usr_accepts_email.rs` pins the text to the constraint.
+pub const PROPER_EMAIL_PATTERN: &str = r#"^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$"#;
+
+/// Whether `usr` (and `workspace_invite`) will store `email`: the `proper_email` regex as the
+/// database evaluates it, plus the column width. Unlike [`VALID_EMAIL`] this admits every
+/// address those tables already hold, which matters wherever an existing member is judged.
+pub async fn usr_accepts_email<'c, E>(db: E, email: &str) -> crate::error::Result<bool>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    if email.contains('\0') || email.chars().count() > EMAIL_COLUMN_MAX_LEN {
+        return Ok(false);
+    }
+    let accepted: bool = sqlx::query_scalar("SELECT $1::text ~* $2::text")
+        .bind(email)
+        .bind(PROPER_EMAIL_PATTERN)
+        .fetch_one(db)
+        .await?;
+    Ok(accepted)
+}
+
 pub const SUPERADMIN_SECRET_EMAIL: &str = "superadmin_secret@windmill.dev";
 pub const SUPERADMIN_NOTIFICATION_EMAIL: &str = "superadmin_notification@windmill.dev";
 pub const SUPERADMIN_SYNC_EMAIL: &str = "superadmin_sync@windmill.dev";
 
 pub const COOKIE_NAME: &str = "token";
+
+/// `password.login_type` of an account created for someone before they have signed in:
+/// no credential of its own (password login and reset require `'password'`), reachable
+/// only through a superadmin-minted login link until either `set_password` turns it into
+/// a password account or the first OAuth login proving the same address adopts it and
+/// rewrites `login_type` to the provider.
+pub const PENDING_OAUTH_LOGIN_TYPE: &str = "pending_oauth";
 
 /// Prefix for user-based permissioned_as values: "u/"
 pub const PERMISSIONED_AS_USER_PREFIX: &str = "u/";
@@ -18,15 +63,58 @@ pub const PERMISSIONED_AS_USER_PREFIX: &str = "u/";
 pub const PERMISSIONED_AS_GROUP_PREFIX: &str = "g/";
 /// Prefix for group-based usernames: "group-"
 pub const USERNAME_GROUP_PREFIX: &str = "group-";
+/// Widest principal a job row can carry (`v2_job.permissioned_as`), which is narrower than the
+/// columns runnables and triggers store one in.
+pub const PERMISSIONED_AS_MAX_LEN: usize = 55;
 
+/// Whether any account exists for `email`: a `password` row (deactivated ones
+/// included, since the sign-in path filters `disabled = false` and a re-enabled
+/// account must not read as absent) or a `usr` row in any workspace (what a service
+/// account has instead of a password). A guest is someone with none: the single rule
+/// that keeps an account holder from ever holding a cheaper guest identity.
+///
+/// The address is lowercased before the lookup: accounts are stored lowercased, so a
+/// mixed-case address would otherwise miss an existing account and be let through. The
+/// comparison stays a plain equality (not `lower(email)`), so it uses the email index.
+pub async fn has_any_account<'c, E: sqlx::Executor<'c, Database = sqlx::Postgres>>(
+    executor: E,
+    email: &str,
+) -> crate::error::Result<bool> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)
+             OR EXISTS(SELECT 1 FROM usr WHERE email = $1)",
+    )
+    .bind(email.to_lowercase())
+    .fetch_one(executor)
+    .await
+    .map_err(|e| crate::error::Error::internal_err(format!("checking account for {email}: {e:#}")))
+}
+
+/// An email-shaped username is its own principal, which is how a superadmin acting without a
+/// `usr` row is named (`usr.username` is constrained to `[\w-]+`, so a member never is). It is
+/// decided before the group convention — an address is never a group's username — and one
+/// containing `/` is prefixed, since readers split on the first `/` and would otherwise take
+/// `g/alice@example.com` for a group.
 pub fn username_to_permissioned_as(user: &str) -> String {
     if user.contains('@') {
-        user.to_string()
-    } else if let Some(group) = user.strip_prefix(USERNAME_GROUP_PREFIX) {
-        format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)
-    } else {
-        format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
+        return if user.contains('/') {
+            format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
+        } else {
+            user.to_string()
+        };
     }
+    if let Some(group) = user.strip_prefix(USERNAME_GROUP_PREFIX) {
+        return format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group);
+    }
+    format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
+}
+
+/// The principal a user's runnables carry, which a rename moves and offboarding hands over;
+/// `None` for a legacy `group-*` username, which canonicalizes to the group it names: what runs
+/// as that group outlives any one member.
+pub fn username_to_own_permissioned_as(user: &str) -> Option<String> {
+    let principal = username_to_permissioned_as(user);
+    (!principal.starts_with(PERMISSIONED_AS_GROUP_PREFIX)).then_some(principal)
 }
 
 /// Borrowed key for zero-allocation cache lookups via `Equivalent<(String, String)>`.
@@ -46,30 +134,248 @@ lazy_static::lazy_static! {
 
 const EMAIL_CACHE_TTL_SECS: u64 = 60;
 
+/// Resolve a workspace-scoped username to its email.
+///
+/// Members are found in `usr`. A superadmin acting in a workspace they are *not*
+/// a member of has no `usr` row; they carry either their instance-derived
+/// username (`password.username`, when `automate_username_creation` is enabled)
+/// or their email (when it is disabled), so fall back to `password` on both,
+/// gated on `super_admin` since only superadmins can act without membership.
+/// Returns `None` when the username resolves to nobody.
+pub async fn resolve_username_to_email<'c>(
+    workspace_id: &str,
+    username: &str,
+    db: impl sqlx::PgExecutor<'c>,
+) -> crate::error::Result<Option<String>> {
+    Ok(sqlx::query_scalar!(
+        "SELECT COALESCE(
+            (SELECT email FROM usr WHERE workspace_id = $1 AND username = $2),
+            (SELECT email FROM password WHERE (username = $2 OR email = $2) AND super_admin = true)
+        )",
+        workspace_id,
+        username
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten())
+}
+
+/// Whether a permissioned_as names something that exists in this workspace.
+///
+/// An existence probe over the non-RLS pool, no authorization of its own: callers must
+/// already be authorized for `w_id`. Same contract for [`permissioned_as_from_email`] and
+/// [`resolve_username_to_email`].
+///
+/// Accepts the three forms `username_to_permissioned_as` can produce: `u/{username}`,
+/// `g/{group}`, and a bare address when the username is itself email-shaped. Anything else
+/// is malformed — `fetch_authed_from_permissioned_as` would take its least-privileged
+/// branch rather than fail, so callers reject instead of storing it.
+///
+/// Decided prefix first, like `fetch_authed_from_permissioned_as` and
+/// [`get_email_from_permissioned_as`]: a group name may contain `@` while a username never
+/// carries a `u/`/`g/` prefix, so a bare address is only ever what is left over. Validating
+/// by a different rule than dispatch reads by is what lets a stored identity run as someone
+/// else.
+pub async fn permissioned_as_exists(
+    workspace_id: &str,
+    permissioned_as: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> crate::error::Result<bool> {
+    if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
+        return Ok(resolve_username_to_email(workspace_id, username, db)
+            .await?
+            .is_some());
+    }
+    if let Some(group) = permissioned_as.strip_prefix(PERMISSIONED_AS_GROUP_PREFIX) {
+        return Ok(sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+            workspace_id,
+            group
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false));
+    }
+    // The bare form names an account acting without a `usr` row, not anyone who merely holds
+    // that address: `u/{username}` is the canonical principal for a member, and the bare branch
+    // of `fetch_authed_from_permissioned_as` grants neither their groups nor their folders.
+    // Anything unprefixed that is not an address at all is malformed.
+    if !permissioned_as.contains('@') {
+        return Ok(false);
+    }
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2
+            UNION ALL
+            SELECT 1 FROM password WHERE email = $2 AND super_admin
+        )",
+        workspace_id,
+        permissioned_as
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
+}
+
+/// Drop a cached address so a transactional email change is visible immediately.
+///
+/// Not the thing that keeps authorization correct — `fetch_authed_from_permissioned_as`
+/// re-resolves the address before granting anything. This keeps the cache from serving an
+/// address that is merely wrong for the TTL, on reads and on what is shown.
+pub fn invalidate_email_cache(workspace_id: &str, username: &str) {
+    EMAIL_CACHE.remove(&(workspace_id.to_string(), username.to_string()));
+}
+
+/// Drop this name's entry in every workspace, for the changes that know the name but not the
+/// workspace: a superadmin resolves through `password`, whose row names no workspace of its own.
+pub fn invalidate_email_cache_for_username(username: &str) {
+    EMAIL_CACHE.retain(|(_workspace_id, cached_username), _| cached_username != username);
+}
+
+/// Inverse of [`get_email_from_permissioned_as`]: the principal an on-behalf-of email
+/// names in this workspace, for callers that supply the email alone.
+///
+/// Mirrors [`resolve_username_to_email`] branch for branch, including its fallback to
+/// `password` — a superadmin acting in a workspace they are not a member of has no `usr`
+/// row, and dropping them here would hand their runnables back to the deployer while
+/// keeping their superadmin email.
+///
+/// `None` when the email names nobody at all — an address outside the workspace that is
+/// not a superadmin's, or a group that no longer exists. Callers then leave the identity
+/// unrecorded rather than storing a principal that cannot authenticate.
+///
+/// Known, accepted consequence of a real account winning the synthetic `group-*@windmill.dev`
+/// namespace: a group identity sent as its address alone, as a "keep target identity" workspace
+/// deploy sends it for scripts, flows and apps, comes back as the account holding that address
+/// when one exists, not as `g/*`. Such an account takes an admin to exist: a superadmin or an
+/// admin-configured identity provider to create it (the public OAuth providers only assert a
+/// `@windmill.dev` address to that domain's owner) and an admin of the target workspace to admit
+/// it, so no member can steer a group's runnables to themselves this way.
+///
+/// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
+/// for `workspace_id`.
+pub async fn permissioned_as_from_email(
+    workspace_id: &str,
+    email: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> crate::error::Result<Option<String>> {
+    let mut conn = db.acquire().await?;
+    // A real account always wins: the synthetic group namespace below is not reserved,
+    // so a user may legitimately hold a `group-*@windmill.dev` address, and resolving it
+    // to the like-named group would hand their runnables that group's folder access.
+    if let Some(username) = sqlx::query_scalar!(
+        "SELECT COALESCE(
+            (SELECT username FROM usr WHERE workspace_id = $1 AND email = $2),
+            (SELECT COALESCE(username, email) FROM password WHERE email = $2 AND super_admin = true)
+        )",
+        workspace_id,
+        email
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .flatten()
+    {
+        return Ok(Some(username_to_permissioned_as(&username)));
+    }
+    // Groups have no address of their own; `get_email_from_permissioned_as` mints this
+    // synthetic one, so it is the only form that can be read back as a group.
+    let Some(group) = email
+        .strip_prefix(USERNAME_GROUP_PREFIX)
+        .and_then(|rest| rest.strip_suffix("@windmill.dev"))
+    else {
+        return Ok(None);
+    };
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+        workspace_id,
+        group
+    )
+    .fetch_one(&mut *conn)
+    .await?
+    .unwrap_or(false);
+    Ok(exists.then(|| format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)))
+}
+
 /// Get email from permissioned_as string.
-/// - "u/{username}" → lookup email from usr table (cached)
+/// - "u/{username}" → resolve via [`resolve_username_to_email`] (cached)
 /// - "g/{group}" → "group-{group}@windmill.dev"
 /// - raw email → return as-is
-pub async fn get_email_from_permissioned_as(
+///
+/// `notify_user_email_change` evicts the key on every process for each change that can move it,
+/// at that process's next notify-event poll (`LISTEN_NEW_EVENTS_INTERVAL_SEC`, 10s by default),
+/// so a hit can still be the old address for up to one poll. The TTL caps it if an eviction is
+/// ever missed.
+///
+/// Which of the two to use is a question of how long a wrong answer lives, not of whether it is
+/// stored — both of these get stored and read back. A config row (an app policy, a schedule, a
+/// runnable) is the authority for every run that follows it, so a stale address there is
+/// permanent and invisible: those use [`get_email_from_permissioned_as_uncached`]. Job dispatch
+/// also stores its answer, and the worker reads it back to build that run's authed, but it
+/// governs one job and dies with it, so it stays here.
+///
+/// The job's own authorization does not trust the address as given:
+/// `fetch_authed_from_permissioned_as` re-resolves it from the principal's live binding, and that
+/// corrected address is what the job row and its token carry. Route an address into an `Authed`,
+/// a job row or a token without going through that function, and this cache stops being safe to
+/// read at dispatch.
+///
+/// What reads the dispatch address before that re-resolution (the quota and superadmin-exemption
+/// checks at the top of `push_inner`, a flow step's tag check) or when the principal has no live
+/// binding can act on the old address for up to one poll after a username reuse, an email change
+/// or a superadmin change. That window is accepted as the cost of keeping dispatch off the
+/// database; a consumer that cannot tolerate it must re-resolve first.
+///
+/// Reads through the non-RLS pool and authorizes nothing — callers must already be authorized
+/// for `workspace_id`.
+pub async fn get_email_from_permissioned_as<'c>(
     permissioned_as: &str,
     workspace_id: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
+    db: impl sqlx::PgExecutor<'c>,
+) -> crate::error::Result<String> {
+    get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, true).await
+}
+
+/// [`get_email_from_permissioned_as`] for a value about to be **persisted**.
+///
+/// The eviction is delivered by the `notify_event` poller, not synchronously, so for a few
+/// seconds after a change a replica can still serve the old address. In a config row that is
+/// permanent: the row outlives the eviction, every later run trusts it, and nothing re-derives
+/// it, so a principal and an address that name different accounts stay that way.
+///
+/// Use this for three cases, all of which end in a stored pair:
+/// - writing the address into a row;
+/// - the lookup that validates a pair before it is stored;
+/// - **reads whose result the client sends back** — a script or a workspace export hands over a
+///   principal and address together, and a redeploy validates that pair against a fresh
+///   resolution, so a stale one comes back as a rejected deploy rather than a stale display.
+///
+/// See [`get_email_from_permissioned_as`] for the dispatch case that deliberately does not.
+pub async fn get_email_from_permissioned_as_uncached<'c>(
+    permissioned_as: &str,
+    workspace_id: &str,
+    db: impl sqlx::PgExecutor<'c>,
+) -> crate::error::Result<String> {
+    get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, false).await
+}
+
+async fn get_email_from_permissioned_as_inner<'c>(
+    permissioned_as: &str,
+    workspace_id: &str,
+    db: impl sqlx::PgExecutor<'c>,
+    use_cache: bool,
 ) -> crate::error::Result<String> {
     if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
-        let lookup = EmailCacheKey(workspace_id, username);
-        if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
-            if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
-                return Ok(email);
+        if use_cache {
+            let lookup = EmailCacheKey(workspace_id, username);
+            if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
+                if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
+                    return Ok(email);
+                }
             }
         }
-        let email = sqlx::query_scalar!(
-            "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
-            username,
-            workspace_id
-        )
-        .fetch_optional(db)
-        .await?
-        .unwrap_or_else(|| format!("{}@unknown.windmill.dev", username));
+        let email = resolve_username_to_email(workspace_id, username, db)
+            .await?
+            .unwrap_or_else(|| format!("{}@unknown.windmill.dev", username));
         let key = (workspace_id.to_string(), username.to_string());
         EMAIL_CACHE.insert(key, (email.clone(), std::time::Instant::now()));
         Ok(email)
@@ -81,44 +387,54 @@ pub async fn get_email_from_permissioned_as(
     }
 }
 
-/// Compute the highest-precedence workspace role for a user across all their instance groups.
+/// The highest-precedence workspace role a user holds across their instance groups.
 ///
-/// Precedence: admin (3) > developer (2) > operator (1).
-/// Returns `(best_group_name, is_admin, is_operator)`.
+/// `admin` ranks first, then the workspace's roles in `role_order` (earlier is higher). A group
+/// with no mapped role grants `roles::default_role_name`; a role name not in `role_order` ranks
+/// last. Returns `(best_group_name, is_admin, role)`, where `role` is the role the membership
+/// holds and, for an admin, the one it keeps under the admin flag.
 pub fn compute_highest_workspace_role(
     user_igroups: &[String],
     ws_configured_groups: &[String],
     ws_roles: &std::collections::HashMap<String, String>,
-) -> (String, bool, bool) {
-    let mut best_group = String::new();
-    let mut best_precedence = 0u8;
+    role_order: &[String],
+) -> (String, bool, String) {
+    let rank = |role: &str| -> usize {
+        if role == "admin" {
+            0
+        } else {
+            1 + role_order
+                .iter()
+                .position(|r| r == role)
+                .unwrap_or(role_order.len())
+        }
+    };
+    let default_role = crate::roles::default_role_name(role_order.iter().map(String::as_str));
+    let role_of = |group: &str| -> String {
+        ws_roles
+            .get(group)
+            .cloned()
+            .unwrap_or_else(|| default_role.clone())
+    };
 
+    let mut best: Option<(usize, String)> = None;
     for group in user_igroups {
         if !ws_configured_groups.contains(group) {
             continue;
         }
-        let default_role = "developer".to_string();
-        let role = ws_roles.get(group).unwrap_or(&default_role);
-        let precedence = match role.as_str() {
-            "admin" => 3u8,
-            "operator" => 1,
-            _ => 2,
-        };
-        if precedence > best_precedence {
-            best_precedence = precedence;
-            best_group = group.clone();
+        let r = rank(&role_of(group));
+        if best.as_ref().map_or(true, |(b, _)| r < *b) {
+            best = Some((r, group.clone()));
         }
     }
 
-    let default_role = "developer".to_string();
-    let best_role_str = ws_roles.get(&best_group).unwrap_or(&default_role);
-    let (is_admin, is_operator) = match best_role_str.as_str() {
-        "admin" => (true, false),
-        "operator" => (false, true),
-        _ => (false, false),
-    };
-
-    (best_group, is_admin, is_operator)
+    let best_group = best.map(|(_, g)| g).unwrap_or_default();
+    let role = role_of(&best_group);
+    if role == "admin" {
+        (best_group, true, default_role)
+    } else {
+        (best_group, false, role)
+    }
 }
 
 pub fn truncate_token(token: &str) -> String {
@@ -142,66 +458,84 @@ mod tests {
             username_to_permissioned_as("alice@example.com"),
             "alice@example.com"
         );
+        assert_eq!(
+            username_to_permissioned_as("g/alice@example.com"),
+            "u/g/alice@example.com"
+        );
+        // The `group-` convention is for usernames, and an address is never one.
+        assert_eq!(
+            username_to_permissioned_as("group-ops/alice@example.com"),
+            "u/group-ops/alice@example.com"
+        );
+        assert_eq!(
+            username_to_permissioned_as("group-ops@example.com"),
+            "group-ops@example.com"
+        );
         assert_eq!(username_to_permissioned_as("group-all"), "g/all");
         assert_eq!(username_to_permissioned_as("group-my-team"), "g/my-team");
     }
 
     #[test]
-    fn test_compute_highest_workspace_role_admin_wins() {
-        let user_groups = vec!["ops".to_string(), "admins".to_string()];
-        let ws_groups = vec!["ops".to_string(), "admins".to_string()];
-        let mut roles = std::collections::HashMap::new();
-        roles.insert("ops".to_string(), "operator".to_string());
-        roles.insert("admins".to_string(), "admin".to_string());
+    fn test_valid_email() {
+        for email in [
+            "alice@example.com",
+            "alice.bob+tag@sub.example.co.uk",
+            "a_b-c!#$%&'*+/=?^_`{|}~@example.com",
+        ] {
+            assert!(VALID_EMAIL.is_match(email), "{email} should be valid");
+        }
+        for email in [
+            "alice",
+            "alice@example",
+            "alice@@example.com",
+            "alice @example.com",
+            "alice@example.com\nbob@example.com",
+            "",
+        ] {
+            assert!(!VALID_EMAIL.is_match(email), "{email} should be invalid");
+        }
+    }
 
-        let (group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
-        assert_eq!(group, "admins");
-        assert!(is_admin);
-        assert!(!is_operator);
+    fn order() -> Vec<String> {
+        vec![
+            "developer".to_string(),
+            "builder".to_string(),
+            "operator".to_string(),
+        ]
     }
 
     #[test]
-    fn test_compute_highest_workspace_role_developer_over_operator() {
-        let user_groups = vec!["devs".to_string(), "ops".to_string()];
-        let ws_groups = vec!["devs".to_string(), "ops".to_string()];
+    fn test_compute_highest_workspace_role_follows_role_order() {
+        let user_groups = vec!["ops".to_string(), "builders".to_string()];
+        let ws_groups = user_groups.clone();
         let mut roles = std::collections::HashMap::new();
-        roles.insert("devs".to_string(), "developer".to_string());
         roles.insert("ops".to_string(), "operator".to_string());
+        roles.insert("builders".to_string(), "builder".to_string());
+        assert_eq!(
+            compute_highest_workspace_role(&user_groups, &ws_groups, &roles, &order()),
+            ("builders".to_string(), false, "builder".to_string())
+        );
 
-        let (group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
-        assert_eq!(group, "devs");
-        assert!(!is_admin);
-        assert!(!is_operator);
+        roles.insert("ops".to_string(), "admin".to_string());
+        assert_eq!(
+            compute_highest_workspace_role(&user_groups, &ws_groups, &roles, &order()),
+            ("ops".to_string(), true, "developer".to_string())
+        );
     }
 
     #[test]
-    fn test_compute_highest_workspace_role_skips_unconfigured_groups() {
-        let user_groups = vec!["admins".to_string(), "other".to_string()];
-        let ws_groups = vec!["ops".to_string()]; // admins not configured for this workspace
-        let mut roles = std::collections::HashMap::new();
-        roles.insert("admins".to_string(), "admin".to_string());
-        roles.insert("ops".to_string(), "operator".to_string());
-
-        let (group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
-        // No user groups match ws_configured_groups, so best_group stays empty
-        assert_eq!(group, "");
-        assert!(!is_admin);
-        assert!(!is_operator);
-    }
-
-    #[test]
-    fn test_compute_highest_workspace_role_defaults_to_developer() {
-        let user_groups = vec!["team".to_string()];
+    fn test_compute_highest_workspace_role_unmapped_group_is_developer() {
+        let user_groups = vec!["team".to_string(), "other".to_string()];
         let ws_groups = vec!["team".to_string()];
-        let roles = std::collections::HashMap::new(); // no role configured → developer
-
-        let (group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
-        assert_eq!(group, "team");
-        assert!(!is_admin);
-        assert!(!is_operator);
+        assert_eq!(
+            compute_highest_workspace_role(&user_groups, &ws_groups, &Default::default(), &order()),
+            ("team".to_string(), false, "developer".to_string())
+        );
+        // An instance that dropped `developer` falls back to its first role.
+        let no_dev = vec!["builder".to_string(), "operator".to_string()];
+        assert_eq!(
+            compute_highest_workspace_role(&user_groups, &ws_groups, &Default::default(), &no_dev),
+            ("team".to_string(), false, "builder".to_string())
+        );
     }
 }

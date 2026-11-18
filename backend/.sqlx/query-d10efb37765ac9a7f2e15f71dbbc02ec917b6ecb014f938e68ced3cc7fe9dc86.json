@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_experiment SET subject = jsonb_set(subject, '{path}', to_jsonb(REGEXP_REPLACE(subject->>'path','u/' || $2 || '/(.*)','u/' || $1 || '/\\1'))) WHERE subject->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d10efb37765ac9a7f2e15f71dbbc02ec917b6ecb014f938e68ced3cc7fe9dc86"
+}

@@ -34,16 +34,24 @@ export interface SuccessHandlerConfig {
   extra_args?: any;
 }
 
+export interface VariableExpirationHandlerConfig {
+  path?: string;
+  extra_args?: any;
+  muted_on_user_path?: boolean;
+  notify_before_secs?: number;
+  remind_every_secs?: number;
+}
+
 export interface SimplifiedSettings {
   // Grouped format (current). Explicit `null` on error_handler / success_handler
   // signals "clear the remote value"; `undefined` means "not managed by git".
   auto_invite?: AutoInviteConfig;
   error_handler?: ErrorHandlerConfig | null;
   success_handler?: SuccessHandlerConfig | null;
+  variable_expiration_handler?: VariableExpirationHandlerConfig | null;
 
   // Other fields
   webhook?: string;
-  deploy_to?: string;
   ai_config?: AIConfig;
   large_file_storage?: any;
   git_sync?: any;
@@ -53,13 +61,46 @@ export interface SimplifiedSettings {
   mute_critical_alerts?: boolean;
   color?: string;
   operator_settings?: any;
+  role_overrides?: any;
   datatable?: any;
   slack_team_id?: string;
   slack_name?: string;
   slack_command_script?: string;
   slack_oauth_client_id?: string;
   slack_oauth_client_secret?: string;
+  ducklake?: any;
+  dbt_warehouses?: any;
+  deploy_ui?: any;
+  teams_command_script?: string | null;
+  public_app_execution_limit_per_minute?: number | null;
+  guest_jwt_public_key?: string | null;
+  guest_jwt_jwks_url?: string | null;
+  error_handler_fallback_to_instance_alerts?: boolean;
+  add_admins_and_developers_to_forks?: boolean;
+  datatable_permissions?: Record<string, unknown> | null;
 }
+
+/** Settings the server manages only when settings.yaml states them: a file written before
+ * they existed must neither clear them nor show as differing from the workspace. */
+export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
+  "datatable_permissions",
+  "ducklake",
+  "dbt_warehouses",
+  "deploy_ui",
+  "teams_command_script",
+  "public_app_execution_limit_per_minute",
+  "guest_jwt_public_key",
+  "guest_jwt_jwks_url",
+  "error_handler_fallback_to_instance_alerts",
+  "add_admins_and_developers_to_forks",
+  "variable_expiration_handler",
+  "role_overrides",
+  "webhook_events",
+] as const;
+
+/** Keys earlier versions wrote that no longer configure anything; the server ignores them,
+ * so a file that still carries one must not show as differing from the workspace. */
+export const RETIRED_SETTINGS = ["guest_access_enabled"] as const;
 
 // Legacy settings interface for reading old settings.yaml files
 interface LegacySimplifiedSettings {
@@ -73,7 +114,6 @@ interface LegacySimplifiedSettings {
   success_handler_extra_args?: any;
   // Other fields same as SimplifiedSettings
   webhook?: string;
-  deploy_to?: string;
   ai_config?: AIConfig;
   large_file_storage?: any;
   git_sync?: any;
@@ -96,7 +136,6 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
 
   // Copy non-legacy fields
   if (settings.webhook !== undefined) result.webhook = settings.webhook;
-  if (settings.deploy_to !== undefined) result.deploy_to = settings.deploy_to;
   if (settings.ai_config !== undefined) result.ai_config = settings.ai_config;
   if (settings.large_file_storage !== undefined) result.large_file_storage = settings.large_file_storage;
   if (settings.git_sync !== undefined) result.git_sync = settings.git_sync;
@@ -111,6 +150,9 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
   if (settings.slack_command_script !== undefined) result.slack_command_script = settings.slack_command_script;
   if (settings.slack_oauth_client_id !== undefined) result.slack_oauth_client_id = settings.slack_oauth_client_id;
   if (settings.slack_oauth_client_secret !== undefined) result.slack_oauth_client_secret = settings.slack_oauth_client_secret;
+  for (const key of SETTINGS_MANAGED_ONLY_WHEN_PRESENT) {
+    if (settings[key] !== undefined) (result as any)[key] = settings[key];
+  }
 
   // Handle auto_invite: check if already grouped or needs migration
   if (settings.auto_invite && typeof settings.auto_invite === "object") {
@@ -176,10 +218,54 @@ export async function pushWorkspaceSettings(
   workspace: string,
   _path: string,
   settings: SimplifiedSettings | undefined,
-  localSettings: SimplifiedSettings | any
+  localSettings: SimplifiedSettings | any,
+  opts: { includeDatatablePermissions?: boolean } = {},
 ) {
+  if (localSettings?.protection_rules !== undefined) {
+    log.warn(
+      "Ignoring protection_rules in settings.yaml: protection-rules.yaml syncs them (wmill protection-rules push)."
+    );
+  }
   // Migrate local settings from legacy format if needed
   localSettings = migrateToGroupedFormat(localSettings);
+  if (!opts.includeDatatablePermissions) {
+    delete localSettings.datatable_permissions;
+  }
+
+  if (
+    unreadableSecret(localSettings.webhook) &&
+    !(await documentKeepsRedactedWebhook(workspace))
+  ) {
+    log.warn(
+      "Leaving the webhook unchanged: this server stores the webhook URL in plain text and cannot read an encrypted or redacted one. Upgrade it, or write the URL in plain text."
+    );
+    const remote = await wmill.getWorkspaceSettingsDocument({ workspace });
+    if (typeof remote.webhook === "string") {
+      localSettings.webhook = remote.webhook;
+    } else {
+      delete localSettings.webhook;
+    }
+  }
+  if (await applySettingsDocument(workspace, localSettings)) {
+    return;
+  }
+  // The per-setting endpoints of a server without the settings document know nothing of
+  // these keys, nor of a secret it would have to decrypt or keep.
+  for (const key of SETTINGS_MANAGED_ONLY_WHEN_PRESENT) {
+    delete (localSettings as any)[key];
+  }
+  const webhookUnreadable = unreadableSecret(localSettings.webhook);
+  if (webhookUnreadable) {
+    log.warn(
+      "Leaving the webhook unchanged: this server cannot read an encrypted or redacted webhook URL. Upgrade it, or write the URL in plain text."
+    );
+  }
+  const slackSecretUnreadable = unreadableSecret(localSettings.slack_oauth_client_secret);
+  if (slackSecretUnreadable) {
+    log.warn(
+      "Leaving the Slack OAuth client and secret unchanged: this server cannot read an encrypted or redacted secret. Upgrade it, or write the secret in plain text."
+    );
+  }
 
   try {
     const remoteSettings = await wmill.getSettings({
@@ -196,7 +282,6 @@ export async function pushWorkspaceSettings(
       error_handler: remoteSettings.error_handler as ErrorHandlerConfig | undefined,
       success_handler: remoteSettings.success_handler as SuccessHandlerConfig | undefined,
       webhook: remoteSettings.webhook,
-      deploy_to: remoteSettings.deploy_to,
       ai_config: remoteSettings.ai_config,
       large_file_storage: remoteSettings.large_file_storage,
       git_sync: remoteSettings.git_sync,
@@ -217,16 +302,23 @@ export async function pushWorkspaceSettings(
     throw new Error(`Failed to get workspace settings: ${err}`);
   }
 
-  // Exclude read-only fields from comparison (slack_team_id and slack_name are set via OAuth only)
-  const { slack_team_id: _lst, slack_name: _lsn, ...comparableLocal } = localSettings;
-  const { slack_team_id: _rst, slack_name: _rsn, ...comparableRemote } = settings;
+  // Exclude fields that are never applied here: slack_team_id/slack_name are OAuth-only,
+  // and name is never applied (see below), so a name-only diff stays a no-op. color is
+  // applied only when the file carries it, so an unset one leaves the comparison too.
+  const { slack_team_id: _lst, slack_name: _lsn, name: _ln, ...comparableLocal } = localSettings;
+  const { slack_team_id: _rst, slack_name: _rsn, name: _rn, ...comparableRemote } = settings;
+  const colorManaged = localSettings.color != null;
+  if (!colorManaged) {
+    delete comparableLocal.color;
+    delete comparableRemote.color;
+  }
   if (isSuperset(comparableLocal, comparableRemote)) {
     log.debug(`Workspace settings are up to date`);
     return;
   }
   log.debug(`Workspace settings are not up-to-date, updating...`);
 
-  if (localSettings.webhook !== settings.webhook) {
+  if (!webhookUnreadable && localSettings.webhook !== settings.webhook) {
     log.debug(`Updating webhook...`);
     await wmill.editWebhook({
       workspace,
@@ -236,8 +328,19 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Handle auto_invite using grouped format
-  if (!deepEqual(localSettings.auto_invite, settings.auto_invite)) {
+  // Handle auto_invite using grouped format. The domain invite and the instance groups
+  // are applied by separate endpoints, each rewriting only its own keys.
+  const {
+    instance_groups: localGroups,
+    instance_groups_roles: localGroupRoles,
+    ...localDomainInvite
+  } = localSettings.auto_invite ?? {};
+  const {
+    instance_groups: remoteGroups,
+    instance_groups_roles: remoteGroupRoles,
+    ...remoteDomainInvite
+  } = settings.auto_invite ?? {};
+  if (!deepEqual(localDomainInvite, remoteDomainInvite)) {
     log.debug(`Updating auto invite...`);
 
     const localAutoInvite = localSettings.auto_invite;
@@ -275,6 +378,20 @@ export async function pushWorkspaceSettings(
     }
   }
 
+  // Only when settings.yaml declares instance_groups: clearing a group removes the
+  // workspace members it granted, so an absent key must never clear it.
+  if (
+    localGroups != undefined &&
+    (!deepEqual(localGroups, remoteGroups) ||
+      !deepEqual(localGroupRoles ?? {}, remoteGroupRoles ?? {}))
+  ) {
+    log.debug(`Updating instance groups...`);
+    await wmill.editInstanceGroups({
+      workspace,
+      requestBody: { groups: localGroups, roles: localGroupRoles ?? {} },
+    });
+  }
+
   if (!deepEqual(localSettings.ai_config, settings.ai_config)) {
     log.debug(`Updating copilot settings...`);
     await wmill.editCopilotConfig({
@@ -310,16 +427,6 @@ export async function pushWorkspaceSettings(
       requestBody: {
         path: localSuccessHandler?.path,
         extra_args: localSuccessHandler?.extra_args,
-      },
-    });
-  }
-
-  if (localSettings.deploy_to != settings.deploy_to) {
-    log.debug(`Updating deploy to...`);
-    await wmill.editDeployTo({
-      workspace,
-      requestBody: {
-        deploy_to: localSettings.deploy_to,
       },
     });
   }
@@ -364,15 +471,9 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (localSettings.name != settings.name) {
-    log.debug(`Updating workspace name...`);
-    await wmill.changeWorkspaceName({
-      workspace,
-      requestBody: {
-        new_name: localSettings.name,
-      },
-    });
-  }
+  // Workspace display name is intentionally never applied by `sync push`: settings.yaml is
+  // shared across a repo's branches, so applying it would let one workspace's name overwrite
+  // another's when both sync the same repo. `sync pull` still records it.
 
   if (localSettings.mute_critical_alerts != settings.mute_critical_alerts) {
     log.debug(`Updating mute critical alerts...`);
@@ -384,7 +485,9 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (localSettings.color != settings.color) {
+  // A color is applied only when the file carries one: `sync pull` omits the key for a
+  // workspace without a color, so an unset key means "not managed by git", never "clear".
+  if (colorManaged && localSettings.color != settings.color) {
     log.debug(`Updating workspace color...`);
     await wmill.changeWorkspaceColor({
       workspace,
@@ -394,7 +497,18 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (!deepEqual(localSettings.operator_settings, settings.operator_settings)) {
+  // The endpoint keeps the stored value of a write right the file omits, so an older file must
+  // not count as differing on those keys, or every push would re-post it.
+  const localOperatorSettings = localSettings.operator_settings && {
+    ...localSettings.operator_settings,
+  };
+  for (const key of ["builder_flows", "builder_apps", "manage_schedules", "manage_triggers"] as const) {
+    const remote = settings.operator_settings?.[key];
+    if (localOperatorSettings && localOperatorSettings[key] === undefined && remote !== undefined) {
+      localOperatorSettings[key] = remote;
+    }
+  }
+  if (localOperatorSettings && !deepEqual(localOperatorSettings, settings.operator_settings)) {
     log.debug(`Updating operator settings...`);
     await wmill.updateOperatorSettings({
       workspace,
@@ -404,10 +518,17 @@ export async function pushWorkspaceSettings(
 
   if (!deepEqual(localSettings.datatable, settings.datatable)) {
     log.debug(`Updating datatable config...`);
-    await wmill.editDataTableConfig({
+    const { stranded_references } = await wmill.editDataTableConfig({
       workspace,
       requestBody: { settings: localSettings.datatable ?? { datatables: {} } },
     });
+    if (stranded_references?.length) {
+      log.warn(
+        `Removed data tables governed data tables in other workspaces, which no longer resolve: ${stranded_references
+          .map((r) => `${r.workspace_id}/${r.datatable}`)
+          .join(", ")}. A superadmin can point them somewhere else.`,
+      );
+    }
   }
 
   if (localSettings.slack_command_script != settings.slack_command_script) {
@@ -424,8 +545,9 @@ export async function pushWorkspaceSettings(
   // every other setting): both present → upsert; anything else → delete.
   // Pull always emits both fields as null when remote is NULL.
   if (
-    localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
-    localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret
+    !slackSecretUnreadable &&
+    (localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
+      localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret)
   ) {
     log.debug(`Updating slack oauth config...`);
     if (
@@ -443,6 +565,68 @@ export async function pushWorkspaceSettings(
       await wmill.deleteWorkspaceSlackOauthConfig({ workspace });
     }
   }
+}
+
+function unreadableSecret(secret: unknown): boolean {
+  return (
+    typeof secret === "string" &&
+    (secret.startsWith("$encrypted:") || secret === "__SENSITIVE_AND_UNCHANGED__")
+  );
+}
+
+/**
+ * Whether the settings document treats the webhook URL as a secret: a server whose document
+ * predates that plans the placeholder as a new URL, which its webhook endpoint then refuses.
+ * True for a server without the document, whose fallback path handles the secret itself.
+ */
+async function documentKeepsRedactedWebhook(workspace: string): Promise<boolean> {
+  try {
+    const result = await wmill.applyWorkspaceSettingsDocument({
+      workspace,
+      requestBody: {
+        document: { webhook: "__SENSITIVE_AND_UNCHANGED__" },
+        dry_run: true,
+      },
+    });
+    return !result.changes.some((c) => c.key === "webhook");
+  } catch (err: any) {
+    if (err?.status === 404 && !err?.body) {
+      return true;
+    }
+    throw new Error(`Failed to read workspace settings: ${err?.body ?? err}`);
+  }
+}
+
+/** Applies settings.yaml server-side, which owns the rules for what an omitted or null setting
+ * means. Returns false on a server that predates the settings document. */
+async function applySettingsDocument(
+  workspace: string,
+  document: SimplifiedSettings,
+): Promise<boolean> {
+  let result;
+  try {
+    result = await wmill.applyWorkspaceSettingsDocument({
+      workspace,
+      requestBody: { document: document as unknown as Record<string, unknown>, replace: true },
+    });
+  } catch (err: any) {
+    // A missing route answers 404 with no body; a handler's own 404 carries a message.
+    if (err?.status === 404 && !err?.body) {
+      return false;
+    }
+    throw new Error(`Failed to apply workspace settings: ${err?.body ?? err}`);
+  }
+  if (result.changes.length > 0) {
+    log.debug(
+      `Updated workspace settings: ${result.changes.map((c) => c.key).join(", ")}`,
+    );
+  } else {
+    log.debug(`Workspace settings are up to date`);
+  }
+  for (const warning of result.warnings ?? []) {
+    log.warn(warning);
+  }
+  return true;
 }
 
 export interface PushWorkspaceKeyOptions {

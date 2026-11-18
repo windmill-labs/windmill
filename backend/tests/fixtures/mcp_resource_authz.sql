@@ -23,3 +23,19 @@ VALUES (
     '{}',
     'test-user'
 );
+
+-- MCP resource whose URL lives in a variable. The host only appears in the
+-- variable, so an error naming it proves the reference was resolved.
+INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms)
+VALUES ('test-workspace', 'u/test-user/mcp_url', 'https://mcp-from-var.invalid.windmill.test/key', false, '', '{}');
+
+INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, created_by)
+VALUES (
+    'test-workspace',
+    'u/test-user/var_mcp',
+    '{"name": "var_mcp", "url": "$var:u/test-user/mcp_url"}',
+    'MCP resource with its URL in a variable',
+    'mcp',
+    '{}',
+    'test-user'
+);

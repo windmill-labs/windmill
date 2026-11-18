@@ -19,9 +19,6 @@ properties:
   args:
     type: object
     description: The arguments to pass to the script or flow
-  permissioned_as:
-    type: string
-    description: The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup')
   on_failure:
     type: string
     description: Path to a script or flow to run when the scheduled job fails
@@ -72,7 +69,8 @@ properties:
             description: Seconds to wait between retries
       exponential:
         type: object
-        description: Retry with exponential backoff (delay doubles each time)
+        description: 'Retry with exponential backoff: the n-th retry waits multiplier
+          × seconds^n'
         properties:
           attempts:
             type: integer
@@ -83,7 +81,8 @@ properties:
           seconds:
             type: integer
             minimum: 1
-            description: Initial delay in seconds
+            description: Base of the exponential (seconds); the n-th retry waits multiplier
+              × seconds^n, where n counts constant retries too
           random_factor:
             type: integer
             minimum: 0
@@ -151,4 +150,3 @@ required:
 - timezone
 - is_flow
 - enabled
-- permissioned_as

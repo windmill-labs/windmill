@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
+	import { goto, isNewTabClick } from '$lib/navigation'
 
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -23,8 +22,7 @@
 	async function importRaw() {
 		const parsed = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
 		if (appKind === 'fullcode') {
-			// Navigation to /apps_raw/add triggers a full page reload (for cross-origin isolation),
-			// so the in-memory importStore would be lost. Use sessionStorage instead.
+			// The raw app editor reads the payload from sessionStorage on mount.
 			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
 			await goto('/apps_raw/add')
 		} else {
@@ -38,14 +36,8 @@
 		appTypeModalOpen = true
 	}
 
-	function selectLowCode() {
-		appTypeModalOpen = false
-		goto(`${base}/apps/add`)
-	}
-
-	function selectFullCode() {
-		appTypeModalOpen = false
-		goto(`${base}/apps_raw/add`)
+	function closeUnlessNewTab(e: MouseEvent) {
+		if (!isNewTabClick(e)) appTypeModalOpen = false
 	}
 </script>
 
@@ -88,9 +80,10 @@
 	<div class="flex flex-col gap-4 pr-4">
 		<div class="grid grid-cols-2 gap-8">
 			<!-- Low-code option -->
-			<button
+			<a
+				href="/apps/add"
 				class="flex flex-col items-center gap-3 p-6 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-orange-500 dark:hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-all cursor-pointer group"
-				onclick={selectLowCode}
+				onclick={closeUnlessNewTab}
 			>
 				<div
 					class="w-32 h-32 rounded-xl bg-orange-100 dark:bg-orange-900/40 flex items-center justify-center group-hover:bg-orange-200 dark:group-hover:bg-orange-800/50 transition-colors"
@@ -106,11 +99,12 @@
 						Better for simple apps or apps that require minimal customization.
 					</p>
 				</div>
-			</button>
+			</a>
 
-			<button
+			<a
+				href="/apps_raw/add"
 				class="relative flex flex-col items-center gap-3 p-6 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-purple-500 dark:hover:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-all cursor-pointer group"
-				onclick={selectFullCode}
+				onclick={closeUnlessNewTab}
 			>
 				<div
 					class="w-32 h-32 rounded-xl bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center group-hover:bg-purple-200 dark:group-hover:bg-purple-800/50 transition-colors"
@@ -126,7 +120,7 @@
 						Better for complex apps or apps that require full flexibility and control.
 					</p>
 				</div>
-			</button>
+			</a>
 		</div>
 	</div>
 </Modal>

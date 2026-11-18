@@ -101,7 +101,7 @@ fn apply_resource_enrichment(
     let resources_count = resource_cache.len();
     let description = match resource_type {
         Some(rt) => format!(
-            "This is a resource named `{}` with the following description: `{}`.\\nThe path of the resource should be used to specify the resource.\\n{}",
+            "This is a resource named `{}` with the following description: `{}`.\nPass it as the bare string `$res:<path>` — the whole value of this argument, never an object wrapper like {{\"$res\": \"<path>\"}} and never a plain path.\n{}",
             rt.name,
             rt.description.as_deref().unwrap_or("No description"),
             if resources_count == 0 {
@@ -138,7 +138,7 @@ fn apply_resource_enrichment(
                 )
             })
             .collect::<Vec<String>>()
-            .join("\\n");
+            .join("\n");
         let prior_description = prop_map
             .get("description")
             .and_then(Value::as_str)
@@ -147,7 +147,7 @@ fn apply_resource_enrichment(
         prop_map.insert(
             "description".to_string(),
             Value::String(format!(
-                "{}\\nHere are the available resources, in the format title:path. Title can be empty. Path should be used to specify the resource:\\n{}",
+                "{}\nHere are the available resources, one per line as `title: $res:path`. The title is only a label; pass the `$res:path` part verbatim as this argument's value:\n{}",
                 prior_description, resources_description
             )),
         );
@@ -375,6 +375,36 @@ mod tests {
     use crate::common::types::{ResourceInfo, ResourceType};
     use serde_json::json;
     use std::collections::HashMap;
+
+    fn raw_schema(raw: &str) -> Option<Schema> {
+        Some(serde_json::from_str::<Schema>(raw).unwrap())
+    }
+
+    #[test]
+    fn flow_schema_without_required_keeps_properties() {
+        // Real flow input schema shape (see backend/tests/worker.rs): it omits
+        // `required` and carries an `order` key instead. This shape must keep its
+        // properties, not fall back to an empty schema, so MCP flow tools still
+        // advertise their inputs.
+        let flow = raw_schema(
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"world":{"type":"string"}},"type":"object","order":["world"]}"#,
+        );
+        let schema_type = convert_schema_to_schema_type(flow);
+        assert_eq!(schema_type.r#type, "object");
+        assert!(schema_type.properties.contains_key("world"));
+        assert!(schema_type.required.is_empty());
+    }
+
+    #[test]
+    fn script_schema_with_required_keeps_properties() {
+        // Script schemas always include `required`; this must remain unaffected.
+        let script = raw_schema(
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"world":{"type":"string"}},"required":["world"],"type":"object"}"#,
+        );
+        let schema_type = convert_schema_to_schema_type(script);
+        assert!(schema_type.properties.contains_key("world"));
+        assert_eq!(schema_type.required, vec!["world".to_string()]);
+    }
 
     fn aws_resources() -> (HashMap<String, Vec<ResourceInfo>>, Vec<ResourceType>) {
         let mut cache = HashMap::new();
@@ -774,6 +804,10 @@ mod tests {
         let desc = node["description"].as_str().unwrap();
         assert!(desc.contains("c_aws_account"));
         assert!(desc.contains("$res:f/platform/aws_dev"));
+        // MCP clients render this description verbatim, so the separators must be
+        // real newlines rather than the two-character escape.
+        assert!(desc.contains('\n'));
+        assert!(!desc.contains("\\n"));
     }
 
     #[test]
@@ -965,9 +999,11 @@ mod tests {
         make_schema_compatible(&mut schema);
 
         assert_eq!(schema["properties"]["services"]["type"], json!("array"));
-        assert!(schema["properties"]["services"]["items"]["properties"]["value"]
-            .get("type")
-            .is_none());
+        assert!(
+            schema["properties"]["services"]["items"]["properties"]["value"]
+                .get("type")
+                .is_none()
+        );
         assert_all_types_valid(&schema);
     }
 }

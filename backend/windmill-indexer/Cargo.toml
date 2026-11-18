@@ -7,10 +7,18 @@ edition.workspace = true
 [lib]
 name = "windmill_indexer"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
-parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
+parquet = [
+    "windmill-common/parquet",
+    "windmill-object-store/parquet",
+    "dep:datafusion",
+    "dep:object_store",
+    "dep:url",
+]
 private = ["windmill-common/private"]
 enterprise = ["windmill-common/enterprise", "windmill-object-store/enterprise"]
 
@@ -33,3 +41,6 @@ astral-tokio-tar.workspace = true
 lazy_static.workspace = true
 const_format.workspace = true
 flume.workspace = true
+datafusion = { workspace = true, optional = true }
+object_store = { workspace = true, optional = true }
+url = { workspace = true, optional = true }

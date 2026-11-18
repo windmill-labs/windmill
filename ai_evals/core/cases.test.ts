@@ -192,8 +192,6 @@ describe("loadCases", () => {
       requiredSkills: ["write-script-bun"],
       requiredSkillsBeforeFirstMutation: ["write-script-bun"],
       forbiddenSkills: ["write-script-python3", "write-flow"],
-      orderedAssistantMentions: ["wmill generate-metadata", "wmill sync push"],
-      orderedProposedCommands: ["wmill generate-metadata", "wmill sync push"],
       forbiddenExecutedCommands: ["^wmill generate-metadata", "^wmill sync push"],
     });
   });
@@ -212,6 +210,9 @@ describe("loadCases", () => {
         },
       ],
     });
+    expect(caseEntry?.initialPath).toContain(
+      "ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json"
+    );
     expect(caseEntry?.toolExpect).toMatchObject({
       requiredToolsUsed: ["write_script"],
       forbiddenToolsUsed: ["deploy_workspace_item", "delete_workspace_item"],

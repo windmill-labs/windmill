@@ -1,0 +1,497 @@
+<!--
+@component
+Preview "router" picker — a `WorkspaceItemDrillPicker` sibling used by the
+session preview breadcrumb. The root mirrors the workspace home's first level:
+a leading "Pages" branch (Runs, Schedules, Workspace settings, …) followed by
+the `f/<folder>` / `u/<user>` directories flattened across kinds (no
+Flows/Scripts/Apps grouping — leaves carry kind icons instead).
+
+Kept separate from `WorkspaceItemDrillPicker` so the editor breadcrumb (which
+only ever navigates between items, grouped by kind) doesn't grow a Pages
+section or the flat layout.
+-->
+<script lang="ts" module>
+	export type Scope = { kind: 'flow' | 'script' | 'app' | 'all'; dir?: string } | undefined
+</script>
+
+<script lang="ts">
+	import { untrack } from 'svelte'
+	import { Bot, Compass, FileText, NetworkIcon, Pen } from 'lucide-svelte'
+	import { resource } from 'runed'
+	import { AssetService } from '$lib/gen'
+	import { listWorkspaceAgents } from './workspaceAgents'
+	import { workspaceStore } from '$lib/stores'
+	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import {
+		workspaceItemDisplayPath,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
+	import { useWorkspaceItemsLoader } from '$lib/components/workspaceItemsLoader.svelte'
+	import DrillPicker from '../DrillPicker.svelte'
+	import type { DrillBranch, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
+	import {
+		buildWorkspaceTree,
+		legacyScopeToPath,
+		relativizeWorkspacePath
+	} from '$lib/components/workspaceTree'
+	import {
+		getGlobalDraftStoragePath,
+		listGlobalDrafts
+	} from '$lib/components/copilot/chat/global/userDraftAdapter'
+	import type { PersistedArtifact } from '$lib/components/copilot/chat/artifacts/artifactsDB'
+	import {
+		PREVIEW_PAGES,
+		artifactKey,
+		isArtifactKey,
+		isPageKey,
+		pageKey,
+		previewModeFor,
+		type PreviewTarget
+	} from './previewRouter'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
+	import type { AIWorkMode } from '$lib/components/copilot/chat/workMode'
+	import type { PageHeaderSubpage } from '$lib/components/pageHeaderRegistry.svelte'
+	import { WORKSPACE_SETTINGS_PATH } from './previewPaths'
+	import { workspaceSettingsSubpages } from '$lib/components/workspaceSettings/workspaceSettingsSections'
+
+	type Kind = WorkspaceItemKind
+	type DrillPickerHandle = {
+		focus: () => void
+		handleKeydown: (e: KeyboardEvent) => void
+		pickHighlighted: () => void
+	}
+
+	interface Props {
+		onPick: (target: PreviewTarget) => void
+		initialScope?: Scope
+		initialHighlight?: string
+		currentItem?: WorkspaceItem & { savedPath?: string }
+		externalFilter?: string
+		autoFocus?: boolean
+		flush?: boolean
+		// The session's effective workspace. Items and drafts must load from it,
+		// not the navigation workspace ($workspaceStore) — a fork-scoped session
+		// leaves the global store on the nav workspace, so keying off it would
+		// list root items and miss fork-only ones. Falls back to $workspaceStore
+		// for non-session consumers.
+		workspaceId?: string
+		// Session artifacts to surface as an "Artifacts" branch; omitted or empty
+		// hides the branch (non-session consumers, sessions without artifacts).
+		artifacts?: Pick<PersistedArtifact, 'id' | 'name'>[]
+		/** The session chat, whose Use mode opens items in their viewer. Read from the
+		 * `aiChatManager` context when omitted. */
+		chat?: { readonly workMode: AIWorkMode }
+		/** Where picking a target navigates, for a host whose pick is a navigation; rows then
+		 * open in a new tab on middle and ⌘/Ctrl-click. */
+		targetHref?: (target: PreviewTarget) => string | undefined
+		/** The panes of the page at `path`, which Pages then lists as a branch of them. Defaults
+		 * to the workspace settings sections, which a host outside that page cannot read from it. */
+		subpages?: { path: string; pages: PageHeaderSubpage[] }
+	}
+
+	let {
+		onPick,
+		initialScope,
+		initialHighlight,
+		currentItem,
+		externalFilter,
+		autoFocus = true,
+		flush = false,
+		workspaceId,
+		artifacts,
+		chat,
+		targetHref,
+		subpages: subpagesProp
+	}: Props = $props()
+	const subpages = $derived(
+		subpagesProp ?? { path: WORKSPACE_SETTINGS_PATH, pages: workspaceSettingsSubpages() }
+	)
+
+	const kinds: Kind[] = ['flow', 'script', 'app']
+	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
+	const permissions = useSessionPermissions(
+		() => effectiveWorkspace,
+		() => chat
+	)
+	const canEdit = (item: WorkspaceItem) => permissions.canEditItem(item)
+
+	let inner = $state<DrillPickerHandle | undefined>(undefined)
+	export function focus() {
+		inner?.focus()
+	}
+	export function handleKeydown(e: KeyboardEvent) {
+		inner?.handleKeydown(e)
+	}
+	export function pickHighlighted() {
+		inner?.pickHighlighted()
+	}
+
+	const loader = useWorkspaceItemsLoader(
+		() => effectiveWorkspace,
+		() => kinds
+	)
+
+	// The flat root is the union of every kind's folders, so there's no
+	// per-kind drill step left to lazy-load from — fetch everything up front
+	// (module-cached; the picker only mounts when its popover opens).
+	$effect(() => {
+		if (effectiveWorkspace) untrack(() => loader.ensureAll())
+	})
+
+	// Surface AI-created drafts the same way the editor picker does so in-flight
+	// chat-scaffolded items are navigable (see WorkspaceItemDrillPicker).
+	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
+	const globalDraftsResource = resource(
+		() => effectiveWorkspace,
+		async (ws) => (ws ? await listGlobalDrafts(ws) : [])
+	)
+	function aiDraftsForKind(k: Kind): WorkspaceItem[] {
+		const targetType = KIND_TO_DRAFT_TYPE[k]
+		const ws = effectiveWorkspace
+		return (globalDraftsResource.current ?? [])
+			.filter((d) => d.type === targetType)
+			.map((d) => {
+				// A live entry's `path` is the editor's friendly effective path —
+				// display-only, so picking a leaf keyed by it would route to a 404.
+				// Re-key to the storage path (identity, dedupe against the loaded
+				// row, navigation) and demote the friendly path to `draftPath`.
+				const storagePath = ws ? getGlobalDraftStoragePath(ws, targetType, d.path) : d.path
+				return {
+					path: storagePath,
+					draftPath: storagePath !== d.path ? d.path : d.draftPath,
+					summary: d.summary ?? '',
+					kind: k,
+					raw_app: k === 'app' ? !!(d.value as { files?: unknown })?.files : undefined,
+					// A chat-scaffolded draft the workspace listers have never seen. It has
+					// an editor and nothing else, so picking it must not aim at a deployed
+					// page — and a row merged over a loaded one keeps the lister's answer.
+					draftOnly: true
+				}
+			})
+	}
+	const extraItemsByKind = $derived<Partial<Record<Kind, WorkspaceItem[]>>>(
+		Object.fromEntries(kinds.map((k) => [k, aiDraftsForKind(k)]))
+	)
+
+	// Wrap item leaves as PreviewTargets so the tree can carry page leaves too.
+	// Branch structure is untouched — only leaf `data` is re-tagged.
+	//
+	// `mode` is stamped here rather than left to the tab: picking is the reader
+	// saying "show me this", so it lands on the deployed page, and `navigate`
+	// would otherwise keep whichever side the re-pointed tab happened to be on.
+	// A draft-only item opens its editor, unless this user cannot save there.
+	function itemTarget(item: WorkspaceItem): PreviewTarget {
+		return { type: 'item', item, mode: canEdit(item) ? previewModeFor(item) : 'view' }
+	}
+	function tagItems(nodes: DrillNode<WorkspaceItem>[]): DrillNode<PreviewTarget>[] {
+		return nodes.map((n) =>
+			n.type === 'leaf'
+				? { ...n, data: itemTarget(n.data) }
+				: { ...n, children: tagItems(n.children) }
+		)
+	}
+
+	// The mode is saved with the tab and never re-checked, and `canEdit` refuses until the
+	// rights and protection rules arrive: a draft-only item picked before then would open in a
+	// viewer that has nothing to show. Hold the pick until both have answered.
+	let heldItem = $state<WorkspaceItem | undefined>(undefined)
+	$effect(() => {
+		if (!heldItem || !permissions.settled) return
+		const item = heldItem
+		heldItem = undefined
+		untrack(() => onPick(itemTarget(item)))
+	})
+	function pick(target: PreviewTarget) {
+		if (target.type === 'item' && target.item.draftOnly && !permissions.settled) {
+			heldItem = target.item
+		} else {
+			onPick(target)
+		}
+	}
+
+	// Open the item's editor. Offered on every item row this user can edit, including the
+	// draft-only ones a plain click already opens there: a row that drops the button to say
+	// "you were getting this anyway" reads as one that cannot be edited.
+	function editAction(leaf: DrillLeaf<PreviewTarget>) {
+		const agentPath = agentPathOf(leaf)
+		if (agentPath !== undefined) {
+			return canEditAgents
+				? {
+						icon: Pen,
+						label: 'Edit',
+						title: `Edit ${agentPath}`,
+						run: () => onPick(agentEditTarget(agentPath))
+					}
+				: undefined
+		}
+		const target = leaf.data
+		if (target.type !== 'item' || !canEdit(target.item)) return undefined
+		return {
+			icon: Pen,
+			label: 'Edit',
+			title: `Edit ${workspaceItemDisplayPath(target.item)}`,
+			run: () => onPick({ ...target, mode: 'edit' })
+		}
+	}
+
+	// What the row says about the item's deploy state, in the review dock's words so
+	// the two never describe the same item differently.
+	function stateBadge(leaf: DrillLeaf<PreviewTarget>) {
+		const agentPath = agentPathOf(leaf)
+		if (agentPath !== undefined) {
+			const agent = shownAgents.find((a) => a.path === agentPath)
+			if (agent?.draftOnly) return { label: 'Draft only', color: 'indigo' as const }
+			if (agent?.hasDraft) return { label: 'Draft', color: 'indigo' as const }
+			return undefined
+		}
+		const target = leaf.data
+		if (target.type !== 'item') return undefined
+		if (target.item.draftOnly) return { label: 'Draft only', color: 'indigo' as const }
+		if (target.item.hasDraft) return { label: 'Draft', color: 'indigo' as const }
+		return undefined
+	}
+
+	function pageLeaf(p: (typeof PREVIEW_PAGES)[number]): DrillLeaf<PreviewTarget> {
+		return {
+			type: 'leaf',
+			key: pageKey(p.path),
+			label: p.label,
+			icon: p.icon,
+			plainLabel: true,
+			data: { type: 'page', href: p.path, label: p.label }
+		}
+	}
+
+	const subpageLeaves = $derived<DrillLeaf<PreviewTarget>[]>(
+		(subpages?.pages ?? []).map((sp) => ({
+			type: 'leaf',
+			key: pageKey(sp.href),
+			label: sp.label,
+			section: sp.group,
+			current: sp.current || pageKey(sp.href) === initialHighlight,
+			disabled: sp.disabled,
+			plainLabel: true,
+			data: { type: 'page', href: sp.href, label: sp.label }
+		}))
+	)
+
+	function pageNode(p: (typeof PREVIEW_PAGES)[number]): DrillNode<PreviewTarget> {
+		const leaf = pageLeaf(p)
+		if (p.path !== subpages?.path || subpageLeaves.length === 0) return leaf
+		return {
+			type: 'branch',
+			key: leaf.key,
+			label: leaf.label,
+			icon: leaf.icon,
+			plainLabel: true,
+			// Search reads leaves only, so each pane carries its page's name for the page to be
+			// found by it.
+			children: subpageLeaves.map((l) => ({ ...l, searchableText: `${l.label} ${p.label}` }))
+		}
+	}
+
+	// Home is deliberately not navigable from the session preview — it stays in
+	// PREVIEW_PAGES only so a tab already sitting on '/' keeps its label.
+	const pagesBranch = $derived<DrillBranch<PreviewTarget>>({
+		type: 'branch',
+		key: 'pages',
+		label: 'Pages',
+		icon: Compass,
+		searchGroup: true,
+		plainLabel: true,
+		children: PREVIEW_PAGES.filter((p) => p.path !== '/' && permissions.pageAllowed(p)).map(
+			pageNode
+		)
+	})
+
+	// Session artifacts, when present, get their own branch between Pages and the
+	// workspace items so they're pickable (and searchable) like any destination.
+	const artifactsBranch = $derived<DrillBranch<PreviewTarget> | undefined>(
+		artifacts && artifacts.length > 0
+			? {
+					type: 'branch',
+					key: 'artifacts',
+					label: 'Artifacts',
+					icon: FileText,
+					searchGroup: true,
+					plainLabel: true,
+					children: artifacts.map((a) => ({
+						type: 'leaf' as const,
+						key: artifactKey(a.id),
+						label: a.name,
+						icon: FileText,
+						plainLabel: true,
+						data: { type: 'artifact', id: a.id, name: a.name }
+					}))
+				}
+			: undefined
+	)
+
+	// Data pipelines are folders, not items, so they get a branch of their own
+	// rather than a leaf in the workspace tree.
+	const pipelinesResource = resource(
+		() => effectiveWorkspace,
+		async (ws) => (ws ? await AssetService.listPipelineFolders({ workspace: ws }) : [])
+	)
+	const pipelinesBranch = $derived<DrillBranch<PreviewTarget> | undefined>(
+		pipelinesResource.current && pipelinesResource.current.length > 0
+			? {
+					type: 'branch',
+					key: 'pipelines',
+					label: 'Data pipelines',
+					icon: NetworkIcon,
+					searchGroup: true,
+					plainLabel: true,
+					children: pipelinesResource.current.map(({ folder }) => {
+						const path = `/pipeline/${encodeURIComponent(folder)}`
+						return {
+							type: 'leaf' as const,
+							key: pageKey(path),
+							label: `f/${folder}`,
+							icon: NetworkIcon,
+							data: { type: 'page', href: path, label: folder }
+						}
+					})
+				}
+			: undefined
+	)
+
+	// Agents are resources rather than workspace items, so they get a branch of their own. A
+	// deployed one lands on its page, as picking any item does; a draft-only one has only its
+	// editor, so it is offered only to a user who can open that.
+	const agentsResource = resource(
+		() => effectiveWorkspace,
+		(ws) => (ws ? listWorkspaceAgents(ws) : Promise.resolve([]))
+	)
+	const canEditAgents = $derived(permissions.canOpenEditor('agent'))
+	function agentEditTarget(path: string): PreviewTarget {
+		return { type: 'pageitem', ref: { kind: 'resource', path } }
+	}
+	const shownAgents = $derived(
+		(agentsResource.current ?? []).filter((a) => canEditAgents || !a.draftOnly)
+	)
+	const agentsBranch = $derived<DrillBranch<PreviewTarget> | undefined>(
+		shownAgents.length > 0
+			? {
+					type: 'branch',
+					key: 'agents',
+					label: 'AI agents',
+					icon: Bot,
+					searchGroup: true,
+					plainLabel: true,
+					children: shownAgents.map((a) => ({
+						type: 'leaf' as const,
+						key: `agent:${a.path}`,
+						label: a.summary || a.path,
+						secondary: a.summary ? a.path : undefined,
+						icon: Bot,
+						data: a.draftOnly
+							? agentEditTarget(a.path)
+							: { type: 'page', href: `/agents/get/${a.path}`, label: a.summary || a.path }
+					}))
+				}
+			: undefined
+	)
+	function agentPathOf(leaf: DrillLeaf<PreviewTarget>): string | undefined {
+		return leaf.key.startsWith('agent:') ? leaf.key.slice('agent:'.length) : undefined
+	}
+
+	const tree = $derived<DrillNode<PreviewTarget>[]>([
+		// An operator's workspace may enable none of them.
+		...(pagesBranch.children.length > 0 ? [pagesBranch] : []),
+		...(artifactsBranch ? [artifactsBranch] : []),
+		...(pipelinesBranch ? [pipelinesBranch] : []),
+		...(agentsBranch ? [agentsBranch] : []),
+		...tagItems(
+			buildWorkspaceTree({
+				loaded: loader.loaded,
+				kinds,
+				currentItem,
+				loadingKind: loader.loadingKind,
+				extraItemsByKind,
+				layout: 'flat'
+			})
+		)
+	])
+
+	// A page or artifact highlight lives under its own branch, which the legacy
+	// {kind, dir} scope can't express — open the picker inside that branch, so the
+	// reader standing on one sees its siblings with it highlighted. Keyed on the
+	// highlight's shape alone: the artifacts branch may not have materialized yet
+	// (artifacts hydrate from IndexedDB after tabs restore), and the drill entries
+	// fill in reactively once it does.
+	// Not gated on the branch being listed yet: the page permissions that list it can still be
+	// loading when the picker opens, and the scope is read only then. Once they show the page is
+	// not this user's (a fork owner on its Members section), the picker reopens on Pages rather
+	// than inside a branch that is not listed, which would show nothing.
+	const subpageBranchKey = untrack(() =>
+		subpages && subpageLeaves.some((l) => l.key === initialHighlight)
+			? pageKey(subpages.path)
+			: undefined
+	)
+	const computedInitialScope = untrack(() =>
+		subpageBranchKey
+			? ['pages', subpageBranchKey]
+			: initialHighlight && isArtifactKey(initialHighlight)
+				? ['artifacts']
+				: initialHighlight && isPageKey(initialHighlight)
+					? ['pages']
+					: legacyScopeToPath(initialScope, kinds, 'flat')
+	)
+
+	const subpagePage = $derived(PREVIEW_PAGES.find((p) => p.path === subpages.path))
+	const subpagesDenied = $derived(
+		!!subpageBranchKey &&
+			permissions.settled &&
+			!!subpagePage &&
+			!permissions.pageAllowed(subpagePage)
+	)
+
+	// The flat root has no branch to carry a per-kind loading flag — surface
+	// the first-fetch state at the picker level instead.
+	const rootLoading = $derived(kinds.some((k) => !loader.loaded[k] && loader.loadingKind[k]))
+</script>
+
+{#snippet leafIcon(leaf: DrillLeaf<PreviewTarget>)}
+	{#if leaf.data.type === 'item'}
+		<RowIcon kind={leaf.data.item.kind} size={12} />
+	{:else if leaf.icon}
+		{@const Icon = leaf.icon}
+		<Icon size={12} class="shrink-0 text-tertiary" />
+	{/if}
+{/snippet}
+
+{#snippet branchIcon(branch: DrillBranch<PreviewTarget>)}
+	{#if branch.icon}
+		{@const Icon = branch.icon}
+		<Icon size={12} class="shrink-0 text-tertiary" />
+	{/if}
+{/snippet}
+
+{#key subpagesDenied}
+	<DrillPicker
+		bind:this={inner}
+		{tree}
+		onPick={(leaf) => pick(leaf.data)}
+		initialScope={subpagesDenied ? ['pages'] : computedInitialScope}
+		{initialHighlight}
+		{externalFilter}
+		{autoFocus}
+		{flush}
+		{leafIcon}
+		{branchIcon}
+		leafSecondary={(leaf, scope) =>
+			leaf.data.type === 'item'
+				? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data.item), scope)
+				: undefined}
+		onScopeChange={(scope) => {
+			if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
+		}}
+		onFilterChange={loader.onFilterChange}
+		leafAction={editAction}
+		leafBadge={stateBadge}
+		leafHref={targetHref ? (leaf) => targetHref(leaf.data) : undefined}
+		{rootLoading}
+	/>
+{/key}

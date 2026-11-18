@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { setContext, tick } from 'svelte'
+	import { setContext } from 'svelte'
+	import { tickPainted } from '$lib/utils/paint'
 	import { writable } from 'svelte/store'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -40,7 +41,7 @@
 		runnableVersion = version
 		args = runnableArgs
 		open = true
-		await tick()
+		await tickPainted()
 		drawer?.openDrawer()
 	}
 

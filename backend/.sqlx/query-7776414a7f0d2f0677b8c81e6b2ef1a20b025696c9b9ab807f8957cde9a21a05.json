@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_diff WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7776414a7f0d2f0677b8c81e6b2ef1a20b025696c9b9ab807f8957cde9a21a05"
+}

@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH per_entity AS (\n            SELECT feature, kind, key, entity_id,\n                   SUM(value)::BIGINT AS value,\n                   MAX(day) AS last_day\n            FROM feature_usage\n            WHERE day > CURRENT_DATE - 30\n            GROUP BY feature, kind, key, entity_id\n        )\n        SELECT feature, kind, key,\n               COUNT(*)::BIGINT AS \"entity_count!\",\n               COALESCE(SUM(value), 0)::BIGINT AS \"total_value!\",\n               COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY value), 0)::DOUBLE PRECISION AS \"median_value!\",\n               COALESCE(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY value), 0)::DOUBLE PRECISION AS \"p90_value!\",\n               (COUNT(*) FILTER (WHERE last_day < CURRENT_DATE - 3))::BIGINT AS \"inactive_3d_entity_count!\"\n        FROM per_entity\n        GROUP BY feature, kind, key\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "feature",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "entity_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "total_value!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "median_value!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "p90_value!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 7,
+        "name": "inactive_3d_entity_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "c3a973b0eea69be747140426cd03f75fb05a27ee759972b76e812b70843eb5e4"
+}

@@ -17,7 +17,10 @@ use tokio::task::JoinHandle;
 pub use windmill_common::db::DB;
 use windmill_common::{
     error::Error,
+    global_settings::INSTANCE_PYTHON_VERSION_SETTING,
+    hub_resource_types::DISABLE_RT_SYNC,
     utils::{generate_lock_id, GIT_VERSION},
+    worker::PyVAlias,
 };
 
 #[allow(unused_imports)]
@@ -84,11 +87,70 @@ lazy_static::lazy_static! {
                     (20260228000000, include_str!(
                         "../../migrations/20260228000000_v2_job_completed_failure_index.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260610151334, include_str!(
+                        "../../migrations/20260610151334_folder_labels.up.sql"
+                    ).replace("SET search_path = public", "SET search_path FROM CURRENT").to_string()),
+                    (20260614075900, include_str!(
+                        "../../migrations/20260614075900_dedup_folder_labels.up.sql"
+                    ).replace("SET search_path = public", "SET search_path FROM CURRENT").to_string()),
+                    (20260710073406, include_str!(
+                        "../../migrations/20260710073406_index_v2_job_parent_job.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260724094737, include_str!(
+                        "../../migrations/20260724094737_runnables_sort_indexes.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260727093955, include_str!(
+                        "../../migrations/20260727093955_runnable_owner_prefix_indexes.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260727151319, include_str!(
+                        "../../migrations/20260727151319_draft_only_listing_indexes.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260826202939, include_str!(
+                        "../../migrations/20260826202939_queue_suspended_resume_at_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260826214706, include_str!(
+                        "../../migrations/20260826214706_queue_suspended_drop_legacy_index.up.sql"
+                    ).replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260909163047, include_str!(
+                        "../../migrations/20260909163047_workspace_delete_cascade_indexes.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261009173546, include_str!(
+                        "../../migrations/20261009173546_agent_owner_prefix_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20261015114712, include_str!(
+                        "../../migrations/20261015114712_queue_workspace_scheduled_for_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261105203203, include_str!(
+                        "../../migrations/20261105203203_concurrency_key_waiting_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261106050615, include_str!(
+                        "../../migrations/20261106050615_concurrency_key_place_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    // The widening fails every query the previous release's still-running
+                    // servers prepared on the column; `variables::widen_variable_value` does it
+                    // once they are gone.
+                    (20261012213357, include_str!(
+                        "../../migrations/20261012213357_widen_variable_value.up.sql"
+                    ).replace("ALTER TABLE variable ALTER COLUMN value TYPE VARCHAR(15040);", "")),
                     ].into_iter().collect();
+
+    /// A whole `INSERT INTO resource_type` statement, quoted `;` included, which
+    /// `DISABLE_RT_SYNC` strips from migrations. Matched rather than marked in the files:
+    /// editing an applied migration changes its checksum, which sqlx refuses at startup.
+    static ref RESOURCE_TYPE_SEED: regex::Regex =
+        regex::Regex::new(r"(?i)INSERT\s+INTO\s+resource_type\b(?:[^;']|'(?:[^']|'')*')*;").unwrap();
 }
 
 pub struct CustomMigrator {
     inner: PoolConnection<Postgres>,
+}
+impl CustomMigrator {
+    /// The connection the migrator already holds (with the migration advisory lock).
+    /// Migration housekeeping runs on it instead of re-acquiring: a second connection
+    /// while this one is held deadlocks a single-connection backend (e.g. embedded pglite).
+    pub fn connection(&mut self) -> &mut PgConnection {
+        &mut *self.inner
+    }
 }
 impl Migrate for CustomMigrator {
     fn ensure_migrations_table(
@@ -195,13 +257,29 @@ impl Migrate for CustomMigrator {
             );
 
 
-            if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
+            let mut overridden = OVERRIDDEN_MIGRATIONS
+                .get(&migration.version)
+                .map(|sql| std::borrow::Cow::Borrowed(sql.as_str()));
+            if *DISABLE_RT_SYNC {
+                let sql = overridden.as_deref().unwrap_or(&migration.sql);
+                if let std::borrow::Cow::Owned(stripped) = RESOURCE_TYPE_SEED.replace_all(sql, "") {
+                    tracing::info!(
+                        "DISABLE_RT_SYNC: not seeding the resource types of migration {}",
+                        migration.version
+                    );
+                    overridden = Some(std::borrow::Cow::Owned(stripped));
+                }
+            }
+
+            if let Some(migration_sql) = overridden {
                 tracing::info!("Using custom migration for version {}", migration.version);
 
                 if migration_sql.contains("CONCURRENTLY") {
                     // CONCURRENTLY operations cannot run inside a transaction block
                     // or a multi-statement query (PostgreSQL requires top-level execution).
                     // Split into individual statements and execute each separately.
+                    // The split is naive, so a `;` anywhere in an overridden migration —
+                    // inside a comment or a string literal included — splits mid-statement.
                     for stmt in migration_sql.split(';') {
                         let stmt = stmt.trim();
                         if !stmt.is_empty()
@@ -220,7 +298,7 @@ impl Migrate for CustomMigrator {
                         }
                     }
                 } else if !migration_sql.is_empty() {
-                    self.inner.execute(&**migration_sql).await?;
+                    self.inner.execute(&*migration_sql).await?;
                 }
                 let _ = sqlx::query(
                     r#"
@@ -261,12 +339,18 @@ pub async fn migrate(
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
+    let new_instance =
+        sqlx::query_scalar::<_, bool>("SELECT to_regclass('_sqlx_migrations') IS NULL")
+            .fetch_one(custom_migrator.connection())
+            .await
+            .unwrap_or(false);
+
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
         version=20250201145631 OR version=20250201145632 OR version=20251006143821"
     )
-    .execute(db)
+    .execute(custom_migrator.connection())
     .await
     {
         tracing::info!("Could not remove sqlx migrations: {err:#}");
@@ -288,6 +372,12 @@ pub async fn migrate(
         // idempotent, so re-applying on an already-migrated DB is a no-op.
         20260423050000,
         20260523055641,
+        // Reworked to stop reading pg_authid (via pg_has_role) from an elevated
+        // context, which managed providers (e.g. Cloud SQL) forbid — the original
+        // aborted startup. The new file is idempotent (CREATE OR REPLACE + an
+        // epoch-guarded UPDATE that no-ops once anchored), so re-applying on an
+        // already-migrated DB is safe.
+        20260626132251,
     ];
     for m in migrator.migrations.iter() {
         if m.migration_type.is_down_migration() {
@@ -298,7 +388,7 @@ pub async fn migrate(
                 sqlx::query("DELETE FROM _sqlx_migrations WHERE version = $1 AND checksum != $2")
                     .bind(m.version)
                     .bind(&*m.checksum)
-                    .execute(db)
+                    .execute(custom_migrator.connection())
                     .await
             {
                 tracing::info!("Could not clean up stale migration {}: {err:#}", m.version);
@@ -328,8 +418,54 @@ pub async fn migrate(
         }
     }
 
-    crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
-    Ok(None)
+    crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
+    if let Err(e) = seed_instance_python_version(custom_migrator.connection(), new_instance).await {
+        tracing::error!("Could not record the instance python version: {e:#}");
+    }
+    Ok(Some(crate::live_migrations::spawn_background_migrations(
+        db.clone(),
+        killpill_rx,
+    )))
+}
+
+/// Gives `instance_python_version` a concrete value when the instance has none, so the version
+/// scripts resolve around is recorded per instance instead of following whatever a release
+/// compiles in. Only the process that created the schema knows the instance is new, so its value
+/// replaces what a server that started alongside it wrote; every other start fills in the frozen
+/// default, and only where no version was chosen (`default` is what the settings page stored
+/// for that).
+///
+/// Runs on the migration connection: a `DATABASE_CONNECTIONS=1` pool has no second one to give.
+async fn seed_instance_python_version(
+    conn: &mut PgConnection,
+    new_instance: bool,
+) -> Result<(), Error> {
+    let (version, on_conflict) = if new_instance {
+        (
+            PyVAlias::NEW_INSTANCE,
+            "DO UPDATE SET value = EXCLUDED.value",
+        )
+    } else {
+        (
+            PyVAlias::default(),
+            "DO UPDATE SET value = EXCLUDED.value WHERE global_settings.value = '\"default\"'::jsonb",
+        )
+    };
+    // The stored setting outranks the `INSTANCE_PYTHON_VERSION` environment variable, so an
+    // instance configured through it would otherwise be moved off its version by this write.
+    let version = std::env::var("INSTANCE_PYTHON_VERSION")
+        .ok()
+        .filter(|v| !v.is_empty() && v.split('.').all(|part| part.parse::<u32>().is_ok()))
+        .unwrap_or_else(|| version.version_string());
+    sqlx::query(&format!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, to_jsonb($2::text))
+         ON CONFLICT (name) {on_conflict}"
+    ))
+    .bind(INSTANCE_PYTHON_VERSION_SETTING)
+    .bind(version)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 pub async fn wait_for_migrations(
@@ -348,7 +484,16 @@ pub async fn wait_for_migrations(
         "This worker is on Windmill version {GIT_VERSION} (migration version {latest_version}). Only servers run migrations. Waiting for a server with version >= {GIT_VERSION} to apply the migration..."
     );
 
-    let mut attempts = 0;
+    // During a rolling upgrade, new workers start at the same time as the new
+    // server, which needs a while to come up and migrate. Exiting early only
+    // makes the pod restart and look like a crash loop, so wait long enough to
+    // cover a normal rollout and only give up if the server is truly not coming.
+    const RECHECK_SECS: u64 = 3;
+    // Over 12 rollouts (3,430 worker starts) the longest wait was 94s and
+    // p99 47s; 3 minutes covers that with margin.
+    const MAX_WAIT_SECS: u64 = 3 * 60;
+    const LOG_EVERY: u64 = 10;
+    let mut attempts: u64 = 0;
 
     loop {
         let is_applied: Result<Option<bool>, sqlx::Error> =
@@ -364,16 +509,19 @@ pub async fn wait_for_migrations(
                 );
                 return Ok(());
             }
-            Ok(_) => {
+            Ok(_) if attempts % LOG_EVERY == 0 => {
                 tracing::info!(
-                    "Database not up to date yet. This worker (Windmill {GIT_VERSION}, migration version {latest_version}) is waiting for a server with version >= {GIT_VERSION} to run the migration. Rechecking in 3s..."
+                    "Database not up to date yet. This worker (Windmill {GIT_VERSION}, migration version {latest_version}) is waiting for a server with version >= {GIT_VERSION} to run the migration. Waited {}s so far, giving up after {MAX_WAIT_SECS}s...",
+                    attempts * RECHECK_SECS
                 );
             }
-            Err(e) => {
+            Ok(_) => {}
+            Err(e) if attempts % LOG_EVERY == 0 => {
                 tracing::info!(
-                    "Could not check migration status (migrations table may not exist yet): {e:#}. Rechecking in 3s..."
+                    "Could not check migration status (migrations table may not exist yet): {e:#}. Rechecking every {RECHECK_SECS}s..."
                 );
             }
+            Err(_) => {}
         }
 
         tokio::select! {
@@ -381,15 +529,27 @@ pub async fn wait_for_migrations(
                 tracing::info!("Killpill received, stopping migration wait");
                 return Ok(());
             }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+            _ = tokio::time::sleep(std::time::Duration::from_secs(RECHECK_SECS)) => {}
         }
 
         attempts += 1;
-        if attempts >= 10 {
+        if attempts * RECHECK_SECS >= MAX_WAIT_SECS {
             tracing::error!(
-                "Timed out after 10 attempts waiting for migration version {latest_version}. Exiting."
+                "Timed out after {MAX_WAIT_SECS}s waiting for migration version {latest_version}. Exiting."
             );
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn resource_type_seed_is_stripped_whole() {
+        // Its description carries a `;` inside a quoted string, and statements follow the seed.
+        let sql = include_str!("../../migrations/20260831120907_skills_resource_type.up.sql");
+        let stripped = super::RESOURCE_TYPE_SEED.replace_all(sql, "");
+        assert!(!stripped.to_lowercase().contains("insert into resource_type"));
+        assert!(stripped.contains("INSERT INTO folder"));
     }
 }

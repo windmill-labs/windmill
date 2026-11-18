@@ -88,14 +88,15 @@
 			}
 
 			for (const [key, value] of migrations) {
-				if (cssString.includes(`${key} {` || `${key}{`)) {
+				if (cssString.includes(`${key} {`) || cssString.includes(`${key}{`)) {
 					// append value to existing value
 					const regex = new RegExp(`\\${key}\\s*{\\s*([\\s\\S]*?)\\s*}`, 'g')
 
 					const match = regex.exec(cssString)
 
 					if (match) {
-						const existingValue = match[1]
+						// CSS allows the last declaration to omit its `;`; appending after it needs one.
+						const existingValue = match[1] && !match[1].endsWith(';') ? `${match[1]};` : match[1]
 
 						cssString = cssString.replace(
 							regex,

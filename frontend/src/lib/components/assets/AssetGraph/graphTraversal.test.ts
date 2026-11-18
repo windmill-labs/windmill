@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { AssetGraphResponse } from './types'
-import { buildDownstreamMap, computeDownstreamClosure } from './graphTraversal'
+import {
+	hoverLineage,
+	transitivelyImpliedEdges,
+	buildDownstreamMap,
+	computeDownstreamClosure,
+	computeInducedSchedule
+} from './graphTraversal'
 
 /** Direct (one-hop) subscriber script paths of `scriptPath`. */
 function downstreamSubscribers(g: AssetGraphResponse, scriptPath: string): string[] {
@@ -168,5 +174,97 @@ describe('computeDownstreamClosure', () => {
 		const cl = computeDownstreamClosure(g, 'b')
 		expect(cl.nodes).toEqual([])
 		expect(cl.cyclic).toEqual([])
+	})
+})
+
+describe('computeInducedSchedule', () => {
+	// a → b → c → d linear chain through assets.
+	const chain = () =>
+		graph(
+			[
+				['a', 'xa'],
+				['b', 'xb'],
+				['c', 'xc']
+			],
+			[
+				['b', 'xa'],
+				['c', 'xb'],
+				['d', 'xc']
+			]
+		)
+
+	it('orders a subset topologically and keeps only in-set edges', () => {
+		const sched = computeInducedSchedule(chain(), new Set(['a', 'b', 'c']))
+		expect(sched.nodes).toEqual(['a', 'b', 'c'])
+		expect(sched.roots).toEqual(['a'])
+		expect(sched.indegree.get('b')).toBe(1)
+		expect([...(sched.edges.get('c') ?? [])]).toEqual([]) // d is out of set
+		expect(sched.cyclic).toEqual([])
+	})
+
+	it('a gap in the selected set produces two independent roots', () => {
+		// pick a and c (skip b): with b excluded there is no in-set edge, so both
+		// are roots.
+		const sched = computeInducedSchedule(chain(), new Set(['a', 'c']))
+		expect(sched.roots.sort()).toEqual(['a', 'c'])
+		expect(sched.indegree.get('c')).toBe(0)
+	})
+
+	it('reports cyclic members instead of hanging', () => {
+		// b ↔ c cycle.
+		const g = graph(
+			[
+				['b', 'y'],
+				['c', 'z']
+			],
+			[
+				['c', 'y'],
+				['b', 'z']
+			]
+		)
+		const sched = computeInducedSchedule(g, new Set(['b', 'c']))
+		expect(sched.nodes).toEqual([])
+		expect(sched.cyclic.sort()).toEqual(['b', 'c'])
+	})
+})
+
+describe('hoverLineage', () => {
+	// a → b → c → d, with a side branch x → c and c → y; z is unrelated to b.
+	const edges = [
+		{ source: 'a', target: 'b' },
+		{ source: 'b', target: 'c' },
+		{ source: 'x', target: 'c' },
+		{ source: 'c', target: 'd' },
+		{ source: 'c', target: 'y' },
+		{ source: 'z', target: 'y' }
+	]
+
+	it('reaches everything upstream and downstream, recursively', () => {
+		const l = hoverLineage(edges, 'b')
+		expect([...l.upstream].sort()).toEqual(['a', 'b'])
+		expect([...l.downstream].sort()).toEqual(['b', 'c', 'd', 'y'])
+	})
+
+	it('keeps only the edges on a path through the node', () => {
+		const l = hoverLineage(edges, 'b')
+		expect(edges.filter(l.hasEdge)).toEqual([
+			{ source: 'a', target: 'b' },
+			{ source: 'b', target: 'c' },
+			{ source: 'c', target: 'd' },
+			{ source: 'c', target: 'y' }
+		])
+	})
+})
+
+describe('transitivelyImpliedEdges', () => {
+	it('flags an edge another path already implies, and only that one', () => {
+		const edges = [
+			{ id: 'ab', source: 'a', target: 'b' },
+			{ id: 'bc', source: 'b', target: 'c' },
+			{ id: 'ac', source: 'a', target: 'c' },
+			{ id: 'ad', source: 'a', target: 'd' },
+			{ id: 'ad2', source: 'a', target: 'd' }
+		]
+		expect([...transitivelyImpliedEdges(edges)]).toEqual(['ac'])
 	})
 })

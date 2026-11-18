@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { msToSec } from '$lib/utils'
-	import { base } from '$lib/base'
+	import { msToCompactDuration, msToReadableTime } from '$lib/utils'
 	import { ExternalLink } from 'lucide-svelte'
 	import Popover from './Popover.svelte'
 
@@ -15,6 +14,14 @@
 		concat?: boolean
 		gray?: boolean
 		spacerClass?: string
+		/** Overrides the default gray/blue bar color (e.g. to mark an approval wait). */
+		colorClass?: string
+		/** Tooltip label shown on hover instead of the default job link. */
+		tooltip?: string
+		/** A thin bar with no duration inside it: the caller shows the duration elsewhere. */
+		compact?: boolean
+		/** Another bar starts where this one ends, so a narrow bar's outside label would collide with its label. */
+		followedByBar?: boolean
 	}
 
 	let {
@@ -27,44 +34,58 @@
 		running,
 		concat = false,
 		gray = false,
-		spacerClass = ''
+		spacerClass = '',
+		colorClass = undefined,
+		tooltip = undefined,
+		compact = false,
+		followedByBar = false
 	}: Props = $props()
 </script>
 
 {#if min && started_at != undefined}
 	{#if !concat}
-		<div style="width: {((started_at - min) / total) * 100}%" class="h-5 {spacerClass}"></div>
+		<div
+			style="width: {((started_at - min) / total) * 100}%"
+			class="{compact ? 'h-1.5' : 'h-5'} {spacerClass}"
+		></div>
 	{/if}
 	<Popover
 		style="width: {(len / total) * 100}%"
-		class="h-5 relative {gray
-			? 'bg-gray-300 dark:bg-gray-600'
-			: running
-				? 'bg-blue-400/90'
-				: 'bg-blue-500/90'} {position == 'left'
+		class="{compact ? 'h-1.5 min-w-1.5' : 'h-5'} relative {colorClass
+			? colorClass
+			: gray
+				? 'bg-gray-300 dark:bg-gray-600'
+				: running
+					? 'bg-blue-400/90'
+					: 'bg-blue-500/90'} {position == 'left'
 			? 'rounded-l-md'
 			: position == 'right'
 				? 'rounded-r-md'
 				: 'rounded-md'} center-center text-white text-2xs whitespace-nowrap hover:outline outline-1 outline-black"
 	>
 		{#snippet text()}
-			<a href="{base}/run/{id}" class="inline-flex items-center gap-1" target="_blank"
-				>{id} <ExternalLink size={14} /></a
-			>
+			{#if tooltip}
+				<span>{tooltip}</span>
+			{:else}
+				<a href="/run/{id}" class="inline-flex items-center gap-1" target="_blank"
+					>{id} <ExternalLink size={14} /></a
+				>
+			{/if}
 		{/snippet}
-		{#if len > 0}
+		{#if len > 0 && !compact}
 			{@const narrow = len / total < 0.09}
 			{@const endPos =
 				started_at != undefined && min != undefined ? (started_at - min + len) / total : 1}
-			{@const nearStart = endPos < 0.15}
-			<span
-				class={narrow
-					? nearStart
-						? 'absolute left-full ml-2 text-primary font-mono'
-						: 'absolute right-full mr-1 text-primary font-mono'
-					: 'font-mono'}
-				>{#if len}{msToSec(len, 1)}s{/if}</span
-			>
+			{#if !(narrow && followedByBar)}
+				<span
+					title={msToReadableTime(len, 1)}
+					class={narrow
+						? endPos > 0.85
+							? 'absolute right-full mr-1 text-primary font-mono'
+							: 'absolute left-full ml-2 text-primary font-mono'
+						: 'font-mono truncate px-1'}>{msToCompactDuration(len, 1)}</span
+				>
+			{/if}
 		{/if}
 	</Popover>
 {/if}

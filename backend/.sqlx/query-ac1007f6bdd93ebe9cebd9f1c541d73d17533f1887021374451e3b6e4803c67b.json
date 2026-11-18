@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE up(id, parent, start, depth) AS (\n                       SELECT id, parent_workspace_id, id, 0 FROM workspace\n                       WHERE id IN ($1, $2) AND deleted = false\n                       UNION ALL\n                       SELECT w.id, w.parent_workspace_id, up.start, up.depth + 1\n                       FROM workspace w JOIN up ON w.id = up.parent\n                       WHERE up.depth < 64\n                   )\n                   SELECT (SELECT id FROM up WHERE start = $1 AND parent IS NULL)\n                        = (SELECT id FROM up WHERE start = $2 AND parent IS NULL) AS \"same\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "same",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ac1007f6bdd93ebe9cebd9f1c541d73d17533f1887021374451e3b6e4803c67b"
+}

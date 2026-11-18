@@ -1,13 +1,19 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
+	import { TRIGGER_PAGES } from '$lib/components/sessions/previewPaths'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
-	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { KafkaTriggerService, type Retry, type TriggerMode } from '$lib/gen'
+	import { usedTriggerKinds } from '$lib/stores'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
@@ -17,7 +23,8 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveKafkaTriggerFromCfg } from './utils'
-	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -28,11 +35,22 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import TriggerFilters from '../TriggerFilters.svelte'
+	import type { FilterNode } from '../filters'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
+	const editRights = useEditRights()
 
 	interface Props {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -51,6 +69,8 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -66,6 +86,10 @@
 		onDelete = undefined,
 		onReset = undefined
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
@@ -79,7 +103,15 @@
 	let pathError = $state('')
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
+	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let initialConfig: Record<string, any> | undefined = undefined
@@ -95,12 +127,14 @@
 	let preservePermissionedAs = $state(false)
 	let resetLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
-	let filters: { key: string; value: any }[] = $state([])
+	let filters: FilterNode[] = $state([])
 	let filterLogic = $state<'and' | 'or'>('and')
+	let runOnFilterError = $state(false)
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -131,7 +165,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_kafka',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => kafkaConfig,
 		applyCfg: loadTriggerConfig,
@@ -143,18 +177,27 @@
 		is_flow = itemKind === 'flow'
 	})
 
+	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
+	// draft, so Save hands it the config instead of writing it.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
 		defaultConfig?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		saveDraftHandler = undefined
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
+			setPageDrawerAnchor(TRIGGER_PAGES.kafka.path, ePath)
 			initialPath = ePath
 			itemKind = isFlow ? 'flow' : 'script'
 			edit = true
@@ -183,8 +226,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		nDefaultValues?: Record<string, any>
+		nDefaultValues?: Record<string, any>,
+		opts: {
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
+			/** A config this editor saved before, re-applied over the defaults. */
+			draftConfig?: Record<string, any>
+		} = {}
 	) {
+		saveDraftHandler = opts.onSaveDraft
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -207,17 +256,22 @@
 			path = nDefaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
-			error_handler_path = nDefaultValues?.error_handler_path ?? undefined
-			error_handler_args = nDefaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				nDefaultValues?.error_handler_path,
+				'script',
+				nDefaultValues?.error_handler_args
+			)
 			retry = nDefaultValues?.retry ?? undefined
 			filters = nDefaultValues?.filters ?? []
 			filterLogic = 'and'
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			runOnFilterError = false
 			mode = nDefaultValues?.mode ?? 'enabled'
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig)
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -226,6 +280,8 @@
 	}
 
 	function loadTriggerConfig(cfg?: Record<string, any>): void {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		script_path = cfg?.script_path
 		initialScriptPath = cfg?.script_path
 		is_flow = cfg?.is_flow
@@ -239,13 +295,18 @@
 		autoCommit = cfg?.auto_commit ?? true
 		mode = cfg?.mode ?? 'enabled'
 		extra_perms = cfg?.extra_perms
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
-		error_handler_path = cfg?.error_handler_path
-		error_handler_args = cfg?.error_handler_args ?? {}
+		permsPath = path
+		permsForWrite = cfg?.extra_perms
+		errorHandler = handlerDraftFromStored(
+			'error',
+			cfg?.error_handler_path,
+			'script',
+			cfg?.error_handler_args
+		)
 		retry = cfg?.retry
 		filters = cfg?.filters ?? []
 		filterLogic = cfg?.filter_logic ?? 'and'
-		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		runOnFilterError = cfg?.run_on_filter_error ?? false
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
 		preservePermissionedAs = !!cfg?.permissioned_as
@@ -260,7 +321,7 @@
 			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await KafkaTriggerService.getKafkaTrigger({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			path: initialPath,
 			getDraft: true
 		})
@@ -284,6 +345,7 @@
 			topics: kafkaCfg.topics,
 			filters,
 			filter_logic: filterLogic,
+			run_on_filter_error: runOnFilterError,
 			auto_offset_reset: autoOffsetReset,
 			auto_commit: autoCommit,
 			mode,
@@ -297,16 +359,15 @@
 	}
 
 	async function updateTrigger(): Promise<void> {
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(getSaveCfg()))) return
+			drawer?.closeDrawer()
+			return
+		}
 		deploymentLoading = true
 		const previousPath = initialPath
 		const cfg = getSaveCfg()
-		const isSaved = await saveKafkaTriggerFromCfg(
-			initialPath,
-			cfg,
-			edit,
-			$workspaceStore!,
-			usedTriggerKinds
-		)
+		const isSaved = await saveKafkaTriggerFromCfg(initialPath, cfg, edit, wsId!, usedTriggerKinds)
 		if (isSaved) {
 			draftSync.discard(previousPath, getSaveCfg())
 			onUpdate?.(cfg.path)
@@ -333,7 +394,7 @@
 		resetLoading = true
 		try {
 			await KafkaTriggerService.resetKafkaOffsets({
-				workspace: $workspaceStore!,
+				workspace: wsId!,
 				path: initialPath
 			})
 			sendUserToast(
@@ -355,7 +416,7 @@
 				(force) =>
 					KafkaTriggerService.setKafkaTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'Kafka trigger'
@@ -413,30 +474,46 @@
 	/>
 {/if}
 
-{#if useDrawer}
-	<Drawer size="800px" bind:this={drawer}>
-		<DrawerContent
-			title={edit
-				? can_write
-					? `Edit Kafka trigger ${initialPath}`
-					: `Kafka trigger ${initialPath}`
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit Kafka trigger ${initialPath}`
+				: `Kafka trigger ${initialPath}`
+			: saveDraftHandler
+				? 'Draft Kafka trigger'
 				: 'New Kafka trigger'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsButtons('sm')}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			{@render actionsButtons('sm')}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
+	<Drawer
+		size="800px"
+		bind:this={drawer}
+		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.kafka.path)}
+	>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Kafka trigger' : ''} headerClass="grow min-w-0 h-[30px]">
@@ -455,6 +532,8 @@
 {#snippet actionsButtons(size: 'xs' | 'sm' = 'sm')}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="kafka"
+			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{mode}
@@ -464,6 +543,7 @@
 			{isDeployed}
 			{saveDisabled}
 			onUpdate={updateTrigger}
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 			{onReset}
 			{onDelete}
 			onToggleMode={handleToggleMode}
@@ -481,6 +561,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -508,6 +589,7 @@
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
+						workspaceOverride={wsId}
 						bind:dirty={dirtyPath}
 						bind:error={pathError}
 						bind:path
@@ -524,12 +606,13 @@
 			{#if !hideTarget}
 				<Section label="Runnable">
 					<TriggerRunnablePicker
+						workspace={wsId}
 						{fixedScriptPath}
 						bind:itemKind
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
 					>
 						{#snippet createButton()}
 							{#if emptyString(script_path)}
@@ -538,7 +621,9 @@
 									variant="accent"
 									size="xs"
 									disabled={!can_write}
-									href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'
+									)}
 									target="_blank">Create from template</Button
 								>
 							{/if}
@@ -630,6 +715,7 @@
 					<TriggerFilters
 						bind:filters
 						bind:filterLogic
+						bind:runOnFilterError
 						disabled={!can_write}
 						payloadBase64Encoded
 					/>
@@ -641,12 +727,11 @@
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler
+								workspace={wsId}
 								{optionTabSelected}
 								{itemKind}
 								{can_write}
-								bind:errorHandlerSelected
-								bind:error_handler_path
-								bind:error_handler_args
+								bind:errorHandler
 								bind:retry
 							/>
 						</div>

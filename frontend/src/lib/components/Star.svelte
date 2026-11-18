@@ -9,9 +9,11 @@
 		kind: FavoriteKind
 		summary?: string
 		workspaceId?: string
+		size?: number
+		class?: string
 	}
 
-	let { path, kind, workspaceId, summary }: Props = $props()
+	let { path, kind, workspaceId, summary, size = 16, class: className = 'p-1' }: Props = $props()
 
 	let buttonHover = $state(false)
 	let starred = $derived(favoriteManager.isStarred(path, kind))
@@ -27,18 +29,20 @@
 	onclick={preventDefault(onClick)}
 	onmouseenter={() => (buttonHover = true)}
 	onmouseleave={() => (buttonHover = false)}
-	class="p-1"
+	class={className}
+	data-starred={starred || undefined}
+	title={starred ? 'Remove from favorites' : 'Add to favorites'}
 >
 	{#if starred}
 		{#if buttonHover}
-			<StarOff size={16} fill="currentcolor" />
+			<StarOff {size} fill="currentcolor" />
 		{:else}
-			<Star size={16} fill="currentcolor" />
+			<Star {size} fill="currentcolor" />
 		{/if}
 	{:else}
 		<Star
 			class={!buttonHover ? 'opacity-60' : ''}
-			size={16}
+			{size}
 			fill={buttonHover ? 'currentcolor' : 'none'}
 		/>
 	{/if}

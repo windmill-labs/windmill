@@ -7,6 +7,7 @@
  */
 
 use crate::db::{ApiAuthed, DB};
+use crate::utils::check_scopes;
 use axum::{
     extract::{Extension, Json, Path},
     routing::{get, put},
@@ -152,6 +153,9 @@ async fn update_shared_ui(
     Json(payload): Json<UpdateSharedUi>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+    // The route layer matches `apps:write:<paths>` too; the store is workspace-wide, so
+    // only a grant spanning every app path may replace it.
+    check_scopes(&authed, || "apps:write".to_string())?;
 
     let files_json = serde_json::to_value(&payload.files)
         .map_err(|e| Error::internal_err(format!("serializing files: {e}")))?;

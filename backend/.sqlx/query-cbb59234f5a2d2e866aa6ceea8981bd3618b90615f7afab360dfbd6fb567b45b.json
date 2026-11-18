@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status SET\n                    flow_status = jsonb_set(\n                        jsonb_set(flow_status, ARRAY['modules', $3::INTEGER::TEXT, 'job'], to_jsonb($1::UUID::TEXT)),\n                        ARRAY['modules', $3::INTEGER::TEXT, 'type'],\n                        to_jsonb('InProgress'::text)\n                    )\n                WHERE id = $2\n                  AND NOT COALESCE(\n                      flow_status->'modules'->$3::INTEGER @> '{\"type\": \"InProgress\", \"parallel\": true}',\n                      false\n                  )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cbb59234f5a2d2e866aa6ceea8981bd3618b90615f7afab360dfbd6fb567b45b"
+}

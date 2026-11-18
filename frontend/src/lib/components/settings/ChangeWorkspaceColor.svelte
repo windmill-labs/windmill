@@ -1,13 +1,21 @@
 <script lang="ts">
-	import { workspaceStore, usersWorkspaceStore, workspaceColor } from '$lib/stores'
+	import { workspaceStore, usersWorkspaceStore, userWorkspaces, workspaceColor } from '$lib/stores'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import Button from '../common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { WorkspaceService } from '$lib/gen'
 	import Modal from '../common/modal/Modal.svelte'
 	import { Pen } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import WorkspaceScopeTrigger from '../WorkspaceScopeTrigger.svelte'
+	import DarkModeToggle from '../sidebar/DarkModeToggle.svelte'
 
 	let { open = false }: { open?: boolean } = $props()
+
+	// A fork's color themes the fork pickers, so the section takes the
+	// create-fork form's "Fork color" shape — live picker preview included.
+	const isFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces))
+	const colorLabel = $derived(isFork ? 'Fork color' : 'Workspace color')
 
 	let colorEnabled = $state(false)
 	let editingColor = $state<string | undefined>(undefined)
@@ -52,9 +60,11 @@
 </script>
 
 <div class="flex flex-col gap-1">
-	<p class="font-semibold text-xs text-emphasis">Workspace color</p>
+	<p class="font-semibold text-xs text-emphasis">{colorLabel}</p>
 	<p class="text-xs text-secondary font-normal">
-		Color to identify the current workspace in the list of workspaces
+		{isFork
+			? 'Color to identify this fork in the pickers'
+			: 'Color to identify the current workspace in the list of workspaces'}
 	</p>
 	<div class="flex flex-row gap-0.5 items-center">
 		{#if $workspaceColor}
@@ -79,10 +89,10 @@
 	</div>
 </div>
 
-<Modal bind:open title="Change workspace color">
+<Modal bind:open title="Change {colorLabel.toLowerCase()}">
 	<div class="flex flex-col gap-4">
 		<label class="block">
-			<span class="text-secondary text-sm">Workspace color</span>
+			<span class="text-secondary text-sm">{colorLabel}</span>
 			<div class="flex items-center gap-2">
 				<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
 				{#if colorEnabled}
@@ -97,6 +107,23 @@
 				<Button on:click={generateRandomColor} size="xs" disabled={!colorEnabled}>Random</Button>
 			</div>
 		</label>
+		{#if isFork && colorEnabled}
+			<div class="flex flex-col gap-1">
+				<div class="flex flex-row items-center gap-1">
+					<span class="text-2xs text-secondary">Fork picker preview</span>
+					<DarkModeToggle forcedDarkMode={false} />
+				</div>
+				<div class="w-64">
+					<WorkspaceScopeTrigger
+						workspaceId={$workspaceStore}
+						color={editingColor}
+						showChevron={false}
+						wrap
+						class="w-full pointer-events-none"
+					/>
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	{#snippet actions()}

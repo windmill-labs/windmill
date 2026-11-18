@@ -13,7 +13,9 @@
 		unifiedSize = undefined,
 		variant = 'accent'
 	}: {
-		onSave: () => void | Promise<void>
+		/** Resolving to `false` means the save was called off (e.g. a confirmation was declined):
+		 *  nothing was written, so neither success nor error is shown. */
+		onSave: () => void | boolean | Promise<void | boolean>
 		disabled?: boolean
 		label?: string
 		size?: ButtonType.Size | undefined
@@ -40,7 +42,8 @@
 		clearStatusTimeout()
 
 		Promise.resolve(onSave())
-			.then(() => {
+			.then((result) => {
+				if (result === false) return
 				saveStatus = 'success'
 				statusTimeout = setTimeout(() => {
 					saveStatus = null
@@ -49,7 +52,9 @@
 			})
 			.catch((error) => {
 				console.error('Save failed:', error)
-				sendUserToast(error?.message ?? 'Save failed', true)
+				// An API error's message is only the status text; the server's reason is its body.
+				const body = typeof error?.body === 'string' && error.body ? error.body : undefined
+				sendUserToast(body ?? error?.message ?? 'Save failed', true)
 				saveStatus = 'error'
 				statusTimeout = setTimeout(() => {
 					saveStatus = null

@@ -1,7 +1,7 @@
 import { get } from 'svelte/store'
 import { dbClockDrift } from './stores'
 import { JobService } from './gen'
-import { getActiveReplay } from './components/recording/flowRecording.svelte'
+import { getActiveReplay } from './components/recording/replay.svelte'
 import pLimit from 'p-limit'
 
 function subtractSeconds(date: Date, seconds: number): Date {
