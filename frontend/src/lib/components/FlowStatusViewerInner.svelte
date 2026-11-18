@@ -1502,7 +1502,7 @@
 							<a
 								rel="noreferrer"
 								target="_blank"
-								href="/run/{failure.job}?workspace={job?.workspace_id}"
+								href={appendViewToken(`/run/${failure.job}?workspace=${job?.workspace_id}`)}
 							>
 								{failure.id}
 								<ExternalLink size={12} class="inline-block" />
