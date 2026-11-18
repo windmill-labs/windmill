@@ -399,6 +399,7 @@ async fn inject_agent_authed(
                 job_id: None,
                 credential_expiry: None,
                 mcp_client: None,
+                capabilities: None,
             },
             job_id: None,
         });
