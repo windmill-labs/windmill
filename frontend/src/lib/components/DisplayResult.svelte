@@ -268,36 +268,64 @@
 	let resultDownloadName = $derived(`${filename ?? 'result'}.json`)
 
 	// A result over the backend's inline cap arrives as 'WINDMILL_TOO_BIG'. Ask the backend
-	// for the filename alone to tell a file result: `{ file, filename }` or
-	// `{ file: { content, filename } }`, the two shapes the 'file' kind renders.
+	// for the filename alone to tell a file result: `{ file: { content, filename } }` or
+	// `{ file, filename }`, the two shapes the 'file' kind renders. A root `filename` alone
+	// proves nothing, so the root shape also needs a string `file`, of which only the first
+	// bytes are read since it is the large value itself.
 	let tooBigFilename: string | undefined = $state(undefined)
+	function resultAtUrl(apiPath: string, jsonPath: string): string {
+		return `${apiPath}${apiPath.includes('?') ? '&' : '?'}json_path=${jsonPath}`
+	}
 	async function fetchResultAt(apiPath: string, jsonPath: string): Promise<unknown> {
-		const r = await fetchViaClient(
-			`${apiPath}${apiPath.includes('?') ? '&' : '?'}json_path=${jsonPath}`
-		)
+		const r = await fetchViaClient(resultAtUrl(apiPath, jsonPath))
 		return r.ok ? r.json() : undefined
+	}
+	async function isStringAt(apiPath: string, jsonPath: string): Promise<boolean> {
+		const r = await fetchViaClient(resultAtUrl(apiPath, jsonPath))
+		const reader = r.ok ? r.body?.getReader() : undefined
+		if (!reader) return false
+		try {
+			const decoder = new TextDecoder()
+			while (true) {
+				const { done, value } = await reader.read()
+				if (done) return false
+				const head = decoder.decode(value, { stream: true }).trimStart()
+				if (head) return head.startsWith('"')
+			}
+		} finally {
+			reader.cancel().catch(() => {})
+		}
+	}
+	async function findTooBigFilename(apiPath: string): Promise<string | undefined> {
+		const nested = await fetchResultAt(apiPath, 'file.filename')
+		if (typeof nested === 'string') return nested
+		const root = await fetchResultAt(apiPath, 'filename')
+		return typeof root === 'string' && (await isStringAt(apiPath, 'file')) ? root : undefined
 	}
 	$effect(() => {
 		tooBigFilename = undefined
 		const apiPath = result === 'WINDMILL_TOO_BIG' ? resultApiPath : undefined
 		if (!apiPath) return
 		let stale = false
-		fetchResultAt(apiPath, 'filename')
-			.then((name) => (typeof name === 'string' ? name : fetchResultAt(apiPath, 'file.filename')))
-			.then(
-				(name) => {
-					if (!stale && typeof name === 'string') tooBigFilename = name
-				},
-				() => {}
-			)
+		findTooBigFilename(apiPath).then(
+			(name) => {
+				if (!stale) tooBigFilename = name
+			},
+			() => {}
+		)
 		return () => (stale = true)
 	})
 	async function downloadTooBigFile(apiPath: string, name: string) {
-		const file: any = await fetchResultAt(apiPath, 'file').catch(() => undefined)
-		const content = contentOrRootString(file)
-		if (typeof content !== 'string' || !content) return sendUserToast('Download failed', true)
 		// A blob, not a data: URL, which browsers cap well below a large file's size
-		downloadBlob(new Blob([Uint8Array.from(atob(content), (c) => c.charCodeAt(0))]), name)
+		let blob: Blob
+		try {
+			const content = contentOrRootString((await fetchResultAt(apiPath, 'file')) as any)
+			if (typeof content !== 'string' || !content) throw new Error('no file content')
+			blob = new Blob([Uint8Array.from(atob(content), (c) => c.charCodeAt(0))])
+		} catch (e) {
+			return sendUserToast(`Download failed: ${e}`, true)
+		}
+		downloadBlob(blob, name)
 	}
 
 	function checkIfS3(result: any, keys: string[]) {
@@ -1365,18 +1393,19 @@
 								>Download</a
 							>
 						</div>
-					{:else if tooBigFilename && resultApiPath}
-						<div class="flex">
-							<Button
-								onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
-								startIcon={{ icon: Download }}
-								variant="subtle"
-								unifiedSize="sm"
-							>
-								Download {tooBigFilename}
-							</Button>
-						</div>
 					{:else}
+						{#if tooBigFilename && resultApiPath}
+							<div class="flex">
+								<Button
+									onclick={() => downloadTooBigFile(resultApiPath!, tooBigFilename!)}
+									startIcon={{ icon: Download }}
+									variant="subtle"
+									unifiedSize="sm"
+								>
+									Download {tooBigFilename}
+								</Button>
+							</div>
+						{/if}
 						{#if largeObject}
 							<div class="text-xs text-emphasis"
 								>{#if resultApiPath && shouldDownloadViaClient()}
