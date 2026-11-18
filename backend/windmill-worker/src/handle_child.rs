@@ -163,7 +163,9 @@ fn send_job_signal(id: u32, sig: Signal) {
     } else {
         pid
     };
-    let _ = signal::kill(target, sig);
+    if let Err(e) = signal::kill(target, sig) {
+        tracing::debug!("failed to send {sig} to {target}: {e}");
+    }
 }
 
 /// - wait until child exits and return with exit status
@@ -1339,7 +1341,6 @@ mod tests {
             ]
         );
     }
-
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
