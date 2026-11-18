@@ -5986,34 +5986,46 @@ async fn get_approval_step_detail(
         .filter(|_| waiting)
         .and_then(|v| serde_json::from_value::<ApprovalConditions>(v).ok())
         .or_else(|| approval_conditions_from_settings(suspend));
-    let can_approve = waiting.then(|| {
-        can_approve_step(
-            &Some(authed.clone()),
-            &approval_conditions,
-            row.runnable_path.as_deref(),
-            &row.permissioned_as_email,
-        )
-    });
-    let step_result_field = |k: &str| row.step_result.as_ref().and_then(|r| r.get(k).cloned());
+    let is_approver = can_approve_step(
+        &Some(authed.clone()),
+        &approval_conditions,
+        row.runnable_path.as_deref(),
+        &row.permissioned_as_email,
+    );
+    // As on the approval page: a step requiring auth reveals its form, prefilled args and
+    // approvers only to those who may approve it, whatever read access they hold on the run.
+    let can_view = is_approver
+        || !approval_conditions
+            .as_ref()
+            .is_some_and(|ac| ac.user_auth_required);
+    let step_result_field = |k: &str| {
+        row.step_result
+            .as_ref()
+            .filter(|_| can_view)
+            .and_then(|r| r.get(k).cloned())
+    };
 
     Ok(Json(ApprovalStepDetail {
         flow_id,
         step_id,
         step_job,
-        step_summary: module_def.summary.clone().filter(|s| !s.trim().is_empty()),
+        step_summary: module_def
+            .summary
+            .clone()
+            .filter(|s| can_view && !s.trim().is_empty()),
         required_events: suspend.required_events.unwrap_or_default(),
         timeout: suspend.timeout,
         suspended_until: row.suspend_until.filter(|_| waiting),
-        form_schema: suspend.resume_form.clone(),
+        form_schema: suspend.resume_form.clone().filter(|_| can_view),
         hide_cancel: suspend.hide_cancel.unwrap_or(false),
         continue_on_disapprove_timeout: suspend.continue_on_disapprove_timeout.unwrap_or(false),
         skin: suspend.skin.unwrap_or_default(),
         approval_conditions,
-        can_approve,
+        can_approve: waiting.then_some(is_approver),
         description: step_result_field("description"),
         default_args: step_result_field("default_args"),
         enums: step_result_field("enums"),
-        approvals,
+        approvals: if can_view { approvals } else { vec![] },
         error: row
             .flow_error
             .filter(|_| status == ApprovalStepStatus::NotResumed),
