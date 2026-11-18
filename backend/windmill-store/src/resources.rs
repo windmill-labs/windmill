@@ -1446,6 +1446,10 @@ async fn create_resource(
         None,
     )
     .await?;
+    if authed.is_admin {
+        windmill_common::git_sync_oss::approve_github_app_repo(&mut *tx, &w_id, &resource.path)
+            .await?;
+    }
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -2409,6 +2413,9 @@ async fn update_resource(
         None,
     )
     .await?;
+    if authed.is_admin && ns.value.is_some() {
+        windmill_common::git_sync_oss::approve_github_app_repo(&mut *tx, &w_id, &npath).await?;
+    }
     tx.commit().await?;
 
     // Detect if this was a rename operation
@@ -2683,6 +2690,9 @@ async fn set_resource_value(
         None,
     )
     .await?;
+    if authed.is_admin {
+        windmill_common::git_sync_oss::approve_github_app_repo(&mut *tx, w_id, path).await?;
+    }
     tx.commit().await?;
 
     note_resource_write(w_id, path, &resource_type);
@@ -4101,26 +4111,27 @@ async fn get_git_commit_hash(
     let Some(git_repo_resource_value) = git_repo_resource_value else {
         return Err(Error::NotFound(format!("Resource {} not found", path)).into());
     };
+    let caller = if authed.is_admin {
+        GitRemoteCaller::AdminOrSystem
+    } else {
+        GitRemoteCaller::NonAdmin
+    };
 
     // App-backed repos store a tokenless URL, so the `ls-remote` below can't
     // authenticate. Reuse the poller's REST head lookup, which mints an
     // installation token server-side rather than embedding one in a URL here.
     // It returns `None` for a repo that isn't app-backed, which is exactly the
-    // ls-remote case below.
-    //
-    // Admin-only for the same reason as the archive route: the repository is
-    // named by the resource's own `url`, which anyone with write on its path
-    // controls, so reading it would let a caller aim the installation
-    // credential at any repository it can reach.
+    // ls-remote case below. It serves a non-admin only the repository an admin
+    // approved on the resource.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if git_repo_resource_value
         .get("is_github_app")
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
     {
-        require_admin(authed.is_admin, &authed.username)?;
         if let Some((_, commit_hash)) =
-            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path).await?
+            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path, caller)
+                .await?
         {
             return Ok(Json(GitCommitHashResponse { commit_hash }));
         }
@@ -4130,18 +4141,14 @@ async fn get_git_commit_hash(
         .map_err(|e| {
         Error::BadRequest(format!("Invalid git repository resource format: {}", e))
     })?;
-    let caller = if authed.is_admin {
-        GitRemoteCaller::AdminOrSystem
-    } else {
-        GitRemoteCaller::NonAdmin
-    };
     git_resource.url =
         resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false, caller)
             .await?;
     // A credential is stored under the repository it was issued for, so a
     // resource repointed elsewhere finds none. Which credential can be attached
-    // is bounded by that; who may use it is bounded here, on the same terms as
-    // the installation credential above.
+    // is bounded by that; who may use it is bounded here: admins only, since
+    // nothing records an admin's approval of the URL as for the installation
+    // credential above.
     let plain_url = git_resource.url.clone();
     git_resource.url =
         windmill_common::git_sync_oss::with_stored_credential(&db, &w_id, git_resource.url).await?;

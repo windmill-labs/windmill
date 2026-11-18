@@ -59,10 +59,9 @@
 		| 'failure'
 		| 'aisandbox'
 		| 'aiagent' = $state(untrack(() => kind))
-	// Builders compose what the workspace already deployed: hub scripts bring in code nobody here
-	// reviewed, and the backend refuses them, so never open on the hub for them.
+	// The server adds a hub path only for a role that has code, so without it never open on the hub.
 	let preFilter: 'all' | 'workspace' | 'hub' = $state(
-		untrack(() => composeOnlyFlows) ? 'workspace' : 'all'
+		untrack(() => $roleCaps.code) ? 'all' : 'workspace'
 	)
 	let loading = $state(false)
 	let small = $derived(smallProp ?? (kind === 'preprocessor' || kind === 'failure'))
@@ -208,7 +207,7 @@
 			{preFilter}
 			{loading}
 		/>
-		{#if selectedKind != 'preprocessor' && selectedKind != 'flow' && !composeOnlyFlows}
+		{#if selectedKind != 'preprocessor' && selectedKind != 'flow' && $roleCaps.code}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
 		<RefreshButton
