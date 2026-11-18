@@ -728,6 +728,7 @@
 				// The effect above loads the open tab only; no list may keep the previous
 				// workspace's rows behind another tab. The others reload when reopened, so they are
 				// emptied, and a load still in flight for them is superseded so it cannot refill them.
+				resourceCounts = undefined
 				if (tab !== 'workspace') loadResources()
 				if (tab !== 'cache') {
 					loads.cache.start()
