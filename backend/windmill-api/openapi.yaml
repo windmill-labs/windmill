@@ -13207,7 +13207,10 @@ paths:
         flow run id and the step id, in a single query: where the step stands, its
         approval settings, the approvals received and, while it waits, whether the
         caller can approve. Only the run's own steps are searched: for a step inside
-        a branch or loop, pass the id of the branch's or iteration's run.
+        a branch or loop, pass the id of the branch's or iteration's run. When the
+        step requires a signed-in approver and the caller may not approve it, the
+        form schema, step summary, description, default args, enums and approvals
+        are omitted, as on the approval page.
       operationId: getApprovalStepDetail
       tags:
         - job
@@ -13253,6 +13256,7 @@ paths:
                     enum: [not_reached, skipped, failed, waiting, resumed, not_resumed]
                     description: >
                       not_reached: the step's own script has not finished yet.
+                      skipped: the step was skipped and never asked for approval.
                       failed: the step failed before asking for approval.
                       waiting: the run is suspended on this step.
                       resumed: the run moved past this step.
