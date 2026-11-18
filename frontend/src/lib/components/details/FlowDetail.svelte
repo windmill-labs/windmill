@@ -225,7 +225,7 @@
 	}
 
 	async function loadTriggers(): Promise<void> {
-		await triggersState.fetchTriggers(triggersCount, workspace, path, true, undefined, actingUser)
+		await triggersState.fetchTriggers(triggersCount, workspace, path, true)
 	}
 
 	let pinnedVersion: number | undefined = $state(undefined)

@@ -274,7 +274,7 @@
 	}
 
 	async function loadTriggers(path: string): Promise<void> {
-		await triggersState.fetchTriggers(triggersCount, workspace, path, false, undefined, actingUser)
+		await triggersState.fetchTriggers(triggersCount, workspace, path, false)
 	}
 
 	async function loadScript(hash: string): Promise<void> {
