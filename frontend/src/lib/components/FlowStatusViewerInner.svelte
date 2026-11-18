@@ -1493,8 +1493,10 @@
 					: ''} failed, the flow continued because of continue on error"
 			>
 				<div class="flex flex-wrap gap-x-3 gap-y-1">
-					{#each continuedOnError as failure (failure.job)}
-						{#if isReplay}
+					<!-- A failure raised before its step's job was created (e.g. a branch predicate
+					     error) carries the nil uuid, so entries are keyed by position. -->
+					{#each continuedOnError as failure, i (i)}
+						{#if isReplay || failure.job == '00000000-0000-0000-0000-000000000000'}
 							<span>{failure.id}</span>
 						{:else}
 							<a
