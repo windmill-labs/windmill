@@ -52,6 +52,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { MigrationRunCancelled } from './dbOps'
 	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from './DarkModeObserver.svelte'
@@ -104,7 +105,7 @@
 	const defaultColumnType = (
 		{
 			postgresql: 'BIGSERIAL',
-			snowflake: 'varchar',
+			snowflake: 'VARCHAR',
 			ms_sql_server: 'varchar',
 			bigquery: 'string',
 			mysql: 'varchar',
@@ -460,9 +461,13 @@
 							askingForConfirmation && (askingForConfirmation.loading = true)
 							await onConfirm({ values })
 						} catch (e) {
-							let msg: string | undefined = (e as Error)?.message
-							if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
-							sendUserToast(msg, true)
+							// User declined the out-of-order run warning: silent cancel,
+							// leave the editor open so they can adjust or run earlier first.
+							if (!(e instanceof MigrationRunCancelled)) {
+								let msg: string | undefined = (e as any)?.body ?? (e as Error)?.message
+								if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
+								sendUserToast(msg, true)
+							}
 						}
 						askingForConfirmation = undefined
 					},
@@ -472,7 +477,7 @@
 					...(preview && { codeContent: preview.sql, alert: preview.alert })
 				}
 			} catch (e) {
-				let msg: string | undefined = (e as Error)?.message
+				let msg: string | undefined = (e as any)?.body ?? (e as Error)?.message
 				if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
 				sendUserToast(msg, true)
 			} finally {
@@ -498,7 +503,7 @@
 		{/if}
 		{#if askingForConfirmation?.codeContent}
 			<div
-				class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative group"
+				class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative group min-w-0"
 			>
 				<button
 					class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-surface-hover"
@@ -507,9 +512,7 @@
 				>
 					<ClipboardCopy size={14} />
 				</button>
-				<pre class="whitespace-pre-wrap text-sm"
-					><code>{askingForConfirmation.codeContent}</code></pre
-				>
+				<pre class="overflow-x-auto text-sm"><code>{askingForConfirmation.codeContent}</code></pre>
 			</div>
 		{/if}
 	</ConfirmationModal>

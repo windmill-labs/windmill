@@ -19,6 +19,7 @@ use windmill_common::{
     jobs::{is_safe_log_file_path, JobKind, JobStatus, JobTriggerKind},
     scripts::ScriptLang,
     utils::{paginate, paginate_without_limits, require_admin, Pagination},
+    worker::CLOUD_HOSTED,
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -111,6 +112,8 @@ pub struct ExportableQueuedJob {
     pub preprocessed: Option<bool>,
     pub args: Option<sqlx::types::Json<Box<RawValue>>>,
     pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub job_token_scopes: Option<Vec<String>>,
     pub pre_run_error: Option<String>,
 
     // v2_job_queue columns (excluding workspace_id and id/created_at/tag/priority)
@@ -275,6 +278,7 @@ pub async fn export_queued_jobs(
             v2_job.preprocessed,
             v2_job.args as "args: _",
             v2_job.labels,
+            job_perms.job_token_scopes as "job_token_scopes?",
             v2_job.pre_run_error,
 
             v2_job_queue.started_at,
@@ -297,6 +301,7 @@ pub async fn export_queued_jobs(
             concurrency_key.key as "concurrency_key?"
         FROM v2_job_queue
         INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
+        LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id
         LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id
         LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
         LEFT JOIN concurrency_key ON concurrency_key.job_id = v2_job_queue.id
@@ -429,15 +434,44 @@ pub async fn import_completed_jobs(
 
 pub async fn import_queued_jobs(
     authed: ApiAuthed,
+    Extension(db): Extension<windmill_common::DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(jobs): Json<Vec<ExportableQueuedJob>>,
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // Self-hosted migration/restore tool. It writes queue rows straight to the DB, bypassing the
+    // push path and every admission check that lives there, so it has no place on multi-tenant
+    // cloud where those checks are what keep one workspace from swamping the shared pool.
+    if *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "Importing queued jobs is not available on the cloud".to_string(),
+        ));
+    }
+
+    // Imported rows bypass `push`, so nothing would cap their tokens: a restricted job token
+    // could otherwise queue arbitrary jobs that run with its owner's full permissions.
+    if authed.job_id.is_some() && authed.scopes.is_some() {
+        return Err(error::Error::PermissionDenied(
+            "A restricted job token cannot import queued jobs".to_string(),
+        ));
+    }
+    // An imported job gets no `job_perms` row, so its token would be minted without the
+    // restriction it was queued with.
+    if let Some(job) = jobs.iter().find(|job| job.job_token_scopes.is_some()) {
+        return Err(error::Error::BadRequest(format!(
+            "Queued job {} restricts its job token and cannot be imported; run it again on \
+             this instance instead",
+            job.id
+        )));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
-    for job in jobs {
+    for mut job in jobs {
+        // A fork's admin is whoever created it, so an imported tag is as untrusted as a pushed one.
+        job.tag = windmill_queue::tags::apply_dev_workspace_suffix(job.tag, &w_id, &db).await?;
         sqlx::query!(
             r#"
             INSERT INTO v2_job (
@@ -514,7 +548,8 @@ pub async fn import_queued_jobs(
             job.worker,
             job.extras as _,
             &job.tag,
-            job.priority
+            // A job without priority sorts as 0 (see `push`); an older export carries NULL.
+            job.priority.unwrap_or(0)
         )
         .execute(&mut *tx)
         .await?;
@@ -590,6 +625,21 @@ pub async fn delete_jobs(
     }
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // job_ids are request-supplied, and resume_job, v2_job_runtime, v2_job_status,
+    // concurrency_key and zombie_job_counter have no workspace_id: keep only this workspace's
+    // jobs, or a workspace admin could erase another workspace's rows by passing its job ids.
+    // (Side-table list kept in sync with windmill_common::jobs::delete_jobs.)
+    let job_ids = sqlx::query_scalar!(
+        "SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    if job_ids.is_empty() {
+        return Ok("No jobs to delete".to_string());
+    }
 
     let logs_deleted = sqlx::query!(
         "DELETE FROM job_logs WHERE workspace_id = $1 AND job_id = ANY($2)",
@@ -667,6 +717,86 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
+    let dispatch_event_deleted = sqlx::query!(
+        "DELETE FROM dispatch_event WHERE workspace_id = $1 AND producer_job_id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    // One row per message deleted, so the conversation of a chat losing several appears
+    // several times: the count is taken before the dedup below.
+    let mut conversation_ids: Vec<Uuid> = sqlx::query_scalar!(
+        "DELETE FROM flow_conversation_message m
+         USING flow_conversation c
+         WHERE m.conversation_id = c.id AND c.workspace_id = $1
+           AND COALESCE(m.turn_job_id, m.job_id) = ANY($2)
+         RETURNING m.conversation_id",
+        &w_id,
+        &job_ids
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let conversation_message_deleted = conversation_ids.len() as u64;
+
+    // Same rule, lock and statement order as retention (windmill_common::jobs::delete_jobs,
+    // which says why): a conversation with no messages left goes, and its memory with it.
+    conversation_ids.sort_unstable();
+    conversation_ids.dedup();
+    let mut memory_deleted = 0;
+    let mut conversation_deleted = 0;
+    if !conversation_ids.is_empty() {
+        sqlx::query_scalar!(
+            "SELECT id FROM flow_conversation WHERE id = ANY($1) AND workspace_id = $2 ORDER BY id FOR UPDATE",
+            &conversation_ids,
+            &w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        memory_deleted = sqlx::query!(
+            "DELETE FROM ai_agent_memory a
+               USING flow_conversation c
+              WHERE c.id = ANY($1)
+                AND c.workspace_id = $2
+                AND a.conversation_id = c.id
+                AND a.workspace_id = c.workspace_id
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        conversation_deleted = sqlx::query!(
+            "DELETE FROM flow_conversation c
+              WHERE c.id = ANY($1)
+                AND c.workspace_id = $2
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    }
+
+    // Resolutions are not exported, so a delete-then-reimport of the same UUID would
+    // otherwise resurrect the old annotation on a job that never carried one.
+    let resolution_deleted = sqlx::query!(
+        "DELETE FROM job_resolution WHERE workspace_id = $1 AND job_id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
     let jobs_deleted = sqlx::query!(
         "DELETE FROM v2_job WHERE workspace_id = $1 AND id = ANY($2)",
         &w_id,
@@ -688,6 +818,11 @@ pub async fn delete_jobs(
         + queue_deleted
         + completed_deleted
         + zombie_deleted
+        + dispatch_event_deleted
+        + conversation_message_deleted
+        + memory_deleted
+        + conversation_deleted
+        + resolution_deleted
         + jobs_deleted;
 
     tracing::info!(

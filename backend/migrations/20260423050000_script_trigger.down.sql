@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_script_pipeline_path;
+DROP TABLE IF EXISTS script_trigger;
+DROP TYPE IF EXISTS SCRIPT_TRIGGER_KIND;

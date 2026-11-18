@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT w.parent_workspace_id, w.is_dev_workspace, w.dev_workspace_label,\n                  p.is_dev_workspace as \"parent_is_dev_workspace?\", p.dev_workspace_label as \"parent_dev_label?\"\n           FROM workspace w LEFT JOIN workspace p ON p.id = w.parent_workspace_id\n           WHERE w.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "parent_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_dev_workspace",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "dev_workspace_label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_is_dev_workspace?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "parent_dev_label?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "1c018b483795d9d33baa7be2ee41f48da6fe47bc29b6987cf60edd56bb1663b6"
+}

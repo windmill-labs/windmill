@@ -2,6 +2,7 @@
 //!
 //! This module provides:
 //! - BedrockClient: SDK wrapper with bearer token and IAM credentials auth
+//! - OIDC role assumption: exchange a Windmill OIDC token for temporary IAM keys
 //! - Message/tool conversion: OpenAI format <-> Bedrock Converse API format
 //! - Stream event parsing: Extract text/tool deltas from Bedrock stream events
 //!
@@ -109,6 +110,19 @@ const BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_IDS: &[&str] = &[
     "anthropic.claude-3-5-sonnet-20241022-v2:0",
 ];
 
+/// Claude 4.6 and later are published under several id spellings for the same
+/// model (`anthropic.claude-sonnet-4-6`, `...-4-6-v1`, `...-4-6-v1:0`), so they
+/// are matched by family prefix rather than by exact id.
+const BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_PREFIXES: &[&str] = &[
+    "anthropic.claude-fable-5",
+    "anthropic.claude-opus-4-6",
+    "anthropic.claude-opus-4-7",
+    "anthropic.claude-opus-4-8",
+    "anthropic.claude-opus-5",
+    "anthropic.claude-sonnet-4-6",
+    "anthropic.claude-sonnet-5",
+];
+
 fn build_default_cache_point() -> aws_sdk_bedrockruntime::types::CachePointBlock {
     aws_sdk_bedrockruntime::types::CachePointBlock::builder()
         .r#type(aws_sdk_bedrockruntime::types::CachePointType::Default)
@@ -123,7 +137,7 @@ fn normalize_bedrock_model_id(model: &str) -> String {
         .unwrap_or(model)
         .to_ascii_lowercase();
 
-    for prefix in ["global.", "us.", "eu.", "apac."] {
+    for prefix in ["global.", "us.", "eu.", "apac.", "au."] {
         if let Some(normalized_model) = model.strip_prefix(prefix) {
             return normalized_model.to_string();
         }
@@ -135,6 +149,9 @@ fn normalize_bedrock_model_id(model: &str) -> String {
 pub fn bedrock_model_supports_prompt_caching(model: &str) -> bool {
     let normalized_model = normalize_bedrock_model_id(model);
     BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_IDS.contains(&normalized_model.as_str())
+        || BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_PREFIXES
+            .iter()
+            .any(|prefix| normalized_model.starts_with(prefix))
 }
 
 fn append_cache_point_to_system_prompts(system_prompts: &mut Vec<SystemContentBlock>) {
@@ -276,8 +293,212 @@ impl BedrockClient {
 }
 
 // ============================================================================
+// OIDC Role Assumption
+// ============================================================================
+
+pub use windmill_common::auth::aws::AWS_OIDC_AUDIENCE;
+
+/// Bedrock credential precedence: a bearer API key wins, then a complete pair of
+/// explicit IAM keys, then OIDC role assumption, then the ambient environment.
+/// Returns the role to assume only when both higher-priority modes are unset, so
+/// a resource can carry a role ARN without it ever overriding keys set on it.
+pub fn bedrock_oidc_role_to_assume<'a>(
+    api_key: Option<&str>,
+    aws_access_key_id: Option<&str>,
+    aws_secret_access_key: Option<&str>,
+    oidc_role_arn: Option<&'a str>,
+) -> Option<&'a str> {
+    let has_bearer_token = api_key.is_some_and(|key| !key.is_empty());
+    let has_iam_keys = aws_access_key_id.is_some_and(|key| !key.is_empty())
+        && aws_secret_access_key.is_some_and(|key| !key.is_empty());
+
+    if has_bearer_token || has_iam_keys {
+        return None;
+    }
+
+    oidc_role_arn.filter(|arn| !arn.is_empty())
+}
+
+/// Re-assume the role this long before AWS expires the credentials, so a request
+/// that starts on a reused set cannot finish holding dead ones.
+pub const ASSUMED_ROLE_REFRESH_MARGIN: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Temporary IAM credentials minted by STS `AssumeRoleWithWebIdentity`.
+#[derive(Clone, Debug)]
+pub struct AssumedRoleCredentials {
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub session_token: String,
+    pub expires_at: std::time::SystemTime,
+}
+
+impl AssumedRoleCredentials {
+    /// Whether these have enough life left to sign another request.
+    pub fn is_fresh(&self) -> bool {
+        self.expires_at > std::time::SystemTime::now() + ASSUMED_ROLE_REFRESH_MARGIN
+    }
+}
+
+/// Assume the resource's OIDC role for a job, reusing `cached` while it is still
+/// fresh, and hand back the temporary keys to sign Bedrock requests with.
+///
+/// The agent loop calls this once per iteration, so without the reuse a
+/// tool-heavy run would mint an OIDC token and call STS on every model turn.
+/// Returns `None` when a higher-priority credential is set, so the caller can
+/// call it unconditionally.
+pub async fn refresh_bedrock_oidc_credentials<'a>(
+    credentials: &crate::credentials::ProviderCredentials,
+    cached: &'a mut Option<AssumedRoleCredentials>,
+    client: &windmill_common::client::AuthedClient,
+    job_id: &uuid::Uuid,
+) -> Result<Option<&'a AssumedRoleCredentials>, Error> {
+    let Some(role_arn) = bedrock_oidc_role_to_assume(
+        credentials.api_key.as_deref(),
+        credentials.aws_access_key_id.as_deref(),
+        credentials.aws_secret_access_key.as_deref(),
+        credentials.oidc_role_arn.as_deref(),
+    ) else {
+        return Ok(None);
+    };
+
+    // Ahead of the reuse check, so a request never signs against the empty region
+    // just because an earlier one had already assumed the role.
+    let region = bedrock_oidc_region(credentials.region.as_deref())?;
+
+    if !cached
+        .as_ref()
+        .is_some_and(AssumedRoleCredentials::is_fresh)
+    {
+        // A worker holds no OIDC signing key, so it asks the API to mint the
+        // token for this job; the session name carries the job into CloudTrail.
+        let id_token = client
+            .get_id_token(AWS_OIDC_AUDIENCE)
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to get OIDC token: {}", e)))?;
+        // The whole UUID: "windmill-ai-job-" plus 32 hex is 48 characters, well
+        // inside AWS's limit, and a truncated one would make two runs
+        // indistinguishable in CloudTrail.
+        let session_name = aws_role_session_name("windmill-ai-job", &job_id.simple().to_string());
+        *cached =
+            Some(assume_role_with_oidc_token(role_arn, region, id_token, &session_name).await?);
+    }
+
+    Ok(cached.as_ref())
+}
+
+/// Distinguishing digest appended to a session name that had to be truncated.
+const SESSION_NAME_DIGEST_LEN: usize = 8;
+
+/// Build a role session name AWS accepts: it constrains them to
+/// `[\w+=,.@-]{2,64}`, and rejects the whole request otherwise. Disallowed
+/// characters are replaced rather than dropped.
+///
+/// The name is the only thing carrying the caller into the assumed-role ARN and
+/// CloudTrail, so an identity too long to fit keeps a prefix plus a digest of the
+/// whole thing: two identities sharing a prefix would otherwise be
+/// indistinguishable in exactly the audit trail this feature exists to produce.
+pub fn aws_role_session_name(prefix: &str, identity: &str) -> String {
+    let sanitize = |s: &str| -> String {
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '=' | ',' | '.' | '@' | '-')
+                {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect()
+    };
+
+    let name = sanitize(&format!("{}-{}", prefix, identity));
+    if name.len() <= 64 {
+        return name;
+    }
+
+    let digest = &windmill_common::utils::calculate_hash(identity)[..SESSION_NAME_DIGEST_LEN];
+    let kept = 64 - SESSION_NAME_DIGEST_LEN - 1;
+    format!("{}-{}", &name[..kept], digest)
+}
+
+/// The region an OIDC role assumption runs in.
+///
+/// The assumption resolves to explicit IAM keys, and the SDK client built from
+/// those has no ambient-region fallback the way [`BedrockClient::from_env`] does,
+/// so a resource that assumes a role has to name its region. Callers check this
+/// before minting the OIDC token, so a misconfigured resource never issues an
+/// identity token it is only going to throw away.
+pub fn bedrock_oidc_region(region: Option<&str>) -> Result<&str, Error> {
+    region.filter(|r| !r.is_empty()).ok_or_else(|| {
+        Error::BadRequest(
+            "AWS Bedrock resources that assume a role through OIDC must set a region".to_string(),
+        )
+    })
+}
+
+/// Exchange a Windmill OIDC token for temporary IAM credentials on `role_arn`.
+pub async fn assume_role_with_oidc_token(
+    role_arn: &str,
+    region: &str,
+    id_token: String,
+    session_name: &str,
+) -> Result<AssumedRoleCredentials, Error> {
+    use windmill_common::auth::aws::{
+        get_assume_role_with_web_identity_fluent_builder, GetAuthenticationOutput, OidcAuth,
+    };
+
+    let oidc_auth = OidcAuth { region: Some(region.to_string()), role_arn: role_arn.to_string() };
+
+    let output =
+        get_assume_role_with_web_identity_fluent_builder(&oidc_auth, id_token, Some(session_name))
+            .await?
+            .send()
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to assume AWS role {} with Windmill's OIDC token: {}",
+                    role_arn,
+                    format_bedrock_error(&e)
+                ))
+            })?;
+
+    let credentials = output.get_credentials()?;
+
+    Ok(AssumedRoleCredentials {
+        access_key_id: credentials.access_key_id.clone(),
+        secret_access_key: credentials.secret_access_key.clone(),
+        session_token: credentials.session_token.clone(),
+        expires_at: std::time::UNIX_EPOCH
+            + std::time::Duration::from_secs(credentials.expiration.secs().max(0) as u64),
+    })
+}
+
+// ============================================================================
 // Error Formatting
 // ============================================================================
+
+/// The error for a Bedrock stream that failed after it opened, retrying the exceptions the
+/// Vercel AI SDK retries (`amazon-bedrock-stream-error.ts`) and a broken connection. The
+/// SDK's own retries cover the opening call alone.
+pub fn bedrock_stream_error<R: std::fmt::Debug>(
+    error: &aws_sdk_bedrockruntime::error::SdkError<
+        aws_sdk_bedrockruntime::types::error::ConverseStreamOutputError,
+        R,
+    >,
+) -> Error {
+    let message = format!("Bedrock stream error: {}", format_bedrock_error(error));
+    match error.as_service_error() {
+        Some(e)
+            if !(e.is_internal_server_exception()
+                || e.is_model_stream_error_exception()
+                || e.is_service_unavailable_exception()
+                || e.is_throttling_exception()) =>
+        {
+            Error::AIError(message)
+        }
+        _ => crate::retry::transient_error(message, None),
+    }
+}
 
 /// Format AWS SDK errors with detailed information
 pub fn format_bedrock_error<E, R>(error: &aws_sdk_bedrockruntime::error::SdkError<E, R>) -> String
@@ -391,7 +612,7 @@ pub fn openai_messages_to_bedrock(
                         })?;
                     bedrock_messages.push(tool_result_message);
                 }
-                bedrock_messages.push(convert_message(msg)?);
+                push_alternating(&mut bedrock_messages, convert_message(msg)?)?;
             }
             "tool" => {
                 // Accumulate tool results - they will be flushed as a single message
@@ -423,6 +644,27 @@ pub fn openai_messages_to_bedrock(
     }
 
     Ok((bedrock_messages, system_prompts))
+}
+
+/// Push a message, folding it into the previous one when both are the user's: an agent's
+/// background-tool results arrive as user messages, right after tool results or each other.
+fn push_alternating(messages: &mut Vec<Message>, message: Message) -> Result<(), Error> {
+    match messages.last_mut() {
+        Some(last)
+            if *last.role() == ConversationRole::User
+                && *message.role() == ConversationRole::User =>
+        {
+            let mut content = last.content().to_vec();
+            content.extend(message.content().iter().cloned());
+            *last = Message::builder()
+                .role(ConversationRole::User)
+                .set_content(Some(content))
+                .build()
+                .map_err(|e| Error::internal_err(format!("Failed to merge user messages: {e}")))?;
+        }
+        _ => messages.push(message),
+    }
+    Ok(())
 }
 
 /// Helper to extract text from OpenAIContent (ignoring images)
@@ -857,20 +1099,89 @@ pub fn bedrock_stream_event_is_block_stop(event: &ConverseStreamOutput) -> bool 
     matches!(event, ConverseStreamOutput::ContentBlockStop(_))
 }
 
-/// Convert accumulated streaming tool calls to OpenAI format
-pub fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec<OpenAIToolCall> {
+/// Convert accumulated streaming tool calls to OpenAI format.
+///
+/// When thinking is enabled, `reasoning` carries the turn's Claude reasoning
+/// block; it is attached to the first tool call so the next request replays it
+/// before `toolUse` (required by Claude when thinking is enabled — see
+/// [`convert_message`]). When `None` (thinking off), tool calls carry no extra
+/// content, byte-identical to the pre-feature output.
+pub fn streaming_tool_calls_to_openai(
+    tool_calls: Vec<StreamingToolCall>,
+    reasoning: Option<crate::ai_types::BedrockExtraContent>,
+) -> Vec<OpenAIToolCall> {
+    let mut reasoning = reasoning;
     tool_calls
         .into_iter()
-        .map(|tc| OpenAIToolCall {
-            id: tc.id,
-            function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
-            r#type: FUNCTION_TYPE.to_string(),
-            // Worker agent requests never enable thinking, so there is no
-            // reasoning block to round-trip here (the chat proxy path does —
-            // see providers/bedrock.rs).
-            extra_content: None,
+        .map(|tc| {
+            // `take` so only the first tool call carries the reasoning block.
+            let extra_content = reasoning.take().map(|block| crate::ai_types::ExtraContent {
+                bedrock: Some(block),
+                ..Default::default()
+            });
+            OpenAIToolCall {
+                id: tc.id,
+                function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
+                r#type: FUNCTION_TYPE.to_string(),
+                extra_content,
+            }
         })
         .collect()
+}
+
+/// Fold a Bedrock `ReasoningContent` stream delta into an accumulating reasoning
+/// block (text + signature, or redacted bytes). Returns the readable text delta
+/// when the event carried one, so the caller can stream it as reasoning content.
+/// Mirrors the proxy path's accumulation in `providers/bedrock.rs`.
+pub fn bedrock_stream_event_to_reasoning_delta(
+    event: &ConverseStreamOutput,
+    reasoning: &mut Option<crate::ai_types::BedrockExtraContent>,
+) -> Option<String> {
+    let ConverseStreamOutput::ContentBlockDelta(delta_event) = event else {
+        return None;
+    };
+    let aws_sdk_bedrockruntime::types::ContentBlockDelta::ReasoningContent(rc) =
+        delta_event.delta()?
+    else {
+        return None;
+    };
+
+    let entry = reasoning.get_or_insert_with(Default::default);
+    match rc {
+        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Text(text) => {
+            entry
+                .reasoning_text
+                .get_or_insert_with(String::new)
+                .push_str(text);
+            Some(text.clone())
+        }
+        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::Signature(signature) => {
+            entry
+                .signature
+                .get_or_insert_with(String::new)
+                .push_str(signature);
+            None
+        }
+        aws_sdk_bedrockruntime::types::ReasoningContentBlockDelta::RedactedContent(blob) => {
+            // Base64 of concatenated fragments != concatenated base64 fragments,
+            // so accumulate raw bytes and re-encode.
+            let mut bytes = entry
+                .redacted_content
+                .as_deref()
+                .and_then(|existing| {
+                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, existing)
+                        .ok()
+                })
+                .unwrap_or_default();
+            bytes.extend_from_slice(blob.as_ref());
+            entry.redacted_content = Some(base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                bytes,
+            ));
+            None
+        }
+        _ => None,
+    }
 }
 
 // ============================================================================
@@ -914,6 +1225,82 @@ mod tests {
     use super::*;
     use aws_sdk_bedrockruntime::types::ReasoningContentBlock;
     use serde_json::value::RawValue;
+
+    #[test]
+    fn oidc_role_yields_only_to_bearer_and_complete_iam_keys() {
+        let arn = Some("arn:aws:iam::1:role/bedrock");
+
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, None, None, arn),
+            arn,
+            "nothing else set: assume the role rather than fall through to the environment"
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(Some("key"), None, None, arn),
+            None
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, Some("id"), Some("secret"), arn),
+            None
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, Some("id"), None, arn),
+            arn,
+            "half a key pair is not usable IAM credentials, so the role still wins"
+        );
+        // Cleared resource fields arrive as empty strings, not as absent ones.
+        assert_eq!(
+            bedrock_oidc_role_to_assume(Some(""), Some(""), Some(""), arn),
+            arn
+        );
+        assert_eq!(
+            bedrock_oidc_role_to_assume(None, None, None, Some("")),
+            None
+        );
+    }
+
+    #[test]
+    fn credentials_stop_being_fresh_before_aws_expires_them() {
+        let at = |d: std::time::Duration| AssumedRoleCredentials {
+            access_key_id: String::new(),
+            secret_access_key: String::new(),
+            session_token: String::new(),
+            expires_at: std::time::SystemTime::now() + d,
+        };
+        // Reused only while there is still margin left to finish a request.
+        assert!(at(ASSUMED_ROLE_REFRESH_MARGIN * 2).is_fresh());
+        assert!(!at(ASSUMED_ROLE_REFRESH_MARGIN / 2).is_fresh());
+    }
+
+    #[test]
+    fn role_session_name_stays_within_what_aws_accepts() {
+        // A whole job UUID fits, so CloudTrail names the exact run.
+        assert_eq!(
+            aws_role_session_name("windmill-ai-job", "0a1b2c3d4e5f60718293a4b5c6d7e8f9"),
+            "windmill-ai-job-0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+        );
+        // Usernames and emails routinely carry characters AWS rejects.
+        assert_eq!(
+            aws_role_session_name("windmill-ai-copilot", "ada/lovelace (admin)"),
+            "windmill-ai-copilot-ada-lovelace--admin-"
+        );
+
+        // Identities too long to fit keep a digest, so a shared prefix does not
+        // collapse two callers into one CloudTrail identity.
+        let a = aws_role_session_name("windmill-ai-copilot", &format!("{}a", "x".repeat(60)));
+        let b = aws_role_session_name("windmill-ai-copilot", &format!("{}b", "x".repeat(60)));
+        assert_ne!(a, b);
+        for name in [&a, &b] {
+            assert_eq!(name.len(), 64);
+            assert!(name.chars().all(|c| c.is_ascii_alphanumeric()
+                || matches!(c, '_' | '+' | '=' | ',' | '.' | '@' | '-')));
+        }
+
+        // Sanitising before truncating keeps every char one byte, so the cap is
+        // never applied mid-character.
+        let unicode = aws_role_session_name("windmill-ai-copilot", &"é".repeat(100));
+        assert_eq!(unicode.len(), 64);
+    }
 
     fn text_message(role: &str, content: &str) -> OpenAIMessage {
         OpenAIMessage {
@@ -1029,6 +1416,101 @@ mod tests {
     }
 
     #[test]
+    fn streaming_tool_calls_to_openai_attaches_reasoning_to_first_call_only() {
+        let calls = vec![
+            StreamingToolCall {
+                id: "call_1".to_string(),
+                name: "a".to_string(),
+                arguments: "{}".to_string(),
+            },
+            StreamingToolCall {
+                id: "call_2".to_string(),
+                name: "b".to_string(),
+                arguments: "{}".to_string(),
+            },
+        ];
+        let reasoning = crate::ai_types::BedrockExtraContent {
+            reasoning_text: Some("thinking".to_string()),
+            signature: Some("sig".to_string()),
+            redacted_content: None,
+        };
+
+        let openai = streaming_tool_calls_to_openai(calls, Some(reasoning));
+
+        let with_reasoning = openai
+            .iter()
+            .filter(|tc| {
+                tc.extra_content
+                    .as_ref()
+                    .and_then(|e| e.bedrock.as_ref())
+                    .is_some()
+            })
+            .count();
+        assert_eq!(
+            with_reasoning, 1,
+            "exactly one tool call carries the reasoning block"
+        );
+        let block = openai[0]
+            .extra_content
+            .as_ref()
+            .and_then(|e| e.bedrock.as_ref())
+            .expect("first tool call carries reasoning");
+        assert_eq!(block.reasoning_text.as_deref(), Some("thinking"));
+        assert_eq!(block.signature.as_deref(), Some("sig"));
+    }
+
+    #[test]
+    fn streaming_tool_calls_to_openai_without_reasoning_has_no_extra_content() {
+        let calls = vec![StreamingToolCall {
+            id: "call_1".to_string(),
+            name: "a".to_string(),
+            arguments: "{}".to_string(),
+        }];
+
+        let openai = streaming_tool_calls_to_openai(calls, None);
+
+        assert!(openai[0].extra_content.is_none());
+    }
+
+    #[test]
+    fn bedrock_reasoning_delta_accumulates_text_and_signature() {
+        use aws_sdk_bedrockruntime::types::{
+            ContentBlockDelta, ContentBlockDeltaEvent, ConverseStreamOutput,
+            ReasoningContentBlockDelta,
+        };
+
+        let mut reasoning = None;
+        let text_event = ConverseStreamOutput::ContentBlockDelta(
+            ContentBlockDeltaEvent::builder()
+                .content_block_index(0)
+                .delta(ContentBlockDelta::ReasoningContent(
+                    ReasoningContentBlockDelta::Text("let me ".to_string()),
+                ))
+                .build()
+                .unwrap(),
+        );
+        assert_eq!(
+            bedrock_stream_event_to_reasoning_delta(&text_event, &mut reasoning).as_deref(),
+            Some("let me ")
+        );
+
+        let sig_event = ConverseStreamOutput::ContentBlockDelta(
+            ContentBlockDeltaEvent::builder()
+                .content_block_index(0)
+                .delta(ContentBlockDelta::ReasoningContent(
+                    ReasoningContentBlockDelta::Signature("sig".to_string()),
+                ))
+                .build()
+                .unwrap(),
+        );
+        assert!(bedrock_stream_event_to_reasoning_delta(&sig_event, &mut reasoning).is_none());
+
+        let block = reasoning.expect("reasoning accumulated");
+        assert_eq!(block.reasoning_text.as_deref(), Some("let me "));
+        assert_eq!(block.signature.as_deref(), Some("sig"));
+    }
+
+    #[test]
     fn openai_messages_to_bedrock_skips_cache_points_when_disabled() {
         let messages = vec![
             text_message("system", "Reply concisely"),
@@ -1048,6 +1530,37 @@ mod tests {
                 .and_then(|message| message.content().last()),
             Some(ContentBlock::CachePoint(_))
         ));
+    }
+
+    #[test]
+    fn openai_messages_to_bedrock_keeps_roles_alternating() {
+        let tool_result = OpenAIMessage {
+            role: "tool".to_string(),
+            content: Some(OpenAIContent::Text("started".to_string())),
+            tool_call_id: Some("call_1".to_string()),
+            ..Default::default()
+        };
+        let messages = vec![
+            text_message("user", "Export the report"),
+            text_message("assistant", "Exporting"),
+            tool_result,
+            text_message("user", "Background tool finished"),
+            text_message("user", "Another background tool finished"),
+        ];
+
+        let (bedrock_messages, _) =
+            openai_messages_to_bedrock(&messages, false).expect("bedrock conversion succeeds");
+
+        let roles: Vec<_> = bedrock_messages.iter().map(|m| m.role().clone()).collect();
+        assert_eq!(
+            roles,
+            vec![
+                ConversationRole::User,
+                ConversationRole::Assistant,
+                ConversationRole::User
+            ]
+        );
+        assert_eq!(bedrock_messages[2].content().len(), 3);
     }
 
     #[test]
@@ -1077,6 +1590,27 @@ mod tests {
         ));
     }
 
+    /// Claude 4.6+ ships under bare, `-v1` and `-v1:0` spellings of the same id,
+    /// so every one of them has to reach the prefix match.
+    #[test]
+    fn bedrock_prompt_caching_supports_claude_4_6_and_later_id_spellings() {
+        for model in [
+            "anthropic.claude-sonnet-4-6",
+            "anthropic.claude-sonnet-4-6-v1:0",
+            "us.anthropic.claude-opus-4-6-v1",
+            "global.anthropic.claude-opus-4-8",
+            "anthropic.claude-opus-5",
+            "eu.anthropic.claude-sonnet-5-v1:0",
+            "au.anthropic.claude-sonnet-5",
+            "anthropic.claude-fable-5",
+        ] {
+            assert!(
+                bedrock_model_supports_prompt_caching(model),
+                "{model} must support prompt caching"
+            );
+        }
+    }
+
     #[test]
     fn bedrock_prompt_caching_rejects_unsupported_or_opaque_model_ids() {
         assert!(!bedrock_model_supports_prompt_caching(
@@ -1084,6 +1618,10 @@ mod tests {
         ));
         assert!(!bedrock_model_supports_prompt_caching(
             "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/my-profile"
+        ));
+        // Opus 4.5 is dated-id only — the 4.6+ prefixes must not swallow it.
+        assert!(!bedrock_model_supports_prompt_caching(
+            "anthropic.claude-opus-4-5-20251101-v2:0"
         ));
     }
 }

@@ -9,7 +9,9 @@
 		Globe,
 		Plug,
 		Repeat,
+		Scale,
 		Square,
+		MessageCircleQuestion,
 		Zap
 	} from 'lucide-svelte'
 	import type { ComponentType } from 'svelte'
@@ -19,10 +21,17 @@
 		label: string
 		selected?: boolean
 		returnIcon?: boolean
+		/** Highlight with the neutral hover surface instead of the accent, for transient
+		 * (hover/keyboard) selection rather than the persistent category selection. */
+		neutral?: boolean
+		/** Overrides the label's default chevron, for an entry that inserts directly here instead of
+		 *  opening a sub-menu. */
+		chevron?: boolean
 		onSelect: () => void
+		onHover?: () => void
 	}
 
-	let { label, selected, returnIcon, onSelect }: Props = $props()
+	let { label, selected, returnIcon, neutral = false, chevron, onSelect, onHover }: Props = $props()
 
 	interface IconConfig {
 		icon: ComponentType
@@ -40,34 +49,39 @@
 		'While loop': { icon: Repeat },
 		'Branch to one': { icon: GitBranch },
 		'Branch to all': { icon: GitBranch },
-		'AI Agent': { icon: BotIcon, iconClass: 'text-ai' },
+		'AI Agent': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
+		'AI Decision': { icon: Scale, iconClass: 'text-ai' },
 		'AI Sandbox': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
 		'Claude Code': { icon: BotIcon, iconClass: 'text-ai' },
-		MCP: { icon: Plug, showChevron: true },
-		'Web Search': { icon: Globe }
+		Pi: { icon: BotIcon, iconClass: 'text-ai' },
+		MCP: { icon: Plug },
+		'Web search': { icon: Globe },
+		'Ask a question': { icon: MessageCircleQuestion }
 	}
 
 	const config = $derived(iconMap[label])
 </script>
 
 {#snippet iconWithText(icon: ComponentType, showChevron = false, iconClass = '')}
-	{label}
+	<span class="truncate">{label}</span>
 	{#if showChevron}
-		<ChevronRight size={12} class="ml-auto text-secondary" />
+		<ChevronRight size={12} class="ml-auto shrink-0 text-secondary" />
 	{/if}
 {/snippet}
 
 <Button
 	id={`flow-editor-flow-kind-${label.replaceAll(' ', '-').toLowerCase()}`}
-	{selected}
+	selected={neutral ? false : selected}
 	onClick={onSelect}
+	onmousemove={() => onHover?.()}
 	variant="subtle"
 	unifiedSize="sm"
 	startIcon={{ icon: config?.icon }}
+	btnClasses={neutral ? (selected ? 'bg-surface-hover' : 'hover:bg-transparent') : ''}
 >
-	<span class="grow flex items-center gap-2">
+	<span class="grow min-w-0 flex items-center gap-2">
 		{#if config}
-			{@render iconWithText(config.icon, config.showChevron, config.iconClass ?? '')}
+			{@render iconWithText(config.icon, chevron ?? config.showChevron, config.iconClass ?? '')}
 		{/if}
 	</span>
 	{#if returnIcon && selected}

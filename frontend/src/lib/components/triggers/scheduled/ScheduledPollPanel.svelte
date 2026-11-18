@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Label from '$lib/components/Label.svelte'
-	import { base } from '$lib/base'
 	import Description from '$lib/components/Description.svelte'
 </script>
 
@@ -17,7 +16,7 @@
 				1. Choose a trigger script using the script picker that will poll for new events regularly <img
 					class="shadow-lg rounded"
 					alt="script picker"
-					src="{base}/script-picker.png"
+					src="/script-picker.png"
 					width="400"
 				/>
 			</li>
@@ -26,7 +25,7 @@
 				2. Add logic to process each new event <img
 					class="shadow-lg rounded"
 					alt="create action"
-					src="{base}/create_action.png"
+					src="/create_action.png"
 					width="500"
 				/>
 			</li>

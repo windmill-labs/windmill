@@ -5,21 +5,22 @@ on:
     types: [created]
 
 jobs:
-  check-membership:
-    if: >-
-      github.event.issue.pull_request && (
-        startsWith(github.event.comment.body, '/updatesqlx') ||
-        startsWith(github.event.comment.body, '/demo') ||
-        startsWith(github.event.comment.body, '/eeref') ||
-        startsWith(github.event.comment.body, '/docs')
-      )
-    uses: ./.github/workflows/check-org-membership.yml
-    secrets:
-      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
+  # /command comments can come from anyone; author_association misses private org
+  # members, so check-access resolves them via the internal app token. Runs once and is
+  # OR'd into each job's guard (public members still pass on author_association alone).
+  check-access:
+    if: github.event.issue.pull_request != null && startsWith(github.event.comment.body, '/')
+    uses: ./.github/workflows/check-write-access.yml
+    with:
+      username: ${{ github.event.comment.user.login }}
+    secrets: inherit
 
   update-sqlx:
-    needs: check-membership
-    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/updatesqlx')
+    needs: [check-access]
+    if: >-
+      github.event.issue.pull_request &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || needs.check-access.outputs.authorized == 'true') &&
+      startsWith(github.event.comment.body, '/updatesqlx')
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
@@ -42,14 +43,14 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v2.2.2
         id: app
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
 
       - name: Comment on PR - Starting
-        uses: actions/github-script@v6
+        uses: actions/github-script@v6.4.1
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
@@ -62,24 +63,24 @@ jobs:
             })
 
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.7.0
         with:
           token: ${{ steps.app.outputs.token }}
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Checkout windmill-ee-private
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.7.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: windmill-ee-private
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
 
       # Setup Rust toolchain
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache-workspaces: backend
-          toolchain: 1.93.0
+          toolchain: 1.97.0
 
       - name: Install xmlsec and gssapi build-time deps
         run: |
@@ -135,7 +136,7 @@ jobs:
           git push origin ${{ env.BRANCH_NAME }}
 
       - name: Comment on PR - Completed
-        uses: actions/github-script@v6
+        uses: actions/github-script@v6.4.1
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
@@ -147,8 +148,11 @@ jobs:
             })
 
   demo:
-    needs: check-membership
-    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/demo')
+    needs: [check-access]
+    if: >-
+      github.event.issue.pull_request &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || needs.check-access.outputs.authorized == 'true') &&
+      startsWith(github.event.comment.body, '/demo')
     runs-on: ubicloud-standard-2
     permissions:
       contents: read
@@ -157,7 +161,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
 
@@ -227,22 +231,25 @@ jobs:
           fi
 
   update-ee-ref:
-    needs: check-membership
-    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/eeref')
+    needs: [check-access]
+    if: >-
+      github.event.issue.pull_request &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || needs.check-access.outputs.authorized == 'true') &&
+      startsWith(github.event.comment.body, '/eeref')
     runs-on: ubicloud-standard-2
     permissions:
       contents: write
       pull-requests: write
       issues: write
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v2.2.2
         id: app
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}
 
       - name: Comment on PR - Starting
-        uses: actions/github-script@v6
+        uses: actions/github-script@v6.4.1
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
@@ -255,14 +262,14 @@ jobs:
             })
 
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.7.0
         with:
           token: ${{ steps.app.outputs.token }}
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Checkout windmill-ee-private
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3.7.0
         with:
           repository: windmill-labs/windmill-ee-private
           path: windmill-ee-private
@@ -301,7 +308,7 @@ jobs:
           git push origin $BRANCH_NAME
 
       - name: Comment on PR - Completed
-        uses: actions/github-script@v6
+        uses: actions/github-script@v6.4.1
         with:
           github-token: ${{ steps.app.outputs.token }}
           script: |
@@ -313,15 +320,18 @@ jobs:
             })
 
   update-docs:
-    needs: check-membership
-    if: needs.check-membership.outputs.is_member == 'true' && startsWith(github.event.comment.body, '/docs')
+    needs: [check-access]
+    if: >-
+      github.event.issue.pull_request &&
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) || needs.check-access.outputs.authorized == 'true') &&
+      startsWith(github.event.comment.body, '/docs')
     runs-on: ubicloud-standard-2
     permissions:
       contents: read
       pull-requests: read
       issues: read
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v2.2.2
         id: app
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}

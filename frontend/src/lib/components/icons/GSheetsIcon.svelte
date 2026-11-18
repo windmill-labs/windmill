@@ -1,21 +1,75 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #0EBC5F / #0EBC5F per Google product logo sheets_2026q3 (gstatic productlogos, used on workspace.google.com/products/sheets). Google forbids recolouring its marks, so the same full-colour artwork is used on both themes. -->
 <svg
-	xmlns="http://www.w3.org/2000/svg"
-	x="0px"
-	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 50 50"
-	style="fill:currentcolor;"
-	><path
-		d="M 28.90625 1.96875 C 28.863281 1.976563 28.820313 1.988281 28.78125 2 L 11.5 2 C 9.585938 2 8 3.558594 8 5.46875 L 8 43.90625 C 8 46.160156 9.867188 48 12.125 48 L 37.875 48 C 40.132813 48 42 46.160156 42 43.90625 L 42 15.1875 C 42.027344 15.054688 42.027344 14.914063 42 14.78125 L 42 14.5 C 42.007813 14.234375 41.90625 13.972656 41.71875 13.78125 L 30.21875 2.28125 C 30.027344 2.09375 29.765625 1.992188 29.5 2 L 29.1875 2 C 29.097656 1.976563 29 1.964844 28.90625 1.96875 Z M 11.5 4 L 28 4 L 28 12.34375 C 28 14.355469 29.644531 16 31.65625 16 L 40 16 L 40 43.90625 C 40 45.074219 39.054688 46 37.875 46 L 12.125 46 C 10.945313 46 10 45.074219 10 43.90625 L 10 5.46875 C 10 4.644531 10.660156 4 11.5 4 Z M 30 4.9375 L 39.0625 14 L 31.65625 14 C 30.722656 14 30 13.277344 30 12.34375 Z M 17 24 L 17 38 L 33 38 L 33 24 Z M 19 26 L 24 26 L 24 28 L 19 28 Z M 26 26 L 31 26 L 31 28 L 26 28 Z M 19 30 L 24 30 L 24 32 L 19 32 Z M 26 30 L 31 30 L 31 32 L 26 32 Z M 19 34 L 24 34 L 24 36 L 19 36 Z M 26 34 L 31 34 L 31 36 L 26 36 Z"
-	/></svg
+	viewBox="-0.136 -0.136 192.273 192.273"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
 >
+	<path
+		fill="#009954"
+		d="M183.96 117.4c0 8.94 0 13.41-1.4 16.96a20 20 0 0 1-11.23 11.24c-3.55 1.4-8.02 1.4-16.97 1.4h-60.8c-8.94 0-13.41 0-16.96-1.4a20 20 0 0 1-11.23-11.24c-1.4-3.55-1.4-8.02-1.4-16.96V74.6c0-8.94 0-13.42 1.4-16.96A20 20 0 0 1 76.6 46.4C80.15 45 84.62 45 93.56 45h60.8c8.95 0 13.42 0 16.97 1.4a20 20 0 0 1 11.23 11.24c1.4 3.54 1.4 8.02 1.4 16.96z"
+	/>
+	<mask
+		id="gsheets-mask"
+		width="161"
+		height="128"
+		x="7"
+		y="32"
+		maskUnits="userSpaceOnUse"
+		style="mask-type:alpha"
+	>
+		<path
+			fill="#0EBC5F"
+			d="M167.96 130.4c0 8.94 0 13.41-1.4 16.96a20 20 0 0 1-11.23 11.24c-3.55 1.4-8.02 1.4-16.97 1.4H37.56c-8.94 0-13.41 0-16.96-1.4a20 20 0 0 1-11.23-11.24c-1.4-3.55-1.4-8.02-1.4-16.96V61.6c0-8.94 0-13.42 1.4-16.96A20 20 0 0 1 20.6 33.4C24.15 32 28.62 32 37.56 32h100.8c8.95 0 13.42 0 16.97 1.4a20 20 0 0 1 11.23 11.24c1.4 3.54 1.4 8.02 1.4 16.96z"
+		/>
+	</mask>
+	<g mask="url(#gsheets-mask)">
+		<path fill="#0EBC5F" d="M167.96 160h-160V32h160z" />
+		<g filter="url(#gsheets-blur)">
+			<path
+				fill="url(#gsheets-gradient)"
+				d="M183.96 65a20 20 0 0 0-20-20h-104a20 20 0 0 0-20 20v62a20 20 0 0 0 20 20h104a20 20 0 0 0 20-20z"
+			/>
+		</g>
+	</g>
+	<path
+		fill="#FFF"
+		d="M47.96 122a6 6 0 0 1-6-6V77h-14a6 6 0 0 1 0-12h14V52a6 6 0 0 1 12 0v13h58a6 6 0 1 1 0 12h-58v39a6 6 0 0 1-6 6"
+	/>
+	<defs>
+		<linearGradient
+			id="gsheets-gradient"
+			x1="61.73"
+			x2="163.21"
+			y1="88.31"
+			y2="88.31"
+			gradientUnits="userSpaceOnUse"
+		>
+			<stop stop-color="#0EBC5F" />
+			<stop offset=".95" stop-color="#78C9FF" />
+		</linearGradient>
+		<filter
+			id="gsheets-blur"
+			width="168"
+			height="126"
+			x="27.96"
+			y="33"
+			color-interpolation-filters="sRGB"
+			filterUnits="userSpaceOnUse"
+		>
+			<feFlood flood-opacity="0" result="BackgroundImageFix" />
+			<feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+			<feGaussianBlur result="gsheets-blur-effect" stdDeviation="6" />
+		</filter>
+	</defs>
+</svg>

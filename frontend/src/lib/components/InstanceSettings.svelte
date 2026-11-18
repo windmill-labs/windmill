@@ -1,5 +1,17 @@
 <script lang="ts">
-	import { scimSamlSetting, settings, settingsKeys } from './instanceSettings'
+	import {
+		scimSamlSetting,
+		settings,
+		settingsKeys,
+		instanceSettingsSaved,
+		SENSITIVE_UNCHANGED,
+		sensitiveKeys,
+		nestedSensitiveFields,
+		getField,
+		setField,
+		maskSensitive,
+		type Setting
+	} from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
 	import type { TeamsChannel } from '$lib/gen/types.gen'
@@ -9,11 +21,13 @@
 
 	import { sleep } from '$lib/utils'
 	import { enterpriseLicense } from '$lib/stores'
+	import { isCloudHosted } from '$lib/cloud'
 
 	import { createEventDispatcher } from 'svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import AuthSettings from './AuthSettings.svelte'
 	import oauthConnectRegistry from '$oauth_connect_registry'
+	import { hasExplicitUrls, normalizeInstanceInput, templatedConnectConfig } from './oauthRegistry'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
@@ -23,6 +37,7 @@
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import WorkspaceRegistries from './instanceSettings/WorkspaceRegistries.svelte'
 	import DbHealth from './instanceSettings/DbHealth.svelte'
+	import OidcSigningStatus from './instanceSettings/OidcSigningStatus.svelte'
 
 	interface Props {
 		tab?: string
@@ -54,6 +69,14 @@
 	let requirePreexistingUserForOauth: boolean = $state(false)
 
 	let initialValues: Record<string, any> = $state({})
+
+	/// A setting its own component writes (it has to persist before acting on the cluster) is
+	/// already saved, so the baseline must move with it: otherwise Discard restores the value it
+	/// replaced, and a later bulk save sends that stale one back.
+	function markSettingSaved(key: string) {
+		initialValues[key] =
+			$values[key] === undefined ? undefined : JSON.parse(JSON.stringify($values[key]))
+	}
 	let baseUrlIsFallback = $state(false)
 	// Per-instance OAuth providers (Snowflake, ServiceNow, …): instance name
 	// keyed by provider, used to build their per-instance connect_config URLs.
@@ -95,7 +118,8 @@
 		otel: {},
 		indexer_settings: {},
 		critical_error_channels: [],
-		github_enterprise_app: {}
+		github_enterprise_app: {},
+		instance_banner: {}
 	}
 
 	function applyFormDefaults(vals: Record<string, any>): void {
@@ -127,11 +151,15 @@
 		}
 		applyFormDefaults(nvalues)
 
-		// Apply select/select_python defaults so initialValues matches what InstanceSetting's $effect does
+		// Apply declared defaults before snapshotting initialValues, so a default shows without
+		// marking the form dirty: a select's mirrors InstanceSetting's $effect, a boolean's is
+		// what its toggle shows while the key is unset.
 		for (const category of settingsKeys) {
 			for (const s of settings[category]) {
 				if (
-					(s.fieldType === 'select' || s.fieldType === 'select_python') &&
+					(s.fieldType === 'select' ||
+						s.fieldType === 'select_python' ||
+						s.fieldType === 'boolean') &&
 					nvalues[s.key] == undefined &&
 					s.defaultValue
 				) {
@@ -244,6 +272,7 @@
 
 			initialValues = JSON.parse(JSON.stringify($values))
 			initialOauths = JSON.parse(JSON.stringify(oauths))
+			instanceSettingsSaved.update((n) => n + 1)
 			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 			baseUrlIsFallback = false
 
@@ -286,43 +315,39 @@
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
 			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			// ms_teams takes its tenant from the pinned Teams tile; the backend fills the URLs.
+			.filter(([name]) => name !== 'ms_teams')
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
-
-	function normalizeInstanceInput(tmpl: any, raw: string): string {
-		let v = (raw ?? '').replace(/\s/g, '')
-		if (tmpl.strip_suffix) {
-			// accept a full host/URL or a bare name -> reduce to the bare instance
-			v = v.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
-			if (v.endsWith(tmpl.strip_suffix)) {
-				v = v.slice(0, -tmpl.strip_suffix.length)
-			}
-		}
-		return v
-	}
 
 	// Build each per-instance provider's connect_config from the admin-entered
 	// instance name + its registry template (substituting {instance} into the
 	// URLs). Replaces the old per-provider setup functions.
 	function setupTemplatedOauthUrls() {
+		// An entry with every way turned off (an empty grant list, unlike an absent one,
+		// which means authorization code) does nothing, so it is not saved. One stored that
+		// way is kept: authorization code resources still refresh through it.
+		const isEmpty = (e: any) => Array.isArray(e?.grant_types) && e.grant_types.length === 0
+		for (const [name, entry] of Object.entries(oauths ?? {})) {
+			if (isEmpty(entry) && !isEmpty(initialOauths?.[name])) {
+				delete oauths[name]
+			}
+		}
+		// The backend falls back to the pre-rename `teams` key when `ms_teams` is absent, so
+		// turning the Teams tile off (ms_teams saved before, gone now) has to drop both.
+		// TODO: remove with the backend fallback.
+		if (oauths && initialOauths?.['ms_teams'] && !oauths['ms_teams'] && oauths['teams']) {
+			delete oauths['teams']
+		}
 		for (const [name, tmpl] of Object.entries(connectConfigTemplates)) {
 			if (!oauths?.[name]) continue
 			const key = tmpl.extra_params_key ?? 'instance'
 			const v = normalizeInstanceInput(tmpl, instanceInputs[name] ?? '')
 			instanceInputs[name] = v
-			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
-			oauths[name].connect_config = {
-				scopes: [],
-				// CC-only templated providers have no auth_url; store an empty string
-				// (not omitted) so the instance-config parser still types the entry.
-				// The backend treats an empty auth_url as the unused placeholder for
-				// the client-credentials grant.
-				auth_url: tmpl.auth_url ? tmpl.auth_url.replaceAll('{instance}', v) : '',
-				token_url: tmpl.token_url.replaceAll('{instance}', v),
-				req_body_auth: tmpl.req_body_auth ?? false,
-				extra_params: { [key]: v },
-				extra_params_callback: {}
-			}
+			const cc = oauths[name].connect_config
+			if (cc?.extra_params?.[key] === v) continue
+			if (hasExplicitUrls(tmpl, v, cc)) continue
+			oauths[name].connect_config = templatedConnectConfig(tmpl, v)
 		}
 	}
 
@@ -340,8 +365,6 @@
 			sendingStats = true
 			await SettingService.sendStats()
 			sendUserToast('Usage sent')
-		} catch (err) {
-			throw err
 		} finally {
 			sendingStats = false
 		}
@@ -363,8 +386,6 @@
 			document.body.removeChild(a)
 			URL.revokeObjectURL(url)
 			sendUserToast('Telemetry data downloaded')
-		} catch (err) {
-			throw err
 		} finally {
 			downloadingStats = false
 		}
@@ -473,9 +494,10 @@
 		const categorySettings = getSettingsForCategory(category)
 		const obj: Record<string, any> = {}
 		for (const s of categorySettings) {
-			const normalized = normalizeValue(vals[s.key], s.key)
-			if (normalized !== undefined) {
-				obj[s.key] = vals[s.key]
+			for (const key of [s.key, ...(s.companionKeys ?? [])]) {
+				if (normalizeValue(vals[key], key) !== undefined) {
+					obj[key] = vals[key]
+				}
 			}
 		}
 		if (category === 'Auth/OAuth/SAML') {
@@ -518,6 +540,10 @@
 		for (const category of settingsKeys) {
 			const categorySettings = getSettingsForCategory(category)
 			result[category] = categorySettings.some((s) => {
+				// A field the build never renders must not be able to block Save: off-cloud its
+				// value is unreachable, so an invalid one (from config sync, say) would leave the
+				// category permanently unsaveable with nothing on screen to fix.
+				if (s.cloudonly && !isCloudHosted()) return false
 				if (s.isValid && !s.isValid(currentValues?.[s.key])) return true
 				if (s.validate) {
 					const errors = s.validate(currentValues?.[s.key])
@@ -537,11 +563,16 @@
 		return dirtyCategories[category] ?? false
 	}
 
+	/** The global settings a field owns: its `key` and any companion keys it also writes. */
+	function settingKeys(s: Setting): string[] {
+		return [s.key, ...(s.companionKeys ?? [])]
+	}
+
 	export function discardCategory(category: string) {
 		const categorySettings = getSettingsForCategory(category)
-		for (const s of categorySettings) {
-			const v = initialValues[s.key]
-			$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		for (const key of categorySettings.flatMap(settingKeys)) {
+			const v = initialValues[key]
+			$values[key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 		if (category === 'Auth/OAuth/SAML') {
 			oauths = JSON.parse(JSON.stringify(initialOauths))
@@ -620,11 +651,20 @@
 				})
 		)
 
-		// Update only the saved category's initial values
-		for (const s of categorySettings) {
-			const v = $values[s.key]
-			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		const companionKeys = categorySettings
+			.filter((x) => x.storage === 'setting')
+			.flatMap((x) => x.companionKeys ?? [])
+			.filter((key) => !deepEqual(initialValues?.[key], $values?.[key]))
+		for (const key of companionKeys) {
+			await SettingService.setGlobal({ key, requestBody: { value: $values?.[key] ?? null } })
 		}
+
+		// Update only the saved category's initial values
+		for (const key of categorySettings.flatMap(settingKeys)) {
+			const v = $values[key]
+			initialValues[key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		}
+		instanceSettingsSaved.update((n) => n + 1)
 		if (categorySettings.some((s) => s.key === 'base_url')) {
 			baseUrlIsFallback = false
 		}
@@ -687,18 +727,6 @@
 	let yamlError = $state('')
 	let showSensitive = $state(false)
 
-	const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
-
-	const sensitiveKeys: Set<string> = new Set([
-		...[...Object.values(settings), scimSamlSetting]
-			.flatMap((s) => Object.values(s))
-			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
-			.map((s) => s.key),
-		'ducklake_user_pg_pwd',
-		'jwt_secret',
-		'workspace_registries'
-	])
-
 	// Settings that should never appear in YAML export/import.
 	// `worker_configs` is a legacy ghost key: worker configs live in the `config`
 	// table (managed from /workers), not in `global_settings`. Older DBs may
@@ -706,67 +734,17 @@
 	// so it never round-trips through this editor.
 	const excludedKeys: Set<string> = new Set(['worker_configs'])
 
-	// Nested fields inside object-valued settings that contain secrets.
-	// Each entry maps a top-level key to its sensitive sub-field names.
-	const nestedSensitiveFields: Record<string, string[]> = {
-		smtp_settings: ['smtp_password'],
-		secret_backend: ['token'],
-		object_store_cache_config: ['secret_key', 'serviceAccountKey'],
-		custom_instance_pg_databases: ['user_pwd'],
-		rsa_keys: ['private_key'],
-		github_enterprise_app: ['private_key']
-	}
-
-	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
-	function maskField(current: any, initial: any): string | undefined {
-		if (current != null && current !== '' && current === initial) return SENSITIVE_UNCHANGED
-		return undefined
-	}
-
-	function maskSensitive(obj: Record<string, any>): Record<string, any> {
-		const masked: Record<string, any> = {}
-		for (const [key, value] of Object.entries(obj)) {
-			if (key === 'oauths' && typeof value === 'object' && value !== null) {
-				const maskedOauths: Record<string, any> = {}
-				for (const [provider, config] of Object.entries(value as Record<string, any>)) {
-					if (typeof config === 'object' && config !== null && 'secret' in config) {
-						const m = maskField(config.secret, initialOauths?.[provider]?.secret)
-						maskedOauths[provider] = m ? { ...config, secret: m } : config
-					} else {
-						maskedOauths[provider] = config
-					}
-				}
-				masked[key] = maskedOauths
-			} else if (key in nestedSensitiveFields && typeof value === 'object' && value !== null) {
-				const cp = { ...value }
-				const init = initialValues?.[key]
-				for (const field of nestedSensitiveFields[key]) {
-					const m = maskField(
-						field === 'serviceAccountKey' ? JSON.stringify(cp[field]) : cp[field],
-						field === 'serviceAccountKey' ? JSON.stringify(init?.[field]) : init?.[field]
-					)
-					if (m) cp[field] = m
-				}
-				masked[key] = cp
-			} else if (sensitiveKeys.has(key) && value != null && value !== '') {
-				masked[key] = value === initialValues?.[key] ? SENSITIVE_UNCHANGED : value
-			} else {
-				masked[key] = value
-			}
-		}
-		return masked
-	}
-
 	/**
 	 * Builds a sorted YAML string of all instance settings.
 	 * - normalize: strip keys whose values match the default (empty/falsy or key-specific defaults)
 	 * - mask: replace sensitive values with placeholder (for display)
+	 * - markChanged: with mask, also hide changed secrets (read-only views)
 	 */
 	function buildSettingsYaml(
 		vals: Record<string, any>,
 		oauthsObj: Record<string, any>,
 		reqPreexisting: boolean,
-		opts: { normalize?: boolean; mask?: boolean } = {}
+		opts: { normalize?: boolean; mask?: boolean; markChanged?: boolean } = {}
 	): string {
 		// Merge all settings (including oauths) into one object so they sort together
 		const merged: Record<string, any> = { ...vals }
@@ -787,7 +765,11 @@
 			obj['custom_instance_pg_databases'] = { ...obj['custom_instance_pg_databases'] }
 			delete obj['custom_instance_pg_databases'].databases
 		}
-		return YAML.stringify(opts.mask ? maskSensitive(obj) : obj)
+		return YAML.stringify(
+			opts.mask
+				? maskSensitive(obj, initialValues, initialOauths, { markChanged: opts.markChanged })
+				: obj
+		)
 	}
 
 	function syncFormToYaml() {
@@ -848,8 +830,8 @@
 				if (parsed[parentKey] && typeof parsed[parentKey] === 'object') {
 					const init = initialValues?.[parentKey]
 					for (const field of fields) {
-						if (parsed[parentKey][field] === SENSITIVE_UNCHANGED) {
-							parsed[parentKey][field] = init?.[field]
+						if (getField(parsed[parentKey], field) === SENSITIVE_UNCHANGED) {
+							setField(parsed[parentKey], field, getField(init, field))
 						}
 					}
 				}
@@ -919,10 +901,12 @@
 				initialValues,
 				initialOauths,
 				initialRequirePreexistingUserForOauth,
-				{ normalize: true }
+				{ normalize: true, mask: true, markChanged: true }
 			),
 			modified: buildSettingsYaml($values, oauths, requirePreexistingUserForOauth, {
-				normalize: true
+				normalize: true,
+				mask: true,
+				markChanged: true
 			})
 		}
 	}
@@ -1048,21 +1032,22 @@
 					Telemetry is required on Enterprise Edition for license compliance. When minimal telemetry
 					is enabled, only the following data is sent:
 					<ul class="list-disc list-inside pl-2">
-						<li>version of your instance</li>
-						<li>instance base URL</li>
-						<li>login type usage (login type, count)</li>
-						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li>user usage (author count, operator count)</li>
-						<li>superadmin email addresses</li>
-						<li>development instance status</li>
+						<li>Instance version and base URL</li>
+						<li>Login types, user and seat counts</li>
+						<li>Worker count, vCPUs and memory</li>
+						<li>Superadmin email addresses</li>
+						<li>Development instance status</li>
 					</ul>
 					<br />When minimal telemetry is disabled, the following is also collected:
 					<ul class="list-disc list-inside pl-2">
-						<li>job usage (language, total duration, count)</li>
-						<li>git sync repo count (sync vs promotion mode)</li>
+						<li>Job counts and durations per language</li>
+						<li>Git sync repository counts</li>
 						<li
-							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+							>Feature usage and adoption counts, including AI model, web search provider and public
+							Hub names</li
 						>
+						<li>Counts of workspaces, scripts, flows and apps</li>
+						<li>Database, runtime and object storage details</li>
 					</ul>
 					<br />For air-gapped instances, you can download the telemetry data and send it manually.
 				</div>
@@ -1091,16 +1076,16 @@
 					Anonymous usage data is collected to help improve Windmill.
 					<br />The following information is collected:
 					<ul class="list-disc list-inside pl-2">
-						<li>version of your instance</li>
-						<li>instance base URL</li>
-						<li>job usage (language, total duration, count)</li>
-						<li>login type usage (login type, count)</li>
-						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li>user usage (author count, operator count)</li>
-						<li>development instance status</li>
+						<li>Instance version and base URL</li>
+						<li>Job counts and durations per language</li>
+						<li>Login types, user and seat counts</li>
+						<li>Worker count, vCPUs and memory</li>
+						<li>Development instance status</li>
 						<li
-							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+							>Feature usage and adoption counts, including AI model, web search provider and public
+							Hub names</li
 						>
+						<li>Counts of workspaces, scripts, flows and apps</li>
 					</ul>
 				</div>
 			{/if}
@@ -1110,6 +1095,37 @@
 				description="Configure default timeouts and retention policies for job execution."
 				link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
 			/>
+		{:else if category == 'Workspace roles'}
+			<SettingsPageHeader
+				title="Workspace roles"
+				description="Define the roles workspace members can hold and what each one may author, manage and see. Workspace admin is separate and holds everything."
+				link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
+			/>
+		{:else if category == 'Service logs'}
+			<SettingsPageHeader
+				title="Service logs"
+				description="The logs of the Windmill processes themselves — servers, workers and the indexer. Job logs are covered by the job retention period under Jobs."
+			/>
+			{#if !$values['object_store_cache_config']}
+				<div class="pb-4">
+					<Alert type="info" title="Log files stay on local disk" size="xs">
+						Instance object storage is not configured, so every server and worker keeps its log
+						files on its own disk. This page lists what each host wrote, but can only open the files
+						belonging to the replica serving the request — another host's are listed and not
+						readable — and a host's files go with it when it is replaced. Retention below still
+						governs the entries in the database and the files on disk.
+					</Alert>
+				</div>
+			{:else if !$enterpriseLicense}
+				<div class="pb-4">
+					<Alert type="info" title="Raw log files accumulate without the indexer" size="xs">
+						Log files are uploaded to instance object storage, and the indexer that would ingest
+						them into the columnar store and delete each one afterwards is an enterprise feature.
+						Retention below expires the database entries and the local files; the uploaded copies
+						are only removed when <b>Delete logs from s3 periodically</b> is on under Object Storage.
+					</Alert>
+				</div>
+			{/if}
 		{:else if category == 'Object Storage'}
 			<SettingsPageHeader
 				title="Object Storage"
@@ -1128,10 +1144,11 @@
 				description="Configure where secrets (secret variables) are stored."
 				link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
 			/>
-		{:else if category == 'GitHub Enterprise App'}
+		{:else if category == 'GitHub App'}
 			<SettingsPageHeader
-				title="GitHub Enterprise App"
-				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
+				title="GitHub App"
+				description="Configure a self-managed GitHub App for git sync on GitHub.com, GHE Cloud or GitHub Enterprise Server."
+				link="https://www.windmill.dev/docs/integrations/git_repository#self-managed-github-app"
 			/>
 		{:else if category == 'DB Health'}
 			<SettingsPageHeader
@@ -1139,9 +1156,25 @@
 				description="On-demand database diagnostics. Analyze table sizes, job retention, connection pool health, vacuum status, and more."
 			/>
 			<DbHealth />
+		{:else if category == 'OIDC signing'}
+			<SettingsPageHeader
+				title="OIDC signing"
+				description="What signs the OIDC tokens Windmill issues, and the keys its JWKS serves to verifiers. Read-only: signing is configured with environment variables."
+				link="https://www.windmill.dev/docs/core_concepts/oidc#signing-key"
+			/>
+			{#if $enterpriseLicense}
+				<OidcSigningStatus />
+			{/if}
+		{:else if category == 'Agent workers'}
+			<SettingsPageHeader
+				title="Agent workers"
+				description="Optional. Agent workers authenticate with the agent token (AGENT_TOKEN) you create on the Workers page with New agent worker, which needs nothing set here. Add an issuer only to also accept workload identity tokens."
+				link="https://www.windmill.dev/docs/core_concepts/agent_workers"
+			/>
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths
+				savedOauths={initialOauths}
 				bind:instanceInputs
 				bind:requirePreexistingUserForOauth
 				baseUrl={$values?.base_url}
@@ -1156,6 +1189,7 @@
 								{loading}
 								{setting}
 								{values}
+								{markSettingSaved}
 								{version}
 								{oauths}
 							/>
@@ -1168,13 +1202,14 @@
 		<div class="flex-col flex gap-6 pb-6">
 			{#each settings[category] as setting}
 				<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
-				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key')}
+				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key') && !(setting.key === 'mcp_external_idp' && authSubTab !== 'sso')}
 					<InstanceSetting
 						{openSmtpSettings}
 						on:closeDrawer={() => closeDrawer?.()}
 						{loading}
 						{setting}
 						{values}
+						{markSettingSaved}
 						{version}
 						{oauths}
 						warning={setting.key === 'base_url' && baseUrlIsFallback
@@ -1190,6 +1225,7 @@
 					{@const licenseKeySetting = settings['Core'].find((s) => s.key === 'license_key')}
 					{#if licenseKeySetting}
 						<InstanceSetting
+							{markSettingSaved}
 							{openSmtpSettings}
 							on:closeDrawer={() => closeDrawer?.()}
 							{loading}
@@ -1215,6 +1251,7 @@
 						{loading}
 						{setting}
 						{values}
+						{markSettingSaved}
 						{version}
 						{oauths}
 					/>

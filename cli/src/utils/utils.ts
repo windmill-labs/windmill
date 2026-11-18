@@ -200,6 +200,20 @@ export function isFileResource(path: string): boolean {
   );
 }
 
+/**
+ * Local resource path -> the resource's path on the server. The suffix is
+ * `.resource.<yaml|json>` on a metadata file but `.resource.file.<ext>` on a
+ * file resource, so its length depends on which of the two the path is.
+ */
+export function removeResourceSuffix(path: string): string {
+  if (isFileResource(path)) {
+    // isFileResource only matches a dotless extension, so the resource path is
+    // everything before the trailing `resource`, `file`, `<ext>` segments.
+    return path.split(".").slice(0, -3).join(".");
+  }
+  return path.replace(/\.resource\.(yaml|json)$/, "");
+}
+
 /** Matches children inside a .fileset/ directory, not the directory itself. */
 export function isFilesetResource(path: string): boolean {
   return path.includes(".fileset/") || path.includes(".fileset\\");
@@ -209,8 +223,9 @@ export function isRawAppFile(path: string): boolean {
   return isRawAppPath(path);
 }
 
+/** Sync paths carry the platform separator: `dependencies\x` on Windows. */
 export function isWorkspaceDependencies(path: string): boolean {
-  return path.startsWith("dependencies/");
+  return path.startsWith("dependencies/") || path.startsWith("dependencies\\");
 }
 
 export function printSync(input: string | Uint8Array) {
@@ -337,6 +352,94 @@ export function capitalize(str: string): string {
 
 export function formatTimestamp(ts: string): string {
   return new Date(ts).toISOString().replace("T", " ").substring(0, 19);
+}
+
+/**
+ * "<status text>: <body>" for an error thrown by the generated API client,
+ * undefined for anything else. Backend source references such as
+ * `(flows.rs:1400)` are stripped from the body.
+ */
+export function apiErrorMessage(e: unknown): string | undefined {
+  if (!(e && typeof e === "object" && "name" in e && e.name === "ApiError")) {
+    return undefined;
+  }
+  const { body, statusText } = e as { body?: unknown; statusText?: string };
+  const bodyStr =
+    typeof body === "object" && body !== null
+      ? JSON.stringify(body)
+      : String(body ?? "");
+  return statusText + ": " + bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
+}
+
+function fetchFailureCause(
+  e: unknown,
+): { code?: string; message?: string } | undefined {
+  if (!(e instanceof TypeError)) {
+    return undefined;
+  }
+  if (e.message === "fetch failed") {
+    const cause = (e as { cause?: unknown }).cause;
+    return cause && typeof cause === "object"
+      ? (cause as { code?: string; message?: string })
+      : {};
+  }
+  // Bun puts the code on the error itself. Node's own argument errors carry an `ERR_` code
+  // too, and are not network failures.
+  const code = (e as { code?: unknown }).code;
+  return typeof code === "string" && !code.startsWith("ERR_")
+    ? { code, message: e.message }
+    : undefined;
+}
+
+/**
+ * A readable message for a request that got no response from the server, which Node reports
+ * as a bare "fetch failed" with the actual reason in `cause`. Undefined for anything else.
+ */
+export function networkErrorMessage(e: unknown): string | undefined {
+  const cause = fetchFailureCause(e);
+  if (!cause) {
+    return undefined;
+  }
+  const detail = [cause.message, cause.code && `(${cause.code})`]
+    .filter(Boolean)
+    .join(" ");
+  if (cause.code === "UND_ERR_HEADERS_TIMEOUT") {
+    return (
+      `The Windmill server did not respond in time: ${detail}. ` +
+      `It may still be processing the request.`
+    );
+  }
+  if (cause.code !== undefined && NO_RESPONSE_CODES.has(cause.code)) {
+    return (
+      `The connection to the Windmill server closed before it responded: ${detail}. ` +
+      `It may still be processing the request.`
+    );
+  }
+  return `Could not reach the Windmill server: ${detail || "fetch failed"}`;
+}
+
+const NO_RESPONSE_CODES = new Set([
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "ECONNRESET",
+]);
+
+/**
+ * True when a request was sent but its outcome is unknown: the client timed out, the
+ * connection dropped mid-request, or a proxy in front of the server gave up (502/504).
+ * The server may still complete the request.
+ */
+export function isNoResponseError(e: unknown): boolean {
+  const cause = fetchFailureCause(e);
+  if (cause) {
+    return cause.code !== undefined && NO_RESPONSE_CODES.has(cause.code);
+  }
+  if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
+    const status = (e as { status?: number }).status;
+    return status === 502 || status === 504;
+  }
+  return false;
 }
 
 /**

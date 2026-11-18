@@ -4,12 +4,25 @@
 		WorkspaceService,
 		type AIConfig,
 		type AIProvider,
+		type AIWebSearchConfig,
 		type GetCopilotSettingsStateResponse,
-		type InstanceAISummary
+		type InstanceAISummary,
+		type ModelPriceOverride
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { sendUserToast } from '$lib/toast'
-	import { AI_PROVIDERS, fetchAvailableModels, providerSupportsWebSearch } from '../copilot/lib'
+	import {
+		AI_PROVIDERS,
+		fetchAvailableModels,
+		getModelMaxTokens,
+		providerSupportsWebSearch
+	} from '../copilot/lib'
+	import {
+		getKnownModelContextWindow,
+		getModelContextWindowFromTable
+	} from '../copilot/modelConfig'
+	import { resolveRequestReasoning } from '../copilot/reasoningRegistry'
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Label from '../Label.svelte'
@@ -23,7 +36,11 @@
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
-	import { setCopilotInfo } from '$lib/aiStore'
+	import ModelPricing from './ModelPricing.svelte'
+	import AiUsagePanel from './AiUsagePanel.svelte'
+	import { invalidateWorkspaceCopilotInfo, setCopilotInfo } from '$lib/aiStore'
+	import { backupSettingsChanged } from '$lib/components/sessions/sessionMirror.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
 	import { untrack } from 'svelte'
@@ -36,7 +53,6 @@
 		initialConfig = undefined,
 		hasUnsavedChanges = $bindable(false),
 		workspace = undefined,
-		disableChatOffset = false,
 		hasInstanceAiConfig = false,
 		usesInstanceAiConfig = false,
 		instanceAiSummary = undefined,
@@ -50,12 +66,11 @@
 		initialConfig?: AIConfig | undefined
 		hasUnsavedChanges?: boolean
 		workspace?: string | undefined
-		disableChatOffset?: boolean
 		hasInstanceAiConfig?: boolean
 		usesInstanceAiConfig?: boolean
 		instanceAiSummary?: InstanceAISummary
 		customSave?: (config: AIConfig) => Promise<void>
-		onSave?: (info?: GetCopilotSettingsStateResponse) => void | Promise<void>
+		onSave?: (savedConfig: AIConfig, info?: GetCopilotSettingsStateResponse) => void | Promise<void>
 		title?: string
 		description?: string
 		link?: string
@@ -71,8 +86,14 @@
 	let metadataModel: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
+	let contextWindowPerModel: Record<string, number> = $state({})
+	let modelPricing: Record<string, ModelPriceOverride> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
 	let workspaceOverrideEditorOpened = $state(false)
+	let copilotDisabled = $state(false)
+	let sessionsStorageDisabled = $state(false)
+	let sessionsRetentionDays: number | undefined = $state(undefined)
+	let webSearch: AIWebSearchConfig | undefined = $state(undefined)
 
 	// --- Initial state for dirty tracking ---
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
@@ -81,7 +102,13 @@
 	let initialMetadataModel: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
+	let initialContextWindowPerModel: Record<string, number> = $state({})
+	let initialModelPricing: Record<string, ModelPriceOverride> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
+	let initialCopilotDisabled = $state(false)
+	let initialSessionsStorageDisabled = $state(false)
+	let initialSessionsRetentionDays: number | undefined = $state(undefined)
+	let initialWebSearch: AIWebSearchConfig | undefined = $state(undefined)
 	let lastLoadedConfigKey = $state<string | undefined>(undefined)
 
 	function clone<T>(v: T): T {
@@ -108,6 +135,12 @@
 		codeCompletionModel = config?.code_completion_model?.model
 		customPrompts = clone(config?.custom_prompts ?? {})
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
+		contextWindowPerModel = clone(config?.context_window_per_model ?? {})
+		modelPricing = clone(config?.model_pricing ?? {})
+		copilotDisabled = config?.copilot_disabled === true
+		sessionsStorageDisabled = config?.sessions_storage_disabled === true
+		sessionsRetentionDays = config?.sessions_retention_days
+		webSearch = config?.web_search ? clone(config.web_search) : undefined
 		for (const mode of ['edit', 'fix', 'gen']) {
 			if (!(mode in customPrompts)) {
 				customPrompts[mode] = ''
@@ -122,7 +155,13 @@
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
+		initialContextWindowPerModel = clone(contextWindowPerModel)
+		initialModelPricing = clone(modelPricing)
 		initialPrompts = clone(customPrompts)
+		initialCopilotDisabled = copilotDisabled
+		initialSessionsStorageDisabled = sessionsStorageDisabled
+		initialSessionsRetentionDays = sessionsRetentionDays
+		initialWebSearch = webSearch ? clone(webSearch) : undefined
 	}
 
 	export function loadFromConfig(config: AIConfig | undefined) {
@@ -137,6 +176,12 @@
 		codeCompletionModel = initialCodeCompletionModel
 		customPrompts = clone(initialCustomPrompts)
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
+		contextWindowPerModel = clone(initialContextWindowPerModel)
+		modelPricing = clone(initialModelPricing)
+		copilotDisabled = initialCopilotDisabled
+		sessionsStorageDisabled = initialSessionsStorageDisabled
+		sessionsRetentionDays = initialSessionsRetentionDays
+		webSearch = initialWebSearch ? clone(initialWebSearch) : undefined
 	}
 
 	$effect(() => {
@@ -170,7 +215,13 @@
 			metadataModel !== initialMetadataModel ||
 			codeCompletionModel !== initialCodeCompletionModel ||
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
-			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
+			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel) ||
+			JSON.stringify(contextWindowPerModel) !== JSON.stringify(initialContextWindowPerModel) ||
+			JSON.stringify(modelPricing) !== JSON.stringify(initialModelPricing) ||
+			copilotDisabled !== initialCopilotDisabled ||
+			sessionsStorageDisabled !== initialSessionsStorageDisabled ||
+			sessionsRetentionDays !== initialSessionsRetentionDays ||
+			JSON.stringify(webSearch) !== JSON.stringify(initialWebSearch)
 	)
 
 	$effect(() => {
@@ -275,6 +326,12 @@
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
 
+		// The flags, the retention and the search API are what a workspace on instance
+		// defaults still stores of its own.
+		const copilot_disabled = copilotDisabled ? true : undefined
+		const sessions_storage_disabled = sessionsStorageDisabled ? true : undefined
+		const sessions_retention_days = sessionsRetentionDays
+		const web_search = webSearch
 		return Object.keys(aiProviders ?? {}).length > 0
 			? {
 					providers: aiProviders,
@@ -283,16 +340,41 @@
 					metadata_model,
 					custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
 					max_tokens_per_model:
-						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
+						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined,
+					context_window_per_model:
+						Object.keys(contextWindowPerModel).length > 0 ? contextWindowPerModel : undefined,
+					model_pricing: Object.keys(modelPricing).length > 0 ? modelPricing : undefined,
+					copilot_disabled,
+					sessions_storage_disabled,
+					sessions_retention_days,
+					web_search
 				}
-			: {}
+			: { copilot_disabled, sessions_storage_disabled, sessions_retention_days, web_search }
 	}
+
+	// The server refuses anything outside this range; the input holds the same bounds.
+	const MAX_SESSIONS_RETENTION_DAYS = 3650
+	let retentionInvalid = $derived(
+		sessionsRetentionDays !== undefined &&
+			(!Number.isInteger(sessionsRetentionDays) ||
+				sessionsRetentionDays < 1 ||
+				sessionsRetentionDays > MAX_SESSIONS_RETENTION_DAYS)
+	)
+
+	const WEB_SEARCH_PROVIDERS: { label: string; value: AIWebSearchConfig['provider'] }[] = [
+		{ label: 'Exa', value: 'exa' },
+		{ label: 'Tavily', value: 'tavily' },
+		{ label: 'Linkup', value: 'linkup' },
+		{ label: 'DeepSeek', value: 'deepseek' }
+	]
 
 	function isSaveDisabled(): boolean {
 		return (
 			!Object.values(aiProviders).every((p) => p.resource_path) ||
 			(metadataModel != undefined && metadataModel.length === 0) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0)
+			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+			(webSearch != undefined && !webSearch.resource_path) ||
+			retentionInvalid
 		)
 	}
 
@@ -312,6 +394,7 @@
 
 	async function editCopilotConfig(): Promise<void> {
 		const config = buildConfig()
+		const backupsToggled = sessionsStorageDisabled !== initialSessionsStorageDisabled
 		let settingsState: GetCopilotSettingsStateResponse | undefined
 
 		if (customSave) {
@@ -322,15 +405,26 @@
 				requestBody: config
 			})
 			setCopilotInfo(response.effective_ai_config)
+			invalidateWorkspaceCopilotInfo(effectiveWorkspace)
 			settingsState = {
 				has_instance_ai_config: response.has_instance_ai_config,
 				uses_instance_ai_config: response.uses_instance_ai_config,
 				instance_ai_summary: response.instance_ai_summary
 			}
 			sendUserToast('AI settings updated')
+			// This page's session backups follow the switch at once, rather than at the
+			// next page load.
+			if (backupsToggled) backupSettingsChanged(effectiveWorkspace)
 		}
 		storeInitialState()
-		await onSave?.(settingsState)
+		// Hand the parent what was persisted: it owns `initialConfig`, and this component is
+		// destroyed on a settings tab switch, so a stale prop returns as editor state on remount
+		// and is written back by the next save. Clone it, since `providers` aliases our `$state`
+		// and the `lastLoadedConfigKey` guard would then track our own edits; pre-arm that guard
+		// so the prop update does not re-apply the config over what the editor now shows.
+		const savedConfig = clone(config)
+		lastLoadedConfigKey = JSON.stringify(savedConfig)
+		await onSave?.(savedConfig, settingsState)
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {
@@ -385,7 +479,7 @@
 	{/if}
 	{#if showWorkspaceOverrideEditor}
 		<SettingCard label="AI Providers">
-			<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
+			<div class="flex flex-col gap-4">
 				{#each Object.entries(AI_PROVIDERS) as [provider, details] (provider)}
 					<div class="flex flex-col">
 						<div class="flex flex-row gap-2">
@@ -438,10 +532,14 @@
 										<ResourcePicker
 											selectFirst
 											{workspace}
-											{disableChatOffset}
 											resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
 												? 'openai_client_credentials_oauth'
 												: provider}
+											additionalResourceTypes={provider === 'anthropic'
+												? ['anthropic_federated', 'vertex_ai_federated']
+												: provider === 'googleai'
+													? ['vertex_ai_federated']
+													: []}
 											initialValue={aiProviders[provider].resource_path}
 											bind:value={
 												() => aiProviders[provider].resource_path || undefined,
@@ -482,7 +580,9 @@
 											options={{
 												right: 'Enable native web search',
 												rightTooltip:
-													'Uses the provider-native web search tool automatically in chat.'
+													provider === 'deepseek'
+														? 'Uses DeepSeek web search automatically in chat with deepseek-v4-pro, the only DeepSeek model that serves it.'
+														: 'Uses the provider-native web search tool automatically in chat.'
 											}}
 											checked={aiProviders[provider].web_search_enabled !== false}
 											on:change={(e) => {
@@ -565,7 +665,32 @@
 			{/if}
 		</div>
 
-		<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
+		<ModelTokenLimits
+			{aiProviders}
+			bind:limits={maxTokensPerModel}
+			label="Model output limits"
+			description="Configure maximum token limits for each model. These limits apply to all AI chat interactions in the workspace."
+			min={1}
+			max={2_000_000}
+			getDefault={(provider, model) => ({
+				// What a chat sends at the default effort; the budget depends on it.
+				tokens: getModelMaxTokens(provider, model, resolveRequestReasoning({ provider, model })),
+				assumed: false
+			})}
+		/>
+
+		<ModelTokenLimits
+			{aiProviders}
+			bind:limits={contextWindowPerModel}
+			label="Model context windows"
+			description="The context size AI chat plans for with each model: older messages are summarized as a conversation nears it. Set it for models the built-in list does not know, such as local models served through Custom AI."
+			min={1024}
+			max={10_000_000}
+			getDefault={(_, model) => ({
+				tokens: getModelContextWindowFromTable(model),
+				assumed: getKnownModelContextWindow(model) === undefined
+			})}
+		/>
 
 		<SettingCard label="Custom system prompts" description={promptDescription}>
 			<div class="flex items-center gap-2 pt-1">
@@ -587,6 +712,114 @@
 			</div>
 		</SettingCard>
 	{/if}
+
+	{#if promptScope === 'workspace'}
+		<!-- Recorded usage must be priced with the rates the chats actually ran under.
+		     A workspace on instance defaults has no rates of its own, so the effective
+		     ones come from copilotInfo rather than from this form's (empty) workspace
+		     config. -->
+		<AiUsagePanel
+			workspace={effectiveWorkspace}
+			modelPricing={usesInstanceAiConfig ? ($copilotInfo.modelPricing ?? {}) : modelPricing}
+		/>
+	{/if}
+
+	<!-- Below the usage it explains: the rates are read as a correction to what the
+	     table above already shows. Kept on its own `showWorkspaceOverrideEditor` gate so
+	     the instance scope, which has no usage panel, still edits rates. -->
+	{#if showWorkspaceOverrideEditor}
+		<ModelPricing {aiProviders} bind:modelPricing />
+	{/if}
+
+	{#if promptScope === 'workspace'}
+		<SettingCard
+			label="Web search"
+			description="The search API that AI chat uses to search the web and read pages when the model's provider has no web search of its own, or when that provider's native web search is turned off above. Members search with the key of the resource picked here, without needing access to it."
+		>
+			<div class="flex flex-col gap-2 max-w-lg">
+				<Select
+					items={WEB_SEARCH_PROVIDERS}
+					bind:value={
+						() => webSearch?.provider,
+						(provider) => {
+							if (provider === webSearch?.provider) return
+							webSearch = provider ? { provider, resource_path: '' } : undefined
+						}
+					}
+					placeholder="No web search API"
+					size="sm"
+					clearable
+				/>
+				{#if webSearch}
+					{#key webSearch.provider}
+						<ResourcePicker
+							selectFirst
+							{workspace}
+							resourceType={webSearch.provider}
+							initialValue={webSearch.resource_path}
+							bind:value={
+								() => webSearch?.resource_path || undefined,
+								(v) => {
+									if (webSearch) webSearch.resource_path = v ?? ''
+								}
+							}
+						/>
+					{/key}
+				{/if}
+			</div>
+		</SettingCard>
+		<SettingCard
+			label="Hide AI sessions"
+			description="Hides AI sessions and every other AI assistant button (chat, code generation and completion, AI fix) from all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured above. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
+		>
+			<Toggle
+				checked={copilotDisabled}
+				on:change={(e) => {
+					copilotDisabled = e.detail
+				}}
+				options={{ right: 'Hide AI sessions in this workspace' }}
+			/>
+		</SettingCard>
+		<SettingCard
+			label="AI session backups"
+			description="Browsers back their AI sessions up to this workspace's object storage, encrypted with the workspace key, and restore them on a new device or after clearing site data. While the workspace has no object storage configured, the instance object storage stands in if the instance has one and allows it; otherwise nothing is stored. Turn it off to keep sessions in the browser only, for example to spare the storage quota."
+		>
+			<Toggle
+				checked={sessionsStorageDisabled}
+				on:change={(e) => {
+					sessionsStorageDisabled = e.detail
+				}}
+				options={{ right: 'Do not back AI sessions up to the workspace storage' }}
+			/>
+		</SettingCard>
+		<SettingCard
+			label="AI session retention"
+			description="Deletes an AI session left untouched for this many days: its backup in the workspace's object storage, counted from the last push that reached it, and the copies a member's browser keeps, counted from the last time it was used there, the next time that browser loads Windmill in a single tab over https. Archived sessions count too. Leave empty to keep sessions until their owner deletes them."
+		>
+			<div class="flex items-center gap-2">
+				<div class="w-28">
+					<TextInput
+						inputProps={{
+							type: 'number',
+							min: 1,
+							max: MAX_SESSIONS_RETENTION_DAYS,
+							step: 1,
+							placeholder: 'Forever'
+						}}
+						error={retentionInvalid ? `1 to ${MAX_SESSIONS_RETENTION_DAYS}` : undefined}
+						bind:value={
+							() => sessionsRetentionDays ?? '',
+							(v) => {
+								const n = typeof v === 'number' ? v : parseInt(v ?? '')
+								sessionsRetentionDays = Number.isNaN(n) ? undefined : n
+							}
+						}
+					/>
+				</div>
+				<span class="text-xs text-secondary">days</span>
+			</div>
+		</SettingCard>
+	{/if}
 </div>
 
 <AIPromptsModal
@@ -597,12 +830,12 @@
 	scope={promptScope}
 />
 
-{#if showWorkspaceOverrideEditor}
-	<SettingsFooter
-		hasUnsavedChanges={dirty}
-		onSave={editCopilotConfig}
-		onDiscard={discard}
-		saveLabel="Save AI settings"
-		disabled={isSaveDisabled()}
-	/>
-{/if}
+<!-- Not gated on `showWorkspaceOverrideEditor`: a workspace on instance defaults still has
+     the hide toggle above to save. -->
+<SettingsFooter
+	hasUnsavedChanges={dirty}
+	onSave={editCopilotConfig}
+	onDiscard={discard}
+	saveLabel="Save AI settings"
+	disabled={isSaveDisabled()}
+/>

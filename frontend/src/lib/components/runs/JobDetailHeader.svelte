@@ -1,12 +1,29 @@
 <script lang="ts">
-	import { type Job } from '$lib/gen'
-	import { base } from '$lib/base'
-	import { displayDate, truncateRev, truncateHash } from '$lib/utils'
+	import { JobService, type Job } from '$lib/gen'
+	import {
+		displayDate,
+		truncateRev,
+		truncateHash,
+		isJobResolvable,
+		MAX_RESOLUTION_NOTE_LEN
+	} from '$lib/utils'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { sendUserToast } from '$lib/toast'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy } from 'lucide-svelte'
+	import {
+		ExternalLink,
+		ListFilter,
+		ChevronDown,
+		Share2,
+		Link,
+		Copy,
+		CircleCheck,
+		Undo2
+	} from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
@@ -20,8 +37,14 @@
 		type FieldConfig
 	} from './JobDetailFieldConfig'
 	import { flowPathToHref } from '$lib/scripts'
+	import { agentRunHref } from '$lib/components/flows/conversations/agentEditorChat'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		job: Job
@@ -34,6 +57,8 @@
 		onFilterByConcurrencyKey?: (key: string) => void
 		onFilterByWorker?: (worker: string) => void
 		showScriptHashInBadges?: boolean
+		/** Lets a surrounding list refetch, since it holds its own copy of the job. */
+		onResolutionChanged?: () => void
 	}
 
 	let {
@@ -46,8 +71,53 @@
 		extraCompact = false,
 		onFilterByConcurrencyKey,
 		onFilterByWorker,
-		showScriptHashInBadges = false
+		showScriptHashInBadges = false,
+		onResolutionChanged
 	}: Props = $props()
+
+	let togglingResolution = $state(false)
+
+	let resolutionNote = $state('')
+
+	// `job` comes from a $state holder in every caller, so writing the resolution back
+	// onto it is what refreshes the status badge without a refetch.
+	/// Returns whether the resolution was applied, so the popover only closes on success and a
+	/// rejected note stays on screen to be corrected.
+	async function setResolution(resolve: boolean, note?: string): Promise<boolean> {
+		if (!isJobResolvable(job)) return false
+		// Count code points, matching the server. A native `maxlength` counts UTF-16 units and
+		// would cut a note of astral characters at half the length the API actually accepts.
+		if (note !== undefined && [...note].length > MAX_RESOLUTION_NOTE_LEN) {
+			sendUserToast(`Note cannot exceed ${MAX_RESOLUTION_NOTE_LEN} characters`, true)
+			return false
+		}
+		togglingResolution = true
+		try {
+			const workspace = job.workspace_id ?? $operatingWorkspace ?? ''
+			const affected = resolve
+				? await JobService.resolveCompletedJobs({
+						workspace,
+						requestBody: { job_ids: [job.id], note: note || undefined }
+					})
+				: await JobService.unresolveCompletedJobs({ workspace, requestBody: { job_ids: [job.id] } })
+			if (affected.length === 0) {
+				sendUserToast('Could not change the resolution of this run', true)
+				return false
+			}
+			// Mirror what the server actually persisted: attribution and notes are EE-only, so
+			// claiming them in CE would show "resolved by X" until the next refetch dropped it.
+			job.resolved = resolve
+			job.resolved_automatically = false
+			job.resolved_by =
+				resolve && $enterpriseLicense ? ($userStore?.username ?? undefined) : undefined
+			job.resolution_note = resolve && $enterpriseLicense ? note || undefined : undefined
+			resolutionNote = ''
+			onResolutionChanged?.()
+			return true
+		} finally {
+			togglingResolution = false
+		}
+	}
 
 	// Get adaptive field configuration based on job type
 	const relevantFields = $derived(() => getRelevantFields(job))
@@ -196,14 +266,14 @@
 				<Tooltip>
 					{#snippet text()}
 						This job was run on worker:
-						<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+						<a href={`/runs/?job_kinds=all&worker=${job?.worker}`}>
 							{job?.worker}
 						</a>
 						<br />
 						<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
 					{/snippet}
 					<a
-						href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
+						href={`/runs/?job_kinds=all&worker=${job?.worker}`}
 						target="_blank"
 						rel="noopener noreferrer"
 						class="flex items-center gap-1 text-primary"
@@ -240,7 +310,7 @@
 				Triggered by
 			{/if}
 			<a
-				href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
+				href={`/run/${job.parent_job}?workspace=${$operatingWorkspace}`}
 				target="_blank"
 				rel="noopener noreferrer"
 				class="flex items-center gap-1"
@@ -260,7 +330,7 @@
 						icon: Link,
 						action: () =>
 							navigator.clipboard.writeText(
-								`${window.location.origin}${base}/run/${job.id}?workspace=${job.workspace_id}`
+								`${window.location.origin}/run/${job.id}?workspace=${job.workspace_id}`
 							)
 					},
 					{
@@ -321,7 +391,7 @@
 						<span class="text-secondary flex-shrink-0">Job ID</span>
 						<span class="text-primary">
 							<a
-								href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+								href={`/run/${job.id}?workspace=${job.workspace_id}`}
 								target="_blank"
 								rel="noopener noreferrer"
 								class="flex items-center gap-1 min-w-0"
@@ -362,7 +432,7 @@
 					{#each expandedFields as config}
 						{@const displayValue = getDisplayValue(config, job)}
 						{@const fullValue = getFullValue(config, job)}
-						{@const href = config.getHref?.(job, $workspaceStore || '')}
+						{@const href = config.getHref?.(job, $operatingWorkspace || '')}
 
 						<div class="flex items-baseline gap-1 text-xs">
 							<span class="text-secondary flex-shrink-0">{config.label}</span>
@@ -398,7 +468,9 @@
 		>
 			{#if job}
 				<!-- Header with status icon and two-row title/badges section -->
-				<div class="flex items-center gap-3 min-w-0 grow">
+				<!-- Wraps so the resolve button does not widen the card's min-content basis, which
+				     would push the metadata grid beside it down to one column. -->
+				<div class="flex flex-wrap items-center gap-3 min-w-0 grow">
 					<!-- Status icon -->
 					<div class="flex-shrink-0">
 						<JobStatusIcon {job} roundedFull />
@@ -412,8 +484,9 @@
 								{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
 								{@const isScript = job.job_kind === 'script'}
 								{@const viewHref = isScript
-									? `${base}/${stem}/get/${job?.script_hash}`
-									: flowPathToHref(job?.script_path ?? '')}
+									? `/${stem}/get/${job?.script_hash}`
+									: (agentRunHref(job, $operatingWorkspace) ??
+										flowPathToHref(job?.script_path ?? ''))}
 								<a
 									href={viewHref}
 									target="_blank"
@@ -451,6 +524,68 @@
 							/>
 						</div>
 					</div>
+
+					{#if isJobResolvable(job) && $roleCaps.code}
+						<div class="flex-shrink-0">
+							{#if job.resolved}
+								<Button
+									unifiedSize="sm"
+									variant="default"
+									startIcon={{ icon: Undo2 }}
+									disabled={togglingResolution}
+									onClick={() => setResolution(false)}
+									title="Show this run as unhandled again"
+								>
+									Unresolve
+								</Button>
+							{:else}
+								<Popover placement="bottom-start" usePointerDownOutside>
+									{#snippet trigger()}
+										<Button
+											unifiedSize="sm"
+											variant="default"
+											startIcon={{ icon: CircleCheck }}
+											btnClasses="!bg-green-100 !text-green-800 hover:!bg-green-200 !border-green-300 dark:!bg-green-700/40 dark:!text-green-100 dark:hover:!bg-green-700/60 dark:!border-green-700"
+											nonCaptureEvent
+											title="Mark this run as handled"
+										>
+											Mark resolved
+										</Button>
+									{/snippet}
+									{#snippet content({ close })}
+										<div class="p-3 flex flex-col gap-2 w-80">
+											<p class="text-xs text-secondary">
+												Resolving keeps the run's status but marks it as handled in the runs list.
+											</p>
+											<TextInput
+												bind:value={resolutionNote}
+												inputProps={{
+													placeholder: $enterpriseLicense
+														? 'Why is this handled? (optional)'
+														: 'Notes and attribution require ee',
+													disabled: !$enterpriseLicense
+												}}
+												size="sm"
+											/>
+											<div class="flex flex-row justify-end gap-2">
+												<Button unifiedSize="sm" variant="subtle" onClick={close}>Cancel</Button>
+												<Button
+													unifiedSize="sm"
+													variant="accent"
+													disabled={togglingResolution}
+													onClick={async () => {
+														if (await setResolution(true, resolutionNote)) close()
+													}}
+												>
+													Mark resolved
+												</Button>
+											</div>
+										</div>
+									{/snippet}
+								</Popover>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -467,7 +602,7 @@
 						{#each fields as config}
 							{@const displayValue = getDisplayValue(config, job)}
 							{@const fullValue = getFullValue(config, job)}
-							{@const href = config.getHref?.(job, $workspaceStore || '')}
+							{@const href = config.getHref?.(job, $operatingWorkspace || '')}
 
 							<div class="flex items-baseline gap-3 text-xs">
 								<span class="text-secondary min-w-[110px] flex-shrink-0">
@@ -506,7 +641,7 @@
 								<span class="text-secondary flex-shrink-0">Job ID</span>
 								<span class="text-primary">
 									<a
-										href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+										href={`/run/${job.id}?workspace=${job.workspace_id}`}
 										target="_blank"
 										rel="noopener noreferrer"
 										class="flex items-center gap-1 min-w-0"
@@ -520,7 +655,7 @@
 							{#each fields as config (config.field)}
 								{@const displayValue = getDisplayValue(config, job)}
 								{@const fullValue = getFullValue(config, job)}
-								{@const href = config.getHref?.(job, $workspaceStore || '')}
+								{@const href = config.getHref?.(job, $operatingWorkspace || '')}
 
 								<!-- Field -->
 								<div class="flex items-baseline gap-1 text-xs min-w-0">
@@ -568,7 +703,7 @@
 							{#each expandedFields as config}
 								{@const displayValue = getDisplayValue(config, job)}
 								{@const fullValue = getFullValue(config, job)}
-								{@const href = config.getHref?.(job, $workspaceStore || '')}
+								{@const href = config.getHref?.(job, $operatingWorkspace || '')}
 
 								<div class="flex items-baseline gap-3 text-xs">
 									<span class="text-secondary min-w-[110px] flex-shrink-0">

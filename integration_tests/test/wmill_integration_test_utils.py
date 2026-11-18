@@ -466,6 +466,29 @@ class WindmillClient:
             raise Exception(response.content.decode())
         return response.content.decode()
 
+    def edit_git_sync_repository(self, git_repo_resource_path: str, repository: dict):
+        """POST the per-repository git sync settings endpoint. Returns the raw
+        response so callers can assert on rejections (e.g. fork guards)."""
+        return self._client.post(
+            f"/api/w/{self._workspace}/workspaces/edit_git_sync_repository",
+            json={
+                "git_repo_resource_path": git_repo_resource_path,
+                "repository": repository,
+            },
+        )
+
+    def get_workspace_settings(self) -> dict:
+        response = self._client.get(f"/api/w/{self._workspace}/workspaces/get_settings")
+        if response.status_code // 100 != 2:
+            raise Exception(response.content.decode())
+        return response.json()
+
+    def get_script_content(self, path: str) -> str:
+        response = self._client.get(f"/api/w/{self._workspace}/scripts/get/p/{path}")
+        if response.status_code // 100 != 2:
+            raise Exception(response.content.decode())
+        return response.json().get("content", "")
+
     def get_completed_jobs(self, job_kinds: str = None, success: bool = None):
         params = {"per_page": 1000}
         if job_kinds:

@@ -26,6 +26,34 @@ fn not_in_nullable(col: &str, quoted: &[String]) -> String {
     )
 }
 
+/// Narrows a job list to the top-level runs of deployed scripts and flows at an `exact`
+/// path, or at or under a `prefix` on the `/` boundary (`ScopePathFilter::allows`).
+///
+/// Top-level only because every `runnable_path` index on `v2_job` is partial on
+/// `parent_job IS NULL`. Deployed kinds only because a preview's `runnable_path` is
+/// whatever its caller sent.
+pub fn and_where_root_run_at_paths(sqlb: &mut SqlBuilder, exact: &[String], prefix: &[String]) {
+    let mut clauses = Vec::new();
+    let equal: Vec<_> = exact.iter().chain(prefix).map(|p| quote(p)).collect();
+    if !equal.is_empty() {
+        clauses.push(format!("v2_job.runnable_path IN ({})", equal.join(", ")));
+    }
+    for p in prefix {
+        let pattern = format!("{}/%", escape_ilike_pattern(p));
+        clauses.push(format!("v2_job.runnable_path LIKE {}", quote(&pattern)));
+    }
+    if clauses.is_empty() {
+        sqlb.and_where("false");
+        return;
+    }
+    sqlb.and_where_is_null("v2_job.parent_job")
+        .and_where(
+            "v2_job.kind IN ('script', 'script_hub', 'unassigned_script', 'flow', \
+             'unassigned_flow', 'singlestepflow', 'unassigned_singlestepflow')",
+        )
+        .and_where(format!("({})", clauses.join(" OR ")));
+}
+
 pub fn filter_list_queue_query(
     mut sqlb: SqlBuilder,
     lq: &ListQueueQuery,
@@ -240,9 +268,10 @@ pub fn filter_list_queue_query(
 
     if let Some(bf) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(bf));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(runnable_path ILIKE ? OR v2_job.tag ILIKE ? OR trigger ILIKE ? OR trigger_kind::text ILIKE ?)"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
 
@@ -462,7 +491,7 @@ pub fn filter_list_completed_query(
     }
     if let Some(dt) = &lq.created_or_started_after {
         let ts = dt.to_rfc3339();
-        sqlb.and_where("(created_at >= ? OR started_at >= ?)".bind(&ts).bind(&ts));
+        sqlb.and_where("(created_at >= ? OR started_at >= ?)".binds(&[&ts]));
     }
 
     if let Some(dt) = &lq.created_before {
@@ -488,6 +517,14 @@ pub fn filter_list_completed_query(
             sqlb.and_where_eq("status", "'skipped'");
         } else {
             sqlb.and_where_ne("status", "'skipped'");
+        }
+    }
+    if let Some(r) = &lq.resolved {
+        let exists = "EXISTS (SELECT 1 FROM job_resolution WHERE job_id = v2_job_completed.id)";
+        if *r {
+            sqlb.and_where(exists);
+        } else {
+            sqlb.and_where(format!("NOT {exists}"));
         }
     }
     if let Some(fs) = &lq.is_flow_step {
@@ -555,10 +592,11 @@ pub fn filter_list_completed_query(
 
     if let Some(bf) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(bf));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(runnable_path ILIKE ? OR v2_job.tag ILIKE ? OR trigger ILIKE ? OR trigger_kind::text ILIKE ? \
              OR EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl ILIKE ?))"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
 
@@ -577,6 +615,8 @@ pub fn list_completed_jobs_query(
     let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
         .order_by(
+            // The runs page picks its pagination cursor column from this same rule
+            // (frontend/src/lib/components/runs/useJobsLoader.svelte.ts); change both together.
             if lq.completed_before.is_some()
                 || lq.completed_after.is_some()
                 || lq.success == Some(false)
@@ -673,6 +713,7 @@ mod tests {
             order_desc: None,
             job_kinds: None,
             is_skipped: None,
+            resolved: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,
@@ -906,6 +947,20 @@ mod tests {
         assert!(sql.contains("'schedule'"));
     }
 
+    #[test]
+    fn test_queue_broad_filter_with_question_mark() {
+        let lq = ListQueueQuery { broad_filter: Some("a?b".to_string()), ..empty_queue_query() };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert_eq!(sql.matches("ILIKE '%a?b%'").count(), 4);
+        assert!(!sql.contains("ILIKE ?"));
+    }
+
     // --- Completed query tests ---
 
     #[test]
@@ -940,6 +995,33 @@ mod tests {
         );
         let sql = build_sql(sqlb);
         assert!(sql.contains("'failure'"));
+    }
+
+    #[test]
+    fn test_completed_filter_resolved() {
+        // Hiding resolved failures must be an anti-join, not a positive one: getting the
+        // polarity backwards would silently show only the failures meant to be hidden.
+        for (resolved, expected) in [
+            (true, "EXISTS (SELECT 1 FROM job_resolution"),
+            (false, "NOT EXISTS (SELECT 1 FROM job_resolution"),
+        ] {
+            let lq = ListCompletedQuery { resolved: Some(resolved), ..empty_completed_query() };
+            let sqlb = filter_list_completed_query(
+                SqlBuilder::select_from("v2_job_completed").clone(),
+                &lq,
+                "ws",
+                false,
+            );
+            let sql = build_sql(sqlb);
+            assert!(sql.contains(expected), "expected {expected:?}, got: {sql}");
+            if !resolved {
+                continue;
+            }
+            assert!(
+                !sql.contains("NOT EXISTS (SELECT 1 FROM job_resolution"),
+                "resolved=true must not negate the anti-join, got: {sql}"
+            );
+        }
     }
 
     #[test]
@@ -1057,5 +1139,20 @@ mod tests {
         );
         let sql = build_sql(sqlb);
         assert!(sql.contains("result @>"));
+    }
+
+    #[test]
+    fn test_completed_broad_filter_with_question_mark() {
+        let lq =
+            ListCompletedQuery { broad_filter: Some("a?b".to_string()), ..empty_completed_query() };
+        let sqlb = filter_list_completed_query(
+            SqlBuilder::select_from("v2_job_completed").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert_eq!(sql.matches("ILIKE '%a?b%'").count(), 5);
+        assert!(!sql.contains("ILIKE ?"));
     }
 }

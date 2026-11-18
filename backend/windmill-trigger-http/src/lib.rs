@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
@@ -7,7 +8,7 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 use windmill_common::{
     error::{Error, Result},
     flows::Retry,
-    global_settings::HTTP_ROUTE_WORKSPACED_ROUTE,
+    global_settings::{allows_any_origin, HTTP_ROUTE_WORKSPACED_ROUTE},
     utils::ExpiringCacheEntry,
     worker::CLOUD_HOSTED,
     DB,
@@ -27,8 +28,11 @@ lazy_static::lazy_static! {
     pub static ref HTTP_ROUTERS_CACHE: RwLock<RoutersCache> = RwLock::new(RoutersCache {
         routers: HashMap::new(),
         version: 0,
+        invalidations: 0,
     });
 }
+
+static HTTP_ROUTERS_INVALIDATIONS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TriggerRoute {
@@ -47,15 +51,59 @@ pub struct TriggerRoute {
     pub workspaced_route: bool,
     pub wrap_body: bool,
     pub raw_string: bool,
+    pub allowed_origins: Option<Vec<String>>,
     pub error_handler_path: Option<String>,
     pub error_handler_args: Option<sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     pub retry: Option<sqlx::types::Json<Retry>>,
     pub mode: TriggerMode,
 }
 
+/// The routes of one HTTP method. Workspaced routes are looked up first, so a route a workspace
+/// serves under its own `/{workspace_id}/` prefix is never answered by an instance-wide route,
+/// whatever their patterns, and a conflict between the two cannot drop either.
+pub struct MethodRouter<T> {
+    workspaced: matchit::Router<T>,
+    instance_wide: matchit::Router<T>,
+}
+
+impl<T> Default for MethodRouter<T> {
+    fn default() -> Self {
+        Self { workspaced: matchit::Router::new(), instance_wide: matchit::Router::new() }
+    }
+}
+
+impl<T> MethodRouter<T> {
+    pub fn insert(
+        &mut self,
+        workspaced: bool,
+        path: String,
+        value: T,
+    ) -> std::result::Result<(), matchit::InsertError> {
+        if workspaced {
+            &mut self.workspaced
+        } else {
+            &mut self.instance_wide
+        }
+        .insert(path, value)
+    }
+
+    pub fn at<'m, 'p>(
+        &'m self,
+        path: &'p str,
+    ) -> std::result::Result<matchit::Match<'m, 'p, &'m T>, matchit::MatchError> {
+        self.workspaced
+            .at(path)
+            .or_else(|_| self.instance_wide.at(path))
+    }
+}
+
 pub struct RoutersCache {
-    pub routers: HashMap<HttpMethod, matchit::Router<TriggerRoute>>,
+    pub routers: HashMap<HttpMethod, MethodRouter<TriggerRoute>>,
     pub version: i64,
+    /// `HTTP_ROUTERS_INVALIDATIONS` as of the moment these rows were read. A rebuild that
+    /// started before an invalidation publishes a count behind the current one, which is what
+    /// stops it from passing its own stale rows off as covering that invalidation.
+    invalidations: u64,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -119,6 +167,7 @@ pub struct HttpConfig {
     pub workspaced_route: bool,
     pub wrap_body: bool,
     pub raw_string: bool,
+    pub allowed_origins: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,6 +185,7 @@ pub struct HttpConfigRequest {
     pub workspaced_route: Option<bool>,
     pub wrap_body: Option<bool>,
     pub raw_string: Option<bool>,
+    pub allowed_origins: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -154,6 +204,7 @@ struct HttpConfigRequestHelper {
     workspaced_route: Option<bool>,
     wrap_body: Option<bool>,
     raw_string: Option<bool>,
+    allowed_origins: Option<Vec<String>>,
 }
 
 impl<'de> Deserialize<'de> for HttpConfigRequest {
@@ -189,6 +240,7 @@ impl<'de> Deserialize<'de> for HttpConfigRequest {
             workspaced_route: helper.workspaced_route,
             wrap_body: helper.wrap_body,
             raw_string: helper.raw_string,
+            allowed_origins: helper.allowed_origins,
         })
     }
 }
@@ -208,6 +260,50 @@ pub struct RouteExists {
     pub workspaced_route: Option<bool>,
 }
 
+/// The allowlist that governs a route: its own when it has one, otherwise the
+/// instance-wide default. `None` means nothing is configured at either level, so
+/// the route keeps the historical permissive behaviour.
+///
+/// A list containing `*` is treated as no restriction, which is how a route opts
+/// out of a stricter instance default.
+pub fn effective_allowed_origins<'a>(
+    route_allowed_origins: Option<&'a [String]>,
+    instance_default: &'a [String],
+) -> Option<&'a [String]> {
+    // An empty list is not a configuration. It reads exactly as never having set
+    // one, so such a route still inherits the instance default rather than
+    // skipping it, which is what would make `[]` more permissive than `NULL`.
+    match route_allowed_origins.filter(|list| !list.is_empty()) {
+        // `*` is the opt-out, including out of a stricter instance default.
+        Some(list) if allows_any_origin(list) => None,
+        Some(list) => Some(list),
+        None => (!instance_default.is_empty() && !allows_any_origin(instance_default))
+            .then_some(instance_default),
+    }
+}
+
+/// Resolve the `Access-Control-Allow-Origin` value for a request, or `None` to
+/// omit the header so the browser blocks the read.
+///
+/// The request's `Origin` is echoed back only on a match against the allowlist.
+/// Reflecting it unchecked is the classic way this feature turns into no
+/// restriction at all.
+///
+/// The comparison ignores ASCII case because a browser lowercases the scheme and
+/// host it sends, so a configured `https://App.Example.com` would otherwise name
+/// a real origin and still match nothing.
+pub fn match_origin(
+    allowed_origins: &[String],
+    origin: Option<&http::HeaderValue>,
+) -> Option<http::HeaderValue> {
+    let origin = origin?;
+    let origin_str = origin.to_str().ok()?;
+    allowed_origins
+        .iter()
+        .any(|allowed| allowed.eq_ignore_ascii_case(origin_str))
+        .then(|| origin.clone())
+}
+
 pub fn validate_authentication_method(
     authentication_method: AuthenticationMethod,
     raw_string: Option<bool>,
@@ -223,12 +319,24 @@ pub fn validate_authentication_method(
     }
 }
 
-pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, RoutersCache>)> {
+/// `force` rebuilds unconditionally. `nextval` on `http_trigger_version_seq` runs inside the
+/// writing transaction and sequences are non-transactional, so another session can cache the
+/// bumped version against still-uncommitted rows, after which every version-gated refresh is a
+/// no-op. Force when reacting to a bump that could have been observed before its own rows were.
+pub async fn refresh_routers(
+    db: &DB,
+    force: bool,
+) -> Result<(bool, RwLockReadGuard<'_, RoutersCache>)> {
+    let invalidations = HTTP_ROUTERS_INVALIDATIONS.load(Ordering::Relaxed);
     let version = sqlx::query_scalar!("SELECT last_value FROM http_trigger_version_seq",)
         .fetch_one(db)
         .await?;
     let routers_cache = HTTP_ROUTERS_CACHE.read().await;
-    if routers_cache.version == 0 || version > routers_cache.version {
+    if force
+        || routers_cache.version == 0
+        || version > routers_cache.version
+        || invalidations != routers_cache.invalidations
+    {
         drop(routers_cache);
         let mut routers = HashMap::new();
 
@@ -256,6 +364,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                         static_asset_config AS "static_asset_config: _",
                         wrap_body,
                         raw_string,
+                        allowed_origins,
                         workspaced_route,
                         is_static_website,
                         error_handler_path,
@@ -273,20 +382,25 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
             .fetch_all(db)
             .await?;
 
-            let mut router = matchit::Router::new();
-            let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+            let mut router = MethodRouter::default();
+            let http_route_workspaced =
+                HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             for trigger in triggers {
-                let full_path =
-                    if trigger.workspaced_route || *CLOUD_HOSTED || http_route_workspaced {
-                        format!("/{}/{}", trigger.workspace_id, trigger.route_path)
-                    } else {
-                        format!("/{}", trigger.route_path)
-                    };
+                let workspaced = trigger.workspaced_route || *CLOUD_HOSTED || http_route_workspaced;
+                let full_path = if workspaced {
+                    format!("/{}/{}", trigger.workspace_id, trigger.route_path)
+                } else {
+                    format!("/{}", trigger.route_path)
+                };
 
                 if trigger.is_static_website {
                     router
-                        .insert(format!("{}/*wm_subpath", full_path), trigger.clone())
+                        .insert(
+                            workspaced,
+                            format!("{}/*wm_subpath", full_path),
+                            trigger.clone(),
+                        )
                         .unwrap_or_else(|e| {
                             tracing::warn!(
                                 "Failed to consider HTTP route {}/*wm_subpath: {:?}",
@@ -296,7 +410,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                         });
                 }
                 router
-                    .insert(full_path.clone(), trigger.clone())
+                    .insert(workspaced, full_path.clone(), trigger.clone())
                     .unwrap_or_else(|e| {
                         tracing::warn!("Failed to consider HTTP route {}: {:?}", full_path, e,);
                     });
@@ -306,7 +420,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
         }
 
         let mut routers_cache = HTTP_ROUTERS_CACHE.write().await;
-        *routers_cache = RoutersCache { routers, version };
+        *routers_cache = RoutersCache { routers, version, invalidations };
 
         Ok((true, routers_cache.downgrade()))
     } else {
@@ -315,32 +429,93 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
     }
 }
 
+/// Record that the cache no longer covers everything committed, so the next refresh rebuilds
+/// whatever the version says. The routes already loaded keep being served in the meantime. Use
+/// after a forced refresh fails: its change is inside the cached version, so nothing else would
+/// retry it.
+pub fn invalidate_routers() {
+    HTTP_ROUTERS_INVALIDATIONS.fetch_add(1, Ordering::Relaxed);
+}
+
+async fn invalidation_pending() -> bool {
+    HTTP_ROUTERS_INVALIDATIONS.load(Ordering::Relaxed)
+        != HTTP_ROUTERS_CACHE.read().await.invalidations
+}
+
+async fn routers_loaded() -> bool {
+    HTTP_ROUTERS_CACHE.read().await.version != 0
+}
+
+/// `refresh_routers` for a process that has loaded its routers; a process that has not loads them
+/// on its first `/r` request instead, so a change never makes it read `http_trigger`. Returns
+/// whether the routers were rebuilt. A failure is marked for the refresh loop to retry.
+pub async fn refresh_loaded_routers(db: &DB, force: bool) -> Result<bool> {
+    if !routers_loaded().await {
+        // A first load running concurrently may have read the rows before this change committed.
+        invalidate_routers();
+        return Ok(false);
+    }
+    match refresh_routers(db, force).await {
+        Ok((rebuilt, _)) => Ok(rebuilt),
+        Err(err) => {
+            invalidate_routers();
+            Err(err)
+        }
+    }
+}
+
+const REFRESH_TICK: std::time::Duration = std::time::Duration::from_secs(60);
+/// Trigger changes normally reach every process as a `notify_http_trigger_change` event, which
+/// forces a rebuild. A process can skip one: the event poll moves past ids that committed out of
+/// order, and a deleted or disabled trigger then stays routed on it until the next forced rebuild.
+/// That rebuild has to be forced, since the skipped transaction took its version before the one
+/// already cached, so the version gate cannot see it.
+const FORCED_REBUILD_EVERY_TICKS: u32 = 5;
+
+/// `eager` loads the routers at startup and keeps retrying until they load. Otherwise they load
+/// on the first `/r` request, and the loop only keeps them fresh from then on.
 pub async fn refresh_routers_loop(
     db: &DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    eager: bool,
 ) -> () {
-    match refresh_routers(db).await {
-        Ok(_) => {
-            tracing::info!("Loaded HTTP routers");
-        }
-        Err(err) => {
-            tracing::error!("Error loading HTTP routers: {err:#}");
-        }
-    };
+    if eager {
+        match refresh_routers(db, false).await {
+            Ok(_) => {
+                tracing::info!("Loaded HTTP routers");
+            }
+            Err(err) => {
+                tracing::error!("Error loading HTTP routers: {err:#}");
+            }
+        };
+    }
     let db = db.clone();
+    // Spread the forced rebuilds of processes started together.
+    let mut tick: u32 = rand::random_range(0..FORCED_REBUILD_EVERY_TICKS);
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = killpill_rx.recv() => {
                     break;
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                    match refresh_routers(&db).await {
-                        Ok((true, _)) => {
+                _ = tokio::time::sleep(REFRESH_TICK) => {
+                    tick = (tick + 1) % FORCED_REBUILD_EVERY_TICKS;
+                    let loaded = routers_loaded().await;
+                    let force = loaded && tick == 0;
+                    if loaded {
+                        if !force && !invalidation_pending().await {
+                            continue;
+                        }
+                    } else if !eager {
+                        continue;
+                    }
+                    match refresh_routers(&db, force).await {
+                        Ok((true, _)) if !force => {
                             tracing::info!("Refreshed HTTP routers");
                         }
                         Err(err) => {
                             tracing::error!("Error refreshing HTTP routers: {err:#}");
+                            invalidate_routers();
                         }
                         _ => {}
                     }
@@ -355,6 +530,37 @@ pub struct HttpTrigger;
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Not used by the lib itself, only exercised here.
+    use windmill_common::global_settings::{
+        validate_allowed_origins, MAX_ALLOWED_ORIGINS, MAX_ALLOWED_ORIGIN_LEN,
+    };
+
+    #[test]
+    fn test_workspaced_route_takes_precedence_over_instance_wide() {
+        let mut router = MethodRouter::default();
+        router
+            .insert(false, "/ws/gh/myrepo".to_string(), "instance")
+            .unwrap();
+        router
+            .insert(false, "/ws/hooks/*rest".to_string(), "instance")
+            .unwrap();
+        router
+            .insert(true, "/ws/gh/:repo".to_string(), "ws")
+            .unwrap();
+        router
+            .insert(true, "/ws/hooks/:id".to_string(), "ws")
+            .unwrap();
+        router
+            .insert(false, "/other/:id".to_string(), "instance")
+            .unwrap();
+
+        let at = |path| router.at(path).map(|m| *m.value).ok();
+        assert_eq!(at("/ws/gh/myrepo"), Some("ws"));
+        assert_eq!(at("/ws/hooks/abc"), Some("ws"));
+        assert_eq!(at("/ws/hooks/abc/def"), Some("instance"));
+        assert_eq!(at("/other/1"), Some("instance"));
+        assert_eq!(at("/nothing"), None);
+    }
 
     #[test]
     fn test_request_type_backward_compatibility() {
@@ -547,6 +753,168 @@ mod tests {
     #[test]
     fn test_validate_auth_signature_without_raw_ok() {
         assert!(validate_authentication_method(AuthenticationMethod::Signature, None).is_ok());
+    }
+
+    // --- CORS allowed origins ---
+
+    fn origin(value: &str) -> http::HeaderValue {
+        http::HeaderValue::from_str(value).unwrap()
+    }
+
+    #[test]
+    fn test_match_origin_exact_match_echoes_request_origin() {
+        let allowed = vec!["https://a.com".to_string(), "https://b.com".to_string()];
+        assert_eq!(
+            match_origin(&allowed, Some(&origin("https://b.com"))),
+            Some(origin("https://b.com"))
+        );
+    }
+
+    #[test]
+    fn test_match_origin_ignores_case() {
+        let allowed = vec!["https://App.Example.com".to_string()];
+        assert_eq!(
+            match_origin(&allowed, Some(&origin("https://app.example.com"))),
+            Some(origin("https://app.example.com"))
+        );
+    }
+
+    #[test]
+    fn test_match_origin_no_match_omits_header() {
+        let allowed = vec!["https://a.com".to_string()];
+        assert_eq!(
+            match_origin(&allowed, Some(&origin("https://evil.com"))),
+            None
+        );
+        // A prefix of an allowed origin must not match: https://a.com.evil.com
+        // is a different site entirely.
+        assert_eq!(
+            match_origin(&allowed, Some(&origin("https://a.com.evil.com"))),
+            None
+        );
+    }
+
+    #[test]
+    fn test_wildcard_entry_means_unrestricted() {
+        // `*` is handled before matching: it means "no restriction", which is
+        // how a route opts out of a stricter instance default.
+        assert!(allows_any_origin(&["*".to_string()]));
+        assert!(allows_any_origin(&[
+            "https://a.com".to_string(),
+            "*".to_string()
+        ]));
+        assert!(!allows_any_origin(&["https://a.com".to_string()]));
+        assert_eq!(
+            effective_allowed_origins(Some(&["*".to_string()]), &[]),
+            None
+        );
+    }
+
+    #[test]
+    fn test_effective_allowed_origins_prefers_the_route() {
+        let route = ["https://a.com".to_string()];
+        let default = ["https://default.com".to_string()];
+        assert_eq!(
+            effective_allowed_origins(Some(&route), &default),
+            Some(&route[..])
+        );
+        // No route list: the instance default applies.
+        assert_eq!(
+            effective_allowed_origins(None, &default),
+            Some(&default[..])
+        );
+        // No route list and no instance default: nothing is restricted, so the
+        // historical permissive behaviour is kept.
+        assert_eq!(effective_allowed_origins(None, &[]), None);
+        // A route opting out with `*` escapes a stricter instance default.
+        assert_eq!(
+            effective_allowed_origins(Some(&["*".to_string()]), &default),
+            None
+        );
+        // An empty route list is not a configuration: it resolves exactly as
+        // `NULL` does, so it inherits the instance default rather than skipping
+        // it and becoming more permissive than an unset one.
+        assert_eq!(
+            effective_allowed_origins(Some(&[]), &default),
+            Some(&default[..])
+        );
+        assert_eq!(effective_allowed_origins(Some(&[]), &[]), None);
+    }
+
+    #[test]
+    fn test_match_origin_missing_origin_header_omits_header() {
+        let allowed = vec!["https://a.com".to_string()];
+        assert_eq!(match_origin(&allowed, None), None);
+    }
+
+    #[test]
+    fn test_validate_allowed_origins_accepts_anything_comparable() {
+        // A shape that cannot match simply matches nothing, so it is the
+        // editor's job to warn and not this one's to refuse. What is refused is
+        // narrower: `null`, values that are not header-comparable, entries that
+        // cannot round-trip the editor's comma-separated field, and lists past
+        // the size a request can afford to scan.
+        let allowed = vec![
+            "https://app.example.com".to_string(),
+            "http://localhost:3000".to_string(),
+            "http://[::1]:8080".to_string(),
+            "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai".to_string(),
+            // Never matches, but that is the caller's problem, not an error.
+            "https://app.example.com/".to_string(),
+            "https://app.example.com:99999".to_string(),
+            "not-an-origin".to_string(),
+            "*".to_string(),
+        ];
+        assert!(validate_allowed_origins(&allowed).is_ok());
+        assert!(validate_allowed_origins(&[]).is_ok());
+    }
+
+    #[test]
+    fn test_parse_allowed_origins_setting_rejects_empty_array_entries() {
+        use windmill_common::global_settings::parse_allowed_origins_setting;
+        // A trailing separator in the string form is a typing artifact and is
+        // dropped; an empty array entry is something the caller wrote, so it
+        // must reach validation rather than be filtered away into an empty
+        // (and therefore unrestricted) default.
+        assert!(parse_allowed_origins_setting(Some(&serde_json::json!("https://a.com,"))).is_ok());
+        assert!(parse_allowed_origins_setting(Some(&serde_json::json!([""]))).is_err());
+        assert!(
+            parse_allowed_origins_setting(Some(&serde_json::json!(["https://a.com", ""]))).is_err()
+        );
+    }
+
+    #[test]
+    fn test_validate_allowed_origins_bounds_the_list() {
+        // An allowlist is scanned on every request to a restricted route, the
+        // unauthenticated preflight included, so its size is a cost anyone can
+        // trigger.
+        let too_many = vec!["https://a.com".to_string(); MAX_ALLOWED_ORIGINS + 1];
+        assert!(validate_allowed_origins(&too_many).is_err());
+        assert!(validate_allowed_origins(&too_many[..MAX_ALLOWED_ORIGINS]).is_ok());
+        let too_long = format!("https://{}.com", "a".repeat(MAX_ALLOWED_ORIGIN_LEN));
+        assert!(validate_allowed_origins(&[too_long]).is_err());
+    }
+
+    #[test]
+    fn test_validate_allowed_origins_rejects_null_and_uncomparable() {
+        for invalid in [
+            // Every sandboxed iframe sends `Origin: null`, so allowing it would
+            // grant access to any page that can open one.
+            "null",
+            "NULL", // Cannot be the string an Origin header is compared against.
+            "https://a b.com",
+            "https://app.example.com ",
+            "https://exämple.com",
+            // The editor edits the list as one comma-separated field, so an
+            // entry carrying a comma would come back as two and widen the list.
+            "https://a.com,https://b.com",
+            "",
+        ] {
+            assert!(
+                validate_allowed_origins(&[invalid.to_string()]).is_err(),
+                "expected {invalid} to be rejected"
+            );
+        }
     }
 
     // --- Route path regex ---

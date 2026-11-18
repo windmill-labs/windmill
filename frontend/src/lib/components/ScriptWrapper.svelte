@@ -1,16 +1,26 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import AiChatLayout from './copilot/chat/AiChatLayout.svelte'
+	import { loadCopilot } from './copilot/loadCopilot'
 	import type { ScriptBuilderProps } from './script_builder'
 	import { usePageDraftSync } from './usePageDraftSync.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { selectDraftStoragePath } from '$lib/mintDraftPath'
 
-	let { script: oldScript, disableAi, ...props }: ScriptBuilderProps = $props()
+	let { script: oldScript, disableAi, newScript, ...props }: ScriptBuilderProps = $props()
 
 	// Stable per-user draft storage key. Mirrors the full-page editor keying on
-	// the URL path; falls back through the SDK's path inputs.
-	const draftStoragePath = untrack(() => props.initialPath || oldScript?.path || '')
+	// the URL path; falls back through the SDK's path inputs. For a brand-new
+	// script with no caller path this mints a `u/<user>/draft_<uuid>` key — the
+	// SDK equivalent of the `/scripts/add` redirect — so autosave attaches instead
+	// of the handle detaching (local-only, never POSTs). Captured once (untrack)
+	// so editing the path field can't re-key and orphan the draft.
+	const draftStoragePath = untrack(() =>
+		selectDraftStoragePath({
+			providedPaths: [props.initialPath, oldScript?.path],
+			isNewItem: !!newScript
+		})
+	)
 
 	// Reuse the full-page script editor's draft orchestration (same as the flow
 	// SDK) so the SDK gets autosave + the AutosaveIndicator (gated by ScriptBuilder
@@ -26,9 +36,14 @@
 		workspace: () => $workspaceStore,
 		defaultValue: initialScript
 	})
+
+	// The workspace AI config gates the editor's AI features (code completion, metadata).
+	$effect(() => {
+		if ($workspaceStore && !disableAi) loadCopilot($workspaceStore)
+	})
 </script>
 
-<AiChatLayout noPadding {disableAi}>
+<div id="content" class="h-full flex-1 min-h-0 flex flex-col overflow-y-auto">
 	{#if $workspaceStore && draftSync.draft}
 		<ScriptBuilder
 			bind:script={draftSync.draft}
@@ -37,4 +52,4 @@
 			{...props}
 		/>
 	{/if}
-</AiChatLayout>
+</div>

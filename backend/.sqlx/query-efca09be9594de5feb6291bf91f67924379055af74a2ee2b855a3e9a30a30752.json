@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH me AS (\n            SELECT tag FROM concurrency_key WHERE job_id = $2\n        ), admitted AS (\n            SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1\n        ), front AS (\n            SELECT ck.job_id, ck.priority, ck.place, q.id IS NULL AS gone\n            FROM concurrency_key ck LEFT JOIN v2_job_queue q ON q.id = ck.job_id\n            WHERE ck.key = $1 AND ck.tag = (SELECT tag FROM me)\n                AND ck.ended_at IS NULL AND ck.place IS NOT NULL\n                AND NOT COALESCE((SELECT job_uuids ? $2::text FROM admitted), false)\n                AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)\n            ORDER BY ck.priority DESC, ck.place, ck.job_id\n            LIMIT 8\n        ), _gone AS (\n            DELETE FROM concurrency_key\n            WHERE job_id IN (SELECT job_id FROM front WHERE gone) AND ended_at IS NULL\n        ), first_in_line AS (\n            SELECT COALESCE(\n                (SELECT job_id FROM front WHERE NOT gone ORDER BY priority DESC, place, job_id LIMIT 1),\n                -- Every entry read is gone: the line may continue past them, so this attempt\n                -- does not admit; the next one reads past the entries deleted here.\n                CASE WHEN (SELECT count(*) FROM front) = 8 THEN\n                    (SELECT job_id FROM front WHERE gone ORDER BY priority DESC, place, job_id LIMIT 1)\n                END\n            ) AS job_id\n        )\n        SELECT job_id AS \"job_id!\" FROM first_in_line WHERE job_id <> $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "efca09be9594de5feb6291bf91f67924379055af74a2ee2b855a3e9a30a30752"
+}

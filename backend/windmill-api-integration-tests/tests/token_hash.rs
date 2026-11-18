@@ -343,10 +343,17 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
-    // Rotate the token
-    let rotated = rotate_webhook_token(&db, &original_hash, ServiceName::Google)
-        .await?
-        .expect("rotate must return Some for existing token");
+    // Rotate onto a different runnable than the original token was minted for: a rename moves the
+    // trigger, and rotation has to follow it rather than carry the old scopes forward.
+    let renamed_scopes = vec!["jobs:run:flows:f/test/renamed".to_string()];
+    let rotated = rotate_webhook_token(
+        &db,
+        &original_hash,
+        ServiceName::Google,
+        renamed_scopes.clone(),
+    )
+    .await?
+    .expect("rotate must return Some for existing token");
 
     // New token should be different
     assert_ne!(rotated.new_token, original_token);
@@ -355,7 +362,7 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     // New token's hash should exist in DB with the per-service label and expiration
     let new_hash = hash_token(&rotated.new_token);
     let new_row = sqlx::query!(
-        "SELECT label, expiration FROM token WHERE token_hash = $1",
+        "SELECT label, expiration, scopes FROM token WHERE token_hash = $1",
         new_hash
     )
     .fetch_optional(&db)
@@ -372,6 +379,13 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(
         new_row.expiration.is_some(),
         "rotated Google token must carry an expiration"
+    );
+    // Carrying the old token's scopes here is what made every post-rename retry mint a token no
+    // callback could use, while reporting success.
+    assert_eq!(
+        new_row.scopes.as_deref(),
+        Some(renamed_scopes.as_slice()),
+        "rotation must scope the new token to the runnable it was rotated for"
     );
 
     // Old token should still exist (deletion deferred to caller)
@@ -402,7 +416,7 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(!old_gone, "old token must be gone after explicit deletion");
 
     // Rotating a non-existent hash should return None
-    let result = rotate_webhook_token(&db, "nonexistent_hash", ServiceName::Google).await?;
+    let result = rotate_webhook_token(&db, "nonexistent_hash", ServiceName::Google, vec![]).await?;
     assert!(
         result.is_none(),
         "rotating a non-existent token must return None"

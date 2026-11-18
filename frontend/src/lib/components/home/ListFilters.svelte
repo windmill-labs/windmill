@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { Folder, User } from 'lucide-svelte'
-	import { Badge } from '../common'
-	import { APP_TO_ICON_COMPONENT } from '../icons'
-	import { onDestroy, onMount } from 'svelte'
+	import LabelBadge from '../common/badge/LabelBadge.svelte'
+	import type { BadgeColor, BadgeIconProps } from '../common/badge/model'
+	import { appIconComponent } from '../icons/appIcon.svelte'
+	import { integrationDisplayName } from '../resourceTypeDisplay'
+	import { untrack } from 'svelte'
+	import { useHostedPage } from '../hostedPage'
 
 	interface Props {
 		filters: string[]
@@ -11,6 +14,14 @@
 		queryName?: string
 		syncQuery?: boolean
 		bottomMargin?: boolean
+		// Chip look. `icon` is drawn before every chip; unset, the icon follows the value
+		// (user/folder prefix, or the app icon under `resourceType`).
+		color?: BadgeColor
+		icon?: BadgeIconProps['icon']
+		// Emit the chips as flex items of the parent instead of a row of their own, so several
+		// ListFilters can share one line. The parent owns layout and spacing, so
+		// `bottomMargin` does not apply.
+		inline?: boolean
 	}
 
 	let {
@@ -19,48 +30,40 @@
 		resourceType = false,
 		queryName = 'filter',
 		syncQuery = false,
-		bottomMargin = true
+		bottomMargin = true,
+		color = 'transparent',
+		icon,
+		inline = false
 	}: Props = $props()
 
-	const queryChange: (value: URL) => void = (url: URL) => {
-		if (syncQuery) {
-			window.history.pushState(history.state, '', `?${url?.searchParams.toString()}`)
-		}
-	}
-
-	const eventListener = (e: PopStateEvent) => {
-		if (syncQuery) {
-			loadFilterFromUrl()
-		}
-	}
-
-	onMount(() => {
-		window.addEventListener('popstate', eventListener)
-	})
-
-	onDestroy(() => {
-		window.removeEventListener('popstate', (e) => eventListener(e))
-	})
-
-	loadFilterFromUrl()
+	const hosted = useHostedPage()
 
 	function loadFilterFromUrl() {
-		let queryValue = new URL(window.location.href).searchParams.get(queryName) ?? undefined
-		selectedFilter = queryValue
+		const search = hosted ? hosted.search : window.location.search
+		selectedFilter = new URLSearchParams(search).get(queryName) ?? undefined
 	}
 
-	function getIconComponent(name: string) {
-		return APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+	function writeQuery(value: string | undefined) {
+		if (!syncQuery) return
+		const params = new URLSearchParams(hosted ? hosted.search : window.location.search)
+		if (value != undefined) params.set(queryName, value)
+		else params.delete(queryName)
+		if (hosted) hosted.setSearch(params.size ? `?${params}` : '')
+		else window.history.pushState(history.state, '', `?${params}`)
 	}
 
-	export async function setQuery(url: URL, key: string, value: string | undefined): Promise<void> {
-		if (value != undefined) {
-			url.searchParams.set(key, value)
-		} else {
-			url.searchParams.delete(key)
+	$effect(() => {
+		if (!syncQuery) return
+		if (hosted) {
+			hosted.search
+			untrack(loadFilterFromUrl)
+			return
 		}
-		queryChange(url)
-	}
+		window.addEventListener('popstate', loadFilterFromUrl)
+		return () => window.removeEventListener('popstate', loadFilterFromUrl)
+	})
+
+	untrack(loadFilterFromUrl)
 
 	let filtersAndSelected = $derived(
 		selectedFilter
@@ -72,36 +75,35 @@
 </script>
 
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
-	<div class={`gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}>
+	<div
+		class={inline ? 'contents' : `gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}
+	>
 		{#each filtersAndSelected as filter (filter)}
-			<div>
-				<Badge
-					class="inline-flex items-center gap-1 align-middle"
+			<div data-chip data-selected={filter === selectedFilter ? '' : undefined}>
+				<LabelBadge
+					{color}
+					icon={icon ??
+						(resourceType
+							? undefined
+							: filter.startsWith('u/')
+								? User
+								: filter.startsWith('f/')
+									? Folder
+									: undefined)}
+					selected={filter === selectedFilter}
 					onclick={() => {
 						selectedFilter = selectedFilter == filter ? undefined : filter
-						if (selectedFilter) {
-							setQuery(new URL(window.location.href), queryName, selectedFilter)
-						} else {
-							setQuery(new URL(window.location.href), queryName, undefined)
-						}
+						writeQuery(selectedFilter)
 					}}
-					color={'transparent'}
-					clickable
-					selected={filter === selectedFilter}
 				>
-					<span style="height: 12px" class="-mt-0.5">
-						{#if resourceType}
-							{@const SvelteComponent = getIconComponent(filter)}
-							<SvelteComponent height="14px" width="14px" />
-						{:else if filter.startsWith('u/')}
-							<User class="mr-0.5" size={14} />
-						{:else if filter.startsWith('f/')}
-							<Folder class="mr-0.5" size={14} />
+					{#if !icon && resourceType}
+						{@const AppIcon = appIconComponent(filter)}
+						{#if AppIcon}
+							<AppIcon height="12px" width="12px" />
 						{/if}
-					</span>
-					{filter}
-					{#if filter === selectedFilter}&cross;{/if}
-				</Badge>
+					{/if}
+					{resourceType ? integrationDisplayName(filter) : filter}
+				</LabelBadge>
 			</div>
 		{/each}
 	</div>

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO pipeline_freshness_state\n                (workspace_id, script_path, attempts, last_push_at, next_attempt_at)\n            VALUES ($1, $2, 1, now(),\n                    now() + (LEAST($3::bigint, $4::bigint * 2)::text || ' seconds')::interval)\n            ON CONFLICT (workspace_id, script_path) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5e0569092c559a1b19f636fae68f6d740a1720f7746c01f9ea693c70271ff55c"
+}

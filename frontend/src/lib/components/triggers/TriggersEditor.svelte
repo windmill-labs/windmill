@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '$lib/stores'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -26,6 +25,7 @@
 		KafkaTriggerService,
 		NatsTriggerService,
 		MqttTriggerService,
+		AmqpTriggerService,
 		HttpTriggerService,
 		GcpTriggerService,
 		AzureTriggerService,
@@ -37,6 +37,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import Alert from '../common/alert/Alert.svelte'
 	import type { FlowEditorContext } from '../flows/types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		noEditor: boolean
@@ -54,6 +57,8 @@
 		noCapture?: boolean
 		isEditor?: boolean
 		onDeployTrigger?: (trigger: Trigger) => void
+		/** A flow in chat mode: its webhook examples then name a conversation. */
+		chatMode?: boolean
 	}
 
 	let {
@@ -71,7 +76,8 @@
 		schema = undefined,
 		noCapture = false,
 		isEditor = true,
-		onDeployTrigger
+		onDeployTrigger,
+		chatMode = false
 	}: Props = $props()
 
 	let config: Record<string, any> = $state({})
@@ -116,6 +122,7 @@
 			azure: () => AzureTriggerService.deleteAzureTrigger,
 			sqs: () => SqsTriggerService.deleteSqsTrigger,
 			mqtt: () => MqttTriggerService.deleteMqttTrigger,
+			amqp: () => AmqpTriggerService.deleteAmqpTrigger,
 			http: () => HttpTriggerService.deleteHttpTrigger,
 			email: () => EmailTriggerService.deleteEmailTrigger
 		}
@@ -135,13 +142,13 @@
 		try {
 			if (nativeServiceName) {
 				await NativeTriggerService.deleteNativeTrigger({
-					workspace: $workspaceStore ?? '',
+					workspace: $operatingWorkspace ?? '',
 					serviceName: nativeServiceName,
 					externalId: triggerPath ?? ''
 				})
 			} else if (deleteHandler) {
 				await deleteHandler()({
-					workspace: $workspaceStore ?? '',
+					workspace: $operatingWorkspace ?? '',
 					path: triggerPath ?? ''
 				})
 			} else {
@@ -183,120 +190,77 @@
 		triggersState.deleteTrigger(triggersCount, trigger)
 
 		if (triggerType === 'schedule') {
-			await triggersState.fetchSchedules(
-				triggersCount,
-				$workspaceStore,
-				currentPath,
-				isFlow,
-				undefined,
-				$userStore
-			)
+			await triggersState.fetchSchedules(triggersCount, $operatingWorkspace, currentPath, isFlow)
 		} else if (triggerType === 'websocket') {
 			await triggersState.fetchWebsocketTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
-				isFlow,
-				$userStore
+				isFlow
 			)
 		} else if (triggerType === 'postgres') {
 			await triggersState.fetchPostgresTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
-				isFlow,
-				$userStore
+				isFlow
 			)
 		} else if (triggerType === 'kafka') {
 			await triggersState.fetchKafkaTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
-				isFlow,
-				$userStore
+				isFlow
 			)
 		} else if (triggerType === 'nats') {
-			await triggersState.fetchNatsTriggers(
-				triggersCount,
-				$workspaceStore,
-				currentPath,
-				isFlow,
-				$userStore
-			)
+			await triggersState.fetchNatsTriggers(triggersCount, $operatingWorkspace, currentPath, isFlow)
 		} else if (triggerType === 'gcp') {
-			await triggersState.fetchGcpTriggers(
-				triggersCount,
-				$workspaceStore,
-				currentPath,
-				isFlow,
-				$userStore
-			)
+			await triggersState.fetchGcpTriggers(triggersCount, $operatingWorkspace, currentPath, isFlow)
 		} else if (triggerType === 'azure') {
 			await triggersState.fetchAzureTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
-				isFlow,
-				$userStore
+				isFlow
 			)
 		} else if (triggerType === 'sqs') {
-			await triggersState.fetchSqsTriggers(
-				triggersCount,
-				$workspaceStore,
-				currentPath,
-				isFlow,
-				$userStore
-			)
+			await triggersState.fetchSqsTriggers(triggersCount, $operatingWorkspace, currentPath, isFlow)
 		} else if (triggerType === 'mqtt') {
-			await triggersState.fetchMqttTriggers(
-				triggersCount,
-				$workspaceStore,
-				currentPath,
-				isFlow,
-				$userStore
-			)
+			await triggersState.fetchMqttTriggers(triggersCount, $operatingWorkspace, currentPath, isFlow)
+		} else if (triggerType === 'amqp') {
+			await triggersState.fetchAmqpTriggers(triggersCount, $operatingWorkspace, currentPath, isFlow)
 		} else if (triggerType === 'http') {
-			await triggersState.fetchHttpTriggers(
-				triggersCount,
-				$workspaceStore,
-				currentPath,
-				isFlow,
-				$userStore
-			)
+			await triggersState.fetchHttpTriggers(triggersCount, $operatingWorkspace, currentPath, isFlow)
 		} else if (triggerType === 'email') {
 			await triggersState.fetchEmailTriggers(
 				triggersCount,
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
-				isFlow,
-				$userStore
+				isFlow
 			)
 		} else if (triggerType === 'nextcloud') {
 			await triggersState.fetchNativeTriggers(
 				triggersCount,
 				'nextcloud',
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
-				isFlow,
-				$userStore
+				isFlow
 			)
 		} else if (triggerType === 'google') {
 			await triggersState.fetchNativeTriggers(
 				triggersCount,
 				'google',
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
-				isFlow,
-				$userStore
+				isFlow
 			)
 		} else if (triggerType === 'github') {
 			await triggersState.fetchNativeTriggers(
 				triggersCount,
 				'github',
-				$workspaceStore,
+				$operatingWorkspace,
 				currentPath,
-				isFlow,
-				$userStore
+				isFlow
 			)
 		}
 
@@ -354,7 +318,7 @@
 			</Alert>
 		</div>
 	{/if}
-	<FlowCard {noEditor} noHeader>
+	<FlowCard {noEditor} title="Triggers">
 		<Splitpanes horizontal>
 			<Pane>
 				<div class="flex flex-row h-full" bind:clientWidth={leftPaneWidth}>
@@ -437,6 +401,7 @@
 											{newItem}
 											{schema}
 											{isEditor}
+											{chatMode}
 											onDelete={() => {
 												deleteTrigger(triggersState.selectedTriggerIndex)
 											}}

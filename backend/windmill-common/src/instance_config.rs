@@ -232,6 +232,8 @@ pub struct GlobalSettings {
     pub request_size_limit_mb: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_wait_result: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cancel_stranded_jobs_after_days: Option<i64>,
 
     // Boolean settings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -249,6 +251,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub critical_alert_mute_ui: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub critical_alert_mute_stranded_jobs: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub monitor_logs_on_s3: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_workspaced_route: Option<bool>,
@@ -259,13 +263,35 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_isolation: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_isolation_skip_non_dev_forks: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_tags_override: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_hub_resource_types_daily: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_build_binary_on_deploy: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_sessions_instance_storage_fallback: Option<bool>,
 
     // String settings
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_build_binary_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dependency_job_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_tag_suffix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_app_webhook_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_base_url_applies_to: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -342,6 +368,10 @@ pub struct GlobalSettings {
     pub ducklake_settings: Option<DucklakeSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_instance_pg_databases: Option<CustomInstancePgDatabases>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_instance_pg: Option<ExternalInstancePg>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_workload_identity_issuers: Option<Vec<AgentWorkloadIdentityIssuer>>,
 
     // Opaque settings (EE-private structs or no clear schema)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -465,6 +495,8 @@ pub struct SmtpSettings {
     pub smtp_tls_implicit: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub smtp_disable_tls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub smtp_clicktracking_off: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -562,6 +594,8 @@ pub struct OAuthClient {
     pub share_with_workspaces: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grant_types: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pkce: Option<bool>,
 
     /// Catch-all for provider-specific fields (e.g. Keycloak `org`, Okta `domain`/`custom`).
     #[serde(flatten)]
@@ -641,6 +675,15 @@ pub struct OtelTracingProxySettings {
     /// pin their own CA (kubectl, helm, terraform providers, aws cli for EKS, etc.).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub no_proxy_hosts: Option<String>,
+    /// Comma-separated host/IP patterns for which the MITM proxy skips upstream TLS
+    /// verification. Unlike `no_proxy_hosts` the hosts stay traced — only the proxy's own
+    /// upstream certificate check is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insecure_upstream_hosts: Option<String>,
+    /// Extra CA certificates (PEM bundle) added to the MITM proxy's upstream trust store,
+    /// on top of the system roots, so internal endpoints signed by a private CA verify.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_ca_certs: Option<String>,
 }
 
 /// Script language identifier (for instance config use).
@@ -699,6 +742,42 @@ pub struct TeamsChannel {
     pub team_name: String,
     pub channel_id: String,
     pub channel_name: String,
+}
+
+// ---------------------------------------------------------------------------
+// Agent worker workload identity
+// ---------------------------------------------------------------------------
+
+/// An issuer whose workload identity tokens (Kubernetes projected service account tokens,
+/// SPIFFE JWT-SVIDs, ...) an agent worker may authenticate with instead of an agent token.
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct AgentWorkloadIdentityIssuer {
+    /// Must equal the token's `iss` exactly.
+    pub issuer: String,
+    /// Where the signing keys are published. Defaults to the `jwks_uri` of the issuer's OIDC
+    /// discovery document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwks_uri: Option<String>,
+    /// The JWKS document itself, as JSON text, for an issuer this instance cannot reach.
+    /// Takes precedence over `jwks_uri`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwks: Option<String>,
+    /// Must be one of the token's `aud`.
+    pub audience: String,
+    /// Tried in order; the first whose claims all match decides the worker group and tags.
+    #[serde(default)]
+    pub rules: Vec<AgentWorkloadIdentityRule>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct AgentWorkloadIdentityRule {
+    /// Claim path (dot separated, a key that itself contains dots such as `kubernetes.io`
+    /// is matched whole) to the exact value it must hold.
+    pub claims: BTreeMap<String, String>,
+    pub worker_group: String,
+    pub tags: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -767,7 +846,10 @@ pub enum DucklakeCatalogResourceType {
 // Custom instance PG databases
 // ---------------------------------------------------------------------------
 
-/// Custom PostgreSQL databases managed by the instance.
+/// Custom PostgreSQL databases managed by the instance. `user_pwd` is operator-configurable
+/// (resolved from a Kubernetes secretKeyRef by the EE operator); `databases` is runtime
+/// setup status. The replication-role password lives in a separate hidden setting
+/// (`custom_instance_replication_pwd`), never in this operator-facing config row.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
 pub struct CustomInstancePgDatabases {
@@ -789,6 +871,9 @@ pub struct CustomInstanceDb {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// The workspace a member created this fork copy for. Absent when a superadmin created it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
 }
 
 /// Setup log entries for a custom instance database.
@@ -807,6 +892,42 @@ pub struct CustomInstanceDbLogs {
     pub db_connect: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub grant_permissions: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub replication_user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replication_user_error: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub user_connect: String,
+}
+
+// ---------------------------------------------------------------------------
+// External instance PG cluster
+// ---------------------------------------------------------------------------
+
+/// The external Postgres cluster Windmill manages for `external_instance` data tables and Ducklake
+/// catalogs. `user` logs in as the cluster's administrator: it needs `CREATEDB` and `CREATEROLE`.
+/// `dbname` is only where that login connects to run cluster-wide statements.
+///
+/// Every field defaults rather than being required: this deserializes as part of the whole
+/// instance config, and one malformed row must not make every other setting unreadable. The
+/// write path and every use reject an incomplete value instead.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct ExternalInstancePg {
+    #[serde(default)]
+    pub host: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<StringOrSecretRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dbname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sslmode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_certificate_pem: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -889,11 +1010,31 @@ pub struct WorkerGroupConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env_vars_allowlist: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_job_proxy: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min_alive_workers_alert_threshold: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autoscaling: Option<AutoscalingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native_mode: Option<bool>,
+    /// Workers of the group pull no new job while this is set; queued jobs wait.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused: Option<bool>,
+    /// The group listens to its tags suffixed with the dev workspace tag suffix, and only to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serves_dev_workspaces: Option<bool>,
+    /// Workers of the group pull only while workspace fairness caps a workspace, and only jobs
+    /// of the workspaces it does not cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fairness_reserve: Option<bool>,
+    /// Object store this group's dependency cache uses instead of the instance one. Same shape
+    /// as the instance `object_store_cache_config`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "instance_config_schema",
+        schemars(schema_with = "opaque_json_schema")
+    )]
+    pub object_store_cache_config: Option<serde_json::Value>,
 
     /// Catch-all for fields not yet covered by typed fields.
     #[serde(flatten)]
@@ -931,21 +1072,93 @@ pub struct ConfigsDiff {
     pub deletes: Vec<String>,
 }
 
+/// Told of each write an instance config apply makes, as soon as it has landed: the writes
+/// are not transactional, so an apply that fails midway must not leave the ones it did make
+/// unrecorded. The audit entry is the implementor's to write, as this crate sits below
+/// `windmill-audit`.
+pub trait ConfigWriteObserver: Sync {
+    /// `value` is `None` for a deleted setting.
+    fn setting_written(
+        &self,
+        key: &str,
+        value: Option<&serde_json::Value>,
+    ) -> impl std::future::Future<Output = crate::error::Result<()>> + Send;
+
+    fn worker_config_written(
+        &self,
+        group: &str,
+        deleted: bool,
+    ) -> impl std::future::Future<Output = crate::error::Result<()>> + Send;
+}
+
+impl ConfigWriteObserver for () {
+    async fn setting_written(
+        &self,
+        _key: &str,
+        _value: Option<&serde_json::Value>,
+    ) -> crate::error::Result<()> {
+        Ok(())
+    }
+
+    async fn worker_config_written(
+        &self,
+        _group: &str,
+        _deleted: bool,
+    ) -> crate::error::Result<()> {
+        Ok(())
+    }
+}
+
 /// Settings that must never be deleted by the operator or bulk API.
 pub const PROTECTED_SETTINGS: &[&str] = &[
     "ducklake_user_pg_pwd",
     "ducklake_settings",
     "custom_instance_pg_databases",
+    "custom_instance_replication_pwd",
+    "external_instance_pg_state",
     "uid",
     "rsa_keys",
     "jwt_secret",
     "min_keep_alive_version",
+    "instance_python_version",
+    // Deleting it would let a worker sign OIDC tokens with a local key again.
+    "oidc_external_signer",
 ];
 
+/// Secrets the server signs with or generated for itself. `jwt_secret` signs API and job
+/// tokens and `rsa_keys` signs job OIDC tokens, so reading either is enough to mint tokens
+/// for any user. Superadmin reads return them only while `server_secrets_exported()`.
+/// Withholding them from reads does not make them unwritable: the two signing keys are not
+/// in `HIDDEN_SETTINGS`, so config can still set them (an operator ConfigMap may set
+/// `jwt_secret`).
+pub const SERVER_SECRET_SETTINGS: &[&str] = &[
+    "jwt_secret",
+    "rsa_keys",
+    "custom_instance_replication_pwd",
+    "external_instance_pg_state",
+];
+
+/// Whether superadmin API reads (settings list, single-setting read, config export) return
+/// `SERVER_SECRET_SETTINGS`. On by default so `wmill instance get-config` and `pull` carry a
+/// full migration; `EXPORT_SERVER_SECRETS=false` withholds them from every API response, so a
+/// leaked superadmin token cannot take the signing keys. Fails closed: once set to a
+/// non-empty value, only `true`/`1`/`yes`/`on` keep exporting, so `0` or a typo withholds.
+/// Read per call: the flag is cheap and tests flip it in-process.
+pub fn server_secrets_exported() -> bool {
+    match std::env::var("EXPORT_SERVER_SECRETS") {
+        Ok(v) if !v.trim().is_empty() => matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes" | "on"
+        ),
+        _ => true,
+    }
+}
+
+pub fn is_withheld_server_secret(name: &str) -> bool {
+    SERVER_SECRET_SETTINGS.contains(&name) && !server_secrets_exported()
+}
+
 /// Internal settings that are never exposed via the API or included in config exports.
-/// Note: jwt_secret is intentionally NOT hidden — it is included in YAML exports so that
-/// operators can set it via ConfigMap. It is protected from deletion (PROTECTED_SETTINGS)
-/// and from being set to empty/null, and its value is partially redacted in log output.
 pub const HIDDEN_SETTINGS: &[&str] = &[
     "uid",
     "min_keep_alive_version",
@@ -957,6 +1170,14 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     // every bulk InstanceSettings save via `GlobalSettings::extra`. Hiding it
     // on read + rejecting it in `diff_global_settings` breaks that loop.
     "worker_configs",
+    // Auto-generated password for the REPLICATION role used by postgres triggers.
+    // Server-only (written by setup/refresh via direct SQL), never operator-authored —
+    // hidden so the config machinery can't read, rewrite, or drop it.
+    "custom_instance_replication_pwd",
+    // Same for the passwords and database registry Windmill keeps for the external cluster.
+    "external_instance_pg_state",
+    // Written by servers that sign OIDC tokens with an external signer.
+    "oidc_external_signer",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -967,6 +1188,8 @@ const SENSITIVE_SETTINGS: &[&str] = &[
     "hub_api_secret",
     "license_key",
     "ducklake_user_pg_pwd",
+    "custom_instance_replication_pwd",
+    "external_instance_pg_state",
     "pip_index_url",
     "pip_extra_index_url",
     "npm_config_registry",
@@ -985,12 +1208,22 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
     (
         "secret_backend",
-        &["token", "client_secret", "secret_access_key"],
+        &[
+            "token",
+            "approle_secret_id",
+            "client_secret",
+            "secret_access_key",
+            "auth",
+            "extra_headers",
+        ],
     ),
     (
         "object_store_cache_config",
-        &["secret_key", "serviceAccountKey"],
+        &["secret_key", "serviceAccountKey", "accessKey"],
     ),
+    ("custom_instance_pg_databases", &["user_pwd"]),
+    ("external_instance_pg", &["password"]),
+    ("github_enterprise_app", &["private_key"]),
 ];
 
 fn redact_json_value(value: &serde_json::Value) -> serde_json::Value {
@@ -1015,18 +1248,20 @@ fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Va
         }
     }
     // Settings that are maps-of-objects where each child has a sensitive sub-field.
-    const NESTED_MAP_SENSITIVE: &[(&str, &str)] = &[
-        ("oauths", "secret"),
-        ("custom_instance_pg_databases", "user_pwd"),
+    const NESTED_MAP_SENSITIVE: &[(&str, &[&str])] = &[
+        ("oauths", &["secret", "signing_secret"]),
+        ("external_secrets", &["token", "approle_secret_id"]),
     ];
-    for &(parent_key, child_field) in NESTED_MAP_SENSITIVE {
+    for &(parent_key, child_fields) in NESTED_MAP_SENSITIVE {
         if key == parent_key {
             if let serde_json::Value::Object(entries) = value {
                 let mut masked = entries.clone();
                 for (_entry_key, entry_val) in masked.iter_mut() {
                     if let serde_json::Value::Object(ref mut obj) = entry_val {
-                        if let Some(v) = obj.get(child_field) {
-                            obj.insert(child_field.to_string(), redact_json_value(v));
+                        for &child_field in child_fields {
+                            if let Some(v) = obj.get(child_field) {
+                                obj.insert(child_field.to_string(), redact_json_value(v));
+                            }
                         }
                     }
                 }
@@ -1057,12 +1292,7 @@ pub fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
         };
     }
     let value = mask_nested_sensitive(key, value);
-    let s = value.to_string();
-    if s.len() > 200 {
-        format!("{}...", &s[..197])
-    } else {
-        s
-    }
+    crate::utils::truncate_with_ellipsis(&value.to_string(), 197)
 }
 
 /// Extract the expiry timestamp from a license key JSON value.
@@ -1133,14 +1363,13 @@ pub fn diff_global_settings(
     let mut previous_values = BTreeMap::new();
     let mut unchanged_count: usize = 0;
     for (key, desired_value) in desired {
-        // `worker_configs` is a legacy ghost: worker configs belong in the
-        // `config` table with a `worker__` prefix. If a client PUT carries a
-        // top-level `worker_configs` key (it flattens into
-        // `GlobalSettings::extra` on deserialize), drop it here instead of
-        // letting it resurrect a stale `global_settings` row.
-        if key == "worker_configs" {
+        // Hidden settings are server-managed and never driven by config: they are
+        // filtered out on read (`from_db`) and must be ignored on write too, so a client
+        // PUT that flattened one into `GlobalSettings::extra` can't resurrect or clobber
+        // the row (e.g. `worker_configs`, or the custom-instance credentials/status).
+        if HIDDEN_SETTINGS.contains(&key.as_str()) {
             tracing::warn!(
-                "Ignoring 'worker_configs' in global_settings diff: worker configs must be written to the config table (worker__ prefix), not global_settings"
+                "Ignoring hidden setting '{key}' in global_settings diff (server-managed, not configurable)"
             );
             continue;
         }
@@ -1260,10 +1489,152 @@ pub fn diff_worker_configs(
     ConfigsDiff { upserts, deletes }
 }
 
-/// Apply a settings diff to the global_settings table.
+/// Declaratively replace the global settings, rejecting a
+/// `github_app_webhook_base_url`, `api_base_url`, `api_base_url_applies_to` or
+/// `http_route_default_allowed_origins` the API would reject.
+///
+/// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
+/// ConfigMap sync) MUST go through this rather than calling
+/// [`apply_settings_diff`] directly, or that validation is silently skipped.
+/// Note this is *not* the full equivalent of the HTTP layer's pre-write hook —
+/// that also enforces rules for `automate_username_creation`,
+/// `critical_alert_mute_ui` and `app_workspaced_route`, which the declarative
+/// paths have never applied. A new rule added there does not appear here for free.
+///
+/// Registered webhooks are deliberately not re-pointed here. The receiver is set at
+/// instance setup, before any GitHub App is connected, so there is normally nothing
+/// registered to move; an instance that changes it later finds the affected
+/// workspaces listed in instance settings and re-saves them.
+///
+/// AUTHORIZATION: replaces instance-wide settings and takes no authed context, so
+/// callers MUST have established superadmin or equivalent system authority (the CLI
+/// and the operator both run with direct instance credentials).
+///
+/// `observer` is what audits the sync: no user request stands behind these writes, so
+/// nothing else records them.
+pub async fn sync_global_settings_declarative(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    current: &BTreeMap<String, serde_json::Value>,
+    desired: &BTreeMap<String, serde_json::Value>,
+    observer: &impl ConfigWriteObserver,
+) -> anyhow::Result<()> {
+    for url_key in [
+        crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING,
+        crate::global_settings::API_BASE_URL_SETTING,
+    ] {
+        // Non-string shapes are rejected rather than ignored: `as_str()` alone would let a
+        // bool/number/object through as if the key were absent, and the diff below would
+        // then persist it — where the HTTP path answers "must be a URL string".
+        match desired.get(url_key) {
+            None | Some(serde_json::Value::Null) => {}
+            Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+            Some(serde_json::Value::String(s)) => {
+                crate::global_settings::validate_webhook_base_url(s)
+                    .map_err(|e| anyhow::anyhow!("{url_key}: {e}"))?
+            }
+            // Names the JSON kind rather than printing it: this is the last message on
+            // this path that could report submitted content, and an object or array could
+            // carry a secret into `sync-config` output and operator logs.
+            Some(other) => {
+                let kind = match other {
+                    serde_json::Value::Bool(_) => "a boolean",
+                    serde_json::Value::Number(_) => "a number",
+                    serde_json::Value::Array(_) => "an array",
+                    serde_json::Value::Object(_) => "an object",
+                    _ => "a non-string value",
+                };
+                return Err(anyhow::anyhow!(
+                    "{url_key} must be a URL string, got {kind}"
+                ));
+            }
+        }
+    }
+
+    let applies_to_key = crate::global_settings::API_BASE_URL_APPLIES_TO_SETTING;
+    match desired.get(applies_to_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(v) => crate::global_settings::validate_api_base_url_applies_to(v)
+            .map_err(|e| anyhow::anyhow!("{applies_to_key}: {e}"))?,
+    }
+
+    let banner_key = crate::global_settings::INSTANCE_BANNER_SETTING;
+    match desired.get(banner_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(banner) => crate::global_settings::validate_instance_banner(banner)
+            // The validator's messages name the offending field and its expected type,
+            // never the submitted value, so they are safe to surface here.
+            .map_err(|e| anyhow::anyhow!("{banner_key}: {e}"))?,
+    }
+
+    let accent_key = crate::global_settings::ACCENT_COLOR_SETTING;
+    match desired.get(accent_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(color) => crate::global_settings::validate_accent_color(color)
+            .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
+    }
+
+    let issuers_key = crate::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
+    match desired.get(issuers_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(issuers) => crate::agent_workload_identity::validate_issuers_value(issuers)
+            .map_err(|e| anyhow::anyhow!("{issuers_key}: {e}"))?,
+    }
+
+    let suffix_key = crate::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING;
+    match desired.get(suffix_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(suffix) => crate::global_settings::validate_dev_workspace_tag_suffix(suffix)
+            .map_err(|e| anyhow::anyhow!("{suffix_key}: {e}"))?,
+    }
+
+    // An origin list that cannot be parsed is dropped at boot, leaving the
+    // empty default — which is no restriction at all. Rejecting it here is what
+    // keeps a typo in a ConfigMap from silently widening CORS instance-wide.
+    let origins_key = crate::global_settings::HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING;
+    crate::global_settings::parse_allowed_origins_setting(desired.get(origins_key))
+        .map_err(|e| anyhow::anyhow!("{origins_key}: {e}"))?;
+
+    let max_expiration_key = crate::global_settings::MAX_TOKEN_EXPIRATION_DAYS_SETTING;
+    crate::global_settings::parse_max_token_expiration_days(desired.get(max_expiration_key))
+        .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
+
+    let idp_key = crate::global_settings::MCP_EXTERNAL_IDP_SETTING;
+    crate::global_settings::parse_mcp_external_idp(desired.get(idp_key))
+        .map_err(|e| anyhow::anyhow!("{idp_key}: {e}"))?;
+
+    let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    let roles_key = crate::global_settings::WORKSPACE_ROLES_SETTING;
+    let roles_written = diff.upserts.iter().any(|(k, _)| k == roles_key)
+        || diff.deletes.iter().any(|k| k == roles_key);
+    if roles_written {
+        crate::roles::validate_instance_roles_write(db, desired.get(roles_key))
+            .await
+            .map_err(|e| anyhow::anyhow!("{roles_key}: {e}"))?;
+    }
+    crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff, observer)
+        .await?;
+    apply_settings_diff(db, &diff, observer).await?;
+    if roles_written {
+        crate::roles::after_instance_roles_write(db)
+            .await
+            .map_err(|e| anyhow::anyhow!("{roles_key}: {e}"))?;
+    }
+
+    Ok(())
+}
+
+/// Apply a settings diff to the global_settings table, reporting each write to `observer`.
+///
+/// AUTHORIZATION: writes instance-wide settings, credentials included, and checks
+/// nothing; `observer` records and authorizes nothing. Callers MUST have established
+/// superadmin or equivalent system authority.
 pub async fn apply_settings_diff(
     db: &sqlx::Pool<sqlx::Postgres>,
     diff: &SettingsDiff,
+    observer: &impl ConfigWriteObserver,
 ) -> anyhow::Result<()> {
     for (key, value) in &diff.upserts {
         sqlx::query(
@@ -1286,6 +1657,7 @@ pub async fn apply_settings_diff(
                 format_setting_value(key, value)
             );
         }
+        observer.setting_written(key, Some(value)).await?;
     }
     for key in &diff.deletes {
         sqlx::query("DELETE FROM global_settings WHERE name = $1")
@@ -1300,6 +1672,7 @@ pub async fn apply_settings_diff(
         } else {
             tracing::info!("Deleted global setting: {key}");
         }
+        observer.setting_written(key, None).await?;
     }
     if diff.unchanged_count > 0 {
         tracing::info!("{} global setting(s) unchanged", diff.unchanged_count);
@@ -1307,10 +1680,16 @@ pub async fn apply_settings_diff(
     Ok(())
 }
 
-/// Apply a configs diff to the config table (worker__ prefix).
+/// Apply a configs diff to the config table (worker__ prefix), reporting each write to
+/// `observer`.
+///
+/// AUTHORIZATION: writes worker group configs, whose init scripts run on the workers, and
+/// checks nothing; `observer` records and authorizes nothing. Callers MUST have
+/// established superadmin or equivalent system authority.
 pub async fn apply_configs_diff(
     db: &sqlx::Pool<sqlx::Postgres>,
     diff: &ConfigsDiff,
+    observer: &impl ConfigWriteObserver,
 ) -> anyhow::Result<()> {
     for (group_name, config_value) in &diff.upserts {
         let db_key = format!("worker__{group_name}");
@@ -1323,6 +1702,7 @@ pub async fn apply_configs_diff(
         .execute(db)
         .await?;
         tracing::info!("Synced worker config: {db_key}");
+        observer.worker_config_written(group_name, false).await?;
     }
     for group_name in &diff.deletes {
         let db_key = format!("worker__{group_name}");
@@ -1331,6 +1711,7 @@ pub async fn apply_configs_diff(
             .execute(db)
             .await?;
         tracing::info!("Deleted worker config: {db_key}");
+        observer.worker_config_written(group_name, true).await?;
     }
     Ok(())
 }
@@ -1387,6 +1768,10 @@ pub fn resolve_env_refs(settings: &mut GlobalSettings) -> Result<(), String> {
         resolve_env_option(&mut pg.user_pwd)?;
     }
 
+    if let Some(pg) = &mut settings.external_instance_pg {
+        resolve_env_option(&mut pg.password)?;
+    }
+
     Ok(())
 }
 
@@ -1397,6 +1782,21 @@ pub fn resolve_env_refs(settings: &mut GlobalSettings) -> Result<(), String> {
 impl InstanceConfig {
     /// Read the full instance configuration from the database.
     pub async fn from_db(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<Self> {
+        Self::read_from_db(db, true).await
+    }
+
+    /// The instance configuration as an API response may carry it: `from_db` without
+    /// `SERVER_SECRET_SETTINGS` unless `server_secrets_exported()`. It holds admin-entered
+    /// credentials (`license_key`, `scim_token`, SMTP and OAuth secrets), so callers must
+    /// have checked superadmin.
+    pub async fn from_db_for_api(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<Self> {
+        Self::read_from_db(db, server_secrets_exported()).await
+    }
+
+    async fn read_from_db(
+        db: &sqlx::Pool<sqlx::Postgres>,
+        include_server_secrets: bool,
+    ) -> anyhow::Result<Self> {
         // Read global_settings table → flat map → deserialize into GlobalSettings
         let rows: Vec<(String, serde_json::Value)> =
             sqlx::query_as("SELECT name, value FROM global_settings")
@@ -1405,6 +1805,9 @@ impl InstanceConfig {
         let map: serde_json::Map<String, serde_json::Value> = rows
             .into_iter()
             .filter(|(name, _)| !HIDDEN_SETTINGS.contains(&name.as_str()))
+            .filter(|(name, _)| {
+                include_server_secrets || !SERVER_SECRET_SETTINGS.contains(&name.as_str())
+            })
             .collect();
         let global_settings: GlobalSettings =
             serde_json::from_value(serde_json::Value::Object(map))?;
@@ -1430,7 +1833,11 @@ impl InstanceConfig {
     ///
     /// Reads the current state, computes a diff, then applies upserts and
     /// deletes for both global settings and worker configs.
-    pub async fn sync_to_db(&self, db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+    pub async fn sync_to_db(
+        &self,
+        db: &sqlx::Pool<sqlx::Postgres>,
+        observer: &impl ConfigWriteObserver,
+    ) -> anyhow::Result<()> {
         let desired_settings = self.global_settings.to_settings_map();
 
         // Current global settings
@@ -1440,9 +1847,8 @@ impl InstanceConfig {
                 .await?;
         let current_settings: BTreeMap<String, serde_json::Value> = rows.into_iter().collect();
 
-        let settings_diff =
-            diff_global_settings(&current_settings, &desired_settings, ApplyMode::Replace);
-        apply_settings_diff(db, &settings_diff).await?;
+        sync_global_settings_declarative(db, &current_settings, &desired_settings, observer)
+            .await?;
 
         // Worker configs
         let desired_configs: BTreeMap<String, serde_json::Value> = self
@@ -1470,7 +1876,7 @@ impl InstanceConfig {
 
         let configs_diff =
             diff_worker_configs(&current_configs, &desired_configs, ApplyMode::Replace);
-        apply_configs_diff(db, &configs_diff).await?;
+        apply_configs_diff(db, &configs_diff, observer).await?;
 
         Ok(())
     }
@@ -2161,6 +2567,20 @@ mod tests {
         assert_eq!(original.custom_tags, reconstructed.custom_tags);
     }
 
+    #[test]
+    fn smtp_settings_keep_clicktracking_off() {
+        let smtp = serde_json::json!({
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 587,
+            "smtp_tls_implicit": false,
+            "smtp_disable_tls": false,
+            "smtp_clicktracking_off": true,
+        });
+        let settings: GlobalSettings =
+            serde_json::from_value(serde_json::json!({ "smtp_settings": smtp })).unwrap();
+        assert_eq!(settings.to_settings_map()["smtp_settings"], smtp);
+    }
+
     // -----------------------------------------------------------------------
     // Serialization edge cases
     // -----------------------------------------------------------------------
@@ -2358,34 +2778,57 @@ mod tests {
     }
 
     #[test]
-    fn custom_instance_pg_databases_roundtrips() {
+    fn server_generated_db_passwords_are_isolated_from_config() {
+        // These hold passwords the server generates: written by setup/refresh via direct SQL,
+        // never operator-authored. They must stay out of the declarative config surface
+        // (hidden on read) and be undeletable, so config sync can't read, rewrite, or drop them.
+        for key in [
+            "custom_instance_replication_pwd",
+            "external_instance_pg_state",
+        ] {
+            assert!(HIDDEN_SETTINGS.contains(&key), "{key}");
+            assert!(PROTECTED_SETTINGS.contains(&key), "{key}");
+            assert!(SENSITIVE_SETTINGS.contains(&key), "{key}");
+
+            // A stray desired value (e.g. flattened into `extra`) is ignored, not upserted.
+            let mut desired = BTreeMap::new();
+            desired.insert(key.to_string(), serde_json::json!("attacker-set"));
+            let diff = diff_global_settings(&BTreeMap::new(), &desired, ApplyMode::Merge);
+            assert!(diff.upserts.is_empty(), "{key} must not be upserted");
+
+            // A current value is never deleted by a Replace that omits it.
+            let mut current = BTreeMap::new();
+            current.insert(key.to_string(), serde_json::json!("live"));
+            let diff = diff_global_settings(&current, &BTreeMap::new(), ApplyMode::Replace);
+            assert!(
+                !diff.deletes.contains(&key.to_string()),
+                "{key} must not be deleted"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_instance_pg_databases_roundtrips_and_redacts_user_pwd() {
+        // user_pwd stays operator-configurable (EE secretKeyRef); databases is runtime status.
         let json = r#"{
             "user_pwd": "secret123",
-            "databases": {
-                "mydb": {
-                    "logs": {
-                        "super_admin": "OK",
-                        "database_credentials": "OK",
-                        "valid_dbname": "OK",
-                        "created_database": "OK",
-                        "db_connect": "OK",
-                        "grant_permissions": "OK"
-                    },
-                    "success": true,
-                    "tag": "production"
-                }
-            }
+            "databases": { "mydb": { "success": true, "tag": "production" } }
         }"#;
         let pg: CustomInstancePgDatabases = serde_json::from_str(json).unwrap();
         assert_eq!(
             pg.user_pwd.as_ref().and_then(|v| v.as_literal()),
             Some("secret123")
         );
-        let db = &pg.databases["mydb"];
-        assert!(db.success);
-        assert_eq!(db.tag.as_deref(), Some("production"));
-        assert_eq!(db.logs.super_admin, "OK");
-        assert_eq!(db.logs.grant_permissions, "OK");
+        assert!(pg.databases["mydb"].success);
+
+        let out = format_setting_value(
+            "custom_instance_pg_databases",
+            &serde_json::json!({ "user_pwd": "user-plaintext-password" }),
+        );
+        assert!(
+            !out.contains("user-plaintext-password"),
+            "user_pwd leaked: {out}"
+        );
     }
 
     #[test]
@@ -2502,12 +2945,48 @@ mod tests {
     #[test]
     fn format_setting_value_redacts_oauth_secrets() {
         let val = serde_json::json!({
-            "google": {"id": "client-id", "secret": "my-super-secret-12345"}
+            "google": {"id": "client-id", "secret": "my-super-secret-12345"},
+            "slack": {"id": "s", "secret": "s", "signing_secret": "slack-signing-secret-678"}
         });
         let formatted = format_setting_value("oauths", &val);
         assert!(!formatted.contains("my-super-secret-12345"));
+        assert!(!formatted.contains("slack-signing-secret-678"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_nested_credentials() {
+        let val = serde_json::json!({
+            "type": "Azure",
+            "accountName": "acct",
+            "containerName": "c",
+            "accessKey": "azure-storage-account-key-12345"
+        });
+        let formatted = format_setting_value("object_store_cache_config", &val);
+        assert!(!formatted.contains("azure-storage-account-key-12345"));
+        assert!(formatted.contains("acct"));
+
+        let val = serde_json::json!({
+            "app_id": 1,
+            "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEsecretbody\n-----END RSA PRIVATE KEY-----"
+        });
+        let formatted = format_setting_value("github_enterprise_app", &val);
+        assert!(!formatted.contains("MIIEsecretbody"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_http_store_credentials() {
+        let val = serde_json::json!({
+            "type": "HttpStore",
+            "base_url": "https://store.example",
+            "auth": {"type": "StaticHeader", "header_name": "X-Key", "header_value": "store-api-key-12345"},
+            "extra_headers": {"X-Tenant-Key": "tenant-key-67890"}
+        });
+        let formatted = format_setting_value("secret_backend", &val);
+        assert!(!formatted.contains("store-api-key-12345"));
+        assert!(!formatted.contains("tenant-key-67890"));
+        assert!(formatted.contains("store.example"));
     }
 
     #[test]
@@ -2688,6 +3167,7 @@ mod tests {
                         tenant: None,
                         share_with_workspaces: None,
                         grant_types: vec![],
+                        pkce: None,
                         extra: BTreeMap::new(),
                     }),
                 );

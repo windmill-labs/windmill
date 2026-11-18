@@ -7,6 +7,7 @@ use pg_escape::{quote_identifier, quote_literal};
 use rust_postgres::{Client, CopyBothDuplex, SimpleQueryMessage};
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
+use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
@@ -15,10 +16,15 @@ use windmill_common::{
     DB,
 };
 
-use windmill_trigger::{listener::ListeningTrigger, trigger_helpers::TriggerJobArgs, Listener};
+use windmill_trigger::{
+    listener::{update_rw_lock, ListeningTrigger},
+    trigger_helpers::TriggerJobArgs,
+    Listener,
+};
 
 use super::{
-    drop_publication, get_default_pg_connection, get_raw_postgres_connection,
+    drop_publication, ensure_not_under_roles, get_default_pg_connection,
+    get_raw_postgres_connection,
     handler::drop_logical_replication_slot,
     relation::RelationConverter,
     replication_message::{
@@ -126,6 +132,90 @@ impl PostgresSimpleClient {
     }
 }
 
+/// Resolves the Postgres resource, validates that the configured publication and
+/// replication slot still exist, and opens a fresh logical replication stream.
+///
+/// Returns `Error::BadConfig` when the publication or slot is missing or invalidated, or the
+/// data table is under roles (unrecoverable misconfigurations). Whether any other error is
+/// retried is up to `is_transient_error`.
+/// The resource is re-resolved on every call so credential rotations are picked
+/// up across reconnections.
+async fn connect_logical_replication_stream(
+    authed: &ApiAuthed,
+    db: &DB,
+    listening_trigger: &ListeningTrigger<PostgresConfig>,
+) -> Result<(CopyBothDuplex<Bytes>, LogicalReplicationSettings)> {
+    let ListeningTrigger { workspace_id, trigger_config, .. } = listening_trigger;
+    let PostgresConfig { postgres_resource_path, publication_name, replication_slot_name, .. } =
+        trigger_config;
+
+    // Retrying cannot lift roles, so this disables the trigger like a missing slot does.
+    ensure_not_under_roles(db, workspace_id, postgres_resource_path)
+        .await
+        .map_err(|e| match e {
+            Error::BadRequest(msg) => Error::BadConfig(msg),
+            e => e,
+        })?;
+
+    let database = resolve_postgres_resource(
+        authed,
+        Some(UserDB::new(db.clone())),
+        db,
+        postgres_resource_path,
+        workspace_id,
+    )
+    .await?;
+
+    let client = PostgresSimpleClient::new(&database).await?;
+
+    let publication = client
+        .execute_query(&format!(
+            "SELECT pubname FROM pg_publication WHERE pubname = {}",
+            quote_literal(publication_name)
+        ))
+        .await
+        .map_err(to_anyhow)?;
+
+    if !publication.row_exist() {
+        return Err(Error::BadConfig(
+            ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string(),
+        ));
+    }
+
+    // `invalidation_reason` (PG 17+) and `conflicting` (PG 16) are read through jsonb so the
+    // query still runs on versions that lack those columns.
+    let replication_slot = client
+        .execute_query(&format!(
+            r#"SELECT COALESCE(
+                j->>'invalidation_reason',
+                CASE WHEN j->>'wal_status' = 'lost' THEN 'wal_removed'
+                     WHEN j->>'conflicting' = 'true' THEN 'conflict with recovery' END
+            ) FROM pg_replication_slots s, to_jsonb(s) j WHERE slot_name = {}"#,
+            quote_literal(replication_slot_name)
+        ))
+        .await
+        .map_err(to_anyhow)?;
+
+    let Some(slot) = replication_slot.iter().find_map(|m| match m {
+        SimpleQueryMessage::Row(row) => Some(row),
+        _ => None,
+    }) else {
+        return Err(Error::BadConfig(
+            ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string(),
+        ));
+    };
+
+    if let Some(reason) = slot.get(0) {
+        return Err(Error::BadConfig(format!(
+            "The replication slot `{replication_slot_name}` associated with this trigger has been invalidated by PostgreSQL (reason: `{reason}`). Changes since the invalidation cannot be replayed. Drop the slot (Advanced tab, slots) and save the trigger again to recreate it, or select another slot."
+        )));
+    }
+
+    client
+        .get_logical_replication_stream(publication_name, replication_slot_name)
+        .await
+}
+
 #[async_trait::async_trait]
 impl Listener for PostgresTrigger {
     type Consumer = (CopyBothDuplex<Bytes>, LogicalReplicationSettings);
@@ -140,65 +230,12 @@ impl Listener for PostgresTrigger {
         _err_message: Arc<RwLock<Option<String>>>,
         _killpill_rx: tokio::sync::broadcast::Receiver<()>,
     ) -> Result<Option<Self::Consumer>> {
-        let ListeningTrigger::<Self::TriggerConfig> { workspace_id, trigger_config, .. } =
-            listening_trigger;
-
-        let PostgresConfig {
-            postgres_resource_path, publication_name, replication_slot_name, ..
-        } = trigger_config;
-
         let authed = listening_trigger
             .authed(db, &Self::TRIGGER_KIND.to_string())
             .await?;
-
-        let database = resolve_postgres_resource(
-            &authed,
-            Some(UserDB::new(db.clone())),
-            &db,
-            postgres_resource_path,
-            workspace_id,
-        )
-        .await?;
-
-        let client = PostgresSimpleClient::new(&database).await?;
-
-        let publication = client
-            .execute_query(&format!(
-                "SELECT pubname FROM pg_publication WHERE pubname = {}",
-                quote_literal(&publication_name)
-            ))
+        connect_logical_replication_stream(&authed, db, listening_trigger)
             .await
-            .map_err(to_anyhow)?;
-
-        if !publication.row_exist() {
-            return Err(Error::BadConfig(
-                ERROR_PUBLICATION_NAME_NOT_EXISTS.to_string(),
-            ));
-        }
-
-        let replication_slot = client
-            .execute_query(&format!(
-                "SELECT slot_name FROM pg_replication_slots WHERE slot_name = {}",
-                quote_literal(&replication_slot_name)
-            ))
-            .await
-            .map_err(to_anyhow)?;
-
-        if !replication_slot.row_exist() {
-            return Err(Error::BadConfig(
-                ERROR_REPLICATION_SLOT_NOT_EXISTS.to_string(),
-            ));
-        }
-
-        let (logical_replication_stream, logical_replication_settings) = client
-            .get_logical_replication_stream(&publication_name, &replication_slot_name)
-            .await
-            .map_err(to_anyhow)?;
-
-        Ok(Some((
-            logical_replication_stream,
-            logical_replication_settings,
-        )))
+            .map(Some)
     }
     async fn consume(
         &self,
@@ -246,36 +283,26 @@ impl Listener for PostgresTrigger {
                 Some(message) => message,
             };
             let message = match message {
-                Some(message) => message,
-                None => {
-                    tracing::error!(
-                        "Stream for postgres trigger {} closed",
-                        &listening_trigger.path
-                    );
-                    if let None = self
-                        .update_ping_and_loop_ping_status(
-                            db,
-                            listening_trigger,
-                            err_message.clone(),
-                            Some("Stream closed".to_string()),
-                        )
-                        .await
-                    {
-                        return;
-                    }
+                Some(Ok(message)) => message,
+                Some(Err(err)) => {
+                    tracing::warn!(
+                            "Postgres trigger {} had an error while receiving a message, reconnecting: {}",
+                            &listening_trigger.path,
+                            err
+                        );
+                    update_rw_lock(
+                        err_message,
+                        Some(format!("Error receiving message: {}", err)),
+                    )
+                    .await;
                     return;
                 }
-            };
-
-            let message = match message {
-                Ok(message) => message,
-                Err(err) => {
-                    let err = format!(
-                        "Postgres trigger named {} had an error while receiving a message : {}",
-                        &listening_trigger.path,
-                        err.to_string()
+                None => {
+                    tracing::warn!(
+                        "Stream for postgres trigger {} closed, reconnecting",
+                        &listening_trigger.path
                     );
-                    self.disable_with_error(db, listening_trigger, err).await;
+                    update_rw_lock(err_message, Some("Stream closed".to_string())).await;
                     return;
                 }
             };

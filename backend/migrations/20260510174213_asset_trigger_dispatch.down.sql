@@ -1,0 +1,3 @@
+-- Postgres has no ALTER TYPE ... DROP VALUE for enums. The 'asset' value
+-- stays even on rollback; this is consistent with how other job_trigger_kind
+-- values were added (see 20250323162033_add-missing-trigger-kind-...).

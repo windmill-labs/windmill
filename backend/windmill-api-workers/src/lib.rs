@@ -19,8 +19,14 @@ use windmill_common::{
     db::UserDB,
     error::JsonResult,
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
+    queue_metrics::{read_queue_metrics_series, QueueMetricsSeries},
     utils::{paginate, Pagination},
-    worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    worker::{
+        ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE,
+        DEV_WORKSPACE_ISOLATION, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS,
+        DEV_WORKSPACE_TAG_SUFFIX,
+    },
+    workspaces::workspace_with_fork_ancestors,
     DB,
 };
 
@@ -35,8 +41,12 @@ pub fn global_service() -> Router {
             "/is_default_tags_per_workspace",
             get(get_default_tags_per_workspace),
         )
+        .route("/dev_workspace_isolation", get(get_dev_workspace_isolation))
         .route("/get_default_tags", get(get_default_tags))
         .route("/queue_metrics", get(get_queue_metrics))
+        .route("/queue_metrics_series", get(get_queue_metrics_series))
+        .route("/queue_status", get(get_queue_status))
+        .route("/runnable_stats", get(get_runnable_stats))
         .route("/queue_counts", get(get_queue_counts))
         .route("/queue_running_counts", get(get_queue_running_counts))
         .route(
@@ -82,6 +92,29 @@ struct WorkerPing {
     job_isolation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     native_mode: Option<bool>,
+    draining: bool,
+    #[serde(
+        rename = "job_stats",
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_job_stats_summary",
+        skip_deserializing
+    )]
+    job_stats: Option<serde_json::Value>,
+}
+
+/// Served as counts relative to now, so a worker that stopped pinging stops reporting
+/// failures that have left the 24h window.
+fn serialize_job_stats_summary<S: serde::Serializer>(
+    v: &Option<serde_json::Value>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    v.as_ref()
+        .and_then(|v| {
+            serde_json::from_value::<windmill_common::worker_job_stats::WorkerJobStats>(v.clone())
+                .ok()
+        })
+        .map(|stats| stats.summary(windmill_common::worker_job_stats::current_hour()))
+        .serialize(s)
 }
 
 // #[derive(Serialize, Deserialize)]
@@ -102,7 +135,7 @@ async fn list_worker_pings(
     Extension(user_db): Extension<UserDB>,
     Query(query): Query<ListWorkerQuery>,
 ) -> JsonResult<Vec<WorkerPing>> {
-    let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
+    let has_devops_role = require_devops_role(&db, &authed).await.is_ok();
     if *HIDE_WORKERS_FOR_NON_ADMINS && !has_devops_role {
         return Ok(Json(vec![]));
     }
@@ -114,7 +147,7 @@ async fn list_worker_pings(
         WorkerPing,
         "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed,
         CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as last_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as last_job_workspace_id,
-        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, job_isolation, native_mode
+        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, job_isolation, native_mode, draining, job_stats
         FROM worker_ping
         WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)
         ORDER BY ping_at desc LIMIT $2 OFFSET $3",
@@ -158,13 +191,40 @@ async fn exists_workers_with_tags(
 
     // When TAGS_ARE_SENSITIVE is enabled, filter tags based on workspace visibility
     if *TAGS_ARE_SENSITIVE {
-        let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
+        let has_devops_role = require_devops_role(&db, &authed).await.is_ok();
         if !has_devops_role {
             if let Some(ref workspace) = tags_query.workspace {
+                // This route is global, so the workspace is an unauthorized query param: check
+                // membership before reading its lineage, which would otherwise disclose whether
+                // an arbitrary workspace descends from one named by a `tag(parent*)` rule.
+                let is_member = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
+                    workspace,
+                    &authed.email
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false);
+                if !is_member {
+                    return Ok(Json(std::collections::HashMap::new()));
+                }
+
                 // Filter to only tags visible in this workspace
+                let chain = workspace_with_fork_ancestors(&db, workspace).await?;
                 let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.load();
-                let allowed_tags = custom_tags.to_string_vec(Some(workspace.clone()));
-                tags.retain(|t| allowed_tags.contains(t));
+                let allowed_tags = custom_tags.to_string_vec(Some(&chain));
+                // A dev workspace's jobs run on the suffixed form of the tags it may use.
+                let dev_suffix = windmill_queue::tags::dev_workspace_suffix_for(workspace, &db)
+                    .await
+                    .ok()
+                    .flatten();
+                tags.retain(|t| {
+                    allowed_tags.contains(t)
+                        || dev_suffix.as_deref().is_some_and(|s| {
+                            t.strip_suffix(s)
+                                .is_some_and(|b| allowed_tags.iter().any(|a| a == b))
+                        })
+                });
             } else {
                 // No workspace provided and not superadmin - return empty
                 return Ok(Json(std::collections::HashMap::new()));
@@ -212,7 +272,7 @@ async fn get_custom_tags(
         return Ok(Json(all_tags));
     }
     if *TAGS_ARE_SENSITIVE {
-        let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
+        let has_devops_role = require_devops_role(&db, &authed).await.is_ok();
         if !has_devops_role {
             return Ok(Json(vec![]));
         }
@@ -222,10 +282,12 @@ async fn get_custom_tags(
 
 async fn get_custom_tags_for_workspace(
     _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
+    let chain = workspace_with_fork_ancestors(&db, &w_id).await?;
     let tags_o = CUSTOM_TAGS_PER_WORKSPACE.load();
-    let all_tags = tags_o.to_string_vec(Some(w_id));
+    let all_tags = tags_o.to_string_vec(Some(&chain));
     Ok(Json(all_tags))
 }
 
@@ -233,6 +295,22 @@ async fn get_default_tags_per_workspace() -> JsonResult<bool> {
     Ok(Json(
         DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed),
     ))
+}
+
+#[derive(Serialize)]
+struct DevWorkspaceIsolation {
+    enabled: bool,
+    suffix: String,
+    skip_non_dev_forks: bool,
+}
+
+async fn get_dev_workspace_isolation() -> JsonResult<DevWorkspaceIsolation> {
+    Ok(Json(DevWorkspaceIsolation {
+        enabled: DEV_WORKSPACE_ISOLATION.load(std::sync::atomic::Ordering::Relaxed),
+        suffix: DEV_WORKSPACE_TAG_SUFFIX.load().to_string(),
+        skip_non_dev_forks: DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS
+            .load(std::sync::atomic::Ordering::Relaxed),
+    }))
 }
 
 async fn get_default_tags() -> JsonResult<Vec<String>> {
@@ -249,12 +327,18 @@ async fn get_queue_metrics(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<QueueMetric>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
+    // The API declares every `value` a number, so a climbing delay, stored as its head's wait
+    // start, is returned as the delay at the time of its sample.
     let queue_metrics = sqlx::query_as!(
         QueueMetric,
         "WITH queue_metrics as (
-            SELECT id, value, created_at
+            SELECT id, created_at,
+                CASE WHEN jsonb_typeof(value) = 'object'
+                    THEN to_jsonb(EXTRACT(EPOCH FROM created_at) - (value->>'since')::numeric)
+                    ELSE value
+                END AS value
             FROM metrics
             WHERE id LIKE 'queue_%'
                 AND created_at > now() - interval '14 day'
@@ -270,11 +354,168 @@ async fn get_queue_metrics(
     Ok(Json(queue_metrics))
 }
 
+#[derive(Deserialize)]
+struct RunnableStatsQuery {
+    window_secs: Option<i64>,
+    worker_group: Option<String>,
+    workspace: Option<String>,
+    order_by: Option<String>,
+    limit: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct RunnableStats {
+    workspace_id: String,
+    runnable_path: String,
+    worker_group: String,
+    job_count: i64,
+    total_duration_ms: i64,
+    max_memory_peak: i32,
+    sum_memory_peak: i64,
+    memory_sample_count: i64,
+    total_cpu_ms: i64,
+}
+
+async fn get_runnable_stats(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<RunnableStatsQuery>,
+) -> JsonResult<Vec<RunnableStats>> {
+    require_devops_role(&db, &authed).await?;
+
+    let window = query.window_secs.unwrap_or(24 * 3600).clamp(
+        3600,
+        windmill_common::runnable_job_stats::RETENTION_DAYS * 24 * 3600,
+    );
+    // Rows are hourly buckets keyed by their start, so the bucket the window begins in
+    // is included whole.
+    let from_hour = (chrono::Utc::now().timestamp() - window) / 3600 * 3600;
+    let order_by = match query.order_by.as_deref() {
+        Some("max_memory") => "max_memory",
+        Some("cpu") => "cpu",
+        _ => "total_duration",
+    };
+
+    let rows = sqlx::query_as!(
+        RunnableStats,
+        r#"
+        SELECT workspace_id, runnable_path, worker_group,
+            SUM(job_count)::bigint AS "job_count!",
+            SUM(total_duration_ms)::bigint AS "total_duration_ms!",
+            MAX(max_memory_peak) AS "max_memory_peak!",
+            SUM(sum_memory_peak)::bigint AS "sum_memory_peak!",
+            SUM(memory_sample_count)::bigint AS "memory_sample_count!",
+            SUM(total_cpu_ms)::bigint AS "total_cpu_ms!"
+        FROM runnable_job_stats
+        WHERE hour >= $1
+            AND ($2::text IS NULL OR worker_group = $2)
+            AND ($3::text IS NULL OR workspace_id = $3)
+        GROUP BY workspace_id, runnable_path, worker_group
+        ORDER BY CASE $4::text
+            WHEN 'max_memory' THEN MAX(max_memory_peak)::numeric
+            WHEN 'cpu' THEN SUM(total_cpu_ms)
+            ELSE SUM(total_duration_ms)
+        END DESC, workspace_id, runnable_path, worker_group
+        LIMIT $5
+        "#,
+        from_hour,
+        query.worker_group,
+        query.workspace,
+        order_by,
+        query.limit.unwrap_or(100).clamp(1, 1000),
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Deserialize)]
+struct QueueMetricsSeriesQuery {
+    window_secs: Option<i64>,
+}
+
+const QUEUE_METRICS_DEFAULT_WINDOW_SECS: i64 = 24 * 3600;
+/// Retention of queue metrics, past which there is nothing left to read.
+const QUEUE_METRICS_MAX_WINDOW_SECS: i64 = 14 * 24 * 3600;
+
+async fn get_queue_metrics_series(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<QueueMetricsSeriesQuery>,
+) -> JsonResult<QueueMetricsSeries> {
+    require_devops_role(&db, &authed).await?;
+
+    let window = query
+        .window_secs
+        .unwrap_or(QUEUE_METRICS_DEFAULT_WINDOW_SECS)
+        .clamp(60, QUEUE_METRICS_MAX_WINDOW_SECS);
+    Ok(Json(read_queue_metrics_series(&db, window as f64).await?))
+}
+
+#[derive(Serialize)]
+struct QueueTagStatus {
+    tag: String,
+    /// Jobs due for more than 3 seconds that no worker has picked up.
+    waiting: u32,
+    /// How long the job the next pull would take has been waiting, in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delay: Option<f64>,
+    running: i64,
+    /// Workers that pinged in the last minute and pull this tag.
+    workers: i64,
+}
+
+/// Every tag with jobs waiting or running, read live from the queue. A backlog on a tag no live
+/// worker pulls waits for one to start: a worker group scaling up from zero, or none at all for a
+/// tag nobody serves.
+async fn get_queue_status(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<Vec<QueueTagStatus>> {
+    require_devops_role(&db, &authed).await?;
+
+    let backlog = windmill_common::queue::get_queue_stats(&db).await?;
+    let backlog_tags = backlog.keys().cloned().collect::<Vec<_>>();
+    // A job's tag is resolved before it is queued (per-workspace and dedicated worker tags
+    // included), and the pull matches it exactly against the worker's tags, so containment is
+    // exact here too.
+    let rows = sqlx::query!(
+        "WITH running AS (
+            SELECT tag, count(*) AS n FROM v2_job_queue WHERE running = true GROUP BY tag
+        )
+        SELECT t.tag AS \"tag!\", COALESCE(r.n, 0) AS \"running!\",
+            (SELECT count(*) FROM worker_ping w
+                WHERE w.ping_at > now() - interval '1 minute' AND w.custom_tags @> ARRAY[t.tag]
+            ) AS \"workers!\"
+        FROM (SELECT tag::text FROM running UNION SELECT unnest($1::text[])) t(tag)
+        LEFT JOIN running r ON r.tag = t.tag
+        ORDER BY t.tag",
+        &backlog_tags[..],
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| {
+                let stat = backlog.get(&row.tag);
+                QueueTagStatus {
+                    waiting: stat.map_or(0, |s| s.count),
+                    delay: stat.map(|s| s.delay),
+                    running: row.running,
+                    workers: row.workers,
+                    tag: row.tag,
+                }
+            })
+            .collect(),
+    ))
+}
+
 async fn get_queue_counts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<std::collections::HashMap<String, u32>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
     let queue_counts = windmill_common::queue::get_queue_counts(&db).await;
     Ok(Json(queue_counts))
 }
@@ -283,7 +524,7 @@ async fn get_queue_running_counts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<std::collections::HashMap<String, u32>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
     let queue_running_counts = windmill_common::queue::get_queue_running_counts(&db).await;
     Ok(Json(queue_running_counts))
 }
@@ -308,7 +549,7 @@ async fn get_workspace_fairness_events(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<WorkspaceFairnessEvent>> {
-    require_devops_role(&db, &authed.email).await?;
+    require_devops_role(&db, &authed).await?;
 
     // No cloud-host gate — workspace fairness is an Enterprise feature
     // available on any multi-tenant EE deployment. Non-EE / non-enabled
@@ -328,21 +569,11 @@ async fn get_workspace_fairness_events(
             FROM audit_partitioned
             WHERE workspace_id = 'admins'
               AND operation = 'workspace_fairness.capped'
-            UNION ALL
-            SELECT timestamp, operation, resource, parameters
-            FROM audit
-            WHERE workspace_id = 'admins'
-              AND operation = 'workspace_fairness.capped'
             ORDER BY timestamp DESC
             LIMIT 200
         ), uncapped AS (
             SELECT timestamp, operation, resource, parameters
             FROM audit_partitioned
-            WHERE workspace_id = 'admins'
-              AND operation = 'workspace_fairness.uncapped'
-            UNION ALL
-            SELECT timestamp, operation, resource, parameters
-            FROM audit
             WHERE workspace_id = 'admins'
               AND operation = 'workspace_fairness.uncapped'
             ORDER BY timestamp DESC

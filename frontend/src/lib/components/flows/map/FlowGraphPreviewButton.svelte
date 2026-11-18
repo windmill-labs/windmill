@@ -46,7 +46,7 @@
 		btnClasses={twMerge(
 			'relative p-1.5 transition-all duration-200 drop-shadow-base',
 			wide ? 'w-[120px]' : 'w-[44.5px]',
-			'max-[1760px]:mt-[1.5px]' // Magic number comes from app.css (when :root fontSize becomes bigger)
+			'mt-[1.5px] [@media(min-device-width:1760px)]:mt-0' // Magic number comes from app.css (when :root fontSize becomes bigger)
 		)}
 		style="height: {NODE.height}px;"
 		on:click={() => {
@@ -74,7 +74,11 @@
 						'text-xs rounded-md rounded-r-none px-1.5 h-[24px] w-full bg-surface flex flex-row items-center gap-2 justify-center transition-all duration-200 ',
 						'hover:bg-surface-hover text-gray-400 hover:text-primary'
 					)}
-					onclick={onOpenPreview}
+					onclick={(e) => {
+						// These buttons sit inside the Input node, whose click handler would select it.
+						e.stopPropagation()
+						onOpenPreview?.()
+					}}
 				>
 					{#if flowPreviewJob && !flowHasChanged}
 						<div
@@ -105,7 +109,10 @@
 			<button
 				class="h-[24px] px-1.5 bg-surface rounded-md rounded-l-none text-gray-400 hover:bg-red-500 hover:text-white"
 				title="Hide jobs status"
-				onclick={onHideJobStatus}
+				onclick={(e) => {
+					e.stopPropagation()
+					onHideJobStatus?.()
+				}}
 			>
 				<X size={14} />
 			</button>

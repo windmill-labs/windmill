@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT setting::bigint as \"v!\" FROM pg_settings WHERE name = 'superuser_reserved_connections'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "v!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "80e233d7db456ec7030486b009b6cfbf0fa45c2463b861c824fb9f1c0c46192f"
+}

@@ -2,7 +2,6 @@
 	import { run } from 'svelte/legacy';
 
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 
 	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
@@ -84,7 +83,7 @@
 		</label>
 	{/if}
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
-		<Button variant="default" unifiedSize="md" href="{base}/user/workspaces"
+		<Button variant="default" unifiedSize="md" href="/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<Button

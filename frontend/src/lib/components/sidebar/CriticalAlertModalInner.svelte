@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { preventDefault } from 'svelte/legacy'
+	import { isNewTabClick } from '$lib/navigation'
+	import { superadminSettingsHref } from './settings'
 
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
@@ -11,7 +12,7 @@
 	import CriticalAlertTable from './CriticalAlertTable.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 
 	let filteredAlerts: CriticalAlert[] = $state([])
 
@@ -30,6 +31,7 @@
 		acknowledgeCriticalAlert: any
 		acknowledgeAllCriticalAlerts: any
 		numUnacknowledgedCriticalAlerts: any
+		muteSettings?: { global?: boolean; workspace?: boolean }
 		workspaceContext?: boolean
 	}
 
@@ -39,8 +41,11 @@
 		acknowledgeCriticalAlert,
 		acknowledgeAllCriticalAlerts,
 		numUnacknowledgedCriticalAlerts,
+		muteSettings,
 		workspaceContext = $bindable(false)
 	}: Props = $props()
+
+	let isMuted = $derived(Boolean(muteSettings?.global || muteSettings?.workspace))
 
 	async function acknowledgeAll() {
 		await acknowledgeAllCriticalAlerts()
@@ -81,6 +86,12 @@
 		const channels = (await SettingService.getGlobal({ key: 'critical_error_channels' })) as any[]
 		hasCriticalAlertChannels = channels && channels.length > 0
 	}
+
+	// Load the channel state on mount so the "no channels" warning doesn't depend on
+	// there being unacknowledged alerts to trigger a refresh (muting auto-acks them).
+	onMount(() => {
+		if ($superadmin) checkCriticalAlertChannels()
+	})
 
 	async function acknowledgeAlert(id: number) {
 		await acknowledgeCriticalAlert({ id })
@@ -133,11 +144,18 @@
 </script>
 
 <List gap="sm">
-	{#if !hasCriticalAlertChannels && $superadmin}
+	{#if $superadmin && isMuted && !hasCriticalAlertChannels}
 		<div class="w-full">
 			<Alert title="No critical alert channels are set up" type="warning" size="xs">
 				Go to the
-				<a href="/#superadmin-settings" onclick={preventDefault(goToCoreTab)}>Instance settings</a>
+				<a
+					href="/{superadminSettingsHref('general')}"
+					onclick={(e) => {
+						if (isNewTabClick(e)) return
+						e.preventDefault()
+						goToCoreTab()
+					}}>Instance settings</a
+				>
 				page to configure critical alert channels.
 			</Alert>
 		</div>

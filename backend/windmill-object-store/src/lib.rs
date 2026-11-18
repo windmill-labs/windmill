@@ -59,6 +59,8 @@ use windmill_common::utils::rd_string;
 pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
+#[cfg(feature = "parquet")]
+pub mod fork_store;
 
 // Re-export object_store types so consumers don't need a direct object_store dep
 #[cfg(feature = "parquet")]
@@ -68,8 +70,8 @@ pub mod object_store_reexports {
     pub use object_store::path::Path;
     pub use object_store::{
         Attribute, Attributes, Error as ObjectStoreError, GetOptions, GetRange, GetResult,
-        ObjectStore, PutMultipartOpts, PutPayload, PutResult, Result as ObjectStoreResult,
-        WriteMultipart,
+        ObjectMeta, ObjectStore, PutMode, PutMultipartOpts, PutOptions, PutPayload, PutResult,
+        Result as ObjectStoreResult, UpdateVersion, WriteMultipart,
     };
 }
 
@@ -118,6 +120,10 @@ pub fn object_store_error_to_error(err: object_store::Error) -> error::Error {
 pub struct ExpirableObjectStore {
     pub store: Arc<dyn ObjectStore>,
     pub refresh: Option<ObjectStoreRefresh>,
+    /// What locates the store's objects ([`object_store_location`]), for a store built from
+    /// settings. Kept with the store rather than read off the settings again, so a server
+    /// whose reload is still pending never names one store by another's location.
+    pub location: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -155,44 +161,234 @@ impl ObjectStoreRefresh {
 #[cfg(feature = "parquet")]
 impl From<Arc<dyn ObjectStore>> for ExpirableObjectStore {
     fn from(store: Arc<dyn ObjectStore>) -> Self {
-        Self { store, refresh: None }
+        Self { store, refresh: None, location: None }
     }
 }
 
 #[cfg(feature = "parquet")]
 lazy_static::lazy_static! {
     pub static ref OBJECT_STORE_SETTINGS: Arc<RwLock<Option<ExpirableObjectStore>>> = Arc::new(RwLock::new(None));
+
+    /// Worker-group override of the store backing the *dependency cache* only: venvs, language
+    /// bundles and compiled binaries, which a worker both writes and reads back itself.
+    /// Everything the server also reads — job results, logs, codebases, app assets — stays on
+    /// [`OBJECT_STORE_SETTINGS`], which a worker-local redirect would make unreachable.
+    static ref CACHE_OBJECT_STORE_OVERRIDE: Arc<RwLock<Option<ExpirableObjectStore>>> = Arc::new(RwLock::new(None));
+
+    /// The config [`CACHE_OBJECT_STORE_OVERRIDE`] was built from, so a rebuild that fails for a
+    /// config already being served can keep serving it. Locked after the store, never before.
+    static ref CACHE_OVERRIDE_APPLIED: Arc<RwLock<Option<serde_json::Value>>> = Arc::new(RwLock::new(None));
+
+    /// Held across a whole [`reload_cache_object_store_override`], build included, so that the
+    /// override's flag, store and applied config only ever move together.
+    static ref CACHE_OVERRIDE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::new(());
+}
+
+/// Whether a worker-group cache override is configured, held apart from the store it built so
+/// that a configured-but-broken override reads as "no cache store" instead of silently falling
+/// back to the instance bucket the operator redirected away from.
+#[cfg(feature = "parquet")]
+static CACHE_OBJECT_STORE_OVERRIDDEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Bumped by every [`reload_cache_object_store_override`] at entry. Builds are slow and several
+/// callers race — a config change, the retry behind a failed one, a license-plan change — and the
+/// lock alone would only order them by arrival, so a reload that lost its claim while waiting
+/// drops out rather than installing a store the group has already moved off.
+#[cfg(feature = "parquet")]
+static CACHE_OVERRIDE_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(feature = "parquet")]
+async fn resolve_object_store(
+    settings_lock: &RwLock<Option<ExpirableObjectStore>>,
+) -> Option<Arc<dyn ObjectStore>> {
+    resolve_object_store_with_location(settings_lock)
+        .await
+        .map(|(store, _)| store)
+}
+
+#[cfg(feature = "parquet")]
+async fn resolve_object_store_with_location(
+    settings_lock: &RwLock<Option<ExpirableObjectStore>>,
+) -> Option<(Arc<dyn ObjectStore>, Option<String>)> {
+    let settings = settings_lock.read().await;
+    let Some(s) = settings.as_ref() else {
+        return None;
+    };
+    match &s.refresh {
+        Some(refresh) if refresh.refresh_needed() => {
+            let refresh = refresh.clone();
+            let refreshed_from = s.store.clone();
+            drop(settings);
+            let new_store = refresh.refresh().await?;
+            let mut settings = settings_lock.write().await;
+            match settings.as_ref() {
+                // A reload may have installed a different store while the credentials were
+                // being minted; that one reflects newer config, so the refresh is stale.
+                Some(current) if !Arc::ptr_eq(&current.store, &refreshed_from) => {
+                    Some((current.store.clone(), current.location.clone()))
+                }
+                Some(_) => {
+                    let found = (new_store.store.clone(), new_store.location.clone());
+                    *settings = Some(new_store);
+                    Some(found)
+                }
+                // Cleared while refreshing.
+                None => None,
+            }
+        }
+        _ => Some((s.store.clone(), s.location.clone())),
+    }
 }
 
 #[cfg(feature = "parquet")]
 pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
-    let settings = OBJECT_STORE_SETTINGS.read().await;
-    if let Some(s) = settings.as_ref() {
-        match &s.refresh {
-            Some(refresh) => {
-                if refresh.refresh_needed() {
-                    let refresh = refresh.clone();
-                    drop(settings);
-                    let new_store = refresh.refresh().await;
-                    if let Some(new_store) = new_store {
-                        let mut s3_cache_settings = OBJECT_STORE_SETTINGS.write().await;
-                        let arc = new_store.store.clone();
-                        *s3_cache_settings = Some(new_store);
-                        return Some(arc);
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return Some(s.store.clone());
-                }
-            }
-            None => {
-                return Some(s.store.clone());
-            }
-        }
-    } else {
-        return None;
+    resolve_object_store(&OBJECT_STORE_SETTINGS).await
+}
+
+/// The instance object store with what locates its objects ([`object_store_location`]),
+/// read together; the location is `None` for a store installed without settings.
+#[cfg(feature = "parquet")]
+pub async fn get_object_store_with_location() -> Option<(Arc<dyn ObjectStore>, Option<String>)> {
+    resolve_object_store_with_location(&OBJECT_STORE_SETTINGS).await
+}
+
+/// The store the dependency cache reads and writes: the worker group's override when it has one,
+/// the instance object store otherwise. Anything the server must also reach goes through
+/// [`get_object_store`] instead.
+#[cfg(feature = "parquet")]
+pub async fn get_cache_object_store() -> Option<Arc<dyn ObjectStore>> {
+    if CACHE_OBJECT_STORE_OVERRIDDEN.load(std::sync::atomic::Ordering::Relaxed) {
+        return resolve_object_store(&CACHE_OBJECT_STORE_OVERRIDE).await;
     }
+    resolve_object_store(&OBJECT_STORE_SETTINGS).await
+}
+
+/// True when an override is configured but has no usable store. The caller's short retry is the
+/// fast path back; this is the backstop, and the full settings reload it rides on is 12h apart by
+/// default (`SETTINGS_RELOAD_PERIOD_SECS`), so an outage outlasting the retry keeps the group's
+/// dependency cache local until then or until someone edits the group config.
+#[cfg(feature = "parquet")]
+pub async fn cache_object_store_override_failed() -> bool {
+    CACHE_OBJECT_STORE_OVERRIDDEN.load(std::sync::atomic::Ordering::Relaxed)
+        && CACHE_OBJECT_STORE_OVERRIDE.read().await.is_none()
+}
+
+/// Apply the `object_store_cache_config` of this worker's group. `None` (or JSON null) drops the
+/// override and returns the worker to the instance object store.
+///
+/// Returns [`ObjectStoreReload::Later`] when the store did not build for a reason that may pass —
+/// the caller is expected to retry shortly, as `initial_load` does for the instance store.
+#[cfg(feature = "parquet")]
+pub async fn reload_cache_object_store_override(
+    db: &windmill_common::DB,
+    settings: Option<serde_json::Value>,
+) -> ObjectStoreReload {
+    use std::sync::atomic::Ordering;
+    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
+    // Claim a generation, then take the lock: every state transition below happens inside one
+    // critical section, and a caller that lost its claim while waiting drops out rather than
+    // installing what the group has already moved off.
+    let generation = CACHE_OVERRIDE_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let _transition = CACHE_OVERRIDE_LOCK.lock().await;
+    if CACHE_OVERRIDE_GENERATION.load(Ordering::SeqCst) != generation {
+        return ObjectStoreReload::Never;
+    }
+
+    // DISABLE_S3_STORE turns off the instance object store for this process; a group override
+    // must not be a way back in.
+    let store_disabled = std::env::var("DISABLE_S3_STORE")
+        .ok()
+        .is_some_and(|x| x == "1" || x == "true");
+
+    let Some(settings) = settings.filter(|v| !v.is_null() && !store_disabled) else {
+        if CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
+            clear_cache_object_store_override().await;
+            tracing::info!(
+                "Worker group object store cache override removed, falling back to the instance object store"
+            );
+        }
+        return ObjectStoreReload::Never;
+    };
+
+    // Enterprise-only, so anything else — Community, including a CE build reaching this through
+    // the config-as-code API, and Pro — must not get a store, and a plan that stops being
+    // Enterprise must drop one loaded while it still was.
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        tracing::error!(
+            "Object store cache override requires an enterprise license, ignoring it for this worker group"
+        );
+        if CACHE_OBJECT_STORE_OVERRIDDEN.swap(false, Ordering::Relaxed) {
+            clear_cache_object_store_override().await;
+        }
+        return ObjectStoreReload::Never;
+    }
+
+    apply_cache_object_store_override(db, settings).await
+}
+
+/// The half of [`reload_cache_object_store_override`] past the entitlement gate: build the store
+/// and commit it. Split out so the commit rules are testable without a license plan.
+#[cfg(feature = "parquet")]
+async fn apply_cache_object_store_override(
+    db: &windmill_common::DB,
+    settings: serde_json::Value,
+) -> ObjectStoreReload {
+    use std::sync::atomic::Ordering;
+
+    // Claim the override before building it: until a store is in place the dependency cache
+    // must stay local-only rather than reach for the instance bucket.
+    CACHE_OBJECT_STORE_OVERRIDDEN.store(true, Ordering::Relaxed);
+
+    let (store, reload) = match serde_json::from_value::<ObjectSettings>(settings.clone()) {
+        Ok(setting) => match build_object_store_from_settings(setting, Some(db)).await {
+            Ok(store) => (Some(store), ObjectStoreReload::Never),
+            Err(e) => {
+                tracing::error!(
+                    "Error building the worker group object store cache override, the dependency cache stays local to this worker until it builds: {e:?}"
+                );
+                (None, ObjectStoreReload::Later)
+            }
+        },
+        // A malformed config will read the same on every retry.
+        Err(e) => {
+            tracing::error!(
+                "Error parsing the worker group object store cache override, the dependency cache stays local to this worker: {e:?}"
+            );
+            (None, ObjectStoreReload::Never)
+        }
+    };
+
+    let mut current = CACHE_OBJECT_STORE_OVERRIDE.write().await;
+    match store {
+        Some(store) => {
+            *current = Some(store);
+            *CACHE_OVERRIDE_APPLIED.write().await = Some(settings);
+            tracing::info!(
+                "Dependency cache of this worker group now uses its own object store, not the instance one"
+            );
+        }
+        // A rebuild that failed for the config already being served leaves that store in place:
+        // the group is entitled to it, and dropping it would take the whole group's cache local
+        // over a transient error. A *different* config failing must still clear, or the worker
+        // would keep writing to the bucket the operator redirected it away from.
+        None if current.is_some()
+            && CACHE_OVERRIDE_APPLIED.read().await.as_ref() == Some(&settings) => {}
+        None => {
+            *current = None;
+            *CACHE_OVERRIDE_APPLIED.write().await = None;
+        }
+    }
+    reload
+}
+
+/// Drop the override store and the config it was built from, in that lock order.
+#[cfg(feature = "parquet")]
+async fn clear_cache_object_store_override() {
+    *CACHE_OBJECT_STORE_OVERRIDE.write().await = None;
+    *CACHE_OVERRIDE_APPLIED.write().await = None;
 }
 
 #[cfg(feature = "parquet")]
@@ -248,20 +444,22 @@ pub async fn reload_object_store_setting(db: &windmill_common::DB) -> ObjectStor
                     tracing::error!("S3 cache is not available for pro plan");
                     return ObjectStoreReload::Never;
                 }
-                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
-                    bucket: None,
-                    region: None,
-                    access_key: None,
-                    secret_key: None,
-                    endpoint: None,
-                    store_logs: None,
-                    path_style: None,
-                    allow_http: None,
-                    port: None,
-                })
+                *s3_cache_settings = build_object_store_from_settings(
+                    ObjectSettings::S3(S3Settings {
+                        bucket: None,
+                        region: None,
+                        access_key: None,
+                        secret_key: None,
+                        endpoint: None,
+                        store_logs: None,
+                        path_style: None,
+                        allow_http: None,
+                        port: None,
+                    }),
+                    Some(db),
+                )
                 .await
                 .ok()
-                .map(|x| ExpirableObjectStore::from(x))
             } else {
                 *s3_cache_settings = None;
             }
@@ -355,18 +553,211 @@ pub async fn attempt_fetch_bytes(
     return Ok(bytes);
 }
 
+/// Whether an S3 resource carries static credentials. When it does not, the
+/// ambient AWS chain (env, profile, ECS/EC2 instance role) is used instead.
+/// Shared so callers that sign requests by hand resolve credentials on exactly the
+/// same condition as `build_s3_client`.
+#[cfg(feature = "parquet")]
+pub fn s3_resource_has_static_credentials(s3_resource: &S3Resource) -> bool {
+    s3_resource.access_key.as_ref().is_some_and(|x| x != "")
+        || s3_resource.secret_key.as_ref().is_some_and(|x| x != "")
+}
+
+/// Ambient AWS credentials from the shared, cached provider backing
+/// `build_s3_client`. Callers that sign their own requests must go through this
+/// rather than resolving the default chain themselves: the cache is what keeps a
+/// burst of requests from hitting the instance metadata service once each.
+///
+/// These are the **instance's own** credentials, not any caller's, and they are
+/// returned in the clear. A caller therefore MUST:
+/// - authorize the request target itself — reaching this function implies no
+///   permission check, and the credentials typically outrank the requesting user;
+/// - use them only to sign a request it has already authorized, never surface them
+///   in a response, log, or error message, and never hand them to a caller-supplied
+///   endpoint.
+///
+/// Prefer `build_s3_client`, which confines them to the object-store client; reach
+/// for this only where a request must be signed by hand.
+#[cfg(feature = "parquet")]
+pub async fn ambient_aws_credentials(
+    region: &str,
+) -> anyhow::Result<aws_sdk_sts::config::Credentials> {
+    ambient_aws_credentials_provider(region).await.get().await
+}
+
+/// An object-store HTTP connector whose client cannot reach a non-public address.
+///
+/// Validating a caller-supplied endpoint up front does not bind the connection: object_store
+/// resolves the host again when it connects, so a name can answer a public address to the check
+/// and an internal one to the connect. This client resolves every host through
+/// [`PublicOnlyResolver`], which judges the very addresses it hands to the connect, refuses IP-literal
+/// hosts that are not public (they never reach a resolver), and follows no redirect.
+///
+/// The environment's egress proxy (`HTTP(S)_PROXY`/`ALL_PROXY`) is still used, and its own host is
+/// exempt from the resolver check: it is operator configuration and typically internal. A request
+/// whose target is the proxy host itself is refused, so the exemption only ever serves the proxy
+/// hop. A proxied request's target is resolved by the proxy, out of this client's reach (see
+/// `ssrf::ValidatedTarget`).
+#[cfg(feature = "parquet")]
+#[derive(Debug, Clone, Copy)]
+pub struct PublicOnlyConnector;
+
+#[cfg(feature = "parquet")]
+impl object_store::client::HttpConnector for PublicOnlyConnector {
+    fn connect(
+        &self,
+        options: &ClientOptions,
+    ) -> object_store::Result<object_store::client::HttpClient> {
+        let allow_http = options
+            .get_config_value(&object_store::ClientConfigKey::AllowHttp)
+            .is_some_and(|v| v == "true");
+        let proxy_hosts: Arc<[String]> = system_proxy_hosts().into();
+        let client = reqwest_object_store::Client::builder()
+            .dns_resolver(Arc::new(PublicOnlyResolver {
+                proxy_hosts: proxy_hosts.clone(),
+            }))
+            .redirect(reqwest_object_store::redirect::Policy::none())
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .default_headers(HeaderMap::from_iter([(
+                reqwest::header::ACCEPT_ENCODING,
+                reqwest::header::HeaderValue::from_static(""),
+            )]))
+            .no_gzip()
+            .no_brotli()
+            .no_deflate()
+            .no_zstd()
+            .https_only(!allow_http)
+            .build()
+            .map_err(|e| object_store::Error::Generic {
+                store: "HTTP client",
+                source: Box::new(e),
+            })?;
+        Ok(object_store::client::HttpClient::new(PublicOnlyClient {
+            client,
+            proxy_hosts,
+        }))
+    }
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct PublicOnlyClient {
+    client: reqwest_object_store::Client,
+    proxy_hosts: Arc<[String]>,
+}
+
+#[cfg(feature = "parquet")]
+#[async_trait]
+impl object_store::client::HttpService for PublicOnlyClient {
+    async fn call(
+        &self,
+        req: object_store::client::HttpRequest,
+    ) -> Result<object_store::client::HttpResponse, object_store::client::HttpError> {
+        let host = req.uri().host().unwrap_or_default();
+        let literal = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .ok();
+        let refused = if literal.is_some_and(|ip| windmill_common::ssrf::is_private_ip(&ip)) {
+            Some("a private, loopback, or link-local address")
+        } else if self
+            .proxy_hosts
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(host))
+        {
+            Some("the egress proxy")
+        } else {
+            None
+        };
+        if let Some(what) = refused {
+            return Err(object_store::client::HttpError::new(
+                object_store::client::HttpErrorKind::Unknown,
+                std::io::Error::other(format!("'{host}' is {what}")),
+            ));
+        }
+        object_store::client::HttpService::call(&self.client, req).await
+    }
+}
+
+#[cfg(feature = "parquet")]
+struct PublicOnlyResolver {
+    proxy_hosts: Arc<[String]>,
+}
+
+/// The hosts of the proxies reqwest picks up from the environment.
+#[cfg(feature = "parquet")]
+fn system_proxy_hosts() -> Vec<String> {
+    [
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ]
+    .into_iter()
+    .filter_map(|k| std::env::var(k).ok())
+    .filter_map(|v| {
+        let v = v.trim();
+        let url = if v.contains("://") {
+            v.to_string()
+        } else {
+            format!("http://{v}")
+        };
+        Some(
+            reqwest::Url::parse(&url)
+                .ok()?
+                .host_str()?
+                .to_ascii_lowercase(),
+        )
+    })
+    .collect()
+}
+
+#[cfg(feature = "parquet")]
+impl reqwest_object_store::dns::Resolve for PublicOnlyResolver {
+    fn resolve(
+        &self,
+        name: reqwest_object_store::dns::Name,
+    ) -> reqwest_object_store::dns::Resolving {
+        let is_proxy = self
+            .proxy_hosts
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(name.as_str()));
+        Box::pin(async move {
+            let host = name.as_str();
+            let addrs: Vec<std::net::SocketAddr> =
+                tokio::net::lookup_host((host, 0)).await?.collect();
+            if !is_proxy
+                && addrs
+                    .iter()
+                    .any(|a| windmill_common::ssrf::is_private_ip(&a.ip()))
+            {
+                return Err(format!(
+                    "'{host}' resolves to a private, loopback, or link-local address"
+                )
+                .into());
+            }
+            Ok(Box::new(addrs.into_iter()) as reqwest_object_store::dns::Addrs)
+        })
+    }
+}
+
 #[cfg(feature = "parquet")]
 pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn ObjectStore>> {
-    let static_creds = s3_resource_ref.access_key.as_ref().is_some_and(|x| x != "")
-        || s3_resource_ref.secret_key.as_ref().is_some_and(|x| x != "");
+    build_s3_client_with(s3_resource_ref, None).await
+}
+
+#[cfg(feature = "parquet")]
+async fn build_s3_client_with(
+    s3_resource_ref: &S3Resource,
+    connector: Option<PublicOnlyConnector>,
+) -> error::Result<Arc<dyn ObjectStore>> {
+    let static_creds = s3_resource_has_static_credentials(s3_resource_ref);
 
     let credentials_provider = if !static_creds {
-        Some(
-            DefaultCredentialsChain::builder()
-                .region(Region::new(s3_resource_ref.region.clone()))
-                .build()
-                .await,
-        )
+        Some(ambient_aws_credentials_provider(&s3_resource_ref.region).await)
     } else {
         None
     };
@@ -401,6 +792,9 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
     if !s3_resource.use_ssl {
         store_builder = store_builder.with_allow_http(true)
     }
+    if let Some(connector) = connector {
+        store_builder = store_builder.with_http_connector(connector);
+    }
 
     if let Some(key) = s3_resource.access_key {
         if key != "" {
@@ -433,6 +827,14 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
 #[cfg(feature = "parquet")]
 fn build_azure_blob_client(
     azure_blob_resource_ref: &AzureBlobResource,
+) -> error::Result<Arc<dyn ObjectStore>> {
+    build_azure_blob_client_with(azure_blob_resource_ref, None)
+}
+
+#[cfg(feature = "parquet")]
+fn build_azure_blob_client_with(
+    azure_blob_resource_ref: &AzureBlobResource,
+    connector: Option<PublicOnlyConnector>,
 ) -> error::Result<Arc<dyn ObjectStore>> {
     let blob_resource = azure_blob_resource_ref.clone();
 
@@ -479,6 +881,9 @@ fn build_azure_blob_client(
     if !blob_resource.use_ssl.unwrap_or(false) {
         store_builder = store_builder.with_allow_http(true)
     }
+    if let Some(connector) = connector {
+        store_builder = store_builder.with_http_connector(connector);
+    }
 
     if let Some(key) = blob_resource.access_key {
         if key != "" {
@@ -494,8 +899,33 @@ fn build_azure_blob_client(
     return Ok(Arc::new(store));
 }
 
+/// Whether a GCS `service_account_key` carries no static credentials, in which case the client
+/// should fall back to the instance's ambient credentials (GKE Workload Identity / metadata server)
+/// instead of being handed an unparseable key. Besides an empty/whitespace string, the settings UI
+/// stores "no key" as an empty JSON object `{}` (and `serde_json` may yield `null`), so treat those
+/// as absent too. Shared with the connectivity-test SSRF guard so both agree on what "no key" means.
+pub fn gcs_service_account_key_is_blank(service_account_key: &str) -> bool {
+    let trimmed = service_account_key.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    match serde_json::from_str::<serde_json::Value>(trimmed) {
+        Ok(serde_json::Value::Null) => true,
+        Ok(serde_json::Value::Object(map)) => map.is_empty(),
+        _ => false,
+    }
+}
+
 #[cfg(feature = "parquet")]
 async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<dyn ObjectStore>> {
+    build_gcs_client_with(gcs_resource_ref, None).await
+}
+
+#[cfg(feature = "parquet")]
+async fn build_gcs_client_with(
+    gcs_resource_ref: &GcsResource,
+    connector: Option<PublicOnlyConnector>,
+) -> error::Result<Arc<dyn ObjectStore>> {
     let gcs_resource = gcs_resource_ref.clone();
 
     let mut store_builder = GoogleCloudStorageBuilder::new()
@@ -509,7 +939,15 @@ async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<d
         )
         .with_bucket_name(gcs_resource.bucket);
 
-    store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    // A blank key means no static credentials: let the builder fall back to the metadata server
+    // (InstanceCredentialProvider) so GKE Workload Identity / ambient credentials work. Passing a
+    // blank/`{}` key to `with_service_account_key` would instead fail to parse.
+    if !gcs_service_account_key_is_blank(&gcs_resource.service_account_key) {
+        store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    }
+    if let Some(connector) = connector {
+        store_builder = store_builder.with_http_connector(connector);
+    }
 
     let store = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store_builder.build()))
         .map_err(|panic_info| {
@@ -535,7 +973,157 @@ pub fn build_filesystem_client(root_path: &str) -> error::Result<Arc<dyn ObjectS
     let store = object_store::local::LocalFileSystem::new_with_prefix(root_path).map_err(|e| {
         error::Error::internal_err(format!("Error building filesystem object store: {:?}", e))
     })?;
-    Ok(Arc::new(store))
+    Ok(Arc::new(FilesystemStoreIgnoringAttributes(store)))
+}
+
+/// `LocalFileSystem` rejects put/multipart uploads whose options carry
+/// attributes (content-type, content-disposition, ...) with `NotImplemented`.
+/// Attributes are advisory metadata a plain filesystem cannot persist, so
+/// drop them instead of failing the upload.
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct FilesystemStoreIgnoringAttributes(object_store::local::LocalFileSystem);
+
+#[cfg(feature = "parquet")]
+impl std::fmt::Display for FilesystemStoreIgnoringAttributes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[cfg(feature = "parquet")]
+#[async_trait]
+impl ObjectStore for FilesystemStoreIgnoringAttributes {
+    async fn put_opts(
+        &self,
+        location: &object_store::path::Path,
+        payload: object_store::PutPayload,
+        mut opts: object_store::PutOptions,
+    ) -> object_store::Result<object_store::PutResult> {
+        opts.attributes = Default::default();
+        self.0.put_opts(location, payload, opts).await
+    }
+
+    async fn put_multipart_opts(
+        &self,
+        location: &object_store::path::Path,
+        mut opts: object_store::PutMultipartOpts,
+    ) -> object_store::Result<Box<dyn object_store::MultipartUpload>> {
+        opts.attributes = Default::default();
+        self.0.put_multipart_opts(location, opts).await
+    }
+
+    async fn get_opts(
+        &self,
+        location: &object_store::path::Path,
+        options: object_store::GetOptions,
+    ) -> object_store::Result<object_store::GetResult> {
+        self.0.get_opts(location, options).await
+    }
+
+    async fn get_range(
+        &self,
+        location: &object_store::path::Path,
+        range: std::ops::Range<u64>,
+    ) -> object_store::Result<Bytes> {
+        self.0.get_range(location, range).await
+    }
+
+    async fn get_ranges(
+        &self,
+        location: &object_store::path::Path,
+        ranges: &[std::ops::Range<u64>],
+    ) -> object_store::Result<Vec<Bytes>> {
+        self.0.get_ranges(location, ranges).await
+    }
+
+    async fn head(
+        &self,
+        location: &object_store::path::Path,
+    ) -> object_store::Result<object_store::ObjectMeta> {
+        self.0.head(location).await
+    }
+
+    async fn delete(&self, location: &object_store::path::Path) -> object_store::Result<()> {
+        self.0.delete(location).await
+    }
+
+    fn list(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
+        self.0.list(prefix)
+    }
+
+    fn list_with_offset(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+        offset: &object_store::path::Path,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
+        self.0.list_with_offset(prefix, offset)
+    }
+
+    async fn list_with_delimiter(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+    ) -> object_store::Result<object_store::ListResult> {
+        self.0.list_with_delimiter(prefix).await
+    }
+
+    async fn copy(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.copy(from, to).await
+    }
+
+    async fn rename(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.rename(from, to).await
+    }
+
+    async fn copy_if_not_exists(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.copy_if_not_exists(from, to).await
+    }
+
+    async fn rename_if_not_exists(
+        &self,
+        from: &object_store::path::Path,
+        to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        self.0.rename_if_not_exists(from, to).await
+    }
+}
+
+/// What locates a store's objects: endpoint, port, region and bucket (or account and
+/// container, or root), never the credentials, which rotate. Two stores with the same
+/// location hold the same objects.
+pub fn object_store_location(resource: &ObjectStoreResource) -> String {
+    match resource {
+        ObjectStoreResource::S3(s) => format!(
+            "s3:{}:{}:{}:{}",
+            s.endpoint,
+            s.port.unwrap_or_default(),
+            s.region,
+            s.bucket
+        ),
+        ObjectStoreResource::Azure(a) => format!(
+            "azure:{}:{}:{}",
+            a.endpoint.as_deref().unwrap_or_default(),
+            a.account_name,
+            a.container_name
+        ),
+        ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
+        ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
+    }
 }
 
 #[cfg(feature = "parquet")]
@@ -543,13 +1131,53 @@ pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
     init_private_key: Option<&windmill_common::DB>,
 ) -> error::Result<ExpirableObjectStore> {
+    build_object_store_from_settings_with(settings, init_private_key, None).await
+}
+
+/// [`build_object_store_from_settings`] for a caller-supplied endpoint: the client refuses to
+/// connect to any non-public address (see [`PublicOnlyConnector`]). Filesystem and OIDC settings
+/// are refused; whether S3, Azure or GCS settings carry explicit credentials (rather than falling
+/// back to the server's ambient ones) is still the caller's to check.
+#[cfg(feature = "parquet")]
+pub async fn build_public_object_store_from_settings(
+    settings: ObjectSettings,
+) -> error::Result<Arc<dyn ObjectStore>> {
     match settings {
-        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings)
-            .await
-            .map(|x| ExpirableObjectStore::from(x)),
+        ObjectSettings::S3(_) | ObjectSettings::Azure(_) | ObjectSettings::Gcs(_) => {
+            build_object_store_from_settings_with(settings, None, Some(PublicOnlyConnector))
+                .await
+                .map(|x| x.store)
+        }
+        ObjectSettings::AwsOidc(_) | ObjectSettings::Filesystem(_) => {
+            Err(error::Error::BadRequest(
+                "This object storage backend cannot be restricted to public endpoints".to_string(),
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "parquet")]
+async fn build_object_store_from_settings_with(
+    settings: ObjectSettings,
+    init_private_key: Option<&windmill_common::DB>,
+    connector: Option<PublicOnlyConnector>,
+) -> error::Result<ExpirableObjectStore> {
+    let located =
+        |store: Arc<dyn ObjectStore>, resource: ObjectStoreResource| ExpirableObjectStore {
+            store,
+            refresh: None,
+            location: Some(object_store_location(&resource)),
+        };
+    match settings {
+        ObjectSettings::S3(s3_settings) => {
+            let s3_resource = s3_resource_from_settings(s3_settings);
+            build_s3_client_with(&s3_resource, connector)
+                .await
+                .map(|x| located(x, ObjectStoreResource::S3(s3_resource)))
+        }
         ObjectSettings::Azure(azure_settings) => {
-            let azure_blob_resource = azure_settings;
-            build_azure_blob_client(&azure_blob_resource).map(|x| ExpirableObjectStore::from(x))
+            build_azure_blob_client_with(&azure_settings, connector)
+                .map(|x| located(x, ObjectStoreResource::Azure(azure_settings)))
         }
         ObjectSettings::AwsOidc(ref s3_aws_oidc_settings) => {
             let token_generator = crate::job_s3_helpers_oss::TokenGenerator::AsServerInstance();
@@ -565,17 +1193,14 @@ pub async fn build_object_store_from_settings(
                 .map(|x| ExpirableObjectStore {
                     store: x,
                     refresh: Some(ObjectStoreRefresh::new(settings.clone(), res.expiration())),
+                    location: Some(object_store_location(&res)),
                 })
         }
-        ObjectSettings::Gcs(gcs_settings) => {
-            let gcs_resource = gcs_settings;
-            build_gcs_client(&gcs_resource)
-                .await
-                .map(|x| ExpirableObjectStore::from(x))
-        }
-        ObjectSettings::Filesystem(fs) => {
-            build_filesystem_client(&fs.root_path).map(|x| ExpirableObjectStore::from(x))
-        }
+        ObjectSettings::Gcs(gcs_settings) => build_gcs_client_with(&gcs_settings, connector)
+            .await
+            .map(|x| located(x, ObjectStoreResource::Gcs(gcs_settings))),
+        ObjectSettings::Filesystem(fs) => build_filesystem_client(&fs.root_path)
+            .map(|x| located(x, ObjectStoreResource::Filesystem(fs))),
     }
 }
 
@@ -588,14 +1213,14 @@ fn none_if_empty(s: Option<String>) -> Option<String> {
     }
 }
 
+/// The S3 resource instance settings resolve to, the environment filling in what they
+/// leave out.
 #[cfg(feature = "parquet")]
-pub async fn build_s3_client_from_settings(
-    settings: S3Settings,
-) -> error::Result<Arc<dyn ObjectStore>> {
+fn s3_resource_from_settings(settings: S3Settings) -> S3Resource {
     let region = none_if_empty(settings.region)
         .unwrap_or_else(|| std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()));
 
-    let s3_resource = S3Resource {
+    S3Resource {
         endpoint: none_if_empty(settings.endpoint).unwrap_or_else(|| {
             std::env::var("S3_ENDPOINT").unwrap_or_else(|_| format!("s3.{region}.amazonaws.com"))
         }),
@@ -610,15 +1235,95 @@ pub async fn build_s3_client_from_settings(
         port: settings.port,
         token: None,
         expiration: None,
-    };
+    }
+}
 
-    build_s3_client(&s3_resource).await
+// Resolving the default chain goes over the network (ECS/IMDS) on instances relying on an
+// instance role, and object_store asks its CredentialProvider on every request — so resolved
+// credentials must be cached and only re-fetched when close to expiring.
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct AmbientAwsCredentials {
+    chain: DefaultCredentialsChain,
+    cached: RwLock<Option<(aws_sdk_sts::config::Credentials, std::time::Instant)>>,
+}
+
+#[cfg(feature = "parquet")]
+impl AmbientAwsCredentials {
+    // Credentials without an expiry (env vars, static profile) are still re-resolved
+    // periodically so runtime changes to the environment are eventually picked up.
+    const NO_EXPIRY_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+    const EXPIRY_MARGIN: std::time::Duration = std::time::Duration::from_secs(120);
+
+    fn still_valid(creds: &aws_sdk_sts::config::Credentials, age: std::time::Duration) -> bool {
+        match creds.expiry() {
+            Some(expiry) => std::time::SystemTime::now() + Self::EXPIRY_MARGIN < expiry,
+            None => age < Self::NO_EXPIRY_TTL,
+        }
+    }
+
+    async fn get(&self) -> anyhow::Result<aws_sdk_sts::config::Credentials> {
+        if let Some((creds, fetched_at)) = self.cached.read().await.as_ref() {
+            if Self::still_valid(creds, fetched_at.elapsed()) {
+                return Ok(creds.clone());
+            }
+        }
+        // The write lock is held across the chain resolution so concurrent requests don't all
+        // hit the metadata service at once.
+        let mut guard = self.cached.write().await;
+        if let Some((creds, fetched_at)) = guard.as_ref() {
+            if Self::still_valid(creds, fetched_at.elapsed()) {
+                return Ok(creds.clone());
+            }
+        }
+        let creds = self.chain.provide_credentials().await.map_err(|e| {
+            anyhow::anyhow!(
+                "no S3 access key/secret key is configured and no ambient AWS credentials could \
+                 be loaded through the AWS SDK default chain (env vars, profile, ECS/EC2 instance \
+                 role): {cause}. If an EC2/ECS instance role is expected to be used, the instance \
+                 metadata service must be reachable from the process running Windmill — on EC2 the \
+                 AWS Rust SDK only supports IMDSv2, so when Windmill runs in a Docker container \
+                 the instance metadata hop limit (HttpPutResponseHopLimit) must be at least 2",
+                cause = format!("{:#}", anyhow::Error::new(e))
+            )
+        })?;
+        *guard = Some((creds.clone(), std::time::Instant::now()));
+        Ok(creds)
+    }
+}
+
+#[cfg(feature = "parquet")]
+lazy_static::lazy_static! {
+    static ref AMBIENT_AWS_CREDS_PROVIDERS: Cache<String, Arc<AmbientAwsCredentials>> =
+        Cache::new(20);
+}
+
+#[cfg(feature = "parquet")]
+async fn ambient_aws_credentials_provider(region: &str) -> Arc<AmbientAwsCredentials> {
+    // Single-flight: concurrent cold misses for the same region must share one provider,
+    // otherwise each gets its own instance and their per-instance refresh locks can't serialize
+    // the initial credential resolution — every caller would hit the metadata service.
+    match AMBIENT_AWS_CREDS_PROVIDERS
+        .get_value_or_guard_async(region)
+        .await
+    {
+        Ok(provider) => provider,
+        Err(guard) => {
+            let chain = DefaultCredentialsChain::builder()
+                .region(Region::new(region.to_string()))
+                .build()
+                .await;
+            let provider = Arc::new(AmbientAwsCredentials { chain, cached: RwLock::new(None) });
+            let _ = guard.insert(provider.clone());
+            provider
+        }
+    }
 }
 
 #[cfg(feature = "parquet")]
 #[derive(Debug)]
 struct AwsCredentialAdapter {
-    pub inner: DefaultCredentialsChain,
+    pub inner: Arc<AmbientAwsCredentials>,
 }
 
 #[cfg(feature = "parquet")]
@@ -626,9 +1331,9 @@ struct AwsCredentialAdapter {
 impl CredentialProvider for AwsCredentialAdapter {
     type Credential = AwsCredential;
     async fn get_credential(&self) -> object_store::Result<Arc<Self::Credential>> {
-        let creds = self.inner.provide_credentials().await.map_err(|e| {
-            tracing::error!("Error getting credentials: {:?}", e);
-            object_store::Error::Generic { store: "AWS", source: Box::new(e) }
+        let creds = self.inner.get().await.map_err(|e| {
+            tracing::error!("Error getting AWS credentials: {e:#}");
+            object_store::Error::Generic { store: "AWS", source: e.into() }
         })?;
         Ok(Arc::new(Self::Credential {
             key_id: creds.access_key_id().to_string(),
@@ -752,7 +1457,65 @@ pub fn check_az_account_name_workspace_restriction(
     Ok(())
 }
 
-pub const DEFAULT_STORAGE: &str = "_default_";
+/// The `&storage=` fragment of a presigned s3 signature's HMAC message. `_default_` and an unset
+/// storage name the same storage and must fold to the same fragment: a signature minted for one
+/// is redeemed through a URL carrying the other, and a disagreement between signer and validator
+/// surfaces only as `Invalid signature`. Both must build the message through this.
+pub fn s3_signature_storage_fragment(storage: Option<&str>) -> String {
+    match storage.filter(|s| *s != DEFAULT_STORAGE) {
+        Some(name) => format!("&storage={name}"),
+        None => String::new(),
+    }
+}
+
+/// Error for a workspace file-storage lookup that resolved to nothing. Naming the requested
+/// storage separates the two causes — a name this workspace has no storage for, versus a
+/// workspace with no storage configured at all — which the reader cannot otherwise tell apart.
+/// The wording stays neutral about where the name came from: callers pass an s3 object's
+/// `storage`, a request field, or a trigger's stored config.
+///
+/// The asset previewer renders "this object has not been written yet" for a 404, and for any
+/// other non-400 whose body contains "not found" (`S3FilePreview.svelte`, `isNotFoundError`).
+/// So the named variant must stay a **400** — its message echoes a caller-supplied name, which
+/// may itself contain "not found" — and the unnamed one must keep a message that does not.
+pub fn workspace_storage_not_found(storage: Option<&str>) -> error::Error {
+    match workspace_storage_not_found_message(storage) {
+        Some(msg) => error::Error::BadRequest(msg),
+        None => error::Error::InternalErr(
+            "No files storage resource defined at the workspace level".to_string(),
+        ),
+    }
+}
+
+/// [`workspace_storage_not_found`] for a caller whose storage name comes from stored
+/// configuration rather than from the request — a trigger's static-asset config, say. Same
+/// message, but a server-side class: the requester cannot correct a name they never supplied.
+///
+/// Not for any route the asset previewer reads: this is the 500-with-an-interpolated-name shape
+/// that `isNotFoundError` falls through to its "not found" substring test for, so a storage
+/// named `archive not found` would render there as "asset not yet materialized".
+#[track_caller]
+pub fn workspace_storage_misconfigured(storage: Option<&str>) -> error::Error {
+    // `internal_err` on both arms: it is `#[track_caller]`, so the `@file:line` stamp lands on
+    // the handler that misconfigured the storage rather than on this helper.
+    error::Error::internal_err(
+        workspace_storage_not_found_message(storage).unwrap_or_else(|| {
+            "No files storage resource defined at the workspace level".to_string()
+        }),
+    )
+}
+
+/// `None` when the request named no storage (or named the primary one), so the caller reports
+/// the workspace as having no storage configured at all.
+fn workspace_storage_not_found_message(storage: Option<&str>) -> Option<String> {
+    storage.filter(|s| *s != DEFAULT_STORAGE).map(|name| {
+        format!(
+            "No files storage named '{name}' is defined at the workspace level. A storage name \
+             must be one of this workspace's secondary storages, or `{DEFAULT_STORAGE}` \
+             (equivalently, nothing at all) for the primary one."
+        )
+    })
+}
 
 pub fn bundle(w_id: &str, hash: &str) -> String {
     format!("script_bundle/{}/{}", w_id, hash)
@@ -856,6 +1619,7 @@ pub fn lfs_to_object_store_resource(
             Ok(ObjectStoreResource::Gcs(gcs_resource))
         }
         LargeFileStorage::FilesystemStorage(fs) => {
+            windmill_common::workspaces::ensure_filesystem_storage_allowed()?;
             Ok(ObjectStoreResource::Filesystem(FilesystemSettings {
                 root_path: fs.root_path.clone(),
             }))
@@ -955,6 +1719,45 @@ impl RecordBatchWriter for RecordBatchWriterEnum {
             RecordBatchWriterEnum::Json(w) => w.close(),
         }
     }
+}
+
+/// Infer the Arrow schema of a newline-delimited JSON file.
+///
+/// Inference only looks at the first `DEFAULT_SCHEMA_INFER_MAX_RECORD` rows, and a column
+/// that holds nothing but JSON `null` across that sample is typed `DataType::Null`, which
+/// makes the reader reject the first real value further down the file. When a longer file
+/// leaves such a column behind, re-infer over all of it so the column's type comes from
+/// wherever its first non-null value is.
+#[cfg(feature = "parquet")]
+fn infer_ndjson_schema(
+    path: &std::path::Path,
+    row_count: u64,
+) -> anyhow::Result<datafusion::arrow::datatypes::Schema> {
+    use datafusion::arrow::datatypes::{DataType, Schema};
+    use datafusion::arrow::json::reader::infer_json_schema;
+    use datafusion::datasource::file_format::DEFAULT_SCHEMA_INFER_MAX_RECORD;
+
+    fn is_untyped(data_type: &DataType) -> bool {
+        match data_type {
+            DataType::Null => true,
+            DataType::Struct(fields) => fields.iter().any(|f| is_untyped(f.data_type())),
+            DataType::List(field) | DataType::LargeList(field) => is_untyped(field.data_type()),
+            _ => false,
+        }
+    }
+
+    let infer = |max_records: Option<usize>| -> anyhow::Result<Schema> {
+        let reader = std::io::BufReader::new(std::fs::File::open(path)?);
+        Ok(infer_json_schema(reader, max_records).map_err(to_anyhow)?.0)
+    };
+
+    let schema = infer(Some(DEFAULT_SCHEMA_INFER_MAX_RECORD))?;
+    if row_count > DEFAULT_SCHEMA_INFER_MAX_RECORD as u64
+        && schema.fields().iter().any(|f| is_untyped(f.data_type()))
+    {
+        return infer(None);
+    }
+    Ok(schema)
 }
 
 #[cfg(feature = "parquet")]
@@ -1123,10 +1926,21 @@ where
         ingest_start.elapsed(),
     );
 
+    let inferred_schema = {
+        let path = path.clone();
+        task::spawn_blocking(move || infer_ndjson_schema(&path, row_count))
+            .await
+            .map_err(to_anyhow)??
+    };
+
     let ctx = SessionContext::new();
-    ctx.register_json("my_table", path_str, NdJsonReadOptions::default())
-        .await
-        .map_err(to_anyhow)?;
+    ctx.register_json(
+        "my_table",
+        path_str,
+        NdJsonReadOptions::default().schema(&inferred_schema),
+    )
+    .await
+    .map_err(to_anyhow)?;
 
     let df = ctx.sql("SELECT * FROM my_table").await.map_err(to_anyhow)?;
     let schema = df.schema().clone().into();
@@ -1331,6 +2145,45 @@ pub async fn get_logs_from_store(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- ambient credentials cache tests ---
+
+    #[cfg(feature = "parquet")]
+    #[test]
+    fn test_ambient_credentials_still_valid() {
+        use std::time::{Duration, SystemTime};
+
+        fn creds(expiry: Option<SystemTime>) -> aws_sdk_sts::config::Credentials {
+            let mut builder = aws_sdk_sts::config::Credentials::builder()
+                .access_key_id("AK")
+                .secret_access_key("SK")
+                .provider_name("test");
+            if let Some(expiry) = expiry {
+                builder = builder.expiry(expiry);
+            }
+            builder.build()
+        }
+
+        // Expiry far in the future: valid regardless of fetch time
+        assert!(AmbientAwsCredentials::still_valid(
+            &creds(Some(SystemTime::now() + Duration::from_secs(3600))),
+            Duration::ZERO
+        ));
+        // Expiry within the refresh margin: must be re-fetched
+        assert!(!AmbientAwsCredentials::still_valid(
+            &creds(Some(SystemTime::now() + Duration::from_secs(30))),
+            Duration::ZERO
+        ));
+        // No expiry: valid while fresh, re-fetched after the TTL
+        assert!(AmbientAwsCredentials::still_valid(
+            &creds(None),
+            Duration::ZERO
+        ));
+        assert!(!AmbientAwsCredentials::still_valid(
+            &creds(None),
+            AmbientAwsCredentials::NO_EXPIRY_TTL + Duration::from_secs(1)
+        ));
+    }
 
     // --- render_endpoint tests ---
 
@@ -1574,6 +2427,40 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("GCS is not supported"));
+    }
+
+    #[test]
+    fn test_gcs_service_account_key_is_blank() {
+        for blank in ["", "   ", "\n\t", "{}", "  {}  ", "null"] {
+            assert!(
+                gcs_service_account_key_is_blank(blank),
+                "{blank:?} should be treated as no key"
+            );
+        }
+        for present in ["{\"client_email\":\"x@y.z\"}", "not json"] {
+            assert!(
+                !gcs_service_account_key_is_blank(present),
+                "{present:?} should be treated as a key"
+            );
+        }
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_build_gcs_client_blank_key_uses_instance_credentials() {
+        // A blank service account key must not be passed to `with_service_account_key`
+        // (which would fail to parse): the builder should fall back to instance credentials
+        // (GKE Workload Identity / metadata server) and construct successfully. `{}` is the
+        // settings UI's representation of "no key".
+        for key in ["", "   ", "{}"] {
+            let resource =
+                GcsResource { bucket: "bucket".to_string(), service_account_key: key.to_string() };
+            assert!(
+                build_gcs_client(&resource).await.is_ok(),
+                "blank key {:?} should build via instance credentials",
+                key
+            );
+        }
     }
 
     #[test]
@@ -1922,10 +2809,168 @@ mod tests {
             .contains("Error building filesystem object store"));
     }
 
+    /// A worker group override that is configured but has no usable store must leave the
+    /// dependency cache with no object store at all. Falling back to the instance one would
+    /// write the group's cache into the bucket the operator redirected it away from.
+    // Serialized with the other test that swaps OBJECT_STORE_SETTINGS: the store is
+    // process-global and CI runs this binary with --test-threads=10.
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    #[serial_test::serial(object_store_settings)]
+    async fn test_get_cache_object_store_override() {
+        use object_store::{path::Path, ObjectStore, PutPayload};
+        use std::sync::atomic::Ordering;
+
+        async fn marker_of(store: &Arc<dyn ObjectStore>) -> String {
+            let bytes = store.get(&Path::from("marker")).await.unwrap();
+            String::from_utf8(bytes.bytes().await.unwrap().to_vec()).unwrap()
+        }
+
+        let instance_dir = tempfile::tempdir().unwrap();
+        let instance = build_filesystem_client(instance_dir.path().to_str().unwrap()).unwrap();
+        instance
+            .put(&Path::from("marker"), PutPayload::from("instance"))
+            .await
+            .unwrap();
+
+        let group_dir = tempfile::tempdir().unwrap();
+        let group = build_filesystem_client(group_dir.path().to_str().unwrap()).unwrap();
+        group
+            .put(&Path::from("marker"), PutPayload::from("group"))
+            .await
+            .unwrap();
+
+        *OBJECT_STORE_SETTINGS.write().await = Some(ExpirableObjectStore::from(instance));
+
+        let store = get_cache_object_store().await.unwrap();
+        assert_eq!(marker_of(&store).await, "instance");
+        assert!(!cache_object_store_override_failed().await);
+
+        CACHE_OBJECT_STORE_OVERRIDDEN.store(true, Ordering::Relaxed);
+        *CACHE_OBJECT_STORE_OVERRIDE.write().await = Some(ExpirableObjectStore::from(group));
+        let store = get_cache_object_store().await.unwrap();
+        assert_eq!(marker_of(&store).await, "group");
+
+        // Configured but unbuilt, as a failed reload leaves it: no store at all, rather than the
+        // instance bucket the operator redirected the group away from.
+        *CACHE_OBJECT_STORE_OVERRIDE.write().await = None;
+        assert!(get_cache_object_store().await.is_none());
+        assert!(cache_object_store_override_failed().await);
+
+        // The teardown branch returns before the pool is used, so a lazy one is enough.
+        let db = sqlx::postgres::PgPool::connect_lazy("postgres://localhost/unused").unwrap();
+        reload_cache_object_store_override(&db, None).await;
+        let store = get_cache_object_store().await.unwrap();
+        assert_eq!(marker_of(&store).await, "instance");
+        assert!(!cache_object_store_override_failed().await);
+
+        *OBJECT_STORE_SETTINGS.write().await = None;
+    }
+
+    /// A rebuild is triggered by any edit to the group config, not only by editing the store, so
+    /// a build that fails for the config already installed must leave it alone — otherwise a
+    /// renamed worker tag plus one flaky token mint takes the whole group's cache local. A
+    /// *different* config failing still has to clear it.
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    #[serial_test::serial(object_store_settings)]
+    async fn test_failed_rebuild_keeps_the_store_serving_the_same_config() {
+        let db = sqlx::postgres::PgPool::connect_lazy("postgres://localhost/unused").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let settings = serde_json::json!({
+            "type": "Filesystem", "root_path": dir.path().to_str().unwrap()
+        });
+
+        apply_cache_object_store_override(&db, settings.clone()).await;
+        assert!(get_cache_object_store().await.is_some());
+
+        // Same config, now unbuildable: the store it already produced stays.
+        dir.close().unwrap();
+        apply_cache_object_store_override(&db, settings).await;
+        assert!(get_cache_object_store().await.is_some());
+
+        // A different config that will not build must not leave the old bucket in place.
+        let moved = serde_json::json!({ "type": "Filesystem", "root_path": "/proc/nonexistent" });
+        apply_cache_object_store_override(&db, moved).await;
+        assert!(get_cache_object_store().await.is_none());
+        assert!(cache_object_store_override_failed().await);
+
+        reload_cache_object_store_override(&db, None).await;
+    }
+
+    /// A store built from settings is located by where its objects are, not by how the
+    /// client describes itself: an S3 client prints only its bucket, so the same bucket name
+    /// on another endpoint would otherwise pass for the same store.
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_settings_store_location_tells_endpoints_apart() {
+        let s3 = |endpoint: &str| {
+            ObjectSettings::S3(S3Settings {
+                bucket: Some("windmill".to_string()),
+                region: Some("us-east-1".to_string()),
+                access_key: Some("key".to_string()),
+                secret_key: Some("secret".to_string()),
+                endpoint: Some(endpoint.to_string()),
+                allow_http: Some(true),
+                path_style: Some(true),
+                store_logs: None,
+                port: None,
+            })
+        };
+        let a = build_object_store_from_settings(s3("minio.internal:9000"), None)
+            .await
+            .unwrap();
+        let b = build_object_store_from_settings(s3("s3.us-east-1.amazonaws.com"), None)
+            .await
+            .unwrap();
+        assert_eq!(a.store.to_string(), b.store.to_string());
+        assert!(a.location.is_some());
+        assert_ne!(a.location, b.location);
+    }
+
+    /// The restricted store judges the addresses it connects to, not only what an earlier check
+    /// resolved: neither a hostname that resolves to loopback nor a loopback literal gets a
+    /// connection.
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_public_store_refuses_to_connect_to_private_address() {
+        use futures::StreamExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        for endpoint in ["localhost", "127.0.0.1"] {
+            let settings = ObjectSettings::S3(S3Settings {
+                bucket: Some("windmill".to_string()),
+                region: Some("us-east-1".to_string()),
+                access_key: Some("key".to_string()),
+                secret_key: Some("secret".to_string()),
+                endpoint: Some(endpoint.to_string()),
+                allow_http: Some(true),
+                path_style: Some(true),
+                store_logs: None,
+                port: Some(listener.local_addr().unwrap().port()),
+            });
+            let store = build_public_object_store_from_settings(settings)
+                .await
+                .unwrap();
+            // The listener never answers, so a store that connects waits forever: bound it.
+            let err =
+                tokio::time::timeout(std::time::Duration::from_secs(30), store.list(None).next())
+                    .await
+                    .unwrap_or_else(|_| panic!("the store connected to {endpoint}"))
+                    .unwrap()
+                    .unwrap_err();
+            assert!(
+                format!("{err:?}").contains("private, loopback, or link-local"),
+                "{endpoint}: {err:?}"
+            );
+        }
+    }
+
     // --- get_logs_from_store test ---
 
     #[cfg(feature = "parquet")]
     #[tokio::test]
+    #[serial_test::serial(object_store_settings)]
     async fn test_get_logs_from_store_with_filesystem() {
         use futures::StreamExt;
         use object_store::{path::Path, ObjectStore, PutPayload};
@@ -1998,5 +3043,35 @@ mod tests {
         // file_index is None → returns None
         let result = get_logs_from_store(1, "logs", &None).await;
         assert!(result.is_none());
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_convert_json_line_stream_value_after_null_only_sample() {
+        use datafusion::datasource::file_format::DEFAULT_SCHEMA_INFER_MAX_RECORD as SAMPLE;
+        use futures::StreamExt;
+
+        // One more all-null row than the inference sample can see, so the column's type has
+        // to come from the row that follows it.
+        let total = SAMPLE + 1;
+        let rows = (0..total).map(|i| {
+            Ok::<_, anyhow::Error>(serde_json::json!({
+                "col": if i < SAMPLE { serde_json::Value::Null } else { serde_json::json!("2023-11-30") }
+            }))
+        });
+
+        let (mut out, stats) =
+            convert_json_line_stream(futures::stream::iter(rows), S3ModeFormat::Json, None)
+                .await
+                .unwrap();
+        assert_eq!(stats.rows, total as u64);
+
+        let mut bytes = Vec::new();
+        while let Some(chunk) = out.next().await {
+            bytes.extend_from_slice(&chunk.expect("row after the null-only sample must decode"));
+        }
+        let parsed: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed.len(), total);
+        assert_eq!(parsed[total - 1]["col"], serde_json::json!("2023-11-30"));
     }
 }

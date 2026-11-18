@@ -1,13 +1,13 @@
 <script lang="ts">
 	import type { Job, Script } from '$lib/gen'
-	import { setActiveReplay } from './flowRecording.svelte'
-	import { createScriptRecording } from './scriptRecording.svelte'
+	import { setActiveReplay } from './replay.svelte'
+	import { synthesizeSingleJobReplay } from './replayStream'
 	import type { ScriptRecording } from './types'
 	import { sendUserToast } from '$lib/toast'
 	import { Button, Tab, TabContent } from '$lib/components/common'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { Highlight } from 'svelte-highlight'
 	import { json as jsonLang } from 'svelte-highlight/languages'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
@@ -15,7 +15,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { ClipboardCopy, InfoIcon, LogOut, Play, Square } from 'lucide-svelte'
+	import { ClipboardCopy, InfoIcon, Loader2, LogOut, Play, Square } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { onDestroy, tick } from 'svelte'
 	import JobLoader from '$lib/components/JobLoader.svelte'
@@ -45,12 +45,12 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let done = $derived((job as any)?.type === 'CompletedJob')
 
-	let scriptRecordingStore = createScriptRecording()
-
 	let schema = $derived(recording.schema)
 
+	let hasInputs = $derived(!!recording.args && Object.keys(schema?.properties ?? {}).length > 0)
+
 	if (selectedTab === undefined) {
-		if (schema && recording.args) selectedTab = 'parameters'
+		if (hasInputs) selectedTab = 'parameters'
 		else if (recording.args && Object.keys(recording.args).length > 0) selectedTab = 'args'
 		else selectedTab = 'code'
 	}
@@ -64,40 +64,8 @@
 		replayState = 'loaded'
 	}
 
-	/**
-	 * Rebase absolute timestamps so they are relative to "now".
-	 * JobLoader replay uses Date.now() for delay computation.
-	 */
-	function rebaseTimestamps(data: ScriptRecording): ScriptRecording {
-		const anchor = data.job?.initial_job?.started_at ?? data.job?.initial_job?.created_at
-		if (!anchor) return data
-		const earliest = new Date(anchor).getTime()
-		if (isNaN(earliest)) return data
-
-		const offset = Date.now() - earliest
-
-		function offsetDate(d: string | number | undefined): string | undefined {
-			if (!d) return d as undefined
-			const t = new Date(d).getTime()
-			if (isNaN(t)) return d as string
-			return new Date(t + offset).toISOString()
-		}
-
-		function offsetJobTimestamps(j: any) {
-			if (j.started_at) j.started_at = offsetDate(j.started_at)
-			if (j.created_at) j.created_at = offsetDate(j.created_at)
-			if (j.completed_at) j.completed_at = offsetDate(j.completed_at)
-		}
-
-		offsetJobTimestamps(data.job.initial_job)
-		for (const event of data.job.events) {
-			if (event.data?.job) offsetJobTimestamps(event.data.job)
-		}
-		return data
-	}
-
 	function initRecording() {
-		const id = recording.job?.initial_job?.id
+		const id = recording.job?.id
 		if (!id) {
 			sendUserToast('Recording has no job data', true)
 			return
@@ -109,10 +77,18 @@
 	initRecording()
 
 	export async function startReplay() {
-		const snapshot = JSON.parse(JSON.stringify(recording)) as ScriptRecording
-		rebaseTimestamps(snapshot)
-		const replayData = scriptRecordingStore.toReplayData(snapshot)
-		setActiveReplay(replayData)
+		if (!jobId) return
+		try {
+			// A malformed recording (upload / `?src=` fetch) can throw while the
+			// job is walked here — an event-handler throw a Svelte boundary can't
+			// catch, so it's guarded rather than left to break the page.
+			const stream = synthesizeSingleJobReplay(recording.job)
+			setActiveReplay({ jobs: { [jobId]: stream } })
+		} catch {
+			setActiveReplay(undefined)
+			sendUserToast('This recording could not be replayed — it may be malformed', true)
+			return
+		}
 		job = undefined
 		replayState = 'playing'
 		selectedTab = 'result'
@@ -129,7 +105,7 @@
 
 <HighlightTheme />
 
-{#if !recording?.job?.initial_job?.id}
+{#if !recording?.job?.id}
 	<div class="flex flex-col items-center justify-center min-h-[60vh]">
 		<div class="border rounded-lg p-8 bg-surface-tertiary max-w-md w-full text-center">
 			<p class="text-xs text-secondary">
@@ -184,15 +160,13 @@
 			{#if replayState === 'playing'}
 				<Tab value="result" label="Result" />
 			{/if}
-			{#if schema && recording.args}
-				<Tab value="parameters" label="Code" />
+			{#if hasInputs}
+				<Tab value="parameters" label="Inputs" />
 			{/if}
-			{#if recording.args && Object.keys(recording.args).length > 0}
+			{#if !hasInputs && recording.args && Object.keys(recording.args).length > 0}
 				<Tab value="args" label="Args" />
 			{/if}
-			{#if !schema || !recording.args}
-				<Tab value="code" label="Code" />
-			{/if}
+			<Tab value="code" label="Code" />
 			{#if schema}
 				<Tab value="schema" label="Schema" />
 			{/if}
@@ -200,6 +174,20 @@
 				<TabContent value="result" class="flex-1 min-h-0">
 					{#if replayState === 'playing' && jobId}
 						<div class="grid grid-cols-2 gap-4 w-full h-full">
+							<div class="flex flex-col min-h-0">
+								<h3 class="shrink-0 text-xs font-semibold text-emphasis mb-1">Logs</h3>
+								<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
+									<LogViewer
+										jobId={job?.id}
+										duration={job?.['duration_ms']}
+										mem={job?.['mem_peak']}
+										isLoading={!done}
+										content={job?.logs}
+										tag={job?.tag}
+										download={false}
+									/>
+								</div>
+							</div>
 							<div class="flex flex-col min-h-0">
 								<h3 class="shrink-0 text-xs font-semibold text-emphasis mb-1">Result</h3>
 								<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary p-4">
@@ -220,41 +208,13 @@
 									{/if}
 								</div>
 							</div>
-							<div class="flex flex-col min-h-0">
-								<h3 class="shrink-0 text-xs font-semibold text-emphasis mb-1">Logs</h3>
-								<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
-									<LogViewer
-										jobId={job?.id}
-										duration={job?.['duration_ms']}
-										mem={job?.['mem_peak']}
-										isLoading={!done}
-										content={job?.logs}
-										tag={job?.tag}
-										download={false}
-									/>
-								</div>
-							</div>
 						</div>
 					{/if}
 				</TabContent>
 				<TabContent value="parameters" class="flex-1 min-h-0">
 					{#if schema && recording.args}
-						<div class="flex gap-4 p-2 h-full">
-							<div class="w-1/2 overflow-auto text-2xs">
-								<HighlightCode
-									language={recording.language as Script['language']}
-									code={recording.code}
-									className="text-2xs"
-								/>
-							</div>
-							<div class="w-1/2 overflow-auto">
-								<SchemaForm
-									{schema}
-									args={recording.args}
-									disabled={true}
-									noVariablePicker={true}
-								/>
-							</div>
+						<div class="p-2 h-full overflow-auto">
+							<SchemaForm {schema} args={recording.args} disabled={true} noVariablePicker={true} />
 						</div>
 					{/if}
 				</TabContent>
@@ -265,14 +225,20 @@
 						</div>
 					{/if}
 				</TabContent>
-				<TabContent value="code">
-					<div class="p-2 w-full overflow-auto text-2xs">
-						<HighlightCode
-							language={recording.language as Script['language']}
-							code={recording.code}
-							lines
-							className="text-2xs"
-						/>
+				<TabContent value="code" class="flex-1 min-h-0">
+					<div class="h-full min-h-[300px] overflow-hidden rounded-md border">
+						{#await import('$lib/components/SimpleEditor.svelte')}
+							<Loader2 size={16} class="animate-spin m-4 text-secondary" />
+						{:then { default: SimpleEditor }}
+							<SimpleEditor
+								class="h-full"
+								lang={scriptLangToEditorLang(recording.language as Script['language'])}
+								code={recording.code}
+								readOnly
+								disableSuggestions
+								disableLinting
+							/>
+						{/await}
 					</div>
 				</TabContent>
 				<TabContent value="schema">

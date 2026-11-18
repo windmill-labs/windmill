@@ -17,7 +17,10 @@
 	import type { CompletedJob } from '$lib/gen'
 	import { getDbClockNow } from '$lib/forLater'
 	import { Scatter } from '$lib/components/chartjs-wrappers/chartJs'
+	import { timeTicksWithDate } from '$lib/components/chartjs-wrappers/timeTicks'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import { displayDate, msToReadableTime } from '$lib/utils'
+	import { durationAxisOptions, type DurationScale, type DurationUnit } from './runs/durationAxis'
 
 	interface Props {
 		jobs?: CompletedJob[] | undefined
@@ -26,6 +29,8 @@
 		maxTimeSet?: string | null
 		selectedIds?: string[]
 		canSelect?: boolean
+		unit?: DurationUnit
+		scale?: DurationScale
 		onPointClicked: (ids: string[]) => void
 		onZoom: (zoom: { min: Date; max: Date }) => void
 	}
@@ -37,6 +42,8 @@
 		maxTimeSet = null,
 		selectedIds = $bindable([]),
 		canSelect = true,
+		unit = 'auto',
+		scale = 'log',
 		onPointClicked,
 		onZoom
 	}: Props = $props()
@@ -127,9 +134,22 @@
 		return rgbToHex(blendedRgb)
 	}
 
-	function getPath(x: any): string {
-		return x.path
+	function statusLabel(job: CompletedJob): string {
+		if (job.canceled) return 'Canceled'
+		if (job.is_skipped) return 'Skipped'
+		return job.success ? 'Success' : 'Failure'
 	}
+
+	function toPoint(job: CompletedJob) {
+		return {
+			x: job.started_at as any,
+			y: job.duration_ms,
+			id: job.id,
+			path: job.script_path,
+			status: statusLabel(job)
+		}
+	}
+	type DurationPoint = ReturnType<typeof toPoint>
 
 	function minJobTime(jobs: CompletedJob[]): Date {
 		let min: Date = new Date(jobs[0].completed_at!)
@@ -198,26 +218,14 @@
 					backgroundColor: FAIL_COLOR as string | string[],
 					radius: 3,
 					label: 'Failed',
-					data:
-						failed?.map((job) => ({
-							x: job.started_at as any,
-							y: job.duration_ms,
-							id: job.id,
-							path: job.script_path
-						})) ?? []
+					data: failed?.map(toPoint) ?? []
 				},
 				{
 					borderColor: 'rgba(99,0,125, 0)',
 					backgroundColor: SUCCESS_COLOR as string | string[],
 					radius: 3,
 					label: 'Successful',
-					data:
-						success?.map((job) => ({
-							x: job.started_at as any,
-							y: job.duration_ms,
-							id: job.id,
-							path: job.script_path
-						})) ?? []
+					data: success?.map(toPoint) ?? []
 				}
 			]
 		}
@@ -236,6 +244,7 @@
 	})
 
 	const minMaxTime = $derived.by(() => computeMinMaxTime(jobs, minTimeSet, maxTimeSet))
+	const durations = $derived(jobs?.map((job) => job.duration_ms) ?? [])
 
 	let scatterOptions: ChartOptions<'scatter'> = $derived({
 		responsive: true,
@@ -247,8 +256,14 @@
 			},
 			tooltip: {
 				callbacks: {
-					label: function (context: any) {
-						return getPath(context.raw)
+					title: (items) => {
+						const raw = items[0]?.raw as DurationPoint | undefined
+						return raw ? displayDate(raw.x, true) : ''
+					},
+					label: (context) => {
+						const raw = context.raw as DurationPoint
+						const duration = `${msToReadableTime(raw.y, 2)} · ${raw.status}`
+						return raw.path ? [raw.path, duration] : duration
 					}
 				}
 			}
@@ -269,17 +284,13 @@
 				},
 				min: minMaxTime.minTime.getTime(),
 				max: minMaxTime.maxTime.getTime(),
-				ticks: { maxRotation: 0, minRotation: 0 }
+				ticks: timeTicksWithDate(minMaxTime.minTime, minMaxTime.maxTime)
 			},
 			y: {
+				...durationAxisOptions(unit, scale, durations),
 				grid: {
 					display: false
 				},
-				title: {
-					display: true,
-					text: 'job duration (ms)'
-				},
-				type: 'logarithmic',
 				afterFit: function (axis) {
 					axis.width = Math.max(axis.width, 65) // min width to prevent layout flickering
 				}
@@ -291,6 +302,6 @@
 
 <DarkModeObserver bind:darkMode />
 
-<div class="relative h-44">
+<div class="relative h-full">
 	<Scatter {data} options={scatterOptions} />
 </div>

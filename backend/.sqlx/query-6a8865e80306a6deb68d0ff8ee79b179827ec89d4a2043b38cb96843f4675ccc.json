@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ahead, fork_last_event_kind, fork_last_event_origin FROM workspace_diff\n             WHERE source_workspace_id = 'test-workspace' AND fork_workspace_id = 'wm-fork-removal'\n               AND kind = 'script' AND path = 'u/admin/dropped_by_sync'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ahead",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "fork_last_event_kind",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "fork_last_event_origin",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "6a8865e80306a6deb68d0ff8ee79b179827ec89d4a2043b38cb96843f4675ccc"
+}

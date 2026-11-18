@@ -1,0 +1,845 @@
+<script lang="ts">
+	import { goto } from '$lib/navigation'
+	import { Button } from '$lib/components/common'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import {
+		Plus,
+		Bot,
+		Code2,
+		LayoutDashboard,
+		ChevronDown,
+		ChevronRight,
+		Loader2,
+		Workflow,
+		Import,
+		Store,
+		PanelLeftClose,
+		Folder
+	} from 'lucide-svelte'
+	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
+	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
+	import { HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
+	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
+	import { importStore } from '$lib/components/apps/store'
+	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
+	import type { EditKind } from '$lib/editRights'
+	import { createDropdownMenu, melt } from '@melt-ui/svelte'
+	import type { Snippet } from 'svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
+
+	const editRights = useEditRights()
+
+	interface Props {
+		/** Replaces the default `New` button, e.g. with an inline text link. */
+		trigger?: Snippet
+		/** The node `trigger` renders: what the menu anchors to and what opens it. */
+		triggerElement?: HTMLElement
+		/** Which entry point this menu hangs off, for telemetry. */
+		source?: 'toolbar' | 'empty_state'
+		/**
+		 * Opens the hub project picker. The menu only offers the entry; the picker and the
+		 * import dialog belong to the host, which is the one place a single import modal can
+		 * serve both this menu and the empty state's own link.
+		 */
+		onImportHubProject?: () => void
+		/** Opens the host's folder drawer. The entry is offered only when this is set. */
+		onCreateFolder?: () => void
+	}
+
+	let {
+		trigger,
+		triggerElement,
+		source = 'toolbar',
+		onImportHubProject,
+		onCreateFolder
+	}: Props = $props()
+
+	type Variant = {
+		label: string
+		icon: typeof PythonIcon
+		href: string
+		badge?: { label: string; class: string }
+		/** opened in a new tab from a link beside the variant */
+		docHref?: string
+		/** shown in the doc panel while the variant is hovered, instead of its option's */
+		doc?: Doc
+	}
+
+	/** what the doc panel shows */
+	type Doc = {
+		label: string
+		/** a lucide icon or a brand mark; rendered at 26px through both size APIs */
+		icon: any
+		accent: string
+		tagline: string
+		description: string
+		bullets: string[]
+		badge?: { label: string; class: string }
+	}
+
+	/** an importable artifact kind handled by the shared YAML/JSON import drawer */
+	type ImportKind = 'flow' | 'wac' | 'app-lowcode' | 'app-fullcode'
+
+	type Extra = {
+		label: string
+		onSelect: () => void
+	}
+
+	type Option = {
+		key: string
+		label: string
+		icon: typeof Code2 | typeof BarsStaggered
+		/** tailwind accent token used for the icon tile / hover border */
+		accent: string
+		tagline: string
+		description: string
+		bullets: string[]
+		/** the editor this option opens; unused when `variants` is set */
+		href: string
+		/** optional sub-choices shown in place of the single create button */
+		variants?: Variant[]
+		/** optional pill shown next to the label; class is the full static tailwind tone */
+		badge?: { label: string; class: string }
+		/** secondary actions (import from YAML/JSON, pipeline, …) shown in the detail panel */
+		extras?: Extra[]
+	}
+
+	// kept static so tailwind doesn't purge the badge tones
+	const badgeAdvanced = 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+	// While Home's composer is open (`data-composer-open`) the button looks like the default
+	// variant: that state lives in the DOM, not in a prop. The border is an inset ring so the
+	// button keeps its width.
+	const QUIET_AS_DEFAULT =
+		'group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:hover:bg-surface-hover group-has-[[data-composer-open]]/home:text-primary group-has-[[data-composer-open]]/home:ring-1 group-has-[[data-composer-open]]/home:ring-inset group-has-[[data-composer-open]]/home:ring-border-light'
+	const badgeLegacy = 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+	const badgeAlpha = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+	const badgeRecommended = 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+
+	const DBT_DOCS = 'https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt'
+
+	const allOptions: Option[] = [
+		{
+			key: 'script',
+			label: 'Script',
+			icon: Code2,
+			accent: 'blue',
+			tagline: 'A single standalone script',
+			description:
+				'Author a script in Python, TypeScript, Go, Bash, SQL, Rust, PHP and more. Windmill auto-generates an input UI, deploys it instantly and exposes it as an API.',
+			bullets: [
+				'20+ languages',
+				'Auto-generated UI from parameters',
+				'Instant deploy & versioning'
+			],
+			href: '/scripts/add'
+		},
+		...(HOME_SHOW_CREATE_FLOW
+			? ([
+					{
+						key: 'flow',
+						label: 'Flow',
+						icon: BarsStaggered,
+						accent: 'teal',
+						tagline: 'Compose scripts into a workflow',
+						description:
+							'Visual builder for chaining scripts together with branches, loops, error handlers, approvals and retries. Each step can be reused from the workspace or the Hub.',
+						bullets: [
+							'Drag-and-drop steps',
+							'Branches, loops & error handling',
+							'Suspend / approval steps'
+						],
+						href: '/flows/add',
+						extras: [{ label: 'Import flow', onSelect: () => openImport('flow') }]
+					}
+				] as Option[])
+			: []),
+		...(HOME_SHOW_CREATE_APP
+			? ([
+					{
+						key: 'app-fullcode',
+						label: 'App (full-code)',
+						icon: LayoutDashboard,
+						accent: 'orange',
+						tagline: 'Build with React or Svelte',
+						description:
+							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
+						bullets: ['React or Svelte', 'Full flexibility & control', 'AI-assisted authoring'],
+						href: '/apps_raw/add',
+						extras: [{ label: 'Import full-code app', onSelect: () => openImport('app-fullcode') }]
+					}
+				] as Option[])
+			: []),
+		{
+			key: 'agent',
+			label: 'AI agent',
+			icon: Bot,
+			accent: 'purple',
+			tagline: 'Chat with it, or reuse it in flows',
+			description:
+				'Pick a model, write its instructions and give it tools: scripts, flows, MCP servers or other agents. Chat with it from its own page, and add the same agent to any flow as a step.',
+			bullets: [
+				'Chat that remembers the conversation',
+				'Reusable as a step in any flow',
+				'Tools from scripts, flows and MCP'
+			],
+			href: '/agents/add'
+		},
+		...(HOME_SHOW_CREATE_FLOW
+			? ([
+					{
+						key: 'wac',
+						label: 'Workflow-as-Code',
+						icon: Code2,
+						accent: 'purple',
+						tagline: 'Express a workflow purely in code',
+						description:
+							'Write the whole workflow as a single Python or TypeScript script using the Windmill SDK — parallelism, branching and step orchestration expressed as plain code.',
+						bullets: [
+							'Python or TypeScript',
+							'Full control via the SDK',
+							'Versioned as a regular script'
+						],
+						href: '/scripts/add?wac=typescript',
+						badge: { label: 'Advanced', class: badgeAdvanced },
+						variants: [
+							{
+								label: 'TypeScript',
+								icon: TypeScriptIcon,
+								href: '/scripts/add?wac=typescript'
+							},
+							{
+								label: 'Python',
+								icon: PythonIcon,
+								href: '/scripts/add?wac=python'
+							}
+						],
+						extras: [{ label: 'Import Workflow-as-Code', onSelect: () => openImport('wac') }]
+					},
+					{
+						key: 'pipeline',
+						label: 'Data pipelines',
+						icon: Workflow,
+						accent: 'indigo',
+						tagline: 'Compose data ingestion & transforms',
+						description:
+							'Visual editor for data pipelines — chain ingestion, transformation and materialization steps with partitions and incremental processing.',
+						bullets: [
+							'Ingest, transform & materialize',
+							'Partitioned & incremental',
+							'Asset-aware lineage'
+						],
+						href: '/pipeline',
+						badge: { label: 'Alpha', class: badgeAlpha },
+						variants: [
+							{
+								label: 'Windmill pipelines',
+								icon: Workflow,
+								badge: { label: 'Recommended', class: badgeRecommended },
+								href: '/pipeline'
+							},
+							{
+								label: 'dbt',
+								icon: DbtIcon,
+								docHref: DBT_DOCS,
+								href: '/scripts/add?lang=dbt',
+								doc: {
+									label: 'dbt',
+									icon: DbtIcon,
+									accent: 'orange',
+									tagline: 'Run an existing dbt project',
+									description:
+										'A pipeline is Windmill’s own abstraction; an existing dbt project stays a dbt project, and runs here unchanged as its own kind of script, with dbt still owning its models, refs and tests. All it needs is a warehouse configured under Settings → dbt. Its models show up in the asset graph as dbt:// nodes, next to whatever pipelines you do build, so you can adopt pipelines later, or never.',
+									bullets: [
+										'Your dbt project, unchanged',
+										'Needs a warehouse under Settings → dbt',
+										'Models appear as dbt:// assets'
+									]
+								}
+							}
+						]
+					}
+				] as Option[])
+			: []),
+		...(HOME_SHOW_CREATE_APP
+			? ([
+					{
+						key: 'app-lowcode',
+						label: 'App (low-code)',
+						icon: LayoutDashboard,
+						accent: 'gray',
+						tagline: 'Drag-and-drop UI builder',
+						description:
+							'Assemble an internal UI from 60+ components wired to your scripts and flows. Best for simple apps or apps that need minimal customization.',
+						bullets: ['60+ ready-made components', 'No code required', 'Backed by scripts & flows'],
+						href: '/apps/add',
+						badge: { label: 'Legacy', class: badgeLegacy },
+						extras: [{ label: 'Import low-code app', onSelect: () => openImport('app-lowcode') }]
+					}
+				] as Option[])
+			: [])
+	]
+
+	// tailwind needs the full class names statically — map accent token -> classes
+	const accentClasses: Record<
+		string,
+		{ tile: string; iconText: string; activeBg: string; activeBorder: string }
+	> = {
+		blue: {
+			tile: 'bg-blue-100 dark:bg-blue-900/40',
+			iconText: 'text-blue-600 dark:text-blue-400',
+			activeBg: 'bg-blue-50 dark:bg-blue-900/20',
+			activeBorder: 'border-blue-500 dark:border-blue-400'
+		},
+		teal: {
+			tile: 'bg-teal-50 dark:bg-teal-900/20',
+			iconText: 'text-teal-600 dark:text-teal-400',
+			activeBg: 'bg-teal-50 dark:bg-teal-900/20',
+			activeBorder: 'border-teal-500 dark:border-teal-400'
+		},
+		purple: {
+			tile: 'bg-purple-100 dark:bg-purple-900/40',
+			iconText: 'text-purple-600 dark:text-purple-400',
+			activeBg: 'bg-purple-50 dark:bg-purple-900/20',
+			activeBorder: 'border-purple-500 dark:border-purple-400'
+		},
+		orange: {
+			tile: 'bg-orange-100 dark:bg-orange-900/40',
+			iconText: 'text-orange-600 dark:text-orange-400',
+			activeBg: 'bg-orange-50 dark:bg-orange-900/20',
+			activeBorder: 'border-orange-500 dark:border-orange-400'
+		},
+		indigo: {
+			tile: 'bg-indigo-100 dark:bg-indigo-900/40',
+			iconText: 'text-indigo-600 dark:text-indigo-400',
+			activeBg: 'bg-indigo-50 dark:bg-indigo-900/20',
+			activeBorder: 'border-indigo-500 dark:border-indigo-400'
+		},
+		gray: {
+			tile: 'bg-gray-100 dark:bg-gray-700',
+			iconText: 'text-gray-600 dark:text-gray-300',
+			activeBg: 'bg-gray-50 dark:bg-gray-800/40',
+			activeBorder: 'border-gray-400 dark:border-gray-500'
+		}
+	}
+
+	// The edit kind of an option whose key is not one: a low-code app needs `full` apps, a
+	// full-code one `compose`. Every other key is itself a kind (`wac` falls to `code`).
+	const EDIT_KIND: Record<string, EditKind> = { 'app-fullcode': 'raw_app', 'app-lowcode': 'app' }
+
+	// Only the kinds this user's role authors.
+	// Derived, not computed once: switching workspace only sets `workspaceStore`, it does not
+	// remount this component, so a snapshot would keep the previous workspace's kinds.
+	const options: Option[] = $derived(
+		allOptions.filter((o) => editRights.roleCanAuthor(EDIT_KIND[o.key] ?? o.key))
+	)
+
+	// the doc panel only shows while an option is hovered or focused, so the menu opens compact
+	let activeKey: string | undefined = $state(undefined)
+	// every option's import action, surfaced together under the bottom "Import" submenu.
+	// The hub project leads and is separated below: the others each paste one artifact the
+	// user already holds, while this one brings a whole project in from somewhere else.
+	const importActions: Extra[] = $derived([
+		...(onImportHubProject
+			? [{ label: 'Import a hub project', onSelect: onImportHubProject }]
+			: []),
+		...options.flatMap((o) => o.extras ?? [])
+	])
+
+	// melt dropdown menu: arrow-key nav, typeahead, focus management and outside/escape
+	// close all come for free; we only drive the doc panel off the highlighted item.
+	const {
+		elements: { trigger: menuTrigger, menu, item },
+		states: { open },
+		builders
+	} = createDropdownMenu({
+		positioning: { placement: 'bottom-end', gutter: 8, fitViewport: true, strategy: 'fixed' },
+		loop: true,
+		forceVisible: true
+	})
+
+	// per-row fan-out submenus: open to the right when there's room. The popover hugs
+	// the right viewport edge on most screens, so the default flip (right → left) would
+	// cover the doc panel — fall back below the trigger row instead.
+	const variantSubmenu = () =>
+		builders.createSubmenu({
+			positioning: {
+				placement: 'right-start',
+				gutter: 4,
+				flip: { fallbackPlacements: ['bottom-end', 'bottom-start', 'top-end', 'top-start'] },
+				fitViewport: true,
+				overflowPadding: 8
+			}
+		})
+	const {
+		elements: { subTrigger: wacSubTrigger, subMenu: wacSubMenu },
+		states: { subOpen: wacSubOpen }
+	} = variantSubmenu()
+	const {
+		elements: { subTrigger: pipelineSubTrigger, subMenu: pipelineSubMenu },
+		states: { subOpen: pipelineSubOpen }
+	} = variantSubmenu()
+	let variantSubOpen = $derived($wacSubOpen || $pipelineSubOpen)
+	const {
+		elements: { subTrigger: importSubTrigger, subMenu: importSubMenu },
+		states: { subOpen: importSubOpen }
+	} = builders.createSubmenu({
+		positioning: {
+			placement: 'right-end',
+			gutter: 4,
+			flip: { fallbackPlacements: ['bottom-end', 'bottom-start', 'top-end', 'top-start'] },
+			fitViewport: true,
+			overflowPadding: 8
+		}
+	})
+
+	// When a fan-out submenu falls below its row ('bottom'/'top' data-side), melt aligns
+	// it to the row's right edge, but free viewport space may remain beside the popover —
+	// slide it right until it hugs the viewport edge. Melt repositions on scroll/resize
+	// via style/data-side writes, so re-apply on attribute mutations.
+	function hugViewportRight(node: HTMLElement) {
+		let delta = 0
+		const apply = () => {
+			const side = node.getAttribute('data-side')
+			const baseRight = node.getBoundingClientRect().right - delta
+			const next =
+				side === 'bottom' || side === 'top'
+					? Math.max(0, document.documentElement.clientWidth - 8 - baseRight)
+					: 0
+			if (Math.abs(next - delta) < 0.5) return
+			delta = next
+			node.style.transform = next ? `translateX(${next}px)` : ''
+		}
+		const observer = new MutationObserver(apply)
+		observer.observe(node, { attributeFilter: ['style', 'data-side'] })
+		// melt only rewrites style when the reposition moves the submenu — a resize that
+		// changes clientWidth without moving it (scrollbar appearing, zoom) needs a direct hook
+		window.addEventListener('resize', apply)
+		apply()
+		return {
+			destroy: () => {
+				observer.disconnect()
+				window.removeEventListener('resize', apply)
+			}
+		}
+	}
+
+	// attach the menu trigger to the design-system <Button>'s DOM node, so it keeps its
+	// styling — melt element stores are callable on a node, exactly like `use:melt`.
+	let triggerEl: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
+	$effect(() => {
+		const el = triggerElement ?? triggerEl
+		if (!el) return
+		const applied = conditionalMelt(el, menuTrigger as any) as {
+			destroy?: () => void
+		}
+		return applied?.destroy
+	})
+
+	// Which entry point people actually create from: the toolbar button, or the inline
+	// link in the empty state. Only the open edge counts — melt writes the store on
+	// close and on every re-render of the menu.
+	let wasOpen = false
+	$effect(() => {
+		const isOpen = $open
+		if (isOpen && !wasOpen) {
+			logFeatureUsage('home', 'new_menu_open', { key: source })
+		}
+		if (!isOpen) {
+			activeKey = undefined
+			activeVariantDoc = undefined
+		}
+		wasOpen = isOpen
+	})
+
+	const SHOW_DOC_SETTING = 'home_create_show_doc'
+	let showDoc = $state(getLocalSetting(SHOW_DOC_SETTING) !== 'false')
+	function setShowDoc(value: boolean) {
+		showDoc = value
+		// only persist the non-default (hidden) state, so a cleared key means "shown"
+		storeLocalSetting(SHOW_DOC_SETTING, value ? undefined : 'false')
+	}
+	// The pointer crosses the gutter outside the menu on its way into a variant submenu,
+	// so leaving the menu keeps the panel while that submenu is open; it clears once the
+	// submenu closes with neither pointer nor focus left on the menu.
+	let menuEl: HTMLDivElement | undefined = $state(undefined)
+	$effect(() => {
+		if (variantSubOpen || !menuEl) return
+		if (!menuEl.matches(':hover') && !menuEl.contains(document.activeElement)) {
+			activeKey = undefined
+		}
+	})
+	// A hovered variant with its own doc (dbt under Data pipelines) takes over the panel.
+	let activeVariantDoc: Doc | undefined = $state(undefined)
+	function highlightOption(key: string | undefined) {
+		activeKey = key
+		activeVariantDoc = undefined
+	}
+	let active: Doc | undefined = $derived(
+		activeVariantDoc ?? options.find((o) => o.key === activeKey)
+	)
+	let activeAc = $derived(active ? accentClasses[active.accent] : undefined)
+
+	// shared YAML/JSON import drawer, reused by every "Import …" extra
+	let importDrawer: Drawer | undefined = $state(undefined)
+	let importKind: ImportKind = $state('flow')
+	let importType: 'yaml' | 'json' = $state('yaml')
+	let importRaw: string = $state('')
+
+	const importTitles: Record<ImportKind, string> = {
+		flow: 'Import flow',
+		wac: 'Import Workflow-as-Code',
+		'app-lowcode': 'Import low-code app',
+		'app-fullcode': 'Import full-code app'
+	}
+
+	// The parser and the flow store (which reaches the expression parser) are loaded when the
+	// import drawer opens, not with a menu every list page renders.
+	function loadImportDeps() {
+		return Promise.all([import('yaml'), import('$lib/components/flows/flowStore.svelte')])
+	}
+
+	function openImport(kind: ImportKind) {
+		void loadImportDeps()
+		importKind = kind
+		importType = 'yaml'
+		importRaw = ''
+		open.set(false)
+		importDrawer?.openDrawer?.()
+	}
+
+	async function runImport() {
+		const [{ default: YAML }, { importFlowStore }] = await loadImportDeps()
+		const parsed = importType === 'yaml' ? YAML.parse(importRaw) : JSON.parse(importRaw)
+		if (importKind === 'flow') {
+			importFlowStore.set(parsed)
+			await goto('/flows/add')
+		} else if (importKind === 'wac') {
+			importScriptStore.set(parsed)
+			await goto('/scripts/add?import=true')
+		} else if (importKind === 'app-fullcode') {
+			// The raw app editor reads the payload from sessionStorage on mount.
+			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
+			await goto('/apps_raw/add')
+		} else {
+			importStore.set(parsed)
+			await goto('/apps/add')
+		}
+		importDrawer?.closeDrawer?.()
+	}
+</script>
+
+<!-- `contents` so a custom inline trigger (the empty state's text link) keeps flowing
+     with the sentence around it instead of becoming a block of its own. -->
+<div class={trigger ? 'contents' : ''}>
+	{#if trigger}
+		{@render trigger()}
+	{:else}
+		<Button
+			{...$menuTrigger}
+			id="create-new-button"
+			aiId="home-create-new"
+			aiDescription="Create a new script, flow or app"
+			unifiedSize="md"
+			variant="accent"
+			btnClasses={QUIET_AS_DEFAULT}
+			startIcon={{ icon: Plus }}
+			endIcon={{ icon: ChevronDown }}
+			bind:element={triggerEl}
+		>
+			New
+		</Button>
+	{/if}
+</div>
+
+{#if $open}
+	<!-- The positioned element keeps its width while the doc panel toggles: floating-ui
+	     anchors it by its left edge, so a resize would paint one frame at the old left before
+	     the reposition. The visible card grows leftward inside it; the rest ignores the pointer. -->
+	<div
+		use:melt={$menu}
+		data-arrow-loop
+		class="z-[6000] flex flex-row justify-end pointer-events-none focus:outline-none"
+		style={showDoc ? 'width: 780px;' : ''}
+		bind:this={menuEl}
+		onpointerleave={() => {
+			if (!variantSubOpen) highlightOption(undefined)
+		}}
+	>
+		<div
+			class="pointer-events-auto flex flex-row rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl {showDoc &&
+			active
+				? 'w-full'
+				: ''}"
+		>
+			{#if showDoc && active && activeAc}
+				<!-- explanation of the highlighted editor -->
+				<div class="flex flex-col gap-3 p-5 flex-1 min-w-0">
+					<div class="flex flex-row items-center gap-3">
+						<div
+							class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 {activeAc.tile}"
+						>
+							<active.icon size={26} width={26} height={26} class={activeAc.iconText} />
+						</div>
+						<div class="min-w-0">
+							<div class="flex flex-row items-center gap-2">
+								<h3 class="font-semibold text-primary leading-tight">{active.label}</h3>
+								{#if active.badge}
+									<span
+										class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {active
+											.badge.class}"
+									>
+										{active.badge.label}
+									</span>
+								{/if}
+							</div>
+							<p class="text-xs text-tertiary">{active.tagline}</p>
+						</div>
+					</div>
+
+					<p class="text-xs text-secondary leading-relaxed">{active.description}</p>
+
+					<ul class="flex flex-col gap-1.5 mt-1">
+						{#each active.bullets as bullet (bullet)}
+							<li class="flex flex-row items-center gap-2 text-xs text-secondary">
+								<ChevronRight size={14} class={activeAc.iconText} />
+								{bullet}
+							</li>
+						{/each}
+					</ul>
+
+					<button
+						class="mt-auto self-start inline-flex items-center gap-1 pt-2 text-[10px] text-tertiary hover:text-secondary transition-colors"
+						title="Hide descriptions"
+						tabindex={-1}
+						onclick={() => setShowDoc(false)}
+					>
+						<PanelLeftClose size={12} />
+						Hide descriptions
+					</button>
+				</div>
+			{/if}
+
+			<!-- option list -->
+			<div class="flex flex-col gap-0.5 p-2 w-[18rem] shrink-0">
+				{#snippet rowBody(option: Option, ac: (typeof accentClasses)[string])}
+					<div class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 {ac.tile}">
+						<option.icon size={14} class={ac.iconText} />
+					</div>
+					<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+						{option.label}
+					</span>
+					{#if option.badge}
+						<span
+							class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {option
+								.badge.class}"
+						>
+							{option.badge.label}
+						</span>
+					{/if}
+				{/snippet}
+				{#snippet variantRow(
+					option: Option,
+					ac: (typeof accentClasses)[string],
+					rowClass: string,
+					subTrigger: any,
+					subMenu: any,
+					subOpen: boolean
+				)}
+					<button
+						use:melt={subTrigger}
+						class={rowClass}
+						onfocusin={() => highlightOption(option.key)}
+						onpointerenter={() => highlightOption(option.key)}
+					>
+						{@render rowBody(option, ac)}
+						<ChevronRight size={14} class="shrink-0 text-tertiary" />
+					</button>
+					{#if subOpen}
+						<!-- The invisible `before:` margin bridges the gutter to the trigger row: when
+						     the submenu falls below its row, that gutter lies over the next row, and
+						     crossing it highlights that item, which closes the submenu. -->
+						<div
+							use:melt={subMenu}
+							use:hugViewportRight
+							class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 min-w-52 w-max rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none before:absolute before:-inset-2 before:-z-10 before:content-['']"
+						>
+							{#each option.variants ?? [] as variant (variant.label)}
+								{@const VariantIcon = variant.icon}
+								<div class="flex flex-row items-center gap-1">
+									<a
+										use:melt={$item}
+										href={variant.href}
+										class="flex flex-row flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+										onfocusin={() => (activeVariantDoc = variant.doc)}
+										onpointerenter={() => (activeVariantDoc = variant.doc)}
+									>
+										<VariantIcon width={14} height={14} size={14} />
+										<span class="text-xs font-medium text-primary whitespace-nowrap">
+											{variant.label}
+										</span>
+										{#if variant.badge}
+											<span
+												class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {variant
+													.badge.class}"
+											>
+												{variant.badge.label}
+											</span>
+										{/if}
+									</a>
+									{#if variant.docHref}
+										<a
+											href={variant.docHref}
+											target="_blank"
+											rel="noreferrer"
+											class="px-2 text-[10px] text-tertiary hover:text-secondary hover:underline whitespace-nowrap"
+											onpointerenter={() => (activeVariantDoc = variant.doc)}
+										>
+											See documentation
+										</a>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{/snippet}
+				{#each options as option (option.key)}
+					{@const ac = accentClasses[option.accent]}
+					{@const rowClass =
+						'w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover'}
+					{#if option.variants && option.key === 'pipeline'}
+						{@render variantRow(
+							option,
+							ac,
+							rowClass,
+							$pipelineSubTrigger,
+							$pipelineSubMenu,
+							$pipelineSubOpen
+						)}
+					{:else if option.variants}
+						{@render variantRow(option, ac, rowClass, $wacSubTrigger, $wacSubMenu, $wacSubOpen)}
+					{:else}
+						<a
+							use:melt={$item}
+							href={option.href}
+							class="{rowClass} text-[color:inherit]"
+							onfocusin={() => highlightOption(option.key)}
+							onpointerenter={() => highlightOption(option.key)}
+						>
+							{@render rowBody(option, ac)}
+						</a>
+					{/if}
+				{/each}
+
+				<!-- bottom section: a folder, then one entry whose submenu imports any artifact -->
+				<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
+				{#if onCreateFolder}
+					<!-- Focus also arrives on hover: melt focuses the highlighted item. -->
+					<MenuItem
+						{item}
+						class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+						onFocusIn={() => highlightOption(undefined)}
+						onClick={() => onCreateFolder()}
+					>
+						<div
+							class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
+						>
+							<Folder size={14} class="text-gray-600 dark:text-gray-300" />
+						</div>
+						<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+							Folder
+						</span>
+					</MenuItem>
+				{/if}
+				<button
+					use:melt={$importSubTrigger}
+					class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+					onfocusin={() => highlightOption(undefined)}
+					onpointerenter={() => highlightOption(undefined)}
+				>
+					<div
+						class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
+					>
+						<Import size={14} class="text-gray-600 dark:text-gray-300" />
+					</div>
+					<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+						Import
+					</span>
+					<ChevronRight size={14} class="shrink-0 text-tertiary" />
+				</button>
+				{#if $importSubOpen}
+					<div
+						use:melt={$importSubMenu}
+						use:hugViewportRight
+						class="pointer-events-auto z-[6001] flex flex-col gap-0.5 p-1 w-52 rounded-lg border border-gray-200 dark:border-gray-700 bg-surface shadow-xl focus:outline-none before:absolute before:-inset-2 before:-z-10 before:content-['']"
+					>
+						{#each importActions as action, i (action.label)}
+							<button
+								use:melt={$item}
+								class="flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+								onclick={() => action.onSelect()}
+							>
+								{#if onImportHubProject && i === 0}
+									<Store size={14} class="shrink-0 text-tertiary" />
+								{:else}
+									<Import size={14} class="shrink-0 text-tertiary" />
+								{/if}
+								<span class="text-xs font-medium text-primary whitespace-nowrap">
+									{action.label}
+								</span>
+							</button>
+							{#if onImportHubProject && i === 0}
+								<div class="mx-1 my-0.5 border-t border-gray-200 dark:border-gray-700"></div>
+							{/if}
+						{/each}
+					</div>
+				{/if}
+
+				{#if !showDoc}
+					<button
+						class="mt-1 px-2 py-1 text-left text-[10px] text-tertiary/70 hover:text-tertiary hover:underline transition-colors"
+						title="Show descriptions"
+						tabindex={-1}
+						onclick={() => setShowDoc(true)}
+					>
+						Show descriptions
+					</button>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- shared import drawer (YAML / JSON) for the bottom "Import" submenu actions -->
+<Drawer bind:this={importDrawer} size="800px">
+	<DrawerContent title={importTitles[importKind]} on:close={() => importDrawer?.closeDrawer?.()}>
+		<Tabs bind:selected={importType}>
+			<Tab value="yaml" label="YAML" />
+			<Tab value="json" label="JSON" />
+			{#snippet content()}
+				<div class="relative pt-2 h-full">
+					{#key importType}
+						{#await import('$lib/components/SimpleEditor.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								bind:code={importRaw}
+								lang={importType}
+								class="h-full"
+								fixedOverflowWidgets={false}
+							/>
+						{/await}
+					{/key}
+				</div>
+			{/snippet}
+		</Tabs>
+		{#snippet actions()}
+			<Button size="sm" onClick={runImport}>Import</Button>
+		{/snippet}
+	</DrawerContent>
+</Drawer>

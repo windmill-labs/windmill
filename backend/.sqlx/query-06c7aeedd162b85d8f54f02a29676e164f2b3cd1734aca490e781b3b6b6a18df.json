@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM variable v\n             JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path\n             WHERE v.workspace_id = $1 AND v.path = $2 AND r.resource_type = $3)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "06c7aeedd162b85d8f54f02a29676e164f2b3cd1734aca490e781b3b6b6a18df"
+}

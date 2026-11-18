@@ -13,7 +13,6 @@
 	import { getContext, tick, untrack } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
-	import { Drawer } from '$lib/components/common'
 
 	import { sendUserToast } from '$lib/toast'
 	import type { AppInput, StaticInput } from '$lib/components/apps/inputType'
@@ -86,7 +85,10 @@
 	}
 
 	const resolvedConfig = $state(
-		initConfig(components['dbexplorercomponent'].initialData.configuration, untrack(() => configuration))
+		initConfig(
+			components['dbexplorercomponent'].initialData.configuration,
+			untrack(() => configuration)
+		)
 	)
 
 	let timeoutInput: number | undefined = undefined
@@ -123,7 +125,6 @@
 	let updateCell: UpdateCell | undefined = $state()
 
 	let renderCount = $state(0)
-	let insertDrawer: Drawer | undefined = undefined
 	let componentContainerHeight: number | undefined = $state(undefined)
 	let buttonContainerHeight: number | undefined = $state(undefined)
 
@@ -180,18 +181,22 @@
 		)
 	}
 
-	let outputs = initOutput($worldStore, untrack(() => id), {
-		selectedRowIndex: 0,
-		selectedRow: {},
-		selectedRows: [] as any[],
-		result: [] as any[],
-		inputs: {},
-		loading: false,
-		page: 0,
-		newChange: { row: 0, column: '', value: undefined },
-		ready: undefined as boolean | undefined,
-		openedModalRow: {}
-	})
+	let outputs = initOutput(
+		$worldStore,
+		untrack(() => id),
+		{
+			selectedRowIndex: 0,
+			selectedRow: {},
+			selectedRows: [] as any[],
+			result: [] as any[],
+			inputs: {},
+			loading: false,
+			page: 0,
+			newChange: { row: 0, column: '', value: undefined },
+			ready: undefined as boolean | undefined,
+			openedModalRow: {}
+		}
+	)
 
 	let lastResource: string | undefined = undefined
 
@@ -260,9 +265,7 @@
 				resolvedConfig.type,
 				{
 					table: {
-						selectOptions: dbSchemas
-							? await getTablesByResource(dbSchemas, dbtype, dbPath, $workspaceStore!)
-							: [],
+						selectOptions: dbSchemas ? await getTablesByResource(dbSchemas, dbtype) : [],
 						loading: false
 					}
 				}
@@ -394,7 +397,13 @@
 			resolvedConfig.type.configuration[selected].table
 		)
 
-		if (!tableMetadata) return
+		if (!tableMetadata) {
+			//@ts-ignore
+			gridItem.data.configuration.columnDefs.loading = false
+			gridItem.data = gridItem.data
+			$app = $app
+			return
+		}
 
 		let old: TableMetadata = (columnDefs?.value as TableMetadata) ?? []
 		if (!Array.isArray(old)) {
@@ -517,21 +526,15 @@
 	}
 
 	async function insert(args: object) {
-		try {
-			const selected = resolvedConfig.type.selected
-			await insertRowRunnable?.insertRow(
-				dbInput,
-				$workspaceStore,
-				resolvedConfig.type.configuration[selected].table,
-				resolvedConfig.columnDefs,
-				args
-			)
-
-			insertDrawer?.closeDrawer()
-			renderCount++
-		} catch (e) {
-			sendUserToast(e.message, true)
-		}
+		const selected = resolvedConfig.type.selected
+		await insertRowRunnable?.insertRow(
+			dbInput,
+			$workspaceStore,
+			resolvedConfig.type.configuration[selected].table,
+			resolvedConfig.columnDefs,
+			args
+		)
+		renderCount++
 	}
 
 	let runnableComponent: RunnableComponent | undefined = $state()

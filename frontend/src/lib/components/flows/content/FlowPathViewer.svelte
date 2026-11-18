@@ -1,22 +1,31 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { FlowService, type Flow, type TriggersCount } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 	import { writable } from 'svelte/store'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
-		path: string;
-		noSide?: boolean;
-		fillAvailableHeight?: boolean;
+		path: string
+		noSide?: boolean
+		fillAvailableHeight?: boolean
+		/** Explicit workspace override; takes precedence over the flow-editor
+		 * `opWorkspace` context and the operating workspace. */
+		workspace?: string
 	}
 
-	let { path, noSide = false, fillAvailableHeight = false }: Props = $props();
+	let { path, noSide = false, fillAvailableHeight = false, workspace = undefined }: Props = $props()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(workspace ?? flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	let flow: Flow | undefined = $state(undefined)
 
@@ -29,20 +38,18 @@
 	})
 
 	async function loadFlow(path: string) {
-		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
-		triggersCount.set(
-			await FlowService.getTriggersCountOfFlow({ workspace: $workspaceStore!, path })
-		)
+		flow = await FlowService.getFlowByPath({ workspace: opWs!, path })
+		triggersCount.set(await FlowService.getTriggersCountOfFlow({ workspace: opWs!, path }))
 	}
 
 	run(() => {
 		path && loadFlow(path)
-	});
+	})
 </script>
 
 <div class="flex flex-col flex-1 h-full overflow-auto">
 	{#if flow}
-		<FlowGraphViewer triggerNode={true} {noSide} {flow} {fillAvailableHeight} />
+		<FlowGraphViewer triggerNode={true} {noSide} {flow} {fillAvailableHeight} workspace={opWs} />
 	{:else}
 		<Skeleton layout={[[40]]} />
 	{/if}

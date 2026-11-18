@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO data_metric (workspace_id, script_path, table_path, kind, name, expr, filter) SELECT $1, $2, $3, k, n, e, f FROM UNNEST($4::text[], $5::text[], $6::text[], $7::text[]) AS t(k, n, e, f)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dcfbbe009dccc40249bbab1e6ae378985f6e7a593361d1a185ed606db13d84d4"
+}

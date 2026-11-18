@@ -17,6 +17,7 @@
 	import { conditionalMelt } from '$lib/utils'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import { ChevronDown } from 'lucide-svelte'
 
 	interface Props {
 		aiId?: string | undefined
@@ -34,8 +35,29 @@
 		notificationsCount?: number
 		color?: string | null
 		trigger?: MenubarMenuElements['trigger'] | undefined
+		/** Makes the button an item of an enclosing melt menu, in place of a trigger. */
+		item?: MenubarMenuElements['item'] | undefined
 		href?: string | undefined
+		/** Applied to the button AND to the label, so text sizing reaches the label text. */
 		class?: string | undefined
+		/** Applied to the button alone — for anything that would be wrong behind the label,
+		 *  a background above all. */
+		buttonClass?: string | undefined
+		// Show a trailing chevron to signal the button opens a dropdown.
+		showChevron?: boolean
+		// Render the label with stronger weight/size (e.g. the workspace name).
+		emphasizeLabel?: boolean
+		// Drop the native `title` attributes — for callers that wrap the button
+		// in their own hover tooltip.
+		disableTitle?: boolean
+		// Accessible name when the visible label is absent or only shown some of
+		// the time, so the button stays announceable in every state.
+		ariaLabel?: string | undefined
+		// Classes for the label line only — `class` reaches the button, the label and the
+		// sublabel alike, which is the wrong tool for colouring one line of the two.
+		labelClass?: string | undefined
+		// Draw the colour disc at 20px rather than 26px, for denser rows such as the page header.
+		compact?: boolean
 	}
 
 	let {
@@ -54,11 +76,20 @@
 		notificationsCount = 0,
 		color = null,
 		trigger = undefined,
+		item = undefined,
 		href = undefined,
-		class: classNames = undefined
+		class: classNames = undefined,
+		buttonClass = undefined,
+		showChevron = false,
+		emphasizeLabel = false,
+		disableTitle = false,
+		ariaLabel = undefined,
+		labelClass = undefined,
+		compact = false
 	}: Props = $props()
 
 	let buttonRef: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
+	const meltElement = $derived(trigger ?? item)
 
 	let dispatch = createEventDispatcher()
 
@@ -70,7 +101,7 @@
 	<Popover
 		appearTimeout={0}
 		disappearTimeout={0}
-		class="w-full"
+		class={compact ? 'w-auto' : 'w-full'}
 		disablePopup={!isCollapsed}
 		placement="right"
 	>
@@ -95,25 +126,40 @@
 			{href}
 			data-light-mode={lightMode}
 			class={twMerge(
-				'group flex items-center px-2 py-2 font-light rounded-md gap-2 w-full',
+				'group flex items-center px-2 py-1 font-light rounded-md gap-2',
+				compact ? 'w-auto' : 'w-full',
 				sidebarClasses.hoverBg,
 				'transition-all relative',
-				sublabel ? 'h-10' : 'h-8',
-				classNames
+				// One height in the rail and the open sidebar, so a row keeps its place in every mode.
+				sublabel ? 'h-10' : 'h-[30px]',
+				classNames,
+				buttonClass
 			)}
-			use:conditionalMelt={trigger}
-			aria-label={label}
-			title={isCollapsed ? undefined : label}
-			{...$trigger}
+			use:conditionalMelt={meltElement}
+			aria-label={ariaLabel ?? label}
+			title={isCollapsed || disableTitle ? undefined : label}
+			{...$meltElement}
 		>
 			{#if icon}
 				{@const SvelteComponent = icon}
 				{#if color}
-					<svg width="26" height="26" viewBox="0 0 26 26" class="flex-shrink-0 -ml-[5px]">
-						<circle cx="13" cy="13" r="13" fill={color} />
-						<foreignObject x="5" y="5" width="16" height="16">
+					{@const disc = compact ? 20 : 26}
+					{@const glyph = compact ? 12 : 16}
+					<svg
+						width={disc}
+						height={disc}
+						viewBox="0 0 {disc} {disc}"
+						class="flex-shrink-0 {compact ? '-ml-[3px]' : '-ml-[5px]'}"
+					>
+						<circle cx={disc / 2} cy={disc / 2} r={disc / 2} fill={color} />
+						<foreignObject
+							x={(disc - glyph) / 2}
+							y={(disc - glyph) / 2}
+							width={glyph}
+							height={glyph}
+						>
 							<SvelteComponent
-								size={16}
+								size={glyph}
 								class={twMerge(sidebarClasses.iconText, 'transition-colors', iconClasses)}
 								{...iconProps}
 							/>
@@ -133,16 +179,17 @@
 				{/if}
 			{/if}
 
-			<div class="flex flex-col text-left grow min-w-0">
+			<div class="flex flex-col text-left min-w-0 {compact ? '' : 'grow'}">
 				{#if !isCollapsed && label}
 					<div
 						class={twMerge(
 							'whitespace-pre truncate w-full',
-							sidebarClasses.text,
+							emphasizeLabel ? 'text-primary text-sm font-semibold' : sidebarClasses.text,
 							'transition-all',
-							classNames
+							classNames,
+							labelClass
 						)}
-						title={label}
+						title={disableTitle ? undefined : label}
 					>
 						{label}
 						<span class="pl-2 text-xs text-secondary font-semibold">
@@ -163,6 +210,13 @@
 					>
 				{/if}
 			</div>
+
+			{#if showChevron && !isCollapsed}
+				<ChevronDown
+					size={14}
+					class="flex-shrink-0 text-tertiary transition-colors group-hover:text-secondary"
+				/>
+			{/if}
 
 			{#if isCollapsed && notificationsCount > 0}
 				<div class="absolute top-1 right-1 flex h-fit w-fit">

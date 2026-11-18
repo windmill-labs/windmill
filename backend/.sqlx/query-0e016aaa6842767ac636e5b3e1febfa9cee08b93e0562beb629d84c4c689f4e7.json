@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE descendants AS (\n                   SELECT id, 0 AS depth FROM workspace\n                   WHERE parent_workspace_id = $1 AND NOT deleted\n                   UNION ALL\n                   SELECT w.id, d.depth + 1 FROM workspace w\n                   JOIN descendants d ON w.parent_workspace_id = d.id\n                   WHERE NOT w.deleted AND d.depth < 10\n               )\n               SELECT id as \"id!\" FROM descendants WHERE (id = $2 OR id = $3)\n               ORDER BY (id = $2) DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0e016aaa6842767ac636e5b3e1febfa9cee08b93e0562beb629d84c4c689f4e7"
+}

@@ -1,10 +1,17 @@
+<script lang="ts" module>
+	/** Whether the enclosing drawer is anchored to a pane rather than the viewport. Set by
+	 *  Drawer, read by its content, so the two can never disagree on the answer. */
+	export const DRAWER_ANCHORED = Symbol('drawerAnchored')
+</script>
+
 <script lang="ts">
-	import { onMount, createEventDispatcher, untrack } from 'svelte'
+	import { onMount, createEventDispatcher, setContext, untrack } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
+	import { setTopmostSurface } from '$lib/components/common/overlayHost.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
-	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
+	import { getOverlayHost } from '../overlayHost.svelte'
 
 	interface Props {
 		open?: boolean
@@ -15,11 +22,12 @@
 		shouldUsePortal?: boolean
 		offset?: number
 		preventEscape?: boolean
-		disableChatOffset?: boolean
 		class?: string | undefined
 		positionClass?: string | undefined
 		name?: string
 		children?: import('svelte').Snippet<[any]>
+		/** Asked before a click away or Escape closes it; resolving false keeps it open. */
+		confirmClose?: () => boolean | Promise<boolean>
 	}
 
 	let {
@@ -31,11 +39,11 @@
 		shouldUsePortal = true,
 		offset = 0,
 		preventEscape = false,
-		disableChatOffset = false,
 		class: clazz = '',
 		positionClass = undefined,
 		name = undefined,
-		children: children_render
+		children: children_render,
+		confirmClose
 	}: Props = $props()
 
 	if (open === undefined) {
@@ -43,6 +51,11 @@
 	}
 
 	let disposable: Disposable | undefined = $state(undefined)
+
+	// A drawer stacks like a dialog does, so content inside it gets the same answer about whether
+	// its keys are meant for it. Without this, a drawer opened over a dialog would inherit the
+	// dialog's answer — false, because the drawer itself is now on top — and go deaf.
+	setTopmostSurface(() => disposable?.isTopmost() ?? true)
 
 	let reducedMotion = useReducedMotion()
 	let duration = $derived(reducedMotion.val ? 0 : _duration)
@@ -71,8 +84,6 @@
 
 	let mounted = false
 	const dispatch = createEventDispatcher()
-
-	let style = $derived(`--duration: ${duration}s; --size: ${size};`)
 
 	function scrollLock(open: boolean) {
 		if (BROWSER) {
@@ -103,10 +114,29 @@
 		mounted = true
 	})
 
-	const aiChatOpen = $derived(chatState.size > 0)
+	// An enclosing pane can claim the drawer (see overlayHost): it is then portalled
+	// into that element and positioned against it rather than the viewport. The
+	// global-chat offset is the viewport's business, so it doesn't apply there.
+	const overlayHost = getOverlayHost()
+	const host = $derived(shouldUsePortal ? overlayHost?.el() : undefined)
+	const posClass = $derived(positionClass ?? (host ? '!absolute' : undefined))
+	setContext(DRAWER_ANCHORED, () => !!host)
+
+	// A percentage size follows its container, and a pane is far narrower than the viewport
+	// that percentage was chosen against, so it can leave the drawer unusably thin. Below a
+	// 600px pane this wins over `--size` outright and the drawer covers the pane; that is the
+	// point. Pixel sizes already state their intent, and unhosted drawers are unaffected.
+	const MIN_ANCHORED_SIZE = '600px'
+	const floor = $derived(
+		host && size.trim().endsWith('%') ? `min(${MIN_ANCHORED_SIZE}, 100%)` : '0px'
+	)
+
+	let style = $derived(`--duration: ${duration}s; --size: ${size}; --min-size: ${floor};`)
 </script>
 
-<ConditionalPortal condition={shouldUsePortal}>
+<!-- `contents` keeps the portal's wrapper from becoming a stray flex item of the
+     host it is appended to; the drawer inside positions against the host itself. -->
+<ConditionalPortal condition={shouldUsePortal} target={host} class={host ? 'contents' : undefined}>
 	<Disposable
 		initialOffset={offset}
 		bind:open
@@ -114,20 +144,20 @@
 		onOpen={() => dispatch('open')}
 		onClose={() => dispatch('close')}
 		{preventEscape}
+		{confirmClose}
 	>
 		{#snippet children({ handleClickAway, zIndex, isTop })}
 			<aside
 				class="drawer windmill-app windmill-drawer {name ? `windmill-drawer-${name}` : ''} {clazz ??
-					''} {positionClass ?? ''} {aiChatOpen ? 'respect-global-chat' : ''}"
+					''} {posClass ?? ''}"
 				class:open
 				class:close={!open && timeout}
-				class:global-chat-open={aiChatOpen}
-				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatOpen && placement === 'right' && !disableChatOffset ? chatState.size : 0}% + 4px)`}
+				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: 4px`}
 			>
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="overlay {positionClass ?? ''}" onclick={handleClickAway}></div>
-				<div class="panel {placement} {positionClass}" class:size>
+				<div class="overlay {posClass ?? ''}" onclick={handleClickAway}></div>
+				<div class="panel {placement} {posClass ?? ''}" class:size>
 					{#if open || !timeout || alwaysOpen}
 						{@render children_render?.({ open, isTop })}
 					{/if}
@@ -171,18 +201,14 @@
 		transition: opacity var(--duration) ease;
 	}
 
-	.drawer.respect-global-chat.global-chat-open > .overlay {
-		width: 100%;
-		right: var(--adjusted-offset);
-		left: auto;
-	}
-
 	.drawer.open > .overlay {
 		opacity: 1;
 	}
 
 	.drawer.close > .panel {
 		height: 0;
+		/* The size floor must not keep a closed panel expanded. */
+		min-height: 0;
 		overflow: hidden;
 	}
 
@@ -208,11 +234,6 @@
 		transform: translate(100%, 0);
 	}
 
-	.drawer.respect-global-chat.global-chat-open > .panel.right {
-		right: var(--adjusted-offset);
-		width: calc(100vw - var(--adjusted-offset));
-	}
-
 	.panel.top {
 		top: 0;
 		transform: translate(0, -100%);
@@ -226,14 +247,36 @@
 	.panel.left.size,
 	.panel.right.size {
 		max-width: var(--size);
+		min-width: var(--min-size);
 	}
 
 	.panel.top.size,
 	.panel.bottom.size {
 		max-height: var(--size);
+		min-height: var(--min-size);
 	}
 
 	.drawer.open > .panel {
 		transform: translate(0, 0);
+	}
+
+	/* A modal inset from every edge, so what is behind it shows around it. `size` does not
+	   apply: the inset alone sizes it. */
+	.panel.center {
+		inset: 2rem;
+		width: auto;
+		height: auto;
+		border-radius: 0.5rem;
+		overflow: hidden;
+		opacity: 0;
+		transform: scale(0.98);
+		transition:
+			opacity var(--duration) ease,
+			transform var(--duration) ease;
+	}
+
+	.drawer.open > .panel.center {
+		opacity: 1;
+		transform: scale(1);
 	}
 </style>

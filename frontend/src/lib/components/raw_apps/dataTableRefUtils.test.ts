@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { buildDataTableWhitelist, isDatatableTableAllowed } from './dataTableRefUtils'
+import {
+	buildDataTableWhitelist,
+	extractDataConfig,
+	isDatatableTableAllowed,
+	sdkDatatableCall,
+	withAppDatatableRole
+} from './dataTableRefUtils'
+
+describe('app data table roles', () => {
+	it('writes the role the way each SDK takes it', () => {
+		expect(sdkDatatableCall('main', 'analyst', 'typescript')).toBe(
+			"wmill.datatable('main', { role: 'analyst' })"
+		)
+		expect(sdkDatatableCall('main', 'analyst', 'python')).toBe(
+			"wmill.datatable('main', role='analyst')"
+		)
+		expect(sdkDatatableCall('main', undefined, 'python')).toBe('wmill.datatable()')
+	})
+
+	it('keeps one role per data table, and no map once none is left', () => {
+		const roles = withAppDatatableRole(undefined, 'main', 'analyst')
+		expect(withAppDatatableRole(roles, 'other', 'operator')).toEqual({
+			main: 'analyst',
+			other: 'operator'
+		})
+		expect(withAppDatatableRole(roles, 'main', undefined)).toBeUndefined()
+	})
+})
 
 describe('datatable whitelist helpers', () => {
 	it('allows every datatable table when no refs are configured', () => {
@@ -33,5 +60,15 @@ describe('datatable whitelist helpers', () => {
 
 		expect(isDatatableTableAllowed(whitelist, 'main', '', 'users')).toBe(true)
 		expect(isDatatableTableAllowed(whitelist, 'main', 'public', 'users')).toBe(false)
+	})
+})
+
+describe('extractDataConfig', () => {
+	it('defaults tables when a data config omits them', () => {
+		expect(extractDataConfig({ data: { datatable: 'main', schema: 'public' } })).toEqual({
+			tables: [],
+			datatable: 'main',
+			schema: 'public'
+		})
 	})
 })

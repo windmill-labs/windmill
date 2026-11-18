@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM\n            capture\n        WHERE\n            id = $1\n            AND workspace_id = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f1a6018b184967f0065847ce5e41f786a5451847ca5c95b93203b75b6d56ae34"
+}

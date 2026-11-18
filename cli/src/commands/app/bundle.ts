@@ -2,11 +2,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { readTextFile, readTextFileSync } from "../../utils/utils.ts";
-import { getEsbuild, stopEsbuild } from "../../utils/esbuild_loader.ts";
+import { withEsbuild } from "../../utils/esbuild_loader.ts";
+import { createTailwindPlugin } from "./tailwind.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
@@ -35,17 +38,31 @@ export const DEFAULT_BUILD_OPTIONS = {
   loader: {
     ".css": "css" as const,
   },
+  // esbuild export conditions safe for any app: "style" resolves tailwindcss v4's CSS
+  // entry (@import "tailwindcss"); "module" is re-added because esbuild drops its
+  // auto-included "module" default once any custom condition is set. The Svelte-only
+  // "svelte" condition is gated per-app in conditionsFor().
+  conditions: ["style", "module"],
   logLevel: "info" as const,
   write: true,
 };
 
+// "svelte" points at raw .svelte sources that only compile with the Svelte plugin, so
+// enable it only for Svelte apps — for a plain app a Svelte-dual-published import would
+// otherwise resolve to .svelte and hard-fail with no loader configured.
+function conditionsFor(svelte: boolean): string[] {
+  return svelte
+    ? [...DEFAULT_BUILD_OPTIONS.conditions, "svelte"]
+    : DEFAULT_BUILD_OPTIONS.conditions;
+}
+
 /**
  * Detects which frontend frameworks are present in package.json
  */
-export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolean } {
+export function detectFrameworks(appDir: string): { svelte: boolean } {
   const packageJsonPath = path.join(appDir, "package.json");
   if (!fs.existsSync(packageJsonPath)) {
-    return { svelte: false, vue: false };
+    return { svelte: false };
   }
 
   try {
@@ -57,11 +74,79 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
 
     return {
       svelte: "svelte" in allDeps,
-      vue: "vue" in allDeps,
     };
   } catch {
-    return { svelte: false, vue: false };
+    return { svelte: false };
   }
+}
+
+/** What an `import()` matches — the point being that it never matches "require". */
+const ESM_CONDITIONS = ["node", "import", "default"];
+
+/**
+ * Walks one subpath of an exports map the way Node's ESM resolver would: first
+ * key in declaration order whose condition an `import()` matches wins.
+ */
+function esmConditionTarget(subpath: unknown): string | undefined {
+  if (typeof subpath === "string") return subpath;
+  if (!subpath || typeof subpath !== "object" || Array.isArray(subpath)) {
+    return undefined;
+  }
+  for (const [condition, target] of Object.entries(subpath)) {
+    if (!ESM_CONDITIONS.includes(condition)) continue;
+    const entry = esmConditionTarget(target);
+    if (entry) return entry;
+  }
+  return undefined;
+}
+
+/**
+ * `require.resolve` answers with the `require` condition, which Svelte maps at a
+ * minified UMD bundle. Only the CJS loader can read that file's exports, so
+ * `import()`ing it yields a namespace holding nothing but `default` and every
+ * named export reads undefined. The exports map is the only place to ask for the
+ * ESM entry instead — `require.resolve` takes no conditions.
+ */
+function resolveAppSvelteCompiler(appDir: string): string {
+  const requireFromApp = createRequire(
+    path.join(path.resolve(appDir), "package.json")
+  );
+  try {
+    const pkgPath = requireFromApp.resolve("svelte/package.json");
+    const exportsMap = JSON.parse(readTextFileSync(pkgPath))?.exports;
+    const target = esmConditionTarget(exportsMap?.["./compiler"]);
+    if (target?.startsWith(".")) {
+      const entry = path.resolve(path.dirname(pkgPath), target);
+      if (fs.existsSync(entry)) return entry;
+    }
+  } catch {
+    // No exports map to read (or an unexpected shape) — let the CJS resolver try.
+  }
+  return requireFromApp.resolve("svelte/compiler");
+}
+
+/**
+ * Loads the Svelte compiler out of the *app's* node_modules.
+ *
+ * The app brings its own Svelte runtime via package.json, and compiler and
+ * runtime have to agree on internals: Svelte 5.52.0 moved delegated event
+ * handlers off `element.__click` onto a Symbol-keyed map, so an older
+ * compiler's `onclick` output is silently ignored by a newer runtime — the app
+ * builds and renders with every handler dead. A bare `import("svelte/compiler")`
+ * resolves against this CLI instead, whose own svelte floats independently of
+ * the app's, which is exactly how the two drift apart.
+ *
+ * Falls back to the CLI's own compiler when the app has none resolvable.
+ */
+export async function loadSvelteCompiler(appDir: string): Promise<any> {
+  let mod: any;
+  try {
+    mod = await import(pathToFileURL(resolveAppSvelteCompiler(appDir)).href);
+  } catch {
+    mod = await import("svelte/compiler");
+  }
+  // A CJS entry still imports as a namespace whose only key is `default`.
+  return typeof mod?.compile === "function" ? mod : (mod?.default ?? mod);
 }
 
 /**
@@ -69,39 +154,88 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
  * Uses the svelte compiler from the project's node_modules
  */
 function createSveltePlugin(appDir: string): any {
+  // Resolved once per build, not per file.
+  let compilerPromise: Promise<any> | undefined;
+  const svelteCompiler = () =>
+    (compilerPromise ??= loadSvelteCompiler(appDir));
+
+  // This converts a message in Svelte's format to esbuild's format
+  const messageConverter =
+    (source: string, filename: string) =>
+    ({ message, start, end }: any) => {
+      let location;
+      if (start && end) {
+        const lineText = source.split(/\r\n|\r|\n/g)[start.line - 1];
+        const lineEnd = start.line === end.line ? end.column : lineText.length;
+        location = {
+          file: filename,
+          line: start.line,
+          column: start.column,
+          length: lineEnd - start.column,
+          lineText,
+        };
+      }
+      return { text: message, location };
+    };
+
   return {
     name: "svelte",
     setup(build: any) {
       build.onLoad({ filter: /\.svelte$/ }, async (args: any) => {
-        // Import svelte compiler from the project's node_modules
-        const svelte = await import("svelte/compiler");
+        const svelte = await svelteCompiler();
 
         // Load the file from the file system
         const source = await readTextFile(args.path);
         const filename = path.relative(process.cwd(), args.path);
-
-        // This converts a message in Svelte's format to esbuild's format
-        const convertMessage = ({ message, start, end }: any) => {
-          let location;
-          if (start && end) {
-            const lineText = source.split(/\r\n|\r|\n/g)[start.line - 1];
-            const lineEnd = start.line === end.line ? end.column : lineText.length;
-            location = {
-              file: filename,
-              line: start.line,
-              column: start.column,
-              length: lineEnd - start.column,
-              lineText,
-            };
-          }
-          return { text: message, location };
-        };
+        const convertMessage = messageConverter(source, filename);
 
         // Convert Svelte syntax to JavaScript
         try {
-          const { js, warnings } = svelte.compile(source, { filename });
+          // The raw-app editor's in-browser bundler compiles with
+          // `css: "injected"`, so this must too, or the same app renders
+          // styled there and unstyled once the CLI builds it: Svelte's default
+          // ("external") hands the <style> back on a `css` field nothing emits.
+          const { js, warnings } = svelte.compile(source, {
+            filename,
+            css: "injected",
+          });
           const contents = js.code + `//# sourceMappingURL=` + js.map.toUrl();
           return { contents, warnings: warnings.map(convertMessage) };
+        } catch (e: any) {
+          return { errors: [convertMessage(e)] };
+        }
+      });
+
+      // `lib.svelte.ts` / `lib.svelte.js` are plain modules that may use runes.
+      // They need `compileModule`, otherwise `$state`/`$derived` sail through
+      // esbuild untouched and the bundle throws "$state is not defined".
+      build.onLoad({ filter: /\.svelte\.[jt]s$/ }, async (args: any) => {
+        const svelte = await svelteCompiler();
+
+        const source = await readTextFile(args.path);
+        const filename = path.relative(process.cwd(), args.path);
+        const convertMessage = messageConverter(source, filename);
+
+        try {
+          // `compileModule` parses with plain acorn and chokes on TypeScript, so
+          // types have to come off first (vite-plugin-svelte gets this for free
+          // by running after Vite's esbuild transform).
+          const code = filename.endsWith(".ts")
+            ? (
+                await build.esbuild.transform(source, {
+                  loader: "ts",
+                  sourcefile: filename,
+                })
+              ).code
+            : source;
+
+          const { js, warnings } = svelte.compileModule(code, { filename });
+          const contents = js.code + `//# sourceMappingURL=` + js.map.toUrl();
+          return {
+            contents,
+            loader: "js",
+            warnings: warnings.map(convertMessage),
+          };
         } catch (e: any) {
           return { errors: [convertMessage(e)] };
         }
@@ -111,9 +245,13 @@ function createSveltePlugin(appDir: string): any {
 }
 
 /**
- * Creates framework-specific esbuild plugins based on detected dependencies
+ * Creates framework-specific esbuild plugins based on detected dependencies.
+ * `sharedUiDir` is scanned for Tailwind class names alongside the app.
  */
-export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
+export async function createFrameworkPlugins(
+  appDir: string,
+  sharedUiDir?: string
+): Promise<any[]> {
   const frameworks = detectFrameworks(appDir);
   const plugins: any[] = [];
 
@@ -122,16 +260,8 @@ export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
     plugins.push(createSveltePlugin(appDir));
   }
 
-  if (frameworks.vue) {
-    log.info(colors.blue("🔧 Vue detected, adding vue plugin..."));
-    throw new Error("Vue plugin not supported yet");
-    // try {
-    //   const esbuildPluginVue = await import("esbuild-plugin-vue3");
-    //   plugins.push(esbuildPluginVue.default());
-    // } catch (error: any) {
-    //   log.warn(colors.yellow(`Failed to load vue plugin: ${error.message}`));
-    // }
-  }
+  const tailwind = createTailwindPlugin(appDir, sharedUiDir);
+  if (tailwind) plugins.push(tailwind);
 
   return plugins;
 }
@@ -164,6 +294,84 @@ export async function ensureNodeModules(appDir?: string): Promise<void> {
 }
 
 /**
+ * The workspace's shared `ui/` folder for an app: `ui/` next to the nearest
+ * wmill.yaml above `appDir`, the root `wmill app push` and `wmill app bundle`
+ * run from. Undefined when no wmill.yaml is found.
+ */
+export function findSharedUiDir(appDir: string): string | undefined {
+  let dir = path.resolve(appDir);
+  while (true) {
+    if (fs.existsSync(path.join(dir, "wmill.yaml"))) {
+      return path.join(dir, "ui");
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/**
+ * Resolves `/ui/<file>` imports to the workspace's shared `ui/` folder, and bare
+ * package imports made from those files against the app's own node_modules: the
+ * server-side bundler places `ui/` inside the app, so walking up from the shared
+ * folder instead would miss the app's packages or load a second copy of them
+ * (two Reacts break hooks at runtime).
+ */
+export function createSharedUiPlugin(sharedUiDir: string, appDir: string): any {
+  // Real paths throughout: esbuild follows symlinks for relative imports, so a
+  // symlinked ui/ would otherwise give its files two different prefixes.
+  const uiPrefix = fs.realpathSync(sharedUiDir) + path.sep;
+  const resolveDir = path.resolve(appDir);
+  return {
+    name: "wmill-shared-ui",
+    setup(build: any) {
+      build.onResolve({ filter: /^\/ui\// }, (args: any) => {
+        const rel = args.path.slice("/ui/".length);
+        const candidates = [rel];
+        if (!path.extname(rel)) {
+          candidates.push(
+            rel + ".tsx",
+            rel + ".ts",
+            rel + ".jsx",
+            rel + ".js",
+            rel + ".css",
+            path.join(rel, "index.tsx"),
+            path.join(rel, "index.ts"),
+          );
+        }
+        for (const c of candidates) {
+          const full = path.join(sharedUiDir, c);
+          if (fs.existsSync(full)) {
+            return { path: fs.realpathSync(full) };
+          }
+        }
+        return {
+          errors: [
+            {
+              text: `Could not resolve shared UI import "${args.path}" in ${sharedUiDir}`,
+            },
+          ],
+        };
+      });
+      build.onResolve({ filter: /^[^./]/ }, async (args: any) => {
+        if (!args.importer.startsWith(uiPrefix)) return undefined;
+        // CSS reads `@import "base.css"` as relative first; keep that when the
+        // sibling resolves, and only send package names to the app.
+        if (args.kind === "import-rule" || args.kind === "url-token") {
+          const sibling = await build.resolve("./" + args.path, {
+            resolveDir: args.resolveDir,
+            kind: args.kind,
+          });
+          if (sibling.errors.length === 0) return sibling;
+        }
+        // No importer is passed, so this nested resolve does not re-enter here.
+        return build.resolve(args.path, { resolveDir, kind: args.kind });
+      });
+    },
+  };
+}
+
+/**
  * Creates an esbuild bundle for the app
  * @param options Bundle configuration options
  * @returns Bundle result containing JS and CSS blobs
@@ -171,15 +379,11 @@ export async function ensureNodeModules(appDir?: string): Promise<void> {
 export async function createBundle(
   options: BundleOptions = {}
 ): Promise<BundleResult> {
-  // Native esbuild with a transparent esbuild-wasm fallback on host/binary
-  // version mismatch (see esbuild_loader.ts).
-  const esbuild = await getEsbuild();
-
   // Detect frameworks to determine default entry point.
   // Use the entryPoint's directory if provided, otherwise fall back to cwd.
   const appDir = options.entryPoint ? path.dirname(options.entryPoint) : process.cwd();
   const frameworks = detectFrameworks(appDir);
-  const defaultEntry = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
+  const defaultEntry = frameworks.svelte ? "index.ts" : "index.tsx";
 
   const entryPoint = options.entryPoint ?? defaultEntry;
   const outDir = options.outDir ?? "dist";
@@ -197,8 +401,13 @@ export async function createBundle(
   // Ensure node_modules exists in the app directory
   await ensureNodeModules(appDir);
 
-  // Load framework-specific plugins (svelte, vue) based on package.json
-  const frameworkPlugins = await createFrameworkPlugins(appDir);
+  const sharedUiDir =
+    options.sharedUiDir && fs.existsSync(options.sharedUiDir)
+      ? options.sharedUiDir
+      : undefined;
+
+  // Load framework-specific plugins (svelte, tailwind) based on package.json
+  const frameworkPlugins = await createFrameworkPlugins(appDir, sharedUiDir);
 
   // Ensure output directory exists
   const distDir = path.join(process.cwd(), outDir);
@@ -243,47 +452,13 @@ export async function createBundle(
     },
   };
 
-  const sharedUiPlugins: any[] = [];
-  if (options.sharedUiDir && fs.existsSync(options.sharedUiDir)) {
-    const sharedUiDir = options.sharedUiDir;
-    sharedUiPlugins.push({
-      name: "wmill-shared-ui",
-      setup(build: any) {
-        // Intercept imports of /ui/<file> and resolve to the workspace ui/ folder.
-        build.onResolve({ filter: /^\/ui\// }, (args: any) => {
-          const rel = args.path.slice("/ui/".length);
-          const candidates = [rel];
-          if (!path.extname(rel)) {
-            candidates.push(
-              rel + ".tsx",
-              rel + ".ts",
-              rel + ".jsx",
-              rel + ".js",
-              rel + ".css",
-              path.join(rel, "index.tsx"),
-              path.join(rel, "index.ts"),
-            );
-          }
-          for (const c of candidates) {
-            const full = path.join(sharedUiDir, c);
-            if (fs.existsSync(full)) {
-              return { path: full };
-            }
-          }
-          return {
-            errors: [
-              {
-                text: `Could not resolve shared UI import "${args.path}" in ${sharedUiDir}`,
-              },
-            ],
-          };
-        });
-      },
-    });
-  }
+  const sharedUiPlugins: any[] = sharedUiDir
+    ? [createSharedUiPlugin(sharedUiDir, appDir)]
+    : [];
 
   const buildOptions = {
     ...DEFAULT_BUILD_OPTIONS,
+    conditions: conditionsFor(frameworks.svelte),
     entryPoints: [entryPoint],
     outfile,
     sourcemap,
@@ -300,48 +475,46 @@ export async function createBundle(
 
   log.info(colors.blue("📦 Building bundle..."));
 
-  try {
-    const result = await esbuild.build(buildOptions);
+  // Native esbuild with a transparent esbuild-wasm fallback on host/binary
+  // version mismatch (see esbuild_loader.ts).
+  const result = await withEsbuild((esbuild) => esbuild.build(buildOptions));
 
-    if (result.errors.length > 0) {
-      log.error(colors.red("❌ Build failed:"));
-      result.errors.forEach((error: any) => {
-        log.error(colors.red(error.text));
-      });
-      throw new Error("Build failed with errors");
-    }
-
-    log.info(colors.green("✅ Bundle created successfully"));
-
-    const outputFiles = result.outputFiles ?? [];
-    const jsFile = outputFiles.find((f) => f.path.endsWith(".js"));
-    const cssFile = outputFiles.find((f) => f.path.endsWith(".css"));
-
-    if (!jsFile) {
-      throw new Error("Expected a JS bundle in esbuild output but none found");
-    }
-
-    try {
-      fs.rmSync(distDir, { recursive: true });
-    } catch {
-      //ignore
-    }
-    return { js: jsFile.text, css: cssFile?.text ?? "" };
-
-  } finally {
-    // Stop the native esbuild service so the process can exit (no-op for wasm).
-    await stopEsbuild();
+  if (result.errors.length > 0) {
+    log.error(colors.red("❌ Build failed:"));
+    result.errors.forEach((error: any) => {
+      log.error(colors.red(error.text));
+    });
+    throw new Error("Build failed with errors");
   }
+
+  log.info(colors.green("✅ Bundle created successfully"));
+
+  const outputFiles = result.outputFiles ?? [];
+  const jsFile = outputFiles.find((f) => f.path.endsWith(".js"));
+  const cssFile = outputFiles.find((f) => f.path.endsWith(".css"));
+
+  if (!jsFile) {
+    throw new Error("Expected a JS bundle in esbuild output but none found");
+  }
+
+  try {
+    fs.rmSync(distDir, { recursive: true });
+  } catch {
+    //ignore
+  }
+  return { js: jsFile.text, css: cssFile?.text ?? "" };
 }
 
 /**
  * Gets the esbuild build options for use in watch mode (dev server)
  * @param entryPoint Entry point file
+ * @param svelte Whether the app is a Svelte app (enables the "svelte" condition)
  * @returns esbuild build options
  */
-export function getDevBuildOptions(entryPoint: string = "index.tsx") {
+export function getDevBuildOptions(entryPoint: string = "index.tsx", svelte = false) {
   return {
     ...DEFAULT_BUILD_OPTIONS,
+    conditions: conditionsFor(svelte),
     entryPoints: [entryPoint],
     outfile: "dist/bundle.js",
     sourcemap: true,

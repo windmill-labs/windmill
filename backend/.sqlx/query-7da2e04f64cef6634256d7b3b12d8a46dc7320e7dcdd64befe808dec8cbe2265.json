@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_settings\n            (workspace_id, color, error_handler_fallback_to_instance_alerts)\n            VALUES ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7da2e04f64cef6634256d7b3b12d8a46dc7320e7dcdd64befe808dec8cbe2265"
+}

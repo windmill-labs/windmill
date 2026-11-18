@@ -1,0 +1,409 @@
+<script lang="ts">
+	import {
+		Settings,
+		User,
+		ServerCog,
+		Logs,
+		Eye,
+		AlertCircle,
+		HelpCircle,
+		LogOut,
+		ChevronDown,
+		Building,
+		Moon,
+		Sun,
+		BookOpen,
+		Github,
+		Newspaper,
+		Crown,
+		Gauge,
+		Trash2,
+		KeyRound,
+		GraduationCap,
+		FolderOpen,
+		Users,
+		ShieldCheck
+	} from 'lucide-svelte'
+	import AccessDrawer from '../AccessDrawer.svelte'
+	import { type Item } from '$lib/utils'
+	import { logout } from '$lib/logoutKit'
+	import { isCloudHosted } from '$lib/cloud'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import DeleteForkedWorkspaceModal from './DeleteForkedWorkspaceModal.svelte'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
+	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import DiscordIcon from '../icons/brands/Discord.svelte'
+	import MenuLink from './MenuLink.svelte'
+	import SideBarNotification from './SideBarNotification.svelte'
+	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
+	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
+	import { accountSetup } from './accountSetup.svelte'
+	import { EXECUTIONS_HINT } from './executionsHint'
+	import { TOUR_PARAM, TOUR_PARAM_VALUE } from '$lib/components/tutorials/operatorTour'
+	import {
+		userWorkspaces,
+		workspaceStore,
+		userStore,
+		superadmin,
+		devopsRole,
+		enterpriseLicense,
+		isCriticalAlertsUIOpen,
+		usageStore,
+		isPremiumStore,
+		roleCapabilities
+	} from '$lib/stores'
+
+	let {
+		isCollapsed = false,
+		// Session mode: workspace the workspace-settings entry should target —
+		// the session's own (possibly forked) workspace, which can differ from
+		// the rail's active workspace, so the entry's href carries it as the
+		// `workspace` query param. Unset = navigation mode, entry targets the
+		// active workspace.
+		workspaceSettingsTarget = undefined,
+		numUnacknowledgedCriticalAlerts = 0,
+		// Overridable so the kitchen-sink page can preview the cloud variant
+		// (isCloudHosted reads window.location, which a dev page can't change).
+		cloudHosted = isCloudHosted()
+	}: {
+		isCollapsed?: boolean
+		workspaceSettingsTarget?: string
+		numUnacknowledgedCriticalAlerts?: number
+		cloudHosted?: boolean
+	} = $props()
+
+	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+
+	const settingsTargetWs = $derived(
+		workspaceSettingsTarget
+			? $userWorkspaces?.find((w) => w.id === workspaceSettingsTarget)
+			: undefined
+	)
+
+	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix. A dev
+	// workspace is excluded: it is a standing environment its whole team works in, torn down by
+	// detaching it in the dev-workspace settings, so offering a one-click delete beside the account
+	// menu puts a destructive action on the wrong surface. Requires the entry to be loaded, not just
+	// absent from the list: `workspaceIsFork` answers from the id prefix alone, so between a cold
+	// load restoring the workspace id and the list arriving, a `wm-fork-` dev workspace would read
+	// as a throwaway and offer its own deletion.
+	const currentWsIsThrowawayFork = $derived(
+		!!currentWs &&
+			workspaceIsFork($workspaceStore, $userWorkspaces ?? []) &&
+			!currentWs.is_dev_workspace
+	)
+
+	let deleteForkModal = $state<DeleteForkedWorkspaceModal>()
+	let accessDrawer = $state<AccessDrawer>()
+
+	const { recent: recentChangelogs, hasNew } = readRecentChangelogs()
+	let hasNewChangelogs = $state(hasNew)
+	function onChangelogsOpened() {
+		markChangelogsOpened()
+		hasNewChangelogs = false
+	}
+
+	let darkMode = $state(false)
+	function toggleDarkMode() {
+		if (!document.documentElement.classList.contains('dark')) {
+			document.documentElement.classList.add('dark')
+			window.localStorage.setItem('dark-mode', 'dark')
+		} else {
+			document.documentElement.classList.remove('dark')
+			window.localStorage.setItem('dark-mode', 'light')
+		}
+	}
+
+	const helpItems: Item[] = [
+		{
+			displayName: 'Docs',
+			icon: BookOpen,
+			href: 'https://www.windmill.dev/docs/intro/',
+			hrefTarget: '_blank'
+		},
+		{
+			displayName: 'Feedbacks',
+			icon: DiscordIcon,
+			href: 'https://discord.gg/V7PM2YHsPB',
+			hrefTarget: '_blank'
+		},
+		{
+			displayName: 'Issues',
+			icon: Github,
+			href: 'https://github.com/windmill-labs/windmill/issues/new',
+			hrefTarget: '_blank'
+		},
+		{
+			displayName: 'Changelog',
+			icon: Newspaper,
+			href: 'https://www.windmill.dev/changelog/',
+			hrefTarget: '_blank'
+		},
+		...recentChangelogs.map((changelog, i) => ({
+			displayName: changelog.label,
+			href: changelog.href,
+			hrefTarget: '_blank' as const,
+			separatorTop: i === 0
+		}))
+	]
+
+	// Account / instance actions gathered under one "Settings" dropdown, shared by
+	// the session rail and the global sidebar so both expose the same entry point.
+	// Workspace- and instance-scoped entries sit between the account entries and Log out.
+	// Leaving a workspace lives on the workspace settings page, which every member reaches,
+	// not in this menu next to Log out: only a workspace admin can undo a leave.
+	const workspaceInstanceItems = $derived<Item[]>([
+		...($roleCapabilities.visibility.folders
+			? [{ displayName: 'Folders', icon: FolderOpen, href: '/folders' }]
+			: []),
+		...($roleCapabilities.visibility.groups
+			? [{ displayName: 'Groups', icon: Users, href: '/groups' }]
+			: []),
+		// Fork deletion is a global-sidebar action on the active workspace, so keep it
+		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
+		...(currentWsIsThrowawayFork && !workspaceSettingsTarget
+			? [
+					{
+						displayName: 'Delete forked workspace',
+						icon: Trash2,
+						type: 'delete' as const,
+						action: () => deleteForkModal?.openModal()
+					}
+				]
+			: []),
+		workspaceSettingsTarget
+			? {
+					displayName: `${settingsTargetWs?.name ?? workspaceSettingsTarget} settings`,
+					icon: Building,
+					// The `workspace` query param switches the app to the target
+					// workspace on arrival (full loads and client-side navs alike).
+					href: `/workspace_settings?workspace=${workspaceSettingsTarget}`
+				}
+			: {
+					displayName: `${currentWs?.name ?? $workspaceStore ?? 'Workspace'} settings`,
+					icon: Building,
+					href: '/workspace_settings'
+				},
+		...($superadmin
+			? [
+					{
+						displayName: 'Instance settings',
+						icon: Settings,
+						href: SUPERADMIN_SETTINGS_HASH
+					}
+				]
+			: [])
+	])
+
+	// An account entered through an invite link that still has no credentials of its own;
+	// the entry (and the sidebar banner it echoes) disappears once it does.
+	let pendingSetup = $derived(accountSetup.pending)
+
+	const items = $derived<Item[]>([
+		{
+			displayName: 'Help',
+			icon: HelpCircle,
+			submenuItems: helpItems,
+			extra: helpPing
+		},
+		{
+			displayName: 'Switch theme',
+			icon: darkMode ? Sun : Moon,
+			action: () => toggleDarkMode()
+		},
+		{
+			// The email is the label itself; the crown icon carries the admin role.
+			displayName: $userStore?.non_member
+				? `${$userStore?.email} (superadmin, not a member)`
+				: ($userStore?.email ?? 'User'),
+			icon: $userStore?.is_admin || $userStore?.non_member ? Crown : User,
+			submenuItems: [
+				...(pendingSetup
+					? [
+							{
+								displayName: 'Finish account setup',
+								icon: KeyRound,
+								// The dropdown closes on this click; the modal opens once it is gone so its own
+								// buttons don't compete with the menu's outside-click handling.
+								action: () => setTimeout(() => (accountSetup.open = true), 50)
+							}
+						]
+					: []),
+				{
+					displayName: 'Account settings',
+					icon: Settings,
+					href: USER_SETTINGS_HASH
+				},
+				// A superadmin who is not a member has no `usr` row, so there is no access to list.
+				...($userStore && !$userStore.non_member
+					? [
+							{
+								displayName: 'My access',
+								icon: ShieldCheck,
+								action: () =>
+									setTimeout(() => accessDrawer?.open(`u/${$userStore?.username}`, 'self'), 50)
+							}
+						]
+					: []),
+				...(!$roleCapabilities.code
+					? [
+							{
+								displayName: 'Take the tour',
+								icon: GraduationCap,
+								href: `/?${TOUR_PARAM}=${TOUR_PARAM_VALUE}`
+							}
+						]
+					: []),
+				...(cloudHosted && $isPremiumStore === false
+					? [
+							{
+								displayName: `${$usageStore ?? '—'}/1000 user execs`,
+								icon: Gauge,
+								tooltip: EXECUTIONS_HINT,
+								disabled: true
+							}
+						]
+					: [])
+			]
+		},
+		...workspaceInstanceItems.map((item, i) => (i === 0 ? { ...item, separatorTop: true } : item)),
+		{ displayName: 'Log out', icon: LogOut, action: () => logout(), separatorTop: true }
+	])
+
+	const logsItems = $derived<Item[]>([
+		{ displayName: 'Audit logs', icon: Eye, href: '/audit_logs' },
+		...($devopsRole ? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }] : []),
+		...($enterpriseLicense
+			? [
+					{
+						displayName: 'Critical alerts',
+						icon: AlertCircle,
+						action: () => isCriticalAlertsUIOpen.set(true),
+						extra: criticalAlertsBadge
+					}
+				]
+			: [])
+	])
+</script>
+
+{#snippet criticalAlertsBadge()}
+	{#if numUnacknowledgedCriticalAlerts > 0}
+		<SideBarNotification notificationCount={numUnacknowledgedCriticalAlerts} />
+	{/if}
+{/snippet}
+
+{#snippet helpPing()}
+	{#if hasNewChangelogs}
+		<span class="relative flex h-2 w-2">
+			<span
+				class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
+			></span>
+			<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
+		</span>
+	{/if}
+{/snippet}
+
+<!-- Workers and Logs are full pages (not account/instance actions), so they sit
+     as plain links above the Settings dropdown rather than inside it.
+     The dropdown triggers below are anchored left and clip their row: DropdownV2 justifies its
+     button's content to the end, and Firefox repaints a button whose content overflows it, which
+     a label showing while the sidebar is still narrow would do on every frame of the expand. -->
+<div class="flex flex-col gap-0.5 mb-0.5">
+	<MenuLink
+		class="!text-xs"
+		label="Workers"
+		href="/workers"
+		icon={ServerCog}
+		disabled={!$roleCapabilities.visibility.workers}
+		{isCollapsed}
+		aiId="sidebar-menu-link-workers"
+		aiDescription="Button to navigate to workers"
+	/>
+	{#if $devopsRole || $userStore?.is_admin}
+		<DropdownV2
+			items={logsItems}
+			placement="top-start"
+			class="w-full min-w-0 justify-start"
+			fixedHeight={false}
+			enableFlyTransition
+			aiId="sidebar-menu-link-logs"
+			aiDescription="Button to open the logs menu (audit logs, service logs, critical alerts)"
+		>
+			{#snippet buttonReplacement()}
+				<span
+					class="relative flex flex-1 min-w-0 items-center gap-2 w-full h-[30px] px-2 rounded-md text-secondary text-xs font-normal whitespace-nowrap overflow-hidden hover:bg-surface-hover cursor-pointer"
+				>
+					<Logs size={16} class="shrink-0 text-hint" />
+					{#if !isCollapsed}
+						<span class="truncate">Logs</span>
+						<span class="ml-auto flex items-center gap-2">
+							{#if numUnacknowledgedCriticalAlerts > 0}
+								<SideBarNotification notificationCount={numUnacknowledgedCriticalAlerts} />
+							{/if}
+							<ChevronDown size={14} class="flex-shrink-0 text-tertiary" />
+						</span>
+					{:else if numUnacknowledgedCriticalAlerts > 0}
+						<span class="absolute top-0.5 right-0.5">
+							<SideBarNotification
+								notificationCount={numUnacknowledgedCriticalAlerts}
+								small={true}
+							/>
+						</span>
+					{/if}
+				</span>
+			{/snippet}
+		</DropdownV2>
+	{:else}
+		<MenuLink
+			class="!text-xs"
+			label="Audit logs"
+			href="/audit_logs"
+			icon={Eye}
+			disabled={!$roleCapabilities.visibility.audit_logs}
+			{isCollapsed}
+			aiId="sidebar-menu-link-audit-logs"
+			aiDescription="Button to navigate to audit logs"
+		/>
+	{/if}
+</div>
+
+<!-- Changelogs count as seen once the menu closes (not on open), so the Help-row
+     dot stays visible while the user is looking at the open menu. -->
+<DropdownV2
+	{items}
+	placement="top-start"
+	class="w-full min-w-0 justify-start"
+	fixedHeight={false}
+	enableFlyTransition
+	on:close={onChangelogsOpened}
+>
+	{#snippet buttonReplacement()}
+		<span
+			class="relative flex flex-1 min-w-0 items-center gap-2 w-full h-[30px] px-2 rounded-md text-secondary text-xs font-normal whitespace-nowrap overflow-hidden hover:bg-surface-hover cursor-pointer"
+		>
+			<Settings size={16} class="shrink-0 text-hint" />
+			{#if !isCollapsed}
+				<span class="truncate">Settings</span>
+				<ChevronDown size={14} class="ml-auto flex-shrink-0 text-tertiary" />
+			{/if}
+			{#if hasNewChangelogs}
+				<span
+					class="flex h-2 w-2 absolute {isCollapsed
+						? 'top-0.5 right-0.5'
+						: 'right-7 top-1/2 -translate-y-1/2'}"
+				>
+					<span
+						class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
+					></span>
+					<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
+				</span>
+			{/if}
+		</span>
+	{/snippet}
+</DropdownV2>
+
+<DeleteForkedWorkspaceModal bind:this={deleteForkModal} />
+
+<AccessDrawer bind:this={accessDrawer} />
+
+<DarkModeObserver bind:darkMode />

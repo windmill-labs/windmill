@@ -1,5 +1,6 @@
 import type { DbType } from '$lib/components/dbTypes'
 import type { TableEditorForeignKey, TableEditorValuesColumn } from '../tableEditor'
+import { renderDbQuotedIdentifier } from '../utils'
 
 export function formatDefaultValue(str: string, datatype: string, resourceType: DbType): string {
 	if (!str) return ''
@@ -33,6 +34,13 @@ export function renderForeignKey(
 		useSchema: boolean
 		dbType: DbType
 		tableName: string
+		/**
+		 * Table to name in the REFERENCES clause, quoted per dot-separated part so a
+		 * schema-qualified target survives identifiers that need quoting. The constraint
+		 * name stays derived from `fk.targetTable`, so qualifying a target here never
+		 * renames a constraint an earlier migration created under the bare name.
+		 */
+		qualifiedTarget?: string
 	}
 ): string {
 	const sourceColumns = fk.columns.map((c) => c.sourceColumn).filter(Boolean)
@@ -53,9 +61,16 @@ export function renderForeignKey(
 		.join('_')
 		.replaceAll('.', '_')} `.substring(0, 60)
 
-	sql += ` FOREIGN KEY (${sourceColumns.join(
+	const targetRef = options.qualifiedTarget
+		? options.qualifiedTarget
+				.split('.')
+				.map((part) => renderDbQuotedIdentifier(part, options.dbType))
+				.join('.')
+		: targetTable
+
+	sql += ` FOREIGN KEY (${sourceColumns.join(', ')}) REFERENCES ${targetRef} (${targetColumns.join(
 		', '
-	)}) REFERENCES ${targetTable} (${targetColumns.join(', ')})`
+	)})`
 	if (fk.onDelete !== 'NO ACTION') sql += ` ON DELETE ${fk.onDelete}`
 	if (fk.onUpdate !== 'NO ACTION') sql += ` ON UPDATE ${fk.onUpdate}`
 	return sql

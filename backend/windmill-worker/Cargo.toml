@@ -7,21 +7,25 @@ edition.workspace = true
 [lib]
 name = "windmill_worker"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
 private = ["windmill-worker-volumes/private", "windmill-queue/private", "windmill-common/private", "windmill-dep-map/private", "windmill-runtime-nativets?/private"]
 mcp = ["windmill-ai/mcp", "dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "windmill-runtime-nativets?/enterprise", "dep:pem", "dep:rsa", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "windmill-runtime-nativets?/enterprise", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-rustls", "dep:tokio-rustls", "dep:rustls", "dep:rustls-native-certs", "dep:rustls-pemfile", "dep:hyper-util"]
 mssql = ["dep:tiberius"]
 mssql-kerberos = ["mssql", "tiberius/integrated-auth-gssapi"]  # Linux/Unix integrated auth
 mssql-winauth = ["mssql", "tiberius/winauth"]  # Windows integrated auth
 bigquery = ["dep:gcp_auth"]
+snowflake = ["dep:pem", "dep:rsa"]  # pem/rsa: key-pair auth
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
 parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
 flow_testing = []
-cloud = []
+failpoints = []
+cloud = ["windmill-queue/cloud", "windmill-common/cloud"]
 sqlx = []
 deno_core = ["dep:windmill-runtime-nativets"]
 libffi_mac = ["dep:libffi-sys"]
@@ -37,8 +41,8 @@ nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 rlang = ["dep:windmill-parser-r"]
-duckdb = ["dep:libloading"]
-quickjs = ["windmill-jseval/quickjs"]
+duckdb = []
+quickjs = ["windmill-jseval/quickjs", "windmill-queue/quickjs"]
 bedrock = ["windmill-ai/bedrock"]
 
 [dependencies]
@@ -80,6 +84,7 @@ tokio.workspace = true
 tokio-stream.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yml.workspace = true
 futures.workspace = true
 async-recursion.workspace = true
 async-trait.workspace = true
@@ -98,6 +103,7 @@ mappable-rc.workspace = true
 git-version.workspace = true
 once_cell.workspace = true
 tokio-postgres.workspace = true
+postgres-protocol.workspace = true
 bit-vec.workspace = true
 url.workspace = true
 async-stream.workspace = true
@@ -111,10 +117,18 @@ rust_decimal.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true
 hmac.workspace = true
+# Reads the dbt engine's `target/index/*.parquet`, which is where column-level
+# lineage lives. Unconditional rather than behind the `parquet` FEATURE: that one
+# is object storage, and a build without it still runs dbt jobs.
+parquet.workspace = true
 pem = { workspace = true, optional = true }
 rsa = { workspace = true, optional = true }
 urlencoding.workspace = true
-nix.workspace = true
+# `user` adds geteuid(2) to verify ownership of the ansible socket-dir root
+nix = { workspace = true, features = ["user"] }
+# Cross-platform advisory file lock (flock on unix, LockFileEx on windows) for the
+# cross-process Python install lock into shared wheel-cache dirs.
+fs4 = { workspace = true }
 bytes.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true
@@ -124,13 +138,13 @@ hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tar.workspace = true
+flate2.workspace = true
 convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true
 pep440_rs.workspace = true
 process-wrap.workspace = true
 async-once-cell.workspace = true
-libloading = { workspace = true, optional = true }
 
 opentelemetry-proto = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
@@ -141,7 +155,11 @@ bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
 hudsucker = { workspace = true, optional = true }
 hyper-http-proxy = { workspace = true, optional = true }
-hyper-tls = { workspace = true, optional = true }
+hyper-rustls = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-native-certs = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
 rcgen = { workspace = true, optional = true }
 

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT runnable_path AS \"runnable_path!\", trigger,\n                  args AS \"args: sqlx::types::Json<serde_json::Value>\"\n             FROM v2_job\n             WHERE workspace_id = $1 AND trigger_kind = 'asset'\n             ORDER BY runnable_path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "trigger",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "args: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d6a8ab57341b8aa17d4d50ce7a710c923df7b66d1b76d36229299d2866775ffc"
+}

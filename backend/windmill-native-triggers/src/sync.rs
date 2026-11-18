@@ -7,10 +7,18 @@ use serde::Serialize;
 use crate::ServiceName;
 
 #[cfg(feature = "native_trigger")]
+use itertools::Itertools;
+
+#[cfg(feature = "native_trigger")]
 use crate::{
     decrypt_oauth_data, list_native_triggers, update_native_trigger_error,
     update_native_trigger_service_config, External, NativeTrigger,
 };
+
+/// The one `native_trigger.error` an existence check owns. Finding the trigger on the service
+/// may only clear this value: every other failure recorded there — a webhook left aimed at a
+/// pre-rename path, a channel that failed to renew — is one existence cannot disprove.
+pub const EXTERNAL_TRIGGER_MISSING_ERROR: &str = "Trigger no longer exists on external service";
 
 #[derive(Debug, Serialize)]
 pub struct TriggerSyncInfo {
@@ -113,20 +121,16 @@ async fn sync_service_triggers<T: External>(
     let mut all_synced_triggers = Vec::new();
     let mut all_errors = Vec::new();
 
-    // Use the integration service for lookup (e.g., GoogleDrive/GoogleCalendar -> Google)
-    let integration_service = T::SERVICE_NAME.integration_service();
-
-    // Only sync workspaces that have the corresponding integration configured
+    // Triggers can act through connected resources in a workspace with no OAuth app of its own.
     let workspaces_with_integration = match sqlx::query_scalar!(
         r#"
-        SELECT wi.workspace_id
-        FROM workspace_integrations wi
-        JOIN workspace w ON w.id = wi.workspace_id
-        WHERE wi.service_name = $1
-          AND wi.oauth_data IS NOT NULL
+        SELECT DISTINCT nt.workspace_id
+        FROM native_trigger nt
+        JOIN workspace w ON w.id = nt.workspace_id
+        WHERE nt.service_name = $1
           AND w.deleted = false
         "#,
-        integration_service as ServiceName
+        T::SERVICE_NAME as ServiceName
     )
     .fetch_all(db)
     .await
@@ -209,8 +213,17 @@ pub async fn sync_workspace_triggers<T: External>(
         workspace_id
     );
 
-    let windmill_triggers =
-        list_native_triggers(db, workspace_id, T::SERVICE_NAME, None, None, None, None).await?;
+    let windmill_triggers = list_native_triggers(
+        db,
+        workspace_id,
+        T::SERVICE_NAME,
+        None,
+        None,
+        None,
+        None,
+        windmill_api_auth::ScopePathFilter::AllowAll,
+    )
+    .await?;
 
     if windmill_triggers.is_empty() {
         tracing::info!(
@@ -224,38 +237,50 @@ pub async fn sync_workspace_triggers<T: External>(
     let mut synced = Vec::new();
     let mut errors = Vec::new();
 
-    // Use the integration service for OAuth lookup (e.g., GoogleDrive/GoogleCalendar -> Google)
-    let integration_service = T::SERVICE_NAME.integration_service();
+    // Maintenance runs per connection: each one's triggers are registered under its account, and
+    // Nextcloud reconciles against that account's own list of webhooks.
+    let by_connection = windmill_triggers
+        .into_iter()
+        .into_group_map_by(|t| t.connection_path.clone());
 
-    let oauth_data = {
-        match decrypt_oauth_data(db, workspace_id, integration_service).await {
+    for (connection_path, triggers) in by_connection {
+        let oauth_data = match decrypt_oauth_data(
+            db,
+            workspace_id,
+            T::SERVICE_NAME.integration_service(),
+            connection_path.as_deref(),
+        )
+        .await
+        {
             Ok(oauth_data) => oauth_data,
             Err(e) => {
                 tracing::error!(
-                    "Failed to get workspace integration OAuth data for {}: {}",
+                    "Failed to get the OAuth data of connection {:?} in {}: {}",
+                    connection_path,
                     workspace_id,
                     e
                 );
                 errors.push(SyncError {
-                    resource_path: format!("workspace:{}", workspace_id),
-                    error_message: format!("Failed to get workspace integration OAuth data: {}", e),
+                    resource_path: connection_path
+                        .unwrap_or_else(|| format!("workspace:{}", workspace_id)),
+                    error_message: format!("Failed to get connection OAuth data: {}", e),
                     error_type: "oauth_error".to_string(),
                 });
-                return Ok((Vec::new(), errors));
+                continue;
             }
-        }
-    };
+        };
 
-    handler
-        .maintain_triggers(
-            db,
-            workspace_id,
-            &windmill_triggers,
-            &oauth_data,
-            &mut synced,
-            &mut errors,
-        )
-        .await;
+        handler
+            .maintain_triggers(
+                db,
+                workspace_id,
+                &triggers,
+                &oauth_data,
+                &mut synced,
+                &mut errors,
+            )
+            .await;
+    }
 
     tracing::info!(
         "Sync completed for {} in workspace '{}'. Updated: {}, Errors: {}",
@@ -290,7 +315,7 @@ pub async fn reconcile_with_external_state(
     for trigger in windmill_triggers {
         if !external_trigger_map.contains_key(&trigger.external_id) {
             // Trigger no longer exists on external service - set error
-            let error_msg = "Trigger no longer exists on external service".to_string();
+            let error_msg = EXTERNAL_TRIGGER_MISSING_ERROR.to_string();
 
             if trigger.error.as_deref() != Some(&error_msg) {
                 tracing::info!(
@@ -336,8 +361,10 @@ pub async fn reconcile_with_external_state(
             // Trigger exists on external service
             let external_service_config = external_trigger_map.get(&trigger.external_id).unwrap();
 
-            // Clear error if it was set
-            if trigger.error.is_some() {
+            // Only clear the error this reconciler itself sets. Existence says nothing about the
+            // failures other paths record — a webhook left aimed at a pre-rename path is present
+            // here yet still broken, and wiping its error would erase the only signal the user has.
+            if trigger.error.as_deref() == Some(EXTERNAL_TRIGGER_MISSING_ERROR) {
                 tracing::info!(
                     "Trigger (external_id: '{}', script_path: '{}') exists on external service, clearing error",
                     trigger.external_id,

@@ -34,38 +34,51 @@ async fn create(
     authed: ApiAuthed,
     // Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
     Json(nwd): Json<NewWorkspaceDependencies>,
 ) -> error::Result<(StatusCode, String)> {
-    tracing::info!(workspace_id = %nwd.workspace_id, name = ?nwd.name, language = ?nwd.language, "create workspace dependencies");
+    tracing::info!(workspace_id = %w_id, name = ?nwd.name, language = ?nwd.language, "create workspace dependencies");
     require_admin(authed.is_admin, &authed.username)?;
+    // `require_admin` vouches for the path workspace only; the body must not target another.
+    if nwd.workspace_id != w_id {
+        return Err(error::Error::BadRequest(format!(
+            "workspace_id `{}` in the request body does not match the workspace `{}` in the path",
+            nwd.workspace_id, w_id
+        )));
+    }
 
     let dep_path = WorkspaceDependencies::to_path(&nwd.name, nwd.language)?;
-    let w_id = nwd.workspace_id.clone();
-    let email = authed.email.clone();
-    let username = authed.username.clone();
 
-    let id = nwd
-        .create(
-            (
-                authed.email,
-                username_to_permissioned_as(&authed.username),
-                authed.username,
-            ),
-            db.clone(),
+    // The first default dependencies of a workspace rebuild its whole dependency map, which can
+    // outlast a client's timeout. A disconnect drops this handler; spawned, the rebuild still
+    // completes and records that it ran, so the client's retry does not start it over.
+    let id = tokio::spawn(async move {
+        let id = nwd
+            .create(
+                (
+                    authed.email.clone(),
+                    username_to_permissioned_as(&authed.username),
+                    authed.username.clone(),
+                ),
+                db.clone(),
+            )
+            .await?;
+
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::WorkspaceDependencies { path: dep_path },
+            None,
+            true,
+            None,
         )
         .await?;
-
-    handle_deployment_metadata(
-        &email,
-        &username,
-        &db,
-        &w_id,
-        DeployedObject::WorkspaceDependencies { path: dep_path },
-        None,
-        true,
-        None,
-    )
-    .await?;
+        Ok::<_, error::Error>(id)
+    })
+    .await
+    .map_err(|e| error::Error::internal_err(format!("creating workspace dependencies: {e}")))??;
 
     Ok((StatusCode::CREATED, format!("{}", id)))
 }

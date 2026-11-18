@@ -115,6 +115,87 @@ describe('createCoalescingKeyedRunner', () => {
 		expect(runner.cancel('k')).toBe(false)
 	})
 
+	it('settled resolves immediately for an idle key', async () => {
+		const runner = createCoalescingKeyedRunner()
+		await expect(runner.settled('k')).resolves.toBeUndefined()
+	})
+
+	it('settled resolves once the chain drains, including the displacing task', async () => {
+		const runner = createCoalescingKeyedRunner()
+		const d = deferred()
+		const last = deferred()
+		const h = vi.fn(() => last.promise)
+
+		runner.submit('k', () => d.promise) // in flight
+		void runner.submitAndWait('k', () => Promise.resolve()).catch(() => {}) // displaced below
+		runner.submit('k', h)
+
+		let drained = false
+		void runner.settled('k').then(() => (drained = true))
+
+		d.resolve()
+		await d.promise
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(h).toHaveBeenCalledTimes(1)
+		expect(drained).toBe(false) // h still running
+
+		last.resolve()
+		await runner.settled('k')
+		expect(drained).toBe(true)
+		expect(runner.isRunning('k')).toBe(false)
+	})
+
+	it('settled called synchronously from within the first task does not resolve early', async () => {
+		const runner = createCoalescingKeyedRunner()
+		const d = deferred()
+		let settledEarly = false
+		let settledResolved = false
+		runner.submit('k', () => {
+			// Re-entrant: the task is invoked synchronously as the chain starts.
+			const p = runner.settled('k')
+			void p.then(() => (settledResolved = true))
+			// Give the microtask a tick to (wrongly) resolve if the entry is missing.
+			void Promise.resolve().then(() => {
+				if (settledResolved) settledEarly = true
+			})
+			return d.promise
+		})
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(settledEarly).toBe(false)
+		expect(settledResolved).toBe(false) // still running
+
+		d.resolve()
+		await runner.settled('k')
+		expect(settledResolved).toBe(true)
+	})
+
+	it('a synchronously-throwing first task leaves no stale chain entry', async () => {
+		const runner = createCoalescingKeyedRunner()
+		const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+		runner.submit('k', () => {
+			throw new Error('sync boom')
+		})
+		// Chain drained synchronously; the key must be idle and settled a no-op.
+		expect(runner.isRunning('k')).toBe(false)
+		await expect(runner.settled('k')).resolves.toBeUndefined()
+		// A fresh submit still starts a new chain (map wasn't left stale).
+		const ran = vi.fn(() => Promise.resolve())
+		runner.submit('k', ran)
+		expect(ran).toHaveBeenCalledTimes(1)
+		err.mockRestore()
+	})
+
+	it('settled ignores a task failure (the chain survives it)', async () => {
+		const runner = createCoalescingKeyedRunner()
+		const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+		runner.submit('k', () => Promise.reject(new Error('boom')))
+		await expect(runner.settled('k')).resolves.toBeUndefined()
+		expect(runner.isRunning('k')).toBe(false)
+		err.mockRestore()
+	})
+
 	it('does not abort the in-flight task on cancel', async () => {
 		const runner = createCoalescingKeyedRunner()
 		const d = deferred()

@@ -15,14 +15,20 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 	import { importStore } from '$lib/components/apps/store'
-	import { tick, untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { page } from '$app/state'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
+	import { classicAppDraftParts } from '$lib/appDiffSides'
+	import {
+		appDraftSettings,
+		withDraftPolicySettings
+	} from '$lib/components/apps/editor/appDraftSettings'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
-	let appEditor: AppEditor | undefined = $state(undefined)
 	/** Seeded from a hub app this load; AppEditor relaxes a few authoring affordances. */
 	let fromHub = $state(false)
 	let savedApp:
@@ -32,6 +38,7 @@
 				summary: string
 				policy: any
 				custom_path?: string
+				labels?: string[]
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
@@ -48,18 +55,31 @@
 	let othersModalOpen = $state(false)
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
+	// The app_version the draft was forked from (pinned), + the deployed head, for
+	// the precise staleness check in DraftEditorModals (vs the drifting timestamp).
+	let draftBaseVersion = $state<string | undefined>(undefined)
+	let deployedHeadVersion = $state<string | undefined>(undefined)
+	let deployedBy = $state<string | undefined>(undefined)
 
 	/** Increments per `loadApp` call. Stale loads (e.g. when picker
 	 * navigation races a draft-discard reload) bail at the next checkpoint
 	 * after their captured token no longer matches. */
 	let loadAppToken = 0
+	/** Drops the previous load's `new_draft` strip-on-save listener. */
+	let cleanupNewDraftFlag: (() => void) | undefined
+	onDestroy(() => cleanupNewDraftFlag?.())
 	async function loadApp(opts: { getDraft?: boolean } = {}): Promise<void> {
 		const getDraft = opts.getDraft ?? true
 		const tok = ++loadAppToken
+		cleanupNewDraftFlag?.()
+		cleanupNewDraftFlag = undefined
 		// `?new_draft=true` (from `/apps/add`'s redirect): a fresh, never-saved
 		// `draft_{uuid}` path. Skip the backend fetch (would 404) and seed empty
 		// with `path = ''` for the friendly auto-name. See /scripts/edit's loader.
-		if (page.url.searchParams.get('new_draft') === 'true') {
+		// Skip the seed branch once the draft is persisted this session so a stale
+		// `?new_draft` loads the saved draft instead of blanking it — see
+		// shouldSeedNewDraft.
+		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'app', path)) {
 			// Suspend autosave across the bootstrap: the seed assignment and
 			// AppEditor's `firstMirror` are programmatic writes that must not POST
 			// as the first edit. AppEditor lifts it in `onMount`.
@@ -72,21 +92,29 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			// New-draft returns before the version assignment below, so clear the
+			// previous app's version-staleness inputs, else they bleed across the
+			// reused route and falsely trip the stale-draft modal.
+			draftBaseVersion = undefined
+			deployedHeadVersion = undefined
+			deployedBy = undefined
 			// Brand-new app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
-			// Capture every seeding param BEFORE stripping the URL flag.
 			const templatePath = page.url.searchParams.get('template')
 			const templateId = page.url.searchParams.get('template_id')
 			const hubId = page.url.searchParams.get('hub')
 			// Explicit path seed: the fork-a-draft handoff re-homes the source
 			// path into the forker's namespace and passes it here.
 			const pathParam = page.url.searchParams.get('seed_path')
-			const url = new URL(window.location.href)
-			url.searchParams.delete('new_draft')
-			window.history.replaceState(window.history.state, '', url.toString())
-			// Backend's `Policy` requires `execution_mode` (empty object fails to
-			// deserialize on deploy); `publisher` is the default authoring mode.
-			const emptyPolicy = { execution_mode: 'publisher' } as any
+			// Keep `?new_draft=true` until the backend confirms the first autosave,
+			// so a refresh before any edit re-seeds here instead of 404-ing on the
+			// never-persisted `draft_{uuid}` path.
+			cleanupNewDraftFlag = stripNewDraftFlagOnSave({
+				workspace: $workspaceStore!,
+				itemKind: 'app',
+				path
+			})
+			const emptyPolicy = { execution_mode: 'publisher', sandbox: true } as any
 			// One-shot import handoff via $importStore (YAML/JSON or "Build app").
 			// Wrapped exports carry { summary, value, policy }; bare ones are the App value.
 			const importRaw = $importStore
@@ -172,28 +200,27 @@
 				path: pathParam ?? '',
 				policy: seedPolicy
 			}
-			// Tutorial links ("/apps/add?tutorial=...") land here via the
-			// redirect; fire once AppEditor has mounted and the runnable
-			// panel the tour points at exists.
-			const tutorialParam = page.url.searchParams.get('tutorial')
-			if (tutorialParam) {
-				await tick()
-				let attempts = 0
-				while (attempts < 20 && !document.querySelector('#app-editor-runnable-panel')) {
-					await new Promise((resolve) => setTimeout(resolve, 100))
-					attempts++
-				}
-				if (tok !== loadAppToken) return
-				appEditor?.triggerTutorial()
-			}
 			return
 		}
+		// Falling through with `?new_draft=true` still set means the draft is
+		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
+		// flag so it doesn't linger in the URL / remembered nav route.
+		stripNewDraftFlag()
 		let backendApp = await AppService.getAppByPath({
 			path: page.params.path ?? '',
 			workspace: $workspaceStore!,
 			getDraft
 		})
 		if (tok !== loadAppToken) return
+		// A draft-only app has no page for Home's card to open.
+		if (!backendApp.no_deployed) {
+			recentItems.record($workspaceStore!, {
+				kind: 'app',
+				path: backendApp.path,
+				summary: backendApp.summary,
+				via: 'edit'
+			})
+		}
 		// Deployed App value for AppEditor's autosave `discardIf`, captured BEFORE
 		// the draft swap below replaces `backendApp.value`. `undefined` when
 		// there's no deployed row (draft-only path).
@@ -205,7 +232,8 @@
 				// never compares equal (and a summary-only edit still counts as a change).
 				({
 					...(structuredClone(stateSnapshot(backendApp.value)) as App),
-					summary: backendApp.summary
+					summary: backendApp.summary,
+					...appDraftSettings(structuredClone(stateSnapshot(backendApp)))
 				} as App)
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
@@ -234,8 +262,7 @@
 				summary: savedDraftApp?.summary ?? '',
 				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
-				// `execution_mode` required; matches the new-app seed above.
-				policy: { execution_mode: 'publisher' } as any,
+				policy: { execution_mode: 'publisher', sandbox: true } as any,
 				custom_path: undefined,
 				versions: undefined as any,
 				id: 0 as any,
@@ -265,13 +292,23 @@
 		// `no_deployed` — no baseline to be older than.
 		draftSavedAt = backendApp.draft_saved_at as string | undefined
 		deployedAt = backendApp.no_deployed ? undefined : (backendApp.created_at as string | undefined)
+		deployedBy = backendApp.no_deployed ? undefined : (backendApp.created_by as string | undefined)
+		// The app_version the draft forked from; undefined for a draft never forked
+		// from a deploy. Head = the last entry of the deployed `versions`.
+		draftBaseVersion = backendApp.draft_base
+		const headVersion =
+			backendApp.no_deployed || !backendApp.versions
+				? undefined
+				: backendApp.versions[backendApp.versions.length - 1]
+		deployedHeadVersion = headVersion != null ? String(headVersion) : undefined
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
 			summary: backendApp_.summary,
 			value: backendApp_.value as App,
 			path: backendApp_.path,
 			policy: backendApp_.policy,
-			custom_path: backendApp_.custom_path
+			custom_path: backendApp_.custom_path,
+			labels: backendApp_.labels
 		}
 		// "Load another user's draft" handoff: render their value. Overlay mode (we
 		// have our own draft) hard-locks saves until the user confirms overwriting
@@ -286,6 +323,11 @@
 		}
 		if (pendingLoad) {
 			backendApp = { ...backendApp, value: pendingLoad.value as App } as typeof backendApp
+			// Their draft's base, not ours: the prompt and the deploy guard read it, and
+			// deploying their content on our base would claim a version it never forked
+			// from. See /scripts/edit.
+			const theirs = (pendingLoad.value as App)?.parent_version
+			draftBaseVersion = theirs != null ? String(theirs) : undefined
 			if (hasOwnDraft) {
 				// AppEditor `migrateApp`s the value in place on mount (see its
 				// `migratedDeployedBaseline`), so the draft cell settles to the
@@ -308,10 +350,31 @@
 				})
 			}
 		}
+		// Pin the fork base for the stale-draft check: when seeding a draft from the
+		// deployed app (no own draft yet), stamp the deployed head version onto the
+		// draft value. An existing own draft already carries it (preserved by the
+		// value swap above). `parent_version` is in DRAFT_COMPARE_IGNORED_FIELDS, so it
+		// never trips the autosave no-op / "unsaved changes" comparison.
+		// Not after loading a teammate's draft either: that value carries their base.
+		if (!hasOwnDraft && !pendingLoad && !backendApp.no_deployed && backendApp.value) {
+			const versions = (backendApp as { versions?: number[] }).versions
+			const head = Array.isArray(versions) ? versions[versions.length - 1] : undefined
+			if (head != null) (backendApp.value as App).parent_version = head
+		}
 		// Assign the fresh response onto `app`. The path-change $effect sets
 		// `app = undefined` first, unmounting AppEditor and releasing the UserDraft
 		// entry, so the remount starts fresh — no local discard is needed here
 		// (and `UserDraft.discard` would POST `value: null`, a spurious autosave).
+		// The draft's settings win over the deployed ones here; `savedApp` keeps the deployed ones,
+		// which the settings drawer compares against.
+		const draftParts = classicAppDraftParts(backendApp.value)
+		backendApp = {
+			...backendApp,
+			policy: draftParts.policy
+				? withDraftPolicySettings(backendApp.policy, draftParts.policy)
+				: backendApp.policy,
+			labels: draftParts.labels ?? backendApp.labels
+		} as typeof backendApp
 		app = backendApp
 	}
 
@@ -352,16 +415,29 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state()
 
-	function onRestore(ev: any) {
+	function onRestore(restoredApp: any) {
 		sendUserToast('App restored from previous deployment')
-		app = ev.detail
+		// Drop the stale pre-restore autosave. The remounted AppEditor seeds its
+		// state from `appDraftHandle.draft ?? app`, so without this it keeps showing
+		// the old draft instead of the restored version. Same reason `reloadDeployed`
+		// removes the draft before remounting.
+		UserDraft.remove('app', path)
+		app = restoredApp
+		// Re-pin the stale-draft fork base to the current head. A restored value
+		// carries the `parent_version` baked in when that older version was deployed,
+		// which would make the deploy guard (`compareVersions`) falsely report "not on
+		// latest". Restore targets the live app, so `versions` holds the current head.
+		const versions = (app as { versions?: number[] } | undefined)?.versions
+		const head = Array.isArray(versions) ? versions[versions.length - 1] : undefined
+		if (head != null && app?.value) (app.value as App).parent_version = head
 		const app_ = structuredClone(stateSnapshot(app!))
 		savedApp = {
 			summary: app_.summary,
 			value: app_.value as App,
 			path: app_.path,
 			policy: app_.policy,
-			custom_path: app_.custom_path
+			custom_path: app_.custom_path,
+			labels: app_.labels
 		}
 		redraw++
 	}
@@ -402,6 +478,9 @@
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
+	{draftBaseVersion}
+	{deployedHeadVersion}
+	{deployedBy}
 	onLoadLatestDeploy={async () => {
 		if (!$workspaceStore) return
 		await runResetToDeployed({
@@ -415,9 +494,9 @@
 
 {#key redraw}
 	{#if app}
-		<div class="h-screen">
+		<div class="h-full">
 			<AppEditor
-				bind:this={appEditor}
+				ownsPageHeader
 				{fromHub}
 				onSavedNewAppPath={(url) => {
 					goto(`/apps/edit/${url}`)
@@ -425,13 +504,14 @@
 						app.path = url
 					}
 				}}
-				on:restore={onRestore}
+				{onRestore}
 				summary={app.summary}
 				app={app.value}
+				labels={app.labels}
 				{deployedBaseline}
 				newPath={app.value?.draft_path ?? app.path}
 				path={page.params.path ?? ''}
-				policy={app.policy}
+				bind:policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}
@@ -442,6 +522,26 @@
 				{loadedFromDraft}
 				othersDraftsCount={otherDraftsUsers.length}
 				onOpenOthersDrafts={() => (othersModalOpen = true)}
+				onDeploy={({ version, head, headBy, headAt }) => {
+					// The editor stays open across a deploy and pins what it wrote onto the value
+					// itself. Keep that as the prompt's base while this deploy is the head, so
+					// the pair still describes the draft the next edit starts; a raced deploy
+					// leaves it unknown, or the pair would differ and open the prompt on the
+					// draft this deploy consumed.
+					draftBaseVersion = version != null && version === head ? String(version) : undefined
+					draftSavedAt = undefined
+					if (head != null) {
+						// Named by whoever deployed the head, not by the page load's author.
+						deployedHeadVersion = String(head)
+						deployedBy = headBy
+						deployedAt = headAt
+					}
+					// Another deploy landed on top of this one: there is no draft for the prompt
+					// to talk about, so say what happened instead.
+					if (version != null && head != null && version !== head) {
+						sendUserToast(`Version ${head} was deployed on top of yours (${version})`)
+					}
+				}}
 			/>
 		</div>
 	{/if}

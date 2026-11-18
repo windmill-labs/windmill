@@ -1,10 +1,11 @@
 <script lang="ts">
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { Url } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
-	import { base } from '$lib/base'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		captureInfo?: CaptureInfo | undefined
@@ -30,7 +31,7 @@
 		if (!captureInfo) {
 			return
 		}
-		return `${window.location.origin}${base}/api/w/${$workspaceStore}/capture_u/gcp/${
+		return `${window.location.origin}/api/w/${$operatingWorkspace}/capture_u/gcp/${
 			captureInfo.isFlow ? 'flow' : 'script'
 		}/${captureInfo.path}`
 	}

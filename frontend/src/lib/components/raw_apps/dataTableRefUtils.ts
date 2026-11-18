@@ -16,6 +16,43 @@ export interface RawAppData {
 	datatable: string | undefined
 	/** The schema for table creation (if specified) */
 	schema: string | undefined
+	/** The role the app uses each data table through, by data table name. A data table without
+	 * an entry is used as its default role, then `admin`. */
+	roles?: Record<string, string>
+}
+
+export function appDatatableRole(
+	roles: Record<string, string> | undefined,
+	datatable: string
+): string | undefined {
+	return roles?.[datatable]
+}
+
+/** `roles` with `datatable` set to `role`, or without it when `role` is undefined. */
+export function withAppDatatableRole(
+	roles: Record<string, string> | undefined,
+	datatable: string,
+	role: string | undefined
+): Record<string, string> | undefined {
+	const next = { ...roles }
+	if (role === undefined) delete next[datatable]
+	else next[datatable] = role
+	return Object.keys(next).length > 0 ? next : undefined
+}
+
+/** The SDK call app code uses to reach a data table, in the language it is written in. A role
+ * is a keyword argument in Python and an option in TypeScript. */
+export function sdkDatatableCall(
+	datatable: string,
+	role: string | undefined,
+	language: 'typescript' | 'python'
+): string {
+	if (role === undefined) {
+		return datatable === 'main' ? 'wmill.datatable()' : `wmill.datatable('${datatable}')`
+	}
+	return language === 'python'
+		? `wmill.datatable('${datatable}', role='${role}')`
+		: `wmill.datatable('${datatable}', { role: '${role}' })`
 }
 
 /** Default data configuration */
@@ -42,7 +79,9 @@ export function extractDataConfig(value: any): RawAppData | undefined {
 				schema: d.creation.schema
 			}
 		}
-		return d
+		// A `data` written by hand (raw_app.yaml through the CLI) can omit `tables`, and the
+		// editor maps over it unguarded.
+		return { ...d, tables: Array.isArray(d.tables) ? d.tables : [] }
 	} else if (value?.datatables) {
 		return { ...DEFAULT_DATA, tables: value.datatables }
 	}

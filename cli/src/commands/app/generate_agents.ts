@@ -186,7 +186,14 @@ export async function regenerateAgentDocs(
   }
 
   // Read local data configuration from raw_app.yaml
-  let localData: { tables?: string[]; datatable?: string; schema?: string } | undefined;
+  let localData:
+    | {
+        tables?: string[];
+        datatable?: string;
+        schema?: string;
+        roles?: Record<string, string>;
+      }
+    | undefined;
   try {
     const rawApp = (await yamlParseFile(rawAppPath)) as Record<string, unknown>;
     if (rawApp.data && typeof rawApp.data === "object") {

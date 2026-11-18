@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::flows::FlowValue;
+use crate::flows::{FlowValue, Suspend};
 
 const MINUTES: Duration = Duration::from_secs(60);
 const HOURS: Duration = MINUTES.saturating_mul(60);
@@ -41,6 +41,23 @@ pub struct FlowStatus {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_id: Option<Uuid>,
+    /// Set at push on a branch/loop sub-flow whose enclosing flow had no `flow_env`, own or
+    /// inherited, so the worker can skip the ancestor walk for it. `false` only means unknown:
+    /// the worker then walks the ancestors as usual.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_inherited_flow_env: bool,
+    /// On a root flow: the steps, at any depth, that failed and that the flow went past
+    /// because of `continue_on_error`. Capped at `MAX_CONTINUED_ON_ERROR` entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub continued_on_error: Vec<ContinuedOnError>,
+}
+
+pub const MAX_CONTINUED_ON_ERROR: i32 = 100;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ContinuedOnError {
+    pub id: String,
+    pub job: Uuid,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -185,6 +202,7 @@ struct UntaggedFlowStatusModule {
     flow_jobs: Option<Vec<Uuid>>,
     flow_jobs_success: Option<Vec<Option<bool>>>,
     flow_jobs_duration: Option<FlowJobsDuration>,
+    flow_jobs_labels: Option<Vec<Option<String>>>,
     branch_chosen: Option<BranchChosen>,
     branchall: Option<BranchAllStatus>,
     parallel: Option<bool>,
@@ -193,7 +211,7 @@ struct UntaggedFlowStatusModule {
     failed_retries: Option<Vec<Uuid>>,
     skipped: Option<bool>,
     agent_actions: Option<Vec<AgentAction>>,
-    agent_actions_success: Option<Vec<bool>>,
+    agent_actions_success: Option<Vec<Option<bool>>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -213,6 +231,31 @@ pub enum AgentAction {
     },
     Message {},
     WebSearch {},
+    /// The agent is parked until someone approves or rejects these calls of tools that require
+    /// it; it is answered once its `agent_actions_success` entry is written. `call_id` is the
+    /// first call's, and names the request.
+    Approval {
+        call_id: String,
+        calls: Vec<ApprovalCall>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
+    /// The agent is parked until someone answers its question, the same way.
+    Question {
+        call_id: String,
+        question: String,
+        /// Answers the model proposes; a free-text answer is always possible.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        choices: Vec<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        multi_select: bool,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ApprovalCall {
+    pub function_name: String,
+    pub arguments: serde_json::Value,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -244,6 +287,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
@@ -254,7 +299,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
     Success {
         id: String,
@@ -266,6 +311,8 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -276,7 +323,7 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
     Failure {
         id: String,
@@ -288,13 +335,15 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         flow_jobs_duration: Option<FlowJobsDuration>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        flow_jobs_labels: Option<Vec<Option<String>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         failed_retries: Vec<Uuid>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_actions: Option<Vec<AgentAction>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        agent_actions_success: Option<Vec<bool>>,
+        agent_actions_success: Option<Vec<Option<bool>>>,
     },
 }
 
@@ -342,6 +391,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 branchall: untagged.branchall,
                 parallel: untagged.parallel.unwrap_or(false),
@@ -360,6 +410,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 approvers: untagged.approvers.unwrap_or_default(),
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
@@ -377,6 +428,7 @@ impl<'de> Deserialize<'de> for FlowStatusModule {
                 flow_jobs: untagged.flow_jobs,
                 flow_jobs_success: untagged.flow_jobs_success,
                 flow_jobs_duration: untagged.flow_jobs_duration,
+                flow_jobs_labels: untagged.flow_jobs_labels,
                 branch_chosen: untagged.branch_chosen,
                 failed_retries: untagged.failed_retries.unwrap_or_default(),
                 agent_actions: untagged.agent_actions,
@@ -404,6 +456,21 @@ pub enum JobResult {
 }
 
 impl FlowStatusModule {
+    /// Whether this completed step's suspend gate could block and never opened (it timed out or
+    /// was disapproved): `approvers` is written when the gate opens, and is the only record of it
+    /// that outlives the run, since its resume_job rows are deleted with its queue row.
+    pub fn suspend_gate_never_opened(&self, suspend: Option<&Suspend>) -> bool {
+        let Some(suspend) = suspend else {
+            return false;
+        };
+        if suspend.required_events.unwrap_or(0) == 0
+            || suspend.continue_on_disapprove_timeout.unwrap_or(false)
+        {
+            return false;
+        }
+        matches!(self, FlowStatusModule::Success { skipped: false, approvers, .. } if approvers.is_empty())
+    }
+
     pub fn job(&self) -> Option<Uuid> {
         match self {
             FlowStatusModule::WaitingForPriorSteps { .. } => None,
@@ -442,6 +509,15 @@ impl FlowStatusModule {
         }
     }
 
+    pub fn flow_jobs_labels(&self) -> Option<Vec<Option<String>>> {
+        match self {
+            FlowStatusModule::InProgress { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            FlowStatusModule::Success { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            FlowStatusModule::Failure { flow_jobs_labels, .. } => flow_jobs_labels.clone(),
+            _ => None,
+        }
+    }
+
     pub fn flow_jobs_duration(&self) -> Option<FlowJobsDuration> {
         match self {
             FlowStatusModule::InProgress { flow_jobs_duration, .. } => flow_jobs_duration.clone(),
@@ -475,6 +551,33 @@ impl FlowStatusModule {
         }
     }
 
+    /// For a still-`InProgress` module (a between-steps zombie), whether the module's own
+    /// iteration/branch cursor proves it actually reached the end, so the only thing left is
+    /// the final state transition (children-success is a separate, DB-side check).
+    ///
+    /// A serial for-loop / branch-all grows `flow_jobs` one entry at a time, so an all-success
+    /// prefix does NOT mean the module finished: the cursor must sit on the last element. Parallel
+    /// containers preallocate every child up front, so a full success set is conclusive. While-loops
+    /// are never derivable here (continuation depends on a condition evaluated after each iteration,
+    /// which a reaped zombie never persisted). Non-`InProgress` modules return false.
+    pub fn is_between_steps_complete(&self) -> bool {
+        match self {
+            FlowStatusModule::InProgress { while_loop: true, .. } => false,
+            // Parallel loop/branch-all: all children exist up front, so children-success suffices.
+            FlowStatusModule::InProgress { parallel: true, .. } => true,
+            FlowStatusModule::InProgress { iterator: Some(it), .. } => {
+                let total = it
+                    .itered_len
+                    .or_else(|| it.itered.as_ref().map(|v| v.len()));
+                total.is_some_and(|t| t > 0 && it.index + 1 == t)
+            }
+            FlowStatusModule::InProgress { branchall: Some(ba), .. } => ba.branch + 1 == ba.len,
+            // Single-child leaf / subflow / branch-one: the child ran, nothing else to advance.
+            FlowStatusModule::InProgress { .. } => true,
+            _ => false,
+        }
+    }
+
     pub fn agent_actions(&self) -> Option<Vec<AgentAction>> {
         match self {
             FlowStatusModule::InProgress { agent_actions, .. } => agent_actions.clone(),
@@ -484,7 +587,7 @@ impl FlowStatusModule {
         }
     }
 
-    pub fn agent_actions_success(&self) -> Option<Vec<bool>> {
+    pub fn agent_actions_success(&self) -> Option<Vec<Option<bool>>> {
         match self {
             FlowStatusModule::InProgress { agent_actions_success, .. } => {
                 agent_actions_success.clone()
@@ -541,6 +644,8 @@ impl FlowStatus {
             stream_job: None,
             chat_input_enabled: f.chat_input_enabled,
             memory_id: None,
+            no_inherited_flow_env: false,
+            continued_on_error: vec![],
         }
     }
 
@@ -548,5 +653,132 @@ impl FlowStatus {
     pub fn current_step(&self) -> Option<&FlowStatusModule> {
         let i = usize::try_from(self.step).ok()?;
         self.modules.get(i)
+    }
+
+    /// Whether no step has begun executing yet: the preprocessor (if any) and the first
+    /// module are both still `WaitingForPriorSteps`. A reaped flow in this state can be
+    /// safely re-queued because nothing ran. A preprocessor that is `InProgress` means its
+    /// child already ran (only the parent transition was lost), so re-queuing would
+    /// re-run the preprocessor and duplicate its side effects.
+    pub fn is_not_yet_started(&self) -> bool {
+        self.preprocessor_module
+            .as_ref()
+            .is_none_or(|p| matches!(p, FlowStatusModule::WaitingForPriorSteps { .. }))
+            && self
+                .modules
+                .first()
+                .is_some_and(|m| matches!(m, FlowStatusModule::WaitingForPriorSteps { .. }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FlowStatus, FlowStatusModule};
+
+    fn module(json: serde_json::Value) -> FlowStatusModule {
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn status(json: serde_json::Value) -> FlowStatus {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn is_not_yet_started_distinguishes_preprocessor_zombie() {
+        let nil = "00000000-0000-0000-0000-000000000000";
+        let waiting = serde_json::json!({ "type": "WaitingForPriorSteps", "id": "a" });
+        let failure = serde_json::json!({ "type": "WaitingForPriorSteps", "id": "failure" });
+        // No preprocessor, first module waiting: genuinely unstarted.
+        assert!(status(serde_json::json!({
+            "step": 0, "modules": [waiting], "failure_module": failure
+        }))
+        .is_not_yet_started());
+        // First module already InProgress: started.
+        assert!(!status(serde_json::json!({
+            "step": 0,
+            "modules": [{ "type": "InProgress", "id": "a", "job": nil }],
+            "failure_module": failure
+        }))
+        .is_not_yet_started());
+        // Preprocessor still waiting, first module waiting: unstarted.
+        assert!(status(serde_json::json!({
+            "step": -1, "modules": [waiting], "failure_module": failure,
+            "preprocessor_module": { "type": "WaitingForPriorSteps", "id": "pre" }
+        }))
+        .is_not_yet_started());
+        // Preprocessor InProgress (its child ran) while modules[0] still waits: a
+        // preprocessor zombie, NOT unstarted, so it must not be auto-requeued.
+        assert!(!status(serde_json::json!({
+            "step": -1, "modules": [waiting], "failure_module": failure,
+            "preprocessor_module": { "type": "InProgress", "id": "pre", "job": nil }
+        }))
+        .is_not_yet_started());
+    }
+
+    #[test]
+    fn between_steps_complete_serial_loop() {
+        // Cursor on the last iteration => complete.
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "iterator": { "index": 1, "itered_len": 2 }, "flow_jobs": []
+        }))
+        .is_between_steps_complete());
+        // Reaped mid-iteration (iteration 1 of 2 never scheduled) => NOT complete.
+        assert!(!module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "iterator": { "index": 0, "itered_len": 2 }, "flow_jobs": []
+        }))
+        .is_between_steps_complete());
+        // Legacy shape: itered array present, itered_len absent.
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "iterator": { "index": 1, "itered": ["x", "y"] }
+        }))
+        .is_between_steps_complete());
+    }
+
+    #[test]
+    fn between_steps_complete_while_loop_never() {
+        assert!(!module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "while_loop": true, "iterator": { "index": 1, "itered_len": 2 }
+        }))
+        .is_between_steps_complete());
+    }
+
+    #[test]
+    fn between_steps_complete_branchall_and_parallel() {
+        // Serial branch-all on the last branch => complete; earlier branch => not.
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "branchall": { "branch": 1, "len": 2 }
+        }))
+        .is_between_steps_complete());
+        assert!(!module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "branchall": { "branch": 0, "len": 2 }
+        }))
+        .is_between_steps_complete());
+        // Parallel loop: children preallocated, so any cursor is fine (success is checked elsewhere).
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "parallel": true, "iterator": { "index": 0, "itered_len": 3 }
+        }))
+        .is_between_steps_complete());
+    }
+
+    #[test]
+    fn between_steps_complete_leaf_and_non_inprogress() {
+        // Single-child leaf: the child ran, nothing to advance.
+        assert!(module(serde_json::json!({
+            "type": "InProgress", "id": "a", "job": "00000000-0000-0000-0000-000000000000"
+        }))
+        .is_between_steps_complete());
+        // A Success module is not a between-steps zombie.
+        assert!(!module(serde_json::json!({
+            "type": "Success", "id": "a", "job": "00000000-0000-0000-0000-000000000000",
+            "skipped": false
+        }))
+        .is_between_steps_complete());
     }
 }

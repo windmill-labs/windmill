@@ -1,6 +1,8 @@
 import { writeFile } from "node:fs/promises";
 
 import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace } from "../../core/context.ts";
+import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import {
   GlobalOptions,
   isSuperset,
@@ -69,6 +71,32 @@ async function list(opts: GlobalOptions) {
     .render();
 }
 
+async function listWorkspaceUsers(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const users = await wmill.listUsers({ workspace: workspace.workspaceId });
+
+  if (opts.json) {
+    console.log(JSON.stringify(users));
+  } else {
+    new Table()
+      .header(["username", "email", "role"])
+      .padding(2)
+      .border(true)
+      .body(
+        users.map((u) => [
+          u.username,
+          u.email,
+          u.is_admin ? "admin" : u.operator ? "operator" : "developer",
+        ])
+      )
+      .render();
+  }
+}
+
 function rdString() {
   return Math.random().toString(36).slice(2, 7);
 }
@@ -127,6 +155,7 @@ async function createToken(
 }
 
 interface SimplifiedUser {
+  /** `admin`, or the name of one of the workspace's roles (`developer`, `operator` or a custom role). */
   role: string;
   username: string;
   disabled: boolean;
@@ -142,9 +171,13 @@ export async function pushWorkspaceUser(
 
   log.debug(`Processing local user ${email}`);
 
-  if (!["operator", "developer", "admin"].includes(localUser.role)) {
+  if (typeof localUser.role !== "string" || localUser.role.trim() === "") {
     throw new Error(`Invalid role for user ${email}: ${localUser.role}`);
   }
+  // Admin is a flag on top of the role; any other value names a workspace role, which the
+  // server checks exists in the workspace.
+  const isAdmin = localUser.role === "admin";
+  const role = isAdmin ? undefined : localUser.role;
 
   try {
     const remoteUser = await wmill.getUser({
@@ -154,9 +187,8 @@ export async function pushWorkspaceUser(
     user = {
       role: remoteUser.is_admin
         ? "admin"
-        : remoteUser.operator
-        ? "operator"
-        : "developer",
+        : remoteUser.role ??
+          (remoteUser.operator ? "operator" : "developer"),
       username: remoteUser.username,
       disabled: remoteUser.disabled,
     };
@@ -181,8 +213,8 @@ export async function pushWorkspaceUser(
         workspace: workspace,
         username: localUser.username,
         requestBody: {
-          is_admin: localUser.role === "admin",
-          operator: localUser.role === "operator",
+          is_admin: isAdmin,
+          role,
           disabled: localUser.disabled,
         },
       });
@@ -201,8 +233,8 @@ export async function pushWorkspaceUser(
         workspace: workspace,
         requestBody: {
           email: email,
-          is_admin: localUser.role === "admin",
-          operator: localUser.role === "operator",
+          is_admin: isAdmin,
+          role,
           username: !automatedUsernameCreation ? localUser.username : undefined,
         },
       });
@@ -518,6 +550,9 @@ export async function pushInstanceGroups(
 const command = new Command()
   .description("user related commands")
   .action(list as any)
+  .command("list", "List the users of the workspace")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(listWorkspaceUsers as any)
   .command("add", "Create a user")
   .arguments("<email:string> [password:string]")
   .option("--superadmin", "Specify to make the new user superadmin.")

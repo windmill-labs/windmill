@@ -447,10 +447,12 @@ def main():
                 deployment_message: None,
                 visible_to_runner_only: None,
                 on_behalf_of_email: None,
+                on_behalf_of: None,
                 preserve_on_behalf_of: None,
                 ws_error_handler_muted: None,
                 labels: None,
                 skip_draft_deletion: None,
+                job_token_scopes: None,
             })
             .send()
             .await
@@ -509,20 +511,20 @@ def main():
                 )
                 .unwrap(),
                 policy: None,
+                execution_mode: None,
                 deployment_message: None,
                 custom_path: None,
                 preserve_on_behalf_of: None,
                 labels: None,
                 skip_draft_deletion: None,
+                allow_kind_change: None,
             })
             .send()
             .await
             .unwrap();
 
-        assert_eq!(
-            res.text().await.unwrap(),
-            "app f/rel/root_app updated (npath: \"f/rel/root_app_renamed\")"
-        );
+        let deployed: serde_json::Value = res.json().await.unwrap();
+        assert_eq!(deployed["path"], "f/rel/root_app_renamed", "{deployed}");
 
         let mut completed = listen_for_completed_jobs(&db).await;
         in_test_worker(&db, completed.next(), port).await;
@@ -537,6 +539,110 @@ def main():
             ]),
         )
         .await;
+        Ok(())
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn relock_of_importer_runs_on_its_tag(db: Pool<Postgres>) -> anyhow::Result<()> {
+        for (path, hash, tag) in [
+            ("f/tags/tagged", 7_000_001_i64, Some("mytag")),
+            ("f/tags/plain", 7_000_002_i64, None),
+        ] {
+            sqlx::query(
+                "INSERT INTO script(workspace_id, created_by, content, schema, summary, description, path, hash, language, tag)
+                 VALUES ('test-workspace', 'test-user', 'def main(): pass', '{}', '', '', $1, $2, 'python3', $3)",
+            )
+            .bind(path)
+            .bind(hash)
+            .bind(tag)
+            .execute(&db)
+            .await?;
+        }
+        let importers = ["f/tags/tagged", "f/tags/plain"]
+            .map(
+                |p| windmill_dep_map::scoped_dependency_map::DependencyDependent {
+                    importer_path: p.to_string(),
+                    importer_kind: "script".to_string(),
+                    importer_node_ids: None,
+                },
+            )
+            .to_vec();
+        windmill_dep_map::trigger_dependents::trigger_dependents_to_recompute_dependencies(
+            "test-workspace",
+            importers,
+            None,
+            None,
+            "test@windmill.dev",
+            "test-user",
+            "u/test-user",
+            &db,
+            vec![],
+            false,
+        )
+        .await?;
+
+        let tags: Vec<(String, String)> = sqlx::query_as(
+            "SELECT runnable_path, tag FROM v2_job WHERE kind = 'dependencies' ORDER BY runnable_path",
+        )
+        .fetch_all(&db)
+        .await?;
+        assert_eq!(
+            tags,
+            vec![
+                ("f/tags/plain".to_string(), "python3".to_string()),
+                ("f/tags/tagged".to_string(), "mytag".to_string()),
+            ]
+        );
+        Ok(())
+    }
+
+    /// A codebase script's bundle carries its imports and only the CLI can rebuild it, so a
+    /// lib's lock change must not relock it: the relocked version would have no bundle.
+    #[sqlx::test(fixtures("base"))]
+    async fn codebase_importer_is_not_relocked(db: Pool<Postgres>) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO script (workspace_id, created_by, content, schema, summary, description,
+                path, hash, language, lock, codebase)
+             VALUES ('test-workspace', 'test-user', 'export async function main() {}', '{}', '',
+                '', 'f/app/hello', 1234, 'bun', '', 'deadbeef.esm')",
+        )
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind,
+                imported_path, importer_node_id)
+             VALUES ('test-workspace', 'f/app/hello', 'script', 'f/shared/lib', '')",
+        )
+        .execute(&db)
+        .await?;
+
+        windmill_dep_map::trigger_dependents::trigger_dependents_to_recompute_dependencies(
+            "test-workspace",
+            vec![
+                windmill_dep_map::scoped_dependency_map::DependencyDependent {
+                    importer_path: "f/app/hello".to_string(),
+                    importer_kind: "script".to_string(),
+                    importer_node_ids: None,
+                },
+            ],
+            None,
+            None,
+            "test@windmill.dev",
+            "test-user",
+            "u/test-user",
+            &db,
+            vec![],
+            false,
+        )
+        .await?;
+
+        let queued: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM v2_job WHERE workspace_id = 'test-workspace'
+             AND runnable_path = 'f/app/hello' AND kind = 'dependencies'",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(queued, 0, "a codebase script must not be relocked");
         Ok(())
     }
 }

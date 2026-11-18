@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_diff_full_scan (source_workspace_id, fork_workspace_id)\n        VALUES ($1, $2)\n        ON CONFLICT (source_workspace_id, fork_workspace_id) DO UPDATE SET scanned_at = now()\n        RETURNING scanned_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scanned_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "104873cf0863b063ebd8e4e8f54ec32e3aea2c5bd09fe972a385c1954b4657a8"
+}

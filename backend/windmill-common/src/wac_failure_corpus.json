@@ -1,0 +1,108 @@
+{
+  "_readme": [
+    "Cases the python and the typescript SDK must both satisfy when they serialize",
+    "a failed step() body into a `__wmill_error` marker.",
+    "",
+    "The two drifted apart twice while #10368 was in review: `name` was taken from",
+    "the constructor in one client and from `e.name` in the other, and `stack` was",
+    "written in two different formats. Each was caught by a reviewer reading the",
+    "diff, not by a test, because each suite only ever checked its own language.",
+    "A shared corpus turns the next divergence into a failure in both suites.",
+    "",
+    "It sits next to `wac_failure_record`, the function that decides the record's",
+    "final shape, because that is the contract these markers are the raw material",
+    "for. The SDK test suites read it by relative path.",
+    "",
+    "`thrown` describes a value each language constructs natively:",
+    "  name           the name the record must report",
+    "  message        the message the record must report",
+    "  props          own properties/attributes that must reach `extra`",
+    "  circular_prop  an own property holding a cycle, which must be dropped",
+    "                 without taking the rest of `extra` with it",
+    "`expect.stack` is only \"present\" or \"absent\": its text is language-specific",
+    "(each client matches its own executor's format) and is asserted there.",
+    "",
+    "Known divergence, deliberately not covered here: a non-finite float reaches",
+    "`extra` as the string \"NaN\" in python and as null in typescript, because",
+    "JSON.stringify has no hook for it. The executors differ the same way.",
+    "",
+    "Second known divergence, also not covered: an attribute named like a field",
+    "the executors report separately \u2014 `name`, `message`, `stack` \u2014 reaches",
+    "`extra` in python and not in typescript. Each client mirrors its own",
+    "executor, which differ the same way: the python one copies `__dict__`",
+    "wholesale, the bun/deno one filters that skip-list out."
+  ],
+  "cases": [
+    {
+      "case": "a named error keeps its name and message",
+      "thrown": {
+        "name": "HttpError",
+        "message": "429 too many requests"
+      },
+      "expect": {
+        "name": "HttpError",
+        "message": "429 too many requests",
+        "stack": "present",
+        "absent": [
+          "extra"
+        ]
+      }
+    },
+    {
+      "case": "custom properties reach extra",
+      "thrown": {
+        "name": "HttpError",
+        "message": "429",
+        "props": {
+          "code": 429,
+          "retry_after": 5,
+          "endpoint": "/v1/jobs"
+        }
+      },
+      "expect": {
+        "name": "HttpError",
+        "message": "429",
+        "stack": "present",
+        "extra": {
+          "code": 429,
+          "retry_after": 5,
+          "endpoint": "/v1/jobs"
+        }
+      }
+    },
+    {
+      "case": "a property that cannot be serialized is dropped on its own",
+      "thrown": {
+        "name": "RequestError",
+        "message": "socket hang up",
+        "props": {
+          "code": "ECONNRESET"
+        },
+        "circular_prop": "request"
+      },
+      "expect": {
+        "name": "RequestError",
+        "message": "socket hang up",
+        "stack": "present",
+        "extra": {
+          "code": "ECONNRESET"
+        }
+      }
+    },
+    {
+      "case": "an error carrying nothing of its own has no extra",
+      "thrown": {
+        "name": "ValueError",
+        "message": "nope"
+      },
+      "expect": {
+        "name": "ValueError",
+        "message": "nope",
+        "stack": "present",
+        "absent": [
+          "extra"
+        ]
+      }
+    }
+  ]
+}

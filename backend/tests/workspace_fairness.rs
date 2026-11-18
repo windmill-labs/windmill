@@ -46,6 +46,7 @@ use windmill_common::worker::{
     WORKSPACE_FAIRNESS_MIN_TOTAL, WORKSPACE_FAIRNESS_OVERLOADED,
 };
 use windmill_queue::workspace_fairness::refresh_overloaded;
+use windmill_test_utils::ensure_today_audit_partition;
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -329,22 +330,6 @@ async fn fairness_lifts_when_load_drops(db: Pool<Postgres>) {
 
     refresh_overloaded(&db).await.expect("refresh ok");
     assert!(overloaded_set().is_empty());
-}
-
-/// Ensure today's audit_partitioned partition exists — the migration only
-/// creates partitions for the day it ran + 3 days, after which production
-/// relies on `monitor::manage_audit_partitions` to roll new ones. That
-/// maintenance task does not run in the test binary, so inserts silently
-/// fail-and-warn without it.
-async fn ensure_today_audit_partition(db: &Pool<Postgres>) {
-    let today: chrono::NaiveDate = chrono::Utc::now().date_naive();
-    let next = today + chrono::Duration::days(1);
-    let partition = format!("audit_{}", today.format("%Y%m%d"));
-    let sql = format!(
-        "CREATE TABLE IF NOT EXISTS \"{partition}\" PARTITION OF audit_partitioned \
-         FOR VALUES FROM ('{today}') TO ('{next}')"
-    );
-    let _ = sqlx::query(&sql).execute(db).await;
 }
 
 /// Both cap AND uncap transitions must produce audit-log rows. This test

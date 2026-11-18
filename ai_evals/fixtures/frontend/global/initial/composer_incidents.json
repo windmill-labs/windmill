@@ -1,0 +1,83 @@
+{
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/billing/charge_cards",
+        "summary": "Charge cards",
+        "language": "bash",
+        "content": "echo \"charging card for customer $1\"\ncurl -sf https://payments.example.com/charge || { echo \"card declined: insufficient funds\" >&2; exit 1; }\n"
+      },
+      {
+        "path": "f/sales/import_orders",
+        "summary": "Import orders",
+        "language": "bash",
+        "content": "echo \"imported $(date +%s) orders\"\n"
+      },
+      {
+        "path": "f/media/gpu_render",
+        "summary": "GPU render",
+        "language": "bash",
+        "content": "echo \"rendering frame\"\n"
+      }
+    ],
+    "flows": [
+      {
+        "path": "f/billing/refund_approval",
+        "summary": "Refund approval",
+        "value": {
+          "modules": [
+            {
+              "id": "a",
+              "summary": "Ask a manager to approve the refund",
+              "value": { "type": "rawscript", "language": "bash", "content": "echo \"refund requested\"", "input_transforms": {} },
+              "suspend": { "required_events": 1, "timeout": 86400 }
+            },
+            {
+              "id": "b",
+              "summary": "Issue the refund",
+              "value": { "type": "rawscript", "language": "bash", "content": "echo \"refunded\"", "input_transforms": {} }
+            }
+          ]
+        }
+      }
+    ],
+    "schedules": [
+      { "path": "f/billing/charge_cards_every_minute", "schedule": "0 * * * * *", "script_path": "f/billing/charge_cards", "summary": "Charge pending cards every minute" },
+      { "path": "f/sales/import_orders_hourly", "schedule": "0 0 * * * *", "script_path": "f/sales/import_orders", "summary": "Import orders every hour" }
+    ],
+    "workers": [
+      {
+        "worker": "wk-default-7f3a2",
+        "worker_group": "default",
+        "custom_tags": ["bash", "python3", "bun", "deno", "go", "flow", "dependency"],
+        "lastPingSecondsAgo": 3,
+        "jobs_executed": 214
+      }
+    ],
+    "jobs": [
+      { "id": "01930000-0000-7000-8000-00000000c001", "scriptPath": "f/billing/charge_cards", "schedulePath": "f/billing/charge_cards_every_minute", "createdBy": "schedule", "success": false, "createdMinutesAgo": 1, "durationMs": 41, "tag": "bash", "logs": "charging card for customer 4412\ncard declined: insufficient funds\nexit code 1" },
+      { "id": "01930000-0000-7000-8000-00000000c002", "scriptPath": "f/billing/charge_cards", "schedulePath": "f/billing/charge_cards_every_minute", "createdBy": "schedule", "success": false, "createdMinutesAgo": 2, "durationMs": 38, "tag": "bash", "logs": "charging card for customer 4412\ncard declined: insufficient funds\nexit code 1" },
+      { "id": "01930000-0000-7000-8000-00000000c003", "scriptPath": "f/billing/charge_cards", "schedulePath": "f/billing/charge_cards_every_minute", "createdBy": "schedule", "success": false, "createdMinutesAgo": 3, "durationMs": 44, "tag": "bash", "logs": "charging card for customer 4412\ncard declined: insufficient funds\nexit code 1" },
+      { "id": "01930000-0000-7000-8000-00000000c004", "scriptPath": "f/billing/charge_cards", "schedulePath": "f/billing/charge_cards_every_minute", "createdBy": "schedule", "success": false, "createdMinutesAgo": 4, "durationMs": 40, "tag": "bash", "logs": "charging card for customer 4412\ncard declined: insufficient funds\nexit code 1" },
+      { "id": "01930000-0000-7000-8000-00000000c005", "scriptPath": "f/billing/charge_cards", "createdBy": "alice", "success": false, "createdMinutesAgo": 30, "durationMs": 52, "tag": "bash", "logs": "charging card for customer 4412\ncard declined: insufficient funds\nexit code 1" },
+      { "id": "01930000-0000-7000-8000-00000000c006", "scriptPath": "f/billing/charge_cards", "createdBy": "alice", "success": false, "createdMinutesAgo": 31, "durationMs": 47, "tag": "bash", "logs": "charging card for customer 4412\ncard declined: insufficient funds\nexit code 1" },
+      { "id": "01930000-0000-7000-8000-00000000d001", "scriptPath": "f/sales/import_orders", "schedulePath": "f/sales/import_orders_hourly", "createdBy": "schedule", "success": true, "createdMinutesAgo": 10, "durationMs": 820, "tag": "bash", "logs": "imported 112 orders" },
+      { "id": "01930000-0000-7000-8000-00000000d002", "scriptPath": "f/sales/import_orders", "schedulePath": "f/sales/import_orders_hourly", "createdBy": "schedule", "success": true, "createdMinutesAgo": 70, "durationMs": 790, "tag": "bash", "logs": "imported 98 orders" },
+      { "id": "01930000-0000-7000-8000-00000000d003", "scriptPath": "f/sales/import_orders", "schedulePath": "f/sales/import_orders_hourly", "createdBy": "schedule", "success": true, "createdMinutesAgo": 130, "durationMs": 805, "tag": "bash", "logs": "imported 104 orders" },
+      { "id": "01930000-0000-7000-8000-00000000d004", "scriptPath": "f/sales/import_orders", "createdBy": "bob", "success": true, "createdMinutesAgo": 45, "durationMs": 811, "tag": "bash", "logs": "imported 3 orders" },
+      { "id": "01930000-0000-7000-8000-00000000e001", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 22, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e002", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 22, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e003", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 22, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e004", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 21, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e005", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 21, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e006", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 21, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e007", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 20, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e008", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 20, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e009", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 20, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e010", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 19, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e011", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 19, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000e012", "scriptPath": "f/media/gpu_render", "createdBy": "alice", "state": "queued", "createdMinutesAgo": 19, "tag": "gpu-renderer" },
+      { "id": "01930000-0000-7000-8000-00000000f001", "scriptPath": "f/billing/refund_approval", "jobKind": "flow", "createdBy": "bob", "state": "suspended", "createdMinutesAgo": 40, "tag": "flow", "logs": "refund requested" }
+    ]
+  }
+}

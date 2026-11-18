@@ -31,6 +31,21 @@ The `up.sql` usually defines:
   - trigger-specific fields
 - Indexes on foreign keys + any frequently-filtered columns
 - Foreign key to `workspace`
+- The RLS policies (`see_own`, `see_member`, `see_folder_extra_perms_user_*`, `see_extra_perms_user_*`, `see_extra_perms_groups_*`), copied from an existing trigger table
+
+**RLS: wrap every session GUC read in a scalar sub-select.** Write the session
+reads as `(select current_setting('session.user'))`,
+`= any((select regexp_split_to_array(current_setting('session.groups'), ','))::text[])`,
+`?| (select regexp_split_to_array(current_setting('session.pgroups'), ','))::text[]`,
+`? (select concat('u/', current_setting('session.user')))`, etc. — not the bare
+`current_setting(...)`. The GUCs are set with `SET LOCAL`, so the sub-select
+hoists them to a one-time InitPlan instead of re-evaluating per scanned row.
+Put the `::text[]` cast **outside** the sub-select for the array cases: in an
+`= any (...)` context, casting inside — `= any((select ...::text[]))` — makes
+Postgres parse the operand as a row-returning subquery and fails at CREATE with
+`operator does not exist: text = text[]`. The outside cast keeps it in
+array-operand form. See migration `20260714230440_wrap_session_gucs_in_rls_policies`
+for the canonical wrapped forms.
 
 Down migration drops the table and any enum types.
 
@@ -42,7 +57,13 @@ Create a new crate under `backend/windmill-trigger-{kind}/` with:
 - `src/lib.rs`: `pub use mod_ee::*;` behind `#[cfg(all(feature = "enterprise", feature = "private"))]`
 - `src/mod_ee.rs`: core types + helpers
 - `src/handler_ee.rs`: `TriggerCrud` impl + route handlers
-- `src/listener_ee.rs`: (only if streaming/pull-based) `Listener` trait impl
+- `src/listener_ee.rs`: (only if streaming/pull-based) `Listener` trait impl. Retrying is the
+  framework's job (`listening` in `windmill-trigger/src/listener.rs`): open the connection in
+  `get_consumer` and return its error, which disables the trigger only when
+  `is_transient_error` says no retry can fix it (map a retryable failure with no natural kind to
+  `transient_error`); have `consume` write the reason to its status lock and return when the
+  connection drops, and call `disable_with_error` only for a permanent failure. No retry loop
+  or alerting of its own.
 
 Required in `mod_ee.rs`:
 - `{Kind}Config` struct (persisted shape, `FromRow`)
@@ -58,6 +79,7 @@ Required in `handler_ee.rs`:
   - `const TABLE_NAME`, `ADDITIONAL_SELECT_FIELDS`
   - `get_deployed_object`, `validate_config`, `create_trigger`, `update_trigger`, `delete_trigger`, `test_connection`
   - `additional_routes` (optional — mount extra endpoints for things like ARM resource listing, topic discovery)
+  - `config_runnables` — required if the config names a script or flow the listener runs (as the WebSocket URL resolver does): it returns them so a save's Hub check sees them. The default returns none, which leaves such a path unchecked.
 
 Register the crate in `backend/Cargo.toml` as a workspace member and as a dep of `windmill-api` behind the feature flag.
 

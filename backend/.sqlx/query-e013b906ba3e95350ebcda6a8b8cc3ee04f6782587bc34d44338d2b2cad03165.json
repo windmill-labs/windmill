@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dbt_node\n          WHERE job_id <> '00000000-0000-0000-0000-000000000000'\n            AND ingested_at < now() - make_interval(days => $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e013b906ba3e95350ebcda6a8b8cc3ee04f6782587bc34d44338d2b2cad03165"
+}

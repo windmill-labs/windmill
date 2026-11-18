@@ -4,9 +4,13 @@
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { NativeTriggerService } from '$lib/gen/services.gen'
 	import type { GithubRepoEntry } from '$lib/gen/types.gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2 } from 'lucide-svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useNativeConnection } from '../../utils'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const connectionPath = useNativeConnection()
 
 	interface Props {
 		serviceConfig: Record<string, any>
@@ -57,14 +61,15 @@
 	let selectedEvents = $state<string[]>(externalData?.events ?? serviceConfig.events ?? ['push'])
 
 	async function loadRepos() {
-		if (!$workspaceStore) {
+		if (!$operatingWorkspace) {
 			repos = []
 			return
 		}
 		loading = true
 		try {
 			repos = await NativeTriggerService.listGithubRepos({
-				workspace: $workspaceStore
+				workspace: $operatingWorkspace,
+				connectionPath: connectionPath()
 			})
 		} catch (err: any) {
 			console.error('Failed to load GitHub repositories:', err)
@@ -76,7 +81,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore) {
+		if ($operatingWorkspace) {
 			loadRepos()
 		}
 	})

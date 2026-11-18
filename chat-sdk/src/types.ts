@@ -1,0 +1,259 @@
+import type { RunningTurn } from './api'
+
+export type ChatRole = 'user' | 'assistant' | 'tool' | 'system'
+
+/**
+ * - `idle`: ready for a message
+ * - `submitted`: the message was sent, no answer has started streaming yet
+ * - `streaming`: the answer is arriving
+ * - `error`: the last turn failed; `error` holds why. Sending again is allowed.
+ */
+export type ChatStatus = 'idle' | 'submitted' | 'streaming' | 'error'
+
+/**
+ * Where conversation history lives.
+ * - `server`: Windmill's conversation store. Each Windmill user only sees their own
+ *   conversations, so use it with the viewer's own session or a per-user token.
+ * - `local`: the browser's storage. Right for a token shared by every visitor.
+ * - `none`: nothing is kept beyond the current page.
+ */
+export type HistoryMode = 'server' | 'local' | 'none'
+
+export interface ToolInvocation {
+  callId?: string
+  name: string
+  /** The arguments the model passed, as a JSON string. */
+  arguments?: string
+  result?: string
+  status: 'running' | 'success' | 'error'
+}
+
+export interface ChatAttachment { input: string; s3: string; storage?: string; filename?: string }
+
+export interface ChatMessage {
+  id: string
+  role: ChatRole
+  content: string
+  /** The model's reasoning summary, when the provider streams one. */
+  reasoning?: string
+  /** The call on a `tool` message, from the live stream or its stored row; `callId` is only known from the stream. */
+  tool?: ToolInvocation
+  success: boolean
+  createdAt: string
+  jobId?: string
+  /** The flow step that produced the message. */
+  stepName?: string
+  /** The files a user message carried, as object-storage references. */
+  attachments?: ChatAttachment[]
+  /** True while the message is optimistic or still streaming. */
+  pending: boolean
+  /** Id of the persisted row once the server has it; `id` itself never changes, so list keys stay stable. */
+  serverId?: string
+  /** The server's cursor for a persisted message; unset for one created on the client. */
+  seq?: number
+}
+
+export interface Conversation {
+  id: string
+  title: string | undefined
+  createdAt: string
+  updatedAt: string
+  /**
+   * Started from the flow editor's test panel rather than a deployed run. Known once the
+   * server has listed the conversation; unset for one only this client has seen.
+   */
+  isTest?: boolean
+  /**
+   * The turn the conversation was still answering when the server listed it: started in
+   * another tab, or before this chat was created. Pass it to `resumeTurn` to follow it.
+   */
+  runningTurn?: RunningTurn
+}
+
+export interface ChatState {
+  conversationId: string | undefined
+  messages: ChatMessage[]
+  status: ChatStatus
+  error: Error | undefined
+  conversations: Conversation[]
+  /** Where history is read from. Starts as configured; drops from `server` to `local` when the credential cannot read conversations. */
+  history: HistoryMode
+  loadingMessages: boolean
+  hasMoreMessages: boolean
+  /** The flow job the running turn follows, once it is known. */
+  runningJobId?: string
+  /**
+   * The running turn's AI agent has answered and waits, without a worker, on tools still running
+   * in the background: nothing streams until one finishes. Set by its `background_wait` event,
+   * cleared by the next event and when the turn ends.
+   */
+  waitingOnBackground?: boolean
+}
+
+export type TokenSource = string | (() => string | Promise<string>)
+
+export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
+/** A raw app's generated `wmill.ts`, as far as a chat uses it. */
+export interface RawAppWmill {
+  backendAsync: Record<string, (args: any, opts: { memoryId: string }) => Promise<string>>
+  streamJob: (jobId: string, onUpdate?: (update: { new_result_stream?: string }) => void) => Promise<unknown>
+}
+
+/** `ChatOptions` whose `runnable` must name one of `wmill`'s runnables. */
+export type TypedChatOptions<W extends RawAppWmill> = ChatOptions & {
+  wmill?: W
+  runnable?: keyof W['backendAsync'] & string
+}
+
+export interface ChatOptions {
+  /**
+   * Path of a deployed flow with chat mode enabled, e.g. `f/support/assistant`. Required
+   * unless `runnable` or `follow` is set, where it only names the local history.
+   */
+  flowPath?: string
+  /**
+   * In a raw app, chat through its agent runnable of this name instead of a flow:
+   * `{ wmill, runnable: 'chat' }`. Each turn runs as the app, so a sandboxed app needs no
+   * frontend SDK scope and its viewers no access to the agent; the chat follows it as
+   * with `follow`. It also names the local history, so each runnable keeps its own.
+   */
+  runnable?: string
+  /** The app's generated module, `import * as wmill from './wmill'`, which `runnable` goes through. */
+  wmill?: RawAppWmill
+  /** Windmill origin, e.g. `https://app.windmill.dev`. Detected inside a raw app. */
+  baseUrl?: string
+  /** Detected inside a raw app. */
+  workspace?: string
+  /**
+   * A Windmill token, or a function returning one (called before every request, so it
+   * can fetch a short-lived token from your backend). Omit it to use the viewer's
+   * session: the cookie on the Windmill origin, or a sandboxed raw app's SDK token.
+   */
+  token?: TokenSource
+  /** Defaults to `server` with the viewer's session and `local` with an explicit token. */
+  history?: HistoryMode
+  /** Extra flow inputs sent with every message, next to `user_message`. */
+  inputs?: Record<string, unknown>
+  fetch?: FetchLike
+  /** Backing store for `local` history. Defaults to `localStorage`. */
+  storage?: StorageLike
+  /**
+   * Namespace for `local` history, e.g. the signed-in user's id. Local history is
+   * per browser, per flow; without this, users sharing a browser share it.
+   */
+  storageKey?: string
+  /** Messages fetched per page of server history. */
+  pageSize?: number
+  /**
+   * How often, in milliseconds, the server polls a running turn for the stream
+   * (Enterprise; 50 at the fastest, other servers ignore it). Unset, the server
+   * relaxes from 100 ms to 3 s over a long turn.
+   */
+  pollDelayMs?: number
+  /**
+   * Runs the flow for a turn and returns the job id, instead of the deployed flow at
+   * `flowPath`. `args` carries `user_message` and the extra inputs; the run must set
+   * `memory_id` to the conversation id for the conversation and its memory to line up.
+   * Windmill's own editor uses this to chat with an undeployed flow through a preview run.
+   */
+  run?: (args: Record<string, unknown>, turn: { conversationId: string; signal: AbortSignal }) => Promise<string>
+  /**
+   * Follows the job `run` returned through your own client instead of the SDK's requests:
+   * call `onStream` with each chunk of the job's result stream and resolve with its result.
+   * With it the chat makes no request of its own, so it needs no credential, `baseUrl` or
+   * `workspace`, and in exchange history is `local` (or `none`), `stop()` stops following
+   * without cancelling the job, and attachments are refused. `runnable` sets both for a raw
+   * app's agent runnable.
+   */
+  follow?: (jobId: string, onStream: (chunk: string) => void, turn: { signal: AbortSignal }) => Promise<unknown>
+  /** Called once a turn has its answer (a failed flow included: its error is the answer). */
+  onFinish?: (turn: { conversationId: string; jobId?: string; messages: ChatMessage[] }) => void
+  /** Called when a turn could not run or be followed; `state.error` holds the same error. */
+  onError?: (error: Error, turn: { conversationId: string; jobId?: string }) => void
+}
+
+/** A file sent with a message. It is uploaded to the workspace's object storage before the run starts. */
+export interface AttachmentUpload {
+  /** Kept as the last segment of the stored key, its extension corrected to the media type for PNG, JPEG and PDF. */
+  name: string
+  /** The bytes: a Blob, or a `data:` URL of them. */
+  data: Blob | string
+  /** The file's media type. Defaults to the Blob's own type, or the data URL's. */
+  mediaType?: string
+}
+
+/** The flow input the uploaded attachments are handed to: an `s3object` (`multiple: false`) or an `s3object[]`. */
+export interface AttachmentsInput {
+  name: string
+  multiple: boolean
+}
+
+export interface SendMessageOptions {
+  /** Extra flow inputs for this message, on top of `ChatOptions.inputs`. */
+  inputs?: Record<string, unknown>
+  /**
+   * Files to upload and hand to the flow as `{ s3, filename }` objects in `attachmentsInput`,
+   * the way an AI agent step reads `user_attachments`. A failed upload rejects `sendMessage`
+   * and the run never starts; `stop()` during the upload does the same with an `AbortError`.
+   */
+  attachments?: AttachmentUpload[]
+  /** Required with `attachments`, which also need message text. With `multiple: false`, more than one attachment is refused before anything uploads. */
+  attachmentsInput?: AttachmentsInput
+  /**
+   * Send although the chat is still following a turn. The server takes the message when that
+   * turn's AI agent is parked (it answered while background jobs run, or waits on an approval or
+   * a question): it ends that turn, dropping its open request, and carries its background jobs
+   * over to this one, which the chat then follows. While the turn works it is refused with a
+   * `TurnRunningError` and the chat keeps following it. Not with `attachments`, and one at a time:
+   * a second one is refused while the first waits for the server.
+   */
+  overRunningTurn?: boolean
+}
+
+export interface Chat {
+  getState(): ChatState
+  /** Calls `listener` now and on every change; returns the unsubscribe function (Svelte store contract). */
+  subscribe(listener: (state: ChatState) => void): () => void
+  /**
+   * Sends a message in the current conversation, starting one when there is none. Resolves
+   * when the answer is complete. Rejects when the message could not be sent at all — a turn
+   * already running, an attachment that failed to upload — without touching the transcript.
+   * A conversation still answering a message sent elsewhere rejects with `TurnRunningError`:
+   * follow that turn with `resumeTurn`, then send again.
+   */
+  sendMessage(text: string, options?: SendMessageOptions): Promise<void>
+  /**
+   * Follows a turn of the current conversation that this chat did not start, as named by
+   * `Conversation.runningTurn` or a `TurnRunningError`: its answer streams into `messages`
+   * from the start and the turn finishes like one sent here. Server history only; resolves
+   * when the answer is complete, at once when a turn is already being followed.
+   */
+  resumeTurn(turn: RunningTurn): Promise<void>
+  /** Stops following the answer and asks Windmill to cancel the run. */
+  stop(): Promise<void>
+  newConversation(): void
+  selectConversation(conversationId: string): Promise<void>
+  /**
+   * `kind` narrows server history to the flow editor's test chats, the deployed flow's
+   * own (the server's default), or both. Local history has no test chats and ignores it.
+   */
+  loadConversations(options?: {
+    page?: number
+    perPage?: number
+    kind?: 'test' | 'deployed' | 'all'
+  }): Promise<Conversation[]>
+  deleteConversation(conversationId: string): Promise<void>
+  /** Sets a conversation's title. The list keeps its order: only a turn moves a conversation. */
+  renameConversation(conversationId: string, title: string): Promise<void>
+  loadOlderMessages(): Promise<void>
+  /**
+   * Reads what the current conversation gained since its newest message held here, such
+   * as a turn another tab ran. Server history only; does nothing while a turn is followed.
+   */
+  refreshMessages(): Promise<void>
+  /** Stops background work (stream, polling) and writes local history out. The chat stays usable. */
+  destroy(): void
+}

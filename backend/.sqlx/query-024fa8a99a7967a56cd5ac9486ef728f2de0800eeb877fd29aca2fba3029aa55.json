@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "024fa8a99a7967a56cd5ac9486ef728f2de0800eeb877fd29aca2fba3029aa55"
+}

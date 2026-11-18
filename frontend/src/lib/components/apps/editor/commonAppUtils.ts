@@ -17,6 +17,8 @@ export type TriggerableV2 = {
 	delete_after_secs?: number
 	sensitive_inputs?: string[]
 	tag?: string
+	/** Data table connections naming no role are made as the app's viewer. Inline runnables only. */
+	viewer_data_access?: boolean
 }
 
 export async function hash(message) {

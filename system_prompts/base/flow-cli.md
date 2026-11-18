@@ -27,7 +27,7 @@ Add `--description "..."` when the user provided a longer explanation worth pres
 
 Open the generated `flow.yaml` (under the folder the command just created) and replace the empty `value.modules` + `schema` with the real flow definition.
 
-For rawscript modules, use `!inline path/to/script.ts` for the content key. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
+For rawscript modules, set the content key to the quoted string `content: '!inline path/to/script.ts'`. Unquoted, `!inline` is a YAML tag, which `wmill lint` rejects. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
 
 Once the flow has real content, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a `launch.json` entry) and the user should consent.
 
@@ -44,7 +44,7 @@ After writing, act on the user's intent instead of just listing commands. Run `w
 - `wmill flow preview <flow_path>` — **default when iterating on a local flow.** Runs the local `flow.yaml` against local inline scripts without deploying. Add `--remote` to use deployed workspace scripts for PathScript steps instead of local files. Add `--step <step_id>` to run only one module in isolation (see "Single-step vs whole-flow preview" below).
 - `wmill flow run <path>` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - `wmill generate-metadata` — regenerate stale local `.lock` files for the flow and its inline scripts and refresh their content hashes in `wmill-lock.yaml`. Writes local files only (not a deploy). Run it after editing inline scripts whose imports or arguments changed, so `wmill-lock.yaml` doesn't drift and add noise to git-sync/CI. By default it scans **scripts, flows, and apps** across the workspace but only regenerates stale ones; pass the flow's folder as an argument (or run from that subdirectory) to limit the scope to the flow you edited. Note a flow (or script) that imports a changed shared script is pulled in too — run `wmill generate-metadata --dry-run` to see exactly what is stale and why (`content changed` vs `depends on <path>`) before applying.
-- `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via `git push` or `wmill sync push` depending on how the repo is wired (see the **Deploying** section in `AGENTS.wmill.md`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -71,6 +71,8 @@ This is about **programmatic execution** (`wmill flow preview -d '<args>'`), whi
 If the user hasn't already told you to run/test the flow, offer it as a one-sentence next step (e.g. "Want me to run `wmill flow preview` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the flow in their original request, skip the offer and just execute `wmill flow preview <path> -d '<args>'` directly — pick plausible args from the flow's input schema.
+
+An input typed as a resource (`format: resource-<type>` in the schema) takes the bare string `"$res:<path>"` as its whole value — `-d '{"db": "$res:f/databases/postgres_prod"}'`, not `{"db": {"$res": "..."}}` and not a plain path. Same for a variable, with `"$var:<path>"`. See the `resources` skill.
 
 `wmill flow preview` is safe to run yourself (it does not deploy). `wmill generate-metadata` does not deploy either (it only writes local lock/hash files) but re-resolves deps — offer it and run on agreement, unless the project's `AGENTS.md` opts into automatic metadata. After running it, check the regenerated `.lock` diff and tell the user which inline-script dependency versions changed, so they can catch an unwanted bump before deploying. Only `wmill sync push` deploys; run it only when the user explicitly asks.
 

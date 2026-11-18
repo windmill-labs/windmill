@@ -4,33 +4,67 @@ import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import type { Root as MdastRoot, Link, Text } from 'mdast'
 
-vi.mock('$lib/gen', () => ({
-	ScriptService: { listScripts: vi.fn() },
-	FlowService: { listFlows: vi.fn() },
-	AppService: { listApps: vi.fn() },
-	VariableService: { listVariable: vi.fn() },
-	ResourceService: { listResource: vi.fn() },
-	ScheduleService: { listSchedules: vi.fn() },
-	HttpTriggerService: { listHttpTriggers: vi.fn() },
-	WebsocketTriggerService: { listWebsocketTriggers: vi.fn() },
-	KafkaTriggerService: { listKafkaTriggers: vi.fn() },
-	NatsTriggerService: { listNatsTriggers: vi.fn() },
-	PostgresTriggerService: { listPostgresTriggers: vi.fn() },
-	MqttTriggerService: { listMqttTriggers: vi.fn() },
-	SqsTriggerService: { listSqsTriggers: vi.fn() },
-	GcpTriggerService: { listGcpTriggers: vi.fn() },
-	AzureTriggerService: { listAzureTriggers: vi.fn() },
-	EmailTriggerService: { listEmailTriggers: vi.fn() }
-}))
+vi.mock('$lib/gen', () => {
+	const list = () => vi.fn(async () => [])
+	return {
+		ScriptService: { listScripts: list() },
+		FlowService: { listFlows: list() },
+		AppService: { listApps: list() },
+		VariableService: { listVariable: list() },
+		ResourceService: { listResource: list() },
+		ScheduleService: { listSchedules: list() },
+		HttpTriggerService: { listHttpTriggers: list() },
+		WebsocketTriggerService: { listWebsocketTriggers: list() },
+		KafkaTriggerService: { listKafkaTriggers: list() },
+		NatsTriggerService: { listNatsTriggers: list() },
+		PostgresTriggerService: { listPostgresTriggers: list() },
+		MqttTriggerService: { listMqttTriggers: list() },
+		AmqpTriggerService: { listAmqpTriggers: list() },
+		SqsTriggerService: { listSqsTriggers: list() },
+		GcpTriggerService: { listGcpTriggers: list() },
+		AzureTriggerService: { listAzureTriggers: list() },
+		EmailTriggerService: { listEmailTriggers: list() }
+	}
+})
 
+import { FlowService, ResourceService } from '$lib/gen'
 import {
 	extractCandidatePaths,
 	itemHref,
 	remarkWindmillPaths,
 	WINDMILL_PATH_REGEX,
 	workspaceItemAction,
+	workspaceItemRegistry,
 	type WorkspaceItemEntry
 } from './workspaceItems.svelte'
+
+describe('workspaceItemRegistry', () => {
+	it('resolves a draft stored at a synthetic path by the name its author gave it', async () => {
+		vi.mocked(FlowService.listFlows).mockResolvedValueOnce([
+			{
+				path: 'u/me/draft_1234',
+				draft_path: 'u/me/report',
+				draft_only: true
+			} as any
+		])
+		await workspaceItemRegistry.ensureLoaded('ws-draft')
+		const entry = workspaceItemRegistry.resolve('ws-draft', 'u/me/report')
+		expect(entry).toMatchObject({ kind: 'flow', path: 'u/me/draft_1234', draftOnly: true })
+		expect(itemHref(entry!, 'ws-draft')).toBe('/flows/edit/u/me/draft_1234?workspace=ws-draft')
+	})
+
+	it('links an AI agent to its own editor, not to the resources page', async () => {
+		vi.mocked(ResourceService.listResource).mockResolvedValueOnce([
+			{ path: 'u/me/helper', resource_type: 'ai_agent' },
+			{ path: 'u/me/db', resource_type: 'postgresql' }
+		] as any)
+		await workspaceItemRegistry.ensureLoaded('ws-agent')
+		const agent = workspaceItemRegistry.resolve('ws-agent', 'u/me/helper')!
+		expect(itemHref(agent, 'ws-agent')).toBe('/agents/edit/u/me/helper?workspace=ws-agent')
+		expect(workspaceItemAction(agent.kind, agent.path)).toMatchObject({ resource: 'agent' })
+		expect(workspaceItemRegistry.resolve('ws-agent', 'u/me/db')?.kind).toBe('resource')
+	})
+})
 
 describe('WINDMILL_PATH_REGEX', () => {
 	it('matches simple folder and user paths', () => {
@@ -83,6 +117,16 @@ describe('itemHref', () => {
 		)
 		expect(itemHref({ kind: 'app', path: 'u/me/dash' }, 'ws1')).toBe(
 			'/apps/get/u/me/dash?workspace=ws1'
+		)
+	})
+
+	it('routes a draft-only script/flow/app to its editor, which is all that can open it', () => {
+		expect(itemHref({ kind: 'script', path: 'u/me/s', draftOnly: true }, 'ws1')).toBe(
+			'/scripts/edit/u/me/s?workspace=ws1'
+		)
+		expect(itemHref({ kind: 'flow', path: 'u/me/f', draftOnly: true })).toBe('/flows/edit/u/me/f')
+		expect(itemHref({ kind: 'app', path: 'u/me/a', rawApp: true, draftOnly: true })).toBe(
+			'/apps_raw/edit/u/me/a'
 		)
 	})
 
@@ -153,10 +197,27 @@ describe('workspaceItemAction', () => {
 		})
 	})
 
-	it('skips non-drawerable items and trigger items without target kind', () => {
-		expect(workspaceItemAction('script', 'f/a/b')).toBeUndefined()
-		expect(workspaceItemAction('flow', 'f/a/b')).toBeUndefined()
+	it('creates preview actions for scripts, flows and raw apps', () => {
+		expect(workspaceItemAction('script', 'f/a/b')).toMatchObject({
+			type: 'open_item_preview',
+			previewKind: 'script',
+			path: 'f/a/b'
+		})
+		expect(workspaceItemAction('flow', 'f/a/b')).toMatchObject({
+			type: 'open_item_preview',
+			previewKind: 'flow'
+		})
+		expect(workspaceItemAction('app', 'f/a/b', undefined, true)).toMatchObject({
+			previewKind: 'raw_app'
+		})
+	})
+
+	it('leaves legacy apps as plain links', () => {
+		expect(workspaceItemAction('app', 'f/a/b', undefined, false)).toBeUndefined()
 		expect(workspaceItemAction('app', 'f/a/b')).toBeUndefined()
+	})
+
+	it('skips trigger items without target kind', () => {
 		expect(workspaceItemAction('schedule', 'f/a/b')).toBeUndefined()
 		expect(workspaceItemAction('http_trigger', 'f/a/b')).toBeUndefined()
 	})
@@ -172,6 +233,7 @@ const SAMPLE_ENTRIES: Record<string, WorkspaceItemEntry> = {
 		path: 'u/admin/cleanup_old_jobs'
 	},
 	'f/ops/dashboard': { kind: 'app', path: 'f/ops/dashboard' },
+	'f/ops/live_board': { kind: 'app', path: 'f/ops/live_board', rawApp: true },
 	'f/etl/daily': {
 		kind: 'schedule',
 		path: 'f/etl/daily',
@@ -247,6 +309,23 @@ describe('remarkWindmillPaths (mdast)', () => {
 		expect(props['data-wm-kind']).toBe('schedule')
 		expect(props['data-wm-path']).toBe('f/etl/daily')
 		expect(props['data-wm-target-kind']).toBe('flow')
+	})
+
+	// Both app kinds reach the renderer as the same `app` kind and route, so this flag is
+	// the only thing that keeps a legacy app off the preview panel.
+	it('marks raw apps so the renderer can tell them from legacy apps', () => {
+		const processor = buildProcessor('admins')
+		const tree = processor.runSync(
+			processor.parse('Open f/ops/live_board and f/ops/dashboard.')
+		) as MdastRoot
+		const byPath = Object.fromEntries(
+			findLinks(tree).map((l) => [
+				(l.data?.hProperties as Record<string, string>)['data-wm-path'],
+				l.data?.hProperties as Record<string, string>
+			])
+		)
+		expect(byPath['f/ops/live_board']['data-wm-raw-app']).toBe('true')
+		expect(byPath['f/ops/dashboard']['data-wm-raw-app']).toBeUndefined()
 	})
 
 	it('leaves unknown paths as plain text', () => {

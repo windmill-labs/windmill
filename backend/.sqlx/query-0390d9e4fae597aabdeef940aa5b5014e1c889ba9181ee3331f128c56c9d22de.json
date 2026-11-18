@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM feature_usage WHERE day < CURRENT_DATE - 60",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0390d9e4fae597aabdeef940aa5b5014e1c889ba9181ee3331f128c56c9d22de"
+}

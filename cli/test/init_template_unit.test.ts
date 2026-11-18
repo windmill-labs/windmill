@@ -3,8 +3,11 @@
  */
 
 import { expect, test, describe } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parse } from "yaml";
 import Ajv from "ajv";
+import { VERSION } from "../src/core/constants.ts";
 import {
   generateCommentedTemplate,
   generateJsonSchema,
@@ -25,28 +28,53 @@ describe("generateCommentedTemplate", () => {
     expect(typeof config).toBe("object");
   });
 
-  test("uses provided branch name in workspaces", () => {
-    const config = parse(generateCommentedTemplate("my-feature"));
-    expect(config.workspaces["my-feature"]).toBeDefined();
+  // Without bindings, `workspaces` must stay EMPTY (a live `<branch>: {}`
+  // placeholder is unresolvable — no baseUrl — yet counts as a configured
+  // workspace, breaking auto-selection and making a later bind ambiguous).
+  // The branch name only appears in the commented example.
+  test("uses provided branch name in the commented workspaces example only", () => {
+    const yaml = generateCommentedTemplate("my-feature");
+    const config = parse(yaml);
+    expect(config.workspaces).toEqual({});
+    expect(yaml).toContain("# my-feature:");
   });
 
   test("defaults to 'main' when no branch name given", () => {
-    const config = parse(generateCommentedTemplate());
-    expect(config.workspaces["main"]).toBeDefined();
+    const yaml = generateCommentedTemplate();
+    const config = parse(yaml);
+    expect(config.workspaces).toEqual({});
+    expect(yaml).toContain("# main:");
   });
 
   test("quotes branch names with YAML-special characters", () => {
     const specialBranches = ["fix: something", "feat/my branch", "release#1"];
     for (const branch of specialBranches) {
       const yaml = generateCommentedTemplate(branch);
+      // Still valid YAML with an empty workspaces map; the (quoted) branch
+      // name only appears in comments.
       const config = parse(yaml);
-      expect(config.workspaces[branch]).toBeDefined();
+      expect(config.workspaces).toEqual({});
+      expect(yaml).toContain(branch);
     }
   });
 
-  test("contains yaml-language-server schema directive", () => {
+  test("renders live workspaces entries when bindings are provided", () => {
+    const yaml = generateCommentedTemplate("main", undefined, [
+      { name: "prod", baseUrl: "https://app.windmill.dev/", workspaceId: "prod-ws" },
+    ]);
+    const config = parse(yaml);
+    expect(config.workspaces["prod"]).toBeDefined();
+    expect(config.workspaces["prod"].baseUrl).toBe("https://app.windmill.dev/");
+    expect(config.workspaces["prod"].workspaceId).toBe("prod-ws");
+  });
+
+  // The header must be an absolute URL: a relative path resolves next to the
+  // user's wmill.yaml, where no schema file exists.
+  test("first line points the YAML language server at the schema of this CLI's release tag", () => {
     const yaml = generateCommentedTemplate("main");
-    expect(yaml.startsWith("# yaml-language-server: $schema=wmill.schema.json")).toBe(true);
+    expect(yaml.split("\n")[0]).toBe(
+      `# yaml-language-server: $schema=https://raw.githubusercontent.com/windmill-labs/windmill/v${VERSION}/cli/wmill.schema.json`,
+    );
   });
 
   test("includes all non-commented, non-skipped CONFIG_REFERENCE entries as active YAML keys", () => {
@@ -69,7 +97,6 @@ describe("generateCommentedTemplate", () => {
 
   test("default values match expected defaults", () => {
     const config = parse(generateCommentedTemplate("main"));
-    expect(config.defaultTs).toBe("bun");
     expect(config.skipSecrets).toBe(true);
     expect(config.nonDottedPaths).toBe(true);
     expect(config.codebases).toEqual([]);
@@ -84,6 +111,14 @@ describe("generateCommentedTemplate", () => {
 
 describe("generateJsonSchema", () => {
   const schema = generateJsonSchema();
+
+  // wmill.yaml headers fetch cli/wmill.schema.json from the release tag, so the
+  // committed file is what users validate against. Regenerate: `bun generate-schema.ts`.
+  test("matches the committed cli/wmill.schema.json", () => {
+    const committed = readFileSync(join(import.meta.dir, "..", "wmill.schema.json"), "utf-8")
+      .replace(/\r\n/g, "\n");
+    expect(committed).toBe(JSON.stringify(schema, null, 2) + "\n");
+  });
 
   test("is a valid JSON Schema draft-07", () => {
     expect(schema.$schema).toBe("http://json-schema.org/draft-07/schema#");

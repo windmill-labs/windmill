@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE job_perms SET viewer_data_access = true WHERE job_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "711927611ecf0144b6241b8f39f94b79f4ff03bdae60ab746f930f8758fe46bc"
+}

@@ -1,153 +1,221 @@
 <script lang="ts">
-	import { workspaceStore, userWorkspaces } from '$lib/stores'
-	import { WorkspaceService, ScriptService } from '$lib/gen'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { Badge } from './common'
+	import { AlertTriangle, ArrowDown, ArrowUp, Pencil } from 'lucide-svelte'
+	import {
+		roleCapabilities,
+		workspaceStore,
+		userWorkspaces,
+		userStore,
+		type UserExt
+	} from '$lib/stores'
 	import type { WorkspaceComparison } from '$lib/gen'
+	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
 	import { Button } from './common'
-	import { AlertTriangle, GitFork, CircleCheck, CircleX, Loader2 } from 'lucide-svelte'
-	import { goto } from '$app/navigation'
-	import { onMount, untrack } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
+	import {
+		homeActionsGathered,
+		homeCountLabels,
+		homeHeaderMenu
+	} from './home/homeHeaderMenu.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
+	import { diffActionableInDirection } from '$lib/utils_workspace_deploy'
 
 	let loading = $state(false)
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
+	/** Workspace `comparison` describes; control flow only, never rendered. */
+	let comparisonFor: string | undefined = undefined
+	let requestSeq = 0
 	let error: string | undefined = $state(undefined)
 
-	let isFork = $derived($workspaceStore?.startsWith('wm-fork-') ?? false)
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
-	let parentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === parentWorkspaceId))
+	// Detect fork/dev workspaces by their parent link, not the `wm-fork-` id prefix (dev
+	// workspaces have an ordinary, prefix-less id). Keying on the parent (rather than the
+	// prefix) also avoids a parentless "Fork of ()" banner when the linkage is dropped.
+	let isFork = $derived(parentWorkspaceId != null)
+	let currentNoun = $derived(childWorkspaceNoun(currentWorkspaceData))
+	// A role without `code` never deploys a fork, so the banner and its CTA are noise
+	// for it. Gates the fetches too, not just the markup: the fork/parent comparison
+	// is an expensive tally such a role cannot act on.
+	//
+	// Only a user fetched for the workspace we are on answers this. `$workspaceStore`
+	// flips synchronously on a switch while `$userStore` still holds the workspace we
+	// left, so trusting it unqualified would flash the banner at (and start the tally
+	// for) a restricted member entering a fork from a workspace where they are not one.
+	function isUserFor(user: UserExt | undefined, ws: string | undefined): boolean {
+		return !!user && !!ws && user.workspace_id === ws
+	}
+	let isNotOperator = $derived(isUserFor($userStore, $workspaceStore) && $roleCapabilities.code)
+	let showBanner = $derived(isFork && isNotOperator)
 
 	// Drafts in this fork. When the fork is otherwise in sync with its parent, a
 	// user with only pending drafts should still get the draft CTA (mirrors the
-	// non-fork WorkspaceDraftsBanner). Pass undefined when not a fork so it doesn't
-	// fetch.
-	const drafts = useWorkspaceDrafts(() => (isFork ? ($workspaceStore ?? undefined) : undefined))
+	// non-fork WorkspaceDraftsBanner). Pass undefined when the banner is hidden so
+	// it doesn't fetch.
+	const drafts = useWorkspaceDrafts(() => (showBanner ? ($workspaceStore ?? undefined) : undefined))
 	const draftCount = $derived(drafts.count)
 
+	// Every read of `comparison` that decides what the banner says or where its button
+	// goes must go through this: anything else — in flight, failed, or a tally skipped
+	// outright — counts zero of everything, which is indistinguishable from "nothing to
+	// deploy". Typed helper avoids the `never`-inference quirk on `$state` in `$derived`.
+	function isAnswerable(c: WorkspaceComparison | undefined, isLoading: boolean): boolean {
+		return !isLoading && !!c && !c.skipped_comparison
+	}
+	const hasAnswer = $derived(isAnswerable(comparison, loading))
+
+	const compactCounts = $derived(!homeCountLabels())
+
 	// Fork is fully in sync with its parent (comparison ran, no ahead/behind diffs).
-	// Typed helper avoids the $state `never`-inference quirk on `comparison` in $derived.
 	function isUpToDate(c: WorkspaceComparison | undefined): boolean {
 		return !!c && !c.skipped_comparison && c.summary.total_diffs === 0
 	}
-	let upToDate = $derived(isUpToDate(comparison))
+	let upToDate = $derived(hasAnswer && isUpToDate(comparison))
 	// Up to date with the parent but local drafts are pending — show the draft
 	// state (same text + CTA as the draft banner) instead of "Everything is up to date".
 	let showDraftsOnly = $derived(upToDate && draftCount > 0)
 
+	// Leaving for a workspace with no comparison of its own has to invalidate whatever
+	// is in flight too, or that response lands as this one's answer.
+	function dropComparison() {
+		requestSeq++
+		comparison = undefined
+		comparisonFor = undefined
+		loading = false
+	}
+
+	// `isNotOperator` is a dependency of its own: it only turns true once this
+	// workspace's role has landed, which is after the switch that triggered it.
 	$effect(() => {
-		;[$workspaceStore, parentWorkspaceId]
+		;[$workspaceStore, parentWorkspaceId, isNotOperator]
 		untrack(() => {
-			if (isFork && $workspaceStore) {
+			if (showBanner && $workspaceStore) {
 				checkForChanges()
 			} else {
-				comparison = undefined
+				dropComparison()
 			}
 		})
 	})
 
 	onMount(() => {
-		if (isFork && $workspaceStore) {
+		if (showBanner && $workspaceStore) {
 			checkForChanges()
 		} else {
-			comparison = undefined
+			dropComparison()
 		}
 	})
 
 	async function checkForChanges() {
-		if (!$workspaceStore || !parentWorkspaceId) {
+		const ws = $workspaceStore
+		const parent = parentWorkspaceId
+		if (!ws || !parent) {
 			return
 		}
 
+		// A comparison only ever describes the workspace it was requested for. The
+		// component survives a fork switch, so drop the previous fork's rows before
+		// fetching rather than let them answer for this one, and let only the newest
+		// request write — responses can land out of order, and a late one would
+		// otherwise paint another fork's counts over the current answer.
+		if (comparisonFor !== ws) {
+			comparison = undefined
+			comparisonFor = undefined
+		}
+		const seq = ++requestSeq
 		loading = true
 		error = undefined
 
 		try {
-			// Compare with parent workspace
-			const result = await WorkspaceService.compareWorkspaces({
-				workspace: parentWorkspaceId,
-				targetWorkspaceId: $workspaceStore
-			})
+			// Compare with parent workspace (shared single-flight fetch — the chat
+			// diff tool reuses this result instead of recomputing the comparison)
+			const result = await fetchWorkspaceComparison(parent, ws)
 
+			if (seq !== requestSeq) return
 			comparison = result
+			comparisonFor = ws
 		} catch (e) {
+			if (seq !== requestSeq) return
 			console.error('Failed to compare workspaces:', e)
 			error = `Failed to check for changes: ${e}`
-			// Still show banner if there's an error, but with error message
+			// Show the banner with the error rather than the rows we failed to refresh:
+			// on a switch those belong to the fork we just left.
+			comparison = undefined
+			comparisonFor = undefined
 		} finally {
-			loading = false
+			if (seq === requestSeq) loading = false
 		}
 	}
 
-	function openComparisonDrawer() {
-		if (parentWorkspaceId && $workspaceStore) {
-			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore), {
-				replaceState: true
-			})
-		}
+	/** The compare page opened on one direction, for a badge that counts exactly that. The button
+	 *  beside them still chooses on the reader's behalf; a badge means the one thing it names. */
+	function compareDirHref(dir: 'deploy_to' | 'update'): string | undefined {
+		if (!parentWorkspaceId || !$workspaceStore) return undefined
+		return (
+			'/forks/compare?workspace_id=' +
+			encodeURIComponent($workspaceStore) +
+			(dir === 'update' ? '&dir=update' : '')
+		)
 	}
+	const deployToHref = $derived(compareDirHref('deploy_to'))
+	const updateHref = $derived(compareDirHref('update'))
 
-	function openDraftCompare() {
-		if ($workspaceStore) {
-			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + '&mode=draft', {
-				replaceState: true
-			})
-		}
+	const draftCompareHref = $derived(
+		$workspaceStore
+			? '/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + '&mode=draft'
+			: undefined
+	)
+
+	// Counted with the compare page's own predicate so the banner never advertises a
+	// direction whose list is empty: the `ahead`/`behind` sums in the summary include
+	// rows a direction does not carry, and miss a parent-only row that the update
+	// direction carries at `behind = 0`.
+	function countDir(c: WorkspaceComparison | undefined, mergeIntoParent: boolean): number {
+		return c?.diffs.filter((d) => diffActionableInDirection(d, mergeIntoParent)).length ?? 0
 	}
+	const changesAhead = $derived(countDir(comparison, true))
+	const changesBehind = $derived(countDir(comparison, false))
+	// Opens the direction the button offers, so the label and the list agree: a fork
+	// with nothing to deploy lands on the update side, not on an empty deploy list.
+	const comparisonHref = $derived(
+		compareDirHref(hasAnswer && changesAhead === 0 ? 'update' : 'deploy_to')
+	)
 
-	let ciTestPassing = $state(0)
-	let ciTestFailing = $state(0)
-	let ciTestRunning = $state(0)
-	let ciTestTotal = $state(0)
-
-	async function fetchCiTestSummary() {
-		if (!$workspaceStore || !comparison?.diffs) return
-		const items = comparison.diffs
-			.filter((d) => d.kind === 'script' || d.kind === 'flow' || d.kind === 'resource')
-			.map((d) => ({ path: d.path, kind: d.kind as 'script' | 'flow' | 'resource' }))
-		if (items.length === 0) return
-		try {
-			const batch = await ScriptService.getCiTestResultsBatch({
-				workspace: $workspaceStore,
-				requestBody: { items }
-			})
-			let passing = 0
-			let failing = 0
-			let running = 0
-			let total = 0
-			for (const results of Object.values(batch)) {
-				for (const r of results) {
-					total++
-					if (r.status === 'success') passing++
-					else if (r.status === 'failure' || r.status === 'canceled') failing++
-					else if (r.status === 'running' || (r.job_id && !r.status)) running++
+	// Folded into Home's ⋮ menu, the badges and the button are one row that says what they counted.
+	const menuId = homeHeaderMenu.register(0, () => {
+		if (!showBanner || !homeActionsGathered()) return []
+		if (showDraftsOnly) {
+			return [
+				{
+					displayName: `Review & deploy ${draftCount} draft${draftCount !== 1 ? 's' : ''}`,
+					href: draftCompareHref
 				}
+			]
+		}
+		const counts = [
+			changesAhead > 0 ? `${changesAhead} ahead` : '',
+			changesBehind > 0 ? `${changesBehind} behind` : '',
+			(comparison?.summary.conflicts ?? 0) > 0
+				? `${comparison?.summary.conflicts} conflict${comparison?.summary.conflicts !== 1 ? 's' : ''}`
+				: '',
+			draftCount > 0 ? `${draftCount} draft${draftCount !== 1 ? 's' : ''}` : ''
+		].filter(Boolean)
+		return [
+			{
+				displayName:
+					!hasAnswer || changesAhead > 0 ? 'Review changes' : `Review & Update ${currentNoun}`,
+				description: hasAnswer && counts.length > 0 ? counts.join(' · ') : undefined,
+				href: comparisonHref
 			}
-			ciTestPassing = passing
-			ciTestFailing = failing
-			ciTestRunning = running
-			ciTestTotal = total
-		} catch (e) {
-			console.error('Failed to fetch CI test summary:', e)
-		}
-	}
-
-	$effect(() => {
-		if (comparison && comparison.summary.total_diffs > 0) {
-			fetchCiTestSummary()
-		}
+		]
 	})
-
-	// Poll while any CI test is still running
-	$effect(() => {
-		if (ciTestRunning <= 0) return
-		const interval = setInterval(fetchCiTestSummary, 3000)
-		return () => clearInterval(interval)
-	})
+	onDestroy(() => homeHeaderMenu.release(menuId))
 
 	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
 		let msg: string[] = []
 		if (changesAhead > 0 || changesBehind > 0) {
-			msg.push('This fork is ')
+			msg.push(`This ${currentNoun} is `)
 			if (changesAhead > 0)
 				msg.push(`${changesAhead} change${changesAhead > 1 ? 's' : ''} ahead of `)
 			if (changesAhead > 0 && changesBehind > 0) msg.push('and ')
@@ -158,171 +226,129 @@
 	}
 </script>
 
-{#if isFork}
-	<div class="w-full bg-blue-50 dark:bg-blue-900 text-xs rounded-b-md max-w-7xl mx-auto">
-		<div class="px-4 py-2">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-3">
-					<GitFork class="w-4 h-4 text-accent" />
-					<div class="text-sm">
-						<span class="font-medium text-blue-900 dark:text-blue-100">
-							Fork of <b>{parentWorkspaceData?.name}</b> ({parentWorkspaceId})
-						</span>
-					</div>
-
-					{#if loading}
-						<span class="text-xs text-blue-600 dark:text-blue-400"> Checking for changes... </span>
-					{:else if error}
-						<span class="text-xs text-red-600 dark:text-red-400">
-							{error}
-						</span>
-					{:else if comparison}
-						<div class="flex items-center gap-4 text-xs">
-							{#if comparison.summary.total_diffs > 0}
-								<span class="text-blue-700 dark:text-blue-100">
-									{forkAheadBehindMessage(
-										comparison.summary.total_ahead,
-										comparison.summary.total_behind
-									)}
-									<span class="font-semibold underline">{parentWorkspaceId}</span> over {comparison
-										.summary.total_diffs} items:
-								</span>
-								<div class="flex items-center gap-2">
-									{#if comparison.summary.scripts_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.scripts_changed} script{comparison.summary
-												.scripts_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.flows_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.flows_changed} flow{comparison.summary.flows_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.apps_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.apps_changed} app{comparison.summary.apps_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.resources_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.resources_changed} resource{comparison.summary
-												.resources_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.variables_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.variables_changed} variable{comparison.summary
-												.variables_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.resource_types_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.resource_types_changed} resource type{comparison.summary
-												.resource_types_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.folders_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.folders_changed} folder{comparison.summary
-												.folders_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.schedules_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.schedules_changed} schedule{comparison.summary
-												.schedules_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-									{#if comparison.summary.triggers_changed > 0}
-										<span class="text-blue-700 dark:text-blue-100">
-											{comparison.summary.triggers_changed} trigger{comparison.summary
-												.triggers_changed !== 1
-												? 's'
-												: ''}
-										</span>
-									{/if}
-								</div>
-
-								{#if ciTestTotal > 0}
-									-
-									{#if ciTestFailing > 0}
-										<div class="flex items-center gap-1 text-red-600 dark:text-red-400">
-											<CircleX class="w-3 h-3" />
-											<span>CI: {ciTestFailing} failing</span>
-										</div>
-									{:else if ciTestRunning > 0}
-										<div class="flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
-											<Loader2 class="w-3 h-3 animate-spin" />
-											<span>CI: {ciTestRunning} running</span>
-										</div>
-									{:else}
-										<div class="flex items-center gap-1 text-green-600 dark:text-green-400">
-											<CircleCheck class="w-3 h-3" />
-											<span>CI: {ciTestPassing} passing</span>
-										</div>
-									{/if}
-								{/if}
-
-								{#if comparison.summary.conflicts > 0}
-									-
-									<div class="flex items-center gap-1 text-orange-600 dark:text-orange-400">
-										<AlertTriangle class="w-3 h-3" />
-										<span
-											>{comparison.summary.conflicts} conflict{comparison.summary.conflicts !== 1
-												? 's'
-												: ''}</span
-										>
-									</div>
-								{/if}
-							{:else if comparison.skipped_comparison}
-								<span class="text-blue-600 dark:text-blue-200">
-									This fork was created before the addition of certain windmill features, and
-									therefore the changes with its parent workspace cannot be displayed.</span
-								>
-							{:else if showDraftsOnly}
-								<span class="text-blue-700 dark:text-blue-100">
-									This workspace has {draftCount} draft{draftCount !== 1 ? 's' : ''}
-								</span>
-							{:else}
-								<span class="text-blue-600 dark:text-blue-200"> Everything is up to date </span>
-							{/if}
-						</div>
-					{/if}
-				</div>
-
-				<div class="flex items-center gap-2">
-					<Button
-						variant="default"
-						unifiedSize="sm"
-						onclick={showDraftsOnly ? openDraftCompare : openComparisonDrawer}
-					>
-						{#if showDraftsOnly}
-							Review & deploy drafts
-						{:else if (comparison?.summary.total_ahead ?? 0) > 0}
-							Review & Deploy Changes
-						{:else}
-							Review & Update fork
-						{/if}
-					</Button>
-				</div>
-			</div>
-		</div>
-	</div>
+{#if showBanner && !homeActionsGathered()}
+	<!-- In the band, not a banner: the breadcrumb already says which fork this is, so all this has
+	     to carry is how far it has drifted and the way to review that. The per-kind breakdown, the
+	     CI line and the conflict count live on the compare page the button opens. -->
+	<PageHeaderContent actions={forkAction} />
 {/if}
+
+{#snippet forkAction()}
+	{@const total = comparison?.summary.total_diffs ?? 0}
+	{@const conflicts = comparison?.summary.conflicts ?? 0}
+	{@const status = loading
+		? 'loading'
+		: error
+			? 'error'
+			: showDraftsOnly
+				? 'drafts'
+				: total > 0
+					? 'drift'
+					: undefined}
+	<!-- What the comparison has to say is a mark beside the button, never instead of it: a fork
+	     still being counted, or one whose count failed, is exactly when a reader wants the page
+	     that does the counting properly. The button below renders in every state. -->
+	<!-- Keyed on what it says, so each answer the comparison lands with fades in rather than
+	     popping into a bar that is already showing. -->
+	{#key status}
+		<span class="flex items-center gap-2 wm-page-in" class:hidden={!status}>
+			{#if loading}
+				<span class="text-2xs text-tertiary">Checking for changes…</span>
+			{:else if error}
+				<span class="text-2xs text-red-600 dark:text-red-400" title={error}>Comparison failed</span>
+			{:else if showDraftsOnly}
+				<Badge color="blue" small>
+					{draftCount} draft{draftCount !== 1 ? 's' : ''}
+				</Badge>
+			{:else if total > 0}
+				<!-- Which way the drift goes is the thing to know at a glance: ahead is what this fork has
+				     to give its parent, behind is what it has yet to take. -->
+				<!-- The colours and the icons the compare page gives these three, so the counts in the bar
+				     and the rows behind the button say the same thing the same way. -->
+				{#if changesAhead > 0}
+					<Badge
+						color="green"
+						small
+						clickable
+						href={deployToHref}
+						title="{changesAhead} ahead of {parentWorkspaceId} — review what this {currentNoun} has to give"
+					>
+						<ArrowUp class="w-3 h-3 inline" />
+						{changesAhead}{compactCounts ? '' : ' ahead'}
+					</Badge>
+				{/if}
+				{#if changesBehind > 0}
+					<Badge
+						color="blue"
+						small
+						clickable
+						href={updateHref}
+						title="{changesBehind} behind {parentWorkspaceId} — review what this {currentNoun} has yet to take"
+					>
+						<ArrowDown class="w-3 h-3 inline" />
+						{changesBehind}{compactCounts ? '' : ' behind'}
+					</Badge>
+				{/if}
+				{#if conflicts > 0}
+					<!-- A conflict is ahead and behind at once, so it has no direction of its own; it opens
+					     the side the reader resolves it from before deploying. -->
+					<Badge
+						color="orange"
+						small
+						clickable
+						href={deployToHref}
+						title="{conflicts} conflicting item{conflicts !== 1 ? 's' : ''} — review them"
+					>
+						<AlertTriangle class="w-3 h-3 inline" />
+						{conflicts}{compactCounts ? '' : ` conflict${conflicts !== 1 ? 's' : ''}`}
+					</Badge>
+				{/if}
+				<!-- Drafts are a different axis from the drift beside them: ahead and behind count deployed
+				     items against the parent, this counts work in this fork that is not deployed anywhere
+				     yet. It shares blue with "behind" and is told apart by the pencil and by naming what it
+				     counts, rather than by an arrow that would read as a third direction. Clicking goes to
+				     the drafts half of the compare page rather than the drawer the button opens. It shows at
+				     every drift — a fork both behind and holding drafts said nothing about the drafts. -->
+				{#if draftCount > 0}
+					<Badge
+						color="blue"
+						small
+						clickable
+						href={draftCompareHref}
+						title="{draftCount} draft{draftCount !== 1
+							? 's'
+							: ''} in this {currentNoun}, not deployed anywhere yet — review and deploy"
+					>
+						<Pencil class="w-3 h-3 inline" />
+						{draftCount}{compactCounts ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
+					</Badge>
+				{/if}
+			{/if}
+		</span>
+	{/key}
+	{#if showDraftsOnly}
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			href={draftCompareHref}
+			title={`Review and deploy this workspace's drafts`}
+		>
+			Review & deploy drafts
+		</Button>
+	{:else}
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			href={comparisonHref}
+			title={hasAnswer
+				? `${forkAheadBehindMessage(changesAhead, changesBehind)} ${parentWorkspaceId} over ${total} items`
+				: `Review this ${currentNoun} against ${parentWorkspaceId}`}
+		>
+			{#if !hasAnswer || changesAhead > 0}
+				Review changes
+			{:else}
+				Review & Update {currentNoun}
+			{/if}
+		</Button>
+	{/if}
+{/snippet}

@@ -5,13 +5,16 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { orderedYamlStringify, cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
+	import { cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
+	import { orderedYamlStringify } from '$lib/utils/orderedYaml'
 	import { watch } from 'runed'
 
 	import HighlightTheme from './HighlightTheme.svelte'
 	import FlowViewerInner from './FlowViewerInner.svelte'
 	import FlowInputViewer from './FlowInputViewer.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface PreviousFlow {
 		summary: string
@@ -42,7 +45,6 @@
 		noGraphDownload?: boolean
 		availableVersions?: Array<{ id: number; deployment_msg?: string }>
 		selectedVersionId?: number
-		graphContent?: import('svelte').Snippet
 	}
 
 	let {
@@ -59,8 +61,7 @@
 		hideDefaultInputs = false,
 		showStepHint = false,
 		noGraphDownload = false,
-		selectedVersionId = undefined,
-		graphContent = undefined
+		selectedVersionId = undefined
 	}: Props = $props()
 
 	let open: { [id: number]: boolean } = {}
@@ -85,7 +86,7 @@
 				return
 			}
 			previousFlow = await FlowService.getFlowVersion({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				version
 			})
 			previousFlowCache[version] = previousFlow
@@ -182,38 +183,34 @@
 			</TabContent>
 		{/if}
 		<TabContent value="ui">
-			{#if graphContent}
-				{@render graphContent()}
-			{:else}
-				<div class="flow-root w-full pb-4">
-					{#if showStepHint}
-						<p class="text-2xs text-tertiary py-1">Click on a step to see its details</p>
-					{/if}
-					{#if !noSummary}
-						<h2 class="my-4">{flow.summary}</h2>
-						<div>{flow.description ?? ''}</div>
-					{/if}
+			<div class="flow-root w-full pb-4">
+				{#if showStepHint}
+					<p class="text-2xs text-tertiary py-1">Click on a step to see its details</p>
+				{/if}
+				{#if !noSummary}
+					<h2 class="my-4">{flow.summary}</h2>
+					<div>{flow.description ?? ''}</div>
+				{/if}
 
-					{#if !noInput}
-						<p class="font-black text-lg w-full my-4">
-							<span>Flow Input</span>
-						</p>
-						{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
-							<FlowInputViewer schema={flow.schema} />
-						{:else}
-							<div class="text-secondary text-xs italic mb-4">No inputs</div>
-						{/if}
+				{#if !noInput}
+					<p class="font-black text-lg w-full my-4">
+						<span>Flow Input</span>
+					</p>
+					{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
+						<FlowInputViewer schema={flow.schema} />
+					{:else}
+						<div class="text-secondary text-xs italic mb-4">No inputs</div>
 					{/if}
+				{/if}
 
-					<FlowGraphViewer
-						download={!noGraphDownload}
-						{noSide}
-						{hideDefaultInputs}
-						{flow}
-						overflowAuto
-					/>
-				</div>
-			{/if}
+				<FlowGraphViewer
+					download={!noGraphDownload}
+					{noSide}
+					{hideDefaultInputs}
+					{flow}
+					overflowAuto
+				/>
+			</div>
 		</TabContent>
 		<TabContent value="raw">
 			<FlowViewerInner {flow} />

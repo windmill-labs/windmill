@@ -1,6 +1,7 @@
 <script lang="ts">
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import { untrack } from 'svelte'
+	import { escapeHtml } from '$lib/utils'
 
 	interface Props {
 		filter?: string
@@ -13,6 +14,13 @@
 	let { filter = '', items, f, filteredItems = $bindable(), opts = {} }: Props = $props()
 
 	let uf = new uFuzzy(untrack(() => opts))
+
+	// Consumers render `marked` with {@html}, and the searched text is workspace
+	// content (paths, descriptions, resource types, ...). uFuzzy's default mark
+	// concatenates the raw substrings, so escape every part and let only the
+	// <mark> wrapper through as markup.
+	const markEscaped = (part: string, matched: boolean) =>
+		matched ? `<mark>${escapeHtml(part)}</mark>` : escapeHtml(part)
 
 	function filterItems() {
 		let trimmed = filter.trim()
@@ -32,7 +40,11 @@
 			let infoIdx = order[i]
 			result.push({
 				...items[info.idx[infoIdx]],
-				marked: uFuzzy.highlight(plaintextItems[info.idx[infoIdx]], info.ranges[infoIdx])
+				marked: uFuzzy.highlight(
+					plaintextItems[info.idx[infoIdx]],
+					info.ranges[infoIdx],
+					markEscaped
+				)
 			})
 		}
 		filteredItems = result

@@ -2,12 +2,13 @@
 	import { run } from 'svelte/legacy'
 
 	import { FlowService, ScriptService, UserService, type TruncatedToken } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import { getContext } from 'svelte'
 	import { Skeleton } from '../common'
 	import Label from '../Label.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { capitalize } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		isFlow: boolean
@@ -16,6 +17,8 @@
 	}
 
 	let { isFlow, path, labelPrefix }: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -23,8 +26,8 @@
 
 	export async function listTokens() {
 		tokens = isFlow
-			? await FlowService.listTokensOfFlow({ workspace: $workspaceStore!, path })
-			: await ScriptService.listTokensOfScript({ workspace: $workspaceStore!, path })
+			? await FlowService.listTokensOfFlow({ workspace: wsId!, path })
+			: await ScriptService.listTokensOfScript({ workspace: wsId!, path })
 		if (labelPrefix == 'email') {
 			$triggersCount = { ...($triggersCount ?? {}), default_email_count: tokens?.length }
 		} else {
@@ -40,7 +43,7 @@
 	}
 
 	run(() => {
-		$workspaceStore && listTokens()
+		wsId && listTokens()
 	})
 </script>
 

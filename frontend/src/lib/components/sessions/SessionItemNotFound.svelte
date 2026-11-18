@@ -3,7 +3,11 @@
 	import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
 	import type { SessionTarget } from './sessionState.svelte'
 
-	const KIND_NOT_FOUND_LABEL: Record<SessionTarget['kind'], string> = {
+	// `pipeline` targets never hit this component (they aren't slot-loaded, so they
+	// can't 404 through SessionEditorTarget) — exclude it from the kinds here.
+	type NotFoundKind = Exclude<SessionTarget['kind'], 'pipeline'>
+
+	const KIND_NOT_FOUND_LABEL: Record<NotFoundKind, string> = {
 		flow: 'Flow',
 		script: 'Script',
 		raw_app: 'Raw app'
@@ -14,14 +18,16 @@
 		path,
 		onNavigate
 	}: {
-		kind: SessionTarget['kind']
+		kind: NotFoundKind
 		path: string
 		onNavigate?: (item: WorkspaceItem) => void
 	} = $props()
 
 	// EditorHeader's `kind` prop is 'flow' | 'script' | 'app'; raw apps are
 	// flagged via the `raw_app` boolean so the picker routes to /apps_raw/...
-	const headerKind: WorkspaceItemKind = $derived(kind === 'raw_app' ? 'app' : kind)
+	const headerKind: Exclude<WorkspaceItemKind, 'agent'> = $derived(
+		kind === 'raw_app' ? 'app' : kind
+	)
 	const isRawApp = $derived(kind === 'raw_app')
 
 	// Local read-only mirrors so EditorHeader's bind:* doesn't write back into

@@ -27,7 +27,7 @@ jobs:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
@@ -35,7 +35,7 @@ jobs:
         ports:
           - 8000:8000
     steps:
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2.0.5
         with:
           deno-version: v2.x
       - name: benchmark
@@ -45,7 +45,7 @@ jobs:
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_config.json
       - name: Save benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: benchmark_single
           path: |
@@ -77,7 +77,7 @@ jobs:
         ports:
           - 8000:8000
     steps:
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2.0.5
         with:
           deno-version: v2.x
       - name: benchmark
@@ -87,7 +87,7 @@ jobs:
           --no-warm-up -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_dedicated.json
       - name: Save benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: benchmark_dedicated
           path: |
@@ -111,7 +111,7 @@ jobs:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
@@ -125,7 +125,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -136,7 +136,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -147,12 +147,12 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
     steps:
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2.0.5
         with:
           deno-version: v2.x
       - name: benchmark
@@ -164,7 +164,7 @@ jobs:
           --workers 4
           --factor 3
       - name: Save benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: benchmark_4workers
           path: |
@@ -188,7 +188,7 @@ jobs:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
@@ -202,7 +202,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -213,7 +213,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -224,7 +224,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -235,7 +235,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -246,7 +246,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -257,7 +257,7 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
 
@@ -268,11 +268,11 @@ jobs:
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           MODE: worker
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always
     steps:
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2.0.5
         with:
           deno-version: v2.x
       - name: benchmark
@@ -284,7 +284,7 @@ jobs:
           --workers 8
           --factor 3
       - name: Save benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: benchmark_8workers
           path: |
@@ -309,7 +309,7 @@ jobs:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
           WORKER_GROUP: main
-          WORKER_TAGS: deno,bun,go,python3,bash,dependency,flow,nativets
+          WORKER_TAGS: bun,go,python3,bash,dependency,flow,nativets
         options: >-
           --pull always --health-interval 10s --health-timeout 5s
           --health-retries 5 --health-cmd "curl
@@ -317,7 +317,7 @@ jobs:
         ports:
           - 8000:8000
     steps:
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2.0.5
         with:
           deno-version: v2.x
       - name: benchmark
@@ -327,7 +327,7 @@ jobs:
           -c
           https://raw.githubusercontent.com/windmill-labs/windmill/${GITHUB_REF##ref/head/}/benchmarks/suite_wac.json
       - name: Save benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: benchmark_wac
           path: |
@@ -342,14 +342,14 @@ jobs:
       - benchmark_8workers
       - benchmark_wac
     steps:
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@v2.0.5
         with:
           deno-version: v2.x
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           ref: benchmarks
       - name: Download benchmark results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.3.0
         with:
           merge-multiple: true
       - name: graphs

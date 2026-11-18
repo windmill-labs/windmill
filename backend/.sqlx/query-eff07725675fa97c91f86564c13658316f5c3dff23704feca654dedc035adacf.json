@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE mcp_oauth_refresh_token SET user_email = $1 WHERE user_email = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eff07725675fa97c91f86564c13658316f5c3dff23704feca654dedc035adacf"
+}

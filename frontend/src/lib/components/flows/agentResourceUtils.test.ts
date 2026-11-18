@@ -1,0 +1,247 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+	agentConfigToInputTransforms,
+	agentEditorRefusal,
+	flowLocalInputs,
+	inputTransformsToAgentConfig,
+	nonStaticBrainKeys,
+	providerWithOverrides,
+	summarizeAgentBrain,
+	toolInputOverrides,
+	transformValuedBrainKeys
+} from './agentResourceUtils'
+
+describe('transformValuedBrainKeys', () => {
+	// The tag is the whole test: `{type:'ai'}` carries no payload key to look for.
+	it('flags every transform variant, whatever it carries', () => {
+		expect(
+			transformValuedBrainKeys({
+				system_prompt: { type: 'ai' },
+				temperature: { type: 'javascript', expr: 'flow_input.t' },
+				max_iterations: { type: 'static', value: 3 }
+			})
+		).toEqual(['system_prompt', 'temperature', 'max_iterations'])
+	})
+
+	it('leaves the brain values that are legitimately objects', () => {
+		expect(
+			transformValuedBrainKeys({
+				output_schema: { type: 'object', properties: {} },
+				memory: { kind: 'auto', context_length: 20 },
+				provider: { kind: 'openai', model: 'gpt-4o' },
+				system_prompt: 'hi'
+			})
+		).toEqual([])
+	})
+})
+
+describe('agentEditorRefusal', () => {
+	it('opens an agent', () => {
+		expect(agentEditorRefusal('u/admin/agent', 'ai_agent')).toBeUndefined()
+	})
+
+	// A path with no deployed row answers with its own draft, and the generic resource editor writes
+	// no type: assuming `ai_agent` there would create that path as an agent on deploy.
+	it('refuses an unknown type rather than assuming one', () => {
+		expect(agentEditorRefusal('u/admin/db', undefined)).toContain('no deployed agent')
+	})
+})
+
+describe('summarizeAgentBrain', () => {
+	it('returns only set fields, in brain-key order, formatted', () => {
+		const rows = summarizeAgentBrain({
+			provider: { kind: 'openai', model: 'gpt-4o', resource: '$res:f/x/openai' } as any,
+			system_prompt: 'You are helpful',
+			temperature: 0.7,
+			streaming: true,
+			max_iterations: 10
+		})
+		expect(rows).toEqual([
+			{ label: 'Provider', value: 'openai · gpt-4o' },
+			{ label: 'System message', value: 'You are helpful' },
+			{ label: 'Stream the response', value: 'on' },
+			{ label: 'Temperature', value: '0.7' },
+			{ label: 'Max iterations', value: '10' }
+		])
+	})
+
+	it('skips empty/undefined fields', () => {
+		expect(summarizeAgentBrain({ system_prompt: '', provider: undefined as any })).toEqual([])
+		expect(summarizeAgentBrain(undefined)).toEqual([])
+	})
+
+	it('summarizes structured fields compactly', () => {
+		// memory is serialized with a `kind` tag (serde tag = "kind")
+		const rows = summarizeAgentBrain({
+			memory: { kind: 'auto', context_length: 20 } as any,
+			output_schema: { type: 'object' } as any
+		})
+		expect(rows).toEqual([
+			{ label: 'Managed memory', value: 'Last 20 messages' },
+			{ label: 'Output schema', value: 'configured' }
+		])
+	})
+})
+
+describe('inputTransformsToAgentConfig', () => {
+	it('captures only static brain values and carries tools', () => {
+		const config = inputTransformsToAgentConfig(
+			{
+				provider: { type: 'static', value: { kind: 'openai' } },
+				system_prompt: { type: 'static', value: 'hi' },
+				temperature: { type: 'javascript', expr: 'flow_input.t' }, // non-static → dropped
+				max_iterations: { type: 'static', value: undefined }, // undefined → dropped
+				user_message: { type: 'static', value: 'hello' } // not a brain key → dropped
+			} as any,
+			[{ id: 't1' }] as any
+		)
+		expect(config).toEqual({
+			tools: [{ id: 't1' }],
+			provider: { kind: 'openai' },
+			system_prompt: 'hi'
+		})
+	})
+
+	it('defaults tools to []', () => {
+		expect(inputTransformsToAgentConfig({}, undefined)).toEqual({ tools: [] })
+	})
+})
+
+describe('agentConfigToInputTransforms', () => {
+	it('wraps brain values as static transforms and round-trips through the config', () => {
+		const config = { provider: { kind: 'openai' }, system_prompt: 'hi', tools: [{ id: 't1' }] }
+		const its = agentConfigToInputTransforms(config as any)
+		expect(its).toEqual({
+			provider: { type: 'static', value: { kind: 'openai' } },
+			system_prompt: { type: 'static', value: 'hi' }
+		})
+		const back = inputTransformsToAgentConfig(its, config.tools as any)
+		expect(back).toEqual(config)
+	})
+})
+
+describe('nonStaticBrainKeys', () => {
+	it('lists brain keys with a non-static transform, in brain-key order', () => {
+		expect(
+			nonStaticBrainKeys({
+				provider: { type: 'static', value: {} },
+				temperature: { type: 'connected' },
+				system_prompt: { type: 'javascript', expr: 'x' }
+			} as any)
+		).toEqual(['system_prompt', 'temperature'])
+	})
+
+	it('flags a non-static provider (the save-blocking case) but not a static one', () => {
+		// provider is required on the resource; a non-static one gets dropped and must block saving
+		expect(nonStaticBrainKeys({ provider: { type: 'javascript', expr: 'x' } } as any)).toContain(
+			'provider'
+		)
+		expect(nonStaticBrainKeys({ provider: { type: 'static', value: {} } } as any)).not.toContain(
+			'provider'
+		)
+	})
+})
+
+describe('flowLocalInputs', () => {
+	it('keeps the step’s own inputs, dropping brain transforms', () => {
+		expect(
+			flowLocalInputs({
+				provider: { type: 'static', value: {} },
+				memory: { type: 'static', value: { kind: 'window', context_length: 10 } },
+				user_message: { type: 'static', value: 'hi' },
+				user_attachments: { type: 'static', value: [] },
+				memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
+				previous_messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] },
+				// The roster it narrows belongs to the agent, but which of it one flow may call does
+				// not: saving this into the resource would impose it on every flow linking the agent.
+				enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
+			} as any)
+		).toEqual({
+			user_message: { type: 'static', value: 'hi' },
+			user_attachments: { type: 'static', value: [] },
+			memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
+			previous_messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] },
+			enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
+		})
+	})
+
+	it('handles undefined', () => {
+		expect(flowLocalInputs(undefined)).toEqual({})
+	})
+})
+
+describe('toolInputOverrides', () => {
+	const base = {
+		tenant: { type: 'javascript', expr: 'flow_input.tenant' },
+		query: { type: 'static', value: 'x' }
+	} as any
+
+	it('returns nothing when inputs equal the resource base (opening a tool is a no-op)', () => {
+		expect(toolInputOverrides(base, base)).toEqual({})
+	})
+
+	it('returns only the edited keys, so a revert to base drops back to nothing', () => {
+		const edited = { ...base, query: { type: 'static', value: 'y' } }
+		expect(toolInputOverrides(edited, base)).toEqual({ query: { type: 'static', value: 'y' } })
+		// reverting query back to the base value yields an empty override set again
+		expect(toolInputOverrides(base, base)).toEqual({})
+	})
+
+	it('includes keys absent from the base', () => {
+		expect(toolInputOverrides({ extra: { type: 'static', value: 1 } } as any, base)).toEqual({
+			extra: { type: 'static', value: 1 }
+		})
+	})
+})
+
+describe('providerWithOverrides', () => {
+	const saved = {
+		kind: 'openai',
+		resource: '$res:u/a/openai',
+		model: 'gpt-5',
+		reasoning_effort: 'high'
+	}
+
+	it('folds static overrides into a static provider, as the worker reads them', () => {
+		expect(
+			providerWithOverrides(saved, { reasoning_effort: { type: 'static', value: 'low' } })
+		).toEqual({ type: 'static', value: { ...saved, reasoning_effort: 'low' } })
+		// The saved effort names a level of the saved model, so it does not follow to another one.
+		expect(
+			providerWithOverrides(saved, { model: { type: 'static', value: 'gpt-5-mini' } })
+		).toEqual({
+			type: 'static',
+			value: { kind: 'openai', resource: '$res:u/a/openai', model: 'gpt-5-mini' }
+		})
+		expect(providerWithOverrides(saved, { model: { type: 'static', value: '' } })).toEqual({
+			type: 'static',
+			value: saved
+		})
+	})
+
+	it('keeps an expression, resolving as the linked step did', () => {
+		const run = (overrides: Record<string, string>, flow_input: Record<string, unknown>) => {
+			const folded = providerWithOverrides(
+				saved,
+				Object.fromEntries(
+					Object.entries(overrides).map(([key, expr]) => [key, { type: 'javascript', expr }])
+				)
+			) as { type: 'javascript'; expr: string }
+			expect(folded.type).toBe('javascript')
+			return JSON.parse(
+				JSON.stringify(new Function('flow_input', `return ${folded.expr}`)(flow_input))
+			)
+		}
+		const other = { kind: 'openai', resource: '$res:u/a/openai', model: 'gpt-5-mini' }
+		const effort = { reasoning_effort: 'flow_input.effort' }
+		const model = { model: 'flow_input.model' }
+
+		expect(run(effort, { effort: 'low' })).toEqual({ ...saved, reasoning_effort: 'low' })
+		// An effort the step sets to nothing is no effort, not the saved one.
+		expect(run(effort, { effort: '' })).toEqual({ ...other, model: 'gpt-5' })
+		expect(run(model, { model: '' })).toEqual(saved)
+		expect(run(model, { model: 'gpt-5-mini' })).toEqual(other)
+		expect(run({ ...model, ...effort }, { model: 'gpt-5-mini', effort: '' })).toEqual(other)
+	})
+})

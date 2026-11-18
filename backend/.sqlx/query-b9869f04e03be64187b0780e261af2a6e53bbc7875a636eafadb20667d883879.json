@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job SET parent_job = $2, root_job = $3, flow_innermost_root_job = $4\n             WHERE id = ANY($1) AND workspace_id = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b9869f04e03be64187b0780e261af2a6e53bbc7875a636eafadb20667d883879"
+}

@@ -9,33 +9,72 @@
 	} from '$lib/components/triggers/native/utils'
 	import NativeTriggerTable from '$lib/components/triggers/native/NativeTriggerTable.svelte'
 	import NativeTriggerEditor from '$lib/components/triggers/native/NativeTriggerEditor.svelte'
+	import { useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		sendUserToast,
 		removeTriggerKindIfUnused,
 		getLocalSetting,
 		storeLocalSetting
 	} from '$lib/utils'
-	import { userStore, workspaceStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
+	import { userStore, workspaceStore, roleCapabilities, usedTriggerKinds } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { Button, Alert, Skeleton } from '$lib/components/common'
-	import { LoaderCircle, Plus } from 'lucide-svelte'
+	import { Button, Alert, EmptyState, Skeleton } from '$lib/components/common'
+	import { LoaderCircle, Plus, Webhook } from 'lucide-svelte'
+	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
+	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
+	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { page } from '$app/state'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	const triggerLock = useTriggerLock()
 
 	type TriggerW = ExtendedNativeTrigger & { marked?: any }
 
 	const serviceName = $derived(page.params.service_name as NativeServiceName)
 	const serviceConfig = $derived(getServiceConfig(serviceName))
+	const serviceIcons: Partial<Record<NativeServiceName, any>> = {
+		nextcloud: NextcloudIcon,
+		google: GoogleIcon,
+		github: GithubIcon
+	}
 
 	let triggers: TriggerW[] = $state([])
 	let loading = $state(true)
 	let serviceAvailable: boolean | undefined = $state(undefined)
 	let serviceSupported = $state(true)
-	let editor: NativeTriggerEditor
+	let editor: NativeTriggerEditor | undefined = $state()
+
+	// Deep link: #<external_id> opens that trigger's editor. Opening a trigger pre-sets
+	// handledId: a row link opens the editor itself, before the hash moves. Ids are compared
+	// decoded since the browser percent-encodes the hash.
+	let handledId = ''
+	$effect(() => {
+		const hash = page.url.hash
+		if (hash.length <= 1) {
+			handledId = ''
+			return
+		}
+		let externalId: string
+		try {
+			externalId = decodeURIComponent(hash.slice(1))
+		} catch {
+			return
+		}
+		if (externalId === handledId || !editor) return
+		const trigger = triggers.find((t) => t.external_id === externalId)
+		if (trigger) {
+			handledId = externalId
+			editor.openEdit(trigger.external_id, trigger.is_flow)
+		}
+	})
+
+	function openEditor(trigger: TriggerW) {
+		handledId = trigger.external_id
+		editor?.openEdit(trigger.external_id, trigger.is_flow)
+	}
 
 	let filteredItems: TriggerW[] = $state([])
 	let items: TriggerW[] = $state([])
@@ -100,7 +139,7 @@
 			serviceAvailable = await isServiceAvailable(serviceName, $workspaceStore)
 			if (!serviceAvailable) {
 				sendUserToast(
-					`${serviceName} integration not available, set it in the workspace settings`,
+					`${serviceConfig.serviceDisplayName} isn't configured in this workspace`,
 					true
 				)
 			}
@@ -135,7 +174,10 @@
 		}
 
 		if (!serviceAvailable) {
-			sendUserToast('Cannot sync triggers: workspace integration not connected', true)
+			sendUserToast(
+				`Cannot sync: ${serviceConfig.serviceDisplayName} isn't configured in this workspace`,
+				true
+			)
 			return
 		}
 
@@ -149,17 +191,7 @@
 			loadTriggers()
 		} catch (err: any) {
 			const errorMessage = err.body || err.message
-			if (
-				errorMessage.includes('workspace integration') ||
-				errorMessage.includes('not connected')
-			) {
-				sendUserToast(
-					`Cannot sync: ${serviceConfig.serviceDisplayName} workspace integration not connected. Please connect it in workspace settings.`,
-					true
-				)
-			} else {
-				sendUserToast(`Failed to sync triggers: ${errorMessage}`, true)
-			}
+			sendUserToast(`Failed to sync triggers: ${errorMessage}`, true)
 		}
 	}
 
@@ -187,17 +219,17 @@
 	f={(trigger) => `${formatTriggerDisplayName(trigger)}`}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.triggers}
+{#if $workspaceStore && !$roleCapabilities.visibility.triggers}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else if !serviceSupported}
 	<CenteredPage>
 		<div class="max-w-md mx-auto text-center py-12">
 			<h2 class="text-lg font-semibold text-emphasis mb-2">Service not supported</h2>
 			<p class="text-secondary text-xs mb-4">
-				The service "{serviceName}" is not supported for native triggers.
+				The service "{serviceName}" is not supported for integration triggers.
 			</p>
 			<p class="text-xs text-secondary">Supported services: nextcloud</p>
 		</div>
@@ -206,7 +238,7 @@
 	<CenteredPage>
 		<PageHeader
 			title="{serviceConfig?.serviceDisplayName || serviceName} triggers"
-			tooltip="Native triggers managed externally by {serviceConfig?.serviceDisplayName ||
+			tooltip="Integration triggers managed externally by {serviceConfig?.serviceDisplayName ||
 				serviceName}. These are more efficient than regular triggers as they're handled directly by the service provider."
 		>
 			<Button
@@ -214,7 +246,8 @@
 				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => editor?.openNew()}
-				disabled={!serviceAvailable}
+				disabled={!serviceAvailable || !!$triggerLock}
+				title={$triggerLock}
 			>
 				New&nbsp;{serviceConfig?.serviceDisplayName || serviceName} trigger
 			</Button>
@@ -226,11 +259,10 @@
 				type="warning"
 			>
 				<div class="flex flex-col gap-2 mt-2">
-					The workspace doesn't have a {serviceConfig?.serviceDisplayName || serviceName} integration
-					connected
+					{serviceConfig?.serviceDisplayName || serviceName} isn't configured in this workspace yet.
 					<div class="flex gap-2">
 						<Button variant="accent" href="/workspace_settings?tab=native_triggers">
-							Manage native triggers
+							Manage integration triggers
 						</Button>
 						<Button variant="subtle" onclick={() => checkServiceAvailability()}>Retry check</Button>
 					</div>
@@ -264,17 +296,30 @@
 						<Skeleton layout={[[6], 0.4]} />
 					{/each}
 				{:else if !triggers?.length}
-					<div class="text-center text-sm font-semibold text-emphasis mt-2">
-						No {serviceConfig?.serviceDisplayName || serviceName} triggers
-					</div>
+					<EmptyState
+						icon={serviceIcons[serviceName] ?? Webhook}
+						title="No {serviceConfig?.serviceDisplayName || serviceName} triggers yet"
+						description="{serviceConfig?.serviceDisplayName ||
+							serviceName} manages these triggers on its side, so events reach Windmill without a worker polling for them."
+						action={{
+							label: `Add a ${serviceConfig?.serviceDisplayName || serviceName} trigger`,
+							icon: Plus,
+							onClick: () => editor?.openNew(),
+							disabled: !!$triggerLock,
+							title: $triggerLock,
+							aiId: 'native-triggers-empty-add',
+							aiDescription: 'Add integration trigger'
+						}}
+					/>
 				{:else if items?.length}
 					<NativeTriggerTable
 						service={serviceName}
 						triggers={items.slice(0, nbDisplayed)}
 						{loading}
-						onEdit={(trigger) => editor?.openEdit(trigger.external_id, trigger.is_flow)}
+						onEdit={openEditor}
 						onRecreate={(trigger) => editor?.openRecreate(trigger)}
 						onSync={syncTriggers}
+						onUpdate={loadTriggers}
 					/>
 				{:else}
 					<NoItemFound />

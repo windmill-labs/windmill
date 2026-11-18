@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { setAiDecisionStep } from './flows/aiDecisionBranching'
 	import type { Schema } from '$lib/common'
 	import { type FlowModule, type Job } from '$lib/gen'
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
@@ -21,6 +22,10 @@
 		class?: string
 		onJobDone?: () => void
 		hideRunButton?: boolean
+		/** Passed through to the form: the step whose agent form this preview accompanies. */
+		openFieldsKey?: string
+		/** Passed through to the form: fields it must offer whatever the step holds. */
+		runInputKeys?: readonly string[]
 	}
 
 	let {
@@ -34,8 +39,13 @@
 		focusArg = undefined,
 		class: className = '',
 		onJobDone,
-		hideRunButton = false
+		hideRunButton = false,
+		openFieldsKey = undefined,
+		runInputKeys = undefined
 	}: Props = $props()
+
+	// The test form takes sample questions, which are not the step's to branch on.
+	setAiDecisionStep({ id: undefined })
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	let moduleTest: ModuleTest | undefined = $state()
@@ -85,5 +95,5 @@
 		</div>
 	{/if}
 
-	<ModulePreviewForm {pickableProperties} {mod} {schema} {focusArg} />
+	<ModulePreviewForm {pickableProperties} {mod} {schema} {focusArg} {openFieldsKey} {runInputKeys} />
 </div>

@@ -468,7 +468,11 @@ fn test_volume_comment_prefix_selection() {
 fn test_volume_mount_struct() {
     use windmill_worker_volumes::VolumeMount;
 
-    let mount = VolumeMount { name: "test-vol".to_string(), target: "/mnt/data".to_string() };
+    let mount = VolumeMount {
+        name: "test-vol".to_string(),
+        target: "/mnt/data".to_string(),
+        read_only: false,
+    };
     assert_eq!(mount.name, "test-vol");
     assert_eq!(mount.target, "/mnt/data");
 }
@@ -501,11 +505,13 @@ fn test_volume_nsjail_mount() {
     use std::path::Path;
     use windmill_worker_volumes::volume_nsjail_mount;
 
-    let result = volume_nsjail_mount(Path::new("/tmp/volumes/data"), "/mnt/data");
+    let result = volume_nsjail_mount(Path::new("/tmp/volumes/data"), "/mnt/data", false);
     assert!(result.contains("src: \"/tmp/volumes/data\""));
     assert!(result.contains("dst: \"/mnt/data\""));
     assert!(result.contains("is_bind: true"));
     assert!(result.contains("rw: true"));
+    let read_only = volume_nsjail_mount(Path::new("/tmp/volumes/data"), "/mnt/data", true);
+    assert!(read_only.contains("rw: false"));
 }
 
 #[test]
@@ -537,40 +543,6 @@ fn test_asset_kind_volume_variant() {
 #[cfg(feature = "parquet")]
 #[sqlx::test(fixtures("base"))]
 async fn test_volume_sql_worker_e2e(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-
-    // 1. Set up filesystem-based object storage in a temp dir
-    let storage_dir = tempfile::tempdir()?;
-    let storage_root = storage_dir.path().to_string_lossy().to_string();
-
-    let lfs_config = json!({
-        "type": "FilesystemStorage",
-        "root_path": storage_root,
-        "public_resource": null,
-        "advanced_permissions": null,
-        "volume_storage": "primary"
-    });
-
-    sqlx::query!(
-        "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
-        lfs_config,
-        "test-workspace"
-    )
-    .execute(&db)
-    .await?;
-
-    // 2. Pre-populate the volume with a file (workspace-namespaced path)
-    let vol_dir = storage_dir
-        .path()
-        .join("volumes")
-        .join("test-workspace")
-        .join("test-vol");
-    std::fs::create_dir_all(&vol_dir)?;
-    std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
-
-    // 3. Push the job and run with SQL-connected worker
     let code = r#"// volume: test-vol data
 
 import { readFileSync, writeFileSync, existsSync } from "fs";
@@ -583,24 +555,60 @@ export function main() {
         output_exists: existsSync("data/output.txt"),
     };
 }"#;
+    run_volume_with_default_stack(db, ScriptLang::Bun, code).await
+}
 
-    let job = JobPayload::Code(RawCode {
-        hash: None,
-        content: code.to_string(),
-        path: None,
-        language: ScriptLang::Bun,
-        lock: None,
-        cache_ttl: None,
-        cache_ignore_s3_path: None,
-        dedicated_worker: None,
-        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
-            .into(),
-        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
-        modules: None,
-        tag: None,
-    });
+#[cfg(all(feature = "parquet", feature = "private", feature = "php"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_php_volume_with_default_stack(db: Pool<Postgres>) -> anyhow::Result<()> {
+    // Nested calls exercise the parser's fallback chain; flattening them weakens this guard.
+    let code = r#"<?php
+// volume: test-vol data
 
-    let result = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+function main() {
+    $content = file_get_contents("data/hello.txt");
+    file_put_contents("data/output.txt", "written by sql worker");
+    return [
+        "read_content" => $content,
+        "output_exists" => in_array("output.txt", array_values(array_diff(scandir("data"), ['.', '..']))),
+    ];
+}"#;
+
+    run_volume_with_default_stack(db, ScriptLang::Php, code).await
+}
+
+#[cfg(feature = "parquet")]
+async fn run_volume_with_default_stack(
+    db: Pool<Postgres>,
+    language: ScriptLang,
+    code: &'static str,
+) -> anyhow::Result<()> {
+    // CI raises RUST_MIN_STACK; keep the worker at Tokio's default to catch regressions.
+    tokio::task::spawn_blocking(move || {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_stack_size(2 * 1024 * 1024)
+            .enable_all()
+            .build()?
+            .block_on(run_volume_sql_worker_e2e(db, language, code))
+    })
+    .await?
+}
+
+#[cfg(feature = "parquet")]
+async fn run_volume_sql_worker_e2e(
+    db: Pool<Postgres>,
+    language: ScriptLang,
+    code: &str,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let (_storage_dir, vol_dir) = setup_filesystem_volume(&db).await?;
+
+    let result =
+        run_job_in_new_worker_until_complete(&db, false, raw_code_job(language, code), port).await;
 
     assert!(result.success, "job should succeed: {:?}", result.result);
     let json = result.json_result().expect("should have JSON result");
@@ -636,4 +644,140 @@ export function main() {
     assert_eq!(output_content, "written by sql worker");
 
     Ok(())
+}
+
+/// A `volume:ro` mount takes no lease: it runs while another worker holds the volume, waits
+/// only for that worker's write in progress (odd generation) to close, and writes nothing back.
+#[cfg(all(feature = "parquet", feature = "private"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_read_only_volume_ignores_lease_and_waits_for_write(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::min_version::{MIN_VERSION, MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES};
+    struct OnDrop<F: FnMut()>(F);
+    impl<F: FnMut()> Drop for OnDrop<F> {
+        fn drop(&mut self) {
+            (self.0)()
+        }
+    }
+    // Put back for the rest of the binary, panics included
+    let before = MIN_VERSION.load_full();
+    let _restore = OnDrop(move || MIN_VERSION.store(before.clone()));
+    MIN_VERSION.store(std::sync::Arc::new(
+        MIN_VERSION_SUPPORTS_LEASE_FREE_VOLUMES.version().clone(),
+    ));
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let (_storage_dir, vol_dir) = setup_filesystem_volume(&db).await?;
+
+    sqlx::query!(
+        "INSERT INTO volume (workspace_id, name, size_bytes, created_by, lease_until, leased_by, generation)
+         VALUES ('test-workspace', 'test-vol', 0, 'test-user', now() + interval '1 hour', 'other-worker', 1)"
+    )
+    .execute(&db)
+    .await?;
+    let db_c = db.clone();
+    let hello = vol_dir.join("hello.txt");
+    let writer = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // A different length: the cache cannot tell same-size rewrites apart on a store
+        // whose etags are not content hashes.
+        std::fs::write(&hello, b"hello after the write").unwrap();
+        sqlx::query!(
+            "UPDATE volume SET generation = 2 WHERE workspace_id = 'test-workspace' AND name = 'test-vol'"
+        )
+        .execute(&db_c)
+        .await
+    });
+
+    let code = r#"// volume:ro test-vol data
+
+import { readFileSync, writeFileSync } from "fs";
+
+export function main() {
+    const content = readFileSync("data/hello.txt", "utf-8");
+    writeFileSync("data/output.txt", "discarded");
+    return { read_content: content };
+}"#;
+    let result =
+        run_job_in_new_worker_until_complete(&db, false, raw_code_job(ScriptLang::Bun, code), port)
+            .await;
+    writer.await??;
+
+    assert!(result.success, "job should succeed: {:?}", result.result);
+    assert_eq!(
+        result.json_result().unwrap()["read_content"],
+        json!("hello after the write"),
+        "the pull must wait for the write in progress"
+    );
+    assert!(
+        !vol_dir.join("output.txt").exists(),
+        "a read-only mount must not write back"
+    );
+    let row = sqlx::query!(
+        "SELECT leased_by, generation FROM volume WHERE workspace_id = 'test-workspace' AND name = 'test-vol'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(row.leased_by.as_deref(), Some("other-worker"));
+    assert_eq!(row.generation, 2);
+    Ok(())
+}
+
+#[cfg(feature = "parquet")]
+fn raw_code_job(language: ScriptLang, code: &str) -> JobPayload {
+    JobPayload::Code(RawCode {
+        hash: None,
+        content: code.to_string(),
+        path: None,
+        language,
+        lock: None,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
+        tag: None,
+    })
+}
+
+/// Filesystem object storage as the workspace's volume storage, holding `test-vol` with
+/// `hello.txt`. Returns the storage dir (deleted on drop) and the volume's object dir.
+#[cfg(feature = "parquet")]
+async fn setup_filesystem_volume(
+    db: &Pool<Postgres>,
+) -> anyhow::Result<(tempfile::TempDir, std::path::PathBuf)> {
+    // 1. Set up filesystem-based object storage in a temp dir
+    let storage_dir = tempfile::tempdir()?;
+    let storage_root = storage_dir.path().to_string_lossy().to_string();
+
+    let lfs_config = json!({
+        "type": "FilesystemStorage",
+        "root_path": storage_root,
+        "public_resource": null,
+        "advanced_permissions": null,
+        "volume_storage": "primary"
+    });
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET large_file_storage = $1 WHERE workspace_id = $2",
+        lfs_config,
+        "test-workspace"
+    )
+    .execute(db)
+    .await?;
+
+    // 2. Pre-populate the volume with a file (workspace-namespaced path)
+    let vol_dir = storage_dir
+        .path()
+        .join("volumes")
+        .join("test-workspace")
+        .join("test-vol");
+    std::fs::create_dir_all(&vol_dir)?;
+    std::fs::write(vol_dir.join("hello.txt"), b"hello from volume")?;
+
+    Ok((storage_dir, vol_dir))
 }

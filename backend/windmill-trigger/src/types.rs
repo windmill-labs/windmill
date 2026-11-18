@@ -84,6 +84,32 @@ pub struct TriggerErrorHandling {
     pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }
 
+impl TriggerErrorHandling {
+    /// Schedule and workspace error handlers encode script-vs-flow as a
+    /// `script/`/`flow/` prefix; a trigger's handler is always a script, so a
+    /// prefixed path here would be looked up verbatim as a script name and fail
+    /// only once the trigger errors, which is when the handler is needed.
+    pub fn validate(&self) -> windmill_common::error::Result<()> {
+        let Some(path) = self.error_handler_path.as_deref() else {
+            return Ok(());
+        };
+        if let Some(bare) = path.strip_prefix("script/") {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "error_handler_path is a plain script path, not the prefixed form a schedule \
+                 error handler takes: got '{path}', use '{bare}'"
+            )));
+        }
+        if path.starts_with("flow/") {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "error_handler_path must be a script: a trigger error handler cannot be a flow \
+                 (got '{path}')"
+            )));
+        }
+        windmill_common::runnable_ref::RunnableRef::from_path(path, false)?;
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Trigger<T>
 where
@@ -100,6 +126,28 @@ where
 
     #[serde(flatten)]
     pub error_handling: TriggerErrorHandling,
+}
+
+/// Path accessor for the associated `Trigger` row type, so the shared list
+/// handler can apply scoped-token path filtering without knowing the concrete
+/// row shape. The `()` OSS stub returns "" (its endpoints 404 anyway).
+pub trait HasPath {
+    fn trigger_path(&self) -> &str;
+}
+
+impl<T> HasPath for Trigger<T>
+where
+    T: for<'r> FromRow<'r, sqlx::postgres::PgRow>,
+{
+    fn trigger_path(&self) -> &str {
+        &self.base.path
+    }
+}
+
+impl HasPath for () {
+    fn trigger_path(&self) -> &str {
+        ""
+    }
 }
 
 impl<T> FromRow<'_, sqlx::postgres::PgRow> for Trigger<T>
@@ -161,6 +209,20 @@ impl BaseTriggerData {
 
     pub fn set_mode(&mut self, mode: TriggerMode) {
         self.mode = Some(mode);
+    }
+
+    /// Stored as parsed: a rename retargets triggers, and a runnable lists its own, by exact
+    /// `script_path`, so one saved with a leading `/` would run but be missed by both. Empty is
+    /// left alone: a static HTTP route has no runnable.
+    pub fn normalize_script_path(&mut self) -> windmill_common::error::Result<()> {
+        if self.script_path.is_empty() {
+            return Ok(());
+        }
+        self.script_path =
+            windmill_common::runnable_ref::RunnableRef::from_path(&self.script_path, self.is_flow)?
+                .path()
+                .to_string();
+        Ok(())
     }
 
     pub fn resolve_permissioned_as(&self, authed: &impl Authable) -> String {
@@ -230,6 +292,51 @@ pub enum TriggerMode {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // --- TriggerErrorHandling::validate ---
+
+    fn error_handling(path: Option<&str>) -> TriggerErrorHandling {
+        TriggerErrorHandling {
+            error_handler_path: path.map(str::to_string),
+            error_handler_args: None,
+            retry: None,
+        }
+    }
+
+    #[test]
+    fn test_error_handler_path_accepts_bare_and_hub_paths() {
+        for path in [None, Some("f/team/handler"), Some("u/admin/handler")] {
+            assert!(error_handling(path).validate().is_ok(), "{path:?}");
+        }
+        assert!(error_handling(Some("hub/13953/windmill/handler"))
+            .validate()
+            .is_ok());
+    }
+
+    #[test]
+    fn test_error_handler_path_rejects_prefixed_paths() {
+        // The rejection names the bare path to use, so the caller can fix it
+        // without knowing which of the two conventions a trigger follows.
+        let err = error_handling(Some("script/f/team/handler"))
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("f/team/handler"), "{err}");
+
+        let err = error_handling(Some("flow/f/team/handler"))
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cannot be a flow"), "{err}");
+    }
+
+    #[test]
+    fn test_error_handler_path_rejects_what_does_not_parse() {
+        for path in ["hub/abc", "hub/0", "//u/admin/handler", ""] {
+            assert!(error_handling(Some(path)).validate().is_err(), "{path:?}");
+        }
+        assert!(error_handling(Some("/u/admin/handler")).validate().is_ok());
+    }
 
     // --- TriggerMode serde ---
 

@@ -1,19 +1,22 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #1565C0 / #FFFFFF per the Coupa logo kit linked from coupa.com/company/press-kit, which
+	ships the mark in blue and a white reversed variant. -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"
+	class="text-[#1565C0] dark:text-[#FFFFFF]"
 	{width}
 	{height}
-	viewBox="0 0 1561 1406"
-	style="fill:#1976d2;"
+	viewBox="-70.955 -148.455 1702.909 1702.909"
+	fill="currentColor"
 >
 	<path
 		fill-rule="evenodd"

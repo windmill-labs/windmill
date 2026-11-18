@@ -1,0 +1,1 @@
+-- Nothing to undo: the up migration only stores values the app itself states.

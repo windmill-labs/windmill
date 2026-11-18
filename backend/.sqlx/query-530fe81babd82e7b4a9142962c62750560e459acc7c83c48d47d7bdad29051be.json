@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, read_only)\n         VALUES (encode(sha256('READ_ONLY_TOKEN'::bytea), 'hex'), 'READ_ONLY_', 'READ_ONLY_TOKEN',\n                 'test@windmill.dev', 'read only', false, true)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "530fe81babd82e7b4a9142962c62750560e459acc7c83c48d47d7bdad29051be"
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
 	interface Props {
 		size?: number
 		height?: number
@@ -20,13 +21,14 @@
 	)
 </script>
 
+<!-- #0082C9 / #FFFFFF per nextcloud.com. -->
 <svg
 	role="img"
-	viewBox="0 0 24 24"
+	viewBox="-1.091 -1.091 26.182 26.182"
 	{width}
 	{height}
 	xmlns="http://www.w3.org/2000/svg"
-	class={clazz}
+	class={twMerge('text-[#0082C9] dark:text-[#FFFFFF]', clazz)}
 	fill={color ?? 'currentColor'}
 >
 	<path

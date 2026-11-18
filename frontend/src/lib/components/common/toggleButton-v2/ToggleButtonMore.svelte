@@ -70,7 +70,14 @@
 		<div class="flex items-center">
 			<!-- The tooltip fixes a bug where the other tooltips won't disappear -->
 			<Tooltip disablePopup>
-				<DropdownV2 {btnText} enableFlyTransition {items} size={small ? 'sm' : 'md'} />
+				<!-- fixedHeight pins the wrapper at h-8, which overhangs a small group's 28px row. -->
+				<DropdownV2
+					{btnText}
+					enableFlyTransition
+					{items}
+					size={small ? 'sm' : 'md'}
+					fixedHeight={!small}
+				/>
 			</Tooltip>
 		</div>
 	</div>

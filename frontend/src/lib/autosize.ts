@@ -9,8 +9,12 @@ type TextArea = HTMLTextAreaElement
  * the textarea stops growing and scrolls internally (overflow-y: auto) instead.
  * Accepts a number (px) or a CSS-ish string ending in `vh`/`px` (e.g. `'40vh'`).
  * When omitted the textarea grows without bound (the historical behaviour).
+ *
+ * `minHeight` (px) sets the shortest the textarea may collapse to. Defaults to 30px;
+ * pass a smaller value (e.g. `0`) for a compact field that hugs a single line of
+ * content instead of reserving the default floor.
  */
-export type AutosizeParams = { maxHeight?: number | string } | undefined
+export type AutosizeParams = { maxHeight?: number | string; minHeight?: number } | undefined
 
 /** Resolve a `maxHeight` param to a pixel value, or null when uncapped/invalid. */
 function resolveMaxHeight(maxHeight: number | string | undefined): number | null {
@@ -28,11 +32,12 @@ export const autosize = (node: TextArea, params?: AutosizeParams) => {
 	 * Constants
 	 * ---------------------------------------------------------------- */
 	const UPDATE_EVENT = new Event('update')
-	const MIN_HEIGHT = 30 // px
+	const DEFAULT_MIN_HEIGHT = 30 // px
 	const EXTRA = 2 // px added to scrollHeight
 
 	let width = 0
 	let maxHeight = params?.maxHeight
+	let minHeight = params?.minHeight ?? DEFAULT_MIN_HEIGHT
 	let capped = maxHeight != null
 
 	/* ------------------------------------------------------------------
@@ -40,7 +45,7 @@ export const autosize = (node: TextArea, params?: AutosizeParams) => {
 	 * ---------------------------------------------------------------- */
 	const resize = () => {
 		node.style.height = 'auto'
-		let height = Math.max(node.scrollHeight, MIN_HEIGHT) + EXTRA
+		let height = Math.max(node.scrollHeight, minHeight) + EXTRA
 
 		const maxPx = resolveMaxHeight(maxHeight)
 		if (maxPx != null) {
@@ -128,6 +133,7 @@ export const autosize = (node: TextArea, params?: AutosizeParams) => {
 	return {
 		update(newParams?: AutosizeParams) {
 			maxHeight = newParams?.maxHeight
+			minHeight = newParams?.minHeight ?? DEFAULT_MIN_HEIGHT
 			const nowCapped = maxHeight != null
 			if (nowCapped && !capped) {
 				window.addEventListener('resize', resize)

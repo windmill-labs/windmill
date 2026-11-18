@@ -1,12 +1,29 @@
 <script lang="ts">
+	import {
+		composerBoxClass,
+		COMPOSER_FIELD_RESET,
+		HERO_BOX_CLASS,
+		type ComposerSelection
+	} from './composerBox'
+	import { smoothHeight } from './starter/smoothHeight'
+	import { MessagesSquare } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
-	import { tick } from 'svelte'
+	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
+	import { AIMode } from './AIChatManager.svelte'
+	import ChatCommandPicker from './ChatCommandPicker.svelte'
 	import ChatContextPicker from './ChatContextPicker.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { twMerge } from 'tailwind-merge'
-	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
+	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
+	import {
+		MENTION_RE,
+		mentionTitle,
+		formatMention,
+		hasMentionLeadingBoundary,
+		mentionTitlesInText
+	} from './mention'
 	import { createFloatingActions, createVirtualElement } from 'svelte-floating-ui'
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import {
@@ -26,14 +43,29 @@
 		selectedContext: ContextElement[]
 		placeholder: string
 		disabled: boolean
-		onSendRequest: () => void
+		/** `withModifier`: sent with Ctrl or ⌘ held. */
+		onSendRequest: (options: { withModifier: boolean }) => void
 		onAddContext: (contextElement: ContextElement) => void
 		/** Called when the user deletes a previously-inserted `@title` mention
 		 * from the textarea. The host should drop the matching entry from
 		 * selectedContext (only items with `deletable !== false` are reported). */
 		onRemoveContext?: (contextElement: ContextElement) => void
+		/** Called with image files found in a paste, so the host can attach them. */
+		onImageFiles?: (files: File[]) => void
+		/** Called with non-image files found in a paste, so the host can attach them. */
+		onTextFiles?: (files: File[]) => void
 		className?: string
 		onKeyDown?: (e: KeyboardEvent) => void
+		/** Rendered inside the input box, above the textarea (e.g. context chips). */
+		leading?: Snippet
+		/** Rendered inside the input box, below the textarea (the composer's controls). */
+		trailing?: Snippet
+		/** The taller box that opens a session, matching Home's composer. */
+		hero?: boolean
+		/** One row: the field and `trailing` side by side, for Home's composer at rest. */
+		oneLine?: boolean
+		/** The assistant's chat mark before the field. */
+		chatIcon?: boolean
 	}
 
 	let {
@@ -46,31 +78,44 @@
 		onSendRequest,
 		onAddContext,
 		onRemoveContext,
+		onImageFiles,
+		onTextFiles,
 		className = '',
-		onKeyDown = undefined
+		onKeyDown = undefined,
+		leading,
+		trailing,
+		hero = false,
+		oneLine = false,
+		chatIcon = false
 	}: Props = $props()
 
-	const MENTION_RE = /@[\w/.\-\[\]]+/g
-	function extractMentions(text: string): Set<string> {
-		const out = new Set<string>()
-		for (const m of text.matchAll(MENTION_RE)) out.add(m[0].slice(1))
-		return out
-	}
+	const aiChatManager = getAiChatManager()
 
 	// Titles currently appearing as `@title` mentions in the textarea. Compared
 	// against the previous snapshot in a $effect (NOT inside handleInput —
 	// the picker mutates `value` programmatically via `updateInstructionsWithContext`,
 	// which doesn't fire `oninput`, so a handleInput-only diff goes stale).
-	const mentionedTitles = $derived(extractMentions(value))
+	const mentionedTitles = $derived(mentionTitlesInText(value))
 	let prevMentionedTitles = $state<Set<string>>(new Set())
 
 	let showContextTooltip = $state(false)
 	let contextTooltipWord = $state('')
+	let showCommandTooltip = $state(false)
+	let commandTooltipWord = $state('')
 	let textarea = $state<HTMLTextAreaElement | undefined>(undefined)
 	let tooltipElement = $state<HTMLDivElement | undefined>(undefined)
 	let chatContextPicker: ChatContextPicker | undefined = $state()
+	let chatCommandPicker: ChatCommandPicker | undefined = $state()
+	let commandSkillsRefreshInFlight = false
 
-	// Virtual reference anchored at the `@` that opened the mention (not the
+	const commandSkills = $derived(
+		aiChatManager.mode === AIMode.GLOBAL && aiChatManager.isSessionChat
+			? aiChatManager.sessionCommands
+			: []
+	)
+	const activeTooltipWord = $derived(showContextTooltip ? contextTooltipWord : commandTooltipWord)
+
+	// Virtual reference anchored at the trigger that opened the picker (not the
 	// caret), so the picker stays put while the user types the query.
 	// svelte-floating-ui's `createVirtualElement` takes a raw ClientRect and
 	// wraps it in a function internally — re-`update()` on each anchor move.
@@ -221,6 +266,18 @@
 			.replace(/'/g, '&#39;')
 	}
 
+	// Inverse of escapeHtml (&amp; last so an escaped entity isn't double-decoded). Mentions
+	// are parsed out of the escaped HTML, so a title is un-escaped before the store lookup —
+	// else a filename like `R&D notes.md` (escaped to `R&amp;D notes.md`) would never match.
+	function unescapeHtml(text: string) {
+		return text
+			.replace(/&lt;/g, '<')
+			.replace(/&gt;/g, '>')
+			.replace(/&quot;/g, '"')
+			.replace(/&#39;/g, "'")
+			.replace(/&amp;/g, '&')
+	}
+
 	function getHighlightedText(text: string) {
 		let html = escapeHtml(text)
 		// Wrap collapsed-paste tokens as clickable chips. The span keeps the exact
@@ -231,11 +288,17 @@
 			if (!att) return match
 			return `<span data-paste-id="${att.id}" class="rounded bg-surface-secondary text-secondary cursor-pointer pointer-events-auto">${match}</span>`
 		})
-		html = html.replace(/@[\w/.\-\[\]]+/g, (match) => {
-			const title = match.slice(1)
+		html = html.replace(MENTION_RE, (match, ...args) => {
+			const offset = args[args.length - 2]
+			if (typeof offset !== 'number' || !hasMentionLeadingBoundary(html, offset)) {
+				return match
+			}
+			const title = unescapeHtml(mentionTitle(match))
 			const inContext =
 				availableContext.find((c) => c.title === title) ||
-				selectedContext.find((c) => c.title === title)
+				selectedContext.find((c) => c.title === title) ||
+				// Attached-file mentions (`@filename`) highlight just like context.
+				aiChatManager.attachedFiles.get(title)
 			if (inContext) {
 				return `<span class="bg-surface-accent-selected text-primary rounded box-decoration-clone z-10">${match}</span>`
 			}
@@ -271,6 +334,23 @@
 	// widened over overlapped tokens so pasting onto a chip replaces it whole.
 	function handlePaste(e: ClipboardEvent) {
 		const text = e.clipboardData?.getData('text/plain') ?? ''
+		// Image paste (screenshots, copied images) → hand off to the host to attach.
+		// Only when the clipboard carries no text: spreadsheet and browser copies put a
+		// bitmap alongside the text, and pasting a cell range must paste the cells, not
+		// a picture of them. An OS screenshot carries the image alone, so it still lands
+		// here. `onImageFiles` is unset outside GLOBAL, where attaching is unsupported —
+		// the paste must then fall through to text rather than be swallowed.
+		if (!text.trim() && (onImageFiles || onTextFiles)) {
+			const pastedFiles = Array.from(e.clipboardData?.files ?? [])
+			const imageFiles = pastedFiles.filter((f) => f.type.startsWith('image/'))
+			const otherFiles = pastedFiles.filter((f) => !f.type.startsWith('image/'))
+			if ((imageFiles.length > 0 && onImageFiles) || (otherFiles.length > 0 && onTextFiles)) {
+				e.preventDefault()
+				if (imageFiles.length > 0) onImageFiles?.(imageFiles)
+				if (otherFiles.length > 0) onTextFiles?.(otherFiles)
+				return
+			}
+		}
 		if (!text || !shouldCollapsePaste(text)) return
 		e.preventDefault()
 		const ta = e.currentTarget as HTMLTextAreaElement
@@ -510,19 +590,53 @@
 		showContextTooltip = false
 	}
 
+	export async function insertMention(title: string) {
+		const token = formatMention(title)
+		const selectionStart = textarea?.selectionStart ?? value.length
+		const selectionEnd = textarea?.selectionEnd ?? selectionStart
+		const { from, to, ids } = tokensOverlapping(selectionStart, selectionEnd)
+		const before = value.slice(0, from)
+		const after = value.slice(to)
+		const prefix = before.length === 0 || /\s$/.test(before) ? '' : ' '
+		const suffix = after.length === 0 ? ' ' : /^\s/.test(after) ? '' : ' '
+		const inserted = `${prefix}${token}${suffix}`
+		replacePasteRange(from, to, ids, inserted)
+		await tick()
+		const pos = from + inserted.length
+		textarea?.setSelectionRange(pos, pos)
+		textarea?.focus()
+	}
+
+	function refreshCommandSkills() {
+		if (commandSkillsRefreshInFlight) return
+		commandSkillsRefreshInFlight = true
+		void aiChatManager.refreshGlobalSkills().finally(() => {
+			commandSkillsRefreshInFlight = false
+		})
+	}
+
+	function getCommandFilter(text: string): string | undefined {
+		if (aiChatManager.mode !== AIMode.GLOBAL || !aiChatManager.isSessionChat) return undefined
+		// Same character set the submit path expands, so a name the picker can insert
+		// does not close the picker as soon as it is typed. Paths reach here too, via
+		// the row inserted for an ambiguous name.
+		const match = /^\/([\p{L}\p{N}_\-/]*)$/u.exec(text)
+		return match?.[1]
+	}
+
 	function updateAnchorRect() {
 		if (!textarea) return
+		const triggerWord = activeTooltipWord
+		if (!triggerWord) return
 		try {
-			// Index of the `@` that started the current mention. handleInput
-			// only opens the picker when `contextTooltipWord` (= `@xxx`) is the
-			// LAST whitespace-separated word in `value`, so the `@` always sits
-			// at `value.length - contextTooltipWord.length`.
-			const atIndex = value.length - contextTooltipWord.length
-			const coords = getCaretCoordinates(textarea, atIndex)
+			// Inline `@` anchors to the last word; slash commands only open when
+			// `/...` is the whole input, so the trigger sits at index 0.
+			const triggerIndex = triggerWord.startsWith('/') ? 0 : value.length - triggerWord.length
+			const coords = getCaretCoordinates(textarea, triggerIndex)
 			const rect = textarea.getBoundingClientRect()
 			// getCaretCoordinates returns content-relative coords; subtract the
-			// textarea's own scroll so the anchor tracks the `@` once the input is
-			// capped (max-height) and scrolls internally.
+			// textarea's own scroll so the anchor tracks the trigger once the input
+			// is capped (max-height) and scrolls internally.
 			anchorRect = new DOMRect(
 				rect.left + coords.left - textarea.scrollLeft,
 				rect.top + coords.top - textarea.scrollTop,
@@ -542,6 +656,19 @@
 	function handleInput(e: Event) {
 		textarea = e.target as HTMLTextAreaElement
 
+		const commandFilter = getCommandFilter(value)
+		if (commandFilter !== undefined) {
+			const wasShowing = showCommandTooltip
+			showCommandTooltip = true
+			commandTooltipWord = `/${commandFilter}`
+			showContextTooltip = false
+			contextTooltipWord = ''
+			if (!wasShowing) refreshCommandSkills()
+			return
+		}
+		showCommandTooltip = false
+		commandTooltipWord = ''
+
 		const words = value.split(/\s+/)
 		const lastWord = words[words.length - 1]
 
@@ -558,6 +685,16 @@
 		}
 	}
 
+	function handleCommandSelection(skill: { name: string; path?: string }) {
+		// The picker lists a row per skill, so two folders holding the same name are
+		// two distinct rows — but `/name` could not say which one was clicked, and
+		// submission refuses to guess. Those insert the path the row stands for.
+		const ambiguous = commandSkills.filter((c) => c.name === skill.name).length > 1
+		value = `/${ambiguous && skill.path ? skill.path : skill.name} `
+		showCommandTooltip = false
+		setTimeout(() => textarea?.focus(), 0)
+	}
+
 	function handleKeyDown(e: KeyboardEvent) {
 		// Pass to parent first if provided
 		if (onKeyDown) {
@@ -566,6 +703,22 @@
 
 		// Atomic chip deletion takes precedence over the default char delete.
 		if (handlePasteDeletion(e)) {
+			return
+		}
+
+		if (showCommandTooltip) {
+			if (
+				e.key === 'ArrowDown' ||
+				e.key === 'ArrowUp' ||
+				e.key === 'Enter' ||
+				e.key === 'Tab' ||
+				e.key === 'Escape'
+			) {
+				chatCommandPicker?.handleKeydown(e)
+			}
+			if (e.key === 'Enter') {
+				e.preventDefault()
+			}
 			return
 		}
 
@@ -601,16 +754,20 @@
 
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
-			onSendRequest()
+			const withModifier = e.ctrlKey || e.metaKey
+			// Pages bind their own Ctrl/⌘+Enter on the window (the script editor runs its test),
+			// and would act on this press too.
+			if (withModifier) e.stopPropagation()
+			onSendRequest({ withModifier })
 		}
 	}
 
 	$effect(() => {
-		// Re-track on every value change. The `@` position can shift when the
-		// user adds/deletes text BEFORE it (line wrap, etc.); the picker should
-		// follow. floating-ui's autoUpdate only fires on scroll/resize.
+		// Re-track on every value change. The trigger position can shift when
+		// the user adds/deletes text before it (line wrap, etc.); the picker
+		// should follow. floating-ui's autoUpdate only fires on scroll/resize.
 		void value
-		if (showContextTooltip) updateAnchorRect()
+		if (showContextTooltip || showCommandTooltip) updateAnchorRect()
 	})
 
 	$effect(() => {
@@ -628,13 +785,22 @@
 		prevMentionedTitles = cur
 	})
 
-	export function focus() {
+	export function focus(selection?: ComposerSelection) {
 		textarea?.focus()
+		if (selection) {
+			textarea?.setSelectionRange(selection.start, selection.end)
+		}
 	}
 
-	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the
-	// effect above sees no diff when `value` clears, leaving `selectedContext`
-	// untouched until `AIChatManager.beforeSend` snapshots it. A manual
+	/** Whether the `@` or `/` picker is open. It closes itself on an Escape reaching
+	 * `document` unprevented. */
+	export function hasOpenPicker(): boolean {
+		return showContextTooltip || showCommandTooltip
+	}
+
+	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect
+	// above sees no diff when `value` clears, leaving `selectedContext` for the
+	// send that is already carrying it to settle (see the caller). A manual
 	// textarea clear by the user keeps the old behaviour (badges drop).
 	export function clearForSend() {
 		prevMentionedTitles = new Set()
@@ -656,59 +822,93 @@
 	}
 </script>
 
-<div class="relative w-full scroll-pb-2 bg-surface">
-	<div
-		class={twMerge(
-			'textarea-input absolute inset-0 overflow-hidden pointer-events-none',
-			CHAT_INPUT_PADDING,
-			className
-		)}
-	>
-		<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
-			<span class="break-words">
-				{@html getHighlightedText(value)}
-			</span>
-		</div>
+<!-- The box that opens a session grows and shrinks between its one-line and full shapes. -->
+<div
+	data-composer-box
+	class={twMerge(composerBoxClass(disabled), hero && HERO_BOX_CLASS)}
+	use:smoothHeight={{ enabled: hero, key: oneLine }}
+>
+	<div class={oneLine ? 'flex flex-row items-center' : ''}>
+		<!-- Context chips live inside the input box, above the textarea. The snippet
+	     self-guards (renders nothing when empty) so no blank row appears. -->
+		{@render leading?.()}
+		{#if chatIcon}
+			<!-- The same mark as the "open in chat" buttons, centred on the field's first text line in
+			     both shapes: the slot is that line (1px border + 12px padding down, 20px tall), so it
+			     relies on the field's `!py-3`/`!pt-3` and the `leading-5` set alongside `chatIcon`.
+			     Centring on the field box instead follows its autosized height, which varies. -->
+			<div class="flex items-start {oneLine ? 'flex-1 min-w-0' : ''}">
+				<span class="flex items-center h-5 mt-[13px] ml-4 shrink-0">
+					<MessagesSquare size={16} class="text-ai" />
+				</span>
+				{@render field()}
+			</div>
+		{:else}
+			{@render field()}
+		{/if}
+		{@render trailing?.()}
 	</div>
-	<textarea
-		bind:this={textarea}
-		onkeydown={handleKeyDown}
-		bind:value
-		use:autosize={{ maxHeight: '40vh' }}
-		rows={1}
-		oninput={handleInput}
-		onpaste={handlePaste}
-		onbeforeinput={handlePasteBeforeInput}
-		oncopy={handlePasteCopyCut}
-		oncut={handlePasteCopyCut}
-		ondragstart={handlePasteDragStart}
-		onscroll={(e) => {
-			scrollTop = e.currentTarget.scrollTop
-			// Keep the `@` picker pinned to its anchor while the input scrolls
-			// internally (autoUpdate can't observe a virtual ref's scroll).
-			if (showContextTooltip) updateAnchorRect()
-		}}
-		onblur={() => {
-			setTimeout(() => {
-				// Don't close if focus moved to inside the tooltip (e.g., search input)
-				if (tooltipElement?.contains(document.activeElement)) {
-					return
-				}
-				showContextTooltip = false
-			}, 200)
-		}}
-		{placeholder}
-		class={twMerge(
-			'textarea-input resize-none bg-transparent caret-black dark:caret-white overflow-clip',
-			CHAT_INPUT_PADDING,
-			className
-		)}
-		class:transparent-text={value.length > 0}
-		{disabled}
-	></textarea>
 </div>
 
-{#if showContextTooltip}
+{#snippet field()}
+	<div class="relative w-full {oneLine ? 'flex-1 min-w-0' : ''}">
+		<div
+			class={twMerge(
+				'textarea-input absolute inset-0 overflow-hidden pointer-events-none',
+				CHAT_INPUT_PADDING,
+				className
+			)}
+		>
+			<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
+				<span class="break-words">
+					{@html getHighlightedText(value)}
+				</span>
+			</div>
+		</div>
+		<textarea
+			bind:this={textarea}
+			onkeydown={handleKeyDown}
+			bind:value
+			use:autosize={hero && !oneLine ? { maxHeight: 160, minHeight: 80 } : { maxHeight: '40vh' }}
+			rows={1}
+			oninput={handleInput}
+			onpaste={handlePaste}
+			onbeforeinput={handlePasteBeforeInput}
+			oncopy={handlePasteCopyCut}
+			oncut={handlePasteCopyCut}
+			ondragstart={handlePasteDragStart}
+			onscroll={(e) => {
+				scrollTop = e.currentTarget.scrollTop
+				// Keep the picker pinned to its anchor while the input scrolls
+				// internally (autoUpdate can't observe a virtual ref's scroll).
+				if (showContextTooltip || showCommandTooltip) updateAnchorRect()
+			}}
+			onblur={() => {
+				setTimeout(() => {
+					// Don't close if focus moved to inside the tooltip (e.g., search input)
+					if (tooltipElement?.contains(document.activeElement)) {
+						return
+					}
+					showContextTooltip = false
+					showCommandTooltip = false
+				}, 200)
+			}}
+			{placeholder}
+			class={twMerge(
+				// `no-default-style`: the global input rule paints `surface-input` with `!important`
+				// and outranks `!bg-transparent`, so the field showed as a band on a hero box.
+				'textarea-input no-default-style block resize-none caret-black dark:caret-white overflow-clip',
+				COMPOSER_FIELD_RESET,
+				CHAT_INPUT_PADDING,
+				className
+			)}
+			class:transparent-text={value.length > 0}
+			{disabled}
+		></textarea>
+	</div>
+{/snippet}
+
+{#if showContextTooltip || showCommandTooltip}
 	<Portal target="body">
 		<div
 			bind:this={tooltipElement}
@@ -716,25 +916,46 @@
 			class="bg-surface border border-gray-200 dark:border-gray-700 rounded-md shadow-lg overflow-hidden"
 			style="z-index: {zIndexes.tooltip};"
 		>
-			<ChatContextPicker
-				bind:this={chatContextPicker}
-				{availableContext}
-				{selectedContext}
-				onSelect={(element) => {
-					handleContextSelection(element)
-				}}
-				onSelectWorkspaceItem={(element) => {
-					onAddContext(element)
-					updateInstructionsWithContext(element)
-					showContextTooltip = false
-					setTimeout(() => textarea?.focus(), 0)
-				}}
-				externalFilter={contextTooltipWord.slice(1)}
-				autoFocus={false}
-				setShowing={(showing) => {
-					showContextTooltip = showing
-				}}
-			/>
+			{#if showCommandTooltip}
+				<ChatCommandPicker
+					bind:this={chatCommandPicker}
+					skills={commandSkills}
+					onSelect={handleCommandSelection}
+					externalFilter={commandTooltipWord.slice(1)}
+					autoFocus={false}
+					setShowing={(showing) => {
+						showCommandTooltip = showing
+					}}
+				/>
+			{:else}
+				<ChatContextPicker
+					bind:this={chatContextPicker}
+					{availableContext}
+					{selectedContext}
+					onSelect={(element) => {
+						handleContextSelection(element)
+					}}
+					onSelectWorkspaceItem={(element) => {
+						onAddContext(element)
+						updateInstructionsWithContext(element)
+						showContextTooltip = false
+						setTimeout(() => textarea?.focus(), 0)
+					}}
+					externalFilter={contextTooltipWord.slice(1)}
+					autoFocus={false}
+					setShowing={(showing) => {
+						showContextTooltip = showing
+					}}
+					onSelectFile={(name) => {
+						// Replace the in-progress `@word` with the chosen mention (bracketed if the
+						// filename has spaces, so the highlighter captures it whole).
+						const index = value.lastIndexOf('@')
+						value = (index !== -1 ? value.substring(0, index) : value) + `${formatMention(name)} `
+						showContextTooltip = false
+						setTimeout(() => textarea?.focus(), 0)
+					}}
+				/>
+			{/if}
 		</div>
 	</Portal>
 {/if}
@@ -749,7 +970,7 @@
 		white-space: pre-wrap;
 		word-break: break-words;
 		width: 100%;
-		min-height: 2.25rem;
+		min-height: 1.9rem;
 	}
 
 	/* Hide the textarea's own glyphs (the highlight overlay renders the text)

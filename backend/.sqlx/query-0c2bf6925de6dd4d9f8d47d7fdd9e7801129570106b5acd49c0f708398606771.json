@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE descendants AS (\n            SELECT id FROM v2_job WHERE parent_job = $1 AND workspace_id = $2\n            UNION ALL\n            SELECT j.id FROM v2_job j JOIN descendants d ON j.parent_job = d.id\n            WHERE j.workspace_id = $2\n        ) SELECT d.id AS \"id!\" FROM descendants d JOIN v2_job_queue q ON q.id = d.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0c2bf6925de6dd4d9f8d47d7fdd9e7801129570106b5acd49c0f708398606771"
+}

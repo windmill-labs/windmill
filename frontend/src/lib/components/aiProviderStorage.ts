@@ -1,4 +1,4 @@
-import { AI_PROVIDERS } from './copilot/lib'
+import { AI_PROVIDERS } from './copilot/aiProviders'
 import type { ProviderConfig } from '$lib/gen'
 
 const STORAGE_KEY = 'windmill_ai_provider_config'
@@ -50,6 +50,7 @@ export function isSameAsStoredConfig(config: ProviderConfig | undefined): boolea
 		storedConfig !== undefined &&
 		storedConfig.kind === config?.kind &&
 		storedConfig.resource === config?.resource &&
-		storedConfig.model === config?.model
+		storedConfig.model === config?.model &&
+		storedConfig.reasoning_effort === config?.reasoning_effort
 	)
 }

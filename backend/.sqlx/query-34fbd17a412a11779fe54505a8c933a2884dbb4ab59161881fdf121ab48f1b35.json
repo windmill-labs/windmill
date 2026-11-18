@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE ancestors AS (\n               SELECT id, parent_workspace_id, is_dev_workspace, dev_workspace_label, deleted,\n                      0 AS depth\n               FROM workspace WHERE id = $1\n               UNION ALL\n               SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, w.dev_workspace_label,\n                      w.deleted, ancestors.depth + 1\n               FROM workspace w JOIN ancestors ON w.id = ancestors.parent_workspace_id\n               WHERE ancestors.depth < 20\n           )\n           SELECT id AS \"id!\", dev_workspace_label FROM ancestors\n           WHERE is_dev_workspace AND NOT deleted",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "dev_workspace_label",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "34fbd17a412a11779fe54505a8c933a2884dbb4ab59161881fdf121ab48f1b35"
+}

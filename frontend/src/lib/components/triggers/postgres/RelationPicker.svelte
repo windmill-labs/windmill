@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -17,15 +17,23 @@
 		can_write?: boolean
 		disabled?: boolean
 		pg14?: boolean
+		transaction_to_track?: string[]
 	}
 
 	let {
 		relations = $bindable(undefined),
 		can_write = true,
 		disabled = false,
-		pg14 = $bindable(false)
+		pg14 = $bindable(false),
+		transaction_to_track
 	}: Props = $props()
 
+	// Postgres only rewrites filter-crossing UPDATEs into INSERT/DELETE when updates are published
+	let showRowFilterAlert = $derived(
+		(transaction_to_track?.some((t) => t.toLowerCase() === 'update') ?? true) &&
+			(relations?.some((r) => r.table_to_track.some((t) => !emptyStringTrimmed(t.where_clause))) ??
+				false)
+	)
 	let selected = $derived(relations && relations.length > 0 ? 'specific' : 'all')
 
 	let cached: Relations[] | undefined = $state(relations)
@@ -299,6 +307,18 @@
 				</div>
 			{/each}
 		</div>
+	{/if}
+	{#if showRowFilterAlert}
+		<Alert
+			title="Updates can arrive as inserts or deletes"
+			type="info"
+			size="xs"
+			documentationLink="https://www.postgresql.org/docs/current/logical-replication-row-filter.html#LOGICAL-REPLICATION-ROW-FILTER-TRANSFORMATIONS"
+		>
+			With a filter, an update that moves a row into the filter arrives as an insert, and one that
+			moves it out arrives as a delete, even if insert or delete is not tracked. Check
+			<code>transaction_type</code> in your script to ignore the ones you do not need.
+		</Alert>
 	{/if}
 	{#if selected === 'specific'}
 		<div class="grow min-w-0 pr-10">

@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT to_char(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS \"day!\",\n                      id AS \"id!\",\n                      timestamp AS \"ts!\",\n                      row_to_json(r)::text AS \"line!\"\n               FROM (\n                   SELECT workspace_id, id, timestamp, username, operation,\n                          action_kind::text AS action_kind, resource, parameters, email, span\n                   FROM audit_partitioned\n                   WHERE timestamp >= $1 AND timestamp < $2\n                     AND (timestamp, id) > ($3, $4)\n                   ORDER BY timestamp, id\n                   LIMIT $5\n               ) r\n               ORDER BY timestamp, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "day!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "ts!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "line!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "fd023a9365388f1f74423416bd8790770c32716ef953a2ea4af17d122d0a3b3c"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1\n             AND ($2::varchar IS NULL OR workspace_id = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2db37efe8087ff8c384e03ef92f4a3ad095a0d698d70a30e8054213c9193c1de"
+}

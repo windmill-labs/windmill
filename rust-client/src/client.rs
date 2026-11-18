@@ -244,11 +244,7 @@ impl Windmill {
                     value,
                     is_secret,
                     description: "".to_owned(),
-                    account: None,
-                    is_oauth: None,
-                    expires_at: None,
-                    labels: None,
-                    ws_specific: None,
+                    ..Default::default()
                 },
                 None,
             )
@@ -259,12 +255,8 @@ impl Windmill {
                 &self.workspace,
                 path,
                 windmill_api::models::EditVariable {
-                    path: None,
                     value: Some(value),
-                    is_secret: None,
-                    description: None,
-                    labels: None,
-                    ws_specific: None,
+                    ..Default::default()
                 },
                 None,
             )
@@ -408,12 +400,11 @@ impl Windmill {
                 windmill_api::models::CreateResource {
                     path: path.to_owned(),
                     value,
-                    description: None,
                     resource_type: resource_type.to_owned(),
-                    labels: None,
-                    ws_specific: None,
+                    ..Default::default()
                 },
                 // Some(true),
+                None,
                 None,
             )
             .await?;
@@ -423,13 +414,11 @@ impl Windmill {
                 &self.workspace,
                 path,
                 EditResource {
-                    path: None,
-                    description: None,
                     value: Some(value),
                     resource_type: Some(resource_type.to_owned()),
-                    labels: None,
-                    ws_specific: None,
+                    ..Default::default()
                 },
+                None,
             )
             .await?;
         }
@@ -629,7 +618,43 @@ impl Windmill {
 
         ret!(async move {
             let job_id = self
-                .run_script_async_inner(ident, ident_is_hash, args, scheduled_in_secs)
+                .run_script_async_inner(ident, ident_is_hash, args, scheduled_in_secs, None)
+                .await?;
+            self.wait_job_inner(
+                &job_id.to_string(),
+                timeout_secs,
+                verbose,
+                assert_result_is_not_none,
+            )
+            .await
+        });
+    }
+
+    /// Same as [`Windmill::run_script_sync`] but allows overriding the worker `tag`
+    /// the job runs on.
+    ///
+    /// # Parameters
+    /// In addition to the parameters of [`Windmill::run_script_sync`]:
+    /// - `tag`: Optional worker tag override (the job is dispatched to workers
+    ///   listening on this tag instead of the script's default tag)
+    pub fn run_script_sync_with_tag<'a>(
+        &'a self,
+        ident: &'a str,
+        ident_is_hash: bool,
+        args: Value,
+        scheduled_in_secs: Option<u32>,
+        timeout_secs: Option<u64>,
+        verbose: bool,
+        assert_result_is_not_none: bool,
+        tag: Option<&'a str>,
+    ) -> MaybeFuture<'a, Result<Value, SdkError>> {
+        if verbose {
+            println!("running `{ident}` synchronously with {:?}", &args);
+        }
+
+        ret!(async move {
+            let job_id = self
+                .run_script_async_inner(ident, ident_is_hash, args, scheduled_in_secs, tag)
                 .await?;
             self.wait_job_inner(
                 &job_id.to_string(),
@@ -690,7 +715,25 @@ impl Windmill {
         args: Value,
         scheduled_in_secs: Option<u32>,
     ) -> MaybeFuture<'a, Result<uuid::Uuid, SdkError>> {
-        ret!(self.run_script_async_inner(ident, ident_is_hash, args, scheduled_in_secs));
+        ret!(self.run_script_async_inner(ident, ident_is_hash, args, scheduled_in_secs, None));
+    }
+
+    /// Same as [`Windmill::run_script_async`] but allows overriding the worker `tag`
+    /// the job runs on.
+    ///
+    /// # Arguments
+    /// In addition to the arguments of [`Windmill::run_script_async`]:
+    /// * `tag` - Optional worker tag override (the job is dispatched to workers
+    ///   listening on this tag instead of the script's default tag)
+    pub fn run_script_async_with_tag<'a>(
+        &'a self,
+        ident: &'a str,
+        ident_is_hash: bool,
+        args: Value,
+        scheduled_in_secs: Option<u32>,
+        tag: Option<&'a str>,
+    ) -> MaybeFuture<'a, Result<uuid::Uuid, SdkError>> {
+        ret!(self.run_script_async_inner(ident, ident_is_hash, args, scheduled_in_secs, tag));
     }
 
     async fn run_script_async_inner<'a>(
@@ -699,6 +742,7 @@ impl Windmill {
         ident_is_hash: bool,
         mut args: Value,
         scheduled_in_secs: Option<u32>,
+        tag: Option<&'a str>,
     ) -> Result<uuid::Uuid, SdkError> {
         if let Ok(parent_job) = var("WM_JOB_ID") {
             args["parent_job"] = json!(parent_job);
@@ -712,6 +756,9 @@ impl Windmill {
             args["scheduled_in_secs"] = json!(scheduled_in_secs);
         }
 
+        // The `None`s below map positionally to the query params of the generated
+        // job API. The 5th one is the worker `tag` override (after scheduled_for,
+        // scheduled_in_secs, skip_preprocessor and parent_job).
         let uuid = if ident_is_hash {
             job_api::run_script_by_hash(
                 &self.client_config,
@@ -722,6 +769,7 @@ impl Windmill {
                 None,
                 None,
                 None,
+                tag,
                 None,
                 None,
                 None,
@@ -746,6 +794,7 @@ impl Windmill {
                 None,
                 None,
                 None,
+                tag,
                 None,
                 None,
                 None,
@@ -806,6 +855,7 @@ impl Windmill {
                         job_id,
                         windmill_api::models::CancelQueuedJobRequest {
                             reason: Some("reached timeout".into()),
+                            ..Default::default()
                         },
                     )
                     .await?;
@@ -816,6 +866,7 @@ impl Windmill {
                 result,
                 success,
                 started,
+                ..
             } = job_api::get_completed_job_result_maybe(
                 &self.client_config,
                 &self.workspace,
@@ -1000,6 +1051,7 @@ impl Windmill {
                 windmill_api::models::SetJobProgressRequest {
                     percent: Some(value as i32),
                     flow_job_id: flow_id,
+                    ..Default::default()
                 },
             )
             .await?;

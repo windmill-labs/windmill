@@ -5,6 +5,7 @@
 	import Password from './Password.svelte'
 	import Toggle from './Toggle.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
+	import PkceToggle from './PkceToggle.svelte'
 
 	let { value = $bindable() }: { value: any } = $props()
 
@@ -38,7 +39,7 @@
 
 	function handleToggle(e: CustomEvent<boolean>) {
 		if (e.detail) {
-			value = { id: '', secret: '' }
+			value = { id: '', secret: '', pkce: true }
 			org = ''
 		} else {
 			value = undefined
@@ -85,6 +86,7 @@
 					bind:password={value['secret']}
 				/>
 			</label>
+			<PkceToggle bind:pkce={value['pkce']} />
 		</SettingCard>
 	{/if}
 </div>

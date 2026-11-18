@@ -8,7 +8,7 @@ edition.workspace = true
 default = []
 enterprise = ["dep:aws-config"]
 instance_config_schema = ["dep:schemars"]
-local_reports = ["dep:rsa", "dep:aes-gcm"]
+local_reports = ["dep:rsa"]
 private = ["dep:aws-sdk-rds", "dep:aws-sdk-secretsmanager", "dep:aws-config"]
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
@@ -18,11 +18,11 @@ parquet = []
 aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk",
     "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic", "dep:opentelemetry"]
-smtp = ["dep:mail-send"]
+smtp = ["dep:mail-send", "dep:rustls", "dep:tokio-rustls", "dep:rustls-native-certs", "dep:webpki-roots"]
 scoped_cache = []
 cloud = []
 dev_override = []
-openidconnect = ["dep:openidconnect"]
+openidconnect = ["dep:openidconnect", "dep:rsa", "dep:p256"]
 python = ["dep:windmill-parser-py"]
 
 [lib]
@@ -33,16 +33,21 @@ path = "src/lib.rs"
 tar.workspace = true
 hmac.workspace = true
 sha2.workspace = true
+ryu-js.workspace = true
+sha1.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yml.workspace = true
+memchr.workspace = true
 erased-serde = "0.4"
 chrono.workspace = true
-chrono-tz.workspace = true
+jiff.workspace = true
+jiff-tzdb.workspace = true
 hex.workspace = true
 async-trait.workspace = true
+http.workspace = true
 reqwest-middleware = { workspace = true }
 reqwest-retry = { workspace = true }
 rand.workspace = true
@@ -74,6 +79,7 @@ bitflags.workspace = true
 once_cell.workspace = true
 phf.workspace = true
 tokio-postgres.workspace = true
+postgres-protocol.workspace = true
 postgres-native-tls.workspace = true
 native-tls.workspace = true
 
@@ -83,6 +89,10 @@ aws-sdk-rds = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes.workspace = true
 mail-send = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+rustls-native-certs = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
 futures-core.workspace = true
 async-stream.workspace = true
 const_format.workspace = true
@@ -90,6 +100,7 @@ const-str.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
+windmill-parser-sql-asset.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py = { workspace = true, optional = true }
 windmill-parser.workspace = true
@@ -101,13 +112,18 @@ strum.workspace = true
 strum_macros.workspace = true
 windmill-types.workspace = true
 url.workspace = true
+ipnet.workspace = true
 urlencoding.workspace = true
 async-recursion.workspace = true
 pep440_rs.workspace = true
 systemstat.workspace = true
 size.workspace = true
 rsa = { workspace = true, optional = true }
-aes-gcm = { workspace = true, optional = true }
+p256 = { workspace = true, optional = true }
+spki = { workspace = true }
+pkcs1 = { workspace = true }
+aes-gcm.workspace = true
+hkdf.workspace = true
 
 semver.workspace = true
 croner.workspace = true
@@ -127,6 +143,11 @@ tracing-opentelemetry = { workspace = true, optional = true }
 opentelemetry-appender-tracing = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
 equivalent = "1.0.2"
+
+[dev-dependencies]
+# `test-util` is not part of tokio's `full`; it is what lets tests pause the clock.
+tokio = { workspace = true, features = ["test-util"] }
+rcgen.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

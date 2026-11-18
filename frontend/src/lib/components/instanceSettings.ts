@@ -1,5 +1,21 @@
 import type { ButtonType } from './common/button/model'
+import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
+import { instanceBannerFormError } from './instanceBanner'
+import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
+import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
+import { writable } from 'svelte/store'
+import { OidcService } from '$lib/gen'
+import { workspaceRolesErrors } from '$lib/workspaceRoles'
+import { deepEqual } from 'fast-equals'
+
+/**
+ * Bumped after instance settings are successfully saved. Settings whose display
+ * depends on server-side state derived from a saved value (rather than on the value
+ * in the form) subscribe to this to refetch — the form values change on every
+ * keystroke, so they are not a usable signal for that.
+ */
+export const instanceSettingsSaved = writable(0)
 
 // Languages that support HTTP request tracing via OTEL proxy
 export const OTEL_TRACING_PROXY_LANGUAGES = [
@@ -21,6 +37,10 @@ export interface Setting {
 	placeholder?: string
 	cloudonly?: boolean
 	ee_only?: string
+	/** Ceiling a `seconds` field enforces on a build without a license, when CE genuinely caps
+	 * the value. Not implied by `ee_only`: a setting can be EE-badged because the feature it
+	 * configures is EE while the value itself has the same range on either edition. */
+	ceMaxSeconds?: number
 	tooltip?: string
 	key: string
 	// If value is not specified for first element, it will automatcally use undefined
@@ -51,14 +71,28 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'external_secrets'
+		| 'external_instance_pg'
+		| 'instance_pg'
 		| 'github_enterprise_app'
+		| 'webhook_base_url'
+		| 'api_base_url'
 		| 'ws_connectivity'
+		| 'retention_overrides'
+		| 'instance_banner'
+		| 'accent_color'
+		| 'agent_workload_identity_issuers'
+		| 'mcp_external_idp'
+		| 'workspace_roles'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
 		onChange: (values: Record<string, any>) => Record<string, any>
 		checked: (values: Record<string, any>) => boolean
 	}
+	/** Other global settings the field reads and writes besides `key`, so the form tracks
+	 * their changes too. */
+	companionKeys?: string[]
 	hiddenIfNull?: boolean
 	hiddenIfEmpty?: boolean
 	hiddenInEe?: boolean
@@ -72,7 +106,9 @@ export interface Setting {
 	codeAreaLang?: string
 	actionButton?: {
 		label: string
-		onclick: (values: Record<string, any>) => Promise<void>
+		onclick?: (values: Record<string, any>) => Promise<void>
+		/** Opens in a new tab, so unsaved settings survive. */
+		href?: string
 		variant?: ButtonType.Variant
 	}
 }
@@ -106,6 +142,11 @@ function validateIndexerSettings(v: any): Record<string, string> {
 	return errors
 }
 
+const manageInstanceGroupsButton: Setting['actionButton'] = {
+	label: 'Manage instance groups',
+	href: '/instance_groups'
+}
+
 export const scimSamlSetting: Setting[] = [
 	{
 		label: 'SCIM token',
@@ -114,7 +155,8 @@ export const scimSamlSetting: Setting[] = [
 		fieldType: 'password',
 		placeholder: 'mytoken',
 		storage: 'setting',
-		ee_only: ''
+		ee_only: '',
+		actionButton: manageInstanceGroupsButton
 	},
 	{
 		label: 'SAML metadata',
@@ -127,6 +169,47 @@ export const scimSamlSetting: Setting[] = [
 		triggersRestart: true
 	}
 ]
+
+/**
+ * Mirror of `validate_webhook_base_url` in backend/windmill-common/src/global_settings.rs.
+ * Parses rather than pattern-matches so the two agree on the awkward cases (an
+ * invalid port like `https://x:abc`, IPv6 hosts, surrounding whitespace) — the
+ * server trims and runs `Url::parse`, so this does the same. The webhook path is
+ * appended to this value verbatim, hence no query, fragment or trailing slash.
+ */
+export function isValidWebhookBaseUrl(value: unknown): boolean {
+	if (value == undefined) return true
+	// `Setting.isValid` receives `any`, and YAML mode can put any JSON type here — a
+	// non-string must read as invalid rather than throw while the form computes which
+	// categories are in error.
+	if (typeof value !== 'string') return false
+	if (value.trim() === '') return true
+	const trimmed = value.trim()
+	let url: URL
+	try {
+		url = new URL(trimmed)
+	} catch {
+		return false
+	}
+	return (
+		(url.protocol === 'http:' || url.protocol === 'https:') &&
+		url.host !== '' &&
+		// Userinfo would end up in URLs that users who are not instance admins can read.
+		url.username === '' &&
+		url.password === '' &&
+		// Tested on the raw string, not `url.search`/`url.hash`: those are `''` for a
+		// bare `?` or `#`, while Rust reports an empty-but-present query/fragment and
+		// rejects it. A literal delimiter is never valid here either way.
+		!trimmed.includes('?') &&
+		!trimmed.includes('#') &&
+		// `new URL` silently percent-encodes a space in the path, where the server
+		// rejects it outright.
+		!/\s/.test(trimmed) &&
+		// Shell-active characters: the URL is pasted into commands users copy.
+		!/[$`'"\\;&|<>(){}*!]/.test(trimmed) &&
+		!trimmed.endsWith('/')
+	)
+}
 
 export const settings: Record<string, Setting[]> = {
 	Core: [
@@ -144,7 +227,31 @@ export const settings: Record<string, Setting[]> = {
 				(value?.startsWith('http') &&
 					value.includes('://') &&
 					!value?.endsWith('/') &&
-					!value?.endsWith(' '))
+					!value?.endsWith(' ')),
+			advancedToggle: {
+				label: 'The API is served on a different url than the UI',
+				onChange(values) {
+					values['api_base_url'] = values['api_base_url'] == null ? '' : null
+					if (values['api_base_url'] == null) values['api_base_url_applies_to'] = null
+					return values
+				},
+				checked: (values) => values['api_base_url'] != null
+			}
+		},
+		{
+			label: 'API base url',
+			description:
+				"Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote, the MCP server), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway, and untick what that url does not serve: those keep the url the UI is browsed on. If it does not also serve the UI, the CLI must authenticate with a token rather than the browser login. MCP clients get their OAuth endpoints on it, except sign-in, which opens on the base url in the user's browser; a host serving only MCP must forward /api/mcp/* and /.well-known/oauth-*/api/mcp/*.",
+			key: 'api_base_url',
+			fieldType: 'api_base_url',
+			companionKeys: ['api_base_url_applies_to'],
+			placeholder: 'https://api.windmill.company.com',
+			storage: 'setting',
+			ee_only: '',
+			hiddenIfNull: true,
+			error:
+				'API base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
 		},
 		{
 			label: 'Email domain',
@@ -212,6 +319,22 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'HTTP route default allowed origins',
+			description:
+				'Origins that HTTP routes allow to call them from a browser when the route sets none of its own. A route overrides this with its own list, and opts out entirely by setting its allowed origins to *. Leave unset for no instance-wide default, so every route is callable from any origin unless it restricts itself.',
+			key: 'http_route_default_allowed_origins',
+			fieldType: 'text',
+			placeholder: 'https://app.example.com, https://admin.example.com',
+			storage: 'setting',
+			error:
+				'Each origin must be visible ASCII with no comma, and there can be at most 100 of them. null is not allowed, since every sandboxed iframe sends it.',
+			// The same check the API applies, so a value it would refuse cannot be
+			// saved here and then silently drop to no restriction at the next boot.
+			isValid: (value: unknown) => allowedOriginsSettingError(value) === undefined,
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Audit log retention (days)',
 			key: 'audit_log_retention_days',
 			description: 'How long to keep audit log entries in the database. Default: 365 days.',
@@ -220,9 +343,96 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Maximum token expiration (days)',
+			key: 'max_token_expiration_days',
+			description:
+				'Furthest ahead an API token a user creates can expire, in days. A token asking for longer, or for no expiration, is created with this expiration instead. Service accounts are exempt, so automation can keep longer-lived credentials. Leave empty to let users pick any expiration, including none.',
+			fieldType: 'number',
+			placeholder: 'no limit',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			error: 'Must be a whole number of days, from 1 to 1,000,000',
+			// The server reads anything else as no ceiling at all.
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseMaxTokenExpirationDays(value) !== undefined
+		},
+		{
+			label: 'Disable token in MCP URLs',
+			description:
+				'Reject the ?token= query parameter on the MCP endpoints, so MCP clients authenticate with an Authorization header or through the OAuth flow. A token in a URL is a credential that ends up in browser history, proxy logs and referrers. Existing MCP URLs carrying a token stop working. Servers and workers pick this up within a minute; dedicated MCP servers (MODE=mcp) apply it when they next restart.',
+			key: 'mcp_disable_token_query_param',
+			fieldType: 'boolean',
+			storage: 'setting',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Announcement banner',
+			description:
+				'Message shown above every page of the instance, for maintenance windows and incidents.',
+			key: 'instance_banner',
+			fieldType: 'instance_banner',
+			storage: 'setting',
+			// The banner only renders on EE, so the card is disabled without a license.
+			ee_only: '',
+			hideInQuickSetup: true,
+			// Gates Save. The card renders the specific message itself, so no `error` here.
+			isValid: (value: any) => instanceBannerFormError(value) == undefined
+		},
+		{
+			label: 'Accent color',
+			description:
+				'Recolors buttons, selections and the sidebar for every user, so each environment (e.g. staging vs. production) is recognizable at a glance.',
+			key: ACCENT_COLOR_SETTING,
+			fieldType: 'accent_color',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true,
+			error: 'Must be a hex color like #1f9d55',
+			isValid: (value: unknown) =>
+				value === undefined ||
+				value === null ||
+				value === '' ||
+				parseAccentColor(value) !== undefined
+		},
+		{
+			label: 'Sync resource types from the hub daily',
+			description:
+				'Every day, the server updates the resource types of the admins workspace from the Hub, overwriting local edits to the types the Hub also defines. Superadmins can also sync them on demand with "Sync resource types with Hub".',
+			key: 'sync_hub_resource_types_daily',
+			fieldType: 'boolean',
+			storage: 'setting',
+			hideInQuickSetup: true
 		}
 	],
 	Jobs: [
+		{
+			label: 'Retention period in secs',
+			key: 'retention_period_secs',
+			description:
+				'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
+			fieldType: 'seconds',
+			placeholder: '30',
+			storage: 'setting',
+			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
+			// Mirrors CE_MAX_RETENTION_PERIOD_SECS, which the backend clamps to on write.
+			ceMaxSeconds: 60 * 60 * 24 * 30,
+			cloudonly: false
+		},
+		{
+			label: 'Per-workspace retention overrides',
+			key: 'retention_period_secs_overrides',
+			description:
+				'Override the job retention period for specific workspaces, independently of the instance-wide value above (longer or shorter). Jobs in a workspace without an override follow the instance-wide setting.',
+			fieldType: 'retention_overrides',
+			storage: 'setting',
+			ee_only: 'Per-workspace retention overrides are only available in the EE version',
+			cloudonly: false
+		},
 		{
 			label: 'Job isolation',
 			key: 'job_isolation',
@@ -358,17 +568,6 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Retention period in secs',
-			key: 'retention_period_secs',
-			description:
-				'How long to keep the jobs data in the database (max 30 days on CE). <a href="https://www.windmill.dev/docs/advanced/instance_settings#retention-period-in-secs">Learn more</a>',
-			fieldType: 'seconds',
-			placeholder: '30',
-			storage: 'setting',
-			ee_only: 'You can only adjust this setting to above 30 days in the EE version',
-			cloudonly: false
-		},
-		{
 			label: 'Workspace fairness — enabled',
 			description:
 				'Multi-tenant safeguard against a single workspace dominating the shared worker pool. <strong>Only relevant on instances where multiple workspaces share one worker group</strong> — single-tenant deployments do not need this. When a workspace accounts for at least <em>Workspace fairness — max percent</em> of cluster activity over the last <em>Workspace fairness — duration</em> seconds, each worker pull stochastically excludes that workspace so its share converges to the cap without on/off oscillation. Idle workers always fall back to running its jobs, so capping never starves the queue.',
@@ -415,6 +614,84 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false,
 			ee_only: 'Workspace fairness is an Enterprise feature.',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Run concurrency-limited jobs in order',
+			description:
+				"Jobs waiting on a concurrency limit keep the order workers pull jobs in: for each tag, by priority, then by when they became due. On by default. Turned off, a job deferred by its concurrency limit loses its place and can be overtaken by one queued after it, which drains a busy key of short jobs faster. In order, a slot is only given to the job first in its tag's line, so a job that cannot start yet (for example one its own concurrency time window still holds back) holds back the jobs behind it on the same key and tag; jobs of other tags are not held back. Jobs that become due at the same moment, before any of them has waited, start in the order workers pick them up. Admitting jobs of a key one at a time in order lowers its throughput at high limits.",
+			key: 'concurrency_limit_in_order',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: 'Concurrency limits are an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per concurrency key',
+			description:
+				'Rejects new jobs once this many are already queued behind one concurrency key. Jobs sharing a key run at most <em>concurrent limit</em> at a time regardless of spare worker capacity, so a caller pushing faster than the key drains grows a backlog no capacity can absorb. Scoped per key, so a runaway producer cannot block the rest of the workspace. Set 0 to disable. Default 10000.',
+			key: 'concurrency_key_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '10000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per workspace',
+			description:
+				'Rejects new jobs once a workspace has this many queued in total, across every concurrency key and script. Guards against a single workspace flooding the queue generally, including from parallel for-loops. Applies even to premium workspaces. Jobs already queued still drain; only new pushes past the ceiling are rejected. Set 0 to disable. Default 20000.',
+			key: 'workspace_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '20000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Cancel jobs on unserved tags after (days)',
+			description:
+				"A job queued with a tag that no worker group serves waits forever. Superadmins get a daily critical alert listing such jobs once they have waited a day with no worker serving their tag (it can be muted under Alerts). When set, pending jobs whose tag no worker has served for this many days are also canceled, with a reason naming the tag. Only top-level jobs are checked: a step waiting inside a running flow is not. A canceled schedule tick is followed by the schedule's next one, on the same tag. At most 3650. Leave empty or set 0 to only alert.",
+			key: 'cancel_stranded_jobs_after_days',
+			fieldType: 'number',
+			placeholder: 'off',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			isValid: (v) =>
+				v == undefined ||
+				v === '' ||
+				(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3650)
+		}
+	],
+	'Workspace roles': [
+		{
+			label: 'Workspace roles',
+			key: 'workspace_roles',
+			fieldType: 'workspace_roles',
+			storage: 'setting',
+			ee_only: 'Custom workspace roles are only available in the EE version',
+			validate: workspaceRolesErrors
+		}
+	],
+	'Managed Postgres': [
+		{
+			label: 'External instance',
+			description:
+				'A Postgres cluster Windmill administers for data tables and Ducklake catalogs, instead of its own database. It creates the databases there and manages the roles jobs connect as.',
+			key: 'external_instance_pg',
+			fieldType: 'external_instance_pg',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Windmill instance',
+			description:
+				"Windmill's own database as a data table and Ducklake substrate. On unless turned off here, and never available on cloud.",
+			key: 'instance_pg_disabled',
+			fieldType: 'instance_pg',
+			storage: 'setting'
 		}
 	],
 	'Object Storage': [
@@ -441,11 +718,43 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Back AI sessions up to the instance object storage',
+			description:
+				"Browsers back their AI sessions up to their workspace's object storage, encrypted with the workspace key. When this is on and instance object storage is configured, a workspace without object storage of its own uses the instance object storage instead, under the same encryption; configuring a storage for the workspace moves its backups there and deletes what it kept in the instance storage. On by default; turn off to keep the AI sessions of such workspaces in the browser only.",
+			key: 'ai_sessions_instance_storage_fallback',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Store audit logs in object storage',
 			description:
-				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Pre-existing history is not backfilled: export starts from when the setting is enabled (transactions in flight at that moment may include a bounded set of just-prior rows). No audit log committed after enabling is ever skipped.',
+				'When enabled and instance object storage is configured, audit logs are also exported as newline-delimited JSON to the dedicated logs/audit/ folder (partitioned by day). Export is incremental and runs off the hot path. Enabling (or re-enabling) anchors the export at ~now: while it stays enabled, every audit log committed from that point on is exported (transactions in flight at the moment of enabling may include a bounded set of just-prior rows). Pre-existing history, and any window during which export was disabled, are NOT exported by this cursor — use the opt-in backfill API to export a chosen historical range, back to when audit-log partitioning was introduced (older rows in the legacy audit table are not exported, and a window overlapping them is rejected): POST /settings/audit_logs_s3_backfill {from, to} (status at GET /settings/audit_logs_s3_backfill_status).',
 			key: 'store_audit_logs_s3',
 			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build binaries on deployment',
+			description:
+				'When enabled and instance object storage is configured, deploying a Rust, Go or C# script queues a job that compiles it and uploads the binary to object storage, so the first run does not pay the compile. Requires instance object storage: without it the binary would only reach the building worker. Does nothing for languages whose artifact is not cached in object storage.',
+			key: 'auto_build_binary_on_deploy',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build worker tag',
+			description:
+				'Worker tag the auto-build jobs run on. Leave empty to use the script language tag, where its dependency job already runs. Set it to pin builds to a pool that has the toolchain and matches the platform of your runtime workers — the cache key includes the OS and architecture, so a binary built elsewhere is never reused. Note that compiling runs script-author-controlled build steps (Cargo build scripts, MSBuild targets, cgo) with exactly the isolation the cold build of a first run has — nsjail for Rust when job isolation is on, none for the Go and C# compilers — so this pool now executes them at deploy time rather than at first run.',
+			key: 'auto_build_binary_tag',
+			fieldType: 'text',
+			placeholder: 'e.g. build',
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
@@ -498,7 +807,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Azure OpenAI base path',
 			description:
-				'All workspaces using an OpenAI resource for Windmill AI will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
+				'All workspaces using an OpenAI resource for Windmill AI will run against the specified Azure resource. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id} — keep the URL as stored; the model comes from each workspace\'s configured model list, whose entries must be your Azure deployment names. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
@@ -544,32 +853,85 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Auto-login SSO provider',
-			description:
-				'If set, the login page redirects automatically to this provider. Use the OAuth provider key (e.g. "okta", "google") or "saml". The provider must be configured; otherwise the setting is ignored. Visit /user/login?no_sso=1 to bypass the redirect and fall back to the normal login form.',
+			description: 'Send the login page straight to this provider.',
+			tooltip:
+				'Use the OAuth provider key (okta, google) or saml. Ignored when that provider is not configured. /user/login?no_sso=1 shows the normal login form.',
 			key: 'auto_login_provider',
 			fieldType: 'text',
 			placeholder: 'okta',
 			storage: 'setting'
+		},
+		{
+			label: 'SSO groups claim',
+			description:
+				"The claim or SAML attribute listing a user's IdP groups. Each SSO login then updates their membership in the instance groups linked to an IdP group.",
+			tooltip:
+				'Usually groups on OIDC (read from the userinfo response), or http://schemas.microsoft.com/ws/2008/06/identity/claims/groups on Entra SAML. Values must match the IdP group of each instance group: the id SCIM stored, or the id or full path set on the group (Entra uses object ids). Groups without an IdP group are never changed. Without SCIM, a login with an empty or missing claim removes the user from every linked group; with SCIM, it changes nothing. An Entra groups overage changes nothing either. MCP requests signed in through the external identity provider use the groups in their token the same way.',
+			key: 'sso_groups_claim',
+			fieldType: 'text',
+			placeholder: 'groups',
+			storage: 'setting',
+			ee_only: '',
+			actionButton: manageInstanceGroupsButton
+		},
+		{
+			label: 'SSO email claim',
+			description:
+				"The claim or SAML attribute holding a user's email. Windmill accounts are keyed by email.",
+			tooltip:
+				'Leave empty to use the email claim on OIDC and the NameID on SAML. A login whose claim is missing falls back to that default, so one setting can serve providers that name it differently. The claim decides which account a login opens, so map it only to an attribute users cannot edit at the identity provider. GitHub and Nextcloud logins always use their own email source. A changed email signs in as a different user.',
+			key: 'sso_email_claim',
+			fieldType: 'text',
+			placeholder: 'email',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'SSO username claim',
+			description:
+				'The claim or SAML attribute holding the username given to an account created at its first SSO login. NameID means the SAML NameID.',
+			tooltip:
+				'Leave empty to use preferred_username on OIDC and the usual username attributes on SAML (uid, username, preferred_username, UPN). A login whose claim is missing falls back to that default. Existing accounts keep their username. Has no effect when automatic username creation is off.',
+			key: 'sso_username_claim',
+			fieldType: 'text',
+			placeholder: 'preferred_username',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'MCP external identity provider',
+			description:
+				'Let MCP clients sign in with your OpenID Connect provider. Each client acts as the signed-in Windmill user, within the access you set for it below.',
+			tooltip:
+				'Tokens Windmill issued keep working. The user must already exist in Windmill: they sign in once first. When the SSO groups claim is set, each request uses the groups listed in its token, so a change in the IdP applies at the next token. Runs record the client, and their steps read it as WM_MCP_CLIENT.',
+			key: 'mcp_external_idp',
+			fieldType: 'mcp_external_idp',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		}
+	],
+	'Agent workers': [
+		{
+			label: 'Workload identity issuers',
+			key: 'agent_workload_identity_issuers',
+			description:
+				'An issuer lets an agent worker authenticate with a short-lived token its platform issues it (a Kubernetes projected service account token, a SPIFFE JWT-SVID, ...) in place of an agent token: point AGENT_IDENTITY_TOKEN_FILE at it. The token must be signed by a trusted issuer, carry its audience, and match a rule, which decides the worker group and tags the agent may serve. <a href="https://www.windmill.dev/docs/core_concepts/agent_workers">Learn more</a>',
+			fieldType: 'agent_workload_identity_issuers',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'DB Health': [],
+	'OIDC signing': [],
 	Registries: [
 		{
 			label: 'Instance Python Version',
 			description: 'Default python version for newly deployed scripts',
 			key: 'instance_python_version',
 			fieldType: 'select_python',
-			// To change latest stable version:
-			// 1. Change placeholder in instanceSettings.ts
-			// 2. Change LATEST_STABLE_PY in dockerfile
-			// 3. Change #[default] annotation for PyVersion in backend
-			placeholder: '3.10,3.11,3.12,3.13',
+			placeholder: '3.10,3.11,3.12,3.13,3.14,3.15',
 			select_items: [
-				{
-					label: 'Latest Stable',
-					value: 'default',
-					tooltip: 'python-3.12'
-				},
 				{
 					label: '3.10'
 				},
@@ -581,6 +943,12 @@ export const settings: Record<string, Setting[]> = {
 				},
 				{
 					label: '3.13'
+				},
+				{
+					label: '3.14'
+				},
+				{
+					label: '3.15'
 				}
 			],
 			storage: 'setting'
@@ -809,6 +1177,24 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Mute zombie job restart alerts',
+			description:
+				'Stop sending critical alerts when a zombie job or flow is detected and automatically restarted. Jobs that exhaust all their restart attempts, and flows cancelled after hanging between steps, keep alerting.',
+			key: 'critical_alert_mute_zombie_job_restart',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Mute stranded job alerts',
+			description:
+				'Stop the daily critical alert listing pending jobs whose tag no worker has served for a day. Cancelling those jobs automatically is configured separately, under Jobs.',
+			key: 'critical_alert_mute_stranded_jobs',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',
@@ -857,6 +1243,24 @@ export const settings: Record<string, Setting[]> = {
 			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
 		},
 		{
+			label: 'HTTP Request Tracing retention in secs',
+			key: 'otel_traces_retention_secs',
+			description:
+				'How long a captured HTTP request span is kept in the database, and therefore how far back the job details view can show a job its requests. Independent of the job retention period, so a span may outlive its job or be swept while the job remains. Defaults to 7 days. Leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			// Badged EE because only the EE proxy captures spans, but deliberately no
+			// `ceMaxSeconds`: a CE build still sweeps rows an EE-era instance left behind, and
+			// the backend accepts the same range on either edition.
+			ee_only: 'HTTP Request Tracing is an EE feature',
+			error:
+				'HTTP Request Tracing retention must be between 1 second and 100 years, leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		},
+		{
 			label: 'Prometheus',
 			description:
 				'Expose Prometheus metrics for workers and servers on port 8001 at /metrics. <a target="_blank" href="https://www.windmill.dev/docs/advanced/instance_settings#expose-metrics">Learn more</a>',
@@ -867,6 +1271,23 @@ export const settings: Record<string, Setting[]> = {
 			triggersRestart: true
 		}
 	],
+	'Service logs': [
+		{
+			label: 'Retention in secs',
+			key: 'service_log_retention_secs',
+			description:
+				'How long a service log is kept, across every copy of it: the entry in the database, the file on the disk of the process that wrote it, and — once instance object storage is configured and the indexer has ingested it — its line in the columnar store that search and the log viewer read. Search reaches back at most this far, and less when the indexer time window under Indexer is shorter. Defaults to 14 days. There is no keep-forever setting here — leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			error:
+				'Service log retention must be between 1 second and 100 years — leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		}
+	],
+
 	Indexer: [
 		{
 			label: '',
@@ -889,19 +1310,29 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Backend type',
 			description:
-				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager as external secret backends.',
+				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault, Azure Key Vault, AWS Secrets Manager, and any secret store with an HTTP API (read-only) as external secret backends.',
 			key: 'secret_backend',
 			fieldType: 'secret_backend',
 			storage: 'setting',
-			ee_only:
-				'HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager integrations are Enterprise Edition features'
+			ee_only: 'External secret store integrations are Enterprise Edition features'
+		},
+		{
+			label: 'External secret references',
+			description:
+				'Let secret variables reference existing secrets in HashiCorp Vault, read when the variable is read, under the path prefixes allowed here.',
+			key: 'external_secrets',
+			fieldType: 'external_secrets',
+			storage: 'setting',
+			ee_only: 'External secret references are an Enterprise Edition feature'
 		}
 	],
 	'GitHub App': [
 		{
-			label: 'GitHub App',
+			// The category header above already names the section; this labels the
+			// card that holds the app credentials, next to the webhook base url one.
+			label: 'App configuration',
 			description:
-				'Configure a self-managed GitHub App to enable git sync without stats.windmill.dev.',
+				'Use your own GitHub App instead of the Windmill-managed one on stats.windmill.dev.',
 			key: 'github_enterprise_app',
 			fieldType: 'github_enterprise_app',
 			storage: 'setting',
@@ -912,6 +1343,19 @@ export const settings: Record<string, Setting[]> = {
 				if (!v?.self_managed) return true
 				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.client_id && v?.private_key)
 			}
+		},
+		{
+			label: 'Webhook base url',
+			description:
+				'Base url GitHub delivers git sync webhooks to, without trailing slash. Leave empty to use the instance base url. Set it when GitHub cannot reach the base url and a separate ingress fronts this instance for inbound webhooks.',
+			key: 'github_app_webhook_base_url',
+			fieldType: 'webhook_base_url',
+			placeholder: 'https://windmill-webhooks.company.com',
+			storage: 'setting',
+			ee_only: '',
+			error:
+				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
 		}
 	],
 	WebSocket: [
@@ -935,7 +1379,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Ruff config (ruff.toml)',
 			description:
-				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
+				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. Leave empty to use the Windmill default (<code>select = ["E4", "E7", "E9", "F"]</code>); anything set here replaces that default entirely. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
 			key: 'ruff_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'toml',
@@ -969,6 +1413,13 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Jobs',
 				aiId: 'instance-settings-jobs',
 				aiDescription: 'Instance jobs settings'
+			},
+			{
+				id: 'workspace_roles',
+				label: 'Workspace roles',
+				aiId: 'instance-settings-workspace-roles',
+				aiDescription: 'Roles workspace members can hold and their capabilities',
+				isEE: true
 			}
 		]
 	},
@@ -993,6 +1444,20 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-scim-saml',
 				aiDescription: 'Instance SCIM/SAML settings',
 				isEE: true
+			},
+			{
+				id: 'agent_workers',
+				label: 'Agent workers',
+				aiId: 'instance-settings-agent-workers',
+				aiDescription: 'Workload identity issuers agent workers can authenticate with',
+				isEE: true
+			},
+			{
+				id: 'oidc_signing',
+				label: 'OIDC signing',
+				aiId: 'instance-settings-oidc-signing',
+				aiDescription: 'Keys that sign and verify the OIDC tokens Windmill issues',
+				isEE: true
 			}
 		]
 	},
@@ -1016,6 +1481,14 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Object Storage',
 				aiId: 'instance-settings-object-storage',
 				aiDescription: 'Instance object storage settings',
+				isEE: true
+			},
+			{
+				id: 'managed_postgres',
+				label: 'Managed Postgres',
+				aiId: 'instance-settings-managed-postgres',
+				aiDescription:
+					'Postgres substrates Windmill administers for data tables and Ducklake catalogs: its own database and an external cluster',
 				isEE: true
 			}
 		]
@@ -1042,6 +1515,12 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-otel-prom',
 				aiDescription: 'Instance OTEL/Prometheus settings',
 				isEE: true
+			},
+			{
+				id: 'service_logs',
+				label: 'Service logs',
+				aiId: 'instance-settings-service-logs',
+				aiDescription: 'Service log retention settings'
 			},
 			{
 				id: 'indexer',
@@ -1126,14 +1605,19 @@ export const tabToCategoryMap: Record<string, string> = {
 	webhooks: 'Webhooks',
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
+	service_logs: 'Service logs',
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
+	managed_postgres: 'Managed Postgres',
 	jobs: 'Jobs',
+	workspace_roles: 'Workspace roles',
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
 	db_health: 'DB Health',
+	oidc_signing: 'OIDC signing',
+	agent_workers: 'Agent workers',
 	lsp: 'LSP'
 }
 
@@ -1141,6 +1625,30 @@ export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
 	sso: 'sso',
 	oauth: 'oauth',
 	scim_saml: 'scim'
+}
+
+/**
+ * "OIDC signing" is listed only on instances that sign with an external signer: its page
+ * says nothing actionable elsewhere.
+ */
+export function listedNavigationGroups<G extends { items: { id: string }[] }>(
+	groups: G[],
+	externalOidcSigner: boolean
+): G[] {
+	if (externalOidcSigner) return groups
+	return groups.map((group) => ({
+		...group,
+		items: group.items.filter((item) => item.id !== 'oidc_signing')
+	}))
+}
+
+/** The status endpoint is EE only: call it once the license is known. */
+export async function usesExternalOidcSigner(): Promise<boolean> {
+	try {
+		return (await OidcService.getOidcSigningStatus()).mode === 'external'
+	} catch {
+		return false
+	}
 }
 
 // Navigation groups for the initial setup flow (no Users tab)
@@ -1161,14 +1669,19 @@ export const categoryToTabMap: Record<string, string> = {
 	Webhooks: 'webhooks',
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
+	'Service logs': 'service_logs',
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
+	'Managed Postgres': 'managed_postgres',
 	Jobs: 'jobs',
+	'Workspace roles': 'workspace_roles',
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',
 	'DB Health': 'db_health',
+	'OIDC signing': 'oidc_signing',
+	'Agent workers': 'agent_workers',
 	LSP: 'lsp'
 }
 
@@ -1193,6 +1706,13 @@ export function extractMarkedLabel(marked: string | undefined, labelLength: numb
 		if (marked[markedIdx] === '<') {
 			while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
 			markedIdx++
+		} else if (marked[markedIdx] === '&') {
+			// SearchItems escapes the haystack, so one plain character can arrive
+			// as an entity. Skipping the whole entity keeps this offset walk in
+			// step with `labelLength`, which counts unescaped characters.
+			const end = marked.indexOf(';', markedIdx)
+			markedIdx = end === -1 ? markedIdx + 1 : end + 1
+			plainIdx++
 		} else {
 			plainIdx++
 			markedIdx++
@@ -1260,3 +1780,96 @@ export const WORKSPACE_REGISTRY_SETTINGS: Setting[] = settings['Registries'].fil
 		s.key !== 'uv_index_strategy' &&
 		s.key !== 'uv_python_install_mirror'
 )
+
+export const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
+/** Display-only marker for the Review changes diff; never parsed back into a value. */
+export const SENSITIVE_CHANGED = '__SENSITIVE_AND_CHANGED__'
+
+export const sensitiveKeys: Set<string> = new Set([
+	...[...Object.values(settings), scimSamlSetting]
+		.flatMap((s) => Object.values(s))
+		.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
+		.map((s) => s.key),
+	'ducklake_user_pg_pwd',
+	'jwt_secret',
+	'workspace_registries'
+])
+
+// Nested fields inside object-valued settings that contain secrets.
+// Each entry maps a top-level key to its sensitive sub-field names.
+export const nestedSensitiveFields: Record<string, string[]> = {
+	smtp_settings: ['smtp_password'],
+	secret_backend: ['token', 'approle_secret_id', 'client_secret', 'secret_access_key'],
+	object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
+	custom_instance_pg_databases: ['user_pwd'],
+	external_instance_pg: ['password'],
+	rsa_keys: ['private_key'],
+	github_enterprise_app: ['private_key'],
+	external_secrets: ['vault.token', 'vault.approle_secret_id']
+}
+
+// A field may name one nested level, `parent.child`.
+export function getField(obj: any, field: string): any {
+	const [a, b] = field.split('.')
+	return b === undefined ? obj?.[a] : obj?.[a]?.[b]
+}
+
+export function setField(obj: any, field: string, value: any) {
+	const [a, b] = field.split('.')
+	if (b === undefined) obj[a] = value
+	else if (obj[a] && typeof obj[a] === 'object') obj[a] = { ...obj[a], [b]: value }
+}
+
+/**
+ * Replaces sensitive values with placeholders. An unchanged non-empty value becomes
+ * SENSITIVE_UNCHANGED, which the YAML editor restores on parse. A changed value is kept
+ * in clear so the YAML editor can edit it, unless `markChanged` is set: then it becomes
+ * SENSITIVE_CHANGED, for read-only views such as the Review changes diff.
+ */
+export function maskSensitive(
+	obj: Record<string, any>,
+	initialValues: Record<string, any> | undefined,
+	initialOauths: Record<string, any> | undefined,
+	opts: { markChanged?: boolean } = {}
+): Record<string, any> {
+	// Values are deep clones of the initial ones, so a read-only view compares
+	// structurally; the editor keeps `===`, which its restore step relies on.
+	const same = opts.markChanged ? deepEqual : (a: any, b: any) => a === b
+	const mask = (current: any, initial: any): string | undefined => {
+		if (current == null || current === '') return undefined
+		if (same(current, initial)) return SENSITIVE_UNCHANGED
+		return opts.markChanged ? SENSITIVE_CHANGED : undefined
+	}
+
+	const masked: Record<string, any> = {}
+	for (const [key, value] of Object.entries(obj)) {
+		if (key === 'oauths' && typeof value === 'object' && value !== null) {
+			const maskedOauths: Record<string, any> = {}
+			for (const [provider, config] of Object.entries(value as Record<string, any>)) {
+				if (typeof config === 'object' && config !== null && 'secret' in config) {
+					const m = mask(config.secret, initialOauths?.[provider]?.secret)
+					maskedOauths[provider] = m ? { ...config, secret: m } : config
+				} else {
+					maskedOauths[provider] = config
+				}
+			}
+			masked[key] = maskedOauths
+		} else if (key in nestedSensitiveFields && typeof value === 'object' && value !== null) {
+			const cp = { ...value }
+			const init = initialValues?.[key]
+			for (const field of nestedSensitiveFields[key]) {
+				const m = mask(
+					field === 'serviceAccountKey' ? JSON.stringify(cp[field]) : getField(cp, field),
+					field === 'serviceAccountKey' ? JSON.stringify(init?.[field]) : getField(init, field)
+				)
+				if (m) setField(cp, field, m)
+			}
+			masked[key] = cp
+		} else if (sensitiveKeys.has(key)) {
+			masked[key] = mask(value, initialValues?.[key]) ?? value
+		} else {
+			masked[key] = value
+		}
+	}
+	return masked
+}

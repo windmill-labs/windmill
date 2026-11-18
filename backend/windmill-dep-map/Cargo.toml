@@ -7,6 +7,8 @@ edition.workspace = true
 [lib]
 name = "windmill_dep_map"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
@@ -26,4 +28,5 @@ tracing.workspace = true
 lazy_static.workspace = true
 chrono.workspace = true
 itertools.workspace = true
+futures.workspace = true
 uuid.workspace = true

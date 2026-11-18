@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT clock_timestamp() AS \"started_at!\", s.remote_deploy_target,\n                  s.remote_deploy_target_changed_at,\n                  (SELECT u.created_at FROM usr u\n                   WHERE u.workspace_id = s.workspace_id AND u.email = $2) AS member_since\n           FROM workspace_settings s WHERE s.workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "started_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "remote_deploy_target",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "remote_deploy_target_changed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "member_since",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "51e1741eb9e959945302fd6f7e8c621b9b03b92f6c20ab1bdd1637232f26952d"
+}
