@@ -7,5 +7,6 @@
 	const renderMermaid = !hasUntrustedImages()
 </script>
 
-<!-- The viewer's code block without the chat context its own renderer needs. -->
-<MarkdownCodeBlock {renderMermaid} lightMermaid />
+<!-- The viewer's code block without the chat context its own renderer needs. Display blocks are
+     on as in the viewer. -->
+<MarkdownCodeBlock {renderMermaid} lightMermaid renderDisplay staticDisplay />

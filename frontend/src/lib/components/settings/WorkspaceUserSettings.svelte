@@ -908,7 +908,7 @@
 	{/snippet}
 
 	<DataTable
-		shouldLoadMore={(filteredUsers?.length ?? 0) > 30}
+		shouldLoadMore={(filteredUsers?.length ?? 0) > nbDisplayed}
 		loadMore={30}
 		on:loadMore={() => {
 			nbDisplayed += 30

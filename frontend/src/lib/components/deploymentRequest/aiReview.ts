@@ -1,4 +1,5 @@
 import type { AIProviderModel, WorkspaceItemDiff } from '$lib/gen'
+import type { CopilotInfo } from '$lib/aiStore'
 import { getNonStreamingCompletion } from '$lib/components/copilot/lib'
 import { getItemValue } from '$lib/utils_workspace_deploy'
 import type { Kind } from '$lib/utils_deployable'
@@ -187,6 +188,8 @@ export async function reviewChanges(
 	options?: {
 		/** Defaults to the chat's current model. */
 		model?: AIProviderModel
+		/** The reviewed workspace's AI config, when it is not the tab's. */
+		info?: CopilotInfo
 	}
 ): Promise<AiReviewResult> {
 	const subject: ReviewSubject = scope.kind === 'deployment' ? 'deployment_request' : 'draft'
@@ -235,7 +238,8 @@ export async function reviewChanges(
 		{
 			maxTokensCap: MAX_OUTPUT_TOKENS,
 			forceModelProvider: options?.model,
-			workspace: workspaceId
+			workspace: workspaceId,
+			info: options?.info
 		}
 	)
 	return {

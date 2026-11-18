@@ -60,7 +60,7 @@
 		onSynced = undefined
 	}: Props = $props()
 
-	let aiProvider = $derived(aiResourceProvider(resourceType))
+	let aiProvider = $derived(aiResourceProvider(resourceType, args))
 
 	let schema = $state(emptySchema())
 	let notFound = $state(false)

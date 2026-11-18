@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import SidebarSection, {
 		flyoutRowClass,
 		type SectionActionsArgs
@@ -68,7 +68,8 @@
 		getRuntime,
 		getSessionChatPeek,
 		getSessionChatStatus,
-		removeSession
+		removeSession,
+		type SessionChatStatus
 	} from './sessionRuntimeRegistry.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
@@ -78,7 +79,13 @@
 		SIDEBAR_RECENT_MS
 	} from '$lib/components/sidebar/SidebarShowOlder.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		superadmin,
+		userStore,
+		userWorkspaces,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { AiService, WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -102,7 +109,7 @@
 	}
 
 	function isForkFor(session: Session): boolean {
-		return isForkSession(session, $userWorkspaces)
+		return isForkSession(session, $usersWorkspaceStore ? $userWorkspaces : undefined)
 	}
 
 	// Compute the unread count for a session. Driven by the per-runtime
@@ -478,6 +485,34 @@
 	// AI activity in some session without expanding the sidebar.
 	const totalUnread = $derived(visibleSessions.reduce((acc, s) => acc + unreadFor(s), 0))
 
+	function statusFor(session: Session): SessionChatStatus {
+		const runtime = getRuntime(session.id)
+		return runtime
+			? getSessionChatStatus(runtime)
+			: (getSessionChatPeek(session.id)?.status ?? 'idle')
+	}
+
+	// The statuses a row shows over its resting mark, most urgent first: a session that needs
+	// the user (a question, a confirmation, a failure) outranks one still generating.
+	const LIVE_STATUS_ORDER: SessionChatStatus[] = [
+		'awaiting-answer',
+		'needs-confirmation',
+		'error',
+		'streaming'
+	]
+	// What the folded section shows for the sessions it hides: one mark only. A session that
+	// needs the user hides the unread count; the unread count hides a session generating.
+	const sectionStatus = $derived.by(() => {
+		let best: number = LIVE_STATUS_ORDER.length
+		for (const s of visibleSessions) {
+			const rank = LIVE_STATUS_ORDER.indexOf(statusFor(s))
+			if (rank !== -1 && rank < best) best = rank
+			if (best === 0) break
+		}
+		const status = LIVE_STATUS_ORDER[best]
+		return status === 'streaming' && totalUnread > 0 ? undefined : status
+	})
+
 	// Clear any persisted collapsed state while the list is empty. The
 	// empty-state header is a plain label with no toggle, so a collapse
 	// carried over from a previous session (or another workspace) would
@@ -503,7 +538,11 @@
 	})
 
 	function isUnavailableFork(session: Session): boolean {
-		return !!session.workspace_id && !$userWorkspaces.find((w) => w.id === session.workspace_id)
+		return (
+			!!session.workspace_id &&
+			!!$usersWorkspaceStore &&
+			!$userWorkspaces.find((w) => w.id === session.workspace_id)
+		)
 	}
 
 	async function activate(session: Session, restoreFocus: boolean = false) {
@@ -899,13 +938,17 @@
 			{/if}
 		{/snippet}
 		{#if collapsible}
+			<!-- Not disabled while loading: a disabled section ignores its fold, so a folded one
+			     would open for the skeleton and fold again once the sessions arrive. -->
 			<SidebarSection
 				title="AI sessions"
 				icon={MessageSquare}
 				folded={sectionCollapsed.val}
 				onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-				disabled={filteredSessions.length === 0}
+				disabled={sessionState.hydrated && filteredSessions.length === 0}
 				notify={totalUnread > 0}
+				unreadCount={totalUnread}
+				status={sectionStatus}
 				actions={sectionOptions}
 				{isCollapsed}
 				onClose={() => {
@@ -969,10 +1012,7 @@
 				<!-- The rail has no room for tree guides, but keeps the grouped rows' indent so a row
 					     stays put when a hover widens the rail. -->
 				{@const depth = rail ? undefined : treeDepth}
-				{@const runtime = getRuntime(session.id)}
-				{@const status = runtime
-					? getSessionChatStatus(runtime)
-					: (getSessionChatPeek(session.id)?.status ?? 'idle')}
+				{@const status = statusFor(session)}
 				{@const isSelected = session.id === activeRowId}
 				{@const isEditing = editingId === session.id}
 				{@const unread = unreadFor(session)}
@@ -1254,6 +1294,21 @@
 				{/each}
 			{/if}
 		</div>
+		{#if !sessionState.hydrated}
+			<!-- Bars sized and spaced like session rows (h-6, gap-0.5), so rows replace them
+			     without a shift. The rail shows no names, so its bars don't vary like text. -->
+			{@const w = rail ? [100, 100, 100] : [75, 55, 65]}
+			<Skeleton
+				class="px-2 pt-1.5"
+				layout={[
+					[{ h: 0.75, w: w[0] }],
+					0.875,
+					[{ h: 0.75, w: w[1] }],
+					0.875,
+					[{ h: 0.75, w: w[2] }]
+				]}
+			/>
+		{/if}
 		<!-- Outside the listbox, so arrow keys move through sessions only. -->
 		{#if olderIds.size > 0}
 			<SidebarShowOlder

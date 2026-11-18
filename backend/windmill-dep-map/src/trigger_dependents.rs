@@ -33,6 +33,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
     permissioned_as: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     already_visited: Vec<String>,
+    skip_ci_tests: bool,
 ) -> error::Result<()> {
     tracing::debug!(
         "Triggering dependents to recompute dependencies: {}",
@@ -64,6 +65,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             "triggered_by_relative_import".to_string(),
             to_raw_value(&true),
         );
+        if skip_ci_tests {
+            args.insert("skip_ci_tests".to_string(), to_raw_value(&true));
+        }
 
         let mut debouncing_settings = DebouncingSettings {
             debounce_key: Some(format!("{w_id}:{importer_path}:{importer_kind}:dependency")),

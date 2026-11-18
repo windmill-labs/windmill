@@ -154,6 +154,7 @@ const DESTRUCTIVE: &[&str] = &[
     "test_run_agent",
     "test_run_step",
     "test_run_app_runnable",
+    "test_run_code",
     "cancel_job",
     "exec_datatable_sql",
     "create_datatable_migration",
@@ -180,6 +181,7 @@ const OPEN_WORLD: &[&str] = &[
     "test_run_agent",
     "test_run_step",
     "test_run_app_runnable",
+    "test_run_code",
     "get_db_schema",
 ];
 
@@ -400,7 +402,7 @@ impl Ctx<'_> {
         };
         let request = request.body(body).map_err(|e| e.to_string())?;
         tokio::time::timeout(timeout, async {
-            let response = router.oneshot(request).await.map_err(|e| e.to_string())?;
+            let Ok(response) = router.oneshot(request).await;
             let status = response.status();
             let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await

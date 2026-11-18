@@ -40,10 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.4.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: "20"
 
@@ -52,7 +52,7 @@ jobs:
       - name: Setup Bun
         id: setup-bun
         continue-on-error: true
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
 
@@ -63,7 +63,7 @@ jobs:
 
       - name: Setup Bun (retry)
         if: steps.setup-bun.outcome == 'failure'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
 
@@ -95,23 +95,23 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.4.0
 
       - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache: true
           cache-workspaces: backend
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: "20"
 
       - name: Setup Bun
         id: setup-bun
         continue-on-error: true
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
 
@@ -122,7 +122,7 @@ jobs:
 
       - name: Setup Bun (retry)
         if: steps.setup-bun.outcome == 'failure'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
 
@@ -154,7 +154,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.4.0
 
       - name: Setup PostgreSQL
         uses: ikalnytskyi/action-setup-postgres@v6
@@ -165,20 +165,20 @@ jobs:
           port: 5432
 
       - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1.17.0
         with:
           cache: true
           cache-workspaces: backend
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: "20"
 
       - name: Setup Bun
         id: setup-bun
         continue-on-error: true
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
 
@@ -189,7 +189,7 @@ jobs:
 
       - name: Setup Bun (retry)
         if: steps.setup-bun.outcome == 'failure'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
 

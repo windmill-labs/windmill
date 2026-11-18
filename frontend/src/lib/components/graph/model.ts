@@ -66,8 +66,8 @@ export type GraphModuleState = {
 	isListJob?: boolean
 	skipped?: boolean
 	agent_actions?: FlowStatusModule['agent_actions']
-	/** Positionally aligned with `agent_actions`: every push of an action appends one entry, so a
-	 * missing entry means that action has not finished yet. */
+	/** Positionally aligned with `agent_actions`: every action gets one entry, so a missing or
+	 * `null` entry (a background tool call still running) means it has not finished yet. */
 	agent_actions_success?: FlowStatusModule['agent_actions_success']
 	script_hash?: string
 	workflow_as_code_status?: WorkflowStatus

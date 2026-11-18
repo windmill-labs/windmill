@@ -1135,7 +1135,7 @@ async fn wait_for_result(
     while std::time::Instant::now() < deadline {
         let row = sqlx::query!(
             "SELECT result AS \"result: sqlx::types::Json<serde_json::Value>\",
-                    status = 'success' AS \"success!\"
+                    status IN ('success', 'skipped') AS \"success!\"
              FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
             job_id,
             w_id

@@ -105,6 +105,26 @@ pub fn check_route_access(
         ));
     }
 
+    // A CI test batch names flows and resources as well as scripts, and its handler checks
+    // each item against its own `<kind>:write` scope: the route needs write on one of them.
+    if route_suffix.as_deref() == Some("scripts/trigger_ci_tests_batch")
+        && token_scopes.iter().any(|s| {
+            ScopeDefinition::from_scope_string(s).is_ok_and(|scope| {
+                [
+                    ScopeDomain::Scripts,
+                    ScopeDomain::Flows,
+                    ScopeDomain::Resources,
+                ]
+                .into_iter()
+                .any(|d| {
+                    scope_grants_access(&scope, d, ScopeAction::Write, None, None).unwrap_or(false)
+                })
+            })
+        })
+    {
+        return Ok(());
+    }
+
     // tracing::error!("Checking route access {:?} {:?} {:?} {:?}", required_action, required_domain, required_kind, route_suffix);
     let mut is_scoped_token = false;
     // Check if any token scope grants the required access
@@ -327,7 +347,7 @@ fn extract_domain_from_route(
 /// exports) and credential minting (`job_view_token`) are deliberately absent — those are
 /// `jobs:read`. Keep by-id read routes here in sync as they are added, or a run token
 /// loses the ability to follow its own run through them.
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 33] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
@@ -355,6 +375,7 @@ const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
     "jobs/flow/user_states/",
     "jobs/job_signature/",
     "jobs/wac_approval_urls/",
+    "jobs/flow/approval_step_detail/",
     "jobs/completed/get/",
     "jobs/completed/get_result/",
     "jobs/completed/get_result_maybe/",
@@ -552,7 +573,7 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
 /// a direct `require_job_within_read_scope`. `jobs/result_by_id/` is absent because it
 /// resolves a node up through the enclosing flows, past the job the check admitted.
 /// A route added here without that check serves a path-scoped token every job.
-const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 25] = [
+const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 26] = [
     "jobs_u/get/",
     "jobs_u/get_logs/",
     "jobs_u/get_completed_logs_tail/",
@@ -571,6 +592,7 @@ const READ_PATH_SCOPED_BY_ID_PATHS: [&'static str; 25] = [
     "jobs_u/get_log_file/",
     "jobs_u/get_flow/",
     "jobs_u/flow/approval_info/",
+    "jobs/flow/approval_step_detail/",
     "jobs/run_progress/",
     "jobs/flow/user_states/",
     "jobs/completed/get/",
@@ -1253,6 +1275,26 @@ mod tests {
 
         // DELETE now requires write permission, so it should still fail with read-only scope
         assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "DELETE").is_err());
+    }
+
+    #[test]
+    fn ci_test_batch_route_takes_any_tested_kind_write_scope() {
+        let route = "/api/w/test/scripts/trigger_ci_tests_batch";
+        for scope in ["flows:write:f/a/b", "resources:write", "scripts:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], route, "POST").is_ok(),
+                "{scope}"
+            );
+        }
+        for scope in ["flows:read", "jobs:run", "apps:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], route, "POST").is_err(),
+                "{scope}"
+            );
+        }
+        // The exemption is this route's alone.
+        let flows = vec!["flows:write".to_string()];
+        assert!(check_route_access(&flows, "/api/w/test/scripts/create", "POST").is_err());
     }
 
     #[test]

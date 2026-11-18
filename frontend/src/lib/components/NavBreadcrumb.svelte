@@ -55,6 +55,7 @@ not this component) — so the lead can run the whole line.
 		section,
 		afterName,
 		actingWorkspaceId,
+		onPickWorkspace,
 		nameOnly = false,
 		stage = BAR_STAGES[0],
 		caps = {},
@@ -68,6 +69,8 @@ not this component) — so the lead can run the whole line.
 		afterName?: Snippet
 		/** The workspace the page acts on, when it differs from the one the app is pointed at. */
 		actingWorkspaceId?: string
+		/** See `PageHeaderContent.onPickWorkspace`. */
+		onPickWorkspace?: (id: string, landOnHome: boolean) => boolean
 		/** Which parts the bar has dropped for room (see pageHeaderStages). */
 		stage?: TrailStage
 		/** Max widths the bar holds the names to, once dropping whole parts is not enough. */
@@ -339,6 +342,7 @@ not this component) — so the lead can run the whole line.
 							<WorkspacePickerBody
 								item={menuItem}
 								collapseFamilies={actingWorkspaceId != undefined}
+								interceptSwitch={onPickWorkspace}
 								closeMenu={() => workspaceMenu?.close()}
 							/>
 						{/snippet}

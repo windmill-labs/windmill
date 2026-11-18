@@ -19,7 +19,7 @@ use tokio_tungstenite::{tungstenite, tungstenite::Message, MaybeTlsStream, WebSo
 use windmill_common::ssrf::SsrfValidationError;
 use windmill_common::{
     error::{to_anyhow, Error, Result},
-    jobs::JobTriggerKind,
+    jobs::{ChosenBy, JobTriggerKind},
     runnable_ref::RunnableRef,
     triggers::TriggerMetadata,
     utils::report_critical_error,
@@ -103,6 +103,7 @@ async fn connect_once(
                 &runnable,
                 db,
                 authed,
+                ChosenBy::Deployed,
                 args,
                 &listening_trigger.workspace_id,
             )
@@ -246,6 +247,7 @@ async fn send_initial_messages(
                     db,
                     None,
                     authed.clone(),
+                    ChosenBy::Deployed,
                     &listening_trigger.workspace_id,
                     &RunnableRef::from_path(&path, is_flow)?,
                     PushArgsOwned { args, extra: None },
@@ -561,6 +563,7 @@ impl Listener for WebsocketTrigger {
                 db,
                 None,
                 authed,
+                ChosenBy::Deployed,
                 &workspace_id,
                 &runnable,
                 args,
@@ -591,6 +594,7 @@ impl Listener for WebsocketTrigger {
                         &db_,
                         None,
                         authed,
+                        ChosenBy::Deployed,
                         &w_id,
                         &runnable,
                         args,

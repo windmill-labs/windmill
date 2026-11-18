@@ -17,6 +17,7 @@
 		copilotInfo,
 		copilotSessionModel,
 		getUserCustomPrompts,
+		invalidateWorkspaceCopilotInfo,
 		setCopilotInfo,
 		setUserCustomPrompts
 	} from '$lib/aiStore'
@@ -192,6 +193,7 @@
 				requestBody: { ...config, custom_prompts }
 			})
 			setCopilotInfo(response.effective_ai_config)
+			invalidateWorkspaceCopilotInfo(workspace)
 			initialPrompt = value
 			customPrompts = { [activeMode]: value }
 			sendUserToast('Workspace AI prompt saved')

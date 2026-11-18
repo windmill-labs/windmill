@@ -38,7 +38,7 @@ jobs:
         id: app
         if: vars.INTERNAL_APP_ID != ''
         continue-on-error: true
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v2.2.2
         with:
           app-id: ${{ vars.INTERNAL_APP_ID }}
           private-key: ${{ secrets.INTERNAL_APP_KEY }}

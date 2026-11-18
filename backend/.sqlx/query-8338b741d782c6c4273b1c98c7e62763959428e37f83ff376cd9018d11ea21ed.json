@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT leased_by, generation FROM volume WHERE workspace_id = 'test-workspace' AND name = 'test-vol'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "leased_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "generation",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "8338b741d782c6c4273b1c98c7e62763959428e37f83ff376cd9018d11ea21ed"
+}

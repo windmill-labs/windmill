@@ -32,12 +32,18 @@ export type AiAgentProviderCatalog = {
 /** The kinds that serve decision models only, which an AI agent step cannot run on. */
 const DECISION_ONLY_KINDS: readonly string[] = ['typesafe', 'cloudflare']
 
-/** The model of OpenAI's Decisions API, which an `openai` resource serves next to its chat
- * models: the one kind both step types run on. */
-const OPENAI_DECISION_MODEL = 'gpt-6-luna'
+/** The models of OpenAI's and Gemini's Decisions APIs, which an `openai` or `googleai` resource
+ * serves next to its chat models: the kinds both step types run on. */
+const CHAT_KIND_DECISION_MODELS: Readonly<Record<string, { model: string; api: string }>> = {
+	openai: { model: 'gpt-6-luna', api: "OpenAI's Decisions API" },
+	googleai: { model: 'gemini-decision-1', api: "Gemini's Decisions API" }
+}
 
 /** The providers an AI decision step runs on. */
-const DECISION_PROVIDER_KINDS: readonly string[] = [...DECISION_ONLY_KINDS, 'openai']
+const DECISION_PROVIDER_KINDS: readonly string[] = [
+	...DECISION_ONLY_KINDS,
+	...Object.keys(CHAT_KIND_DECISION_MODELS)
+]
 
 /** A model id as every provider writes one: `claude-sonnet-5`, `meta-llama/Llama-3.3-70B`,
  * `anthropic.claude-haiku-4-5-20251001-v1:0`, `ft:gpt-4o:acme::abc`. Anything else is not
@@ -157,7 +163,7 @@ This workspace has none, so an AI agent step has no model to run on. ${
 		? ''
 		: '\nThis list is incomplete: the workspace has AI provider resources that are not shown.'
 	const decisionLine = catalog.options.some((o) => DECISION_PROVIDER_KINDS.includes(o.kind))
-		? `\nA \`typesafe\` or \`cloudflare\` resource serves AI decision steps only. AI decision steps run on those or on an \`openai\` resource with model \`${OPENAI_DECISION_MODEL}\`, and on nothing else.`
+		? `\nA \`typesafe\` or \`cloudflare\` resource serves AI decision steps only. AI decision steps run on those, on an \`openai\` resource with model \`${CHAT_KIND_DECISION_MODELS.openai.model}\` or on a \`googleai\` resource with model \`${CHAT_KIND_DECISION_MODELS.googleai.model}\`, and on nothing else.`
 		: ''
 	return `## AI provider resources in this workspace
 
@@ -256,7 +262,7 @@ function checkProviderValue(
 	}
 	if (stepType === 'aidecision' && !DECISION_PROVIDER_KINDS.includes(kind)) {
 		return blocking(
-			`an AI decision step runs on a decision model: provider.kind must be "typesafe", "cloudflare" or "openai", not "${kind}"`
+			`an AI decision step runs on a decision model: provider.kind must be "typesafe", "cloudflare", "openai" or "googleai", not "${kind}"`
 		)
 	}
 	if (stepType !== 'aidecision' && DECISION_ONLY_KINDS.includes(kind)) {
@@ -293,12 +299,14 @@ function checkProviderValue(
 			`provider.kind "${kind}" does not match "${resource}", which is a \`${match.kind}\` resource`
 		)
 	}
-	// An OpenAI resource lists its chat models, which says nothing about its decision model.
-	if (stepType === 'aidecision' && kind === 'openai') {
-		return model === OPENAI_DECISION_MODEL
+	// An OpenAI or Google AI resource lists its chat models, which says nothing about its decision
+	// model.
+	const decisionModel = CHAT_KIND_DECISION_MODELS[kind]
+	if (stepType === 'aidecision' && decisionModel) {
+		return model === decisionModel.model
 			? undefined
 			: {
-					message: `model "${model}" is not the model OpenAI's Decisions API is known to serve, "${OPENAI_DECISION_MODEL}"`,
+					message: `model "${model}" is not the model ${decisionModel.api} is known to serve, "${decisionModel.model}"`,
 					blocking: false
 				}
 	}

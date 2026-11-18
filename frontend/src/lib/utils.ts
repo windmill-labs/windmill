@@ -252,6 +252,29 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
 	}
 }
 
+/** A duration in its two largest units (`12.3s`, `4m 5s`, `3h 12m`, `2d 3h`), short enough for a
+ * label beside a bar; use msToReadableTime where the exact value is wanted. */
+export function msToCompactDuration(
+	ms: number | undefined,
+	maximumFractionDigits?: number
+): string {
+	if (ms === undefined) return '?'
+	if (ms < 60_000) return `${msToSec(ms, maximumFractionDigits)}s`
+
+	const seconds = Math.floor(ms / 1000)
+	const minutes = Math.floor(seconds / 60)
+	const hours = Math.floor(minutes / 60)
+	const days = Math.floor(hours / 24)
+
+	const [major, minor] =
+		days > 0
+			? [`${days}d`, hours % 24 ? `${hours % 24}h` : '']
+			: hours > 0
+				? [`${hours}h`, minutes % 60 ? `${minutes % 60}m` : '']
+				: [`${minutes}m`, seconds % 60 ? `${seconds % 60}s` : '']
+	return minor ? `${major} ${minor}` : major
+}
+
 export function msToReadableTimeShort(
 	ms: number | undefined,
 	maximumFractionDigits?: number
@@ -582,7 +605,9 @@ export function groupBy<K, V>(
 }
 
 export function removeMarkdown(text: string): string {
-	return text.replace(/[[\*|\-|#\_]/g, '')
+	// `_` and `-` only where they are markup, not inside a word: `ai_instruction` and
+	// `read-only` in a description must stay as written.
+	return text.replace(/[[*|#]|(?<![\p{L}\p{N}])[-_]+|[-_]+(?![\p{L}\p{N}])/gu, '')
 }
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
@@ -1162,14 +1187,16 @@ export function isObviousOwner(path: string, user?: UserExt): boolean {
 	if (user.is_admin || user.is_super_admin) {
 		return true
 	}
-	let userOwner = `u/${user.username}`
+	// The trailing slash keeps folder `fin` from matching `f/finance/...`, and user
+	// `dev` from matching `u/devops/...`.
+	let userOwner = `u/${user.username}/`
 	if (path.startsWith(userOwner)) {
 		return true
 	}
-	if (user.pgroups.findIndex((x) => path.startsWith(x)) != -1) {
+	if (user.pgroups.findIndex((x) => path.startsWith(x + '/')) != -1) {
 		return true
 	}
-	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x + '/')) != -1) {
 		return true
 	}
 	return false

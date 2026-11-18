@@ -16,7 +16,11 @@ export type AgentTraceEntry =
 			kind: 'tool'
 			name: string
 			args?: string
-			result: string
+			/** Absent while a streamed call is still running. */
+			result?: string
+			running?: boolean
+			/** What a stream reports; a finished trace reads the outcome off the tool's job. */
+			failed?: boolean
 			/** Present for a flow-module tool, which runs as its own job. */
 			jobId?: string
 			/** An MCP tool runs in the worker, so it names its server instead. */

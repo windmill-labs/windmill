@@ -9,6 +9,7 @@ use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    jobs::ChosenBy,
     runnable_ref::RunnableRef,
     worker::to_raw_value,
 };
@@ -32,27 +33,31 @@ fn check_secondary_runnable_scopes(
     authed: &ApiAuthed,
     config: &WebsocketConfigRequest,
 ) -> Result<()> {
-    let check = |runnable: RunnableRef| {
+    for runnable in secondary_runnables(&config.url, config.initial_messages.as_deref()) {
+        let runnable = runnable?;
         let kind = if runnable.is_flow() {
             "flows"
         } else {
             "scripts"
         };
-        check_scopes(authed, || format!("jobs:run:{kind}:{}", runnable.path()))
-    };
-    if let Some(runnable) = RunnableRef::from_ws_url(&config.url) {
-        check(runnable?)?;
-    }
-    if let Some(messages) = config.initial_messages.as_ref() {
-        for msg in messages {
-            if let Ok(InitialMessage::RunnableResult { path, is_flow, .. }) =
-                serde_json::from_value::<InitialMessage>(msg.clone())
-            {
-                check(RunnableRef::from_path(&path, is_flow)?)?;
-            }
-        }
+        check_scopes(authed, || format!("jobs:run:{kind}:{}", runnable.path()))?;
     }
     Ok(())
+}
+
+fn secondary_runnables(
+    url: &str,
+    initial_messages: Option<&[serde_json::Value]>,
+) -> Vec<Result<RunnableRef>> {
+    let mut runnables: Vec<_> = RunnableRef::from_ws_url(url).into_iter().collect();
+    for msg in initial_messages.unwrap_or_default() {
+        if let Ok(InitialMessage::RunnableResult { path, is_flow, .. }) =
+            serde_json::from_value::<InitialMessage>(msg.clone())
+        {
+            runnables.push(RunnableRef::from_path(&path, is_flow));
+        }
+    }
+    runnables
 }
 
 #[async_trait]
@@ -82,6 +87,18 @@ impl TriggerCrud for WebsocketTrigger {
         "heartbeat",
     ];
     const IS_ALLOWED_ON_CLOUD: bool = false;
+
+    fn config_runnables(config: &serde_json::Value) -> Vec<RunnableRef> {
+        let url = config
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let messages = config.get("initial_messages").and_then(|v| v.as_array());
+        secondary_runnables(url, messages.map(Vec::as_slice))
+            .into_iter()
+            .flatten()
+            .collect()
+    }
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
         DeployedObject::WebsocketTrigger { path, parent_path }
@@ -318,6 +335,7 @@ impl TriggerCrud for WebsocketTrigger {
                     &runnable?,
                     &db,
                     authed.clone(),
+                    ChosenBy::Caller,
                     config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
                     &workspace_id,
                 )

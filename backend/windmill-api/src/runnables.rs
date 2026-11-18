@@ -60,6 +60,8 @@ struct ListRunnablesQuery {
     include_without_main: Option<bool>,
     /// Restrict to paths under this prefix (owner/folder filter).
     path_start: Option<String>,
+    /// Comma-separated exact paths: list only the rows at one of them.
+    paths: Option<String>,
     /// Comma-separated labels; a row matches if it (or its folder) carries all.
     label: Option<String>,
     /// Case-insensitive fuzzy match on `summary (path)`, mirroring how the homepage
@@ -69,6 +71,9 @@ struct ListRunnablesQuery {
     /// that holds no ASCII-alphanumeric character at all — `" "`, `"_"`, `"привет"` —
     /// yields no terms and matches nothing, as it does on the homepage.
     search: Option<String>,
+    /// Match each `search` term anywhere, in any order, rather than in the order given:
+    /// what a caller guessing at words wants, where the homepage ranks a typed prefix.
+    search_any_order: Option<bool>,
     per_page: Option<usize>,
     /// Opaque keyset cursor from a previous page's `next_cursor`.
     cursor: Option<String>,
@@ -194,6 +199,17 @@ const MAX_SEARCH_TERMS: usize = 8;
 fn search_terms(search: &str) -> Vec<&str> {
     search
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '\''))
+        .filter(|t| !t.is_empty())
+        .take(MAX_SEARCH_TERMS)
+        .collect()
+}
+
+/// The terms of a `search_any_order` query: words in any script, since a caller guessing at
+/// words may write them in the language the summaries are in. The ordered search keeps the
+/// homepage's ASCII rule, which drops what its matcher drops.
+fn any_order_terms(search: &str) -> Vec<&str> {
+    search
+        .split(|c: char| !(c.is_alphanumeric() || c == '\''))
         .filter(|t| !t.is_empty())
         .take(MAX_SEARCH_TERMS)
         .collect()
@@ -519,13 +535,33 @@ async fn list_runnables(
         // `u/<caller>/draft_<uuid>` it is parked at.
         draft_common.push(format!("COALESCE(o.draft_path, o.path) LIKE {}", p));
     }
+    if let Some(ps) = q.paths.as_ref().filter(|s| !s.is_empty()) {
+        let p = add_bind(&mut binds, ps.clone());
+        common.push(format!("o.path = ANY(string_to_array({p}, ','))"));
+        draft_common.push(format!(
+            "COALESCE(o.draft_path, o.path) = ANY(string_to_array({p}, ','))"
+        ));
+    }
     if let Some(search) = q.search.as_ref().filter(|s| !s.is_empty()) {
-        let terms = search_terms(search);
+        let terms = if q.search_any_order == Some(true) {
+            any_order_terms(search)
+        } else {
+            search_terms(search)
+        };
         if terms.is_empty() {
             // A search of nothing but separators is still a search: it must match nothing,
             // where no predicate at all would answer it with the whole workspace.
             common.push("false".to_string());
             draft_common.push("false".to_string());
+        } else if q.search_any_order == Some(true) {
+            for term in terms {
+                let p = add_bind(&mut binds, format!("%{}%", escape_like(term)));
+                common.push(format!("{} ILIKE {p}", searchable_name("o.path")));
+                draft_common.push(format!(
+                    "{} ILIKE {p}",
+                    searchable_name("COALESCE(o.draft_path, o.path)")
+                ));
+            }
         } else {
             // `%` between the terms is what makes them a fuzzy match rather than a literal
             // one: each must appear whole, in this order, with anything in between. The

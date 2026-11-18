@@ -45,6 +45,7 @@
 	import { isRunnableByName, isRunnableByPath, type PathRunType } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext, onMount, onDestroy, untrack } from 'svelte'
+	import { registerPendingEditor } from '../pendingEditorFlush'
 	import type {
 		AppDatatableMetadata,
 		LintResult,
@@ -2636,6 +2637,7 @@ addEventListener('message', function (e) {
 		win.addEventListener(
 			'keydown',
 			(e: KeyboardEvent) => {
+				lastUserInputAt = Date.now()
 				if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
 					flushDraft()
 				}
@@ -2643,6 +2645,22 @@ addEventListener('message', function (e) {
 			true
 		)
 	}
+
+	// The UI Builder has no flush message: it reports the end of a typing burst up to 500ms after
+	// the last keystroke, so a caller about to close this editor waits out that report.
+	const UI_BUILDER_QUIET_MS = 700
+	onDestroy(
+		registerPendingEditor({
+			flushPendingChanges: () => {},
+			settle: async () => {
+				let wait = lastUserInputAt + UI_BUILDER_QUIET_MS - Date.now()
+				while (iframe && wait > 0) {
+					await new Promise((r) => setTimeout(r, wait))
+					wait = lastUserInputAt + UI_BUILDER_QUIET_MS - Date.now()
+				}
+			}
+		})
+	)
 
 	// Monaco swallows Ctrl/Cmd+S in inline editors; Editor/SimpleEditor
 	// re-broadcast it as `wm-monaco-save-shortcut` (untyped, hence manual listener).

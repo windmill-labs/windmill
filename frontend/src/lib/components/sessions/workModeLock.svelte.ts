@@ -45,13 +45,19 @@ export function useWorkModeLock(session: () => Session | undefined, switchesWork
 		// A staged fork is created at the first send and the session builds there, so nothing
 		// about the workspace it forks holds the session in Use.
 		if (!s || !ws || s.pending_fork) return undefined
+		// A role that cannot run is held to reading, as its chat access is (`capabilitiesForRole`).
+		const readsOnly = !rights.capabilities.run
 		if (protectedWorkspace.known) {
 			const dev = findCanonicalDevWorkspace(ws, workspaces.current)
 			if (!dev)
-				return { reason: 'This workspace is protected against direct changes. Build in a fork.' }
+				return {
+					reason: 'This workspace is protected against direct changes. Build in a fork.',
+					readsOnly
+				}
 			const label = `${dev.name} (dev)`
 			return {
 				reason: `This workspace is protected against direct changes. Build in ${label}.`,
+				readsOnly,
 				// Until its first message a session can still change workspace; after it, only a new
 				// one can act elsewhere: Home's composer, on the dev workspace.
 				escape: s.workspace_id
@@ -63,6 +69,13 @@ export function useWorkModeLock(session: () => Session | undefined, switchesWork
 							label: `Switch to ${label}`,
 							action: () => moveUnsentSession(s.id, dev.id, switchesWorkspace)
 						}
+			}
+		}
+		if (readsOnly) {
+			return {
+				reason:
+					"Your role can't run anything in this workspace, so sessions here only read. A workspace admin can change that.",
+				readsOnly
 			}
 		}
 		if (!buildsAnything(rights.capabilities)) {

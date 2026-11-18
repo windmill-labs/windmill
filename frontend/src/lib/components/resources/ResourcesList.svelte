@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 	import { isNewTabClick } from '$lib/navigation'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -1251,7 +1252,7 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, scopes, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, grant_type, scopes, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
 										{@const canWrite =
@@ -1368,6 +1369,7 @@
 																		<div>
 																			Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 																		</div>
+																		{@render oauthIdentity(resource_type, grant_type)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1384,6 +1386,7 @@
 																			this variable is fetched or you can request is to be refreshed
 																			in the dropdown on the right.
 																		</div>
+																		{@render oauthIdentity(resource_type, grant_type)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1398,6 +1401,7 @@
 																			The resource was connected through OAuth and the token is not
 																			expired.
 																		</div>
+																		{@render oauthIdentity(resource_type, grant_type)}
 																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
@@ -1680,6 +1684,16 @@
 		/>
 	{/await}
 {/if}
+
+<!-- Slack's bot and user tokens both come from the sign-in flow, so its grant does not
+     say whose identity the token carries. -->
+{#snippet oauthIdentity(resourceType: string, grantType: string | undefined)}
+	{#if grantType === 'client_credentials'}
+		<div class="mt-2">Connected as an app, with client credentials.</div>
+	{:else if !(oauthConnectRegistry as Record<string, any>)[resourceType]?.user_scopes}
+		<div class="mt-2">Connected as the user who connected it, with authorization code.</div>
+	{/if}
+{/snippet}
 
 {#snippet oauthScopes(resourceType: string, scopes: string[] | undefined)}
 	{#if resourceType === 'nextcloud'}

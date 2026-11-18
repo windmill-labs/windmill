@@ -1,4 +1,7 @@
-use super::{completions_tools_need_reasoning_off, REASONING_OFF_SENTINEL};
+use super::{
+    completions_tools_need_reasoning_off, force_claude_structured_output_tool,
+    REASONING_OFF_SENTINEL,
+};
 use crate::{
     ai_providers::AIProvider,
     image_handler::prepare_messages_for_api,
@@ -135,8 +138,10 @@ impl OtherQueryBuilder {
             None
         };
 
-        // Force usage of structured output tool for Claude models when structured output is provided
-        let tool_choice = if should_use_structured_output_tool && has_output_properties {
+        let tool_choice = if should_use_structured_output_tool
+            && has_output_properties
+            && force_claude_structured_output_tool(args.model, args.reasoning_effort)
+        {
             Some(ToolChoice::Required)
         } else {
             None

@@ -9,6 +9,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { readTextFile, readTextFileSync } from "../../utils/utils.ts";
 import { withEsbuild } from "../../utils/esbuild_loader.ts";
+import { createTailwindPlugin } from "./tailwind.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
@@ -244,9 +245,13 @@ function createSveltePlugin(appDir: string): any {
 }
 
 /**
- * Creates framework-specific esbuild plugins based on detected dependencies
+ * Creates framework-specific esbuild plugins based on detected dependencies.
+ * `sharedUiDir` is scanned for Tailwind class names alongside the app.
  */
-export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
+export async function createFrameworkPlugins(
+  appDir: string,
+  sharedUiDir?: string
+): Promise<any[]> {
   const frameworks = detectFrameworks(appDir);
   const plugins: any[] = [];
 
@@ -254,6 +259,9 @@ export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
     log.info(colors.blue("🔧 Svelte detected, adding svelte plugin..."));
     plugins.push(createSveltePlugin(appDir));
   }
+
+  const tailwind = createTailwindPlugin(appDir, sharedUiDir);
+  if (tailwind) plugins.push(tailwind);
 
   return plugins;
 }
@@ -393,8 +401,13 @@ export async function createBundle(
   // Ensure node_modules exists in the app directory
   await ensureNodeModules(appDir);
 
-  // Load framework-specific plugins (svelte) based on package.json
-  const frameworkPlugins = await createFrameworkPlugins(appDir);
+  const sharedUiDir =
+    options.sharedUiDir && fs.existsSync(options.sharedUiDir)
+      ? options.sharedUiDir
+      : undefined;
+
+  // Load framework-specific plugins (svelte, tailwind) based on package.json
+  const frameworkPlugins = await createFrameworkPlugins(appDir, sharedUiDir);
 
   // Ensure output directory exists
   const distDir = path.join(process.cwd(), outDir);
@@ -439,10 +452,9 @@ export async function createBundle(
     },
   };
 
-  const sharedUiPlugins: any[] =
-    options.sharedUiDir && fs.existsSync(options.sharedUiDir)
-      ? [createSharedUiPlugin(options.sharedUiDir, appDir)]
-      : [];
+  const sharedUiPlugins: any[] = sharedUiDir
+    ? [createSharedUiPlugin(sharedUiDir, appDir)]
+    : [];
 
   const buildOptions = {
     ...DEFAULT_BUILD_OPTIONS,

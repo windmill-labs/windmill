@@ -1,0 +1,49 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"plugins": ["eslint", "typescript", "unicorn", "oxc"],
+	"categories": {
+		"correctness": "error"
+	},
+	"env": {
+		"browser": true,
+		"node": true,
+		"es2024": true
+	},
+	"ignorePatterns": ["src/lib/monaco_workers/graphql.worker.bundle.js", "static/**"],
+	"rules": {
+		// Svelte 5 reads a value in `$effect` to track it (`x && untrack(...)`, `;[x]`).
+		"no-unused-expressions": "off",
+		// `$store = $store` is how a mutated store is told to notify.
+		"no-self-assign": "off",
+		// tsc's `noUnusedLocals` covers locals; what is left is unused params and catch bindings.
+		"no-unused-vars": "off",
+		// Cosmetic: no runtime effect, so they only add churn.
+		"no-useless-escape": "off",
+		"no-useless-rename": "off",
+		"no-extra-boolean-cast": "off",
+		"typescript/prefer-as-const": "off",
+		"typescript/no-wrapper-object-types": "off",
+		"typescript/no-non-null-asserted-optional-chain": "off",
+		"typescript/no-this-alias": "off",
+		"unicorn/no-useless-fallback-in-spread": "off",
+		"unicorn/no-useless-spread": "off",
+		"unicorn/no-useless-length-check": "off",
+		"unicorn/no-new-array": "off",
+		"unicorn/no-empty-file": "off",
+		"unicorn/prefer-string-starts-ends-with": "off",
+		// Stripping control characters is what those regexes are for.
+		"no-control-regex": "off",
+		// Exports a deliberate thenable.
+		"unicorn/no-thenable": "off"
+	},
+	"overrides": [
+		{
+			"files": ["**/*.test.ts", "**/*.spec.ts"],
+			"rules": {
+				// A throw there fails the test, which is the point.
+				"no-unsafe-optional-chaining": "off",
+				"require-yield": "off"
+			}
+		}
+	]
+}

@@ -318,6 +318,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 							nameOnly={navHidden}
 							afterName={content?.afterName}
 							actingWorkspaceId={content?.actingWorkspaceId}
+							onPickWorkspace={content?.onPickWorkspace}
 						/>
 					</ContextBridge>
 				{/key}

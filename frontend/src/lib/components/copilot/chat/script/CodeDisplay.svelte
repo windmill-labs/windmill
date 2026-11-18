@@ -37,4 +37,5 @@
 	onApplyCode={handleApplyCode}
 	applyButtonIcon={aiChatManager.pendingNewCode ? Check : Play}
 	renderMermaid={!chatHost.untrustedTranscript}
+	renderDisplay
 />

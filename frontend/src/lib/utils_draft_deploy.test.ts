@@ -22,7 +22,7 @@ vi.mock('$lib/gen', () => ({
 	EmailTriggerService: {}
 }))
 vi.mock('$lib/userDraftDbSyncer.svelte', () => ({
-	UserDraftDbSyncer: { save: vi.fn(), recordRemoteSync: vi.fn() }
+	UserDraftDbSyncer: { save: vi.fn(), recordRemoteSync: vi.fn(), onAnySaved: vi.fn() }
 }))
 vi.mock('$lib/workspaceDrafts.svelte', () => ({ invalidateWorkspaceDrafts: vi.fn() }))
 vi.mock('$lib/workspaceComparison', () => ({ invalidateWorkspaceComparison: vi.fn() }))

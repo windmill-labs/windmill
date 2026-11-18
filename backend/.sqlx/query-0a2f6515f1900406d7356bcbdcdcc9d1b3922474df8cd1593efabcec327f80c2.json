@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue q SET suspend = 0\n         FROM ai_agent_checkpoint c, v2_job j, v2_job_status s\n         WHERE c.job_id = q.id AND j.id = q.id AND j.parent_job = $1 AND s.id = $1\n           AND (s.flow_status->>'step')::int = jsonb_array_length(s.flow_status->'modules') - 1\n           AND s.flow_status->'modules'->-1->>'job' = q.id::text\n           AND q.suspend > 0 AND q.suspend_until IS NOT NULL\n         RETURNING q.id, j.flow_step_id, c.checkpoint->'background' AS \"background\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "flow_step_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "background",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "0a2f6515f1900406d7356bcbdcdcc9d1b3922474df8cd1593efabcec327f80c2"
+}

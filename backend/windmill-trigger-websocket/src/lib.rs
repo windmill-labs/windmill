@@ -6,7 +6,7 @@ use sqlx::{types::Json as SqlxJson, FromRow};
 use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
-    jobs::JobTriggerKind,
+    jobs::{ChosenBy, JobTriggerKind},
     runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
     worker::to_raw_value,
@@ -195,6 +195,7 @@ pub async fn get_url_from_runnable_value(
     runnable: &RunnableRef,
     db: &DB,
     authed: ApiAuthed,
+    chosen_by: ChosenBy,
     args: Option<&Box<RawValue>>,
     workspace_id: &str,
 ) -> Result<String> {
@@ -210,6 +211,7 @@ pub async fn get_url_from_runnable_value(
         db,
         None,
         authed,
+        chosen_by,
         workspace_id,
         runnable,
         PushArgsOwned { args, extra: None },

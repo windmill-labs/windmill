@@ -395,6 +395,18 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         assert!(none.is_empty(), "{query} must match nothing, got {none:?}");
     }
 
+    // `search_any_order` drops the order, never the requirement that every term appears.
+    assert_eq!(
+        list_once(port, "search=one%20deploy&search_any_order=true").await,
+        vec!["script:f/alpha/one".to_string()],
+        "any order matches terms given out of order"
+    );
+    let none = list_once(port, "search=deploy%20beta&search_any_order=true").await;
+    assert!(
+        none.is_empty(),
+        "every term must still appear, got {none:?}"
+    );
+
     // kinds filter selects a single kind.
     let flows = list_once(port, "kinds=flow").await;
     assert_eq!(flows, vec!["flow:f/alpha/flowy".to_string()], "kinds=flow");
@@ -445,6 +457,25 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         by_storage_path.is_empty(),
         "the draft_<uuid> path is not searchable, got {by_storage_path:?}"
     );
+
+    // Words in any script reach the any-order search; the ordered one keeps the homepage's
+    // ASCII rule and matches nothing.
+    let r = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/beta/weather", "获取城市天气"))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 201, "create script: {}", r.text().await?);
+    assert_eq!(
+        list_once(port, "search=%E5%A4%A9%E6%B0%94&search_any_order=true").await,
+        vec!["script:f/beta/weather".to_string()],
+        "a non-ASCII word matches in any order"
+    );
+    assert!(list_once(port, "search=%E5%A4%A9%E6%B0%94")
+        .await
+        .is_empty());
     Ok(())
 }
 

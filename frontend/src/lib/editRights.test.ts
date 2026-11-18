@@ -71,4 +71,11 @@ describe('edit rights', () => {
 		expect(canEditItem('flow', 'f/demo/sum', {}, user({}), builder)).toBe(false)
 		expect(canEditItem('flow', 'u/op/sum', {}, user({}), builder)).toBe(true)
 	})
+
+	it('does not take a folder or user whose name starts the same for the writable one', () => {
+		const writer = user({ folders: ['fin'] })
+		expect(canEditItem('flow', 'f/fin/sum', {}, writer, FULL_CAPABILITIES)).toBe(true)
+		expect(canEditItem('flow', 'f/finance/sum', {}, writer, FULL_CAPABILITIES)).toBe(false)
+		expect(canEditItem('flow', 'u/ops/sum', {}, writer, FULL_CAPABILITIES)).toBe(false)
+	})
 })

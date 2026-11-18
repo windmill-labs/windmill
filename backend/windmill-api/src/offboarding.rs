@@ -130,15 +130,9 @@ struct WorkspaceReassignment {
 
 // ---- Preview helpers ----
 
-/// The principal a departing member's runnables run as, or `None` when none of them are theirs
-/// to hand over. `usr.username` is constrained to `[\w-]+`, so a member is `u/{username}`, except
-/// a legacy `group-*` username, which canonicalizes to the group it names: what runs under that
-/// principal runs as the group, which outlives the member. `None` binds NULL, which the
-/// `on_behalf_of = $n` queries then match nowhere.
+/// `None` binds NULL, which the `on_behalf_of = $n` queries then match nowhere.
 fn departing_principal(username: &str) -> Option<String> {
-    use windmill_common::users::{username_to_permissioned_as, PERMISSIONED_AS_GROUP_PREFIX};
-    let principal = username_to_permissioned_as(username);
-    (!principal.starts_with(PERMISSIONED_AS_GROUP_PREFIX)).then_some(principal)
+    windmill_common::users::username_to_own_permissioned_as(username)
 }
 
 async fn get_offboard_preview(
@@ -206,19 +200,7 @@ async fn get_offboard_preview(
     .fetch_all(db)
     .await?;
 
-    let trigger_tables = [
-        "http_trigger",
-        "websocket_trigger",
-        "kafka_trigger",
-        "postgres_trigger",
-        "mqtt_trigger",
-        "amqp_trigger",
-        "nats_trigger",
-        "sqs_trigger",
-        "gcp_trigger",
-        "azure_trigger",
-        "email_trigger",
-    ];
+    let trigger_tables = crate::users::TRIGGER_TABLES;
     let mut triggers = HashMap::new();
     for table in &trigger_tables {
         // SAFETY: `table` comes from a hardcoded allowlist `trigger_tables`, not user input.
@@ -1153,19 +1135,7 @@ async fn offboard_user_from_workspace<'c>(
     ).execute(&mut **tx).await?;
 
     // ---- triggers (all 10 types with path/permissioned_as) ----
-    let trigger_tables = [
-        "http_trigger",
-        "websocket_trigger",
-        "kafka_trigger",
-        "postgres_trigger",
-        "mqtt_trigger",
-        "amqp_trigger",
-        "nats_trigger",
-        "sqs_trigger",
-        "gcp_trigger",
-        "azure_trigger",
-        "email_trigger",
-    ];
+    let trigger_tables = crate::users::TRIGGER_TABLES;
 
     let mut triggers_reassigned: i64 = 0;
     // SAFETY: `table` comes from a hardcoded allowlist `trigger_tables`, not user input.
@@ -1207,6 +1177,14 @@ async fn offboard_user_from_workspace<'c>(
         .execute(&mut **tx)
         .await?;
     }
+
+    crate::users::move_handler_paths(
+        tx,
+        w_id,
+        &format!("u/{username}/"),
+        &format!("{new_prefix}/"),
+    )
+    .await?;
 
     // NOTE: extra_perms cleanup, folder owners, favorites, inputs, captures,
     // and token deletion are handled by delete_workspace_user_internal when delete_user=true.

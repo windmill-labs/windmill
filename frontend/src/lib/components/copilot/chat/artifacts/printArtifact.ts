@@ -29,6 +29,11 @@ export async function printArtifact(
 	}
 }
 
+const PAGE_MARGIN_MM = 16
+// The frame is laid out as wide as an A4 page's text, the narrowest of the common paper sizes,
+// so what it measures holds in print.
+const PRINT_WIDTH_MM = 210 - 2 * PAGE_MARGIN_MM
+
 async function preparePrint(
 	name: string,
 	content: string,
@@ -36,7 +41,7 @@ async function preparePrint(
 ): Promise<void> {
 	const iframe = document.createElement('iframe')
 	iframe.setAttribute('aria-hidden', 'true')
-	iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+	iframe.style.cssText = `position:fixed;right:0;bottom:0;width:${PRINT_WIDTH_MM}mm;height:0;border:0`
 	document.body.appendChild(iframe)
 
 	const doc = iframe.contentDocument
@@ -55,7 +60,7 @@ async function preparePrint(
 	// rules keep a code block, diagram, callout or table row whole and a heading with what follows.
 	// Code blocks scroll on screen; paper cannot, so they wrap and lose their height cap.
 	page.textContent = `
-		@page { margin: 16mm }
+		@page { margin: ${PAGE_MARGIN_MM}mm }
 		html, body { background: white }
 		body { margin: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact }
 		pre, svg, blockquote, tr, .markdown-alert { break-inside: avoid }
@@ -88,6 +93,7 @@ async function preparePrint(
 	await diagramsSettled(doc)
 	await imagesSettled(doc)
 	await doc.fonts?.ready
+	fitTablesToPage(doc)
 
 	const cleanup = () => {
 		unmount(component)
@@ -98,6 +104,16 @@ async function preparePrint(
 	win.addEventListener('afterprint', cleanup, { once: true })
 	win.focus()
 	win.print()
+}
+
+/** A table scrolls inside its frame on screen, but paper keeps only the columns that fit, so a
+ * table wider than the page is zoomed down to the page's width. */
+function fitTablesToPage(doc: Document): void {
+	for (const table of Array.from(doc.querySelectorAll('table'))) {
+		if (table.scrollWidth > table.clientWidth) {
+			table.style.setProperty('zoom', String(table.clientWidth / table.scrollWidth))
+		}
+	}
 }
 
 /** The print dialog snapshots the document as it is, so an image still loading is missing from
@@ -115,12 +131,13 @@ async function imagesSettled(doc: Document): Promise<void> {
 	await Promise.race([Promise.all(pending), new Promise((resolve) => setTimeout(resolve, 10_000))])
 }
 
-/** Mermaid draws asynchronously; printing before it lands puts the diagram source in the PDF.
- * A diagram that fails to parse settles too (as its source), so this waits only on renders
- * still in flight; the cap covers one that never returns. */
+/** Mermaid draws asynchronously, and display blocks load their renderer on demand; printing
+ * before they land puts their source in the PDF. One that fails to parse settles too (as its
+ * source), so this waits only on renders still in flight; the cap covers one that never returns. */
 async function diagramsSettled(doc: Document): Promise<void> {
 	const deadline = Date.now() + 10_000
-	while (doc.querySelector('[data-mermaid-pending="true"]') && Date.now() < deadline) {
+	const pending = '[data-mermaid-pending="true"], [data-display-pending="true"]'
+	while (doc.querySelector(pending) && Date.now() < deadline) {
 		await new Promise((resolve) => setTimeout(resolve, 100))
 	}
 }
