@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE dependency_map SET imported_lockfile_hash = NULL\n             WHERE workspace_id = $1 AND imported_path LIKE 'dependencies/%'\n                AND imported_lockfile_hash IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "25e1c066a3aa94087639e33f47f7b2695c36e3cf9e66dde8613942d729bdbca2"
+}

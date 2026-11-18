@@ -1,3 +1,5 @@
+use std::{collections::HashMap, sync::Arc};
+
 use serde::{Deserialize, Serialize};
 use windmill_common::{
     cache::workspace_dependencies::EXISTS_CACHE_TIMEOUT, error, scripts::ScriptLang,
@@ -110,9 +112,24 @@ impl NewWorkspaceDependencies {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref MAP_REBUILD_LOCKS: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
 /// Dependents are read from the dependency map, so a workspace whose map predates workspace
 /// dependencies gets it rebuilt once before its first default dependencies are acted on.
 async fn rebuild_map_once(workspace_id: &str, db: &sqlx::Pool<sqlx::Postgres>) {
+    // Pushes for several languages arrive back to back: the later ones wait for this rebuild
+    // and then see the flag, rather than each walking the whole workspace again.
+    let lock = MAP_REBUILD_LOCKS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(workspace_id.to_string())
+        .or_default()
+        .clone();
+    let _guard = lock.lock().await;
+
     let setting_name = format!("workspace_dependencies_map_rebuilt:{}", workspace_id);
     let result: error::Result<()> = async {
         if windmill_common::global_settings::load_value_from_global_settings(db, &setting_name)
@@ -125,7 +142,19 @@ async fn rebuild_map_once(workspace_id: &str, db: &sqlx::Pool<sqlx::Postgres>) {
             workspace_id = %workspace_id,
             "Rebuilding workspace dependencies map for first unnamed workspace dependencies"
         );
-        ScopedDependencyMap::rebuild_map_unchecked(workspace_id, db).await?;
+        let rebuilt = ScopedDependencyMap::rebuild_map_unchecked(workspace_id, db).await;
+        // The rebuild runs after the new dependencies' hash is in `lock_hash` and records it as
+        // already consumed, which would let every dependent skip its relock and keep the old
+        // lock. Clearing the recorded hashes forces those relocks; at worst one is redundant.
+        sqlx::query!(
+            "UPDATE dependency_map SET imported_lockfile_hash = NULL
+             WHERE workspace_id = $1 AND imported_path LIKE 'dependencies/%'
+                AND imported_lockfile_hash IS NOT NULL",
+            workspace_id
+        )
+        .execute(db)
+        .await?;
+        rebuilt?;
         windmill_common::global_settings::set_value_in_global_settings(
             db,
             &setting_name,
