@@ -70,17 +70,20 @@ mod workspace_dependencies {
         );
 
         // The dependency map decides which runnables are redeployed.
-        let importers: Vec<String> = sqlx::query_scalar(
-            "SELECT importer_path FROM dependency_map
+        let importers: Vec<(String, Option<i64>)> = sqlx::query_as(
+            "SELECT importer_path, imported_lockfile_hash FROM dependency_map
              WHERE workspace_id = 'admins' AND imported_path = 'dependencies/package.json'
              ORDER BY importer_path",
         )
         .fetch_all(db)
         .await?;
+        // The rebuild runs after the new dependencies' hash is stored; recording it would let
+        // the redeploy skip its relock and keep a lock built without them.
         assert_eq!(
             importers,
-            vec!["u/admin/simple_bun".to_string()],
-            "hub_sync must not be recorded as importing the default workspace dependencies"
+            vec![("u/admin/simple_bun".to_string(), None)],
+            "hub_sync must not be recorded as importing the default workspace dependencies, \
+             and the rebuild must not record a consumed hash"
         );
 
         Ok(())

@@ -4639,6 +4639,16 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 10 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    // Spawns each run, so a rebuild that walks a large workspace outlives the join deadline.
+    let pending_workspace_deps_rebuilds_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                windmill_dep_map::workspace_dependencies::resume_pending_rebuilds(db).await;
+            }
+        }
+    };
+
     // Poll git-sync repositories for new commits and pull them into the
     // workspace (repo → Windmill auto-pull). Runs every 2 iterations.
     let git_auto_pull_f = async {
@@ -4785,6 +4795,7 @@ pub async fn monitor_db(
         reconcile_unarmed_schedules_f,
         stranded_jobs_f,
         wake_ai_agents_f,
+        pending_workspace_deps_rebuilds_f,
     );
 }
 
@@ -8531,7 +8542,9 @@ mod loggable_setting_value_tests {
     fn never_prints_string_or_structured_values() {
         let token = "ghp_secret_token";
         for v in [
-            json!(format!("[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}")),
+            json!(format!(
+                "[install.scopes]\n\"@org\" = {{ token = \"{token}\" }}"
+            )),
             json!({ "registry": { "token": token } }),
             json!([token]),
         ] {
