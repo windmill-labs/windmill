@@ -5769,7 +5769,12 @@ fn approval_step_status(
     module: Option<&FlowStatusModule>,
     next_module: Option<&FlowStatusModule>,
     running: bool,
+    continue_on_disapprove_timeout: bool,
+    flow_error: Option<&serde_json::Value>,
 ) -> ApprovalStepStatus {
+    let canceled = flow_error
+        .and_then(|e| e.get("name"))
+        .is_some_and(|n| n == "Canceled");
     match module {
         None
         | Some(FlowStatusModule::WaitingForPriorSteps { .. })
@@ -5793,10 +5798,14 @@ fn approval_step_status(
             None | Some(FlowStatusModule::WaitingForPriorSteps { .. }) if running => {
                 ApprovalStepStatus::Waiting
             }
-            // A denial, a timeout that does not continue, or a cancel fails the step after it
-            // without running it. The worker records approvers only when it resumes the run.
+            // A denial or timeout that does not continue, or a cancel, fails the step after it
+            // without running it. The worker records approvers only when it moves on, and a
+            // step that continues on a timeout moves on with none: its next step can still
+            // fail unrun, on a branch predicate.
             Some(FlowStatusModule::Failure { job: next_job, .. })
-                if next_job.is_nil() && approvers.is_empty() =>
+                if next_job.is_nil()
+                    && approvers.is_empty()
+                    && (!continue_on_disapprove_timeout || canceled) =>
             {
                 ApprovalStepStatus::NotResumed
             }
@@ -5824,6 +5833,7 @@ async fn get_approval_step_detail(
         module: Option<serde_json::Value>,
         next_module: Option<serde_json::Value>,
         module_def: Option<serde_json::Value>,
+        is_last_module: bool,
         run_approval_conditions: Option<serde_json::Value>,
         suspend_until: Option<chrono::DateTime<chrono::Utc>>,
         flow_error: Option<serde_json::Value>,
@@ -5842,6 +5852,10 @@ async fn get_approval_step_detail(
                     '$.modules[*] ? (@.id == $id)',
                     jsonb_build_object('id', $3::text)
                 ) AS module_def,
+                COALESCE(
+                    COALESCE(j.raw_flow, fv.value, fn.flow)->'modules'->-1->>'id' = $3,
+                    false
+                ) AS is_last_module,
                 s.flow_status->'approval_conditions' AS run_approval_conditions,
                 q.suspend_until,
                 c.result->'error' AS flow_error,
@@ -5852,7 +5866,7 @@ async fn get_approval_step_detail(
                         'approved', r.approved, 'value', r.value, 'created_at', r.created_at
                     ) ORDER BY r.created_at)
                     FROM resume_job r
-                    WHERE r.flow = j.id AND (r.job = j.id OR r.job = (m.module->>'job')::uuid)
+                    WHERE r.flow = j.id AND (r.job = j.id OR r.job = m.step_job)
                 ), '[]'::jsonb) AS resumes
          FROM v2_job j
          LEFT JOIN v2_job_status s ON s.id = j.id
@@ -5864,14 +5878,17 @@ async fn get_approval_step_detail(
              ON j.raw_flow IS NULL AND j.kind = 'flownode' AND fn.id = j.runnable_id
          LEFT JOIN LATERAL (
              SELECT e.module,
-                    COALESCE(s.flow_status, c.flow_status)->'modules'->(e.idx::int) AS next_module
+                    COALESCE(s.flow_status, c.flow_status)->'modules'->(e.idx::int) AS next_module,
+                    -- A step held by the approval before it carries that approval's job.
+                    CASE WHEN e.module->>'type' <> 'WaitingForEvents'
+                        THEN (e.module->>'job')::uuid END AS step_job
              FROM jsonb_array_elements(COALESCE(s.flow_status, c.flow_status)->'modules')
                  WITH ORDINALITY AS e(module, idx)
              WHERE e.module->>'id' = $3
              LIMIT 1
          ) m ON true
          LEFT JOIN v2_job_completed sj
-             ON sj.id = (m.module->>'job')::uuid AND sj.workspace_id = j.workspace_id
+             ON sj.id = m.step_job AND sj.workspace_id = j.workspace_id
          WHERE j.id = $1 AND j.workspace_id = $2",
     )
     .bind(&flow_id)
@@ -5902,15 +5919,30 @@ async fn get_approval_step_detail(
         .module_def
         .and_then(|v| serde_json::from_value(v).ok())
         .ok_or_else(not_found)?;
-    let suspend = module_def.suspend.as_ref().ok_or_else(|| {
-        Error::BadRequest(format!("Step {step_id} is not an approval (suspend) step"))
-    })?;
+    // The worker holds a run only after a step with a positive `required_events` that has a
+    // step after it (`needs_resume`); the last step's suspend settings never stop the run.
+    let suspend = module_def
+        .suspend
+        .as_ref()
+        .filter(|s| s.required_events.unwrap_or(0) > 0 && !row.is_last_module)
+        .ok_or_else(|| {
+            Error::BadRequest(format!("Step {step_id} is not an approval (suspend) step"))
+        })?;
     let module: Option<FlowStatusModule> = row.module.and_then(|v| serde_json::from_value(v).ok());
     let next_module: Option<FlowStatusModule> =
         row.next_module.and_then(|v| serde_json::from_value(v).ok());
 
-    let step_job = module.as_ref().and_then(|m| m.job());
-    let status = approval_step_status(module.as_ref(), next_module.as_ref(), row.running);
+    let step_job = module
+        .as_ref()
+        .filter(|m| !matches!(m, FlowStatusModule::WaitingForEvents { .. }))
+        .and_then(|m| m.job());
+    let status = approval_step_status(
+        module.as_ref(),
+        next_module.as_ref(),
+        row.running,
+        suspend.continue_on_disapprove_timeout.unwrap_or(false),
+        row.flow_error.as_ref(),
+    );
 
     let live_resumes: Vec<StepApproval> =
         serde_json::from_value::<Vec<serde_json::Value>>(row.resumes)
@@ -5969,7 +6001,7 @@ async fn get_approval_step_detail(
         step_id,
         step_job,
         step_summary: module_def.summary.clone().filter(|s| !s.trim().is_empty()),
-        required_events: suspend.required_events.unwrap_or(1),
+        required_events: suspend.required_events.unwrap_or_default(),
         timeout: suspend.timeout,
         suspended_until: row.suspend_until.filter(|_| waiting),
         form_schema: suspend.resume_form.clone(),
@@ -13279,7 +13311,8 @@ mod approval_step_status_tests {
         let approved = m(serde_json::json!({"type": "Success", "id": "a", "job": job,
             "skipped": false, "approvers": [{"resume_id": 1, "approver": "admin"}]}));
 
-        let status = |next, running| approval_step_status(Some(&approval), next, running);
+        let status =
+            |next, running| approval_step_status(Some(&approval), next, running, false, None);
         assert_eq!(status(Some(&waiting), true), ApprovalStepStatus::Waiting);
         assert_eq!(
             status(Some(&waiting), false),
@@ -13293,7 +13326,12 @@ mod approval_step_status_tests {
         assert_eq!(status(Some(&next_ran), false), ApprovalStepStatus::Resumed);
         // Approved, then the step after failed before running.
         assert_eq!(
-            approval_step_status(Some(&approved), Some(&next_failed), false),
+            approval_step_status(Some(&approved), Some(&next_failed), false, false, None),
+            ApprovalStepStatus::Resumed
+        );
+        // Timed out and continued, then the step after failed before running.
+        assert_eq!(
+            approval_step_status(Some(&approval), Some(&next_failed), false, true, None),
             ApprovalStepStatus::Resumed
         );
     }
