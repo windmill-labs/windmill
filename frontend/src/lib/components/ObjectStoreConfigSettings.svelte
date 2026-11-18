@@ -76,10 +76,9 @@
 
 	let loading = $state(false)
 
-	// Cache each storage type's config so switching tabs (e.g. S3 -> Azure -> S3)
-	// restores what was entered/loaded instead of resetting it to an empty config,
-	// which previously wiped a saved bucket and persisted the empty value on save
-	// (#6611).
+	// Each storage type's config, so switching tabs (e.g. S3 -> Azure -> S3) restores
+	// what was entered or loaded: resetting it to an empty config would wipe a saved
+	// bucket, and saving would then persist the empty value.
 	let bucketConfigByType = $state<Partial<Record<BucketType, ObjectStoreConfig>>>({})
 
 	function defaultBucketConfig(type: BucketType): ObjectStoreConfig {
@@ -511,8 +510,6 @@
 				if (!bucket_config || bucket_config.type === target) {
 					return
 				}
-				// Remember the config we're leaving so returning to its tab restores it,
-				// then restore the target tab's config (or a default on first visit).
 				bucketConfigByType[bucket_config.type] = bucket_config
 				bucket_config = bucketConfigByType[target] ?? defaultBucketConfig(target)
 			}}
