@@ -357,6 +357,8 @@
 							disabled={cfgDisabled}
 							bind:value={displayExponential.multiplier}
 							type="number"
+							step="any"
+							min="0"
 						/>
 						<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
 						<input
@@ -410,9 +412,8 @@
 							random_factor
 						} = previewRetry?.exponential || {}}
 						{@const cArray = Array.from({ length: Math.min(cAttempts || 0, 100) }, () => cSeconds)}
-						{@const eArray = Array.from(
-							{ length: Math.min(eAttempts || 0, 100) },
-							(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
+						{@const eArray = Array.from({ length: Math.min(eAttempts || 0, 100) }, (_, i) =>
+							Math.round((multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1))
 						)}
 						{@const array = [...cArray, ...eArray]}
 						<div class="bg-surface-secondary border rounded px-4 py-2">
