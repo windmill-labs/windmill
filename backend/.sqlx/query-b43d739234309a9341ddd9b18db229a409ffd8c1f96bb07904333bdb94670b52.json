@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_shared_session_opened (share_id, email) VALUES ($1, $2)\n             ON CONFLICT (share_id, email) DO UPDATE SET opened_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b43d739234309a9341ddd9b18db229a409ffd8c1f96bb07904333bdb94670b52"
+}

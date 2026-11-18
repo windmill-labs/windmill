@@ -13358,6 +13358,7 @@ mod approval_view_gate_tests {
             job_id: None,
             credential_expiry: None,
             mcp_client: None,
+            capabilities: Some(windmill_common::roles::RoleCapabilities::FULL),
         }
     }
 

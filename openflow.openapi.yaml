@@ -912,6 +912,9 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
+        iteration_label:
+          description: Optional expression evaluated once per iteration into the label the run viewers show for it, e.g. 'flow_input.iter.value.name'. It can reference 'flow_input.iter' and 'results'. Purely informational, a failing expression leaves the iteration unlabelled and never fails it. Labels are capped at 100 characters
+          $ref: '#/components/schemas/InputTransform'
       required:
         - modules
         - iterator
@@ -1409,6 +1412,20 @@ components:
               items:
                 type: string
                 format: uuid
+        continued_on_error:
+          type: array
+          description: On a root flow, the steps at any depth that failed and that the flow went past because of continue_on_error (at most 100).
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              job:
+                type: string
+                format: uuid
+            required:
+              - id
+              - job
       required:
         - step
         - modules
@@ -1454,6 +1471,12 @@ components:
           type: array
           items:
             type: boolean
+        flow_jobs_labels:
+          type: array
+          description: For a for-loop step whose iteration_label is set, each iteration's label, aligned with flow_jobs. An entry is null when its label evaluated to nothing
+          items:
+            type: string
+            nullable: true
         flow_jobs_duration:
           type: object
           properties:
