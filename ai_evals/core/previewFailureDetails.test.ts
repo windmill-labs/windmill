@@ -24,7 +24,24 @@ describe('formatPreviewFailureDetails', () => {
 			maxCharacters: 20
 		})
 
-		expect(details).toContain(`logs=${'x'.repeat(19)}…`)
+		expect(details).toContain(`logs=…${'x'.repeat(19)}`)
 		expect(details.length).toBeLessThan(80)
+	})
+
+	it('keeps the error at the end of a log after long install output', () => {
+		const installOutput = Array.from(
+			{ length: 150 },
+			(_, i) => `+ package-${i}@1.0.${i} installed from the registry`
+		).join('\n')
+		const details = formatPreviewFailureDetails({
+			workspaceId: 'workspace',
+			jobId: 'job',
+			logs: `${installOutput}\nerror: Cannot find module 'missing'\n    at main (/tmp/main.ts:3:9)\n`,
+			result: { error: { message: 'Cannot find module', stack: 'x'.repeat(2000) } }
+		})
+
+		expect(details).toContain("error: Cannot find module 'missing' at main (/tmp/main.ts:3:9)")
+		expect(details).not.toContain('package-0@')
+		expect(details).toContain('result={"error":{"message":"Cannot find module"')
 	})
 })

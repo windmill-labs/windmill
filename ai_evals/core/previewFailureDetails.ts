@@ -9,8 +9,9 @@ export interface PreviewFailureDetailsInput {
 export function formatPreviewFailureDetails(input: PreviewFailureDetailsInput): string {
 	const parts = [`workspace=${input.workspaceId}`, `job=${input.jobId}`]
 	const maxCharacters = input.maxCharacters ?? 1200
-	const logExcerpt = normalizeExcerpt(input.logs, maxCharacters)
-	const resultExcerpt = normalizeExcerpt(formatResult(input.result), maxCharacters)
+	// A job log ends with the error, after the dependency install output: keep its tail.
+	const logExcerpt = normalizeExcerpt(input.logs, maxCharacters, 'tail')
+	const resultExcerpt = normalizeExcerpt(formatResult(input.result), maxCharacters, 'head')
 
 	if (logExcerpt) {
 		parts.push(`logs=${logExcerpt}`)
@@ -36,7 +37,11 @@ function formatResult(result: unknown): string | null {
 	}
 }
 
-function normalizeExcerpt(value: string | null | undefined, maxCharacters: number): string | null {
+function normalizeExcerpt(
+	value: string | null | undefined,
+	maxCharacters: number,
+	keep: 'head' | 'tail'
+): string | null {
 	const normalized = value?.replace(/\s+/g, ' ').trim()
 	if (!normalized) {
 		return null
@@ -44,5 +49,7 @@ function normalizeExcerpt(value: string | null | undefined, maxCharacters: numbe
 	if (normalized.length <= maxCharacters) {
 		return normalized
 	}
-	return `${normalized.slice(0, maxCharacters - 1)}…`
+	return keep === 'tail'
+		? `…${normalized.slice(normalized.length - (maxCharacters - 1))}`
+		: `${normalized.slice(0, maxCharacters - 1)}…`
 }
