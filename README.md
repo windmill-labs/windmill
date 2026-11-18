@@ -78,7 +78,7 @@ See [let business teams build with AI safely](https://www.windmill.dev/docs/adva
 
 ## Main Concepts
 
-1. Define a minimal and generic script in Python, TypeScript, Go or Bash that solves a specific task. The code can be defined in the provided Web IDE or synchronized with your own GitHub repo (e.g. through VS Code extension): [provided Web IDE](https://www.windmill.dev/docs/code_editor) or [synchronized with your own GitHub repo](https://www.windmill.dev/docs/advanced/cli/sync) (e.g. through [VS Code](https://www.windmill.dev/docs/cli_local_dev/vscode-extension) extension):
+1. Define a minimal and generic script in Python, TypeScript, Go or Bash that solves a specific task. The code can be defined in the [provided Web IDE](https://www.windmill.dev/docs/code_editor) or [synchronized with your own GitHub repo](https://www.windmill.dev/docs/advanced/cli/sync) (e.g. through [VS Code](https://www.windmill.dev/docs/cli_local_dev/vscode-extension) extension):
 
 ![Step 1](./imgs/windmill-editor.png)
 
