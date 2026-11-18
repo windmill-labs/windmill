@@ -172,10 +172,10 @@
 		}
 
 		if (event.key === 'Enter' && isEditing) {
-			const saved = isEditing
-			updateInput(saved).then(() => {
-				// another row's rename may have been opened while this one was saving
-				if (isEditing?.id === saved.id) setEditing(null)
+			const session = editSession
+			updateInput(isEditing).then(() => {
+				// a rename opened while this one was saving, even of the same row, stays open
+				if (editSession === session) setEditing(null)
 			})
 			event.stopPropagation()
 			event.preventDefault()
@@ -185,7 +185,9 @@
 	// The rename field edits the listed input itself, so a cancelled rename must put its name back,
 	// unless its save is in flight: that has already sent the new name.
 	let nameBeforeEdit = ''
+	let editSession = 0
 	function setEditing(input: EditableInput | null, cancel = false) {
+		editSession++
 		if (cancel && isEditing && !isEditing.isSaving) isEditing.name = nameBeforeEdit
 		nameBeforeEdit = input?.name ?? ''
 		isEditing = input
